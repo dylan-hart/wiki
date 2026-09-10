@@ -165,7 +165,20 @@
           <w-icon :name="versionCard.icon" :color="versionCard.color" />
           <div>
             <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
-            <small :class="{ pending: versionCard.pending }"
+            <!--
+              A STATUS LINE, not a counter figure -- OpenProject #2983, `ui-iteration-cobalt-
+              typography/cobalt-typography.md` §3 "Admin": "Status line 'Up to date'" is its own
+              typographic role (500 14px sans), distinct from "Counter small numeral" (700 26px
+              display) even though both happen to render inside a `<small>` here. The `--positive`
+              modifier only fires for the exact state the mockup draws colour for; `.pending`'s own
+              amber treatment (below) is untouched and still wins for the "checking" state.
+            -->
+            <small
+              class="admin-dashboard-status"
+              :class="{
+                pending: versionCard.pending,
+                'admin-dashboard-status--positive': versionCard.color === `positive`
+              }"
               >{{ versionCard.status }}
               <i v-if="versionCard.version"
                 >({{ versionCard.version
@@ -596,17 +609,58 @@ function checkForUpdates() {
       display: block;
     }
 
+    /*
+      "Counter small numeral" (OpenProject #2983, `cobalt-typography.md` §3 "Admin"): the Logins
+      card's own figure, drawn at this smaller size because "N / past 24h" doesn't fit the 30px
+      track the plain `span` figures use. 700 26px/1.2 display, same accent as `span` above --
+      #2969's own defect naming this pair ("22px `<small>` rather than the 30px `<span>`") is what
+      names the size, 26px is what the mockup actually draws it at.
+    */
     small {
       font-family: var(--font-display);
-      font-size: 22px;
+      font-size: 26px;
       line-height: 1.2;
       font-weight: 700;
       color: var(--color-accent);
       display: block;
 
+      /*
+        "Counter caption" role: the small italic annotation riding along a counter figure -- "/ past
+        24h" here, the "(from → to)" version parenthetical on the Wiki Version card below. Mono,
+        12px, the same caption tone every other kicker/timestamp in the app uses, not a scaled-down
+        echo of the figure's own display face.
+      */
       i {
-        font-size: 1rem;
+        font-family: var(--font-mono);
+        font-size: 12px;
         font-style: normal;
+        font-weight: 400;
+        color: var(--color-text-caption);
+      }
+
+      /*
+        "Status line" role: the Wiki Version card's own status phrase ("Up to date!", "Update
+        available", "Checking version..."), never a numeral even though it shares this `<small>`
+        markup with the Logins card's figure above -- 500 14px/1.4 sans, not the figure's 700/26px
+        display. The extra class (template) is what tells the two apart; this rule out-specifies the
+        plain `small` above it by carrying one more class, regardless of source order.
+      */
+      &.admin-dashboard-status {
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.4;
+        font-weight: 500;
+      }
+
+      /*
+        Only the mockup's own state ("Up to date!") gets its target colour (`--color-positive`,
+        the aesthetic's own status-positive token -- #177a5e under Cobalt, #3f7a66 under Ledger).
+        "Update available" and "Checking version..." are left on the figure's inherited accent/
+        `.pending` amber below: the spec gives no target for those two, and guessing one is not
+        this task's call to make.
+      */
+      &.admin-dashboard-status--positive {
+        color: var(--color-positive);
       }
 
       /*
