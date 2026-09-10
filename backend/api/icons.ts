@@ -354,6 +354,59 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * SIDELOAD ICON SETS
+   */
+  app.post(
+    '/sideload',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Sideload icon sets from the data volume',
+        description:
+          'Rescans `<dataPath>/icons/` for vendored Iconify collection JSON files and loads them into the DB — the offline-mode path (OpenProject #820/#2939) for adding or updating an icon set against a running instance with no rebuild, redeploy, or network access. Always re-loads every file found there: unlike the locale sideload, there is no freshness gate to force past.',
+        tags: ['Icons'],
+        response: {
+          200: {
+            description: 'What the rescan did',
+            type: 'object',
+            properties: {
+              loaded: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    prefix: { type: 'string' },
+                    iconCount: { type: 'integer' }
+                  }
+                },
+                description: 'Icon sets loaded or updated from the sideload directory.'
+              },
+              skipped: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    prefix: { type: 'string' },
+                    error: { type: 'string' }
+                  }
+                },
+                description: 'Files found but rejected, with why.'
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return WIKI.models.icons.sideloadFromDataPath()
+    }
+  )
+
+  /**
    * SEARCH ICONS
    */
   // No route-level permissions: picker access — see mayUseIconPicker() above.
