@@ -512,9 +512,15 @@ describe('MainLayout reader locale button casing (OpenProject #2971)', () => {
  *
  * OpenProject #2864 replaced the panel's own `overflow: hidden` clip (this test's original
  * assertion) with a transparent, non-clipping panel plus a header/body that round and fill
- * themselves -- see `MainLayout.cobaltDialogCorners.test.js` for that fix's own coverage. This
- * describe keeps only what #2776 is still actually responsible for: the eyebrow bar is gone and the
- * panel still carries the dialog radius (for its box-shadow) under Cobalt.
+ * themselves -- see `css/_overlay-dialog.cobaltDialogCorners.test.js` for that fix's own coverage.
+ *
+ * OpenProject #3000 moved `.main-overlay` itself out of this file (it was scoped only by class name,
+ * invisible to `AdminLayout.vue`'s own separate async `<style>` chunk) into the shared
+ * `css/_overlay-dialog.scss` partial, `@use`d by `app.scss` so it loads regardless of which layout's
+ * chunk is present -- the coverage this comment used to introduce, keeping only what #2776 is
+ * responsible for (the eyebrow bar is gone and the panel still carries the dialog radius for its
+ * box-shadow under Cobalt), moved with it and lives on in
+ * `css/_overlay-dialog.cobaltDialogCorners.test.js`'s "no fill, no clip" describe.
  */
 /**
  * OpenProject #2861: the reader sidebar's `.sidebar-actions` strip gains a third cell, "Top", beside
@@ -805,17 +811,12 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
   })
 })
 
-describe('MainLayout overlay chrome Cobalt aesthetic conformance (OpenProject #2776)', () => {
-  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'MainLayout.vue')
-  const source = readFileSync(SOURCE_PATH, 'utf-8')
-  const styleBlock = source.slice(source.indexOf('<style'))
-
-  it('drops the Ledger eyebrow bar and keeps the dialog radius on every overlay panel under Cobalt', () => {
-    expect(styleBlock).toMatch(
-      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*background: transparent;\s*overflow: visible;\s*\}/
-    )
-  })
-})
+// -> OpenProject #3000: the `describe('MainLayout overlay chrome Cobalt aesthetic conformance
+//    (OpenProject #2776)', ...)` suite that used to sit here moved to
+//    `css/_overlay-dialog.cobaltDialogCorners.test.js`, alongside the `.main-overlay` styling itself
+//    -- extracted out of this file's own `<style>` block into the shared `css/_overlay-dialog.scss`
+//    partial, so any layout mounting `MainOverlayDialog.vue` gets it regardless of which layout's own
+//    chunk is loaded.
 
 /**
  * OpenProject #2863 ("Retire WPageScroller corner disc in wide mode (>=1200px)") retired the corner

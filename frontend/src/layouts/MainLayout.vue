@@ -997,128 +997,15 @@ body.body--dark {
   background-color: var(--color-dark-6);
 }
 
-// -> Ported from the Quasar dialog internals onto WDialog's own structure:
-//    .q-dialog__backdrop -> .w-dialog-backdrop, .q-dialog__inner -> .w-dialog-viewport,
-//    .q-layout-container -> .w-dialog-panel
-.main-overlay {
-  > .w-dialog-backdrop {
-    background-color: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(5px) saturate(180%);
-  }
-  > .w-dialog-viewport {
-    /*
-      Equal margins all round, until there is width to spare for more.
-
-      64px down each side is pitched for a wide desktop; on a 1280 or 1440 window it is an eighth of
-      the screen taken off a panel that is a file listing or a table, and the overlay ends up narrower
-      than the page it was opened from. Below 1600 the sides come in to match the 24px above and below,
-      which is the clearance that says "over the page" -- more than that is decoration.
-
-      1600 is this rule's own number, not one of the app's `--breakpoint-*`: it is where an overlay is
-      wide enough that 128px of it can go to margins without the content noticing.
-    */
-    padding: 24px;
-
-    @media (min-width: 1600px) {
-      padding: 24px 64px;
-    }
-
-    // -> Last of the three, so it still wins on a phone: all three have the same specificity
-    @media (max-width: $breakpoint-sm-max) {
-      padding: 0;
-    }
-
-    /*
-      A flat panel under a solid ink edge, with enough shadow to say it is over the page rather than
-      in it. The edge is the design's own (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`): 10px of
-      ink across the top, above the overlay's own dark title bar, which is what makes an overlay read
-      as a thing laid over the wiki rather than a region of it. What it replaces was a GRADIENT
-      standing in for a title bar -- a dark strip fading to grey -- and the two are not the same
-      drawing.
-    */
-    > .w-dialog-panel {
-      box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
-      border-top: 10px solid var(--color-dark-5);
-
-      @at-root .body--light & {
-        background-color: var(--color-surface);
-      }
-      @at-root .body--dark & {
-        background-color: var(--color-dark-5);
-        border-top-color: var(--color-dark-6);
-      }
-
-      /*
-        Cobalt (DESIGN-DECISIONS.md "Themes": "Dialogs and overlays ... take a 12px radius with
-        `overflow:hidden` ... No dark eyebrow bar on dialog tops -- the rounded corner is the
-        edge") -- OpenProject #2776 found every full-bleed overlay (File Manager, Page History
-        alongside the rest `MainOverlayDialog.vue` mounts) still drawing Ledger's flat panel with
-        its 10px ink strip regardless of aesthetic, since nothing here branched on it. The strip
-        is removed rather than recoloured: Cobalt's own mockups (`Cardinal Wiki - File Manager 3x
-        - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) draw a plain rounded
-        panel with no title-band edge at all.
-
-        OpenProject #2864: that fix gave THIS box the fill, the radius AND the `overflow: hidden`
-        clip together, which is exactly the combination `ui-iteration/README.md` Part 1.2 traces
-        the corner fringe to -- a dark, flat-cornered `.card-header` clipped by a filled ancestor's
-        rounded `overflow: hidden` leaves a light antialiasing sliver at the two top corners
-        (confirmed in the deployed app). The panel now draws no fill of its own and does not clip;
-        `border-radius` stays so its `box-shadow` above still follows the rounded outline. The
-        header and body below round and fill THEMSELVES instead, so there is no shared clip
-        boundary between two differently-coloured boxes for a browser to antialias.
-      */
-      @at-root .body--cobalt & {
-        border-top: 0;
-        border-radius: var(--radius-dialog);
-        background: transparent;
-        overflow: visible;
-      }
-
-      /*
-        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.scss`), not
-        something owned by any one overlay -- every entry `MainOverlayDialog.vue` mounts (Inbox,
-        Profile, File Manager, History, Table Editor, Edit Menu Items, Block Picker, ...) renders
-        one as its own first element, so rounding it here (scoped under `.main-overlay`) reaches
-        all of them without editing a single overlay component.
-
-        The body "wrapper" is whatever sibling(s) follow the header inside that overlay's own
-        layout -- a single `.w-page-container` for most of them, a left and/or right `w-drawer`
-        flanking it for File Manager and Inbox. `+ *` matches only the FIRST such sibling (rounds
-        its own outer bottom-left corner) and `~ *:last-child` only the LAST one (rounds its own
-        outer bottom-right corner); a lone body element matches both rules and gets both corners,
-        while a middle element sitting between two others (a table's own `main` cell when both
-        drawers are open) matches neither and stays square -- correctly, since it never reaches the
-        panel's outer edge and rounding it would carve a false notch into its own interior seam.
-        `--float-bg` is the existing per-aesthetic "raised surface" token (`#fff` in Cobalt light,
-        the dark ramp's own "card, dialog body" rung in Cobalt dark) -- reused rather than a new
-        custom property, since it already resolves correctly for both.
-      */
-      @at-root .body--cobalt & .card-header {
-        border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
-      }
-      @at-root .body--cobalt & .card-header + * {
-        background: var(--float-bg);
-        overflow: auto;
-        border-bottom-left-radius: var(--radius-dialog);
-      }
-      @at-root .body--cobalt & .card-header ~ *:last-child {
-        background: var(--float-bg);
-        overflow: auto;
-        border-bottom-right-radius: var(--radius-dialog);
-      }
-    }
-  }
-
-  /*
-    The half-viewport entries (Profile, Inbox) take a floor but no ceiling -- see
-    `MainOverlayDialog.vue`'s `HALF_SIZE`. `min-width` is `min(560px, 100%)` rather than a flat
-    560px so the panel still fits a phone, where 100% is the smaller of the two.
-  */
-  &.is-half-sized > .w-dialog-viewport > .w-dialog-panel {
-    min-width: min(560px, 100%);
-    min-height: 420px;
-  }
-}
+/*
+  The `.main-overlay` panel background/Cobalt treatment used to live here, scoped by class name
+  rather than by component boundary. OpenProject #3000: `AdminLayout.vue` mounts the very same
+  `MainOverlayDialog.vue`, but a direct load of an admin route never pulls in THIS layout's own
+  async `<style>` chunk, so the styling silently never loaded there. Moved to the shared
+  `css/_overlay-dialog.scss` partial, pulled into `app.scss` (loaded unconditionally at boot by
+  `main.js`, not per-route) so it reaches every layout that mounts `MainOverlayDialog.vue`
+  regardless of which one's chunk happens to be present.
+*/
 
 // -> The `.q-footer .q-bar` rule that used to sit here never matched: FooterNav renders
 //    `.site-footer`, never a q-bar. Its colours live in FooterNav's own scoped style.
