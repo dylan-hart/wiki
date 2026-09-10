@@ -245,7 +245,13 @@ $sidebar-overlay-max: 1199.98px;
     .w-item.router-link-exact-active {
       background-color: var(--color-surface);
       color: var(--color-ink);
-      font-weight: 500;
+      /*
+        The "Nav item, active" role table row (same doc/section as the base `.w-item` rule above) is
+        `600 13.5px sans` in both aesthetics -- the weight step is what marks the active row, same as
+        the Contents rail's own active entry (§4.4); this one just isn't a §4 swap, since neither
+        aesthetic changes it.
+      */
+      font-weight: 600;
       /*
         Logical, and paired with the padding below rather than layered over it: the bar is a real
         border, so it takes 2px off the row's own inline-start padding and the label has to give
@@ -301,10 +307,19 @@ $sidebar-overlay-max: 1199.98px;
 
       Through `--radius-control`/`--nav-item-inset` so the rule is one statement: Ledger's values are
       `0`, which is exactly what it draws today.
+
+      `font-size`/`font-weight` here are the "Nav item" role from the typography role table
+      (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Sidebar") -- identical in both
+      aesthetics, only the row's own `color` (`--color-sidebar-text` above) differs between them.
+      Left unset, a row's label inherited the page's `body { font-size: 14px }` fallback (§2's "leak
+      to check for") instead of the sidebar's own 13.5px/400 role; the icon stays unaffected, since
+      `WItemSection`'s own `.w-item-section--side > .w-icon` rule sets its `font-size` explicitly.
     */
     .w-item {
       border-radius: var(--radius-control);
       margin-inline: var(--nav-item-inset);
+      font-size: 13.5px;
+      font-weight: 400;
     }
 
     /*

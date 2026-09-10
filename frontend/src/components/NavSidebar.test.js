@@ -1260,6 +1260,60 @@ describe('NavSidebar', () => {
           await page.close()
         }
       })
+
+      /**
+       * OpenProject #2974 -- the typography role-table conformance sweep's "Sidebar" section
+       * (`ui-iteration-cobalt-typography/cobalt-typography.md` §3): a row's own `font-size`/
+       * `font-weight` is identical in both aesthetics (only its `color` differs, per §2), so this
+       * is asserted once, against the real compiled CSS, rather than per-aesthetic. Real Chromium
+       * because a plain vitest render leaves an unset property's fallback (the page's own `body {
+       * font-size: 14px }`, §2's flagged leak) indistinguishable from happy-dom's own defaults --
+       * the same reasoning the depth-cue test right above this one gives.
+       */
+      it('sizes a plain row 400/13.5px and the active row 600/13.5px', async () => {
+        const items = [
+          { id: 'a', type: 'link', label: 'Item A', target: '/a' },
+          { id: 'b', type: 'link', label: 'Item B', target: '/b' }
+        ]
+        const wrapper = await mountRealTree(items, { path: '/a' })
+        const html = wrapper.html()
+        const page = await browser.newPage()
+        try {
+          await page.setContent(
+            `<!doctype html><html><head><style>${compiledCss}</style></head>` +
+              `<body class="sidebar-nav"><div class="w-list">${html}</div></body></html>`
+          )
+
+          const activeRow = page.locator('.w-item:has-text("Item A")')
+          const plainRow = page.locator('.w-item:has-text("Item B")')
+          const readFont = (locator) =>
+            locator.evaluate((el) => {
+              const style = getComputedStyle(el)
+              return {
+                className: el.className,
+                fontSize: style.fontSize,
+                fontWeight: style.fontWeight
+              }
+            })
+
+          const active = await readFont(activeRow)
+          const plain = await readFont(plainRow)
+
+          // -> The row actually navigated to picks up vue-router's own exact-active class, which is
+          //    what the production `.w-item.router-link-exact-active` selector keys off -- confirmed
+          //    rather than assumed, since a mismatch here would make the rest of this assertion
+          //    compare the wrong two rows.
+          expect(active.className).toMatch(/router-link-exact-active/)
+          expect(plain.className).not.toMatch(/router-link-exact-active/)
+
+          expect(plain.fontSize).toBe('13.5px')
+          expect(plain.fontWeight).toBe('400')
+          expect(active.fontSize).toBe('13.5px')
+          expect(active.fontWeight).toBe('600')
+        } finally {
+          await page.close()
+        }
+      })
     }
   )
 
