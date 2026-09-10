@@ -108,6 +108,71 @@ function closeIconTags(html) {
   return html.replace(SELF_CLOSED_ICON, '<iconify-icon$1></iconify-icon>')
 }
 
+/**
+ * The permission a stripped `<iframe>`/`<script>`/`<style>` was missing, named the way a reader can
+ * act on it, and the visible callout `sanitizeForPreview` leaves in the element's place.
+ *
+ * Shaped to match what an authored `> [!CAUTION]` GitHub-style admonition (`modules/github-alerts.js`'s
+ * `caution` kind: `is-danger` / "Caution") renders as, so a reader sees the same object whether the
+ * callout came from their own markdown or from this substitution (OpenProject #2911).
+ *
+ * A duplicate of the backend's own `gatedContentPlaceholder()` in `helpers/htmlSanitizePolicy.ts`, not
+ * a shared import: there is no module boundary between this frontend workspace and the backend one to
+ * share it through, so a wording change has to land in both -- each side's own test pins the exact
+ * string.
+ */
+export function gatedContentPlaceholder(permission) {
+  return `<blockquote class="is-danger"><p class="alert-title">Caution</p><p>This content requires the ${permission} permission and was not rendered.</p></blockquote>`
+}
+
+/**
+ * What the editor preview shows in place of an `<iframe>`/`<script>`/`<style>` this author's own
+ * permissions do not allow -- mirroring `write:scripts`/`write:styles` (the very permissions
+ * `helpers/htmlSanitizePolicy.ts`'s `RenderPermissions` gates on server-side), so the preview stops
+ * silently diverging from what a save is actually about to have sanitized out of it (OpenProject
+ * #2911: previously the preview showed the raw embed regardless of the author's own permissions).
+ *
+ * Deliberately not folded into `MarkdownRenderer#render()` itself: that method is also what
+ * `renderers/headless.js` calls, server-side, for the re-render queue -- and that caller has to keep
+ * getting back unsanitized HTML, since it is `models/rendering.ts#postProcess` on the OTHER end of
+ * that call that sanitizes it against whichever actor's permissions actually apply. Only a caller
+ * that already knows which permissions to render the PREVIEW against -- the editor -- reaches for
+ * this at all.
+ *
+ * Parses with a `<template>` rather than assigning straight into the live preview DOM: a template's
+ * content is inert, so scanning it for a gated tag never risks running the very thing being asked
+ * whether it may run, whichever way that question is answered.
+ *
+ * @param {string} html The editor's own rendered HTML -- see `MarkdownRenderer#render`.
+ * @param {{ scripts: boolean, styles: boolean }} permissions What THIS author may embed.
+ * @returns {string} The same HTML, with anything not permitted replaced by a visible callout.
+ */
+export function sanitizeForPreview(html, permissions) {
+  if (permissions?.scripts && permissions?.styles) {
+    return html ?? ''
+  }
+
+  const holder = document.createElement('template')
+  holder.innerHTML = html ?? ''
+
+  const replaceGated = (selector, permission) => {
+    for (const el of holder.content.querySelectorAll(selector)) {
+      const placeholder = document.createElement('template')
+      placeholder.innerHTML = gatedContentPlaceholder(permission)
+      el.replaceWith(...placeholder.content.childNodes)
+    }
+  }
+
+  if (!permissions?.scripts) {
+    replaceGated('iframe, script', 'write:scripts')
+  }
+  if (!permissions?.styles) {
+    replaceGated('style', 'write:styles')
+  }
+
+  return holder.innerHTML
+}
+
 export class MarkdownRenderer {
   constructor(config = {}) {
     this.md = new MarkdownIt({
