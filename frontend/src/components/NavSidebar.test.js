@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import * as sass from 'sass'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import NavSidebar from './NavSidebar.vue'
 import NavSidebarItem from './NavSidebarItem.vue'
@@ -15,6 +16,7 @@ import { useDark } from '@/composables/dark'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { openDialogs } from '@/composables/dialog'
+import { CHROMIUM_TIMEOUT, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
  * Task 466 (feature 362): verify -- rather than assume -- every combination `destination()` feeds
@@ -50,6 +52,29 @@ async function mountNav(items, { path = '/' } = {}) {
   })
   await wrapper.vm.$nextTick()
   return { wrapper, router }
+}
+
+/**
+ * Same as `mountNav`, but with the REAL `WItem`/`WExpansionItem` from `components/shared/`
+ * (registered globally by `test/setup.js`, so simply not overriding them here is enough) rather
+ * than `mountNav`'s `CapturingWItem` stub -- which has no `.w-item` class or hover styling of its
+ * own to test at all. For the one describe below that needs to hover actual rendered markup in a
+ * real browser rather than read `destination()`'s props off a stub.
+ */
+async function mountRealTree(items, { path = '/' } = {}) {
+  const router = await createTestRouter(routes, path)
+
+  const { wrapper } = mountWithApp(NavSidebar, {
+    messages: { common: { sidebar: { browse: 'Browse' } } },
+    router,
+    stores: {
+      site: (store) => {
+        store.nav.items = items
+      }
+    }
+  })
+  await wrapper.vm.$nextTick()
+  return wrapper
 }
 
 /** The stubbed row whose label matches, however deep it is nested. */
@@ -1025,29 +1050,176 @@ describe('NavSidebar', () => {
    * `background-color`/`background-clip` wash, and a mitred `&::before` elbow turning the rail out
    * of the row above. All three are removed; indentation and the `.w-expansion-item__arrow`
    * chevron were the only nesting cues left, until a LATER `&::before` was added back for a
-   * different purpose entirely -- the hover depth-cue dots, which light up a row's ancestor
-   * lane(s) with a faint dotted line only while navigating (see the rule's own comment). That one
-   * is asserted for directly below rather than excluded here: it carries no `background-color`/
-   * `background-clip` of its own (still checked), and unlike the old elbow's fixed corner color,
-   * its dots' color/opacity is only ever set inside a `:has(:hover)` rule, never on the bare
-   * `&::before` this test slices out. Asserted on the source, for the same
-   * happy-dom-cannot-resolve-logical-properties reason the test above gives, and specifically that
-   * the surviving border is transparent -- not merely present -- since the 10px width has to stay
-   * (it is the only thing providing per-level indentation) while its color goes.
+   * different purpose entirely -- the hover depth-cue dots. Asserted here only that the shared
+   * `.w-expansion-item__content` wrapper itself carries no `background-color`/`background-clip`
+   * and keeps its transparent 10px indent border (still the only thing providing per-level
+   * indentation); the dots' own rule -- and the hover scoping that is this test file's actual
+   * regression surface (OpenProject #2906) -- is asserted separately below, on the `.w-item` rule
+   * nested inside this wrapper rather than on the wrapper's own bare `&::before`. Asserted on the
+   * source, for the same happy-dom-cannot-resolve-logical-properties reason the test above gives.
    */
-  it('removes the nested-item rail/wash/elbow, keeping only a transparent indent border plus the (colorless-until-hovered) depth-cue dots', () => {
+  it('keeps the shared content wrapper to a transparent indent border, with no rail/wash of its own', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
-    const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content')
-    const contentRule = styleBlock.slice(contentRuleStart, contentRuleStart + 700)
+    // -> The RULE's own opening brace, not a bare class-name match -- both this comment's own
+    //    prose and the rule's neighboring comments mention `.w-expansion-item__content`/`.w-item`
+    //    by name too, and a bare `indexOf` would happily match one of those first.
+    const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content {')
+    const nestedItemRuleStart = styleBlock.indexOf('.w-item {', contentRuleStart)
+    // -> Only the wrapper's OWN declarations, stopping before the nested `.w-item` rule this test
+    //    does not cover (asserted on its own, below) -- rather than a fixed character count, which
+    //    would silently start clipping either rule's body the next time either one is edited.
+    const contentRule = styleBlock.slice(contentRuleStart, nestedItemRuleStart)
 
     expect(contentRule).toMatch(/border-inline-start\s*:\s*10px solid transparent/)
     expect(contentRule).not.toMatch(/background-color/)
     expect(contentRule).not.toMatch(/background-clip/)
-    expect(contentRule).toMatch(/&::before/)
-    expect(contentRule).toMatch(/opacity:\s*0;/)
+    expect(contentRule).not.toMatch(/&::before/)
   })
+
+  /**
+   * OpenProject #2906: the depth-cue dot used to live on the shared `.w-expansion-item__content`
+   * wrapper -- one `::before`, tiled with a `radial-gradient` every 8px down the wrapper's ENTIRE
+   * height (every row inside it, several levels of descendants included), triggered by
+   * `:has(:hover)` matching as soon as ANY descendant at any depth was hovered. A row nested three
+   * levels deep lit all three ancestors' lanes at once, not just the one it actually sits inside.
+   *
+   * The fix moves the dot onto each ROW's own `.w-item` (nested inside a `.content` wrapper, so a
+   * depth-0 row -- with no ancestor lane to light -- gets the rule at all but no VISIBLE lane to
+   * paint it in), scoped by a plain `&:hover`, never `:has()`. Asserted on the source rather than
+   * rendered, for the same happy-dom-cannot-resolve-logical-properties/no-real-layout reason the
+   * tests around this one give -- but the bug this guards was a HOVER-SCOPING bug, which the real
+   * behavior test right after this one covers in an actual browser instead.
+   */
+  it('scopes the depth-cue dot to each row itself, not the ancestor content wrapper', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+    // -> The RULE's own opening brace, not a bare class-name match -- both this comment's own
+    //    prose and the rule's neighboring comments mention `.w-expansion-item__content`/`.w-item`
+    //    by name too, and a bare `indexOf` would happily match one of those first.
+    const contentRuleStart = styleBlock.indexOf('.w-expansion-item__content {')
+    const nestedItemRuleStart = styleBlock.indexOf('.w-item {', contentRuleStart)
+    const nestedItemRule = styleBlock.slice(nestedItemRuleStart, nestedItemRuleStart + 800)
+
+    // -> No bubbling trigger anywhere in the ACTUAL rules (comments -- including this fix's own,
+    //    which names the old pattern by way of explaining why it's gone -- are stripped first, or
+    //    they would false-match the very prose describing the bug).
+    const codeOnly = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(codeOnly).not.toMatch(/:has\(:hover\)/)
+    expect(nestedItemRule).toMatch(/position:\s*relative/)
+    expect(nestedItemRule).toMatch(/&::before/)
+    expect(nestedItemRule).toMatch(/opacity:\s*0;/)
+    expect(nestedItemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
+    // -> Reaches back past the row's OWN margin-inline (Cobalt insets every row 10px off the
+    //    column edges -- `--nav-item-inset`), not a bare `-10px`, or the dot drifts into that
+    //    margin gutter instead of landing on the ancestor's actual lane under that aesthetic.
+    expect(nestedItemRule).toMatch(
+      /inset-inline-start:\s*calc\(-10px\s*-\s*var\(--nav-item-inset\)\)/
+    )
+  })
+
+  /**
+   * OpenProject #2906, real-behavior regression: the tests above can only read the source text, not
+   * confirm the actual scoping bug is gone -- `:has(:hover)` matching every ancestor of a hovered
+   * descendant is exactly the kind of thing neither `jsdom` nor `happy-dom` can be trusted to
+   * emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom can't catch
+   * layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/`WItem` markup --
+   * not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which has no `.w-item`
+   * class or computed styles of its own to hover at all -- three folders deep, in a real headless
+   * Chromium page, and hovers the leaf and the middle folder's own header row in turn.
+   */
+  describe(
+    'depth-cue dot hover scoping — real behavior (OpenProject #2906)',
+    { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+    () => {
+      const threeDeepTree = [
+        {
+          id: 'top',
+          type: 'link',
+          label: 'Top folder',
+          expandByDefault: true,
+          children: [
+            {
+              id: 'middle',
+              type: 'link',
+              label: 'Middle folder',
+              expandByDefault: true,
+              children: [
+                {
+                  id: 'leaf',
+                  type: 'link',
+                  label: 'Leaf page',
+                  target: '/leaf'
+                }
+              ]
+            }
+          ]
+        }
+      ]
+
+      let browser
+      let compiledCss
+
+      beforeAll(async () => {
+        browser = await chromium.launch()
+        const source = readFileSync(
+          join(dirname(fileURLToPath(import.meta.url)), 'NavSidebar.vue'),
+          'utf-8'
+        )
+        const styleStart = source.indexOf('<style')
+        const scss = source.slice(
+          source.indexOf('>', styleStart) + 1,
+          source.lastIndexOf('</style>')
+        )
+        compiledCss = sass.compileString(`:root { --color-slate-faint: #94a3b8; }\n${scss}`).css
+      })
+
+      afterAll(async () => {
+        await browser?.close()
+      })
+
+      it("lights only the hovered row's own lane, not an ancestor folder's", async () => {
+        const wrapper = await mountRealTree(threeDeepTree)
+        const html = wrapper.html()
+        const page = await browser.newPage()
+        try {
+          await page.setContent(
+            `<!doctype html><html><head><style>${compiledCss}</style></head>` +
+              `<body class="sidebar-nav"><div class="w-list">${html}</div></body></html>`
+          )
+
+          const leaf = page.locator('.w-item:has-text("Leaf page")')
+          const middleHeader = page.locator('.w-expansion-item__header:has-text("Middle folder")')
+          const dotOpacity = (locator) =>
+            locator.evaluate((el) => Number.parseFloat(getComputedStyle(el, '::before').opacity))
+
+          // -> At rest, neither row's own lane is lit.
+          expect(await dotOpacity(leaf)).toBe(0)
+          expect(await dotOpacity(middleHeader)).toBe(0)
+
+          // -> Hovering the LEAF (nested two folders deep) lights only its own lane -- the one
+          //    lane immediately enclosing it (the middle folder's own content border). Before
+          //    OpenProject #2906's fix, this same hover would ALSO have lit the middle folder's
+          //    OWN row's lane (reaching into the outer, top folder's content border), since the
+          //    old rule's `:has(:hover)` bubbled up from the leaf through every ancestor content
+          //    wrapper -- which is exactly what `middleHeader` staying dark here disproves.
+          await leaf.hover()
+          expect(await dotOpacity(leaf)).toBeCloseTo(0.5)
+          expect(await dotOpacity(middleHeader)).toBe(0)
+
+          // -> Hovering the MIDDLE folder's own header row (one level up) lights only ITS lane,
+          //    and the leaf's own dot -- lit a moment ago -- goes back dark.
+          await middleHeader.hover()
+          expect(await dotOpacity(leaf)).toBe(0)
+          expect(await dotOpacity(middleHeader)).toBeCloseTo(0.5)
+        } finally {
+          await page.close()
+        }
+      })
+    }
+  )
 
   /**
    * OpenProject #2535: `.sidebar-nav > nav { min-height: 100% }` resolved a percentage height
