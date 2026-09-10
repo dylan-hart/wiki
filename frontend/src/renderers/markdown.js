@@ -247,6 +247,29 @@ export class MarkdownRenderer {
     }
 
     // --------------------------------
+    // TABLE SCROLL WRAPPER
+    // --------------------------------
+
+    /*
+      A table's own scroll frame. `_page-contents.scss`'s `// TABLES` section draws the border,
+      radius, corner marks and shadow on THIS wrapper and gives it `overflow-x: auto`, with `<table>`
+      itself reduced to `width: max-content; min-width: 100%` -- the previous `table { display: block;
+      overflow-x: auto }` trick has no element of its own to carry a frame that sits outside the
+      table's box (Ledger's corner marks, drawn 4px outside it) or a radius that clips the scrollbar
+      rather than being painted over by it (Cobalt). See OpenProject #2916.
+
+      A plain `<div>`, not a token carrying any classes of its own -- table AND thead/tbody/tr/td
+      tokens already exist for markdown-it's own default table rendering (including
+      `markdown-it-multimd-table`'s, which produces the same core tokens with richer cell content),
+      so wrapping at `table_open`/`table_close` catches every table regardless of which parser rule
+      produced it, exactly like `link_open` above wraps every link regardless of which rule matched.
+    */
+    this.md.renderer.rules.table_open = (tokens, idx, options, env, slf) =>
+      `<div class="table-wrap">${slf.renderToken(tokens, idx, options, env, slf)}`
+    this.md.renderer.rules.table_close = (tokens, idx, options, env, slf) =>
+      `${slf.renderToken(tokens, idx, options, env, slf)}</div>`
+
+    // --------------------------------
     // RESOLVE IMAGE SOURCES
     // --------------------------------
 

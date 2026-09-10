@@ -131,6 +131,51 @@ describe('MarkdownRenderer - multimd-table', () => {
   })
 })
 
+/**
+ * OpenProject #2916: the scroll/frame wrapper `_page-contents.scss` now draws around every rendered
+ * table (the border/radius/corner-marks/shadow live on it, not on `<table>` itself, which is why the
+ * div has to actually exist rather than being left to a `display:block` trick on the table alone).
+ * `table_open`/`table_close` are overridden the same way `link_open` already is, so this covers both
+ * the plain built-in table parser and multimd's richer one, which produce the same core tokens.
+ */
+describe('MarkdownRenderer - table scroll wrapper', () => {
+  it('wraps a plain table in a div.table-wrap', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).toContain('<div class="table-wrap"><table>')
+    expect(html).toMatch(/<\/table>\n?<\/div>/)
+  })
+
+  it('wraps a multimd table (rowspan/colspan) in the same div.table-wrap', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| A                |||', '|------|------|------|', '| B    | C    | D    |', ''].join('\n')
+    )
+
+    expect(html).toContain('<div class="table-wrap"><table>')
+    expect(html).toMatch(/<\/table>\n?<\/div>/)
+  })
+
+  /*
+    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
+    class onto the TABLE token, at parse time -- before this wrapping ever runs at render time -- so
+    it still lands on `<table>` itself, one level inside the new wrapper div, not on the div.
+  */
+  it("keeps an author's markdown-it-attrs class on <table>, inside the wrapper rather than on it", () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
+        '\n'
+      )
+    )
+
+    expect(html).toContain('<div class="table-wrap"><table class="table-leading-col">')
+  })
+})
+
 describe('MarkdownRenderer - previously-broken edge cases', () => {
   it('does not throw when a fence names an unrecognized/malformed language', () => {
     /*
