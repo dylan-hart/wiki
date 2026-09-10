@@ -2526,6 +2526,49 @@
     text-align: start;
   }
 
+  /*
+    MultiMarkdown table caption (OpenProject #2997/#3014/#3023). `markdown-it-multimd-table` always
+    pushes `caption_open`/`caption_close` as the FIRST child inside `table_open`/`table_close`,
+    regardless of whether the caption was authored above or below the table (verified in the plugin
+    source) -- and `renderers/markdown.js` retags it to `<div class="table-caption">`, the same way
+    every other table-related token there is retagged, rather than leaving it a real `<caption>`.
+
+    This is NOT a styling nicety: a bare `<caption>` left as-is is invisible to any CSS fix at all.
+    The WHATWG HTML parser's "in body" insertion mode treats a `caption` (or `tr`/`td`/`th`/`thead`/
+    `tbody`/`col`/`colgroup`) start tag encountered outside an ACTUAL `<table>` element's own
+    insertion mode as a parse error and drops the token outright -- and since `table_open` above
+    already retags every table token to `<div>`, there is no real `<table>` anywhere on the page for
+    a caption to be "inside" any more. Verified directly against a real Chromium:
+    `<div role="table"><caption>Cap</caption>…` parses back with the `<caption>` tag gone and a bare,
+    unwrapped "Cap" text node in its place -- there is no element left for any selector to match, so
+    no amount of `caption { … }` CSS could ever have fixed this. `.table-caption` is a plain `<div>`,
+    never subject to that table-tag rule, so it survives parsing with all of its attributes intact
+    (the plugin's own `id`/`style="caption-side: bottom"`).
+
+    `grid-column: 1 / -1` is what makes it span every column of the grid's fixed 16-column track
+    instead of auto-placing into column 1 alone, the same as any other bare grid child would.
+
+    Separately: a caption authored BELOW the table carries the plugin's own inline
+    `style="caption-side: bottom"` -- a real effect inside a `<table>` layout, but a no-op on a grid
+    child, since `[role="table"]` is not a table box any more. Left alone the caption renders on top
+    regardless of what the author asked for, because DOM order wins. `order` is grid's own
+    placement-order property and, unlike paint order alone, the auto-placement algorithm actually
+    respects it for implicit-grid slotting: bumping a bottom-authored caption past every row's
+    default `order: 0` (no row ever sets one) moves it into the last auto-placed slot -- i.e. after
+    every row -- with no need to know the table's real row count.
+  */
+  [role='table'] > .table-caption {
+    padding-bottom: 0.5em;
+    color: var(--content-ink-muted);
+    font-size: 0.875em;
+    text-align: start;
+    grid-column: 1 / -1;
+  }
+
+  [role='table'] > .table-caption[style*='caption-side: bottom'] {
+    order: 1;
+  }
+
   // ---------------------------------------------------------------------------
   // FIGURES, IMAGES AND DIAGRAMS
   // ---------------------------------------------------------------------------

@@ -206,6 +206,41 @@ describe('MarkdownRenderer - table grid markup', () => {
 
     expect(html).toContain('<div class="table-leading-col" role="table">')
   })
+
+  /*
+    OpenProject #3023: `markdown-it-multimd-table` always pushes `caption_open`/`caption_close` as
+    the first child inside `table_open`/`table_close`, and left as a real `<caption>` tag it is
+    silently DROPPED by every browser's own HTML parser -- the WHATWG "in body" insertion mode treats
+    an orphan `caption` start tag (one not inside an ACTUAL `<table>` element's own insertion mode) as
+    a parse error and ignores it outright (verified directly against a real Chromium). Since
+    `table_open` above already retags every table token to `<div>`, there is no `<table>` anywhere on
+    the page for a caption to be "inside" any more, so it has to be retagged the same way the rest of
+    the table already is -- a `<div class="table-caption">` is never subject to that rule and
+    survives parsing with every attribute intact.
+  */
+  it('renders a caption authored above the table as a div, not a <caption> the browser would silently drop', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['[Top Caption]', '| A    | B    |', '|------|------|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).not.toContain('<caption')
+    expect(html).toContain('<div id="topcaption" class="table-caption">Top Caption</div>')
+    // -> First child inside the table div, ahead of every row -- matches the plugin's own token order
+    expect(html.indexOf('table-caption')).toBeLessThan(html.indexOf('role="row"'))
+  })
+
+  it("carries the plugin's own inline caption-side: bottom style onto the retagged div, for a caption authored below the table", () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '[Bottom Caption]', ''].join('\n')
+    )
+
+    expect(html).not.toContain('<caption')
+    expect(html).toContain(
+      '<div id="bottomcaption" style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
+    )
+  })
 })
 
 /**
