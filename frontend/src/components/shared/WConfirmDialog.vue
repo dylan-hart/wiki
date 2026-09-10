@@ -21,7 +21,7 @@
         <div
           v-for="(paragraph, pIdx) of paragraphs"
           :key="pIdx"
-          class="text-body2"
+          class="w-confirm-message"
           :class="pIdx > 0 ? 'mt-3' : ''">
           <template v-for="(run, rIdx) of runs(paragraph)" :key="rIdx">
             <strong v-if="run.strong">{{ run.text }}</strong>
@@ -31,7 +31,7 @@
 
         <!-- An identifier, a path, a count: the quiet detail under the question, as the page
              deletion dialog shows the page's ID. -->
-        <div v-if="caption" class="text-caption text-grey mt-2">{{ caption }}</div>
+        <div v-if="caption" class="w-confirm-caption mt-2">{{ caption }}</div>
 
         <!--
           The one prompting variant in the codebase: pick one of a few named choices. `onOk`
@@ -43,7 +43,7 @@
             :key="item.value"
             class="flex cursor-pointer items-center gap-2">
             <input v-model="choice" type="radio" :value="item.value" :name="groupName" />
-            <span class="text-body2">{{ item.label }}</span>
+            <span class="w-confirm-message">{{ item.label }}</span>
           </label>
         </div>
       </w-card-section>
@@ -203,3 +203,43 @@ function runs(paragraph) {
 const groupName = useId()
 const choice = ref(props.options?.model ?? null)
 </script>
+
+<style scoped>
+/*
+  Dialog typography (cobalt-typography.md §3, "Shared primitives" / "Dialog body", "Path field").
+  Explicit rather than the Material `text-body2`/`text-caption` utilities these two used to carry --
+  both pull in `@theme static`'s type scale, positive tracking included, which is the "Material scale
+  reaching a Cardinal role" the audit forbids; the caption line was also drawing `text-grey`, a bare
+  palette grey with no aesthetic awareness, rather than the semantic caption token every other quiet
+  detail in the app reads.
+
+  The colour pair (light `--color-ink`, dark `--color-text-dark`) mirrors `WCardHeader.vue`'s own
+  `.w-card-header__action` -- `--color-ink` has no Cobalt-dark override of its own to fall back on,
+  so the dark value is stated explicitly rather than assumed to follow from the token alone.
+*/
+.w-confirm-message {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: normal;
+  color: var(--color-ink);
+}
+
+:global(body.body--dark .w-confirm-message) {
+  color: var(--color-text-dark);
+}
+
+/* The quiet identifier/path/count under the message -- "Path field", cobalt-typography.md §3. */
+.w-confirm-caption {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--color-text-caption);
+}
+
+:global(body.body--dark .w-confirm-caption) {
+  color: var(--color-text-caption-dark);
+}
+</style>

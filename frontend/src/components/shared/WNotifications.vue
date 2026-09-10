@@ -20,13 +20,15 @@
           :class="n.classes">
           <w-icon :name="n.icon" size="sm" class="shrink-0" />
           <div class="min-w-0 flex-1 py-1">
-            <div class="text-body2 break-words">{{ n.message }}</div>
-            <div v-if="n.caption" class="text-caption break-words opacity-80">{{ n.caption }}</div>
+            <div class="w-notification-title break-words">{{ n.message }}</div>
+            <div v-if="n.caption" class="w-notification-caption break-words opacity-80">
+              {{ n.caption }}
+            </div>
           </div>
           <button
             v-if="n.action"
             type="button"
-            class="w-unstyled shrink-0 cursor-pointer border border-current/60 px-2 py-0.5 text-caption font-medium hover:bg-current/15"
+            class="w-notification-undo w-unstyled shrink-0 cursor-pointer border border-current/60 px-2 py-0.5 hover:bg-current/15"
             @click="runAction(n)">
             {{ n.action.label }}
           </button>
@@ -111,6 +113,36 @@ function runAction(n) {
 /* The container's own padding, shared so the leave rule below cannot drift away from it */
 .w-notifications {
   --w-notifications-inset: 0.5rem;
+}
+
+/*
+  Toast typography (cobalt-typography.md §3, "Shared primitives"). Explicit rather than the Material
+  `text-body2`/`text-caption` utilities this used to carry -- those pull in `@theme static`'s type
+  scale (14px/400/0.018em tracking and 12px/400/0.033em tracking respectively), which is exactly the
+  "Material scale reaching a Cardinal role" the audit forbids, and the positive tracking on top of it
+  violates the "no positive letter-spacing on Barlow body text" rule regardless of aesthetic. Sizes
+  and weights are unchanged between Ledger and Cobalt; only each toast's own fill color (`n.classes`,
+  `composables/notify.js`) varies.
+*/
+.w-notification-title {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: normal;
+}
+
+.w-notification-caption {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.w-notification-undo {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 .w-notification-progress {

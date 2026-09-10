@@ -156,4 +156,14 @@ function segmentStyle(opt) {
 :global(body.body--dark .w-btn-toggle__segment[aria-checked='false']) {
   color: var(--color-text-dark);
 }
+
+/*
+  Cobalt dark (cobalt-typography.md §3, "Segmented control option") draws an unselected segment's
+  label in the same chrome tone the section-header kicker uses (`#c9d6ff`, `--color-dark-3-5-text`),
+  not the generic dark-mode body text `--color-text-dark` (`#e8ecff`) the rule above falls back to --
+  this selector's extra `.body--cobalt` outranks it by specificity, so Ledger dark is unaffected.
+*/
+:global(body.body--cobalt.body--dark .w-btn-toggle__segment[aria-checked='false']) {
+  color: var(--color-dark-3-5-text);
+}
 </style>
