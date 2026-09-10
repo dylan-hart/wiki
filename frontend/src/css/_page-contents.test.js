@@ -1506,6 +1506,77 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         await page.close()
       }
     })
+
+    /*
+      OpenProject #3033: `.table-wrap` (an ordinary block box) had no width constraint of its own, so
+      `width: auto` resolved to "fill the containing block" regardless of how narrow the table's real
+      columns were -- a 3-column table stretched to the full article width instead of shrinking to its
+      true content width. Fixed by `width: fit-content; max-width: 100%;` on `.table-wrap`, with the
+      column tracks (`max-content`, not `1fr` -- see that rule's own comment for why `1fr` was tested
+      and rejected) unchanged. Measured at a fixed viewport width so "narrower than the container" is
+      a real assertion rather than one that happens to pass at whatever width the test runner gives it.
+    */
+    it("shrinks a narrow table's frame to its own content width instead of stretching to fill the container", async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 800, height: 400 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style>` +
+            `<style>body{margin:0;padding:0;} .page-contents{width:700px;}</style></head>` +
+            `<body>${SAMPLE}</body></html>`
+        )
+        const result = await page.evaluate(() => {
+          const article = document.querySelector('.page-contents')
+          const wrap = document.querySelector('.table-wrap')
+          return {
+            articleWidth: article.getBoundingClientRect().width,
+            wrapWidth: wrap.getBoundingClientRect().width
+          }
+        })
+        // -> The narrow SAMPLE (2 short columns) has nowhere near enough content to need the full
+        //    700px article column -- proving the fix means proving the frame is meaningfully
+        //    narrower than its container, not merely "not wider".
+        expect(result.wrapWidth).toBeLessThan(result.articleWidth * 0.5)
+      } finally {
+        await page.close()
+      }
+    })
+
+    it("still stretches a wide table to fill (and scroll past) the container, since fit-content never shrinks below the columns' natural width", async () => {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage({ viewport: { width: 800, height: 400 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style>` +
+            `<style>body{margin:0;padding:0;} .page-contents{width:700px;}</style></head>` +
+            `<body>${WIDE_SAMPLE}</body></html>`
+        )
+        const result = await page.evaluate(() => {
+          const article = document.querySelector('.page-contents')
+          const wrap = document.querySelector('.table-wrap')
+          const scroll = document.querySelector('.table-scroll')
+          return {
+            articleWidth: article.getBoundingClientRect().width,
+            wrapWidth: wrap.getBoundingClientRect().width,
+            needsScroll: scroll.scrollWidth > scroll.clientWidth
+          }
+        })
+        expect(result.wrapWidth).toBeCloseTo(result.articleWidth, 0)
+        expect(result.needsScroll).toBe(true)
+      } finally {
+        await page.close()
+      }
+    })
   })
 })
 
