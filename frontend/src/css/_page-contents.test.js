@@ -1010,9 +1010,11 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
   // -> The shared `.table-wrap`/`.table-clip`/`.table-scroll` mechanics this describe covers live in
-  //    the `// TABLES` section (see that section's own header comment); per-aesthetic sections
-  //    earlier in the file (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their
-  //    own `.table-scroll` selector too, so a plain search would find one of those instead.
+  //    the `// TABLES` section (see that section's own header comment). Since OpenProject #3007,
+  //    the per-aesthetic sections earlier in the file set only the `--content-table-scrollbar-*`
+  //    tokens the `// TABLES` section's own `.table-scroll` rule consumes -- they no longer declare
+  //    a `.table-scroll` selector of their own, so a plain search finding one of those instead is no
+  //    longer a risk, but the explicit `tablesSectionStart` anchor stays regardless.
   const tablesSectionStart = source.indexOf('\n  // TABLES\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
@@ -1040,18 +1042,100 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     expect(block).toMatch(/background-color:\s*var\(--content-surface\)/)
   })
 
-  it('thins the wide-table scrollbar and colours it off dedicated tokens rather than the OS default', () => {
+  it('thins the wide-table scrollbar via the standards properties, wrapped for the Chromium engine gotcha (OpenProject #3007)', () => {
     const block = blockFor('.table-scroll {')
     expect(block).toMatch(/overflow-x:\s*auto/)
-    expect(block).toMatch(/scrollbar-width:\s*thin/)
-    expect(block).toMatch(
+    // -> The standards pair must NOT sit in this same unwrapped block (the engine gotcha every
+    //    other scrollbar rule in this codebase already respects) -- they live in their own
+    //    `@supports not selector(::-webkit-scrollbar)` block instead, asserted below.
+    expect(block).not.toMatch(/scrollbar-width/)
+    expect(block).not.toMatch(/scrollbar-color/)
+
+    const supportsBlock = blockFor('@supports not selector(::-webkit-scrollbar) {')
+    expect(supportsBlock).toMatch(/scrollbar-width:\s*thin/)
+    expect(supportsBlock).toMatch(
       /scrollbar-color:\s*var\(--content-table-scrollbar-thumb\)\s*var\(--content-table-scrollbar-track\)/
     )
-    // -> Ledger light and dark values, each an existing global token per the WP's own values
-    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-rule\)/)
-    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-tint-alt\)/)
-    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-hairline-dark\)/)
-    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-ink-dark\)/)
+  })
+
+  it('never states scrollbar-width/scrollbar-color unwrapped alongside a ::-webkit-scrollbar* rule on the same selector, in the shared .table-scroll rule', () => {
+    // -> Same source-scan shape as `_base.scss`'s own equivalent test, applied to the one place in
+    //    this file that sets the standards properties.
+    const scanSource = source.slice(tablesSectionStart)
+    const lines = scanSource.split('\n')
+    let depth = 0
+    const supportsDepths = []
+    for (const line of lines) {
+      if (/@supports not selector\(::-webkit-scrollbar\)/.test(line)) {
+        supportsDepths.push(depth)
+      }
+      const insideSupports = supportsDepths.length > 0
+      if (/\b(scrollbar-width|scrollbar-color)\s*:/.test(line)) {
+        expect(insideSupports, `"${line.trim()}" must be wrapped in @supports`).toBe(true)
+      }
+      depth += (line.match(/\{/g) || []).length
+      depth -= (line.match(/\}/g) || []).length
+      while (supportsDepths.length && depth <= supportsDepths[supportsDepths.length - 1]) {
+        supportsDepths.pop()
+      }
+    }
+  })
+
+  it('gives the wide-table scrollbar the full webkit hover/drag treatment, off the same tokens, at a specificity that beats the aesthetic-scoped global rule regardless of file order', () => {
+    expect(source).toMatch(
+      /body \.table-scroll::-webkit-scrollbar-track\s*\{\s*background:\s*var\(--content-table-scrollbar-track\);/
+    )
+    expect(source).toMatch(
+      /body \.table-scroll::-webkit-scrollbar-thumb\s*\{\s*background:\s*var\(--content-table-scrollbar-thumb\);/
+    )
+    expect(source).toMatch(
+      /body \.table-scroll::-webkit-scrollbar-thumb:hover\s*\{\s*background-color:\s*var\(--content-table-scrollbar-thumb-hover\);/
+    )
+    expect(source).toMatch(
+      /body \.table-scroll::-webkit-scrollbar-thumb:active\s*\{\s*background-color:\s*var\(--content-table-scrollbar-thumb-active\);/
+    )
+  })
+
+  it('colours the table scrollbar off dedicated tokens per aesthetic, each with a rest/hover/drag triple, rather than the OS default', () => {
+    // -> Ledger light: subtler than the global scrollbar at rest, stepping up to the global rule's
+    //    own resting tone on hover, and its exact drag colour when dragging.
+    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-rule\);/)
+    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-tint-alt\);/)
+    expect(source).toMatch(/--content-table-scrollbar-thumb-hover:\s*var\(--color-slate-faint\);/)
+    expect(source).toMatch(
+      /--content-table-scrollbar-thumb-active:\s*var\(--color-negative-fill\);/
+    )
+    // -> Ledger dark, same relationship
+    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-hairline-dark\);/)
+    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-ink-dark\);/)
+    expect(source).toMatch(/--content-table-scrollbar-thumb-hover:\s*var\(--color-border-dark\);/)
+    expect(source).toMatch(/--content-table-scrollbar-thumb-active:\s*var\(--color-accent-dark\);/)
+    // -> Cobalt light: blends into the page ground rather than the global rule's transparent track,
+    //    but drags to the exact same accent colour the global rule drags to
+    expect(source).toMatch(
+      /--content-table-scrollbar-thumb:\s*var\(--color-sidebar-actions-text\);/
+    )
+    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-paper\);/)
+    expect(source).toMatch(/--content-table-scrollbar-thumb-hover:\s*var\(--color-slate-light\);/)
+    expect(source).toMatch(
+      /--content-table-scrollbar-thumb-active:\s*var\(--color-accent-strong\);/
+    )
+    // -> Cobalt dark, same relationship -- drags to `--color-heading-h2`, NOT `--color-accent-
+    //    strong` (a different, unrelated blue on this ground)
+    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*rgba\(255,\s*255,\s*255,\s*0\.14\);/)
+    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-dark-3-5\);/)
+    expect(source).toMatch(
+      /--content-table-scrollbar-thumb-hover:\s*rgba\(255,\s*255,\s*255,\s*0\.3\);/
+    )
+    expect(source).toMatch(/--content-table-scrollbar-thumb-active:\s*var\(--color-heading-h2\);/)
+    // -> No aesthetic keeps its own literal-valued `.table-scroll` override any more -- every
+    //    colour flows through the shared token pair the `// TABLES` section's rule consumes
+    expect(source).not.toMatch(
+      /\.table-scroll\s*\{\s*scrollbar-width:\s*thin;\s*scrollbar-color:\s*#c5cff5/
+    )
+    expect(source).not.toMatch(
+      /\.table-scroll\s*\{\s*scrollbar-width:\s*thin;\s*scrollbar-color:\s*rgba\(255,\s*255,\s*255,\s*0\.14\)/
+    )
   })
 
   it('gives the outer frame no overflow of its own, so it never clips a descendant that renders past its edge (OpenProject #2935)', () => {
@@ -1146,7 +1230,7 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         </div>
       </article>`
 
-    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+    async function measure({ dark: darkMode = false, cobalt = false, wide = false } = {}) {
       const [{ css: contentCss }, appCss] = await Promise.all([
         compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
           loadPaths: [dir]
@@ -1160,7 +1244,7 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
           .join(' ')
         await page.setContent(
           `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
-            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+            `<body class="${bodyClasses}">${wide ? WIDE_SAMPLE : SAMPLE}</body></html>`
         )
         return await page.evaluate(() => {
           const wrap = document.querySelector('.table-wrap')
@@ -1170,10 +1254,18 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
           const clipStyle = getComputedStyle(clip)
           const scrollStyle = getComputedStyle(scroll)
           const afterStyle = getComputedStyle(wrap, '::after')
+          const scrollThumbStyle = getComputedStyle(scroll, '::-webkit-scrollbar-thumb')
+          const scrollTrackStyle = getComputedStyle(scroll, '::-webkit-scrollbar-track')
           return {
             background: wrapStyle.backgroundColor,
             scrollbarColor: scrollStyle.scrollbarColor,
             scrollbarWidth: scrollStyle.scrollbarWidth,
+            // -> What real Chromium actually paints (OpenProject #3007): once `.table-scroll` also
+            //    carries `::-webkit-scrollbar*` rules, Chromium 121+'s own engine gotcha means the
+            //    standards `scrollbarColor`/`scrollbarWidth` above stop being what it renders with --
+            //    the webkit pseudo-elements are the ones a real browser resolves colour from now.
+            scrollbarThumbColor: scrollThumbStyle.backgroundColor,
+            scrollbarTrackColor: scrollTrackStyle.backgroundColor,
             marksDisplay: afterStyle.display,
             marksImage: afterStyle.backgroundImage,
             clipOverflow: clipStyle.overflow,
@@ -1256,14 +1348,27 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       expect(dark.background).toBe('rgb(27, 31, 42)')
     })
 
-    it('colours the thin scrollbar off the stated tokens in both themes', async () => {
-      const light = await measure({ dark: false })
-      const dark = await measure({ dark: true })
-      expect(light.scrollbarWidth).toBe('thin')
+    it('colours the scrollbar thumb/track off the stated tokens in both themes, via the webkit pseudo-elements real Chromium actually paints (OpenProject #3007)', async () => {
+      // -> `wide: true`: the narrow SAMPLE table never overflows, so it never actually grows a
+      //    scrollbar for the webkit pseudo-elements to paint -- same reason
+      //    `measureCornerContainment` reaches for `WIDE_SAMPLE` instead of `measure()`'s default.
+      const light = await measure({ dark: false, wide: true })
+      const dark = await measure({ dark: true, wide: true })
       // -> `--color-rule` on `--color-tint-alt`
-      expect(light.scrollbarColor).toBe('rgb(201, 210, 226) rgb(240, 242, 247)')
+      expect(light.scrollbarThumbColor).toBe('rgb(201, 210, 226)')
+      expect(light.scrollbarTrackColor).toBe('rgb(240, 242, 247)')
       // -> `--color-hairline-dark` on `--color-ink-dark`
-      expect(dark.scrollbarColor).toBe('rgb(42, 48, 64) rgb(20, 23, 31)')
+      expect(dark.scrollbarThumbColor).toBe('rgb(42, 48, 64)')
+      expect(dark.scrollbarTrackColor).toBe('rgb(20, 23, 31)')
+    })
+
+    it('never lets the standards scrollbar-width/-color apply in a browser that understands ::-webkit-scrollbar (the engine gotcha itself, proven against a real Chromium rather than only source-scanned)', async () => {
+      // -> `@supports not selector(::-webkit-scrollbar)` is false in real Chromium, so nothing sets
+      //    these two any more once `.table-scroll` also carries webkit rules -- they revert to the
+      //    browser default. This is the flip side of the previous test: the standards path is
+      //    genuinely elided, not merely superseded in the cascade.
+      const light = await measure({ dark: false })
+      expect(light.scrollbarWidth).toBe('auto')
     })
 
     it('draws the corner marks in Ledger and paints them in --color-slate-soft', async () => {

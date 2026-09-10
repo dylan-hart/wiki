@@ -168,14 +168,21 @@
   --content-table-cell-padding: 9px 14px;
 
   /*
-    OpenProject #2917. A wide table's own scrollbar, thinned and coloured to match the frame rather
-    than sit in the OS default grey -- `scrollbar-width`/`scrollbar-color` are the one pair of
-    standard properties for this (no `-webkit-scrollbar` pseudo-element fallback needed; every
-    browser this app supports understands both). Ledger's thumb is `--color-rule`, its track the
-    same tint the head strip sits on.
+    OpenProject #2917, reconciled with the handoff's global scrollbar spec under #3007. A wide
+    table's own scrollbar stays thinned and coloured to match the frame rather than the app's more
+    prominent chrome scrollbar (`--color-rule` thumb, the same tint the head strip sits on for a
+    track) -- deliberately subtler at rest than the global `.body--ledger` scrollbar's own
+    `--color-slate-faint` thumb, so a table reads as part of its own frame rather than a chrome
+    fixture. Hover steps up to that exact global resting tone; the drag colour is `--color-negative-
+    fill`, matching the global rule's own drag colour exactly -- the one state kept consistent
+    everywhere, table included, since that's the strong signal the handoff cares most about being
+    recognisable. `::-webkit-scrollbar*` rules live with `.table-scroll` itself, further down this
+    file (`// TABLES`), which is what actually consumes these four tokens for every aesthetic.
   */
   --content-table-scrollbar-thumb: var(--color-rule);
   --content-table-scrollbar-track: var(--color-tint-alt);
+  --content-table-scrollbar-thumb-hover: var(--color-slate-faint);
+  --content-table-scrollbar-thumb-active: var(--color-negative-fill);
 
   --content-mark: #fdf1a0;
 
@@ -402,9 +409,16 @@
     --content-table-row-alt: rgba(255, 255, 255, 0.025);
     --content-table-row-hover: rgba(255, 255, 255, 0.05);
     --content-table-hover-edge: inset 2px 0 0 #f08287;
-    /* -> The scrollbar drops to the dark hairline on the page's own ground rung */
+    /*
+      The scrollbar drops to the dark hairline on the page's own ground rung. Hover steps up to
+      `--color-border-dark` -- the same tone the global `.body--ledger.body--dark` scrollbar rests at
+      -- and the drag colour is `--color-accent-dark`, matching that global rule's own drag colour
+      exactly, same reconciliation as the light pair above.
+    */
     --content-table-scrollbar-thumb: var(--color-hairline-dark);
     --content-table-scrollbar-track: var(--color-ink-dark);
+    --content-table-scrollbar-thumb-hover: var(--color-border-dark);
+    --content-table-scrollbar-thumb-active: var(--color-accent-dark);
 
     --content-mark: #6b5d13;
 
@@ -582,21 +596,25 @@
 
     /*
       Cobalt table styling, light (OpenProject #2918). Every colour a table needs is already one of
-      the `--content-table-*` tokens above; the one thing with no token slot is the wide-table
-      scrollbar the shared `.table-scroll` mechanics (`// TABLES`, further down this file) leave to
-      `scrollbar-width`/`scrollbar-color` -- both plain CSS properties, not custom properties this
-      file threads through a variable, so the pair is written directly here rather than invented as
-      two more tokens with only Cobalt ever setting them. `#c5cff5` is the same ink `--color-
-      sidebar-actions-text`/`--color-admin-sidebar-text` already carry on this aesthetic; the track
-      is `--color-paper` (`#f2f5ff`, this aesthetic's own page ground), so an idle scrollbar reads
-      as part of the page rather than a chrome-grey stripe cutting across a card's own tint. On
-      `.table-scroll`, the inner scrolling box (OpenProject #2935), not `.table-wrap` -- that outer
-      frame no longer has `overflow` of its own to paint a scrollbar into.
+      the `--content-table-*` tokens above; the wide-table scrollbar (`// TABLES`, further down this
+      file) is the one exception the handoff's global scrollbar spec (#3005/#3006) doesn't cover
+      identically -- its own `.body--cobalt ::-webkit-scrollbar-thumb` is a blue pill on a
+      TRANSPARENT track, chosen to read against every kind of surface the app has, whereas a table
+      sits on a known, single surface (this aesthetic's own page ground) and can afford to blend the
+      idle scrollbar into it instead. Reconciled under #3007 into the same
+      `--content-table-scrollbar-*` token pair Ledger's own table rule already uses (below), rather
+      than staying a separate `.table-scroll` override: `--color-sidebar-actions-text` is the same
+      ink `--color-admin-sidebar-text` already carries on this aesthetic (`#c5cff5`), `--color-paper`
+      is this aesthetic's own page ground (`#f2f5ff`), so an idle scrollbar reads as part of the page
+      rather than a chrome-grey stripe cutting across a card's own tint. Hover deepens toward the
+      sidebar's own icon-stroke indigo; the drag colour is `--color-accent-strong`, matching the
+      global rule's own drag colour exactly -- the one state kept consistent everywhere, table
+      included, since that's the strong signal the handoff cares most about being recognisable.
     */
-    .table-scroll {
-      scrollbar-width: thin;
-      scrollbar-color: #c5cff5 #f2f5ff;
-    }
+    --content-table-scrollbar-thumb: var(--color-sidebar-actions-text);
+    --content-table-scrollbar-track: var(--color-paper);
+    --content-table-scrollbar-thumb-hover: var(--color-slate-light);
+    --content-table-scrollbar-thumb-active: var(--color-accent-strong);
   }
 
   /*
@@ -660,13 +678,17 @@
     /*
       Wide-table scrollbar, dark half of the light block's own comment above: thumb `rgba(255,255,
       255,.14)`, track `--color-dark-3-5` (`#0e1540`, the same rung the head strip already sits on,
-      so an idle scrollbar reads as part of the card rather than a seam across it). On `.table-scroll`
-      for the same reason as the light block above.
+      so an idle scrollbar reads as part of the card rather than a seam across it), for the same
+      "blend into the table's own surface" reason as the light block. Hover steps the same white up
+      to `.3` alpha; the drag colour is `--color-heading-h2` (`#8fb0ff` here), matching the global
+      rule's own dark-ground drag colour exactly -- `--color-accent-strong` is NOT that value on this
+      ground (`#7fa0ff`, reserved for a table's own link colour just below), so it is deliberately
+      not reused here the way the light block reuses `--color-accent-strong`.
     */
-    .table-scroll {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.14) var(--color-dark-3-5);
-    }
+    --content-table-scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --content-table-scrollbar-track: var(--color-dark-3-5);
+    --content-table-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+    --content-table-scrollbar-thumb-active: var(--color-heading-h2);
   }
 
   /* -> The page's own margins are the container's business; the first and last block give theirs up */
@@ -2205,8 +2227,48 @@
 
   .table-scroll {
     overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
+  }
+
+  /*
+    OpenProject #3007: reconciling this shared rule with the handoff's global scrollbar spec. The
+    engine gotcha applies here exactly as it does in `_base.scss` -- `scrollbar-width`/`scrollbar-
+    color` never sit unwrapped on the same selector as a `::-webkit-scrollbar*` rule, so the standard
+    properties stay isolated in their own `@supports not selector(::-webkit-scrollbar)` block below.
+
+    Both aesthetics' global scrollbar already reaches `.table-scroll` for free, as a descendant of
+    `.body--ledger`/`.body--cobalt` -- width, shape (Ledger's square corners, Cobalt's pill growth)
+    and buttons all inherit unchanged. Only colour is overridden here, off the four `--content-table-
+    scrollbar-*` tokens each aesthetic's own section above sets, which is what lets a table's
+    scrollbar blend into ITS OWN surface (the frame in Ledger, the page ground in Cobalt) rather than
+    read as the app's more prominent chrome scrollbar dropped onto a table. The leading `body`
+    element on every selector below is deliberate, not decoration: it is what keeps each override at
+    a strictly higher specificity than the aesthetic-scoped global rule it overrides (both are
+    otherwise one class plus one pseudo-element/-class, which would tie and fall back to source
+    order between two different files -- exactly the trap `PageActionsCol.vue`'s own header comment
+    warns about) regardless of how the two stylesheets end up concatenated. Each is `@at-root`
+    rather than plain nesting for a second, purely structural reason: everything in this file sits
+    inside the outer `.page-contents { ... }` block, so an ordinary nested rule here would compile to
+    `.page-contents body .table-scroll::-webkit-scrollbar-thumb` -- `body` AFTER `.page-contents`,
+    requiring a `<body>` descendant of the article column, which does not exist. `@at-root` writes
+    the selector exactly as stated instead, `body` first.
+  */
+  @supports not selector(::-webkit-scrollbar) {
+    .table-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
+    }
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-track {
+    background: var(--content-table-scrollbar-track);
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-thumb {
+    background: var(--content-table-scrollbar-thumb);
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--content-table-scrollbar-thumb-hover);
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-thumb:active {
+    background-color: var(--content-table-scrollbar-thumb-active);
   }
 
   /*
