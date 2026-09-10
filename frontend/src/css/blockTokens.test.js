@@ -94,15 +94,26 @@ describe('--block-* Ledger-dark overrides', () => {
 })
 
 describe('--block-* Cobalt-light overrides', () => {
-  it('restates only --block-tint-bg and --block-error-bg', () => {
+  it('restates --block-tint-bg and --block-error-bg with their own Cobalt values', () => {
     expect(declaredValue(cobaltLightSource, 'block-tint-bg')).toBe('var(--color-tint)')
     expect(declaredValue(cobaltLightSource, 'block-error-bg')).toBe('var(--color-accent-wash)')
+  })
 
+  it('restates --block-radius and --block-corner-marks, aliasing --radius-card/--corner-marks (OpenProject #2955)', () => {
+    // -> NOT left undeclared: left at :root only, their nested var()s would keep resolving against
+    //    <html>'s own Ledger-light values (0, block) even though --radius-card/--corner-marks
+    //    themselves ARE correctly redefined on this same body.body--cobalt selector -- the same
+    //    nested-var() cascade bug #2886/#2905 fixed elsewhere in this file. Every block reading the
+    //    shared alias (block-infobox included) stayed square-cornered with Ledger corner marks
+    //    still showing under Cobalt until this fix.
+    expect(declaredValue(cobaltLightSource, 'block-radius')).toBe('var(--radius-card)')
+    expect(declaredValue(cobaltLightSource, 'block-corner-marks')).toBe('var(--corner-marks)')
+  })
+
+  it('does not restate the rest', () => {
     for (const name of [
       'border',
-      'radius',
       'tile-radius',
-      'corner-marks',
       'mark-color',
       'bg',
       'caption-fg',
