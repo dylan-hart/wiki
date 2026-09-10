@@ -448,6 +448,47 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
 })
 
 /**
+ * OpenProject #2971: the reader sidebar's Locale button rendered its `commonStore.locale` code
+ * verbatim (e.g. "en"), unlike `AdminLayout.vue`'s equivalent control, which has always called
+ * `.toUpperCase()` on the same value. Fixed by mirroring that `.toUpperCase()` call here too. The
+ * `aria-label` deliberately stays lowercase -- screen readers don't need visual casing -- so the
+ * fix is asserted against the button's rendered text, not its aria-label.
+ */
+describe('MainLayout reader locale button casing (OpenProject #2971)', () => {
+  it('uppercases the locale code in the visible label, matching AdminLayout', async () => {
+    const router = await createTestRouter(['/'])
+
+    const { wrapper } = await mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: (siteStore) => {
+          siteStore.features.browse = true
+        }
+      },
+      stubs: {
+        HeaderNav: true,
+        MainOverlayDialog: true,
+        NavSidebar: true,
+        LocaleSelectorMenu: true
+      }
+    })
+
+    // -> `mountWithApp` does not seed `commonStore` (it isn't one of the stores the harness
+    //    manages), so this reads its real default: `localStorage.getItem('locale') || 'en'`.
+    const commonStore = useCommonStore()
+    expect(commonStore.locale).toBe('en')
+
+    const localeBtn = wrapper.get('.sidebar-actions-locale')
+    expect(localeBtn.attributes('aria-label')).toBe('en')
+    // -> the label lives in WBtn's own `<span v-if="label !== null">`, a sibling of the default
+    //    slot (where `<locale-selector-menu>` -- stubbed above anyway -- would render), so this is
+    //    exactly the rendered label text and nothing else in the button.
+    expect(localeBtn.find('span > span').text()).toBe('EN')
+  })
+})
+
+/**
  * OpenProject #2776 ("History + File manager: diff against Cobalt mockups, fix gaps"). Diffing the
  * File Manager and Page History overlays against their Cobalt mockups (`Cardinal Wiki - File
  * Manager 3x - Cobalt.dc.html`, `Cardinal Wiki - History 3x - Cobalt.dc.html`) found every overlay
