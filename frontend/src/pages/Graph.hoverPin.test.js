@@ -8,7 +8,8 @@ import { mountGraph } from './graphFixtures.js'
  * or straight onto a different node -- clears the previously-hovered node's `fx`/`fy` back to
  * `null` so it rejoins the simulation. The existing `applyHoverPushImpulse` outward-push behavior
  * on other nodes (OpenProject #2748's own `Graph.hitTest.test.js` covers the underlying hit test)
- * must keep working unchanged alongside the pin.
+ * must keep working unchanged alongside the pin. OpenProject #2931 adds the third release path:
+ * the pointer leaving the canvas element entirely, where no further `mousemove` can fire.
  */
 describe('Graph.vue hover pin (OpenProject #2924)', () => {
   it('pins the hovered node fx/fy to its current x/y on hover start', async () => {
@@ -75,6 +76,46 @@ describe('Graph.vue hover pin (OpenProject #2924)', () => {
     expect(nodeA.fy).toBeNull()
     expect(nodeB.fx).toBe(-500)
     expect(nodeB.fy).toBe(-500)
+  })
+
+  it('releases the pinned node when the pointer leaves the canvas entirely (OpenProject #2931)', async () => {
+    const wrapper = await mountGraph()
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    nodeA.x = 500
+    nodeA.y = 500
+    nodeB.x = -500
+    nodeB.y = -500
+    wrapper.vm.relayout()
+
+    await wrapper.find('canvas').trigger('mousemove', { clientX: 500, clientY: 500 })
+    expect(wrapper.vm.hoveredNode).toBe(nodeA)
+    expect(nodeA.fx).toBe(500)
+    expect(nodeA.fy).toBe(500)
+
+    // -> The pointer exits the canvas element's bounds while still over the node: no further
+    //    `mousemove` fires on the canvas, so `mouseleave` is the only event that can release it.
+    await wrapper.find('canvas').trigger('mouseleave')
+
+    expect(wrapper.vm.hoveredNode).toBeNull()
+    expect(nodeA.fx).toBeNull()
+    expect(nodeA.fy).toBeNull()
+    expect(wrapper.find('canvas').classes()).not.toContain('graph-view-canvas--hover')
+  })
+
+  it('treats mouseleave with nothing hovered as a no-op', async () => {
+    const wrapper = await mountGraph()
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    nodeA.x = 500
+    nodeA.y = 500
+    wrapper.vm.relayout()
+
+    expect(wrapper.vm.hoveredNode).toBeNull()
+    await wrapper.find('canvas').trigger('mouseleave')
+
+    expect(wrapper.vm.hoveredNode).toBeNull()
+    expect(nodeA.fx == null).toBe(true)
+    expect(nodeA.fy == null).toBe(true)
   })
 
   it('still applies the existing hover push impulse to other nodes alongside the pin', async () => {

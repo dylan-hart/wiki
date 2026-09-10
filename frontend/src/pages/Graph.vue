@@ -7,7 +7,8 @@
       role="img"
       :aria-label="graphAccessibleName"
       @click="onCanvasClick"
-      @mousemove="onCanvasMouseMove">
+      @mousemove="onCanvasMouseMove"
+      @mouseleave="onCanvasMouseLeave">
       <!--
         Canvas fallback content (OpenProject #1686): a visually-hidden ("sr-only", the same
         Tailwind utility `CollabPresence.vue` uses) but focusable text alternative to the painted
@@ -1032,16 +1033,37 @@ function onCanvasClick(event) {
  *  reworking itself, the way a fresh filter/edit (`0.3`/`0.5` elsewhere in this file) does. */
 const HOVER_PUSH_ALPHA = 0.15
 
+/** Releases the currently-hovered node (if any) back into the simulation -- clears the `fx`/`fy`
+ *  pin `onCanvasMouseMove` set and drops `hoveredNode` (which also hides the tooltip and the
+ *  `--hover` cursor class). The ONE release path shared by every way a hover can end: hover
+ *  moving onto empty canvas, hover moving straight onto a different node, and the pointer leaving
+ *  the canvas element entirely (OpenProject #2931) -- that last one fires no further `mousemove`
+ *  on the canvas, so without `onCanvasMouseLeave` the node stayed pinned forever. Deliberately
+ *  does NOT repaint: each caller paints exactly once after it has finished its own changes, so a
+ *  hover-change (release + pin) is one paint, not two. Answers whether anything was released. */
+function releaseHoveredNode() {
+  if (!hoveredNode.value) {
+    return false
+  }
+  hoveredNode.value.fx = null
+  hoveredNode.value.fy = null
+  hoveredNode.value = null
+  return true
+}
+
+function onCanvasMouseLeave() {
+  if (releaseHoveredNode()) {
+    repaint()
+  }
+}
+
 function onCanvasMouseMove(event) {
   const nextHovered = findNodeAt(event.clientX, event.clientY)
   if (nextHovered !== hoveredNode.value) {
-    // -> Release the previously-hovered node (if any) back into the simulation before pinning the
-    //    next one -- this covers hover moving directly from one node to another, not just hover-end
-    //    onto empty canvas, since `hoveredNode.value` is read here before being reassigned below.
-    if (hoveredNode.value) {
-      hoveredNode.value.fx = null
-      hoveredNode.value.fy = null
-    }
+    // -> Release the previously-hovered node (if any) before pinning the next one -- this covers
+    //    hover moving directly from one node to another, not just hover-end onto empty canvas,
+    //    since `hoveredNode.value` is read inside the helper before being reassigned below.
+    releaseHoveredNode()
     // -> Only on an actual mouseover of a (possibly different) node, never on leaving one: moving
     //    OFF a node onto empty canvas sets `nextHovered` to `null`, which this guard excludes.
     if (nextHovered) {
