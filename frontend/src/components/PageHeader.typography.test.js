@@ -12,10 +12,13 @@ import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test
  * The h1 title and description already carry their target metrics and colour tokens from
  * `pages/Index.vue`'s global `.page-header-title`/`.page-header-subtitle` rules (verified directly
  * against source, not re-asserted here — that belongs to whichever suite owns `Index.vue`'s own
- * stylesheet). The one gap this component owns is the Draft badge: `WBadge` alone draws it mono/600
- * at 9px with no tracking, and the target is `600 9.5px mono, .16em, uppercase`. `uppercase` was
- * already a caller-supplied Tailwind class; `.page-header-badge` (this component's own scoped rule)
- * is the two properties Tailwind has no utility for at this exact value.
+ * stylesheet). The one gap this component owns is the Draft badge: the target is `600 9.5px mono,
+ * .16em, uppercase`. `PageHeader.vue` originally carried its own scoped `.page-header-badge`
+ * override for the two properties `WBadge` didn't yet apply at this exact value; OpenProject #2989
+ * removed that override once `WBadge`'s own base class list started applying
+ * `text-[9.5px]`/`tracking-[.16em]`/`uppercase` unconditionally, making the local rule dead code
+ * (a visual no-op — same computed styles, now sourced from `WBadge` itself). This suite asserts
+ * against the rendered `.w-badge` element for that reason, not `.page-header-badge`.
  *
  * Measured in real headless Chromium, following `PageHeader.actionBox.test.js`'s own pattern
  * exactly (same three load-bearing pieces: `buildAppCss()` for `tailwind.css`, the `<style>`
@@ -61,7 +64,7 @@ describe(
             `<body><div style="width:1280px">${html}</div></body></html>`
         )
         return await page.evaluate(() => {
-          const el = document.querySelector('.page-header-badge')
+          const el = document.querySelector('.w-badge')
           if (!el) {
             return null
           }
