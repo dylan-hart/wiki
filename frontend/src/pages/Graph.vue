@@ -940,6 +940,7 @@ function repaint() {
     edges: edges.value,
     clusters: clusters.value,
     radiusFor,
+    minRadius: MIN_NODE_RADIUS,
     dark: dark.isActive,
     highlightedIds: highlightedNodeIds.value,
     hoveredNode: hoveredNode.value
