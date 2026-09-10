@@ -162,7 +162,7 @@
               v-if="siteStore.search && siteStore.searchLastQuery">
               <strong>{{ siteStore.searchLastQuery }}</strong>
             </i18n-t>
-            <span v-else
+            <span v-else class="layout-search-empty-prompt"
               ><em>{{ t('search.emptyQuery') }}</em></span
             >
           </div>
@@ -718,6 +718,25 @@ $strip-height: 37px;
 
   // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s
   //    `@layer components`, shared with `HeaderSearch.vue`'s preview panel rather than duplicated here.
+
+  /*
+    The empty-query prompt: what the results pane shows before any search has run at all, distinct
+    from `search.noResults` (a query WAS run and matched nothing) -- the `<em>` in the markup already
+    carries that distinction. This gives the sentence its own type role
+    (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Search", "Empty-query prompt") rather
+    than leaving it at the browser's untouched inherited size.
+  */
+  &-empty-prompt {
+    font-size: 14.5px;
+    line-height: 1.6;
+
+    @at-root .body--light & {
+      color: var(--color-text-secondary);
+    }
+    @at-root .body--dark & {
+      color: var(--color-text-secondary-dark);
+    }
+  }
 
   .w-page {
     flex: 1 1;
