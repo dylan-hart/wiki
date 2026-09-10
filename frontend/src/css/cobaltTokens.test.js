@@ -87,7 +87,11 @@ describe('Cobalt shape tokens (radii sweep)', () => {
     // -> The banner sits on its own solid gradient, not low-contrast on `#f2f5ff`, so the matte pass
     //    drops its glow with no border replacement (OpenProject #2856).
     'page-header-shadow': { ledger: 'none', cobalt: 'none' },
-    'page-header-margin': { ledger: '0', cobalt: '24px' },
+    // -> The horizontal and top margins differ (OpenProject #2970: `Page View 3x - Cobalt` draws the
+    //    banner as `margin:10px 24px 0`), so these are two direction-specific tokens rather than one
+    //    shared value feeding both `margin-inline` and `margin-block-start` in `Index.vue`.
+    'page-header-margin-inline': { ledger: '0', cobalt: '24px' },
+    'page-header-margin-block-start': { ledger: '0', cobalt: '10px' },
     // -> A menu, tooltip, dialog or drawer is an overlay on the scrim, not one of the matte pass's
     //    plates, so both go straight to `none` under Cobalt with no ring replacement (OpenProject
     //    #2856) -- unlike Ledger, which is unaffected and keeps its own values (below).

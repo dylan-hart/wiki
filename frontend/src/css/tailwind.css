@@ -673,7 +673,8 @@ html.theme-transition-suppress *::after {
   --page-header-fg: var(--color-ink);
   --page-header-radius: 0;
   --page-header-shadow: none;
-  --page-header-margin: 0;
+  --page-header-margin-inline: 0;
+  --page-header-margin-block-start: 0;
 
   /*
     The rest of the masthead, which `--page-header-bg`/`-fg` alone cannot carry: the description
@@ -835,7 +836,14 @@ body.body--cobalt {
   /* Matte pass (OpenProject #2856): the glow under the banner is gone. The banner sits on its own
      solid gradient fill, not low-contrast on the `#f2f5ff` ground, so it gets no border either. */
   --page-header-shadow: none;
-  --page-header-margin: 24px;
+  /*
+    Split into direction-specific tokens (OpenProject #2970): the horizontal margin and the top
+    margin are NOT the same value -- `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` both draw
+    the banner as `margin:10px 24px 0`, and one shared token feeding both `margin-inline` and
+    `margin-block-start` in `Index.vue` was overstating the top gap at 24px instead of 10px.
+  */
+  --page-header-margin-inline: 24px;
+  --page-header-margin-block-start: 10px;
   --page-header-subtitle-fg: #dbe4ff;
   --page-header-icon-bg: rgb(255 255 255 / 0.16);
   --page-header-icon-fg: #fff;

@@ -1539,8 +1539,8 @@ $toc-overlay-max: 749.98px;
 .page-header {
   min-height: 120px;
   padding-block: 8px;
-  margin-inline: var(--page-header-margin);
-  margin-block-start: var(--page-header-margin);
+  margin-inline: var(--page-header-margin-inline);
+  margin-block-start: var(--page-header-margin-block-start);
   border-radius: var(--page-header-radius);
   box-shadow: var(--page-header-shadow);
   background: var(--page-header-bg);
