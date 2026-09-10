@@ -1952,11 +1952,18 @@ $toc-overlay-max: 749.98px;
     The column is the height of the shell, so its own content scrolls when there is more of it than
     there is room -- a long contents list, in practice. Nothing sticky is involved: the shell holds
     still on its own, and the article beside this scrolls in its own box.
+
+    OpenProject #3007: this used to carry its own hardcoded flat-grey standard scrollbar declarations
+    here, unconditioned on either aesthetic -- the same near-duplicate of the rule `WScrollArea.vue`
+    used to hardcode (see that component's own header comment, OpenProject #3006). One of those two
+    standard properties is inherited, and Chromium 121+ ignores every `::-webkit-scrollbar*` rule on
+    an element carrying a non-auto value of the other -- so that direct, unwrapped pair was actively
+    defeating the global `.body--ledger`/`.body--cobalt` scrollbar spec for this column in every
+    engine, not merely losing a specificity fight. Deleting it (not just recolouring it) is what lets
+    the aesthetic-scoped global rule reach this element instead, matching every other scrolling region.
   */
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(102 102 102 / 0.5) transparent;
 }
 
 /*
