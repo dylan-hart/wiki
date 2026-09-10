@@ -1271,6 +1271,8 @@ body.body--cobalt.body--dark {
   --infobox-link-fg: #a83f45;
   --infobox-caption-fg: #57668a;
   --infobox-row-alt-bg: transparent;
+  --infobox-well-bg: #f0f2f7;
+  --infobox-well-icon-fg: #64789f;
 
   /* block-spoiler */
   --spoiler-cover-fg: #64789f;
@@ -1386,6 +1388,8 @@ body.body--dark {
   --infobox-yes-fg: #7fbfa5;
   --infobox-no-fg: #f08287;
   --infobox-caption-fg: #8792ab;
+  --infobox-well-bg: #14171f;
+  --infobox-well-icon-fg: #8ea6cf;
 
   --spoiler-cover-fg: #8ea6cf;
   --spoiler-label-fg: #e6eaf2;
@@ -1447,6 +1451,8 @@ body.body--cobalt {
   --infobox-link-fg: #1f4fd6;
   --infobox-caption-fg: #5a6699;
   --infobox-row-alt-bg: #f2f5ff;
+  --infobox-well-bg: #e6edff;
+  --infobox-well-icon-fg: #5a6699;
 
   --spoiler-cover-fg: #1f4fd6;
   --spoiler-label-fg: #1a2038;
@@ -1557,6 +1563,8 @@ body.body--cobalt.body--dark {
   --infobox-link-fg: #8fb0ff;
   --infobox-caption-fg: #8b98d6;
   --infobox-row-alt-bg: rgb(255 255 255 / 0.03);
+  --infobox-well-bg: #0e1540;
+  --infobox-well-icon-fg: #8b98d6;
 
   --spoiler-cover-fg: #8fb0ff;
   --spoiler-label-fg: #e8ecff;
