@@ -202,6 +202,10 @@ async function postBoot() {
 
   // -> The icon cache is derived from the db and starts empty on a fresh instance
   await WIKI.models.icons.ensureCacheDir()
+  // -> Sideloaded icon collections under <dataPath>/icons/ are the offline-vendored equivalent of
+  //    the upstream Iconify API fetch; unconditional every boot, mirroring locales' own
+  //    refreshFromDisk (OpenProject #2945)
+  await WIKI.models.icons.sideloadFromDataPath()
 
   await WIKI.dbManager.subscribeToNotifications()
   // -> Its own postgres listener, on its own channel: collaboration traffic is far heavier than the

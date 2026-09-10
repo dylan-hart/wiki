@@ -57,6 +57,31 @@ const NO_SVG = html`
 `
 
 /**
+ * Shown centered in the image well when the block has no `image`.
+ *
+ * Tabler `photo`, pasted verbatim from frontend/src/assets/icons.generated.js (OpenProject #2944 --
+ * blocks.md's ground rule: never hand-draw a glyph). `aria-hidden`, same as block-spoiler's cover
+ * icon: it stands in for a missing picture the well would otherwise hold, not for information of its
+ * own a screen reader needs read out.
+ */
+const PHOTO_SVG = html`
+  <svg
+    viewBox="0 0 24 24"
+    width="26"
+    height="26"
+    aria-hidden="true"
+    class="well-icon"
+    data-icon="tabler:photo">
+    <g fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" />
+      <path stroke-linecap="round" d="M15 8h.01" />
+      <path d="m3 16l5-5c.928-.893 2.072-.893 3 0l5 5" />
+      <path d="m14 14l1-1c.928-.893 2.072-.893 3 0l3 3" />
+    </g>
+  </svg>
+`
+
+/**
  * What an author writes to mean "this value goes somewhere": a page, an email address, a number.
  *
  * The scheme has to be spelled out. A value that merely looks like a hostname is left alone, since
@@ -279,7 +304,7 @@ Website: https://montreal.ca
       }
 
       .infobox {
-        border: 1px solid var(--block-border);
+        border: 1px solid var(--infobox-border);
         border-radius: var(--block-radius);
         background-color: var(--block-bg);
         font-size: 0.85em;
@@ -289,10 +314,11 @@ Website: https://montreal.ca
 
       .name {
         padding: 10px 12px;
-        border-bottom: 1px solid var(--block-border);
+        border-bottom: var(--infobox-name-rule);
         background-color: var(--infobox-name-bg);
         color: var(--infobox-name-fg);
-        font: 600 16px var(--font-display);
+        font: 600 var(--infobox-name-font-size) var(--font-display);
+        letter-spacing: var(--infobox-name-tracking);
         text-align: center;
       }
 
@@ -300,6 +326,26 @@ Website: https://montreal.ca
         margin: 0;
         padding: 12px 12px 0;
         text-align: center;
+      }
+
+      /*
+        The image well (OpenProject #2944) -- a tinted, rounded box behind the picture, or, with no
+        picture, behind a centered placeholder glyph. --block-tile-radius is the same generic
+        token img below already rounds its own corners with (0 Ledger, 6px Cobalt via
+        --radius-control), so the well and the image it frames round in step with no
+        aesthetic-specific override needed here.
+      */
+      .well {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        background-color: var(--infobox-well-bg);
+        border-radius: var(--block-tile-radius);
+      }
+
+      .well-icon {
+        color: var(--infobox-well-icon-fg);
       }
 
       img {
@@ -550,16 +596,16 @@ Website: https://montreal.ca
       <i class="marks" aria-hidden="true"></i>
       <aside class="infobox">
         <div class="name">${this.name}</div>
-        ${
-          this.image
-            ? html`
-                <figure>
-                  <img src="${this.image}" alt="${this.imageCaption || this.name}" />
-                  ${this.imageCaption ? html`<figcaption>${this.imageCaption}</figcaption>` : null}
-                </figure>
-              `
-            : null
-        }
+        <figure>
+          <div class="well">
+            ${
+              this.image
+                ? html`<img src="${this.image}" alt="${this.imageCaption || this.name}" />`
+                : PHOTO_SVG
+            }
+          </div>
+          ${this.imageCaption ? html`<figcaption>${this.imageCaption}</figcaption>` : null}
+        </figure>
         ${this._error ? html`<div class="error">${this._error}</div>` : null}
         ${
           this._entries.length > 0

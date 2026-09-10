@@ -9,6 +9,7 @@
   <w-expansion-item
     v-if="item.children?.length > 0"
     dense
+    :style="depthStyle"
     :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
     @update:model-value="setOpen(item.id, $event)"
     @auxclick.middle="handleIsolateClick($event, item)"
@@ -35,10 +36,14 @@
       <!-- -> One nav item, plus its own expansion behavior if it has children -- rendered for each
               child so a folder nested any number of levels deep still draws its own contents,
               rather than only the first level under the sidebar root -->
-      <nav-sidebar-item v-for="child of item.children" :key="child.id" :item="child" />
+      <nav-sidebar-item
+        v-for="child of item.children"
+        :key="child.id"
+        :item="child"
+        :depth="depth + 1" />
     </w-list>
   </w-expansion-item>
-  <w-item v-else v-bind="destination(item)">
+  <w-item v-else v-bind="destination(item)" :style="depthStyle">
     <w-item-section side><w-icon :name="iconFor(item)" color="slate-faint" /></w-item-section>
     <w-item-section>
       <span ref="labelEl" class="truncate">{{ displayLabel(item) }}</span>
@@ -82,6 +87,18 @@ const props = defineProps({
   item: {
     type: Object,
     required: true
+  },
+  /**
+   * How many `.w-expansion-item__content` indent lanes enclose THIS row -- 0 for a row rendered
+   * directly under the sidebar root (`NavSidebar.vue`'s own `v-for`, which passes no `depth` at
+   * all), incremented by exactly 1 on each recursive `nav-sidebar-item` call below. This used to be
+   * a pure DOM side effect with no numeric value anywhere to reach for (OpenProject #2932): the
+   * hover depth-cue dots need an EXACT per-row lane count, not just "is there at least one
+   * ancestor", so it is threaded explicitly as a prop rather than re-derived from nesting.
+   */
+  depth: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -265,6 +282,18 @@ function handleExpandCycleClick(event, item) {
  * toolbar's own "+ New Page" button already is -- real per-path enforcement stays server-side.
  */
 const canCreate = computed(() => Boolean(props.item.generated) && userStore.can('write:pages'))
+
+/**
+ * The `--nav-depth` custom property NavSidebar.vue's hover depth-cue dot rule reads to size and
+ * position itself (OpenProject #2932) -- set on this row's own root element so it is the value
+ * actually read there, no matter how many ancestor `.content` wrappers it happens to inherit a
+ * (now-overridden) value from. Bound on BOTH branches below: the leaf `<w-item>` directly, and the
+ * folder `<w-expansion-item>` -- whose `style` fallthrough lands on its own single root element
+ * (`.w-expansion-item`), a custom property inheriting from there down into that same component's
+ * own internal header `<w-item class="w-expansion-item__header">`, which is what the dot rule
+ * actually targets for a folder row.
+ */
+const depthStyle = computed(() => ({ '--nav-depth': String(props.depth) }))
 
 // METHODS
 

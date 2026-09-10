@@ -360,8 +360,8 @@ describe('MainLayout sidebar border (OpenProject #2746)', () => {
 
     const drawer = wrapper.get('aside.w-drawer')
     expect(drawer.classes()).toContain('border-e')
-    expect(drawer.classes()).toContain('border-black/12')
-    expect(drawer.classes()).toContain('dark:border-white/15')
+    expect(drawer.classes()).toContain('border-hairline')
+    expect(drawer.classes()).toContain('dark:border-hairline-dark')
   })
 
   it('flips to the logical opposite side when the site theme puts the sidebar on the right', async () => {

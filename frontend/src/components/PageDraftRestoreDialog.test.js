@@ -1,5 +1,30 @@
-import { afterEach, describe, expect, it } from 'vitest'
+/*
+  The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in --
+  same stub shape `PageHistoryOverlay.test.js` and `composables/monacoDiff.test.js` use, since this
+  dialog mounts the diff through that same composable.
+*/
+vi.mock('monaco-editor', () => ({
+  editor: {
+    defineTheme: vi.fn(),
+    createDiffEditor: vi.fn(() => {
+      const modifiedEditor = { revealLineNearTop: vi.fn() }
+      return {
+        setModel: vi.fn(),
+        updateOptions: vi.fn(),
+        dispose: vi.fn(),
+        onDidUpdateDiff: vi.fn(() => ({ dispose: vi.fn() })),
+        getLineChanges: vi.fn(() => null),
+        getModifiedEditor: vi.fn(() => modifiedEditor)
+      }
+    }),
+    createModel: vi.fn(() => ({ dispose: vi.fn() }))
+  }
+}))
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
+
+import * as monaco from 'monaco-editor'
 
 import PageDraftRestoreDialog from './PageDraftRestoreDialog.vue'
 
@@ -60,6 +85,11 @@ function button(label) {
   return [...document.body.querySelectorAll('button')].find((b) => b.textContent.trim() === label)
 }
 
+beforeEach(() => {
+  monaco.editor.createDiffEditor.mockClear()
+  monaco.editor.createModel.mockClear()
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
 })
@@ -118,5 +148,62 @@ describe('PageDraftRestoreDialog', () => {
     button('Discard').click()
     await flushPromises()
     expect(wrapper.emitted('ok')).toBeUndefined()
+  })
+})
+
+/**
+ * OpenProject #2930: the diff view itself. `PageDraftRestoreDialog.vue` renders no diff at all while
+ * the fetch is in flight or failed -- there is nothing to compare either way -- and once it resolves,
+ * feeds `composables/monacoDiff.js#useMonacoDiff()` inline (no version-list sidebar) with the current
+ * editor content on one side and the draft's content on the other.
+ */
+describe('PageDraftRestoreDialog: inline diff', () => {
+  it('creates no diff editor while the draft request is still in flight', async () => {
+    const request = deferred()
+    await mountDialog({ draftRequest: request.promise })
+
+    expect(monaco.editor.createDiffEditor).not.toHaveBeenCalled()
+  })
+
+  it('creates no diff editor when the draft request fails', async () => {
+    const request = deferred()
+    await mountDialog({ draftRequest: request.promise })
+
+    request.reject(new Error('network'))
+    await flushPromises()
+
+    expect(monaco.editor.createDiffEditor).not.toHaveBeenCalled()
+  })
+
+  it('renders an inline diff of the current content against the draft once it resolves', async () => {
+    await mountDialog()
+    await flushPromises()
+
+    expect(monaco.editor.createDiffEditor).toHaveBeenCalledTimes(1)
+    const [, options] = monaco.editor.createDiffEditor.mock.calls[0]
+    // -> Inline, and no timeline -- this dialog wires up nothing beyond the diff editor itself
+    expect(options).toMatchObject({ renderSideBySide: false, readOnly: true })
+
+    const texts = monaco.editor.createModel.mock.calls.map(([text]) => text)
+    expect(texts).toContain('# Title\n\nCurrent paragraph.')
+    expect(texts).toContain(DRAFT.content)
+  })
+
+  it('scrolls to the first changed line once Monaco reports the diff is ready', async () => {
+    await mountDialog()
+    await flushPromises()
+
+    const diffEditor = monaco.editor.createDiffEditor.mock.results[0].value
+    diffEditor.getLineChanges.mockReturnValue([
+      {
+        originalStartLineNumber: 1,
+        originalEndLineNumber: 1,
+        modifiedStartLineNumber: 3,
+        modifiedEndLineNumber: 3
+      }
+    ])
+    diffEditor.onDidUpdateDiff.mock.calls[0][0]()
+
+    expect(diffEditor.getModifiedEditor().revealLineNearTop).toHaveBeenCalledWith(3)
   })
 })

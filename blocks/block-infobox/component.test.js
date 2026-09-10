@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import './component.js'
+import { BlockInfoboxElement } from './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
@@ -105,6 +105,50 @@ describe('block-infobox', () => {
     expect(el._error).toBe('')
     const dd = el.shadowRoot.querySelector('dd')
     expect(dd.textContent.trim()).toBe('')
+  })
+
+  /*
+    OpenProject #2942: the card border reads the infobox-specific token (`--infobox-border`,
+    `tailwind.css`'s 4-state `--infobox-*` block) rather than the generic `--block-border` every
+    other block uses, so Cobalt can give it its own `#c9d6fb`/`rgb(143 176 255 / 0.28)` values
+    without disturbing Ledger's unchanged hairline.
+  */
+  it('draws .infobox’s border off --infobox-border, not the generic --block-border', () => {
+    const cssText = BlockInfoboxElement.styles.cssText
+    const rule = cssText.slice(cssText.indexOf('.infobox {'), cssText.indexOf('.name {'))
+    expect(rule).toContain('border: 1px solid var(--infobox-border)')
+    expect(rule).not.toContain('var(--block-border)')
+  })
+
+  /*
+    OpenProject #2944: the image well now renders unconditionally (a placeholder glyph in place of
+    the picture), not only when `image` is set.
+  */
+  it('shows a centered placeholder glyph in the well when there is no image', async () => {
+    const el = await mountInfobox('City: Montreal')
+
+    const well = el.shadowRoot.querySelector('figure .well')
+    expect(well).not.toBeNull()
+    expect(well.querySelector('img')).toBeNull()
+    const icon = well.querySelector('svg[data-icon="tabler:photo"]')
+    expect(icon).not.toBeNull()
+    expect(icon.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('shows the image inside the well, with no placeholder glyph, when image is set', async () => {
+    const el = await mountBlock('block-infobox', {
+      pre: 'City: Montreal',
+      props: { image: 'https://example.com/photo.jpg', imageCaption: 'Skyline' }
+    })
+
+    const well = el.shadowRoot.querySelector('figure .well')
+    expect(well).not.toBeNull()
+    expect(well.querySelector('svg[data-icon="tabler:photo"]')).toBeNull()
+    const img = well.querySelector('img')
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('src')).toBe('https://example.com/photo.jpg')
+    expect(img.getAttribute('alt')).toBe('Skyline')
+    expect(el.shadowRoot.querySelector('figcaption').textContent).toBe('Skyline')
   })
 
   describeDarkMode(() => mountInfobox('City: Montreal'))

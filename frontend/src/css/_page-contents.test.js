@@ -782,16 +782,20 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
  * OpenProject #2917 ("Tables: Ledger styling, light + dark"). The frame, mono eyebrow head, rules
  * and hover accent are `#2916`'s own token wiring (`--content-table-*`, already covered by that
  * WP's tests) — this suite covers what #2917 itself added on top: the body's own surface colour,
- * the thinned/coloured scrollbar, and Ledger's two-corner blueprint marks, including the "flush
- * rather than 4px outside" variance `docs/variances.md` records for the marks.
+ * the thinned/coloured scrollbar, and Ledger's two-corner blueprint marks. OpenProject #2935 later
+ * split the single `.table-wrap` box into `.table-wrap` (the outer, non-scrolling frame) and
+ * `.table-scroll` (the inner scroller), specifically so the marks could move from flush with the
+ * frame to the spec's own 4px overhang — the scrollbar assertions below moved to `.table-scroll`
+ * with them, and the "flush" variance this suite used to also assert is deleted from
+ * `docs/variances.md` along with the deviation itself.
  */
 describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  // -> The shared `.table-wrap` mechanics this describe covers live in the `// TABLES` section
-  //    (see that section's own header comment); per-aesthetic sections earlier in the file
-  //    (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their own `.table-wrap`
-  //    selector too, so a plain search would find one of those instead.
+  // -> The shared `.table-wrap`/`.table-scroll` mechanics this describe covers live in the
+  //    `// TABLES` section (see that section's own header comment); per-aesthetic sections earlier
+  //    in the file (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their own
+  //    `.table-scroll` selector too, so a plain search would find one of those instead.
   const tablesSectionStart = source.indexOf('\n  // TABLES\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
@@ -820,7 +824,8 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   })
 
   it('thins the wide-table scrollbar and colours it off dedicated tokens rather than the OS default', () => {
-    const block = blockFor('.table-wrap {')
+    const block = blockFor('.table-scroll {')
+    expect(block).toMatch(/overflow-x:\s*auto/)
     expect(block).toMatch(/scrollbar-width:\s*thin/)
     expect(block).toMatch(
       /scrollbar-color:\s*var\(--content-table-scrollbar-thumb\)\s*var\(--content-table-scrollbar-track\)/
@@ -830,6 +835,11 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-tint-alt\)/)
     expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-hairline-dark\)/)
     expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-ink-dark\)/)
+  })
+
+  it('gives the outer frame no overflow of its own, so it never clips a descendant that renders past its edge (OpenProject #2935)', () => {
+    const block = blockFor('.table-wrap {')
+    expect(block).not.toMatch(/overflow/)
   })
 
   it('gates the corner marks on the same --corner-marks token the page header plate and blockquote read, so Cobalt draws none', () => {
@@ -852,17 +862,12 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     expect(block).not.toMatch(/0 100%/)
   })
 
-  it('positions the marks flush with the frame (documented variance), not past it, and pointer-events:none so they never intercept a click', () => {
+  it('positions the marks 4px outside the frame (OpenProject #2935), matching the page header plate and blockquote, and pointer-events:none so they never intercept a click', () => {
     const block = blockFor('.table-wrap::after {')
-    expect(block).toMatch(/inset:\s*0;/)
+    // -> `inset: -5px` against the frame's own 1px border -- the same convention
+    //    `.page-header-icon__marks` and the blockquote's `&::after` use
+    expect(block).toMatch(/inset:\s*-5px;/)
     expect(block).toMatch(/pointer-events:\s*none/)
-  })
-
-  it('records the flush-vs-4px-outside deviation in docs/variances.md', () => {
-    const variancesPath = join(dir, '..', '..', '..', 'docs', 'variances.md')
-    const variances = readFileSync(variancesPath, 'utf-8')
-    expect(variances).toMatch(/Ledger corner marks sit flush with the frame/)
-    expect(variances).toMatch(/#2917/)
   })
 
   describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
@@ -871,13 +876,15 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     const SAMPLE = `
       <article class="page-contents">
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Key</th><th>Value</th></tr></thead>
-            <tbody>
-              <tr><td>alpha</td><td>1</td></tr>
-              <tr><td>beta</td><td>2</td></tr>
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Key</th><th>Value</th></tr></thead>
+              <tbody>
+                <tr><td>alpha</td><td>1</td></tr>
+                <tr><td>beta</td><td>2</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </article>`
 
@@ -899,18 +906,22 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         )
         return await page.evaluate(() => {
           const wrap = document.querySelector('.table-wrap')
+          const scroll = document.querySelector('.table-scroll')
           const wrapStyle = getComputedStyle(wrap)
+          const scrollStyle = getComputedStyle(scroll)
           const afterStyle = getComputedStyle(wrap, '::after')
           return {
             background: wrapStyle.backgroundColor,
-            scrollbarColor: wrapStyle.scrollbarColor,
-            scrollbarWidth: wrapStyle.scrollbarWidth,
+            scrollbarColor: scrollStyle.scrollbarColor,
+            scrollbarWidth: scrollStyle.scrollbarWidth,
             marksDisplay: afterStyle.display,
             marksImage: afterStyle.backgroundImage,
-            scrollWidth: wrap.scrollWidth,
-            clientWidth: wrap.clientWidth,
-            scrollHeight: wrap.scrollHeight,
-            clientHeight: wrap.clientHeight
+            // -> Measured on the inner scroller (OpenProject #2935) -- that's the box with
+            //    `overflow-x: auto` now, not the outer frame, which no longer scrolls at all.
+            scrollWidth: scroll.scrollWidth,
+            clientWidth: scroll.clientWidth,
+            scrollHeight: scroll.scrollHeight,
+            clientHeight: scroll.clientHeight
           }
         })
       } finally {
@@ -956,7 +967,7 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       expect(cobaltLight.marksDisplay).toBe('none')
     })
 
-    it("never inflates the wrapper's own scrollable area for a table narrow enough to need no scrollbar -- the flush-marks variance exists precisely to keep this true", async () => {
+    it("never inflates the scroller's own scrollable area for a table narrow enough to need no scrollbar -- the corner marks live on the outer frame now (OpenProject #2935), so their 4px overhang can never touch the scroller's scrollWidth/scrollHeight", async () => {
       const light = await measure({ dark: false })
       expect(light.scrollWidth).toBe(light.clientWidth)
       expect(light.scrollHeight).toBe(light.clientHeight)

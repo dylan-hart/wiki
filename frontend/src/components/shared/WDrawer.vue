@@ -143,8 +143,8 @@ const isVisible = computed(() => props.modelValue || (isWide.value && defaultOpe
 
 const borderClass = computed(() =>
   props.side === 'right'
-    ? 'border-s border-black/12 dark:border-white/15'
-    : 'border-e border-black/12 dark:border-white/15'
+    ? 'border-s border-hairline dark:border-hairline-dark'
+    : 'border-e border-hairline dark:border-hairline-dark'
 )
 </script>
 

@@ -646,6 +646,33 @@ describe('WDialog corner radius', () => {
 })
 
 /**
+ * OpenProject #2941: `.w-dialog-viewport` is `fixed inset-0`, so any horizontal overflow it picks
+ * up reads as a page-wide horizontal scrollbar -- which is what the right-slide enter/leave
+ * transition's transient `translateX(32px)` used to trigger for the ~0.2s it ran, back when this
+ * element carried `overflow-auto` on both axes. Split into `overflow-x-hidden` (the viewport never
+ * legitimately needs horizontal scroll -- `.w-dialog-panel`'s `max-width` clamp already keeps it
+ * from ever growing wider than the viewport) + `overflow-y-auto` (still needed for dialog content
+ * taller than the screen), permanently, for every position -- not just `right`, where the bug was
+ * observed.
+ */
+describe('WDialog viewport overflow', () => {
+  it.each(['standard', 'right', 'bottom'])(
+    'clips horizontal overflow but keeps vertical scroll for the %s position',
+    (position) => {
+      const wrapper = mount(WDialog, {
+        props: { modelValue: true, position },
+        global: { stubs: { teleport: true } }
+      })
+
+      const viewport = wrapper.find('.w-dialog-viewport')
+      expect(viewport.classes()).toContain('overflow-x-hidden')
+      expect(viewport.classes()).toContain('overflow-y-auto')
+      expect(viewport.classes()).not.toContain('overflow-auto')
+    }
+  )
+})
+
+/**
  * `width`/`height` (OpenProject #2543 follow-up): a caller wanting something between "fits its
  * content" and `fullWidth`/`fullHeight`'s edge-to-edge panel -- `MainOverlayDialog.vue`'s Profile and
  * Inbox entries, sized at roughly half the viewport instead of full-screen.

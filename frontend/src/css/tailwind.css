@@ -1032,11 +1032,15 @@ body.body--cobalt.body--dark {
   /*
     Not a shape token despite living beside them in the light block: the handoff gives an explicit,
     different shadow for the dark card/raised surface under "Surfaces", not under the radii sweep.
-    Matte pass (OpenProject #2856): the dark ring is the light ring's own dark hairline colour
-    (`rgb(255 255 255 / 0.1)`, the same value `--color-border-dark` already carries), not the light
-    ring's `#dfe5f5` -- a light-toned outline would read as a stray glow on a dark plate.
+    Matte pass (OpenProject #2856) gave this ring a neutral white-alpha colour
+    (`rgb(255 255 255 / 0.1)`) on the theory that a light-toned outline would read as a stray glow on
+    a dark plate. OpenProject #2933 overrides that call, per Dylan's explicit direction: every other
+    Cobalt-dark hairline is blue-tinted (`--color-hairline-dark`, re-derived to `#2e3d9e` under
+    #2912), and a neutral ring here read as "still gray" next to them rather than as a deliberate
+    restraint. The ring is `--color-hairline-dark` itself, the same token `.page-contents`/
+    `.page-sidebar-card` already resolve their own card edge through in Cobalt light.
   */
-  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.1);
+  --shadow-card: 0 0 0 1px var(--color-hairline-dark);
 
   /*
     The floating-card motif on a dark ground. `--float-bg` is `--color-surface` (`#fff`) in Cobalt
@@ -1257,8 +1261,12 @@ body.body--cobalt.body--dark {
 */
 :root {
   /* block-infobox: full spec in ui-iteration/blocks.md */
+  --infobox-border: var(--block-border);
   --infobox-name-bg: #f0f2f7;
   --infobox-name-fg: #1c2233;
+  --infobox-name-font-size: 16px;
+  --infobox-name-tracking: normal;
+  --infobox-name-rule: 1px solid var(--block-border);
   --infobox-group-fg: #57668a;
   --infobox-group-font: 600 9.5px var(--font-mono);
   --infobox-group-tracking: 0.18em;
@@ -1271,6 +1279,8 @@ body.body--cobalt.body--dark {
   --infobox-link-fg: #a83f45;
   --infobox-caption-fg: #57668a;
   --infobox-row-alt-bg: transparent;
+  --infobox-well-bg: #f0f2f7;
+  --infobox-well-icon-fg: #64789f;
 
   /* block-spoiler */
   --spoiler-cover-fg: #64789f;
@@ -1386,6 +1396,8 @@ body.body--dark {
   --infobox-yes-fg: #7fbfa5;
   --infobox-no-fg: #f08287;
   --infobox-caption-fg: #8792ab;
+  --infobox-well-bg: #14171f;
+  --infobox-well-icon-fg: #8ea6cf;
 
   --spoiler-cover-fg: #8ea6cf;
   --spoiler-label-fg: #e6eaf2;
@@ -1433,8 +1445,12 @@ body.body--dark {
 
 /* Cobalt light: matte cards, 6px inner tiles, no rules, tint fills, cobalt titles/numerals. */
 body.body--cobalt {
+  --infobox-border: #c9d6fb;
   --infobox-name-bg: #1f4fd6;
   --infobox-name-fg: #fff;
+  --infobox-name-font-size: 15px;
+  --infobox-name-tracking: 0.04em;
+  --infobox-name-rule: none;
   --infobox-group-fg: #1f4fd6;
   --infobox-group-font: 600 12px var(--font-sans);
   --infobox-group-tracking: normal;
@@ -1447,6 +1463,8 @@ body.body--cobalt {
   --infobox-link-fg: #1f4fd6;
   --infobox-caption-fg: #5a6699;
   --infobox-row-alt-bg: #f2f5ff;
+  --infobox-well-bg: #e6edff;
+  --infobox-well-icon-fg: #5a6699;
 
   --spoiler-cover-fg: #1f4fd6;
   --spoiler-label-fg: #1a2038;
@@ -1548,6 +1566,7 @@ body.body--cobalt {
 
 /* Cobalt dark: fills stay bright (see the tabs block's own note above), text lightens for dark ground. */
 body.body--cobalt.body--dark {
+  --infobox-border: rgb(143 176 255 / 0.28);
   --infobox-name-bg: #3d6df7;
   --infobox-group-fg: #8fb0ff;
   --infobox-dt-fg: #a7b3ea;
@@ -1557,6 +1576,8 @@ body.body--cobalt.body--dark {
   --infobox-link-fg: #8fb0ff;
   --infobox-caption-fg: #8b98d6;
   --infobox-row-alt-bg: rgb(255 255 255 / 0.03);
+  --infobox-well-bg: #0e1540;
+  --infobox-well-icon-fg: #8b98d6;
 
   --spoiler-cover-fg: #8fb0ff;
   --spoiler-label-fg: #e8ecff;

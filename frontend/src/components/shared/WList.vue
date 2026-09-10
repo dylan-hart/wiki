@@ -46,7 +46,7 @@ const props = defineProps({
 
 const classes = computed(() => [
   props.padding ? 'py-2' : '',
-  props.bordered ? 'rounded border border-black/12 dark:border-white/15' : '',
+  props.bordered ? 'rounded border border-hairline dark:border-hairline-dark' : '',
   props.separator ? 'w-list--separator' : '',
   props.dense ? 'w-list--dense' : '',
   props.dark ? 'w-list--dark' : ''
