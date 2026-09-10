@@ -125,8 +125,8 @@ describe('Graph.vue node sizing and the control rail', () => {
     const wrapper = await mountGraph({ pageviewsEnabled: true })
 
     expect(wrapper.vm.sizeByOptions).toEqual([
-      { label: 'Edits', value: 'edits' },
-      { label: 'Visits', value: 'visits' }
+      { label: 'Visits', value: 'visits' },
+      { label: 'Edits', value: 'edits' }
     ])
   })
 
@@ -148,8 +148,8 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.pageviewsTrackingEnabled).toBe(true)
     expect(wrapper.vm.sizeBy).toBe('visits')
     expect(wrapper.vm.sizeByOptions).toEqual([
-      { label: 'Edits', value: 'edits' },
-      { label: 'Visits', value: 'visits' }
+      { label: 'Visits', value: 'visits' },
+      { label: 'Edits', value: 'edits' }
     ])
   })
 
