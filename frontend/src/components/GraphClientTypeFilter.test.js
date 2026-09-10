@@ -53,6 +53,25 @@ describe('GraphClientTypeFilter', () => {
     expect(boxes[1].attributes('aria-checked')).toBe('false')
   })
 
+  /**
+   * OpenProject #3030: the checkboxes used to render with `w-checkbox`'s fixed-blue `primary`
+   * default rather than picking up Cobalt's accent red the way the GROUP BY/SIZE BY toggle
+   * buttons on the same panel already do (`WBtnToggle`'s `toggleColor` defaults to
+   * `segment-selected`, which resolves to `--color-accent` under Cobalt and `--color-primary`
+   * under Ledger). Passing `color="segment-selected"` through to `w-checkbox` keeps both
+   * checkbox groups visually consistent with the rest of the graph control panel in both
+   * aesthetics.
+   */
+  it('passes color="segment-selected" to its checkboxes, matching WBtnToggle (OpenProject #3030)', () => {
+    const wrapper = mount(GraphClientTypeFilter, {
+      props: { modelValue: ['editor'], label: 'Client type', options: OPTIONS }
+    })
+
+    for (const checkbox of wrapper.findAllComponents({ name: 'WCheckbox' })) {
+      expect(checkbox.props('color')).toBe('segment-selected')
+    }
+  })
+
   it('shows its caption label', () => {
     const wrapper = mount(GraphClientTypeFilter, {
       props: { modelValue: [], label: 'Client type', options: OPTIONS }
