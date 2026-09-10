@@ -99,7 +99,7 @@ describe('shared/video-embed.js: VideoEmbedElement', () => {
 
   it('adopts the shared error box alongside the player styles', () => {
     const cssText = VideoEmbedElement.styles.map((sheet) => sheet.cssText).join('\n')
-    expect(cssText).toContain('color: var(--q-negative, #c10015)')
+    expect(cssText).toContain('border: var(--block-error-border)')
     expect(cssText).toContain('.player')
   })
 

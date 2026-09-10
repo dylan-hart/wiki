@@ -71,8 +71,8 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
 
   it('adopts the shared error box and caption styles alongside the diagram styles', () => {
     const cssText = DiagramImageElement.styles.map((sheet) => sheet.cssText).join('\n')
-    expect(cssText).toContain('color: var(--q-negative, #c10015)')
-    expect(cssText).toContain(':host([dark]) .caption')
+    expect(cssText).toContain('border: var(--block-error-border)')
+    expect(cssText).toContain('color: var(--block-caption-fg)')
     expect(cssText).toContain('.sheet')
   })
 
