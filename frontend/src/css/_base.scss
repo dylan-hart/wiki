@@ -178,8 +178,9 @@ body.body--dark:not(.body--cobalt) {
 }
 
 // The site header's five icon buttons (new page / file manager / inbox / admin / account, in
-// `HeaderNav.vue` and `AccountMenu.vue`) -- a toolbar band, not a floating action, so the small
-// circular hit area `round` gives every other icon button reads wrong here.
+// `HeaderNav.vue` and `AccountMenu.vue`), plus its logo and the narrow-viewport sidebar toggle at
+// the other end of the same bar -- a toolbar band, not a floating action, so the small circular hit
+// area `round` gives every other icon button reads wrong here.
 //
 // The caller drops `round` (and the now-inert `dense`, since both of its effects are overridden
 // below anyway) and keeps just `flat`. Squared off to a true 64x64 -- the header's own full height,

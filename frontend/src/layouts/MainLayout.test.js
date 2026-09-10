@@ -816,3 +816,79 @@ describe('MainLayout has no corner scroll-to-top button at any width (OpenProjec
     }
   )
 })
+
+/**
+ * OpenProject #2904/#2928: the narrow-viewport sidebar opener moved from a floating bottom-left
+ * corner disc (`corner-btn--left`, `tabler:menu-2`) into `HeaderNav`'s own bar, as an inline toggle
+ * ahead of the logo. This layout still owns WHEN it shows (`showSidebarBtn`, unchanged) and what a
+ * click does (`openSidebar()`), and hands both to the header as a prop and an emit -- so with
+ * `HeaderNav` stubbed, the prop it receives and the drawer's reaction to its emit are the contract.
+ *
+ * Same direct-on-the-ref `useMinWidth` handling as the OpenProject #2894 suite above, for the same
+ * module-level `matchMedia` cache reason.
+ */
+describe('MainLayout inline sidebar toggle replaces the corner FAB (OpenProject #2928)', () => {
+  afterEach(() => {
+    useMinWidth(1200).value = true
+  })
+
+  function headerNav(wrapper) {
+    return wrapper.findComponent({ name: 'HeaderNav' })
+  }
+
+  it('draws no floating corner opener on a narrow viewport any more', async () => {
+    useMinWidth(1200).value = false
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(wrapper.find('.corner-btn--left').exists()).toBe(false)
+    expect(wrapper.find('[data-icon="tabler:menu-2"]').exists()).toBe(false)
+  })
+
+  it('asks the header for the toggle on a narrow viewport, on the existing showSidebarBtn condition', async () => {
+    useMinWidth(1200).value = false
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(true)
+  })
+
+  it('does not ask for it on a wide viewport, where the sidebar has a column of its own', async () => {
+    useMinWidth(1200).value = true
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(false)
+  })
+
+  it('does not ask for it when the site has no sidebar at all', async () => {
+    useMinWidth(1200).value = false
+
+    const { wrapper, siteStore } = await mountLayout('/')
+    siteStore.showSideNav = false
+    await wrapper.vm.$nextTick()
+
+    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(false)
+  })
+
+  it("opens the overlaying sidebar through the header's openSidebar emit, and stands the toggle down while it is open", async () => {
+    useMinWidth(1200).value = false
+
+    const { wrapper } = await mountLayout('/')
+    const drawer = wrapper.findComponent({ name: 'WDrawer' })
+    expect(drawer.props('modelValue')).toBe(false)
+
+    headerNav(wrapper).vm.$emit('openSidebar')
+    await wrapper.vm.$nextTick()
+
+    expect(drawer.props('modelValue')).toBe(true)
+    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(false)
+
+    // -> The scrim is what closes it; the toggle comes back once it has
+    drawer.vm.$emit('update:modelValue', false)
+    await wrapper.vm.$nextTick()
+
+    expect(drawer.props('modelValue')).toBe(false)
+    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(true)
+  })
+})

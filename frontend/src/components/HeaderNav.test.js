@@ -255,3 +255,48 @@ describe('HeaderNav logo button hover target (OpenProject #2610)', () => {
     expect(findHomeButton(wrapper).find('img').attributes('style')).toContain('34px')
   })
 })
+
+/**
+ * OpenProject #2904/#2928: on a narrow viewport the sidebar's opener is an inline toggle at the
+ * head of this bar -- ahead of the logo, pushing the wordmark right -- rather than the floating
+ * bottom-left corner disc `MainLayout` used to draw. `HeaderNav` stays content-only (it is also
+ * mounted by `pages/Search.vue`, which has no sidebar), so the layout decides WHEN the toggle shows
+ * through the `showSidebarToggle` prop (its existing `showSidebarBtn` breakpoint condition,
+ * unchanged) and answers the click through the `openSidebar` emit.
+ */
+describe('HeaderNav inline sidebar toggle (OpenProject #2928)', () => {
+  function findToggle(wrapper) {
+    return wrapper.find('[aria-label="common.sidebar.mainMenu"]')
+  }
+
+  it('renders no toggle by default -- a header with no sidebar to open (Search.vue) never shows one', async () => {
+    const { wrapper } = await mountHeaderNav()
+
+    expect(findToggle(wrapper).exists()).toBe(false)
+  })
+
+  it('renders the toggle on the header-nav-btn band, ahead of the logo, when asked to', async () => {
+    const { wrapper } = await mountHeaderNav()
+    await wrapper.setProps({ showSidebarToggle: true })
+
+    const toggle = findToggle(wrapper)
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.classes()).toContain('header-nav-btn')
+    expect(toggle.find('[data-icon="tabler:menu-2"]').exists()).toBe(true)
+
+    // -> Ahead of the logo in document order, so the wordmark is what gets pushed right
+    const homeButton = wrapper.find('[aria-label="common.header.home"]')
+    expect(
+      toggle.element.compareDocumentPosition(homeButton.element) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it('emits openSidebar on click, leaving the opening itself to the layout', async () => {
+    const { wrapper } = await mountHeaderNav()
+    await wrapper.setProps({ showSidebarToggle: true })
+
+    await findToggle(wrapper).trigger('click')
+
+    expect(wrapper.emitted('openSidebar')).toHaveLength(1)
+  })
+})

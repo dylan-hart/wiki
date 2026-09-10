@@ -42,7 +42,9 @@ describe('print stylesheet hides only chrome classes that still exist', () => {
   const hiddenClassesToSources = {
     '.w-header': '../components/shared/WHeader.vue',
     '.w-drawer': '../components/shared/WDrawer.vue',
-    '.corner-btn': '../layouts/MainLayout.vue',
+    // -> `MainLayout`'s own corner button moved inline into the header bar (OpenProject #2928);
+    //    the page view's TOC-panel opener (and `AdminLayout`'s sidebar opener) still wear the class
+    '.corner-btn': '../pages/Index.vue',
     '.page-breadcrumbs': '../pages/Index.vue',
     '.page-header-actions': '../components/PageHeader.vue',
     '.page-sidebar': '../pages/Index.vue',

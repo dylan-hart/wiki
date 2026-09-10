@@ -62,12 +62,10 @@ describe('frontend/src carries no unjustified physical left-*/right-* positionin
       'toast stack centered on the viewport (left-1/2 paired with a physical -translate-x-1/2) — see OpenProject #1590',
     'components/shared/WRange.vue':
       'handle label centered under its handle (left-1/2 paired with a physical -translate-x-1/2) — see OpenProject #1590',
-    'layouts/MainLayout.vue':
-      'sidebar-opener corner button, paired with the TOC-panel opener’s corner below 750px (OpenProject #2894 retired the wider-band WPageScroller it used to also pair with) — see OpenProject #1590',
     'layouts/AdminLayout.vue':
-      'sidebar-opener corner button, matching MainLayout’s — see OpenProject #1590',
+      'sidebar-opener corner button (MainLayout’s own moved inline into the header bar, OpenProject #2928) — see OpenProject #1590',
     'pages/Index.vue':
-      'table-of-contents panel opener, paired with the scroll-to-top corner — see OpenProject #1590'
+      'table-of-contents panel opener in a fixed screen corner (OpenProject #2894 retired the scroll-to-top disc and #2928 the sidebar opener it used to pair with) — see OpenProject #1590'
   }
 
   // -> A bare Tailwind position utility: left-/right- followed by a size token (digit, fraction

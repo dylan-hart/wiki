@@ -392,10 +392,10 @@
     <!--
       What opens that panel, in the bottom-right corner. `MainLayout`'s own scroll-to-top corner button
       used to occupy the same corner at 750px and up before OpenProject #2894 retired it in favour of
-      the sidebar's own "Top" cell -- this is now the corner's only occupant, and only below 750px. Same
-      position and the same `.corner-btn` shape (declared in `MainLayout`, which is always mounted above
-      this view), so a reader who has seen the sidebar's hamburger opener in the opposite corner
-      recognises this as the same kind of control.
+      the sidebar's own "Top" cell -- this is now the corner's only occupant, and only below 750px. The
+      `.corner-btn` shape is `css/_base.scss`'s, shared with `AdminLayout`'s sidebar opener; the
+      sidebar opener `MainLayout` used to draw in the opposite corner moved inline into the header bar
+      (OpenProject #2928), so this is the only fixed corner button left in the page view.
 
       Not gated on having scrolled, as scroll-to-top is: the contents are how a reader decides where to go
       in a long page, and that is most useful before they have gone anywhere.
