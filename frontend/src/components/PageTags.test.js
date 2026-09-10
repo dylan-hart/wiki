@@ -57,4 +57,21 @@ describe('PageTags.vue', () => {
     expect(pageStore.tags).toEqual(['procedure'])
     expect(router.currentRoute.value.path).toBe('/')
   })
+
+  /**
+   * Regression coverage for OpenProject #2966: WChip's own inline `font-size` style always beats
+   * `.page-tag`'s external `font-size: 12px` rule, regardless of source order or specificity. Left
+   * on its default `size` ('md'), that inline style rendered the chip at 14px instead of 12px. The
+   * fix passes `size="sm"` explicitly so WChip's inline style itself produces 12px.
+   */
+  it('renders the tag chip at 12px via an explicit size prop, not the .page-tag CSS rule', async () => {
+    const { wrapper } = await mountPageTags({ edit: false })
+
+    const chips = wrapper.findAllComponents({ name: 'WChip' })
+    expect(chips.length).toBeGreaterThan(0)
+    for (const chip of chips) {
+      expect(chip.props('size')).toBe('sm')
+      expect(chip.find('.w-chip').attributes('style')).toContain('font-size: 12px')
+    }
+  })
 })
