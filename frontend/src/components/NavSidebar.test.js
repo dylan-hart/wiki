@@ -1101,19 +1101,28 @@ describe('NavSidebar', () => {
    * offset -- but by reaching BACKWARD from the row's own edge, which anchored the trail at the
    * row's own (icon-side) position and grew it toward the navbar edge as depth increased: the
    * wrong direction (OpenProject #2951). #2951's own fix dropped the reach-back arithmetic and sat
-   * the box at a FIXED `inset-inline-start: 0`, but #2996 corrects that flat value: Cobalt's rows
-   * already carry `margin-inline: var(--nav-item-inset)` (10px in Cobalt, 0 in Ledger) OUTSIDE this
-   * box, so a flat offset would overshoot Cobalt's true distance from the navbar edge. The offset
-   * is now derived from that SAME token (`calc(16px - var(--nav-item-inset, 0px))`), landing both
-   * aesthetics at the same true 16px from the edge, and `width` is narrowed by a further 4px (icon-
-   * side gap tightening), clamped to never go negative at depth 0.
+   * the box at a FIXED `inset-inline-start: 0`. #2996 then tried to correct that flat value on the
+   * theory that Cobalt's `margin-inline: var(--nav-item-inset)` (10px in Cobalt, 0 in Ledger) sits
+   * OUTSIDE this box and needed compensating for -- `calc(16px - var(--nav-item-inset, 0px))` --
+   * but `inset-inline-start` is resolved against `.w-item`'s own PADDING box, which never includes
+   * that element's `margin` in the first place: the formula's Cobalt result (6px) was only
+   * correct because it happened to add up right against Cobalt's real 10px margin, while its
+   * Ledger result (a full 16px, since `--nav-item-inset` defaults to 0) landed the dot trail at
+   * the EXACT position of the icon itself (`padding-inline-start` above is also 16px there),
+   * leaving Ledger's dots starting flush on the icon with zero gap (OpenProject #3031). The fix is
+   * a flat, aesthetic-independent `6px`, with `--nav-item-inset` dropped from this calculation
+   * entirely (it stays in play for `margin-inline` above): added to Cobalt's own 10px row margin
+   * this reproduces Cobalt's already-correct 16px true offset unchanged, and alone it gives Ledger
+   * the same 10px gap before its icon Cobalt has always had. `width` is unaffected by this fix and
+   * still narrowed by a further 4px (icon-side gap tightening), clamped to never go negative at
+   * depth 0.
    *
    * Asserted on the source rather than rendered, for the same happy-dom-cannot-resolve-logical-
    * properties/no-real-layout reason the tests around this one give -- but the actual regression
    * this WP fixes (the per-aesthetic offset, and which end grows with depth) is a real-layout
    * question, covered by the real behavior test right after this one in an actual browser instead.
    */
-  it('derives the depth-cue dot offset from --nav-item-inset and tightens its reach with --nav-depth', () => {
+  it('anchors the depth-cue dot at a flat 6px inset (OpenProject #3031) and tightens its reach with --nav-depth', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
@@ -1129,11 +1138,14 @@ describe('NavSidebar', () => {
     expect(styleBlock.slice(itemRuleStart, itemRuleStart + 200)).toMatch(/position:\s*relative/)
     expect(itemRule).toMatch(/opacity:\s*0;/)
     expect(itemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
-    // -> Derived from the SAME --nav-item-inset token the row's own margin uses (OpenProject
-    //    #2996), not a flat constant that would overshoot Cobalt.
-    expect(itemRule).toMatch(
-      /inset-inline-start:\s*calc\(16px\s*-\s*var\(--nav-item-inset,\s*0px\)\)/
-    )
+    // -> A flat, aesthetic-independent constant (OpenProject #3031): `inset-inline-start` is
+    //    resolved against `.w-item`'s own padding box, which never sees that element's own
+    //    `margin-inline: var(--nav-item-inset)` -- so a formula built on that token (#2996) only
+    //    ever compensated for Cobalt's margin by coincidence, while leaving Ledger's dot trail
+    //    starting flush on the icon. `--nav-item-inset` no longer appears in this calculation at
+    //    all (it stays in use elsewhere, e.g. `margin-inline` above).
+    expect(itemRule).toMatch(/inset-inline-start:\s*6px;/)
+    expect(itemRule).not.toMatch(/--nav-item-inset/)
     // -> Width scales with depth, narrowed by 4px (icon-side gap tightening) and clamped so a
     //    depth-0 row never gets a negative width.
     expect(itemRule).toMatch(
@@ -1146,15 +1158,15 @@ describe('NavSidebar', () => {
   })
 
   /**
-   * OpenProject #2906/#2932/#2996, real-behavior regression: the tests above can only read the
-   * source text, not confirm either bug is actually gone -- `:has(:hover)` matching every ancestor
-   * of a hovered descendant, and a reach-back box whose per-aesthetic offset or per-lane width is
-   * wrong, are both exactly the kind of thing neither `jsdom` nor `happy-dom` can be trusted to
-   * emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom can't catch
-   * layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/`WItem` markup --
-   * not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which has no `.w-item`
-   * class, `depth`-derived inline style, or computed styles of its own to hover at all -- three
-   * folders deep, in a real headless Chromium page, and hovers each row in turn.
+   * OpenProject #2906/#2932/#2996/#3031, real-behavior regression: the tests above can only read
+   * the source text, not confirm either bug is actually gone -- `:has(:hover)` matching every
+   * ancestor of a hovered descendant, and a reach-back box whose per-aesthetic offset or per-lane
+   * width is wrong, are both exactly the kind of thing neither `jsdom` nor `happy-dom` can be
+   * trusted to emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom
+   * can't catch layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/
+   * `WItem` markup -- not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which
+   * has no `.w-item` class, `depth`-derived inline style, or computed styles of its own to hover at
+   * all -- three folders deep, in a real headless Chromium page, and hovers each row in turn.
    *
    * The tree nests one level deeper than #2906's own original fixture (four levels, not three) so
    * the row actually asserted against #2932's own worked example (a folder 3 levels deep) is the
@@ -1162,7 +1174,7 @@ describe('NavSidebar', () => {
    * `top` at depth 0 with no ancestor lane of its own to light at all.
    */
   describe(
-    'depth-cue dot hover scoping, anchor point & depth scaling — real behavior (OpenProject #2906, #2932, #2951, #2996)',
+    'depth-cue dot hover scoping, anchor point & depth scaling — real behavior (OpenProject #2906, #2932, #2951, #2996, #3031)',
     { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
     () => {
       const nestedTree = [
@@ -1255,15 +1267,18 @@ describe('NavSidebar', () => {
           // -> OpenProject #2951's own regression: the trail's NEAR edge (`left`, resolved off
           //    `inset-inline-start`) is FIXED -- the same absolute position -- at every depth, not a
           //    depth-dependent negative reach-back. It is the box's `width` (above) that grows
-          //    toward the icon as depth increases, never this. #2996 corrects the fixed value
-          //    itself from a bare `0px` (the row's own left edge) to `16px` (`calc(16px -
-          //    var(--nav-item-inset, 0px))` with no `--nav-item-inset` set in this test's compiled
-          //    CSS, i.e. Ledger's own default of 0), which is the true distance from the navbar edge
-          //    this WP calibrates for.
-          expect((await dotStyle(topHeader)).left).toBe('16px')
-          expect((await dotStyle(middleHeader)).left).toBe('16px')
-          expect((await dotStyle(deepHeader)).left).toBe('16px')
-          expect((await dotStyle(leaf)).left).toBe('16px')
+          //    toward the icon as depth increases, never this. #2996 tried correcting the fixed
+          //    value from a bare `0px` (the row's own left edge) with a formula involving
+          //    `--nav-item-inset`, but that token is invisible to `inset-inline-start` here (it
+          //    lives on the row's own `margin`, outside this box) -- with no `--nav-item-inset` set
+          //    in this test's compiled CSS (Ledger's own default of 0), #2996's formula resolved to
+          //    a full `16px`, the EXACT position of the icon itself, leaving no gap at all. #3031's
+          //    fix is a flat `6px`, giving Ledger the same 10px gap before its icon Cobalt already
+          //    had (asserted for Cobalt in the sibling test right below this describe).
+          expect((await dotStyle(topHeader)).left).toBe('6px')
+          expect((await dotStyle(middleHeader)).left).toBe('6px')
+          expect((await dotStyle(deepHeader)).left).toBe('6px')
+          expect((await dotStyle(leaf)).left).toBe('6px')
 
           // -> The structural half of the same fix: every row spans the navbar's full width at
           //    every depth now (no more ancestor `.w-expansion-item__content` border narrowing the
@@ -1307,17 +1322,19 @@ describe('NavSidebar', () => {
        * OpenProject #2951's second reported symptom: under Cobalt (`--nav-item-inset: 10px`, the
        * row gutter `Page View 3x - Cobalt` insets every row by), the dots used to sit flush against
        * -- or past -- the column edge. #2951's own fix (a fixed `inset-inline-start: 0` on the
-       * row's own already-margin-inset box) got the row-gutter breathing room back, but #2996's
-       * later calibration correction (2026-09-10) found that fix still landed Cobalt short of the
-       * SAME true distance from the navbar edge Ledger gets: Cobalt's dot sat only 10px from the
-       * edge (the row's own margin alone) while Ledger's sat the full 16px this WP targets. The
-       * offset is now `calc(16px - var(--nav-item-inset, 0px))` -- 6px in Cobalt -- which, ADDED to
-       * Cobalt's own 10px row margin, lands both aesthetics at the identical true 16px. The first
-       * two assertions below are the row's own rendered gap from its container's edge (unaffected by
-       * this WP -- the row's own `margin-inline` is unchanged), asserted IDENTICAL at depth 0 and
-       * depth 3 as before; the assertions after that are the actual #2996 acceptance criterion --
-       * the dot's own absolute left edge, which must land at the same true 16px in Cobalt as the
-       * plain/Ledger-like context above already asserts.
+       * row's own already-margin-inset box) got the row-gutter breathing room back, and Cobalt's
+       * true distance from the navbar edge (row margin + dot offset) has been the correct 16px ever
+       * since -- first by #2996's `calc(16px - var(--nav-item-inset, 0px))` resolving to 6px there
+       * (10 + 6 = 16), and now, after #3031 replaced that formula with a flat `6px` because it never
+       * actually saw the row's own margin to compensate for, by the exact same arithmetic landing on
+       * the exact same number: Cobalt's numeric result here is UNCHANGED by #3031, which is why this
+       * test's own assertions don't move even though #3031 does change Ledger's (asserted in the
+       * sibling test above this one). The first two assertions below are the row's own rendered gap
+       * from its container's edge (unaffected by any of this -- the row's own `margin-inline` is
+       * untouched), asserted IDENTICAL at depth 0 and depth 3; the assertions after that are the
+       * dot's own absolute left edge, which lands at the same true 16px in Cobalt as Ledger's own
+       * icon position (`padding-inline-start` above), giving both aesthetics the same 10px gap
+       * before their respective icons.
        */
       it("gives Cobalt's row gutter the same edge breathing room at every depth", async () => {
         const wrapper = await mountRealTree(nestedTree)
@@ -1369,11 +1386,11 @@ describe('NavSidebar', () => {
 
           // -> The dot's own absolute left edge (row's own rendered left + the pseudo-element's
           //    `left`, since `.w-item` is the `position: relative` anchor) from the container's
-          //    edge -- the true, aesthetic-independent distance OpenProject #2996 calibrates for.
-          //    Must equal the SAME 16px the plain/Ledger-like context asserts above, even though
-          //    Cobalt's own `inset-inline-start` value (6px) differs from Ledger's (16px): the
-          //    other 10px comes from Cobalt's row margin, which this read captures via the row's
-          //    own `getBoundingClientRect()`.
+          //    edge. `inset-inline-start` itself is the SAME flat `6px` here as in the plain/
+          //    Ledger-like context above (OpenProject #3031 made it aesthetic-independent) -- the
+          //    16px true distance below comes entirely from Cobalt's own 10px row margin ADDED to
+          //    that flat 6px, which this read captures via the row's own `getBoundingClientRect()`
+          //    rather than reading `inset-inline-start` alone.
           const dotAbsoluteLeft = async (locator) => {
             const rowLeft = await locator.evaluate((el) => el.getBoundingClientRect().left)
             const dotOffset = await locator.evaluate((el) =>
