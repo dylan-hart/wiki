@@ -120,5 +120,36 @@ describe('block-infobox', () => {
     expect(rule).not.toContain('var(--block-border)')
   })
 
+  /*
+    OpenProject #2944: the image well now renders unconditionally (a placeholder glyph in place of
+    the picture), not only when `image` is set.
+  */
+  it('shows a centered placeholder glyph in the well when there is no image', async () => {
+    const el = await mountInfobox('City: Montreal')
+
+    const well = el.shadowRoot.querySelector('figure .well')
+    expect(well).not.toBeNull()
+    expect(well.querySelector('img')).toBeNull()
+    const icon = well.querySelector('svg[data-icon="tabler:photo"]')
+    expect(icon).not.toBeNull()
+    expect(icon.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('shows the image inside the well, with no placeholder glyph, when image is set', async () => {
+    const el = await mountBlock('block-infobox', {
+      pre: 'City: Montreal',
+      props: { image: 'https://example.com/photo.jpg', imageCaption: 'Skyline' }
+    })
+
+    const well = el.shadowRoot.querySelector('figure .well')
+    expect(well).not.toBeNull()
+    expect(well.querySelector('svg[data-icon="tabler:photo"]')).toBeNull()
+    const img = well.querySelector('img')
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('src')).toBe('https://example.com/photo.jpg')
+    expect(img.getAttribute('alt')).toBe('Skyline')
+    expect(el.shadowRoot.querySelector('figcaption').textContent).toBe('Skyline')
+  })
+
   describeDarkMode(() => mountInfobox('City: Montreal'))
 })
