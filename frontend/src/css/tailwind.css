@@ -905,14 +905,26 @@ body.body--cobalt {
   --color-footer-link: #ff7a84;
   /*
     The bar's own height, published for `WDrawer.vue`'s bottom padding to consume (OpenProject #3018)
-    -- see the bare `:root` declaration above for why this exists at all. A conservative estimate, not
-    a measurement: `FooterNav.vue`'s `.site-footer` is `padding: 8px 16px` around up to two lines of
-    11px Roboto Mono (the colophon line, plus an optional `siteStore.footerExtra` line), and 64px
-    comfortably covers that at a typical width. A very long, unbroken `company`/`footerExtra` value can
-    still wrap past this on a narrow phone (`overflow-wrap: anywhere` lets it) -- OpenProject #3019's
-    cross-viewport pass is where that gets caught and this number revisited if it does.
+    -- see the bare `:root` declaration above for why this exists at all. Revisited by OpenProject
+    #3019's cross-viewport pass, exactly as flagged here when #3017 first landed: 64px was a
+    conservative ESTIMATE, not a measurement, and a real-Chromium measurement of the actual two-line
+    fixture both #3017's and #3018's own suites use (`common.footerCopyright` + a `siteStore.footerExtra`
+    line, `Index.footerCobalt.test.js`) found it wrapping to THREE rendered lines below ~382px --
+    `.site-footer`'s `padding: 8px 16px` around three lines of 11px Roboto Mono measures 83px there,
+    against this token's 64px, an 19px shortfall that left the two drawers' (and the TOC-open corner
+    button's, OpenProject #3019) own bottom edge painted UNDER the footer bar on an actual narrow
+    phone. 96px is a flat, width-independent bump with the same "conservative estimate" character as
+    the original 64px, chosen to clear that measured 83px worst case with margin rather than adding a
+    second content-length-dependent breakpoint of its own (the wrap point is a function of the site's
+    own `company`/`contentLicense`/`footerExtra` TEXT, not a stable viewport width, so a breakpoint
+    tuned to this one fixture's wrap point would just be a differently-fragile guess). This remains an
+    estimate, still: an unusually long, unbroken `company`/`footerExtra` value can still wrap past even
+    96px on a narrow phone (`overflow-wrap: anywhere` lets it keep wrapping with no cap) -- true
+    pixel-exact clearance would need the footer's real rendered height synced live (a `ResizeObserver`
+    writing this custom property, say), which is a real feature past what a verification pass should
+    take on; flagged here again rather than re-hidden behind a number that merely looks precise.
   */
-  --footer-bar-height: 64px;
+  --footer-bar-height: 96px;
   --color-inner-rule: #e6edff;
   --color-heading-h2: #1f4fd6;
   --color-heading-rule: transparent;
