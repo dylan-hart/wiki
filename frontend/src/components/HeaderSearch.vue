@@ -219,18 +219,40 @@
             </w-chip>
           </div>
         </template>
-        <div class="searchpanel-header">{{ t('common.header.searchOperators') }}</div>
-        <div class="searchpanel-tip">
-          <code>!foo</code> or <code>-bar</code> to exclude "foo" and "bar".
-        </div>
-        <div class="searchpanel-tip">
-          <code>bana*</code> for to match any term starting with "bana" (e.g. banana).
-        </div>
-        <div class="searchpanel-tip">
-          <code>foo,bar</code> or <code>foo|bar</code> to search for "foo" OR "bar".
-        </div>
-        <div class="searchpanel-tip">
-          <code>"foo bar"</code> to match exactly the phrase "foo bar".
+        <!--
+          Collapsed by default every time the panel opens (the watcher below resets the ref once the
+          panel closes) -- clicking the header is what reveals the four tip rows. `@mousedown.prevent`
+          for the same reason as every other clickable control in this panel above: without it, the
+          field blurs on press before the click fires, and `searchPanelIsShown` closing the panel out
+          from under it eats the click.
+        -->
+        <button
+          type="button"
+          class="searchpanel-header searchpanel-operators-toggle"
+          :aria-expanded="String(searchOperatorsExpanded)"
+          :aria-controls="searchOperatorsId"
+          @mousedown.prevent
+          @click="searchOperatorsExpanded = !searchOperatorsExpanded">
+          <span>{{ t('common.header.searchOperators') }}</span>
+          <w-space />
+          <w-icon
+            name="tabler:chevron-down"
+            class="searchpanel-operators-arrow"
+            :class="{ 'rotate-180': searchOperatorsExpanded }" />
+        </button>
+        <div v-if="searchOperatorsExpanded" :id="searchOperatorsId">
+          <div class="searchpanel-tip">
+            <code>!foo</code> or <code>-bar</code> to exclude "foo" and "bar".
+          </div>
+          <div class="searchpanel-tip">
+            <code>bana*</code> for to match any term starting with "bana" (e.g. banana).
+          </div>
+          <div class="searchpanel-tip">
+            <code>foo,bar</code> or <code>foo|bar</code> to search for "foo" OR "bar".
+          </div>
+          <div class="searchpanel-tip">
+            <code>"foo bar"</code> to match exactly the phrase "foo bar".
+          </div>
         </div>
       </div>
     </div>
@@ -239,7 +261,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useSiteStore } from '@/stores/site'
@@ -326,6 +348,15 @@ const searchPanel = ref(null)
 const searchField = ref(null)
 
 /**
+ * Whether the "Search Operators" hints are expanded -- collapsed by default every time the panel
+ * opens (OpenProject #2995), with no persisted state: the watcher below resets this back to `false`
+ * whenever the panel closes, so a reader who expanded it once does not find it still open on the
+ * next open. Popular Tags, above it, is unaffected and stays always visible.
+ */
+const searchOperatorsExpanded = ref(false)
+const searchOperatorsId = useId()
+
+/**
  * Bumped on every fetch that is started or invalidated. A response is only applied if this still
  * matches the token it was issued under -- otherwise a slower, earlier request landing after a
  * faster, later one would clobber the fresher results with stale ones.
@@ -381,6 +412,9 @@ const previewResultRows = computed(() => state.previewResults.slice(0, PREVIEW_R
 watch(searchPanelIsShown, (newValue) => {
   if (newValue) {
     siteStore.fetchTags()
+  } else {
+    // -> Collapsed by default on every open (OpenProject #2995) -- no state to persist.
+    searchOperatorsExpanded.value = false
   }
 })
 
@@ -898,6 +932,26 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   &-tip {
     + .searchpanel-tip {
       margin-top: 0.5rem;
+    }
+  }
+
+  /*
+    The "Search Operators" header row is a `<button>` (Preflight already strips its border/background/
+    padding), not a `<div>`, so it needs `width: 100%` -- a button shrink-wraps its content by default,
+    where the div it replaces was block-level -- plus its own cursor, since `.searchpanel-header`
+    itself carries none.
+  */
+  &-operators-toggle {
+    width: 100%;
+    cursor: pointer;
+    text-align: start;
+  }
+
+  &-operators-arrow {
+    transition: transform 0.3s var(--ease-standard);
+
+    @media (prefers-reduced-motion: reduce) {
+      transition-duration: 0.01ms;
     }
   }
 

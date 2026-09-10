@@ -286,3 +286,60 @@ describe('HeaderSearch autofill', () => {
     expect(wrapper.find('.header-search-input').attributes('autocomplete')).toBe('off')
   })
 })
+
+/**
+ * OpenProject #2995: the "Search Operators" hints used to always render whenever the panel was
+ * open. It is now collapsed by default, behind a header the reader clicks to expand -- with no
+ * persisted state, so it starts collapsed again on every fresh open. Popular Tags, directly above
+ * it in the panel, is unaffected and stays unconditionally visible.
+ */
+describe('HeaderSearch "Search Operators" hints (OpenProject #2995)', () => {
+  it('starts collapsed: no tip rows render, and the toggle reports aria-expanded="false"', async () => {
+    const wrapper = await mountWithTags([])
+
+    expect(wrapper.findAll('.searchpanel-tip')).toHaveLength(0)
+    expect(wrapper.find('.searchpanel-operators-toggle').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('expands to show all four tip rows on click, and reports aria-expanded="true"', async () => {
+    const wrapper = await mountWithTags([])
+
+    await wrapper.find('.searchpanel-operators-toggle').trigger('click')
+
+    expect(wrapper.findAll('.searchpanel-tip')).toHaveLength(4)
+    expect(wrapper.find('.searchpanel-operators-toggle').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('collapses again on a second click', async () => {
+    const wrapper = await mountWithTags([])
+
+    await wrapper.find('.searchpanel-operators-toggle').trigger('click')
+    await wrapper.find('.searchpanel-operators-toggle').trigger('click')
+
+    expect(wrapper.findAll('.searchpanel-tip')).toHaveLength(0)
+    expect(wrapper.find('.searchpanel-operators-toggle').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('does not persist an expanded state across a close-then-reopen of the panel', async () => {
+    const wrapper = await mountWithTags([])
+
+    await wrapper.find('.searchpanel-operators-toggle').trigger('click')
+    expect(wrapper.findAll('.searchpanel-tip')).toHaveLength(4)
+
+    // -> Blurring the field (with nothing else in the panel receiving focus) closes the panel.
+    await wrapper.find('.header-search-input').trigger('blur')
+    expect(wrapper.find('.searchpanel').exists()).toBe(false)
+
+    await wrapper.find('.header-search-input').trigger('focus')
+
+    expect(wrapper.find('.searchpanel').exists()).toBe(true)
+    expect(wrapper.findAll('.searchpanel-tip')).toHaveLength(0)
+    expect(wrapper.find('.searchpanel-operators-toggle').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('leaves Popular Tags always visible, unaffected by the collapsed operators state', async () => {
+    const wrapper = await mountWithTags([{ tag: 'foo', usageCount: 1 }])
+
+    expect(wrapper.find('.w-chip').exists()).toBe(true)
+  })
+})
