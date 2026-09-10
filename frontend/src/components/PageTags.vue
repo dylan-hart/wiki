@@ -13,6 +13,7 @@
       -->
       <w-chip
         class="page-tag"
+        size="sm"
         dense
         :clickable="!props.edit"
         :removable="props.edit"
