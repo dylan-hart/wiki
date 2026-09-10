@@ -969,6 +969,22 @@ body.body--cobalt .editor-markdown-toolbar .w-btn {
   link accent treatments, filled-toast darkening, the info toast, and the callout/info banner. Left
   undeclared rather than invented, since a token nothing reads is the same drift risk this block
   exists to prevent.
+
+  Hairline/border re-derivation (OpenProject #2912): every hairline and border token below used to
+  be a flat white-alpha overlay (`rgb(255 255 255 / 0.0N)`). Composited over this block's blue-black
+  surfaces, a hue-less white overlay desaturates toward gray rather than reading as a brightened
+  version of the surface it borders -- exactly Dylan's own hands-on report. Each is now a solid hex
+  in the SAME ~232-degree hue family as the surface it borders, lightened well above that surface and
+  kept well below the accent/link brightness (`--color-accent-strong: #7fa0ff`, `--color-heading-h2:
+  #8fb0ff`) so a hairline is never mistaken for a link: `--color-hairline-dark`/`--color-hairline`
+  and `--color-border-dark` (the stronger hover/focus variant) are both derived from the card surface
+  `--color-dark-3` (`#141c4f`); `--color-sidebar-hairline` and `--color-admin-sidebar-hairline` are
+  both derived from the sidebar surface `--color-dark-3-5` (`#0e1540`) -- the same derivation for
+  both, since both border the same surface, with the admin token given its own explicit value here
+  rather than left to inherit Ledger dark's unrelated `#2a3040`. `--block-border`/`--tabs-border`
+  keep their own, further block below, and keep the SAME intentional strength gap above the card
+  hairline this comment's own point 1 already documents -- just hue-derived now instead of alpha-
+  derived.
 */
 body.body--cobalt.body--dark {
   /* Ledger dark-suffixed / ramp tokens most existing dark: utilities already read */
@@ -979,8 +995,8 @@ body.body--cobalt.body--dark {
   --color-dark-3-5-text: #c9d6ff;
   --color-dark-4: #070b22;
   --color-dark-5: #0a0f2c;
-  --color-hairline-dark: rgb(255 255 255 / 0.08);
-  --color-border-dark: rgb(255 255 255 / 0.14);
+  --color-hairline-dark: #2e3d9e;
+  --color-border-dark: #3b4fce;
   --color-disabled-dark: #5a6699;
   --color-text-dark: #e8ecff;
   --color-text-secondary-dark: #a7b3ea;
@@ -996,7 +1012,7 @@ body.body--cobalt.body--dark {
   --color-paper: #0a0f2c;
   --color-tint: #070b22;
   --color-tint-alt: #141c4f;
-  --color-hairline: rgb(255 255 255 / 0.08);
+  --color-hairline: #2e3d9e;
   --color-text-body: #e8ecff;
   --color-text-secondary: #a7b3ea;
   --color-text-caption: #8b98d6;
@@ -1004,7 +1020,8 @@ body.body--cobalt.body--dark {
   --color-accent-strong: #7fa0ff;
   --color-heading-h2: #8fb0ff;
   --color-inner-rule: rgb(255 255 255 / 0.06);
-  --color-sidebar-hairline: rgb(255 255 255 / 0.06);
+  --color-sidebar-hairline: #2a3684;
+  --color-admin-sidebar-hairline: #2a3684;
   --color-tag-chip-bg: rgb(61 109 247 / 0.22);
   --color-tag-chip-text: #a3bbff;
   --color-tag-chip-accent-bg: rgb(255 77 90 / 0.16);
@@ -1123,6 +1140,12 @@ body.body--cobalt.body--dark {
   compiled block and reading its computed styles in headless Chromium: `.tabs`'s border resolved to
   the correct `#2a3040`, while `.strip`'s bottom rule and each `.tab`'s right-hand rule resolved to
   the light `#dbe1ec` -- a pale hairline that reads as white against a dark tab strip/panel.
+
+  `--block-error-border` is restated here for the identical reason -- OpenProject #2905, found
+  while fixing #2886 above. It holds the literal `1px dashed var(--block-accent-fill)`; left
+  undeclared here it would stay assigned only at `:root`, so its nested `var(--block-accent-fill)`
+  would keep resolving against `<html>`'s own Ledger-light fill instead of the dark one this block
+  restates just below.
 */
 body.body--dark {
   --block-border: var(--color-hairline-dark);
@@ -1133,6 +1156,7 @@ body.body--dark {
   /* -> An untexted FILL lightens in Ledger dark, same as `--w-input-ring-error` above */
   --block-accent-fill: var(--color-accent-dark);
   --block-accent-fg: var(--color-accent-dark);
+  --block-error-border: 1px dashed var(--block-accent-fill);
 
   --tabs-border: #2a3040;
   --tabs-strip-rule: 1px solid var(--tabs-border);
@@ -1184,21 +1208,29 @@ body.body--cobalt {
 /*
   Cobalt dark. `--block-border` and `--block-tint-bg` need their own value here because the generic
   tokens they would otherwise fall through to answer a DIFFERENT question at this specificity --
-  `--color-hairline-dark` is Cobalt dark's border-on-a-dark-card value (`rgb(255 255 255 / 0.08)`),
-  one hundredth lighter than blocks.md's own `rgba(255,255,255,.1)`; `--color-dark-2` is Cobalt
+  `--color-hairline-dark` is Cobalt dark's border-on-a-dark-card value; `--color-dark-2` is Cobalt
   dark's dialog-header rung (`#1a43bd`), not its tint. `--block-accent-fill` is re-pointed back at
   `--color-accent-fill` for the same reason `.w-input-control`'s `--w-input-ring-error` is
   (OpenProject #2817, see its own rule further down): the generic `body.body--dark` rule above
   lightens every FILL to `--color-accent-dark`, but Cobalt's own fill stays bright in both its light
   and dark forms, and `--color-accent-fill` isn't restated in this block -- so re-pointing at it
   here resolves back to Cobalt light's `#ff4d5a`.
+
+  `--block-border`/`--tabs-border` (OpenProject #2912): re-derived from the same card hue as
+  `--color-hairline-dark` above (`#141c4f`'s ~232-degree blue), lightened a step further than it --
+  the same intentional strength gap this pair has always kept over the card hairline (previously
+  `rgba(255,255,255,.1)` vs. `--color-hairline-dark`'s `rgba(255,255,255,.08)`), just hue-derived
+  now instead of alpha-derived so it reads as a brighter blue rather than gray.
 */
 body.body--cobalt.body--dark {
-  --block-border: rgb(255 255 255 / 0.1);
+  --block-border: #3143b9;
   --block-tint-bg: var(--color-dark-3-5);
   --block-accent-fill: var(--color-accent-fill);
+  /* -> Same OpenProject #2905 reason as the Ledger-dark block above: restated here because
+        `--block-accent-fill` is restated on this exact selector too. */
+  --block-error-border: 1px dashed var(--block-accent-fill);
 
-  --tabs-border: rgb(255 255 255 / 0.1);
+  --tabs-border: #3143b9;
   --tabs-strip-bg: #0e1540;
   --tabs-inactive-fg: #a7b3ea;
   --tabs-inactive-icon: #8b98d6;

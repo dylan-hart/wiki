@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { MarkdownRenderer } from './markdown.js'
+import { MarkdownRenderer, gatedContentPlaceholder, sanitizeForPreview } from './markdown.js'
 
 /*
   Runs under Vitest, not `node --test` -- see `docs/variances.md` for why, since this file's own
@@ -128,6 +128,51 @@ describe('MarkdownRenderer - multimd-table', () => {
     expect(html).not.toContain('colspan')
     // -> `^^` is left as the literal cell text rather than being read as a rowspan marker
     expect(html).toContain('<td>^^</td>')
+  })
+})
+
+/**
+ * OpenProject #2916: the scroll/frame wrapper `_page-contents.scss` now draws around every rendered
+ * table (the border/radius/corner-marks/shadow live on it, not on `<table>` itself, which is why the
+ * div has to actually exist rather than being left to a `display:block` trick on the table alone).
+ * `table_open`/`table_close` are overridden the same way `link_open` already is, so this covers both
+ * the plain built-in table parser and multimd's richer one, which produce the same core tokens.
+ */
+describe('MarkdownRenderer - table scroll wrapper', () => {
+  it('wraps a plain table in a div.table-wrap', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).toContain('<div class="table-wrap"><table>')
+    expect(html).toMatch(/<\/table>\n?<\/div>/)
+  })
+
+  it('wraps a multimd table (rowspan/colspan) in the same div.table-wrap', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| A                |||', '|------|------|------|', '| B    | C    | D    |', ''].join('\n')
+    )
+
+    expect(html).toContain('<div class="table-wrap"><table>')
+    expect(html).toMatch(/<\/table>\n?<\/div>/)
+  })
+
+  /*
+    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
+    class onto the TABLE token, at parse time -- before this wrapping ever runs at render time -- so
+    it still lands on `<table>` itself, one level inside the new wrapper div, not on the div.
+  */
+  it("keeps an author's markdown-it-attrs class on <table>, inside the wrapper rather than on it", () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
+        '\n'
+      )
+    )
+
+    expect(html).toContain('<div class="table-wrap"><table class="table-leading-col">')
   })
 })
 
@@ -796,5 +841,81 @@ https://example.com/photo-2.jpg
     }
     expect(html).toContain('<block-spoiler label="Reveal" hint="Click to show content">')
     expect(html).toContain('<block-countdown date="2030-01-01T00:00" label="New Year">')
+  })
+})
+
+/*
+ * OpenProject #2911: the editor preview used to run no sanitization pass at all, so an
+ * `<iframe>`/`<script>`/`<style>` showed up regardless of the author's own `write:scripts`/
+ * `write:styles` permissions -- diverging from what the save is actually about to have sanitized
+ * out of it server-side (`backend/helpers/htmlSanitizePolicy.ts`). `gatedContentPlaceholder`'s
+ * markup/wording has no shared import back to the backend's own copy of this function, so this pins
+ * the exact string on the frontend side the same way `htmlSanitizePolicy.test.ts` pins it on the
+ * backend's.
+ */
+describe('gatedContentPlaceholder', () => {
+  it('names the missing permission inside a "caution"-classed admonition', () => {
+    const html = gatedContentPlaceholder('write:scripts')
+
+    expect(html).toBe(
+      '<blockquote class="is-danger"><p class="alert-title">Caution</p>' +
+        '<p>This content requires the write:scripts permission and was not rendered.</p></blockquote>'
+    )
+  })
+})
+
+describe('sanitizeForPreview', () => {
+  it('leaves the HTML untouched when the author holds both scripts and styles', () => {
+    const html = '<iframe src="https://example.com"></iframe><style>body{color:red}</style>'
+
+    expect(sanitizeForPreview(html, { scripts: true, styles: true })).toBe(html)
+  })
+
+  it('replaces an <iframe> with a "write:scripts" callout when scripts is not permitted', () => {
+    const html = '<p>before</p><iframe src="https://example.com"></iframe><p>after</p>'
+
+    const result = sanitizeForPreview(html, { scripts: false, styles: true })
+
+    expect(result).not.toContain('<iframe')
+    expect(result).toContain(gatedContentPlaceholder('write:scripts'))
+    expect(result).toContain('<p>before</p>')
+    expect(result).toContain('<p>after</p>')
+  })
+
+  it('replaces a <script> with the same "write:scripts" callout when scripts is not permitted', () => {
+    const html = '<script>alert(1)</script>'
+
+    const result = sanitizeForPreview(html, { scripts: false, styles: true })
+
+    expect(result).not.toContain('<script')
+    expect(result).not.toContain('alert(1)')
+    expect(result).toContain(gatedContentPlaceholder('write:scripts'))
+  })
+
+  it('replaces a <style> with a "write:styles" callout when styles is not permitted', () => {
+    const html = '<style>body{color:red}</style>'
+
+    const result = sanitizeForPreview(html, { scripts: true, styles: false })
+
+    expect(result).not.toContain('<style')
+    expect(result).toContain(gatedContentPlaceholder('write:styles'))
+  })
+
+  it('leaves an <iframe> a script-permitted author wrote completely intact', () => {
+    const html = '<iframe src="https://example.com" width="400"></iframe>'
+
+    expect(sanitizeForPreview(html, { scripts: true, styles: false })).toContain(
+      '<iframe src="https://example.com" width="400">'
+    )
+  })
+
+  it('does not execute a gated <script> while scanning it for removal', () => {
+    globalThis.__markdownTestSanitizeForPreviewRan = false
+    const html = '<script>globalThis.__markdownTestSanitizeForPreviewRan = true</script>'
+
+    sanitizeForPreview(html, { scripts: false, styles: false })
+
+    expect(globalThis.__markdownTestSanitizeForPreviewRan).toBe(false)
+    delete globalThis.__markdownTestSanitizeForPreviewRan
   })
 })

@@ -163,8 +163,12 @@ describe('_page-contents.scss logical properties (whole file)', () => {
   })
 
   it('swaps the table cell rule to `border-inline-end` so the last logical column suppresses the correct edge', () => {
+    // -> OpenProject #2916 split the single `--content-rule` table border into its own
+    //    `--content-table-col-rule`/`--content-table-rule` pair (see that WP), so the cell rule
+    //    itself moved off `--content-rule` -- the logical-property shape this test guards is
+    //    unchanged either way.
     expect(source).toMatch(
-      /th,\s*td\s*\{[^}]*border-inline-end:\s*1px solid var\(--content-rule\)/s
+      /th,\s*td\s*\{[^}]*border-inline-end:\s*1px solid var\(--content-table-col-rule\)/s
     )
     expect(source).toMatch(/tr\s*>\s*:last-child\s*\{\s*border-inline-end:\s*0;\s*\}/)
     expect(source).toMatch(
@@ -771,5 +775,281 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
       expect(circle.width).toBe('24px')
       expect(circle.height).toBe('24px')
     })
+  })
+})
+
+/**
+ * OpenProject #2917 ("Tables: Ledger styling, light + dark"). The frame, mono eyebrow head, rules
+ * and hover accent are `#2916`'s own token wiring (`--content-table-*`, already covered by that
+ * WP's tests) — this suite covers what #2917 itself added on top: the body's own surface colour,
+ * the thinned/coloured scrollbar, and Ledger's two-corner blueprint marks, including the "flush
+ * rather than 4px outside" variance `docs/variances.md` records for the marks.
+ */
+describe('_page-contents.scss table frame (OpenProject #2917)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  // -> The shared `.table-wrap` mechanics this describe covers live in the `// TABLES` section
+  //    (see that section's own header comment); per-aesthetic sections earlier in the file
+  //    (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their own `.table-wrap`
+  //    selector too, so a plain search would find one of those instead.
+  const tablesSectionStart = source.indexOf('\n  // TABLES\n')
+
+  /** The declarations of one selector's block, given the selector's own opening line. */
+  function blockFor(selector) {
+    const start = source.indexOf(selector, tablesSectionStart)
+    if (start === -1) {
+      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+    }
+    let depth = 0
+    for (let i = start; i < source.length; i += 1) {
+      if (source[i] === '{') {
+        depth += 1
+      } else if (source[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return source.slice(start, i + 1)
+        }
+      }
+    }
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+  }
+
+  it('draws the body on the stated content surface rather than whatever sits behind the wrapper', () => {
+    const block = blockFor('.table-wrap {')
+    expect(block).toMatch(/background-color:\s*var\(--content-surface\)/)
+  })
+
+  it('thins the wide-table scrollbar and colours it off dedicated tokens rather than the OS default', () => {
+    const block = blockFor('.table-wrap {')
+    expect(block).toMatch(/scrollbar-width:\s*thin/)
+    expect(block).toMatch(
+      /scrollbar-color:\s*var\(--content-table-scrollbar-thumb\)\s*var\(--content-table-scrollbar-track\)/
+    )
+    // -> Ledger light and dark values, each an existing global token per the WP's own values
+    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-rule\)/)
+    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-tint-alt\)/)
+    expect(source).toMatch(/--content-table-scrollbar-thumb:\s*var\(--color-hairline-dark\)/)
+    expect(source).toMatch(/--content-table-scrollbar-track:\s*var\(--color-ink-dark\)/)
+  })
+
+  it('gates the corner marks on the same --corner-marks token the page header plate and blockquote read, so Cobalt draws none', () => {
+    const block = blockFor('.table-wrap::after {')
+    expect(block).toMatch(/display:\s*var\(--content-table-corner-marks\)/)
+    expect(source).toMatch(/--content-table-corner-marks:\s*var\(--corner-marks\)/)
+  })
+
+  it('draws exactly two opposite corners (top-left, bottom-right) in the blueprint mark colour, 7px long and 1px thick', () => {
+    const block = blockFor('.table-wrap::after {')
+    // -> Four gradient layers, not eight: only the two corners the spec names, never all four
+    const gradientCount = (block.match(/linear-gradient\(var\(--color-slate-soft\)/g) || []).length
+    expect(gradientCount).toBe(4)
+    expect(block).toMatch(/0 0 \/ 7px 1px no-repeat/)
+    expect(block).toMatch(/0 0 \/ 1px 7px no-repeat/)
+    expect(block).toMatch(/100% 100% \/ 7px 1px\s*\n?\s*no-repeat/)
+    expect(block).toMatch(/100% 100% \/ 1px 7px\s*\n?\s*no-repeat/)
+    // -> Never the other diagonal (top-right / bottom-left)
+    expect(block).not.toMatch(/100% 0/)
+    expect(block).not.toMatch(/0 100%/)
+  })
+
+  it('positions the marks flush with the frame (documented variance), not past it, and pointer-events:none so they never intercept a click', () => {
+    const block = blockFor('.table-wrap::after {')
+    expect(block).toMatch(/inset:\s*0;/)
+    expect(block).toMatch(/pointer-events:\s*none/)
+  })
+
+  it('records the flush-vs-4px-outside deviation in docs/variances.md', () => {
+    const variancesPath = join(dir, '..', '..', '..', 'docs', 'variances.md')
+    const variances = readFileSync(variancesPath, 'utf-8')
+    expect(variances).toMatch(/Ledger corner marks sit flush with the frame/)
+    expect(variances).toMatch(/#2917/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Key</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>alpha</td><td>1</td></tr>
+              <tr><td>beta</td><td>2</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>`
+
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const wrap = document.querySelector('.table-wrap')
+          const wrapStyle = getComputedStyle(wrap)
+          const afterStyle = getComputedStyle(wrap, '::after')
+          return {
+            background: wrapStyle.backgroundColor,
+            scrollbarColor: wrapStyle.scrollbarColor,
+            scrollbarWidth: wrapStyle.scrollbarWidth,
+            marksDisplay: afterStyle.display,
+            marksImage: afterStyle.backgroundImage,
+            scrollWidth: wrap.scrollWidth,
+            clientWidth: wrap.clientWidth,
+            scrollHeight: wrap.scrollHeight,
+            clientHeight: wrap.clientHeight
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('paints the body surface white in light and the dark-3 panel rung in dark', async () => {
+      const light = await measure({ dark: false })
+      const dark = await measure({ dark: true })
+      expect(light.background).toBe('rgb(255, 255, 255)')
+      // -> `--color-dark-3` (`#1b1f2a`), the WP's own "body surface" value
+      expect(dark.background).toBe('rgb(27, 31, 42)')
+    })
+
+    it('colours the thin scrollbar off the stated tokens in both themes', async () => {
+      const light = await measure({ dark: false })
+      const dark = await measure({ dark: true })
+      expect(light.scrollbarWidth).toBe('thin')
+      // -> `--color-rule` on `--color-tint-alt`
+      expect(light.scrollbarColor).toBe('rgb(201, 210, 226) rgb(240, 242, 247)')
+      // -> `--color-hairline-dark` on `--color-ink-dark`
+      expect(dark.scrollbarColor).toBe('rgb(42, 48, 64) rgb(20, 23, 31)')
+    })
+
+    it('draws the corner marks in Ledger and paints them in --color-slate-soft', async () => {
+      const light = await measure({ dark: false })
+      expect(light.marksDisplay).toBe('block')
+      // -> #64789f
+      expect(light.marksImage).toContain('rgb(100, 120, 159)')
+    })
+
+    it('draws no corner marks under Cobalt, which has its own rounded frame instead', async () => {
+      const cobaltLight = await measure({ dark: false, cobalt: true })
+      expect(cobaltLight.marksDisplay).toBe('none')
+    })
+
+    it("never inflates the wrapper's own scrollable area for a table narrow enough to need no scrollbar -- the flush-marks variance exists precisely to keep this true", async () => {
+      const light = await measure({ dark: false })
+      expect(light.scrollWidth).toBe(light.clientWidth)
+      expect(light.scrollHeight).toBe(light.clientHeight)
+    })
+  })
+})
+
+/**
+ * OpenProject #2919 ("Tables: update regression tests and contrast pins"). Before OpenProject #2916
+ * a table's head was a dark title bar -- `--content-table-head` painted a `linear-gradient` down to
+ * `--content-table-head-grade` and white-ish ink, with `--content-table-shadow` a real two-layer
+ * `box-shadow` under the whole wrapper -- and the body's two row tones (`--content-table-row`/
+ * `-row-alt`) were both a tinted wash over that dark surface. None of that shape had a regression
+ * test guarding it (`--content-table-head-grade` and a real `--content-table-shadow` value never
+ * appeared in this file), so there is nothing stale to rewrite here -- but there was also no POSITIVE
+ * test yet for what replaced it: a plain tinted STRIP head (no gradient, no dark-title-bar ink), no
+ * wrapper shadow at all, and a body whose plain row is the bare surface with only the alternating row
+ * tinted. This pins that shape down the same way `NavSidebar.test.js` pins the depth-cue-dot fix --
+ * asserting the new rule AND the absence of the pattern it replaced, from source.
+ */
+describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const tablesSectionStart = source.indexOf('\n  // TABLES\n')
+
+  /** The declarations of one selector's block, given the selector's own opening line. */
+  function blockFor(selector) {
+    const start = source.indexOf(selector, tablesSectionStart)
+    if (start === -1) {
+      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+    }
+    let depth = 0
+    for (let i = start; i < source.length; i += 1) {
+      if (source[i] === '{') {
+        depth += 1
+      } else if (source[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return source.slice(start, i + 1)
+        }
+      }
+    }
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+  }
+
+  it('gives the wrapper no drop shadow at all -- `--content-table-shadow` is a single `none`, not a per-theme box-shadow', () => {
+    const wrapBlock = blockFor('.table-wrap {')
+    expect(wrapBlock).toMatch(/box-shadow:\s*var\(--content-table-shadow\)/)
+    // -> Declared exactly once in the whole file, at `none` -- no aesthetic or dark override
+    //    reintroduces a real shadow value.
+    const shadowDeclarations = source.match(/--content-table-shadow:\s*[^;]+;/g) ?? []
+    expect(shadowDeclarations).toHaveLength(1)
+    expect(shadowDeclarations[0]).toMatch(/--content-table-shadow:\s*none;/)
+  })
+
+  it('paints the head as a plain tinted strip -- a flat `background-color`, never a `background-image`/gradient', () => {
+    const theadBlock = blockFor('thead {')
+    expect(theadBlock).toMatch(/background-color:\s*var\(--content-table-head\)/)
+    expect(theadBlock).not.toMatch(/gradient/)
+    expect(theadBlock).not.toMatch(/background-image/)
+
+    const theadThBlock = blockFor('thead th {')
+    expect(theadThBlock).toMatch(/background-color:\s*transparent/)
+    expect(theadThBlock).toMatch(/color:\s*var\(--content-table-head-ink\)/)
+    expect(theadThBlock).not.toMatch(/gradient/)
+  })
+
+  it('bands the body on two stated row tones, with the plain row transparent rather than tinted', () => {
+    const plainRowBlock = blockFor('tbody > tr > td {')
+    expect(plainRowBlock).toMatch(/background-color:\s*var\(--content-table-row\)/)
+
+    const bandedRowBlock = blockFor('tbody > tr:nth-child(even) > td {')
+    expect(bandedRowBlock).toMatch(/background-color:\s*var\(--content-table-row-alt\)/)
+
+    // -> Ledger's own plain-row token is `transparent`, not a wash -- the removal the WP names.
+    expect(source).toMatch(/--content-table-row:\s*transparent;/)
+  })
+
+  it('paints hover over the band, gated on a real hover capability, with the accent on the leading cell only', () => {
+    const hoverStart = source.indexOf('@media (hover: hover) {', tablesSectionStart)
+    expect(hoverStart).toBeGreaterThan(-1)
+    const rowHoverBlock = blockFor('tbody > tr:hover > td {')
+    expect(rowHoverBlock).toMatch(/background:\s*var\(--content-table-row-hover\)/)
+
+    const hoverEdgeBlock = blockFor('tbody > tr:hover > td:first-child {')
+    expect(hoverEdgeBlock).toMatch(/box-shadow:\s*var\(--content-table-hover-edge\)/)
+  })
+
+  it('would fail if the head went back to a dark title-bar gradient or the wrapper regained a real shadow', () => {
+    // -> Guards the guard: if either removed pattern reappeared verbatim, the assertions above
+    //    would still pass a loose "no gradient anywhere in the file" check bypassed by scoping to
+    //    one block, so this asserts directly against the two literal patterns that used to exist.
+    expect(source).not.toMatch(/--content-table-head-grade/)
+    expect(source).not.toMatch(/--content-table-shadow:\s*0[^;]*rgba/)
   })
 })

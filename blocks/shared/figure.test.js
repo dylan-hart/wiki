@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { explainEmptySource, explainSourceFailure, figureStyles } from './figure.js'
+import {
+  embedFrameStyles,
+  explainEmptySource,
+  explainSourceFailure,
+  figureStyles
+} from './figure.js'
 
 const FENCE_HINT =
   '\n\nThe source has to go inside a fenced code block, or markdown rewrites it before this block sees it.'
@@ -80,5 +85,32 @@ describe('shared/figure.js: figureStyles', () => {
 
   it('carries the gap below the block for both the figure and the error box', () => {
     expect(figureStyles.cssText).toContain('margin-bottom: 16px')
+  })
+})
+
+describe('shared/figure.js: embedFrameStyles', () => {
+  it('frames .embed-frame off the generic --block-* tokens, not a hardcoded colour or radius', () => {
+    expect(embedFrameStyles.cssText).toContain('.embed-frame')
+    expect(embedFrameStyles.cssText).toContain('border: 1px solid var(--block-border)')
+    expect(embedFrameStyles.cssText).toContain('border-radius: var(--block-radius)')
+    expect(embedFrameStyles.cssText).toContain('overflow: hidden')
+  })
+
+  it('draws the same two corner marks every themed block card draws, Ledger only', () => {
+    expect(embedFrameStyles.cssText).toContain('.embed-frame::before')
+    const beforeRule = embedFrameStyles.cssText.slice(
+      embedFrameStyles.cssText.indexOf('.embed-frame::before')
+    )
+    expect(beforeRule).toContain('display: var(--block-corner-marks)')
+    expect(beforeRule).toContain('var(--block-mark-color)')
+  })
+
+  it('sizes the play affordance at 56px', () => {
+    expect(embedFrameStyles.cssText).toContain('.embed-frame__play')
+    const playRule = embedFrameStyles.cssText.slice(
+      embedFrameStyles.cssText.indexOf('.embed-frame__play')
+    )
+    expect(playRule).toContain('width: 56px')
+    expect(playRule).toContain('height: 56px')
   })
 })

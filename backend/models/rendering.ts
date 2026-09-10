@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio'
 import sanitizeHtml from 'sanitize-html'
 import { flipFromString, rotateFromString } from '@iconify/utils'
 import {
+  applyPermissionPlaceholders,
   blockAllowances,
   sanitizeOptions,
   unwrapOrphanedChildBlocks
@@ -131,7 +132,18 @@ class Rendering {
       WIKI.sites?.[siteId]?.config?.allowedUrlSchemes
     )
 
-    let $ = cheerio.load(sanitizeHtml(html ?? '', options), null, false)
+    /*
+      Gated tags are swapped for their visible callout BEFORE the first `sanitizeHtml()` call, not
+      after: by the time that call has run, an `<iframe>`/`<script>`/`<style>` this author was never
+      allowed to write and one they wrote but lack the permission for already look identical -- both
+      are simply gone. Only here, against the DOM as the client actually sent it, can the two still be
+      told apart. See `applyPermissionPlaceholders`'s own comment for why the placeholder then
+      survives the sanitize pass that follows.
+    */
+    const gated = cheerio.load(html ?? '', null, false)
+    applyPermissionPlaceholders(gated, permissions)
+
+    let $ = cheerio.load(sanitizeHtml(gated.html(), options), null, false)
 
     this.stripEditorArtifacts($)
     unwrapOrphanedChildBlocks($)

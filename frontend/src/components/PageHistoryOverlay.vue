@@ -121,7 +121,7 @@
                   #1119: provenance -- did the person actually type this, or did an MCP tool call
                   acting as them? `version.via` comes straight off the `pageHistory` row.
                 -->
-                <w-badge v-if="version.via === 'mcp'" outline color="slate-pale">
+                <w-badge v-if="version.via === 'mcp'" outline color="accent">
                   {{ t('history.viaMcp') }}
                   <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
                 </w-badge>

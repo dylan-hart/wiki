@@ -26,9 +26,9 @@
   globally in `app.scss`.
 
   The measurements follow what the documentation platforms have converged on -- 16px body text, headings
-  at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a dark bar
-  in a panel of its own, a left-ruled quote -- because those conventions are what makes a long page scannable, not because any one of them
-  is copied.
+  at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a tinted
+  strip in a framed, ruled and banded body, a left-ruled quote -- because those conventions are what
+  makes a long page scannable, not because any one of them is copied.
 
   Colours go through custom properties declared on the root block, for three reasons: dark mode is
   then one override block rather than a rule per element, an author's own CSS can retint content
@@ -109,42 +109,73 @@
   --content-surface: var(--color-surface);
 
   /*
-    The head of a table, drawn as a title bar: the graded near-black the app's own dialog headers use
-    (`.card-header` in `_base.scss`), so a table reads as a panel with a bar on top rather than as a
-    grid with tinted text in its first row. Literal values, because this file takes no SCSS palette.
+    -- Tables (OpenProject #2916) -----------------------------------------------
 
-    The near end of the grade -- the one the radial starts from, at bottom right -- is a step up the
-    app's dark ramp from what `.card-header` starts at: `var(--color-dark-2)` here against its `var(--color-dark-3)`. Against a
-    white page the whole bar reads darker than it measures, and at `var(--color-dark-3)` the grade had nowhere to go
-    but flat. On a dark page it does not need the help, so the dark block puts `var(--color-dark-3)` back.
+    A table is a tinted-strip head over a ruled, banded body, drawn inside its own frame -- not the
+    dark title-bar-over-plain-rows shape this block drew before. `markdown-tables.md`'s token table is
+    the source for every value below; where a value is an exact match for an existing global token
+    this references it (verified against `tailwind.css`, not assumed), and a literal otherwise. The
+    frame/radius/corner-marks/shadow and the ruling/banding/hover mechanics that read these are the
+    `// TABLES` section further down; see its own header comment for the wrapper element they draw on.
 
-    The far end and the ink are the same in both themes, because a bar this dark is already the chrome
-    it is meant to be on either.
+    Four are dark-invariant PER AESTHETIC (same value in that aesthetic's light and dark form) and so
+    take no separate `.body--dark &` entry below: radius and corner marks already track the aesthetic
+    through `--radius-card`/`--corner-marks` (`tailwind.css`'s own comment calls both "dark-invariant,
+    same as" each other), the shadow is `none` everywhere full stop, and the cell padding only moves
+    between aesthetics, not modes.
   */
-  --content-table-head: #292f39;
-  --content-table-head-grade: #0d1117;
+  --content-table-frame: var(--color-hairline);
+  --content-table-radius: var(--radius-card);
+  --content-table-corner-marks: var(--corner-marks);
+  --content-table-shadow: none;
+
   /*
-    Dimmed rather than pure white: the head labels the columns, and at full strength white on
-    near-black it reads louder than the content it introduces.
+    The head strip. Ledger light's `#f0f2f7` is `--color-tint-alt`, not the plainer `--color-tint`
+    (`#eef1f7`) -- confirmed against `tailwind.css`, one hex digit apart and genuinely two different
+    tokens despite how close they read.
   */
-  --content-table-head-ink: rgba(255, 255, 255, 0.82);
-  /* -> The grid lines INSIDE the bar, which `--content-rule` cannot draw: a 12%-black hairline is
-        invisible on near-black */
-  --content-table-head-rule: rgba(255, 255, 255, 0.12);
+  --content-table-head: var(--color-tint-alt);
+  --content-table-head-ink: var(--color-text-secondary);
+  /* -> A mono eyebrow: see the Ledger-specifics section of `markdown-tables.md` for why mono/tracked/
+        uppercase is Ledger's own head treatment, moved onto Cobalt's own type below */
+  --content-table-head-font: 600 0.65625rem/1.4 var(--font-mono);
+  --content-table-head-tracking: 0.14em;
+  --content-table-head-transform: uppercase;
+  /* -> The grid line below and between head cells; same value as the frame in Ledger, a plain hairline */
+  --content-table-head-rule: var(--color-hairline);
+
   /*
-    The body's two row colours. The plain row is tinted too, faintly: on the white article column an
-    untinted row IS the page, and a table whose rows are half page and half band reads as stripes drawn
-    on the article rather than as a panel of its own. Washes rather than fixed greys, so the pair holds
-    together on the editor's grey preview pane as well as on a white page.
+    Row rules (the line under every cell) and column rules (the line beside every cell but the last)
+    are deliberately NOT the same strength in Ledger: the column rule is a step fainter, so the grid
+    reads as a ledger sheet rather than a spreadsheet -- see `markdown-tables.md`'s Ledger-specifics
+    section. Neither has an existing token at this exact value, unlike the row rule (which is the
+    plain hairline, same as the frame and head rule).
   */
-  --content-table-row: rgba(0, 0, 0, 0.03);
-  --content-table-row-alt: rgba(0, 0, 0, 0.06);
+  --content-table-rule: var(--color-hairline);
+  --content-table-col-rule: #e9edf3;
+
   /*
-    And a shadow under the whole thing, so the panel sits ON the page rather than being drawn into it.
-    Two layers: a tight one that reads as the edge lifting, and a wide soft one that reads as the drop.
-    Kept faint -- a table is content, not a dialog, and it appears as often as every few paragraphs.
+    The body's row colours. The plain row is the surface itself now (`transparent` -- a REMOVAL, see
+    the WP: the previous "both rows tinted" body is gone), and only the banded row is tinted, one step
+    lighter than the strip colour it sits under.
   */
-  --content-table-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 3px 10px rgba(0, 0, 0, 0.05);
+  --content-table-row: transparent;
+  --content-table-row-alt: #f7f8fb;
+  /* -> Hover, painted over the band; the inset accent lands on the row's leading cell only */
+  --content-table-row-hover: #eef1f7;
+  --content-table-hover-edge: inset 2px 0 0 #e4676b;
+
+  --content-table-cell-padding: 9px 14px;
+
+  /*
+    OpenProject #2917. A wide table's own scrollbar, thinned and coloured to match the frame rather
+    than sit in the OS default grey -- `scrollbar-width`/`scrollbar-color` are the one pair of
+    standard properties for this (no `-webkit-scrollbar` pseudo-element fallback needed; every
+    browser this app supports understands both). Ledger's thumb is `--color-rule`, its track the
+    same tint the head strip sits on.
+  */
+  --content-table-scrollbar-thumb: var(--color-rule);
+  --content-table-scrollbar-track: var(--color-tint-alt);
 
   --content-mark: #fdf1a0;
 
@@ -349,20 +380,25 @@
     --content-surface: var(--color-dark-3);
 
     /*
-      The head keeps its colours -- see the light block -- but the shadow under the table cannot: a 5%
-      black drop is invisible on a dark page. Deepened, and no wider, so it still reads as the panel
-      being lifted rather than as a glow around it.
+      Ledger dark table tokens (OpenProject #2916). Frame/rules move to the dark hairline; the head
+      strip goes darker than the body panel rather than lighter -- `#14171f` is `--color-dark-5`, the
+      ramp's own "page ground" rung (see its comment further up this file), a step below
+      `--content-surface`'s `--color-dark-3` panel, which is what makes the strip read as recessed
+      rather than raised the way the light theme's tint does.
     */
-    --content-table-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 3px 10px rgba(0, 0, 0, 0.32);
-
-    /* -> Lifted off the page rather than sunk into it, which is the same intent as the light theme's
-          pair: the dark page is already darker than anything a row could be tinted towards */
-    --content-table-row: rgba(255, 255, 255, 0.02);
-    --content-table-row-alt: rgba(255, 255, 255, 0.055);
-
-    /* -> Back to `.card-header`'s own near end: on a dark page the bar reads as dark as it measures,
-          and the extra step the light theme needs would leave the head sitting above the page */
-    --content-table-head: #1e232a;
+    --content-table-frame: var(--color-hairline-dark);
+    --content-table-head: var(--color-dark-5);
+    --content-table-head-ink: var(--color-text-secondary-dark);
+    --content-table-head-rule: var(--color-hairline-dark);
+    --content-table-rule: var(--color-hairline-dark);
+    /* -> One step fainter than the row rule, same relationship as the light theme's pair */
+    --content-table-col-rule: #232838;
+    --content-table-row-alt: rgba(255, 255, 255, 0.025);
+    --content-table-row-hover: rgba(255, 255, 255, 0.05);
+    --content-table-hover-edge: inset 2px 0 0 #f08287;
+    /* -> The scrollbar drops to the dark hairline on the page's own ground rung */
+    --content-table-scrollbar-thumb: var(--color-hairline-dark);
+    --content-table-scrollbar-track: var(--color-ink-dark);
 
     --content-mark: #6b5d13;
 
@@ -499,13 +535,42 @@
     --content-tick: var(--color-accent-fill);
 
     /*
-      A table's title bar. Ledger draws it in the graded near-black its dialog headers use; Cobalt's
-      dialog header is its own raised indigo and its code block is `#10194a`, so a slate-black bar
-      here would be the one surface in a rendered Cobalt page still drawn out of Ledger's ramp. Same
-      construction, same two ends, moved onto this aesthetic's own ink.
+      Cobalt table tokens (OpenProject #2916). The frame is the same colour the app's own card border
+      draws with (`--shadow-card`'s ring, which happens to equal `--color-hairline` here); the head
+      strip is the aesthetic's own tint, Barlow rather than Ledger's mono eyebrow, sentence case with
+      no tracking; rules are soft (drawn in the tint itself, not a hairline) except the head's own
+      column rule, which steps one shade deeper so it still shows on the strip -- see
+      `markdown-tables.md`'s Cobalt-specifics section.
     */
-    --content-table-head: var(--color-dialog-header-bg);
-    --content-table-head-grade: #0b1238;
+    --content-table-frame: var(--color-hairline);
+    --content-table-head: var(--color-tint);
+    --content-table-head-ink: var(--color-heading-h2);
+    --content-table-head-font: 600 0.8125rem/1.4 var(--font-sans);
+    --content-table-head-tracking: normal;
+    --content-table-head-transform: none;
+    --content-table-head-rule: #d3ddfb;
+    --content-table-rule: var(--color-tint);
+    --content-table-col-rule: var(--color-tint);
+    --content-table-row-alt: #f6f8ff;
+    --content-table-row-hover: rgba(31, 79, 214, 0.1);
+    --content-table-hover-edge: none;
+    --content-table-cell-padding: 10px 14px;
+
+    /*
+      Cobalt table styling, light (OpenProject #2918). Every colour a table needs is already one of
+      the `--content-table-*` tokens above; the one thing with no token slot is the wide-table
+      scrollbar the shared `.table-wrap` mechanics (`// TABLES`, further down this file) leave to
+      `scrollbar-width`/`scrollbar-color` -- both plain CSS properties, not custom properties this
+      file threads through a variable, so the pair is written directly here rather than invented as
+      two more tokens with only Cobalt ever setting them. `#c5cff5` is the same ink `--color-
+      sidebar-actions-text`/`--color-admin-sidebar-text` already carry on this aesthetic; the track
+      is `--color-paper` (`#f2f5ff`, this aesthetic's own page ground), so an idle scrollbar reads
+      as part of the page rather than a chrome-grey stripe cutting across a card's own tint.
+    */
+    .table-wrap {
+      scrollbar-width: thin;
+      scrollbar-color: #c5cff5 #f2f5ff;
+    }
   }
 
   /*
@@ -528,6 +593,52 @@
     --content-step-bg: #3d6df7;
     --content-step-fg: #fff;
     --content-tick: var(--color-accent-fill);
+
+    /*
+      Cobalt-dark table tokens (OpenProject #2916/#2918). The frame is `--shadow-card`'s own dark
+      ring value -- literal here because that ring is a `box-shadow`, not a colour custom property,
+      so there is nothing to `var()` for just its colour; it is NOT `--color-hairline-dark` (`rgb(255
+      255 255 / 0.08)` here -- see below), a different, fainter rung. The head strip reuses the rung
+      `.w-section-header`'s own Cobalt-dark override already names for this exact "banded strip
+      header" look (`--color-dark-3-5`), and the head ink is the same `#8fb0ff` `--color-heading-h2`
+      resolves to on this ground. The head's own rule (both its underline and its column rule) is a
+      literal `rgba(255,255,255,.08)`, one notch above the body/column rules' `.07` and the banding's
+      `.035` -- `markdown-tables.md`'s own numbers, and NOT `--color-hairline-dark`, which resolves
+      to a saturated `#2e3d9e` on this ground (composited by hand: `rgb(255 255 255 / .08)` over
+      `#0e1540` lands at `rgb(33 40 79)`, nowhere near it) -- an earlier draft of this token reached
+      for that var() on the assumption the two matched and they do not.
+    */
+    --content-table-frame: rgba(255, 255, 255, 0.1);
+    --content-table-head: var(--color-dark-3-5);
+    --content-table-head-ink: var(--color-heading-h2);
+    --content-table-head-rule: rgba(255, 255, 255, 0.08);
+    --content-table-rule: rgba(255, 255, 255, 0.07);
+    --content-table-col-rule: rgba(255, 255, 255, 0.07);
+    --content-table-row-alt: rgba(255, 255, 255, 0.035);
+    --content-table-row-hover: rgba(255, 255, 255, 0.08);
+    --content-table-hover-edge: none;
+
+    /*
+      `markdown-tables.md`'s Cobalt-specifics also give a table LINK its own dark tone (`#7fa0ff`),
+      distinct from `--content-link`'s ordinary dark-mode value: the un-scoped `.body--dark &` block
+      above sets it to `var(--color-accent-dark)`, which on this aesthetic is `#ff8f97` -- a warm
+      coral reserved for negative/deletion accents, not the cool blue every Cobalt dark mockup draws
+      a link in. `--color-accent-strong` is that blue here (`#7fa0ff`, the same tone the head ink
+      and the sidebar text already carry), so restating `--content-link` against it is a one-line
+      fix rather than a new token -- and it corrects every link this element renders on a dark
+      Cobalt page, a table's included, not only the table's own.
+    */
+    --content-link: var(--color-accent-strong);
+
+    /*
+      Wide-table scrollbar, dark half of the light block's own comment above: thumb `rgba(255,255,
+      255,.14)`, track `--color-dark-3-5` (`#0e1540`, the same rung the head strip already sits on,
+      so an idle scrollbar reads as part of the card rather than a seam across it).
+    */
+    .table-wrap {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.14) var(--color-dark-3-5);
+    }
   }
 
   /* -> The page's own margins are the container's business; the first and last block give theirs up */
@@ -1920,38 +2031,97 @@
   // ---------------------------------------------------------------------------
 
   /*
-    A wide table scrolls itself rather than widening the article.
+    A wide table scrolls itself rather than widening the article -- inside its own wrapper now, not
+    through a `table { display:block; overflow-x:auto }` trick on the table itself (OpenProject
+    #2916). That trick has no box of its own to hang a frame on that sits OUTSIDE the table's own
+    border box: Cobalt's rounded corners (`#2918`) would still get squared off by the scrollbar
+    painting across the bottom of the table's own box, which has no radius of its own to clip it to.
+    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes this div exist at
+    all -- the renderer wraps every table, from either the built-in parser or
+    `markdown-it-multimd-table`'s, in `<div class="table-wrap">` before it ever reaches this file.
 
-    `display: block` is what makes that possible -- a table box cannot scroll -- and the rows and cells
-    still lay out as a table inside it through anonymous table boxes. `width: max-content` keeps the
-    table its natural width up to the column's, so a narrow table does not stretch.
+    `position: relative` is what the corner marks below position against. `overflow-x: auto` alone
+    is enough to also clip the square corners under `--content-table-radius`: CSS resolves a lone
+    `overflow-x` of anything but `visible` by computing `overflow-y` to `auto` too, so the box is
+    never `visible` on either axis and a rounded corner clips its content the same as `overflow:
+    hidden` would. The same computed `auto` is why the corner marks below land flush with the frame
+    rather than 4px past it -- see that rule's own comment.
 
-    The block box also gives the table a real perimeter to draw: a table with collapsed borders is not
-    a box the way an element is, and the scrolling already makes this one a clipping box, so the head's
-    fill and the last row stop at the frame with nothing else to arrange.
+    `background-color` is the body's own ground (OpenProject #2917) -- a plain row is `transparent`
+    now (see `--content-table-row`), so without this the surface behind it would be whatever the
+    article column happens to sit on rather than the stated ground a framed table draws on.
   */
-  table {
-    display: block;
-    width: max-content;
+  .table-wrap {
+    position: relative;
+    margin: 20px 0;
     max-width: 100%;
-    margin: 1.5em 0;
-    /* -> The perimeter; the cells draw only the grid inside it */
-    border: 1px solid var(--content-rule);
-    border-collapse: collapse;
-    box-shadow: var(--content-table-shadow);
-    font-size: 0.9375em;
     overflow-x: auto;
+    border: 1px solid var(--content-table-frame);
+    border-radius: var(--content-table-radius);
+    box-shadow: var(--content-table-shadow);
+    background-color: var(--content-surface);
+    scrollbar-width: thin;
+    scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
   }
 
   /*
-    Interior rules only. A cell border all the way round would double the table's own at the perimeter,
-    and at the corners it would be a straight line cut off by the radius -- a notch rather than a curve.
+    Ledger's corner marks (OpenProject #2917): a blueprint L at the top-left and bottom-right corners
+    only, in `--color-slate-soft` -- the same background-gradient technique `.page-header-icon__marks`
+    (`PageHeader.vue`) and the blockquote's own `&::after` use, just two corners instead of four, and
+    gated on the same `--corner-marks` token those two read (`none` under Cobalt, which draws no
+    marks at all -- `#2918`).
+
+    Drawn FLUSH with the frame rather than `markdown-tables.md`'s "4px outside" it, which the wrapper
+    above cannot support: this box's own `overflow-x: auto` (needed for a wide table to scroll itself
+    rather than the article) clips ANY of its own descendants -- including a `::before`/`::after`
+    pseudo-element -- that render past its padding edge, in every direction, not only the one a
+    reader could scroll to. A negative inset is silently cropped away outright (there is no direction
+    to scroll IT into view), and a positive one still inflates `scrollWidth` past `clientWidth`,
+    forcing a scrollbar onto a table that would otherwise fit -- confirmed directly in a real
+    Chromium, not assumed; see `_page-contents.test.js`. `border-image-outset` is the one standard
+    mechanism that escapes an element's OWN overflow the way `box-shadow` does, but border-image
+    replaces the frame's plain-border rendering wholesale and shifts as ONE image, so there is no way
+    to keep the 1px hairline flush while only a two-corner mark overhangs past it. Recorded as a
+    variance rather than silently shipped -- see `docs/variances.md`.
+  */
+  .table-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    display: var(--content-table-corner-marks);
+    pointer-events: none;
+    background:
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 7px 1px no-repeat,
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 1px 7px no-repeat,
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 7px 1px
+        no-repeat,
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px
+        no-repeat;
+  }
+
+  /*
+    `width: max-content` keeps the table its natural width up to the column's; `min-width: 100%` is
+    what makes a narrow table still fill the wrapper (and therefore the article) rather than leaving
+    the frame around it wider than the grid it holds. The wrapper carries the vertical margin and the
+    perimeter now, so the table itself has neither.
+  */
+  table {
+    width: max-content;
+    min-width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+  }
+
+  /*
+    Interior rules only. A cell border all the way round would double the wrapper's own frame at the
+    perimeter, and at the corners it would be a straight line cut off by the radius -- a notch rather
+    than a curve.
   */
   th,
   td {
-    padding: 0.5em 0.8em;
-    border-inline-end: 1px solid var(--content-rule);
-    border-bottom: 1px solid var(--content-rule);
+    padding: var(--content-table-cell-padding);
+    border-inline-end: 1px solid var(--content-table-col-rule);
+    border-bottom: 1px solid var(--content-table-rule);
     /*
       -> `start`, not `end`: markdown's own `:---:`/`---:` column-alignment syntax renders as an inline
          `style="text-align:..."` on the cell (see `renderers/markdown.js`'s table rule), which wins on
@@ -1961,6 +2131,28 @@
     */
     text-align: start;
     vertical-align: top;
+    /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size, matching how
+          `markdown-tables.md` states it and how this file's own base size is stated (`font-size: 1rem`
+          further up) rather than inherited-and-scaled */
+    font-size: 0.90625rem;
+    line-height: 1.5;
+    color: var(--content-ink);
+  }
+
+  /*
+    A right-aligned column is numeric by convention, so it takes the mono face with tabular figures
+    rather than Barlow -- a `---:` column is the renderer's own signal, never author intent read out
+    of the content, which is why this keys off the SAME inline `style` the base rule above already
+    yields to rather than a class. A centre-aligned (`:---:`) column gets no inline `text-align:right`
+    and stays in Barlow.
+  */
+  th[style*='text-align:right'],
+  td[style*='text-align:right'] {
+    font-family: var(--font-mono);
+    font-size: 0.84375rem;
+    line-height: 1.6;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   tr > :last-child {
@@ -1988,26 +2180,16 @@
     margin-bottom: 0;
   }
 
+  /* -> A row header inside the BODY (author HTML; markdown has no syntax for one) keeps the plain
+        wash -- a title bar down the side of a table is a different thing altogether, see below */
   th {
     background-color: var(--content-surface-alt);
     font-weight: 600;
   }
 
-  /*
-    The head as a title bar. The gradient goes on the row group, not on each cell: `at bottom right` of
-    a cell is a wash per column, which reads as banding across the head instead of one bar under the
-    heading. Cells then have to give up the `th` wash above, or they would tint over it.
-
-    Only `thead` -- a row header inside the body (author HTML; markdown has no syntax for one) keeps
-    the plain wash, since a dark bar down the side of a table is a different thing altogether.
-  */
+  /* -> The head as a tinted strip in the theme's own tint colour, not a dark title bar */
   thead {
     background-color: var(--content-table-head);
-    background-image: radial-gradient(
-      at bottom right,
-      var(--content-table-head),
-      var(--content-table-head-grade)
-    );
   }
 
   thead th {
@@ -2015,15 +2197,16 @@
     border-bottom-color: var(--content-table-head-rule);
     background-color: transparent;
     color: var(--content-table-head-ink);
+    font: var(--content-table-head-font);
+    letter-spacing: var(--content-table-head-tracking);
+    text-transform: var(--content-table-head-transform);
   }
 
   /*
-    Banding: BOTH row colours are stated, so the table is a tinted panel with a band in it rather than
-    a white page with every other row tinted. On a white article column an untinted row was the page
-    itself, which left the table's own extent to the border alone.
-
-    Faint enough that the band still guides the eye across a wide row without striping the page, and
-    the two are a step apart rather than a contrast -- the head is what the eye lands on.
+    Banding: BOTH row colours are stated, even though the plain row is `transparent` -- an untinted
+    row still needs the declaration so a future retint is a token change, not a rule rewrite. Faint
+    enough that the band still guides the eye across a wide row without striping the page, and the two
+    are a step apart rather than a contrast -- the head is what the eye lands on.
   */
   tbody > tr > td {
     background-color: var(--content-table-row);
@@ -2031,6 +2214,21 @@
 
   tbody > tr:nth-child(even) > td {
     background-color: var(--content-table-row-alt);
+  }
+
+  /*
+    Hover, painted over the band rather than replacing it, and gated on `(hover: hover)` -- a touch
+    screen has no hover state to leave stuck on the last row it happened to scroll past. The inset
+    edge on the leading cell only, so the accent reads as a marker on the live row rather than a
+    second border running the row's own width.
+  */
+  @media (hover: hover) {
+    tbody > tr:hover > td {
+      background: var(--content-table-row-hover);
+    }
+    tbody > tr:hover > td:first-child {
+      box-shadow: var(--content-table-hover-edge);
+    }
   }
 
   /*
@@ -2321,17 +2519,19 @@
     --content-surface-code: #fff;
     --content-surface-alt: #fff;
     /*
-      Which goes double for a table's head: a solid near-black bar is the most ink anything in content
-      asks for, and on paper it buys nothing -- the bold text and the rules already say "head". Its
-      lines go back to the hairline every other cell prints, and the shadow goes entirely.
+      Which goes double for a table's head: a tinted strip is the most ink anything in content asks
+      for, and on paper it buys nothing -- the bold text and the rules already say "head". Every rule
+      goes back to the same plain hairline every other cell prints, rather than each aesthetic's own
+      tint (`--content-table-rule`/`-col-rule` are `--content-table-head-rule`'s own reset for the
+      same reason; the rest of the file already left `--content-table-shadow` at `none` everywhere,
+      so there is nothing left to reset there).
     */
     --content-table-head: #fff;
-    --content-table-head-grade: #fff;
     --content-table-head-ink: #000;
     --content-table-head-rule: var(--content-rule);
-    --content-table-shadow: none;
+    --content-table-rule: var(--content-rule);
+    --content-table-col-rule: var(--content-rule);
     /* -> And the banding, which on paper is grey ink over every other row for no gain */
-    --content-table-row: transparent;
     --content-table-row-alt: transparent;
 
     /*

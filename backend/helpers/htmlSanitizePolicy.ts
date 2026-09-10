@@ -538,6 +538,55 @@ export function unwrapOrphanedChildBlocks($: cheerio.CheerioAPI): void {
 }
 
 /**
+ * The permission a stripped `<iframe>`/`<script>`/`<style>` was missing, named the way a reader can
+ * act on it, and the visible callout `applyPermissionPlaceholders()` leaves in the element's place.
+ *
+ * Shaped to match what an authored `> [!CAUTION]` GitHub-style admonition
+ * (`frontend/src/renderers/modules/github-alerts.js`'s `caution` kind: `is-danger` / "Caution")
+ * renders as, so a reader sees the same object whether the callout came from their own markdown or
+ * from this substitution (OpenProject #2911) -- rather than the previous behaviour of the content
+ * simply not being there, with nothing saying why.
+ *
+ * A duplicate of the frontend's own `gatedContentPlaceholder()` in `renderers/markdown.js`, not a
+ * shared import: there is no module boundary between this backend workspace and the frontend one to
+ * share it through, and the editor's live preview has to produce the identical markup independently
+ * so the two never drift apart in wording. Each side's own test pins the exact string.
+ */
+export function gatedContentPlaceholder(permission: 'write:scripts' | 'write:styles'): string {
+  return `<blockquote class="is-danger"><p class="alert-title">Caution</p><p>This content requires the ${permission} permission and was not rendered.</p></blockquote>`
+}
+
+/**
+ * Replace an `<iframe>`/`<script>`/`<style>` this author's permissions do not allow with the visible
+ * callout above, instead of `sanitizeHtml()`'s ordinary behaviour of discarding it with no trace.
+ *
+ * Must run over the DOM BEFORE `sanitizeHtml()` sees it, not after: the library has no hook that
+ * fires only for a tag it is about to strip, so by the time it has run, "never written" and "written
+ * but not permitted" already look identical -- both are simply absent. Calling this first and
+ * handing `sanitizeHtml()` its output instead means the placeholder survives that pass like any other
+ * paragraph content, since `blockquote`/`p` are both on `BASE_ALLOWED_TAGS` unconditionally.
+ *
+ * Mutates the cheerio document handed to it, the same convention `unwrapOrphanedChildBlocks` uses --
+ * this file describes policy, not a pipeline, so it is `models/rendering.ts#postProcess` that owns
+ * the actual `cheerio.load()` call this runs against.
+ */
+export function applyPermissionPlaceholders(
+  $: cheerio.CheerioAPI,
+  permissions: RenderPermissions
+): void {
+  if (!permissions.scripts) {
+    $('iframe, script').each((_, el) => {
+      $(el).replaceWith(gatedContentPlaceholder('write:scripts'))
+    })
+  }
+  if (!permissions.styles) {
+    $('style').each((_, el) => {
+      $(el).replaceWith(gatedContentPlaceholder('write:styles'))
+    })
+  }
+}
+
+/**
  * The `sanitize-html` options a page's HTML has to be run through -- whether at the point it arrives
  * from the editor, or a second time after `inlineIcons()` has drawn more markup into the document
  * (see `postProcess`, OpenProject #1360/#2124/#2139, 2026-08-24 security audit §7). Built once, from

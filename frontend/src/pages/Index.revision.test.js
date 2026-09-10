@@ -280,6 +280,22 @@ describe('Index.vue: the rail’s “via MCP” badge (#2735)', () => {
 
     expect(pageStore.revision).toEqual({ ordinal: 9, changeCount: 3, via: 'mcp' })
   })
+
+  /**
+   * OpenProject #2913: the badge must read in the accent color, not the muted `slate-pale` tone --
+   * `WBadge.vue`'s `outline` styling resolves `color` straight to `style="color: var(--color-...)"`.
+   */
+  it('renders the badge in the accent color, not slate-pale', async () => {
+    const { section } = await mountWithPage(
+      pagePayload({ revision: { ordinal: 14, changeCount: 6, via: 'mcp' } })
+    )
+
+    const badges = [...section.element.querySelectorAll('.w-badge')]
+    const viaMcpBadge = badges.find((el) => el.textContent.includes('via MCP'))
+
+    expect(viaMcpBadge.getAttribute('style')).toContain('var(--color-accent)')
+    expect(viaMcpBadge.getAttribute('style')).not.toContain('var(--color-slate-pale)')
+  })
 })
 
 /**

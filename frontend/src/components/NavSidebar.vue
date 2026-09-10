@@ -319,32 +319,58 @@ $sidebar-overlay-max: 1199.98px;
       per-level indentation (`WExpansionItem` itself declares no content padding), so removing it
       outright would collapse nested items back to their parent's indent, not just drop a color.
 
-      Hovering a row lights its indent lane(s) up with a faint dotted line -- a depth cue that
-      appears only while navigating, rather than cluttering the tree at rest. `:has(:hover)`
-      matches THIS content block as soon as ANY descendant, at any depth, is hovered, so a row
-      nested three levels deep lights up all three ancestors' lanes at once, not just its
-      immediate parent's. `@media (hover: hover)` keeps a touch tap from leaving a lane lit
-      (`WItem.vue`'s own `:has(:disabled):hover` rule uses the same guard).
+      Hovering a row lights its OWN indent lane with a single dot, centered on that row -- a depth
+      cue that appears only while navigating, rather than cluttering the tree at rest (OpenProject
+      #2906). This used to live on the shared ancestor `.w-expansion-item__content` wrapper as one
+      `::before` tiled with a `radial-gradient` every 8px down the wrapper's ENTIRE height -- which
+      is every row inside it, several levels of descendants included -- so instead of one dot it
+      drew a repeating column, and its `:has(:hover)` trigger matched as soon as ANY descendant, at
+      any depth, was hovered: a row nested three levels deep lit all three ancestors' lanes at
+      once, not just the one lane it actually sits inside.
+
+      The dot moved onto each ROW's own `::before` instead (scoped to `.w-item` nested inside a
+      `.w-expansion-item__content`, so a depth-0 row -- with no ancestor lane to light -- draws
+      none), which is what gives it a real notion of "this one row's height" to center on, and a
+      real hover trigger that is just `&:hover`, no `:has()` needed at all: a folder's header row
+      sits BESIDE its own `.content` (siblings, per `WExpansionItem.vue`), never inside it, so no
+      `.w-item` is ever a DOM ancestor of another -- hovering one can never put a second one into
+      `:hover` state the way a shared ancestor wrapper could.
+
+      `inset-inline-start: calc(-10px - var(--nav-item-inset))`, from the row's own `position:
+      relative` box, is what lands the dot exactly on the CLOSEST enclosing `.content`'s 10px
+      `border-inline-start` regardless of aesthetic: the row's own `margin-inline` (Ledger's
+      `--nav-item-inset` is 0; Cobalt's insets every row 10px off the column edges, per
+      `tailwind.css`) sits OUTSIDE the row's own border/padding box, so reaching back exactly that
+      far past it -- not a bare `-10px` -- is what keeps the dot inside the lane rather than
+      drifting into Cobalt's own row gutter. `@media (hover: hover)` keeps a touch tap from leaving
+      a lane lit (`WItem.vue`'s own `:has(:disabled):hover` rule uses the same guard).
     */
     .w-expansion-item__content {
-      position: relative;
       border-inline-start: 10px solid transparent;
 
-      &::before {
-        content: '';
-        position: absolute;
-        inset-block: 0;
-        inset-inline-start: 0;
-        width: 10px;
-        background-image: radial-gradient(circle, var(--color-slate-faint) 1px, transparent 1.4px);
-        background-size: 100% 8px;
-        background-position: center top;
-        opacity: 0;
-      }
+      .w-item {
+        position: relative;
 
-      @media (hover: hover) {
-        &:has(:hover)::before {
-          opacity: 0.5;
+        &::before {
+          content: '';
+          position: absolute;
+          inset-block: 0;
+          inset-inline-start: calc(-10px - var(--nav-item-inset));
+          width: 10px;
+          background-image: radial-gradient(
+            circle,
+            var(--color-slate-faint) 1px,
+            transparent 1.4px
+          );
+          background-repeat: no-repeat;
+          background-position: center;
+          opacity: 0;
+        }
+
+        @media (hover: hover) {
+          &:hover::before {
+            opacity: 0.5;
+          }
         }
       }
     }

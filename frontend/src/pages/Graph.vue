@@ -1035,9 +1035,21 @@ const HOVER_PUSH_ALPHA = 0.15
 function onCanvasMouseMove(event) {
   const nextHovered = findNodeAt(event.clientX, event.clientY)
   if (nextHovered !== hoveredNode.value) {
+    // -> Release the previously-hovered node (if any) back into the simulation before pinning the
+    //    next one -- this covers hover moving directly from one node to another, not just hover-end
+    //    onto empty canvas, since `hoveredNode.value` is read here before being reassigned below.
+    if (hoveredNode.value) {
+      hoveredNode.value.fx = null
+      hoveredNode.value.fy = null
+    }
     // -> Only on an actual mouseover of a (possibly different) node, never on leaving one: moving
     //    OFF a node onto empty canvas sets `nextHovered` to `null`, which this guard excludes.
     if (nextHovered) {
+      // -> Pin the hovered node stationary at its current position so it stops animating while
+      //    other nodes keep moving (OpenProject #2924/#2907) -- a defined fx/fy freezes a d3-force
+      //    node against every force each tick, and is cleared above on hover-end/hover-change.
+      nextHovered.fx = nextHovered.x
+      nextHovered.fy = nextHovered.y
       applyHoverPushImpulse(nodes.value, nextHovered)
       simulation?.alpha(HOVER_PUSH_ALPHA).restart()
     }

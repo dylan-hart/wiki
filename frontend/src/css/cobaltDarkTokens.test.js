@@ -55,8 +55,10 @@ describe('Ledger dark-suffixed / ramp tokens, restated for Cobalt dark', () => {
     'dark-3-5-text': { ledger: '#8ea6cf', cobalt: '#c9d6ff' },
     'dark-4': { ledger: '#171b24', cobalt: '#070b22' },
     'dark-5': { ledger: '#14171f', cobalt: '#0a0f2c' },
-    'hairline-dark': { ledger: '#2a3040', cobalt: 'rgb(255 255 255 / 0.08)' },
-    'border-dark': { ledger: '#3a4256', cobalt: 'rgb(255 255 255 / 0.14)' },
+    // -> OpenProject #2912: re-derived from the card surface's own hue as a solid hex, not the
+    //    flat white-alpha overlay these used to be.
+    'hairline-dark': { ledger: '#2a3040', cobalt: '#2e3d9e' },
+    'border-dark': { ledger: '#3a4256', cobalt: '#3b4fce' },
     'disabled-dark': { ledger: '#4a5470', cobalt: '#5a6699' },
     'text-dark': { ledger: '#e6eaf2', cobalt: '#e8ecff' },
     'text-secondary-dark': { ledger: '#9aa6bd', cobalt: '#a7b3ea' },
@@ -86,7 +88,8 @@ describe('Plain Cobalt aesthetic tokens, restated for dark', () => {
     paper: { cobaltLight: '#f2f5ff', cobaltDark: '#0a0f2c' },
     tint: { cobaltLight: '#e6edff', cobaltDark: '#070b22' },
     'tint-alt': { cobaltLight: '#e6edff', cobaltDark: '#141c4f' },
-    hairline: { cobaltLight: '#dfe5f5', cobaltDark: 'rgb(255 255 255 / 0.08)' },
+    // -> OpenProject #2912: re-derived from the card surface's own hue, same as --color-hairline-dark
+    hairline: { cobaltLight: '#dfe5f5', cobaltDark: '#2e3d9e' },
     'text-body': { cobaltLight: '#1a2038', cobaltDark: '#e8ecff' },
     'text-secondary': { cobaltLight: '#4a5580', cobaltDark: '#a7b3ea' },
     'text-caption': { cobaltLight: '#5a6699', cobaltDark: '#8b98d6' },
@@ -94,10 +97,13 @@ describe('Plain Cobalt aesthetic tokens, restated for dark', () => {
     'accent-strong': { cobaltLight: '#1f4fd6', cobaltDark: '#7fa0ff' },
     'heading-h2': { cobaltLight: '#1f4fd6', cobaltDark: '#8fb0ff' },
     'inner-rule': { cobaltLight: '#e6edff', cobaltDark: 'rgb(255 255 255 / 0.06)' },
+    // -> OpenProject #2912: re-derived from the sidebar surface's own hue (--color-dark-3-5,
+    //    #0e1540), same derivation --color-admin-sidebar-hairline below gets for the same surface.
     'sidebar-hairline': {
       cobaltLight: 'rgb(255 255 255 / 0.08)',
-      cobaltDark: 'rgb(255 255 255 / 0.06)'
+      cobaltDark: '#2a3684'
     },
+    'admin-sidebar-hairline': { cobaltLight: '#27337a', cobaltDark: '#2a3684' },
     'tag-chip-bg': { cobaltLight: '#dbe5ff', cobaltDark: 'rgb(61 109 247 / 0.22)' },
     'tag-chip-text': { cobaltLight: '#1a3fb0', cobaltDark: '#a3bbff' },
     'tag-chip-accent-bg': { cobaltLight: '#ffe9eb', cobaltDark: 'rgb(255 77 90 / 0.16)' },

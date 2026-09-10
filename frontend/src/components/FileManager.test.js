@@ -56,7 +56,12 @@ const i18n = createTestI18n({
     fetchingFolderContents: 'Fetching folder contents...',
     duplicateItem: 'Duplicate...',
     renameItem: 'Rename...',
-    renameMovePage: 'Rename / Move Page...'
+    renameMovePage: 'Rename / Move Page...',
+    // -> WP #2920's dedicated filetype column reads these through the same `fileman.*FileType`/
+    //    `*PageType`/`folderChildrenCount` keys the row already resolves `item.caption` from.
+    pngFileType: 'PNG Image',
+    markdownPageType: 'Markdown Page',
+    folderChildrenCount: '{count} items'
   },
   pages: {
     homepageGuard: {
@@ -1070,5 +1075,82 @@ describe('FileManager "+ New" trigger dark mode (OpenProject #2742, #2797)', () 
     expect(style).not.toContain('var(--color-slate)')
 
     wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #2920 ("File Manager: compact row height + dedicated filetype column"). The filetype
+ * caption ("PNG Image", "5 items", ...) used to be a sub-line under the filename, hidden entirely in
+ * compact mode; it now lives in its own column between the filename and the size, shown regardless
+ * of density, and the compact row itself shrinks to roughly half its old height.
+ */
+describe('FileManager compact rows + filetype column (WP #2920)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+
+  function seedRows(wrapper) {
+    wrapper.vm.state.fileList = [
+      {
+        id: 'f1',
+        type: 'folder',
+        title: 'assets',
+        fileName: 'assets',
+        folderPath: '',
+        children: 5
+      },
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 253952,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+  }
+
+  it('gives every row a dedicated filetype column, separate from the filename', async () => {
+    const { wrapper } = await mountFileManager()
+    seedRows(wrapper)
+    await flushPromises()
+
+    const types = wrapper.findAll('.fileman-filelist-type')
+    expect(types).toHaveLength(2)
+    expect(types[0].text()).toBe('5 items')
+    expect(types[1].text()).toBe('PNG Image')
+
+    // -> The filename column is exclusive now -- no more sub-line caption under it
+    const labels = wrapper.findAll('.fileman-filelist-label')
+    for (const label of labels) {
+      expect(label.find('.w-item-label--caption').exists()).toBe(false)
+    }
+
+    wrapper.unmount()
+  })
+
+  it('keeps the filetype column visible in compact mode too, not just the default density', async () => {
+    const { wrapper } = await mountFileManager()
+    seedRows(wrapper)
+    wrapper.vm.state.isCompact = true
+    await flushPromises()
+
+    expect(wrapper.find('.fileman-filelist').classes()).toContain('is-compact')
+    const types = wrapper.findAll('.fileman-filelist-type')
+    expect(types).toHaveLength(2)
+    expect(types[0].text()).toBe('5 items')
+    expect(types[1].text()).toBe('PNG Image')
+
+    wrapper.unmount()
+  })
+
+  it("shrinks the compact row's icon slot and floor height to roughly half the default row", () => {
+    const compactBlock = styleBlock.slice(styleBlock.indexOf('&.is-compact'))
+    expect(compactBlock).toMatch(/min-height:\s*34px/)
+
+    // -> The icon SLOT sizing prop is this Task's concern; the icon glyph itself is #2921's
+    expect(source).toContain('state.isCompact ? `sm` : `xl`')
   })
 })

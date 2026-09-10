@@ -1925,7 +1925,7 @@ feature enabled, `/usr/local/etc/gitconfig` becomes the system config and the ex
 `git config --system` block the Dockerfile writes to `/etc/gitconfig` is still on disk and silently
 never read again. That block exists to close Bug #2586, where a test fixture depended on an ambient
 `init.defaultBranch` and consequently passed on the developer's machine and failed on CI across
-fifteen subtests, unreproducible locally. Trading a *stated* git configuration for a newer git binary
+fifteen subtests, unreproducible locally. Trading a _stated_ git configuration for a newer git binary
 would reintroduce exactly the class of defect the parity work exists to eliminate, and would do it
 invisibly. A newer git is also not pinnable: the feature builds whatever is newest at container-create
 time, so it is itself a source of the drift being closed, while `ubuntu-latest`'s git moves on GitHub's
@@ -1935,12 +1935,52 @@ schedule and cannot be matched by any fixed value.
 inside the container than on a runner. Nothing known depends on one: the git storage module
 (`backend/modules/storage/git/`) drives git through `simple-git` and sets its own per-repo branch and
 identity in `repo.ts#ensureRepo` rather than relying on ambient defaults, and its fixtures now pass
-`--initial-branch` explicitly (#2586's own fix). One related gap is deliberately *not* closed by the
+`--initial-branch` explicitly (#2586's own fix). One related gap is deliberately _not_ closed by the
 image and is worth knowing: a bare runner has no global `user.name`/`user.email` at all, whereas the
 image sets one, so a test that silently relies on an ambient identity would pass here and fail in CI —
 the inverse of #2586. `backend/test/devcontainerCiParity.test.ts` guards the settings themselves and
 that the git feature stays disabled.
 
 **Resolved when:** either the base image's distro ships a git contemporaneous with the runner's, or a
-way to install a *pinned* newer git that still writes to `/etc/gitconfig` (a versioned `.deb`, or a
+way to install a _pinned_ newer git that still writes to `/etc/gitconfig` (a versioned `.deb`, or a
 source build with `--prefix=/usr`) is added to the Dockerfile — at which point delete this entry.
+
+## A rendered table's Ledger corner marks sit flush with the frame, not 4px outside it
+
+**Date:** 2026-09-10
+**Work package:** #2917 ("Tables: Ledger styling, light + dark"), under Feature #2915 (Rendered
+markdown table restyle)
+
+**Decision:** `markdown-tables.md`'s Ledger-specifics section calls for the table frame's two
+blueprint corner marks (top-left and bottom-right, 7px, `--color-slate-soft`) to be "drawn 4px
+outside the frame" — the same overhang `.page-header-icon__marks` and the blockquote's own `&::after`
+draw around THEIR frames. `_page-contents.scss`'s `.table-wrap::after` draws the same two marks flush
+with the frame instead (`inset: 0`), with no overhang.
+
+**Why this reads as a deviation:** the design doc states an exact pixel offset, and every other
+corner-marked frame in the app (the page header's icon plate, a quote box) actually achieves it, so
+drawing this one flush without a note would read as a missed detail rather than a considered choice.
+
+**Why it is the right trade here.** `.table-wrap` (OpenProject #2916) needs `overflow-x: auto` so a
+wide table scrolls itself rather than widening the article — the entire reason the wrapper exists.
+Verified directly in a real Chromium rather than assumed: an element's own `overflow` other than
+`visible` clips ALL of its descendants — including a `::before`/`::after` pseudo-element — to its
+padding box, in every direction, the moment they render past it. A negative inset (the top-left mark)
+is simply cropped away with no way to scroll it into view; a positive one (the bottom-right mark)
+still inflates `scrollWidth` past `clientWidth`, forcing a scrollbar onto a table narrow enough to
+need none. `border-image-outset` is the one standard mechanism that escapes an element's OWN overflow
+the way `box-shadow` does (confirmed the same way), but activating a border-image replaces the plain
+`border` rendering wholesale and shifts as one image — there is no way to keep the 1px hairline frame
+flush while only the two corner marks overhang past it. The page header's icon plate and the
+blockquote have no `overflow` of their own, so neither ever hit this; the table is the first
+corner-marked frame in the app that also has to scroll.
+
+**What actually happens:** the two marks read as a `--color-slate-soft` accent laid over the frame's
+own corner for 7px in each direction, rather than as a bracket floating just outside it. Everything
+else about them — length, colour, stroke width, which two opposite corners — matches the spec.
+
+**Resolved when:** a restructure gives the frame (border, radius, shadow, marks) and the scroll
+container separate boxes — an outer, non-scrolling frame element and an inner scroller sized to it —
+so the marks can overhang past a box that itself never clips them. That is a change to the shared
+wrapper `#2916` shipped and `#2918` (Cobalt) also builds on, not a Ledger-only fix, and needs
+coordinating with both rather than landing unilaterally here.

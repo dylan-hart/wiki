@@ -331,7 +331,7 @@
                 timeline; `flex-wrap` on the row is what lets the badge drop under the name on a
                 narrow column rather than truncating either.
               -->
-                <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="slate-pale">
+                <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="accent">
                   {{ t('history.viaMcp') }}
                   <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
                 </w-badge>

@@ -407,6 +407,47 @@ describe('rendered code-token palette (frontend/src/css/_page-contents.scss)', (
 })
 
 /**
+ * OpenProject #2916/#2919 -- `--content-table-head-ink` on `--content-table-head`, the tinted-strip
+ * table head's own text-on-ground pair, pinned per aesthetic and mode. `_page-contents.scss` never
+ * had a contrast pin for a table head before this task (the OLD dark title bar used a literal
+ * `rgba(255, 255, 255, 0.82)` ink, never checked against its `#292f39`/gradient ground either), so
+ * this is new coverage rather than a re-pin of a stale value.
+ *
+ * `ui-iteration-markdown-tables/markdown-tables.md`'s "Tests to update" section states these four
+ * pairs at 5.6:1 / 5.5:1 / 7.9:1 / 8.6:1. The four COLOURS below are exactly what it names, verified
+ * against the landed tokens (`--color-text-secondary`, `--color-heading-h2`, `--color-tint-alt`,
+ * `--color-dark-5`/`-dark-3-5`, ...) -- but running this file's own `contrastRatio()` (the same WCAG
+ * relative-luminance formula the spec doc's figures were presumably hand-computed from) gives 5.89:1
+ * / 5.69:1 / 7.31:1 / 8.19:1, not the doc's numbers. All four pairs clear AA comfortably either way,
+ * so this pins what the shipped tokens ACTUALLY resolve to, per this epic's own instruction to verify
+ * against landed colours rather than copy a spec's figures blind.
+ */
+describe('table head-ink contrast pins (frontend/src/css/_page-contents.scss)', () => {
+  const PAIRS = [
+    { name: 'Ledger light', ink: '#4e5d7d', ground: '#f0f2f7', ratio: 5.89 },
+    { name: 'Cobalt light', ink: '#1f4fd6', ground: '#e6edff', ratio: 5.69 },
+    { name: 'Ledger dark', ink: '#9aa6bd', ground: '#14171f', ratio: 7.31 },
+    { name: 'Cobalt dark', ink: '#8fb0ff', ground: '#0e1540', ratio: 8.19 }
+  ]
+
+  it.each(PAIRS)('$name clears AA ($ink on $ground)', ({ ink, ground }) => {
+    expect(meetsWcagAA(ink, ground)).toBe(true)
+    expect(contrastRatio(ink, ground)).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+  })
+
+  it.each(PAIRS)('$name pins its actual computed ratio ($ratio:1)', ({ ink, ground, ratio }) => {
+    expect(contrastRatio(ink, ground)).toBeCloseTo(ratio, 1)
+  })
+
+  it('gives each aesthetic/mode a genuinely different pair rather than one value reused for all four', () => {
+    const inks = new Set(PAIRS.map((pair) => pair.ink))
+    const grounds = new Set(PAIRS.map((pair) => pair.ground))
+    expect(inks.size).toBe(PAIRS.length)
+    expect(grounds.size).toBe(PAIRS.length)
+  })
+})
+
+/**
  * OpenProject #2630 -- the two small mono marks that sit IN prose rather than in the code block:
  * an inline `code` chip and a `<kbd>` plate. Both are `--content-code-ink` on
  * `--content-surface-alt`, and the dark theme has to move the ink as well as the ground.
