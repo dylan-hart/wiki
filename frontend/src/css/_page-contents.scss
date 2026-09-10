@@ -480,7 +480,13 @@
     into the other.
   */
   @at-root body.body--cobalt & {
-    /* -> h2 in cobalt with no rule under it; h1 keeps the ink of its own aesthetic and its rule */
+    /*
+      -> h1 is body ink, not the aesthetic's saturated navy `--color-ink` -- the Ledger-default
+      `--content-h1: var(--color-ink)` reads as a second "blue" heading beside h2's own accent color,
+      which only h2 is meant to carry (OpenProject #2964). h2 keeps no rule under it, per the
+      handoff.
+    */
+    --content-h1: var(--color-text-body);
     --content-h2: var(--color-heading-h2);
     --content-h2-rule: transparent;
 
