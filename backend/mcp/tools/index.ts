@@ -16,6 +16,7 @@ import { registerDeleteAssetTool } from './deleteAsset.ts'
 import { registerWatchPageTool } from './watchPage.ts'
 import { registerUnwatchPageTool } from './unwatchPage.ts'
 import { registerSetPageWatchPreferenceTool } from './setPageWatchPreference.ts'
+import { registerSideloadIconsTool } from './sideloadIcons.ts'
 
 /**
  * The whole MCP tool surface: read (search, read a page, browse the page tree, list assets, list who
@@ -31,7 +32,9 @@ import { registerSetPageWatchPreferenceTool } from './setPageWatchPreference.ts'
  * one write tool with no such restriction — see its own doc comment. `watch_page`/`unwatch_page`/
  * `set_page_watch_preference` refuse at call time for anything but a personal access token too, but
  * check `ctx.userId` directly rather than `pageActorFor()` — watch state is an account preference, not
- * a page-rule-gated write (see `watchPage.ts`'s own doc comment).
+ * a page-rule-gated write (see `watchPage.ts`'s own doc comment). `sideload_icons` is the one
+ * system-administration tool here: a hard `manage:system` gate, no lesser-privilege path, wrapping
+ * the same `WIKI.models.icons.sideloadFromDataPath()` the `POST /_api/icons/sideload` route calls.
  *
  * `getCtx` rather than a plain `McpAuthContext`: see that type's doc comment in `mcp/auth.ts` for why a
  * long-lived HTTP session re-resolves it per request instead of fixing it at session-open time.
@@ -53,4 +56,5 @@ export function registerAllTools(server: McpServer, getCtx: McpAuthContextGetter
   registerWatchPageTool(server, getCtx)
   registerUnwatchPageTool(server, getCtx)
   registerSetPageWatchPreferenceTool(server, getCtx)
+  registerSideloadIconsTool(server, getCtx)
 }
