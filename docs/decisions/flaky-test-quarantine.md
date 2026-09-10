@@ -41,6 +41,12 @@ Both halves are part of the contract, because a lane nobody can run is the same 
 | `blocks/`   | `npm run test` → `vitest run` (config `exclude`)      | `npm run test:flaky` → `vitest run --config vitest.flaky.config.js`                    |
 | `e2e/`      | `npm test` → `playwright test` (config `testIgnore`)  | `npm run test:flaky` → `playwright test --config playwright.flaky.config.js --pass-with-no-tests` |
 
+The two `backend/` scripts also carry `--test-concurrency=4` and the two hang ceilings
+(`--test-timeout=600000 --test-force-exit`), elided from the table because they are not the glob:
+both lanes run under all three, since a quarantined test can wedge as easily as any other. The
+reasoning is `docs/decisions/testing-strategy.md`'s "Bounded test concurrency" and "Bounded test
+time".
+
 Three of these four lanes are empty as of this record; only `backend/` has a member. An empty lane
 must exit 0, so the two Vitest lane configs set `passWithNoTests: true` and the Playwright lane
 script passes `--pass-with-no-tests`. `node --test` already exits 0 on a pattern that matches
