@@ -279,7 +279,7 @@ Website: https://montreal.ca
       }
 
       .infobox {
-        border: 1px solid var(--block-border);
+        border: 1px solid var(--infobox-border);
         border-radius: var(--block-radius);
         background-color: var(--block-bg);
         font-size: 0.85em;

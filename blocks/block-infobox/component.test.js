@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import './component.js'
+import { BlockInfoboxElement } from './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
@@ -105,6 +105,19 @@ describe('block-infobox', () => {
     expect(el._error).toBe('')
     const dd = el.shadowRoot.querySelector('dd')
     expect(dd.textContent.trim()).toBe('')
+  })
+
+  /*
+    OpenProject #2942: the card border reads the infobox-specific token (`--infobox-border`,
+    `tailwind.css`'s 4-state `--infobox-*` block) rather than the generic `--block-border` every
+    other block uses, so Cobalt can give it its own `#c9d6fb`/`rgb(143 176 255 / 0.28)` values
+    without disturbing Ledger's unchanged hairline.
+  */
+  it('draws .infobox’s border off --infobox-border, not the generic --block-border', () => {
+    const cssText = BlockInfoboxElement.styles.cssText
+    const rule = cssText.slice(cssText.indexOf('.infobox {'), cssText.indexOf('.name {'))
+    expect(rule).toContain('border: 1px solid var(--infobox-border)')
+    expect(rule).not.toContain('var(--block-border)')
   })
 
   describeDarkMode(() => mountInfobox('City: Montreal'))
