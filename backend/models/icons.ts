@@ -3,6 +3,7 @@ import path from 'node:path'
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { getIconData, iconToHTML, iconToSVG, replaceIDs } from '@iconify/utils'
 import { LRUCache } from 'lru-cache'
+import { isPlainObject } from 'es-toolkit/predicate'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
@@ -122,6 +123,34 @@ function isSafeIconBody(body: string): boolean {
  * rather than `warn` (OpenProject #2889).
  */
 export class IconNotFoundUpstreamError extends Error {}
+
+/**
+ * Validates one parsed JSON file from `<dataPath>/icons/` (`sideloadFromDataPath`, OpenProject
+ * #2945) as a full Iconify collection export -- the shape `api.iconify.design`'s own
+ * `/<prefix>.json`/`/collection?prefix=` responses use, and the same shape `fetchIconsUpstream`
+ * already feeds through `getIconData()`. Only `icons` is required; `aliases` and `info` are optional,
+ * exactly as they are in a real upstream export. The file's prefix comes from its filename
+ * (`sideloadFromDataPath`), not from a `prefix` field here -- unlike `parseSideloadLocalePack`, a
+ * self-contained locale pack, this is deliberately just the untouched vendored/exported JSON.
+ */
+export function parseSideloadIconCollection(
+  raw: unknown
+): { ok: true; collection: IconifyJSON } | { ok: false; error: string } {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: 'not a JSON object' }
+  }
+  const obj = raw as Record<string, unknown>
+  if (!isPlainObject(obj.icons)) {
+    return { ok: false, error: 'missing required object field "icons"' }
+  }
+  if (obj.aliases !== undefined && !isPlainObject(obj.aliases)) {
+    return { ok: false, error: '"aliases" must be an object when present' }
+  }
+  if (obj.info !== undefined && !isPlainObject(obj.info)) {
+    return { ok: false, error: '"info" must be an object when present' }
+  }
+  return { ok: true, collection: obj as unknown as IconifyJSON }
+}
 
 /**
  * Icons model
@@ -834,6 +863,135 @@ class Icons {
       // -> No cache directory yet, which is simply an empty cache
     }
     return { files, bytes }
+  }
+
+  // == SIDELOAD =======================
+
+  /**
+   * `<dataPath>/icons` -- a writeable directory an operator drops vendored/exported Iconify
+   * collection JSON files into against a running instance's data volume, one file per prefix (e.g.
+   * `tabler.json`), no rebuild/redeploy/network access needed. Read by `sideloadFromDataPath`,
+   * called unconditionally on every boot (mirrors `Locales.sideloadPath`/`sideloadFromDataPath`,
+   * OpenProject #820). See `docs/offline-deployment.md` (OpenProject #2939/#2945).
+   */
+  sideloadPath(): string {
+    // -> Falls back to `base.yml`'s own default rather than requiring every caller to have merged
+    //    it in, the same reasoning `Locales.sideloadPath` uses.
+    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath || './data', 'icons')
+  }
+
+  /**
+   * Loads every `<prefix>.json` file under `sideloadPath()` straight into the permanent record (the
+   * `icons` table), the offline-vendored equivalent of `fetchIconsUpstream`'s API fetch. Missing
+   * directory is not an error: most instances have nothing sideloaded, and this runs unconditionally
+   * on every boot.
+   *
+   * Each file is a full Iconify collection export (`{ icons, aliases?, info? }`) -- NOT the per-icon
+   * shape `writeDiskCache` writes; that tier stays untouched. The filename, not any `prefix` field
+   * inside the file, names the set -- `tabler.json` sideloads as `tabler`.
+   *
+   * Unlike `Locales.sideloadFromDataPath`, this has no mtime-vs-row freshness gate: neither `icons`
+   * nor `iconSets` carries an `updatedAt` column, and the existing upstream path
+   * (`fetchIconsUpstream` -> `storeIcon`) already always-overwrites on conflict with no freshness
+   * check of its own -- so a sideload does the same, last-write-wins, every boot.
+   *
+   * Every name in a file's `icons` and `aliases` is resolved through `getIconData` -- the same
+   * alias/default resolution `fetchIconsUpstream` already applies to an upstream response -- so a
+   * sideloaded file's aliases behave identically to a fetched one's. A file contributing at least
+   * one usable icon also upserts its `iconSets` row (`onConflictDoNothing`, so a set already added
+   * with real upstream metadata through the admin picker keeps that metadata) BEFORE its icons are
+   * written, since `icons.prefix` has a foreign key on `iconSets.prefix`.
+   */
+  async sideloadFromDataPath(): Promise<{
+    loaded: { prefix: string; iconCount: number }[]
+    skipped: { prefix: string; error: string }[]
+  }> {
+    const dir = this.sideloadPath()
+    let files: string[]
+    try {
+      files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json'))
+    } catch {
+      return { loaded: [], skipped: [] }
+    }
+
+    const loaded: { prefix: string; iconCount: number }[] = []
+    const skipped: { prefix: string; error: string }[] = []
+
+    for (const file of files) {
+      const prefix = file.replace(/\.json$/, '')
+      if (!PREFIX_PATTERN.test(prefix)) {
+        skipped.push({ prefix, error: `"${prefix}" is not a valid icon set prefix` })
+        continue
+      }
+
+      const flPath = path.join(dir, file)
+      let raw: unknown
+      try {
+        raw = JSON.parse(await fs.readFile(flPath, 'utf8'))
+      } catch (err: any) {
+        skipped.push({ prefix, error: `invalid JSON: ${err.message}` })
+        continue
+      }
+      const parsed = parseSideloadIconCollection(raw)
+      if (!parsed.ok) {
+        skipped.push({ prefix, error: parsed.error })
+        continue
+      }
+      const collection = parsed.collection
+
+      const names = [
+        ...new Set([
+          ...Object.keys(collection.icons ?? {}),
+          ...Object.keys(collection.aliases ?? {})
+        ])
+      ]
+      const resolved: { name: string; icon: IconifyIcon }[] = []
+      for (const name of names) {
+        if (!NAME_PATTERN.test(name)) {
+          continue
+        }
+        const data = getIconData(collection, name)
+        if (!data?.body || !isSafeIconBody(data.body)) {
+          continue
+        }
+        resolved.push({ name, icon: data })
+      }
+
+      if (resolved.length < 1) {
+        skipped.push({ prefix, error: 'no usable icons found in file' })
+        continue
+      }
+
+      try {
+        await WIKI.db
+          .insert(iconSetsTable)
+          .values({
+            prefix,
+            name: (collection.info as IconifyInfo | undefined)?.name ?? prefix,
+            isEnabled: true,
+            info: collection.info ?? {},
+            refreshedAt: new Date()
+          })
+          .onConflictDoNothing()
+        for (const { name, icon } of resolved) {
+          await this.storeIcon(prefix, name, icon)
+        }
+      } catch (err: any) {
+        skipped.push({ prefix, error: `could not be saved: ${err.message}` })
+        continue
+      }
+
+      loaded.push({ prefix, iconCount: resolved.length })
+      WIKI.logger.debug('icons', 'sideloaded icon set', { prefix, icons: resolved.length })
+    }
+
+    if (skipped.length > 0) {
+      WIKI.logger.warn('icons', 'skipped icon sideload files', {
+        skipped: skipped.length,
+        files: skipped.map((s) => `${s.prefix} (${s.error})`).join(', ')
+      })
+    }
+    return { loaded, skipped }
   }
 
   // == PLUMBING =======================
