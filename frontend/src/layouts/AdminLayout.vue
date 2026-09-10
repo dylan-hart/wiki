@@ -24,14 +24,14 @@
             thing in the bar that leaves.
           -->
           <w-btn
-            class="ms-2"
+            class="ms-2 admin-header-action-btn"
             outline
             icon="tabler:circle-x"
             :label="t(`common.actions.exit`)"
             color="accent"
             to="/" />
           <w-btn
-            class="ms-2"
+            class="ms-2 admin-header-action-btn"
             outline
             icon="tabler:language"
             :label="commonStore.locale.toUpperCase()"
@@ -1092,13 +1092,17 @@ body.body--cobalt .admin-page-icon {
   the sidebar's single, always-dark set of values -- matching "the admin sidebar is already dark in
   Ledger and gets its own distinct Cobalt values" from the task's own scope.
 
-  Contribute button label/icon and Exit/EN header buttons are left as-is: `color="accent-dark"` /
-  `color="accent"` / `color="slate"` already resolve through `var(--color-*)` (WBtn's own
-  mechanism), so they are not literal-colour gaps -- their exact mockup treatment (a translucent
-  white outline on the header bar) is a secondary chrome nuance, logged rather than guessed at
-  here, same as the "beta" badge the mockup draws beside "Admin area" that this layout does not
-  render at all -- adding one is a product decision (is the admin area still beta?), not a visual
-  parity fix.
+  Contribute button label/icon is left as-is: `color="accent-dark"` already resolves through
+  `var(--color-*)` (WBtn's own mechanism), so it is not a literal-colour gap. The Exit/EN header
+  buttons, however, ARE one (OpenProject #3001): for an outline `WBtn`, `color` only sets the
+  inline text/icon colour -- the border is always the fixed `border-hairline dark:border-border-dark`
+  Tailwind class, never tied to `color` at all, so neither button's edge followed Cobalt. The
+  `.admin-header-action-btn` rule below fixes it with a solid white stroke and border, which also
+  supersedes this comment's own prior "translucent white outline ... logged rather than guessed at"
+  deferral -- today's hands-on review settled on solid white as the simpler, concrete answer. The
+  "beta" badge the mockup draws beside "Admin area" that this layout does not render at all remains
+  out of scope here -- adding one is a product decision (is the admin area still beta?), not a
+  visual parity fix.
 */
 body.body--cobalt {
   .admin-header {
@@ -1116,6 +1120,22 @@ body.body--cobalt {
   */
   .admin-area-label {
     color: #e6ecff;
+  }
+
+  /*
+    OpenProject #3001: the outline WBtn `color` prop only ever sets the inline text/icon colour --
+    the border is always the fixed `border-hairline dark:border-border-dark` Tailwind class, which
+    neither `accent` (Exit) nor `slate` (Locale) resolves to white, and doesn't read well against
+    this solid blue header banner either. Solid white, not translucent (today's hands-on review call
+    -- see the comment above this block). `!important` needed to beat WBtn's fixed border class and
+    its own inline `color` style, same reasoning as `.admin-contribute-btn`'s border rule earlier in
+    this file. Plain white needs no light/dark split, unlike the sidebar tokens below it. `color:
+    #fff` also recolors each button's icon, drawn in `currentColor` -- the "white stroke" the report
+    describes.
+  */
+  .admin-header-action-btn {
+    border-color: #fff !important;
+    color: #fff !important;
   }
 
   .admin-page-eyebrow {
