@@ -128,6 +128,60 @@ describe('.card-header title band resolves through runtime tokens only', () => {
 })
 
 /**
+ * OpenProject #3020 ("Ledger admin-sidebar scrollbar uses light-mode colours on its always-dark
+ * ground"). `AdminLayout.vue`'s own header comment is explicit that `.admin-sidebar` is drawn on
+ * ink in every aesthetic, in both themes -- so Ledger's dark-ground scrollbar block (the one
+ * covering `.body--ledger.body--dark` and `.body--ledger .code-block`) has to cover
+ * `.body--ledger .admin-sidebar` too, unconditioned on `.body--dark`, the same way Cobalt's own
+ * dark-ground block already does. Source-scan for the same reason as every other describe in this
+ * file: nothing compiles Sass here and jsdom has no `::-webkit-scrollbar` pseudo-element to read a
+ * computed style off of.
+ */
+describe('_base.scss Ledger dark-ground scrollbar block covers .admin-sidebar', () => {
+  const fullSource = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+
+  // Scoped to the Ledger dark-ground block alone (its own comment through to the Cobalt section
+  // header that follows it) so this doesn't also match Cobalt's separate, already-correct block.
+  const blockStart = fullSource.indexOf('// Dark mode, and any Ledger surface on ink')
+  const blockEnd = fullSource.indexOf('// SCROLLBAR — COBALT', blockStart)
+  const source = fullSource.slice(blockStart, blockEnd)
+
+  it('has a Ledger dark-ground block to check (scan is not silently matching nothing)', () => {
+    expect(blockStart).toBeGreaterThan(-1)
+    expect(blockEnd).toBeGreaterThan(blockStart)
+  })
+
+  it('lists .admin-sidebar alongside .body--ledger.body--dark and .body--ledger .code-block in every rule', () => {
+    const groupPattern =
+      /^[ \t]*\.body--ledger\.body--dark,\s*\n[ \t]*\.body--ledger \.code-block,\s*\n[ \t]*\.body--ledger \.admin-sidebar \{/gm
+    // -> The bare-selector form, used once for the @supports scrollbar-color rule.
+    expect([...source.matchAll(groupPattern)].length).toBe(1)
+
+    const suffixedGroup = (suffix) =>
+      new RegExp(
+        `\\.body--ledger\\.body--dark ::-webkit-scrollbar-${suffix},\\s*\\n` +
+          `\\.body--ledger \\.code-block::-webkit-scrollbar-${suffix},\\s*\\n` +
+          `\\.body--ledger \\.admin-sidebar::-webkit-scrollbar-${suffix} \\{`
+      )
+
+    for (const suffix of ['track', 'thumb', 'thumb:hover', 'thumb:active', 'corner']) {
+      expect(
+        suffixedGroup(suffix).test(source),
+        `::-webkit-scrollbar-${suffix} rule includes .admin-sidebar`
+      ).toBe(true)
+    }
+  })
+
+  it('never gates the .admin-sidebar dark-ground selector behind .body--dark', () => {
+    expect(source).not.toMatch(/\.body--ledger\.body--dark \.admin-sidebar/)
+  })
+
+  it('does not extend the dark-ground tint to .sidebar-nav (theme/site-configurable, not always-dark under Ledger)', () => {
+    expect(source).not.toMatch(/\.sidebar-nav/)
+  })
+})
+
+/**
  * OpenProject #3006 ("Implement Cobalt overlay-pill scrollbar spec, light + dark"). Source-scan,
  * matching the rationale every other describe in this file already gives: nothing compiles Sass in
  * this test environment, and a scrollbar's own visual behavior isn't observable through jsdom either
