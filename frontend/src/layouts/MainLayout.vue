@@ -104,7 +104,7 @@
               flat
               dense
               icon="tabler:language"
-              :label="commonStore.locale"
+              :label="commonStore.locale.toUpperCase()"
               :aria-label="commonStore.locale"
               size="sm">
               <locale-selector-menu :offset="[-5, 5]" />
