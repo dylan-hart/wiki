@@ -1257,6 +1257,7 @@ body.body--cobalt.body--dark {
 */
 :root {
   /* block-infobox: full spec in ui-iteration/blocks.md */
+  --infobox-border: var(--block-border);
   --infobox-name-bg: #f0f2f7;
   --infobox-name-fg: #1c2233;
   --infobox-group-fg: #57668a;
@@ -1433,6 +1434,7 @@ body.body--dark {
 
 /* Cobalt light: matte cards, 6px inner tiles, no rules, tint fills, cobalt titles/numerals. */
 body.body--cobalt {
+  --infobox-border: #c9d6fb;
   --infobox-name-bg: #1f4fd6;
   --infobox-name-fg: #fff;
   --infobox-group-fg: #1f4fd6;
@@ -1548,6 +1550,7 @@ body.body--cobalt {
 
 /* Cobalt dark: fills stay bright (see the tabs block's own note above), text lightens for dark ground. */
 body.body--cobalt.body--dark {
+  --infobox-border: rgb(143 176 255 / 0.28);
   --infobox-name-bg: #3d6df7;
   --infobox-group-fg: #8fb0ff;
   --infobox-dt-fg: #a7b3ea;
