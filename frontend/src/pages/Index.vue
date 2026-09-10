@@ -404,9 +404,14 @@
       the corner `scroll-to-top` stands down from, a pairing with ANOTHER fixed corner rather than with
       the reading direction, so it must not move when the locale does. See
       `frontend/src/physicalPositioning.test.js`.
+
+      `toc-open-btn-anchor` (OpenProject #3019): a hook for the Cobalt-only `bottom` override below,
+      clearing the fixed footer bar the same way the two drawers already do -- see that rule's own
+      comment for why. Bare Tailwind utilities carry the Ledger/default `bottom: 0`; nothing here
+      changes for Ledger, which has no fixed footer to clear.
     -->
     <transition name="toc-open-btn">
-      <div v-if="showTocPanelBtn" class="fixed bottom-0 right-0 z-30">
+      <div v-if="showTocPanelBtn" class="toc-open-btn-anchor fixed bottom-0 right-0 z-30">
         <w-btn
           class="corner-btn corner-btn--right"
           icon="tabler:binary-tree"
@@ -2171,6 +2176,24 @@ body.body--cobalt .page-sidebar-revision {
 .toc-open-btn-enter-from,
 .toc-open-btn-leave-to {
   opacity: 0;
+}
+
+/*
+  OpenProject #3019 (Feature #3010's own cross-viewport verification task): the TOC-open corner
+  button is the one other `fixed bottom-0 right-0` occupant of this corner (see its template
+  comment) -- below `750px`, exactly where Cobalt's `.w-footer` rule above also switches to
+  `position: fixed`, so left un-cleared the two would occupy the same bottom-right patch of the
+  window with the opaque, higher `z-index: 45` footer bar painting directly over the button and
+  hiding the reader's only way to open the contents panel. `--footer-bar-height` is the same token
+  `.page-sidebar`/`.bg-sidebar` already clear by (OpenProject #3018); this button gets no
+  `margin-bottom` counterpart because it is never a stretched box, only ever `position: fixed`, so
+  there is no earlier rule's `margin-bottom` to zero out here the way those two drawers' narrow-mode
+  overrides do. Cobalt-only, and with no separate narrow-viewport media query: `showTocPanelBtn` is
+  already `false` at `750px` and up, so this rule is dormant whenever the button itself is not
+  rendered.
+*/
+body.body--cobalt .toc-open-btn-anchor {
+  bottom: var(--footer-bar-height);
 }
 
 /*
