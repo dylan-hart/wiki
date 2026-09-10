@@ -650,6 +650,13 @@ defineExpose({ focus, state })
     background: none;
     color: inherit;
     font: inherit;
+    /*
+      `font: inherit` above pulls the ancestor chain's font-size, which bottoms out at `body`'s 14px
+      base (`tailwind.css`'s documented fallback, not a role) rather than the search field's own
+      13.5px role (`ui-iteration-cobalt-typography/cobalt-typography.md` §3, identical in Ledger and
+      Cobalt -- only `color` differs between the two aesthetics, so this stays unscoped).
+    */
+    font-size: 13.5px;
     outline: none;
 
     &::placeholder {
