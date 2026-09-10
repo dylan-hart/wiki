@@ -788,10 +788,15 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
 describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  // -> The shared `.table-wrap` mechanics this describe covers live in the `// TABLES` section
+  //    (see that section's own header comment); per-aesthetic sections earlier in the file
+  //    (Cobalt's wide-table scrollbar recolour, OpenProject #2918) declare their own `.table-wrap`
+  //    selector too, so a plain search would find one of those instead.
+  const tablesSectionStart = source.indexOf('\n  // TABLES\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
-    const start = source.indexOf(selector)
+    const start = source.indexOf(selector, tablesSectionStart)
     if (start === -1) {
       throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
     }
