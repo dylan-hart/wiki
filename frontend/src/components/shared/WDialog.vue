@@ -17,9 +17,23 @@
           @click="onBackdropClick" />
       </transition>
       <transition :name="transitionName" @after-leave="$emit('hide')">
+        <!--
+          `overflow-x-hidden`, not `overflow-auto` on both axes: this viewport is `fixed inset-0`,
+          so any horizontal overflow it picks up reads as a page-wide horizontal scrollbar. The
+          right-slide enter/leave transition (`w-dialog-slide-right` below) animates the panel's
+          `transform: translateX(32px) -> translateX(0)` while the panel already sits flush against
+          the viewport's right edge, so mid-transition the panel transiently extends past the
+          viewport edge -- with `overflow-auto` that transient was picked up as real horizontal
+          scroll and flashed a scrollbar at the bottom of the screen for the ~0.2s the transition
+          ran (OpenProject #2941). The viewport never legitimately needs horizontal scroll of its
+          own -- `.w-dialog-panel`'s `max-width: calc(100vw - 2rem)` (`tailwind.css`) already keeps
+          the panel from ever growing wider than the viewport, transitions included, so
+          `overflow-x-hidden` costs nothing real. Vertical scroll stays `overflow-y-auto`, still
+          needed for dialog content taller than the screen.
+        -->
         <div
           v-if="modelValue"
-          class="w-dialog-viewport fixed inset-0 z-[6000] flex flex-nowrap overflow-auto pointer-events-none"
+          class="w-dialog-viewport fixed inset-0 z-[6000] flex flex-nowrap overflow-x-hidden overflow-y-auto pointer-events-none"
           :class="viewportClasses">
           <div
             ref="panelRef"
@@ -138,10 +152,12 @@ const TRANSITIONS = {
   The standard viewport centers with `justify-center-safe`, not plain `justify-center`: a plain
   `center` on a panel wider than the viewport (a card's inline `min-width` past the
   `.w-dialog-panel` clamp's own floor) centers the OVERFLOW too, pushing the panel's start edge
-  off-screen in both directions with no way to scroll back to it. `-safe` falls back to
-  start-alignment exactly when the content would overflow, so the start edge stays put at the
-  viewport edge and reachable through the `overflow-auto` above, while a panel that fits still
-  centers as before.
+  off-screen in both directions with no way to get back to it. `-safe` falls back to
+  start-alignment exactly when the content would overflow, so the start edge stays anchored at the
+  viewport edge -- reachable purely through the panel's own `overflow-auto` clipping its content
+  rather than growing past its `max-width` clamp, since the viewport itself deliberately has no
+  horizontal scroll to fall back on (see the `overflow-x-hidden` note below), while a panel that
+  fits still centers as before.
 */
 const VIEWPORTS = {
   right: 'items-stretch justify-end p-3',
