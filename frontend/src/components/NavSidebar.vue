@@ -257,7 +257,12 @@ $sidebar-overlay-max: 1199.98px;
         to do it. A bar on the edge you start reading from needs no such thing.
       */
       border-inline-start: 2px solid var(--color-accent-fill);
-      padding-inline-start: 14px;
+      /*
+        Matches `.w-item`'s own depth-scaled base padding below (OpenProject #2951) minus these 2px
+        -- not a flat 14px, which would yank an active row nested N levels deep back toward the edge
+        regardless of how deep it actually sits, out of step with every other row at that depth.
+      */
+      padding-inline-start: calc(1rem + var(--nav-depth, 0) * 10px - 2px);
 
       .w-icon {
         color: var(--color-accent-fill);
@@ -303,89 +308,93 @@ $sidebar-overlay-max: 1199.98px;
       `0`, which is exactly what it draws today.
     */
     .w-item {
+      position: relative;
       border-radius: var(--radius-control);
       margin-inline: var(--nav-item-inset);
-    }
 
-    /*
-      OpenProject #2827: an open group's children used to be marked with a colored rail, a
-      background wash that compounded one step darker per nesting level, and a mitred elbow
-      pseudo-element turning the rail out of the row above -- the same treatment `NavEditOverlay`
-      draws for a nested nav item. That reading was dropped entirely: indentation and the
-      `.w-expansion-item__arrow` chevron are the only nesting cues left, so a deeper item shows its
-      depth by position alone, not by color.
+      /*
+        OpenProject #2827: an open group's children used to be marked with a colored rail, a
+        background wash that compounded one step darker per nesting level, and a mitred elbow
+        pseudo-element turning the rail out of the row above -- the same treatment `NavEditOverlay`
+        draws for a nested nav item. That reading was dropped entirely: indentation and the
+        `.w-expansion-item__arrow` chevron are the only nesting cues left, so a deeper item shows
+        its depth by position alone, not by color.
 
-      The border stays, at the same 10px width, but transparent -- it is the ONLY thing providing
-      per-level indentation (`WExpansionItem` itself declares no content padding), so removing it
-      outright would collapse nested items back to their parent's indent, not just drop a color.
+        Per-level indent is real padding on the row's OWN box (OpenProject #2951), not a nested
+        chain of ancestor `.w-expansion-item__content` boxes each narrowing themselves by a
+        transparent `border-inline-start` -- what this used to be, and what #2951's directed fix
+        retired. `--nav-depth` is `NavSidebarItem.vue`'s own `depth` prop (0 at the sidebar root,
+        +1 per recursive level), threaded explicitly and set as this custom property on each row's
+        own root element -- see `NavSidebarItem.vue#depthStyle`'s own comment for why it lands here
+        reliably even for a folder row (whose style binds to `.w-expansion-item`, one level up).
+        Added on top of the row's base `px-4` (1rem) inline-start padding, so a depth-0 row renders
+        exactly as it always has, and `var(--nav-depth, 0)`'s fallback keeps a bare, prop-less match
+        at zero extra indent rather than guessing at one lane's worth.
 
-      Hovering a row lights ONE dot per ancestor indent lane it actually sits inside -- a depth
-      cue that appears only while navigating, rather than cluttering the tree at rest (OpenProject
-      #2906). This used to live on the shared ancestor `.w-expansion-item__content` wrapper as one
-      `::before` tiled with a `radial-gradient` every 8px down the wrapper's ENTIRE height -- which
-      is every row inside it, several levels of descendants included -- so instead of one dot per
-      row it drew a repeating column, and its `:has(:hover)` trigger matched as soon as ANY
-      descendant, at any depth, was hovered: a row nested three levels deep lit all three
-      ancestors' lanes at once, not just the lanes it actually sits inside.
+        This is also what makes every row span the navbar's full width AT EVERY DEPTH: nothing
+        upstream of this (`.w-list`, `.w-expansion-item__content`) narrows its own box per level any
+        more, so a deeply nested row's right edge lines up with a root row's, not with however many
+        ancestor borders happened to eat into it.
+      */
+      padding-inline-start: calc(1rem + var(--nav-depth, 0) * 10px);
 
-      The dot moved onto each ROW's own `::before` instead (scoped to `.w-item` nested inside a
-      `.w-expansion-item__content`, so a depth-0 row -- with no ancestor lane to light -- draws
-      none), which is what gives it a real notion of "this one row's height" to center on, and a
-      real hover trigger that is just `&:hover`, no `:has()` needed at all: a folder's header row
-      sits BESIDE its own `.content` (siblings, per `WExpansionItem.vue`), never inside it, so no
-      `.w-item` is ever a DOM ancestor of another -- hovering one can never put a second one into
-      `:hover` state the way a shared ancestor wrapper could.
+      /*
+        Hovering a row lights ONE dot per ancestor indent lane it actually sits inside -- a depth
+        cue that appears only while navigating, rather than cluttering the tree at rest (OpenProject
+        #2906). This used to live on the shared ancestor `.w-expansion-item__content` wrapper as one
+        `::before` tiled with a `radial-gradient` every 8px down the wrapper's ENTIRE height -- which
+        is every row inside it, several levels of descendants included -- so instead of one dot per
+        row it drew a repeating column, and its `:has(:hover)` trigger matched as soon as ANY
+        descendant, at any depth, was hovered: a row nested three levels deep lit all three
+        ancestors' lanes at once, not just the lanes it actually sits inside.
 
-      That first fix scoped the hover correctly but still drew exactly one dot, reaching back only
-      the single CLOSEST lane, regardless of how many `.content` wrappers actually enclosed the
-      row (OpenProject #2932). `--nav-depth` is what fixes that: `NavSidebarItem.vue` threads an
-      explicit `depth` prop through the recursion (0 at the sidebar root, +1 per recursive level)
-      and sets it as this custom property on each row's own root element, so the rule below can
-      reach back and tile exactly `depth` lanes' worth of dots instead of guessing from a fixed
-      offset. `var(--nav-depth, 1)`'s fallback only matters for markup with no custom property set
-      at all (there is none left in this codebase): a bare `::before` match should still draw one
-      lane's worth rather than nothing.
+        The dot moved onto each ROW's own `::before` instead, which is what gives it a real notion
+        of "this one row's height" to center on, and a real hover trigger that is just `&:hover`, no
+        `:has()` needed at all: a folder's header row sits BESIDE its own `.content` (siblings, per
+        `WExpansionItem.vue`), never inside it, so no `.w-item` is ever a DOM ancestor of another --
+        hovering one can never put a second one into `:hover` state the way a shared ancestor
+        wrapper could.
 
-      `calc(var(--nav-depth, 1) * -10px)` / `calc(var(--nav-depth, 1) * 10px)`, from the row's own
-      `position: relative` box, is what lands the reach-back box across exactly `depth` 10px
-      lanes -- reusing the SAME lanes indentation already reserves, never adding new spacing -- and
-      `calc(... - var(--nav-item-inset))` is the same Cobalt row-gutter compensation the single-dot
-      version needed: the row's own `margin-inline` (Ledger's `--nav-item-inset` is 0; Cobalt's
-      insets every row 10px off the column edges, per `tailwind.css`) sits OUTSIDE the row's own
-      border/padding box, so reaching back that far past it is what keeps every dot inside a real
-      lane rather than the first one drifting into Cobalt's own row gutter. The dot image itself
-      moved from a single centered `radial-gradient` to a `repeat-x` tile exactly one lane (10px)
-      wide, so it draws once per lane crossed rather than once for the whole box regardless of its
-      width. `@media (hover: hover)` keeps a touch tap from leaving a lane lit (`WItem.vue`'s own
-      `:has(:disabled):hover` rule uses the same guard).
-    */
-    .w-expansion-item__content {
-      border-inline-start: 10px solid transparent;
+        That first fix scoped the hover correctly but still drew exactly one dot, reaching back only
+        the single CLOSEST lane, regardless of how many `.content` wrappers actually enclosed the
+        row (OpenProject #2932). `--nav-depth` fixed that -- but the fix reached BACKWARD from the
+        row's own edge (`inset-inline-start: calc((depth * -10px) - inset)`, `width: depth * 10px`),
+        which anchors the trail's NEAR end (closest to the icon) at the row's own fixed position and
+        grows the FAR end further away from the navbar edge as depth increases: exactly backward
+        from the wanted cue (anchored at the edge, reaching toward the icon), and the reported
+        Cobalt symptom -- dots flush against or past the column edge with no breathing room -- was
+        the same root cause, since the reach-back depended on subtracting `--nav-item-inset` to
+        compensate for the row's own gutter margin (OpenProject #2951).
 
-      .w-item {
-        position: relative;
+        Now that the indent lives on the row's own padding instead of a nested border chain (above),
+        the dot needs no reach-back math at all: `inset-inline-start: 0` sits at the row's own left
+        edge, and since every row now spans the navbar's full width and `margin-inline` (Cobalt's
+        own row-gutter inset) sits OUTSIDE this box, that edge is the SAME absolute position for
+        every row regardless of depth -- already carrying Cobalt's own gutter breathing room, with
+        no separate subtraction needed. `width` still scales with `--nav-depth`, so it is the FAR
+        end (toward the icon) that moves as depth increases, landing exactly across the depth-indent
+        padding this same rule reserves above and never spilling under the icon/label. The dot image
+        itself is a `repeat-x` tile exactly one lane (10px) wide, so it draws once per lane crossed
+        rather than once for the whole box regardless of its width. `@media (hover: hover)` keeps a
+        touch tap from leaving a lane lit (`WItem.vue`'s own `:has(:disabled):hover` rule uses the
+        same guard).
+      */
+      &::before {
+        content: '';
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        width: calc(var(--nav-depth, 0) * 10px);
+        background-image: radial-gradient(circle, var(--color-slate-faint) 1px, transparent 1.4px);
+        background-repeat: repeat-x;
+        background-size: 10px 100%;
+        background-position: left center;
+        opacity: 0;
+      }
 
-        &::before {
-          content: '';
-          position: absolute;
-          inset-block: 0;
-          inset-inline-start: calc((var(--nav-depth, 1) * -10px) - var(--nav-item-inset));
-          width: calc(var(--nav-depth, 1) * 10px);
-          background-image: radial-gradient(
-            circle,
-            var(--color-slate-faint) 1px,
-            transparent 1.4px
-          );
-          background-repeat: repeat-x;
-          background-size: 10px 100%;
-          background-position: left center;
-          opacity: 0;
-        }
-
-        @media (hover: hover) {
-          &:hover::before {
-            opacity: 0.5;
-          }
+      @media (hover: hover) {
+        &:hover::before {
+          opacity: 0.5;
         }
       }
     }
