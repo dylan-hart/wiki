@@ -34,7 +34,7 @@ remote endpoint for it**:
 
 | Call site                                                                                                                                                             | What it does when offline                                                                                                                                                                                                                                                                                                                                                                                           | File                             |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Icon resolution                                                                                                                                                       | Skips the Iconify API fetch for an icon not yet cached; the icon just does not resolve until sideloaded via `POST /_api/icons/materialize` with an admin-provided SVG, or its set is pre-seeded.                                                                                                                                                                                                                    | `models/icons.ts`                |
+| Icon resolution                                                                                                                                                       | Skips the Iconify API fetch for an icon not yet cached; the icon just does not resolve until its set is pre-populated via icon-set **sideloading** (below) or the individual icon is sideloaded via `POST /_api/icons/materialize` with an admin-provided SVG.                                                                                                                                                     | `models/icons.ts`                |
 | Daily version check (`checkVersion` job, also the admin "Check for Updates" button)                                                                                   | No-ops with a log line instead of hitting `api.github.com`.                                                                                                                                                                                                                                                                                                                                                         | `tasks/simple/check-version.ts`  |
 | Daily locale sync (`updateLocales` job)                                                                                                                               | No-ops with a log line instead of hitting `github.com/requarks/wiki-locales`. Use locale **sideloading** (below) instead.                                                                                                                                                                                                                                                                                           | `tasks/simple/update-locales.ts` |
 | Server-side PlantUML rendering (`POST /_api/diagrams/render`, used by PDF export and any client asking this instance to draw a diagram itself rather than in-browser) | Refuses with a clear 503 instead of attempting the request — regardless of whether the rendering site's `block-plantuml` config names a custom server or falls back to the public default. Unlike the "explicitly out of scope" list below, an admin-configured destination here still does not exempt the call: `offline` blocks this endpoint's outbound fetch outright rather than trusting any one destination. | `models/diagramRender.ts`        |
@@ -139,6 +139,75 @@ re-add the equivalent init-container stanza, sharing the chart's `volumeMounts`/
 the main container so a volume is actually mounted there for the clone to survive past the init
 container exiting.
 
+## Icon-set sideloading
+
+**Same decision as locale sideloading, same shape.** `<dataPath>/icons/` (default `./data/icons`,
+alongside `<dataPath>/locales/` and the existing `<dataPath>/cache/icons` derived-cache directory —
+not the same directory, see below) is scanned for `<prefix>.json` files, each a **full Iconify
+collection export** — the exact JSON shape `api.iconify.design`'s collection endpoint
+(`https://api.iconify.design/<prefix>.json`) returns for a whole set: icon bodies keyed by name,
+alongside the set's shared `width`/`height`/`info`. This is not the same shape as the per-icon disk
+cache under `<dataPath>/cache/icons/<prefix>/<name>.json` — that tier stays a derived, one-file-per-
+icon cache populated lazily as icons resolve, and sideloading does not write to it or read from it.
+
+```json
+{
+  "prefix": "tabler",
+  "width": 24,
+  "height": 24,
+  "icons": {
+    "account": { "body": "<path d=\"…\"/>" },
+    "account-off": { "body": "<path d=\"…\"/>" }
+  },
+  "info": { "name": "Tabler Icons", "license": { "title": "MIT" } }
+}
+```
+
+The filename's `<prefix>` (minus `.json`) is the Iconify set prefix each icon in the file is stored
+under — every icon in `tabler.json` becomes a row in the `icons` DB table keyed `tabler:<name>`, the
+same permanent tier `POST /_api/icons/materialize` and the upstream-API fill already write to; this
+is a third, bulk way to populate it, not a new storage mechanism. Files must sit directly in
+`<dataPath>/icons/` (not nested in a subdirectory) — the scan is not recursive, mirroring the locale
+sideload directory exactly.
+
+Why a whole-set file and not per-icon: the point of sideloading is pre-populating an icon **set** —
+Tabler (the set the interface itself is drawn in) or Font Awesome Free, say — for a picker that is
+otherwise empty on a fresh, never-online instance, not adding one icon at a time (that case is
+already covered by `POST /_api/icons/materialize`'s admin-provided-SVG path, referenced in the table
+above).
+
+**Picked up:**
+
+- On every boot (`postBoot()`, alongside `WIKI.models.locales.refreshFromDisk()` — same phase,
+  unconditional).
+- On demand, without a restart: `POST /_api/icons/sideload` (requires the `manage:system` global
+  permission), rescanning the directory and returning `{ loaded, skipped }` the same shape
+  `POST /_api/locales/sideload` does — `skipped` names any file that failed JSON parsing or isn't a
+  recognizable Iconify collection export, so a bad drop is visible immediately. Admin → Icons carries
+  an "Offline Sideload" card triggering the same rescan, mirroring Admin → Localization's.
+
+**Worked example: pre-populating Tabler and Font Awesome for an air-gapped install.** The interface's
+own default icon sets (`models/icons.ts`'s `DEFAULT_SETS`) are `tabler`, `mdi`, `la`, `fa6-solid`,
+`fa6-regular` and `fa6-brands` — Font Awesome Free is three separate Iconify collections (solid,
+regular, brands), not one `fa` prefix. On a machine **with** network access, before the target
+instance ever needs to be reachable:
+
+```sh
+mkdir -p sideload-icons
+for prefix in tabler fa6-solid fa6-regular fa6-brands; do
+  curl -fsSL "https://api.iconify.design/${prefix}.json" -o "sideload-icons/${prefix}.json"
+done
+```
+
+Copy that directory's contents into the air-gapped instance's `<dataPath>/icons/` (`docker cp`,
+`kubectl cp`, or directly onto the mounted volume — see the locale section's mount-point note above,
+which applies identically here: `<dataPath>/icons/` only survives a container replacement if the
+whole `/wiki/data` volume is mounted, not just `/wiki/data/content`). On next boot, or immediately via
+`POST /_api/icons/sideload` / the admin "Offline Sideload" button, every icon in those four sets
+resolves and searches locally — no `api.iconify.design` reachability needed afterward, for those sets.
+An icon from a set not sideloaded still resolves only if individually materialized, or not at all
+under `offline: true`.
+
 ## What must be present before first boot
 
 For a fresh instance that will never reach the network:
@@ -150,6 +219,9 @@ For a fresh instance that will never reach the network:
   every day.
 - **Any locale beyond the vendored set**, pre-populated into `<dataPath>/locales/` before or shortly
   after first boot (see above) — there is no other way to add one offline.
+- **Any icon set an author will pick from** beyond whatever has already been individually
+  materialized, pre-populated into `<dataPath>/icons/` before or shortly after first boot (see
+  above) — otherwise an icon nobody has resolved yet simply does not resolve under `offline: true`.
 - **Puppeteer, if server-side Mermaid rendering (PDF export with diagrams) is wanted.** The official
   Docker image already installs both Chromium and the Puppeteer _extension_ itself — pinned to the
   version in `backend/modules/extensions/puppeteer/definition.yml`, and pointed at that Chromium via
@@ -174,4 +246,4 @@ For a fresh instance that will never reach the network:
 
 Everything not listed above as needing network: creating/editing/publishing pages, users, groups,
 permissions, navigation, themes, the built-in `db` search engine, `disk` storage, avatars, icon sets
-already fetched or manually materialized, and re-running the locale sideload scan.
+already fetched or manually materialized, and re-running the locale or icon-set sideload scans.
