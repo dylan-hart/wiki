@@ -1967,6 +1967,38 @@ $toc-overlay-max: 749.98px;
 }
 
 /*
+  OpenProject #3018: mirrors `MainLayout.vue`'s own `.bg-sidebar` fix for the same fixed footer bar
+  (OpenProject #3017/#3010) -- see that file's comment for the full reasoning. On a wide viewport
+  this column stretches to the full height of `.page-container`'s row (`items-stretch`, the
+  template's own class), so Cobalt's `position: fixed` footer bar now paints straight over its
+  bottom edge. `margin-bottom` shrinks the stretched box itself, rather than padding blank space
+  inside one that stays full height, which is what lets this column's own `overflow-y: auto`
+  scrollport -- and the native scrollbar riding along it -- stop above the bar, not merely be
+  followed by hidden padding the bar still covers.
+*/
+body.body--cobalt .page-sidebar {
+  margin-bottom: var(--footer-bar-height);
+}
+
+/*
+  The narrow-viewport counterpart: below `$toc-overlay-max` this column is a `position: fixed`
+  overlay of its own (`top: 0; right: 0; bottom: 0`, in the block above). A margin is NOT a no-op
+  there the way it would be for a plain fixed box: with both `top` and `bottom` set non-auto and
+  `height: auto`, the spec solves the used height as the containing block's size minus `top`,
+  `bottom` AND both margins -- so left un-reset, the `margin-bottom` above (which carries no width
+  scoping of its own, and so still applies down here too) would apply a SECOND time on top of the
+  `bottom` override just below, double-subtracting the bar's height. `bottom` is overridden directly
+  here, and `margin-bottom` explicitly zeroed to cancel the other rule; same clearance, same token,
+  same reasoning as `.bg-sidebar.w-drawer--overlay` in `MainLayout.vue`.
+*/
+@media (max-width: $toc-overlay-max) {
+  body.body--cobalt .page-sidebar {
+    margin-bottom: 0;
+    bottom: var(--footer-bar-height);
+  }
+}
+
+/*
   A rail section's heading -- the same mono, uppercase, letter-spaced label the design uses for every
   section marker in the language (`.w-section-header` is the banded version of the same voice). No icon
   beside it: the rail holds four short lists, and a glyph per heading was four pictures competing with
