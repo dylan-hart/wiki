@@ -166,7 +166,10 @@ describe(
             color: s.color
           })
           return {
-            entry: pick(entry),
+            entry: {
+              ...pick(entry),
+              radius: entry.borderRadius
+            },
             sub1: pick(sub1),
             sub2: pick(sub2),
             active: {
@@ -252,6 +255,19 @@ describe(
       expect(active.color).toBe('rgb(255, 143, 151)')
       // -> --color-accent-wash-dark, rgb(255 77 90 / 0.16)
       expect(active.background).toBe('rgba(255, 77, 90, 0.16)')
+    })
+
+    /**
+     * OpenProject #3026: the 5px plate radius must be a standing property of `.page-toc-link`, not
+     * something that only appears alongside the active row's background -- otherwise, the instant the
+     * active class is removed (scrolling past a heading), the radius snaps to square while the
+     * `background-color` is still fading out over its own 0.2s transition. Asserting it on a row that
+     * was NEVER active (rather than toggling the class off one that was) is what proves the radius is
+     * unconditional rather than merely persisting from some prior active state.
+     */
+    it('gives every row -- not only the active one -- the 5px plate radius, so it never has to snap in', async () => {
+      const { entry } = await measure({ dark: false })
+      expect(entry.radius).toBe('5px')
     })
   }
 )
