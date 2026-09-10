@@ -1,126 +1,126 @@
 export default {
   '7z': {
-    icon: 'img:/_assets/icons/color-7zip.svg'
+    icon: 'tabler:file-zip'
   },
   aac: {
-    icon: 'img:/_assets/icons/color-aac.svg'
+    icon: 'tabler:file-music'
   },
   ai: {
-    icon: 'img:/_assets/icons/color-ai.svg'
+    icon: 'tabler:file-vector'
   },
   aif: {
-    icon: 'img:/_assets/icons/color-audio-file.svg'
+    icon: 'tabler:file-music'
   },
   apk: {
-    icon: 'img:/_assets/icons/color-apk.svg'
+    icon: 'tabler:box'
   },
   avi: {
-    icon: 'img:/_assets/icons/color-avi.svg'
+    icon: 'tabler:video'
   },
   bin: {
-    icon: 'img:/_assets/icons/color-binary-file.svg'
+    icon: 'tabler:binary'
   },
   bz2: {
-    icon: 'img:/_assets/icons/color-archive.svg'
+    icon: 'tabler:file-zip'
   },
   css: {
-    icon: 'img:/_assets/icons/color-css-filetype.svg'
+    icon: 'tabler:file-type-css'
   },
   csv: {
-    icon: 'img:/_assets/icons/color-csv.svg'
+    icon: 'tabler:file-type-csv'
   },
   dat: {
-    icon: 'img:/_assets/icons/color-binary-file.svg'
+    icon: 'tabler:binary'
   },
   dmg: {
-    icon: 'img:/_assets/icons/color-dmg.svg'
+    icon: 'tabler:brand-apple'
   },
   docx: {
-    icon: 'img:/_assets/icons/color-word.svg'
+    icon: 'tabler:file-type-docx'
   },
   eps: {
-    icon: 'img:/_assets/icons/color-image-file.svg'
+    icon: 'tabler:file-vector'
   },
   exe: {
-    icon: 'img:/_assets/icons/color-exe.svg'
+    icon: 'tabler:app-window'
   },
   flac: {
-    icon: 'img:/_assets/icons/color-audio-file.svg'
+    icon: 'tabler:file-music'
   },
   folder: {
     icon: 'tabler:folder'
   },
   gif: {
-    icon: 'img:/_assets/icons/color-gif.svg'
+    icon: 'tabler:photo'
   },
   gz: {
-    icon: 'img:/_assets/icons/color-archive.svg'
+    icon: 'tabler:file-zip'
   },
   heic: {
-    icon: 'img:/_assets/icons/color-image-file.svg'
+    icon: 'tabler:photo'
   },
   ico: {
-    icon: 'img:/_assets/icons/color-image-file.svg'
+    icon: 'tabler:photo'
   },
   ics: {
-    icon: 'img:/_assets/icons/color-schedule.svg'
+    icon: 'tabler:calendar-event'
   },
   iso: {
-    icon: 'img:/_assets/icons/color-cd.svg'
+    icon: 'tabler:disc'
   },
   jpg: {
-    icon: 'img:/_assets/icons/color-jpg.svg'
+    icon: 'tabler:file-type-jpg'
   },
   jpeg: {
-    icon: 'img:/_assets/icons/color-jpg.svg'
+    icon: 'tabler:file-type-jpg'
   },
   json: {
-    icon: 'img:/_assets/icons/color-json.svg'
+    icon: 'tabler:braces'
   },
   m4a: {
-    icon: 'img:/_assets/icons/color-audio-file.svg'
+    icon: 'tabler:file-music'
   },
   mid: {
-    icon: 'img:/_assets/icons/color-audio-file.svg'
+    icon: 'tabler:file-music'
   },
   mov: {
-    icon: 'img:/_assets/icons/color-mov.svg'
+    icon: 'tabler:video'
   },
   mp3: {
-    icon: 'img:/_assets/icons/color-mp3.svg'
+    icon: 'tabler:file-music'
   },
   mp4: {
-    icon: 'img:/_assets/icons/color-mpg.svg'
+    icon: 'tabler:video'
   },
   mpg: {
-    icon: 'img:/_assets/icons/color-mpg.svg'
+    icon: 'tabler:video'
   },
   mpeg: {
-    icon: 'img:/_assets/icons/color-mpg.svg'
+    icon: 'tabler:video'
   },
   ogg: {
-    icon: 'img:/_assets/icons/color-ogg.svg'
+    icon: 'tabler:file-music'
   },
   otf: {
-    icon: 'img:/_assets/icons/color-otf.svg'
+    icon: 'tabler:typography'
   },
   page: {
     icon: 'img:/_assets/icons/color-document.svg'
   },
   pdf: {
-    icon: 'img:/_assets/icons/color-pdf.svg'
+    icon: 'tabler:file-type-pdf'
   },
   png: {
-    icon: 'img:/_assets/icons/color-png.svg'
+    icon: 'tabler:file-type-png'
   },
   pptx: {
-    icon: 'img:/_assets/icons/color-ppt.svg'
+    icon: 'tabler:presentation'
   },
   psd: {
-    icon: 'img:/_assets/icons/color-psd.svg'
+    icon: 'tabler:photo'
   },
   rar: {
-    icon: 'img:/_assets/icons/color-rar.svg'
+    icon: 'tabler:file-zip'
   },
   // -> Not a file extension, like `folder` and `page`: the type of a page that redirects instead of
   //    holding content of its own
@@ -128,48 +128,48 @@ export default {
     icon: 'img:/_assets/icons/color-send-file.svg'
   },
   svg: {
-    icon: 'img:/_assets/icons/color-image-file.svg'
+    icon: 'tabler:file-type-svg'
   },
   tar: {
-    icon: 'img:/_assets/icons/color-tar.svg'
+    icon: 'tabler:file-zip'
   },
   tgz: {
-    icon: 'img:/_assets/icons/color-archive.svg'
+    icon: 'tabler:file-zip'
   },
   tif: {
-    icon: 'img:/_assets/icons/color-tif.svg'
+    icon: 'tabler:photo'
   },
   ttf: {
-    icon: 'img:/_assets/icons/color-ttf.svg'
+    icon: 'tabler:typography'
   },
   txt: {
-    icon: 'img:/_assets/icons/color-txt.svg'
+    icon: 'tabler:file-type-txt'
   },
   wav: {
-    icon: 'img:/_assets/icons/color-wav.svg'
+    icon: 'tabler:file-music'
   },
   wma: {
-    icon: 'img:/_assets/icons/color-audio-file.svg'
+    icon: 'tabler:file-music'
   },
   wmv: {
-    icon: 'img:/_assets/icons/color-video-file.svg'
+    icon: 'tabler:video'
   },
   woff: {
-    icon: 'img:/_assets/icons/color-woff.svg'
+    icon: 'tabler:typography'
   },
   woff2: {
-    icon: 'img:/_assets/icons/color-woff.svg'
+    icon: 'tabler:typography'
   },
   xlst: {
-    icon: 'img:/_assets/icons/color-xls.svg'
+    icon: 'tabler:file-type-xls'
   },
   xml: {
-    icon: 'img:/_assets/icons/color-xml-file.svg'
+    icon: 'tabler:file-type-xml'
   },
   xz: {
-    icon: 'img:/_assets/icons/color-archive.svg'
+    icon: 'tabler:file-zip'
   },
   zip: {
-    icon: 'img:/_assets/icons/color-zip.svg'
+    icon: 'tabler:file-type-zip'
   }
 }
