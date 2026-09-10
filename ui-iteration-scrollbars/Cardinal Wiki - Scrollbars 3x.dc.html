@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/styles.css">
+<script src="_ds/industry-a96c70c5-c266-4a80-8b23-72a4cf73ae48/_ds_bundle.js"></script>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f5f6f9;font-family:Barlow,system-ui,sans-serif}
+a{color:#a83f45;text-decoration:none}a:hover{color:#c14a52}
+/* Scrollbar pseudo-elements cannot be inlined; these are the handoff rules verbatim. */
+/* Ledger light: square thumb on a ruled margin, accent only while dragging. */
+@supports not selector(::-webkit-scrollbar){.sb-ledger{scrollbar-width:thin;scrollbar-color:#8a99b8 #f0f2f7}}
+.sb-ledger::-webkit-scrollbar{width:12px;height:12px}
+.sb-ledger::-webkit-scrollbar-track{background:#f0f2f7;border-left:1px solid #dbe1ec}
+.sb-ledger::-webkit-scrollbar-track:horizontal{border-left:0;border-top:1px solid #dbe1ec}
+.sb-ledger::-webkit-scrollbar-thumb{background:#8a99b8;border:0;border-radius:0}
+.sb-ledger::-webkit-scrollbar-thumb:hover{background:#57668a}
+.sb-ledger::-webkit-scrollbar-thumb:active{background:#e4676b}
+.sb-ledger::-webkit-scrollbar-corner{background:#f0f2f7}
+.sb-ledger::-webkit-scrollbar-button{display:none}
+/* Ledger dark */
+@supports not selector(::-webkit-scrollbar){.sb-ledger-dark{scrollbar-width:thin;scrollbar-color:#3a4256 #14171f}}
+.sb-ledger-dark::-webkit-scrollbar{width:12px;height:12px}
+.sb-ledger-dark::-webkit-scrollbar-track{background:#14171f;border-left:1px solid #2a3040}
+.sb-ledger-dark::-webkit-scrollbar-track:horizontal{border-left:0;border-top:1px solid #2a3040}
+.sb-ledger-dark::-webkit-scrollbar-thumb{background:#3a4256;border:0;border-radius:0}
+.sb-ledger-dark::-webkit-scrollbar-thumb:hover{background:#4e5870}
+.sb-ledger-dark::-webkit-scrollbar-thumb:active{background:#f08287}
+.sb-ledger-dark::-webkit-scrollbar-corner{background:#14171f}
+.sb-ledger-dark::-webkit-scrollbar-button{display:none}
+/* Cobalt light: pill overlay thumb, no track, no rules; cobalt tint, deepens on hover/drag. */
+@supports not selector(::-webkit-scrollbar){.sb-cobalt{scrollbar-width:thin;scrollbar-color:rgba(31,79,214,.28) transparent}}
+.sb-cobalt::-webkit-scrollbar{width:14px;height:14px}
+.sb-cobalt::-webkit-scrollbar-track{background:transparent}
+.sb-cobalt::-webkit-scrollbar-thumb{background:rgba(31,79,214,.28);border:3px solid transparent;background-clip:padding-box;border-radius:999px}
+.sb-cobalt::-webkit-scrollbar-thumb:hover{background-color:rgba(31,79,214,.5);border-width:2px}
+.sb-cobalt::-webkit-scrollbar-thumb:active{background-color:#1f4fd6;border-width:2px}
+.sb-cobalt::-webkit-scrollbar-corner{background:transparent}
+.sb-cobalt::-webkit-scrollbar-button{display:none}
+/* Cobalt on dark ground (sidebar, top bar, dark mode) */
+@supports not selector(::-webkit-scrollbar){.sb-cobalt-dark{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}}
+.sb-cobalt-dark::-webkit-scrollbar{width:14px;height:14px}
+.sb-cobalt-dark::-webkit-scrollbar-track{background:transparent}
+.sb-cobalt-dark::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border:3px solid transparent;background-clip:padding-box;border-radius:999px}
+.sb-cobalt-dark::-webkit-scrollbar-thumb:hover{background-color:rgba(143,176,255,.6);border-width:2px}
+.sb-cobalt-dark::-webkit-scrollbar-thumb:active{background-color:#8fb0ff;border-width:2px}
+.sb-cobalt-dark::-webkit-scrollbar-corner{background:transparent}
+.sb-cobalt-dark::-webkit-scrollbar-button{display:none}
+</style></helmet>
+<section id="1" style="padding:28px;min-width:1560px">
+  <div style="display:flex;align-items:center;gap:12px">
+    <svg width="30" height="30" viewBox="0 0 32 32" style="flex:none"><path d="M15.5 3.2l8.2 3.4-7.4 2.4z" fill="#1c2233"></path><path d="M27 11.4a12 12 0 1 0 0 13.2l-5-3.2a7.2 7.2 0 1 1 0-6.8z" fill="#e4676b"></path><path d="M27 11.4l4.4-1.6-2.2 5z" fill="#1c2233"></path></svg>
+    <div>
+      <div style="font:700 22px/1 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#1c2233;text-transform:uppercase">Cardinal</div>
+      <div style="font:500 8.5px/1.3 'Roboto Mono',monospace;letter-spacing:.22em;color:#4e5d7d;text-transform:uppercase">Scrollbars · both themes · light and dark</div>
+    </div>
+  </div>
+  <div style="font:400 13.5px/1.6 Barlow;color:#4e5d7d;max-width:760px;padding:10px 0 24px;text-wrap:pretty">Every pane below scrolls. Ledger draws the scrollbar as a ruled margin: a 12px gutter with a 1px hairline on its inner edge and a square slate thumb filling the gutter edge to edge, darker on hover, cardinal only while dragging. Cobalt overlays a pill thumb with no track and no rules, cobalt-tinted on light ground and white-tinted on dark, growing one step and deepening on hover and drag. Neither shows arrow buttons. Firefox gets the same colours through <span style="font-family:'Roboto Mono',monospace;font-size:12px">scrollbar-color</span>.</div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;align-items:start">
+
+    <!-- LEDGER LIGHT -->
+    <div id="1a" data-screen-label="Ledger light" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#c14a52;text-transform:uppercase">Ledger · light</div><a href="#1a" style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#57668a;border:1px solid #dbe1ec;padding:2px 6px">1a</a></div>
+      <div style="position:relative;background:#fff;border:1px solid #dbe1ec">
+        <span style="position:absolute;left:-1px;top:-1px;width:7px;height:7px;border-left:1px solid #8a99b8;border-top:1px solid #8a99b8"></span><span style="position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-right:1px solid #8a99b8;border-bottom:1px solid #8a99b8"></span>
+        <div style="padding:8px 12px;border-bottom:1px solid #dbe1ec;font:600 10px 'Roboto Mono',monospace;letter-spacing:.16em;color:#4e5d7d;text-transform:uppercase">Page content</div>
+        <div class="sb-ledger" style="height:220px;overflow:auto;padding:14px 16px 14px 18px;color:#2f3a4f;font:400 14px/1.6 Barlow">
+          <div style="font:600 22px/1.15 'Barlow Condensed';color:#1c2233;margin:0 0 8px">Deploying the runner</div>
+          <p style="margin:0 0 10px">The runner is a single binary. Place it on the host, point it at the control plane, and it registers itself under the hostname it finds.</p>
+          <p style="margin:0 0 10px">Registration is idempotent. Restarting the runner with the same token reattaches it to the existing record rather than creating a second one.</p>
+          <p style="margin:0 0 10px">Each job runs in a fresh working directory that is removed when the job finishes, whether it succeeds or fails. Anything the job wants to keep has to be declared as an artifact.</p>
+          <p style="margin:0 0 10px">Artifacts are uploaded after the last step and retained for thirty days by default. The retention window is a per-project setting.</p>
+          <p style="margin:0 0 10px">Logs stream while the job runs and are kept alongside the artifacts. The last 200 lines of each step are shown inline on the job page.</p>
+          <p style="margin:0">If the host loses connectivity mid-job the runner keeps executing and replays the log on reconnect.</p>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px">
+        <div style="background:#eef1f7;border:1px solid #dbe1ec">
+          <div style="padding:8px 10px;border-bottom:1px solid #dbe1ec;font:600 10px 'Roboto Mono',monospace;letter-spacing:.16em;color:#4e5d7d;text-transform:uppercase">Sidebar</div>
+          <div class="sb-ledger" style="height:180px;overflow:auto;padding:6px 0">
+            <div style="padding:6px 12px;font:500 13px Barlow;color:#2f3a4f;background:#fff;box-shadow:inset 2px 0 #e4676b">Overview</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Installation</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Configuration</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Runners</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Artifacts</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Secrets</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Caching</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Webhooks</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Permissions</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#2f3a4f">Troubleshooting</div>
+          </div>
+        </div>
+        <div style="background:#1c2233;min-width:0">
+          <div style="padding:8px 10px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.16em;color:#8ea6cf;text-transform:uppercase;border-bottom:1px solid #2a3040">Code block · both axes</div>
+          <pre class="sb-ledger-dark" style="margin:0;height:172px;overflow:auto;padding:10px 12px;font:400 12px/1.6 'Roboto Mono',monospace;color:#e6eaf2;white-space:pre">runner:
+  token: ${CARDINAL_RUNNER_TOKEN}
+  control_plane: https://ci.internal.example.com/api/v2/runners/register
+  workdir: /var/lib/cardinal/runner
+  artifacts:
+    retention_days: 30
+    upload_after: last_step
+  logs:
+    inline_tail: 200
+    replay_on_reconnect: true
+  hooks:
+    pre_job:  /usr/local/bin/cardinal-pre-job --verify-token --quiet
+    post_job: /usr/local/bin/cardinal-post-job --collect-artifacts</pre>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;font:400 12px/1.5 Barlow;color:#57668a">
+        <div style="flex:1;padding:8px 10px;background:#fff;border:1px solid #dbe1ec"><div style="font:600 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;color:#4e5d7d;text-transform:uppercase;margin-bottom:4px">Gutter</div>12px · track #f0f2f7 · 1px #dbe1ec inner rule</div>
+        <div style="flex:1;padding:8px 10px;background:#fff;border:1px solid #dbe1ec"><div style="font:600 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;color:#4e5d7d;text-transform:uppercase;margin-bottom:4px">Thumb</div>#8a99b8 · hover #57668a · drag #e4676b · square, edge to edge</div>
+      </div>
+    </div>
+
+    <!-- LEDGER DARK -->
+    <div id="1b" data-screen-label="Ledger dark" style="display:flex;flex-direction:column;gap:12px;background:#14171f;padding:12px;margin:-12px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><div style="font:600 10px 'Roboto Mono',monospace;letter-spacing:.2em;color:#f08287;text-transform:uppercase">Ledger · dark</div><a href="#1b" style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#8792ab;border:1px solid #2a3040;padding:2px 6px">1b</a></div>
+      <div style="position:relative;background:#1b1f2a;border:1px solid #2a3040">
+        <span style="position:absolute;left:-1px;top:-1px;width:7px;height:7px;border-left:1px solid #8ea6cf;border-top:1px solid #8ea6cf"></span><span style="position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-right:1px solid #8ea6cf;border-bottom:1px solid #8ea6cf"></span>
+        <div style="padding:8px 12px;border-bottom:1px solid #2a3040;font:600 10px 'Roboto Mono',monospace;letter-spacing:.16em;color:#9aa6bd;text-transform:uppercase">Page content</div>
+        <div class="sb-ledger-dark" style="height:220px;overflow:auto;padding:14px 16px 14px 18px;color:#e6eaf2;font:400 14px/1.6 Barlow">
+          <div style="font:600 22px/1.15 'Barlow Condensed';color:#fff;margin:0 0 8px">Deploying the runner</div>
+          <p style="margin:0 0 10px">The runner is a single binary. Place it on the host, point it at the control plane, and it registers itself under the hostname it finds.</p>
+          <p style="margin:0 0 10px">Registration is idempotent. Restarting the runner with the same token reattaches it to the existing record rather than creating a second one.</p>
+          <p style="margin:0 0 10px">Each job runs in a fresh working directory that is removed when the job finishes, whether it succeeds or fails. Anything the job wants to keep has to be declared as an artifact.</p>
+          <p style="margin:0 0 10px">Artifacts are uploaded after the last step and retained for thirty days by default. The retention window is a per-project setting.</p>
+          <p style="margin:0 0 10px">Logs stream while the job runs and are kept alongside the artifacts. The last 200 lines of each step are shown inline on the job page.</p>
+          <p style="margin:0">If the host loses connectivity mid-job the runner keeps executing and replays the log on reconnect.</p>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px">
+        <div style="background:#1b1f2a;border:1px solid #2a3040">
+          <div style="padding:8px 10px;border-bottom:1px solid #2a3040;font:600 10px 'Roboto Mono',monospace;letter-spacing:.16em;color:#9aa6bd;text-transform:uppercase">Sidebar</div>
+          <div class="sb-ledger-dark" style="height:180px;overflow:auto;padding:6px 0">
+            <div style="padding:6px 12px;font:500 13px Barlow;color:#e6eaf2;background:#242b3a;box-shadow:inset 2px 0 #f08287">Overview</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Installation</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Configuration</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Runners</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Artifacts</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Secrets</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Caching</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Webhooks</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Permissions</div>
+            <div style="padding:6px 12px;font:400 13px Barlow;color:#e6eaf2">Troubleshooting</div>
+          </div>
+        </div>
+        <div style="background:#0f1219;min-width:0;border:1px solid #2a3040">
+          <div style="padding:8px 10px;font:600 10px 'Roboto Mono',monospace;letter-spacing:.16em;color:#8ea6cf;text-transform:uppercase;border-bottom:1px solid #2a3040">Code block · both axes</div>
+          <pre class="sb-ledger-dark" style="margin:0;height:172px;overflow:auto;padding:10px 12px;font:400 12px/1.6 'Roboto Mono',monospace;color:#e6eaf2;white-space:pre">runner:
+  token: ${CARDINAL_RUNNER_TOKEN}
+  control_plane: https://ci.internal.example.com/api/v2/runners/register
+  workdir: /var/lib/cardinal/runner
+  artifacts:
+    retention_days: 30
+    upload_after: last_step
+  logs:
+    inline_tail: 200
+    replay_on_reconnect: true
+  hooks:
+    pre_job:  /usr/local/bin/cardinal-pre-job --verify-token --quiet
+    post_job: /usr/local/bin/cardinal-post-job --collect-artifacts</pre>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;font:400 12px/1.5 Barlow;color:#9aa6bd">
+        <div style="flex:1;padding:8px 10px;background:#1b1f2a;border:1px solid #2a3040"><div style="font:600 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;color:#9aa6bd;text-transform:uppercase;margin-bottom:4px">Gutter</div>12px · track #14171f · 1px #2a3040 inner rule</div>
+        <div style="flex:1;padding:8px 10px;background:#1b1f2a;border:1px solid #2a3040"><div style="font:600 9.5px 'Roboto Mono',monospace;letter-spacing:.16em;color:#9aa6bd;text-transform:uppercase;margin-bottom:4px">Thumb</div>#3a4256 · hover #4e5870 · drag #f08287 · square, edge to edge</div>
+      </div>
+    </div>
+
+    <!-- COBALT LIGHT -->
+    <div id="1c" data-screen-label="Cobalt light" style="display:flex;flex-direction:column;gap:12px;background:#f2f5ff;padding:12px;margin:-12px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><div style="font:600 12px Barlow;letter-spacing:.08em;color:#1f4fd6;text-transform:uppercase">Cobalt · light</div><a href="#1c" style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#5a6699;border:1px solid #dfe5f5;border-radius:999px;padding:2px 8px">1c</a></div>
+      <div style="background:#fff;border:1px solid #dfe5f5;border-radius:8px;overflow:hidden">
+        <div style="padding:8px 14px;background:#e6edff;font:600 12px Barlow;color:#1f4fd6">Page content</div>
+        <div class="sb-cobalt" style="height:220px;overflow:auto;padding:14px 12px 14px 18px;color:#1a2038;font:400 14px/1.6 Barlow">
+          <div style="font:600 22px/1.15 'Barlow Condensed';color:#1f4fd6;margin:0 0 8px">Deploying the runner</div>
+          <p style="margin:0 0 10px">The runner is a single binary. Place it on the host, point it at the control plane, and it registers itself under the hostname it finds.</p>
+          <p style="margin:0 0 10px">Registration is idempotent. Restarting the runner with the same token reattaches it to the existing record rather than creating a second one.</p>
+          <p style="margin:0 0 10px">Each job runs in a fresh working directory that is removed when the job finishes, whether it succeeds or fails. Anything the job wants to keep has to be declared as an artifact.</p>
+          <p style="margin:0 0 10px">Artifacts are uploaded after the last step and retained for thirty days by default. The retention window is a per-project setting.</p>
+          <p style="margin:0 0 10px">Logs stream while the job runs and are kept alongside the artifacts. The last 200 lines of each step are shown inline on the job page.</p>
+          <p style="margin:0">If the host loses connectivity mid-job the runner keeps executing and replays the log on reconnect.</p>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px">
+        <div style="background:#10194a;border-radius:8px;overflow:hidden">
+          <div style="padding:8px 12px;font:600 12px Barlow;color:#dfe6ff">Sidebar</div>
+          <div class="sb-cobalt-dark" style="height:180px;overflow:auto;padding:4px 6px 6px">
+            <div style="padding:6px 10px;margin:0 0 2px;border-radius:6px;font:500 13px Barlow;color:#fff;background:#1f4fd6;box-shadow:inset 3px 0 #ff4d5a">Overview</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Installation</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Configuration</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Runners</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Artifacts</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Secrets</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Caching</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Webhooks</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Permissions</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Troubleshooting</div>
+          </div>
+        </div>
+        <div style="background:#10194a;min-width:0;border-radius:8px;overflow:hidden">
+          <div style="padding:8px 12px;font:600 12px Barlow;color:#8fb0ff">Code block · both axes</div>
+          <pre class="sb-cobalt-dark" style="margin:0;height:172px;overflow:auto;padding:6px 12px 10px;font:400 12px/1.6 'Roboto Mono',monospace;color:#e8ecff;white-space:pre">runner:
+  token: ${CARDINAL_RUNNER_TOKEN}
+  control_plane: https://ci.internal.example.com/api/v2/runners/register
+  workdir: /var/lib/cardinal/runner
+  artifacts:
+    retention_days: 30
+    upload_after: last_step
+  logs:
+    inline_tail: 200
+    replay_on_reconnect: true
+  hooks:
+    pre_job:  /usr/local/bin/cardinal-pre-job --verify-token --quiet
+    post_job: /usr/local/bin/cardinal-post-job --collect-artifacts</pre>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;font:400 12px/1.5 Barlow;color:#5a6699">
+        <div style="flex:1;padding:8px 12px;background:#fff;border:1px solid #dfe5f5;border-radius:8px"><div style="font:600 11px Barlow;color:#1f4fd6;margin-bottom:3px">Gutter</div>14px reserved, no track fill, no rule</div>
+        <div style="flex:1;padding:8px 12px;background:#fff;border:1px solid #dfe5f5;border-radius:8px"><div style="font:600 11px Barlow;color:#1f4fd6;margin-bottom:3px">Thumb</div>8px pill, cobalt 28% · hover 10px 50% · drag #1f4fd6 · dark ground: white 22% → #8fb0ff</div>
+      </div>
+    </div>
+
+    <!-- COBALT DARK -->
+    <div id="1d" data-screen-label="Cobalt dark" style="display:flex;flex-direction:column;gap:12px;background:#0a0f2c;padding:12px;margin:-12px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><div style="font:600 12px Barlow;letter-spacing:.08em;color:#8fb0ff;text-transform:uppercase">Cobalt · dark</div><a href="#1d" style="font:500 10px 'Roboto Mono',monospace;letter-spacing:.14em;color:#8b98d6;border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:2px 8px">1d</a></div>
+      <div style="background:#141c4f;border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden">
+        <div style="padding:8px 14px;background:#0e1540;font:600 12px Barlow;color:#8fb0ff">Page content</div>
+        <div class="sb-cobalt-dark" style="height:220px;overflow:auto;padding:14px 12px 14px 18px;color:#e8ecff;font:400 14px/1.6 Barlow">
+          <div style="font:600 22px/1.15 'Barlow Condensed';color:#8fb0ff;margin:0 0 8px">Deploying the runner</div>
+          <p style="margin:0 0 10px">The runner is a single binary. Place it on the host, point it at the control plane, and it registers itself under the hostname it finds.</p>
+          <p style="margin:0 0 10px">Registration is idempotent. Restarting the runner with the same token reattaches it to the existing record rather than creating a second one.</p>
+          <p style="margin:0 0 10px">Each job runs in a fresh working directory that is removed when the job finishes, whether it succeeds or fails. Anything the job wants to keep has to be declared as an artifact.</p>
+          <p style="margin:0 0 10px">Artifacts are uploaded after the last step and retained for thirty days by default. The retention window is a per-project setting.</p>
+          <p style="margin:0 0 10px">Logs stream while the job runs and are kept alongside the artifacts. The last 200 lines of each step are shown inline on the job page.</p>
+          <p style="margin:0">If the host loses connectivity mid-job the runner keeps executing and replays the log on reconnect.</p>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px">
+        <div style="background:#0e1540;border-radius:8px;overflow:hidden">
+          <div style="padding:8px 12px;font:600 12px Barlow;color:#dfe6ff">Sidebar</div>
+          <div class="sb-cobalt-dark" style="height:180px;overflow:auto;padding:4px 6px 6px">
+            <div style="padding:6px 10px;margin:0 0 2px;border-radius:6px;font:500 13px Barlow;color:#fff;background:#1f4fd6;box-shadow:inset 3px 0 #ff4d5a">Overview</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Installation</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Configuration</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Runners</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Artifacts</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Secrets</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Caching</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Webhooks</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Permissions</div>
+            <div style="padding:6px 10px;font:400 13px Barlow;color:#dfe6ff">Troubleshooting</div>
+          </div>
+        </div>
+        <div style="background:#070b22;min-width:0;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.1)">
+          <div style="padding:8px 12px;font:600 12px Barlow;color:#8fb0ff">Code block · both axes</div>
+          <pre class="sb-cobalt-dark" style="margin:0;height:172px;overflow:auto;padding:6px 12px 10px;font:400 12px/1.6 'Roboto Mono',monospace;color:#e8ecff;white-space:pre">runner:
+  token: ${CARDINAL_RUNNER_TOKEN}
+  control_plane: https://ci.internal.example.com/api/v2/runners/register
+  workdir: /var/lib/cardinal/runner
+  artifacts:
+    retention_days: 30
+    upload_after: last_step
+  logs:
+    inline_tail: 200
+    replay_on_reconnect: true
+  hooks:
+    pre_job:  /usr/local/bin/cardinal-pre-job --verify-token --quiet
+    post_job: /usr/local/bin/cardinal-post-job --collect-artifacts</pre>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;font:400 12px/1.5 Barlow;color:#a7b3ea">
+        <div style="flex:1;padding:8px 12px;background:#141c4f;border:1px solid rgba(255,255,255,.1);border-radius:8px"><div style="font:600 11px Barlow;color:#8fb0ff;margin-bottom:3px">Gutter</div>14px reserved, no track fill, no rule</div>
+        <div style="flex:1;padding:8px 12px;background:#141c4f;border:1px solid rgba(255,255,255,.1);border-radius:8px"><div style="font:600 11px Barlow;color:#8fb0ff;margin-bottom:3px">Thumb</div>8px pill, white 22% · hover 10px #8fb0ff 60% · drag #8fb0ff</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
