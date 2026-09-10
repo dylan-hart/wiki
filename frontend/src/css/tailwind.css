@@ -1123,6 +1123,12 @@ body.body--cobalt.body--dark {
   compiled block and reading its computed styles in headless Chromium: `.tabs`'s border resolved to
   the correct `#2a3040`, while `.strip`'s bottom rule and each `.tab`'s right-hand rule resolved to
   the light `#dbe1ec` -- a pale hairline that reads as white against a dark tab strip/panel.
+
+  `--block-error-border` is restated here for the identical reason -- OpenProject #2905, found
+  while fixing #2886 above. It holds the literal `1px dashed var(--block-accent-fill)`; left
+  undeclared here it would stay assigned only at `:root`, so its nested `var(--block-accent-fill)`
+  would keep resolving against `<html>`'s own Ledger-light fill instead of the dark one this block
+  restates just below.
 */
 body.body--dark {
   --block-border: var(--color-hairline-dark);
@@ -1133,6 +1139,7 @@ body.body--dark {
   /* -> An untexted FILL lightens in Ledger dark, same as `--w-input-ring-error` above */
   --block-accent-fill: var(--color-accent-dark);
   --block-accent-fg: var(--color-accent-dark);
+  --block-error-border: 1px dashed var(--block-accent-fill);
 
   --tabs-border: #2a3040;
   --tabs-strip-rule: 1px solid var(--tabs-border);
@@ -1197,6 +1204,9 @@ body.body--cobalt.body--dark {
   --block-border: rgb(255 255 255 / 0.1);
   --block-tint-bg: var(--color-dark-3-5);
   --block-accent-fill: var(--color-accent-fill);
+  /* -> Same OpenProject #2905 reason as the Ledger-dark block above: restated here because
+        `--block-accent-fill` is restated on this exact selector too. */
+  --block-error-border: 1px dashed var(--block-accent-fill);
 
   --tabs-border: rgb(255 255 255 / 0.1);
   --tabs-strip-bg: #0e1540;
