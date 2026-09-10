@@ -198,11 +198,18 @@ function removeTag(tag) {
     override here, since Ledger's own `--color-tag-chip-bg` default is `transparent` (an outline
     chip) while the rule above paints an opaque `var(--color-surface)` plate instead -- swapping it outright
     would visibly change Ledger, so this stays additive (OpenProject #2774).
+
+    `font-weight: 500` is one of the four Cobalt/Ledger role swaps documented in
+    `ui-iteration-cobalt-typography/cobalt-typography.md` §4.3: Ledger's tag stays 400 (a hairline
+    outline reads fine at body weight), but Cobalt's filled tint needs the extra step to keep the
+    label legible against it -- a weight change, not a size or line-height one, so it stays
+    Cobalt-scoped rather than moving into the base rule above.
   */
   body.body--cobalt & {
     border-color: var(--color-tag-chip-border);
     background-color: var(--color-tag-chip-bg);
     color: var(--color-tag-chip-text);
+    font-weight: 500;
   }
 }
 
@@ -219,9 +226,14 @@ function removeTag(tag) {
     color: var(--color-accent-dark);
   }
 
-  /* -> Cobalt's filled pill carries no separately-accented hash mark (`Tags 3x - Cobalt` mockup) */
+  /*
+    Cobalt's filled pill carries no `#` at all -- not merely a recoloured one (`Tags 3x - Cobalt`
+    mockup, `cobalt-typography.md` §3's "Tags and revision" role table). `aria-hidden="true"` on the
+    span already keeps it out of the accessibility tree in both aesthetics, so hiding it visually
+    here loses nothing a reader relies on.
+  */
   body.body--cobalt & {
-    color: inherit;
+    display: none;
   }
 }
 </style>
