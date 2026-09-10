@@ -53,7 +53,7 @@ describe('--tabs-* tokens, one row per ui-iteration/tabset-block.md', () => {
       ledgerLight: '#dbe1ec',
       ledgerDark: '#2a3040',
       cobaltLight: '#dfe5f5',
-      cobaltDark: 'rgb(255 255 255 / 0.1)'
+      cobaltDark: '#3143b9'
     },
     radius: { ledgerLight: '0', cobaltLight: '8px' },
     shadow: { ledgerLight: 'none' },
@@ -185,7 +185,9 @@ describe('the --tabs-border Cobalt-dark divergence from the generic hairline tok
     const originalDarkEnd = source.indexOf('\n}', originalDarkStart)
     const originalDarkSource = source.slice(originalDarkStart, originalDarkEnd)
 
-    expect(declaredValue(cobaltDarkSource, 'tabs-border')).toBe('rgb(255 255 255 / 0.1)')
-    expect(declaredValue(originalDarkSource, 'color-hairline-dark')).toBe('rgb(255 255 255 / 0.08)')
+    // -> OpenProject #2912: both re-derived from the card hue, but --tabs-border stays the
+    //    intentionally stronger of the two -- hue-derived now, not alpha-derived.
+    expect(declaredValue(cobaltDarkSource, 'tabs-border')).toBe('#3143b9')
+    expect(declaredValue(originalDarkSource, 'color-hairline-dark')).toBe('#2e3d9e')
   })
 })
