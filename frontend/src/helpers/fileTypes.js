@@ -35,6 +35,9 @@ export default {
   dmg: {
     icon: 'tabler:brand-apple'
   },
+  doc: {
+    icon: 'tabler:file-type-doc'
+  },
   docx: {
     icon: 'tabler:file-type-docx'
   },
@@ -59,6 +62,9 @@ export default {
   heic: {
     icon: 'tabler:photo'
   },
+  html: {
+    icon: 'tabler:file-type-html'
+  },
   ico: {
     icon: 'tabler:photo'
   },
@@ -67,6 +73,9 @@ export default {
   },
   iso: {
     icon: 'tabler:disc'
+  },
+  js: {
+    icon: 'tabler:file-type-js'
   },
   jpg: {
     icon: 'tabler:file-type-jpg'
@@ -79,6 +88,9 @@ export default {
   },
   m4a: {
     icon: 'tabler:file-music'
+  },
+  md: {
+    icon: 'tabler:markdown'
   },
   mid: {
     icon: 'tabler:file-music'
@@ -105,13 +117,16 @@ export default {
     icon: 'tabler:typography'
   },
   page: {
-    icon: 'img:/_assets/icons/color-document.svg'
+    icon: 'tabler:file-text'
   },
   pdf: {
     icon: 'tabler:file-type-pdf'
   },
   png: {
     icon: 'tabler:file-type-png'
+  },
+  ppt: {
+    icon: 'tabler:file-type-ppt'
   },
   pptx: {
     icon: 'tabler:presentation'
@@ -125,7 +140,7 @@ export default {
   // -> Not a file extension, like `folder` and `page`: the type of a page that redirects instead of
   //    holding content of its own
   redirect: {
-    icon: 'img:/_assets/icons/color-send-file.svg'
+    icon: 'tabler:arrow-forward-up'
   },
   svg: {
     icon: 'tabler:file-type-svg'
@@ -139,6 +154,9 @@ export default {
   tif: {
     icon: 'tabler:photo'
   },
+  ts: {
+    icon: 'tabler:file-type-ts'
+  },
   ttf: {
     icon: 'tabler:typography'
   },
@@ -147,6 +165,9 @@ export default {
   },
   wav: {
     icon: 'tabler:file-music'
+  },
+  webp: {
+    icon: 'tabler:photo'
   },
   wma: {
     icon: 'tabler:file-music'
@@ -160,7 +181,9 @@ export default {
   woff2: {
     icon: 'tabler:typography'
   },
-  xlst: {
+  // -> Was misspelled `xlst`, which no real file ever has an extension of, so an actual `.xls`
+  //    fell all the way through to the generic fallback
+  xls: {
     icon: 'tabler:file-type-xls'
   },
   xml: {
@@ -168,6 +191,12 @@ export default {
   },
   xz: {
     icon: 'tabler:file-zip'
+  },
+  yaml: {
+    icon: 'tabler:file-code'
+  },
+  yml: {
+    icon: 'tabler:file-code'
   },
   zip: {
     icon: 'tabler:file-type-zip'

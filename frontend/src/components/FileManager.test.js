@@ -51,7 +51,6 @@ const i18n = createTestI18n({
     browseUsing: 'Browse using...',
     browseUsingPaths: 'Browse Using Paths',
     browseUsingTitles: 'Browse Using Titles',
-    compactList: 'Compact List',
     showFolders: 'Show Folders',
     fetchingFolderContents: 'Fetching folder contents...',
     duplicateItem: 'Duplicate...',
@@ -1081,14 +1080,9 @@ describe('FileManager "+ New" trigger dark mode (OpenProject #2742, #2797)', () 
 /**
  * OpenProject #2920 ("File Manager: compact row height + dedicated filetype column"). The filetype
  * caption ("PNG Image", "5 items", ...) used to be a sub-line under the filename, hidden entirely in
- * compact mode; it now lives in its own column between the filename and the size, shown regardless
- * of density, and the compact row itself shrinks to roughly half its old height.
+ * compact mode; it now lives in its own column between the filename and the size.
  */
 describe('FileManager compact rows + filetype column (WP #2920)', () => {
-  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
-  const source = readFileSync(SOURCE_PATH, 'utf-8')
-  const styleBlock = source.slice(source.indexOf('<style'))
-
   function seedRows(wrapper) {
     wrapper.vm.state.fileList = [
       {
@@ -1130,27 +1124,89 @@ describe('FileManager compact rows + filetype column (WP #2920)', () => {
 
     wrapper.unmount()
   })
+})
 
-  it('keeps the filetype column visible in compact mode too, not just the default density', async () => {
+/**
+ * OpenProject #2940 ("File manager rows are 69px tall (should be 40px/compact-default), size
+ * column misaligns, icons aren't 100% Tabler"). The `.is-compact` mode WP #2920/#2921 added is now
+ * the ONLY mode -- there is nothing left to switch between, so `state.isCompact` and its "Compact
+ * List" view-options toggle are gone entirely, and the row is laid out on CSS Grid rather than flex
+ * so the size column's width is reserved whether or not a given row actually has one.
+ */
+describe('FileManager single-density grid rows (WP #2940)', () => {
+  const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
+  const source = readFileSync(SOURCE_PATH, 'utf-8')
+  const styleBlock = source.slice(source.indexOf('<style'))
+  const rowBlock = styleBlock.slice(styleBlock.indexOf('&-filelist'), styleBlock.indexOf('&-thumb'))
+
+  function seedRows(wrapper) {
+    wrapper.vm.state.fileList = [
+      {
+        id: 'f1',
+        type: 'folder',
+        title: 'assets',
+        fileName: 'assets',
+        folderPath: '',
+        children: 5
+      },
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 253952,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+  }
+
+  it('drops the compact/default mode switch entirely', () => {
+    expect(source).not.toContain('isCompact')
+    expect(source).not.toContain('is-compact')
+    expect(source).not.toContain('compactList')
+  })
+
+  it('draws every row at a single ~40px height, with a fixed md icon regardless of row content', async () => {
+    expect(rowBlock).toMatch(/display:\s*grid/)
+    expect(rowBlock).toMatch(/min-height:\s*40px/)
+    expect(source).toContain('<w-icon :name="item.icon" size="md" />')
+
     const { wrapper } = await mountFileManager()
     seedRows(wrapper)
-    wrapper.vm.state.isCompact = true
     await flushPromises()
 
-    expect(wrapper.find('.fileman-filelist').classes()).toContain('is-compact')
-    const types = wrapper.findAll('.fileman-filelist-type')
-    expect(types).toHaveLength(2)
-    expect(types[0].text()).toBe('5 items')
-    expect(types[1].text()).toBe('PNG Image')
+    // -> Both rows resolve a real icon -- a folder and a mapped file extension -- at the one fixed
+    //    slot size, no `sm`/`xl` ternary left to branch on
+    const icons = wrapper.findAll('.fileman-filelist-icon [data-icon]')
+    expect(icons).toHaveLength(2)
+    expect(icons[0].attributes('data-icon')).toBe('tabler:folder')
+    expect(icons[1].attributes('data-icon')).toBe('tabler:file-type-png')
 
     wrapper.unmount()
   })
 
-  it("shrinks the compact row's icon slot and floor height to roughly half the default row", () => {
-    const compactBlock = styleBlock.slice(styleBlock.indexOf('&.is-compact'))
-    expect(compactBlock).toMatch(/min-height:\s*34px/)
+  it("reserves the size column's own grid track independent of whether item.side is populated", async () => {
+    // -> Four fixed/flexible tracks -- icon, name, type, size -- so a row with no `item.side` (a
+    //    folder or a page) still leaves the type column exactly where a sibling row WITH a size
+    //    puts it, rather than letting the name column grow to swallow the gap.
+    expect(rowBlock).toMatch(/grid-template-columns:\s*40px minmax\(0,\s*1fr\)\s*110px\s*90px/)
 
-    // -> The icon SLOT sizing prop is this Task's concern; the icon glyph itself is #2921's
-    expect(source).toContain('state.isCompact ? `sm` : `xl`')
+    const { wrapper } = await mountFileManager()
+    seedRows(wrapper)
+    await flushPromises()
+
+    // -> The folder row (no size) still renders its type column
+    const types = wrapper.findAll('.fileman-filelist-type')
+    expect(types).toHaveLength(2)
+    // -> Only the file row renders a size cell at all -- the folder row's fourth track sits empty
+    expect(wrapper.findAll('.fileman-filelist-side')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('opts the row out of the shared WItem container-query row-stacking rule', () => {
+    expect(rowBlock).toMatch(/container-type:\s*normal\s*!important/)
   })
 })
