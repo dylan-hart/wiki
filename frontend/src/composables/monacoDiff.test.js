@@ -9,11 +9,19 @@ import { ref } from 'vue'
 vi.mock('monaco-editor', () => ({
   editor: {
     defineTheme: vi.fn(),
-    createDiffEditor: vi.fn(() => ({
-      setModel: vi.fn(),
-      updateOptions: vi.fn(),
-      dispose: vi.fn()
-    })),
+    // -> The real modified-side editor is the same object on every call; a factory that minted a
+    //    fresh one each time would make `getModifiedEditor().revealLineNearTop` unassertable
+    createDiffEditor: vi.fn(() => {
+      const modifiedEditor = { revealLineNearTop: vi.fn() }
+      return {
+        setModel: vi.fn(),
+        updateOptions: vi.fn(),
+        dispose: vi.fn(),
+        onDidUpdateDiff: vi.fn(() => ({ dispose: vi.fn() })),
+        getLineChanges: vi.fn(() => null),
+        getModifiedEditor: vi.fn(() => modifiedEditor)
+      }
+    }),
     createModel: vi.fn(() => ({ dispose: vi.fn() }))
   }
 }))
@@ -107,6 +115,118 @@ describe('useMonacoDiff: the cardinaljs diff theme (OpenProject #2637)', () => {
       theme: 'cardinaljs',
       fontSize: 12.5
     })
+  })
+})
+
+/**
+ * OpenProject #2930: the draft-restore dialog wants the diff opened already scrolled to the first
+ * change, which `PageHistoryOverlay.vue` (the only other consumer) does not -- so this is an opt-in
+ * `scrollToFirstChange` flag on `showDiff()` rather than default behaviour.
+ */
+describe('useMonacoDiff: scrollToFirstChange (OpenProject #2930)', () => {
+  it('subscribes to the diff update but does not reveal anything before it fires', async () => {
+    const container = ref(document.createElement('div'))
+    const { showDiff } = useMonacoDiff(container, { isInline: () => true })
+    await showDiff({
+      original: { text: 'a\nb', language: 'markdown' },
+      modified: { text: 'a\nc', language: 'markdown' },
+      scrollToFirstChange: true
+    })
+
+    const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
+    expect(diffEditor.onDidUpdateDiff).toHaveBeenCalledTimes(1)
+    expect(diffEditor.getModifiedEditor().revealLineNearTop).not.toHaveBeenCalled()
+  })
+
+  it('reveals the first changed line near the top once Monaco reports the diff is ready', async () => {
+    const container = ref(document.createElement('div'))
+    const { showDiff } = useMonacoDiff(container, { isInline: () => true })
+    await showDiff({
+      original: { text: 'a\nb', language: 'markdown' },
+      modified: { text: 'a\nc', language: 'markdown' },
+      scrollToFirstChange: true
+    })
+
+    const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
+    diffEditor.getLineChanges.mockReturnValue([
+      {
+        originalStartLineNumber: 2,
+        originalEndLineNumber: 2,
+        modifiedStartLineNumber: 2,
+        modifiedEndLineNumber: 2
+      }
+    ])
+    diffEditor.onDidUpdateDiff.mock.calls[0][0]()
+
+    expect(diffEditor.getModifiedEditor().revealLineNearTop).toHaveBeenCalledWith(2)
+  })
+
+  it("falls back off a pure deletion's modifiedStartLineNumber of 0", async () => {
+    const container = ref(document.createElement('div'))
+    const { showDiff } = useMonacoDiff(container, { isInline: () => true })
+    await showDiff({
+      original: { text: 'a\nb\nc', language: 'markdown' },
+      modified: { text: 'a\nc', language: 'markdown' },
+      scrollToFirstChange: true
+    })
+
+    const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
+    // -> Monaco's own convention for a pure deletion: nothing was inserted, so there is no modified
+    //    range and modifiedStartLineNumber reports 0 rather than a real line.
+    diffEditor.getLineChanges.mockReturnValue([
+      {
+        originalStartLineNumber: 2,
+        originalEndLineNumber: 2,
+        modifiedStartLineNumber: 0,
+        modifiedEndLineNumber: 1
+      }
+    ])
+    diffEditor.onDidUpdateDiff.mock.calls[0][0]()
+
+    expect(diffEditor.getModifiedEditor().revealLineNearTop).toHaveBeenCalledWith(1)
+  })
+
+  it('never subscribes when scrollToFirstChange is left at its default', async () => {
+    const container = ref(document.createElement('div'))
+    const { showDiff } = useMonacoDiff(container, { isInline: () => false })
+    await showDiff({
+      original: { text: 'a', language: 'markdown' },
+      modified: { text: 'b', language: 'markdown' }
+    })
+
+    const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
+    expect(diffEditor.onDidUpdateDiff).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale diff-update callback once a newer comparison has started', async () => {
+    const container = ref(document.createElement('div'))
+    const { showDiff } = useMonacoDiff(container, { isInline: () => true })
+    await showDiff({
+      original: { text: 'a', language: 'markdown' },
+      modified: { text: 'b', language: 'markdown' },
+      scrollToFirstChange: true
+    })
+    const diffEditor = monaco.editor.createDiffEditor.mock.results.at(-1).value
+    const staleOnUpdate = diffEditor.onDidUpdateDiff.mock.calls[0][0]
+
+    // -> A second comparison starts (no scrollToFirstChange this time) on the same diff editor
+    //    instance before the first's worker computation ever reports back
+    await showDiff({
+      original: { text: 'a', language: 'markdown' },
+      modified: { text: 'c', language: 'markdown' }
+    })
+
+    diffEditor.getLineChanges.mockReturnValue([
+      {
+        originalStartLineNumber: 1,
+        originalEndLineNumber: 1,
+        modifiedStartLineNumber: 1,
+        modifiedEndLineNumber: 1
+      }
+    ])
+    staleOnUpdate()
+
+    expect(diffEditor.getModifiedEditor().revealLineNearTop).not.toHaveBeenCalled()
   })
 })
 

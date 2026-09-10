@@ -45,6 +45,12 @@ export function useMonacoDiff(containerRef, { isInline }) {
   let diffEditor = null
   let originalModel = null
   let modifiedModel = null
+  /**
+   * Bumped on every `showDiff()` call -- a `scrollToFirstChange` subscription from an earlier call
+   * checks this before acting, so a diff that finishes computing after a newer comparison has already
+   * replaced it does not reveal a line in what is no longer being shown.
+   */
+  let generation = 0
 
   /** The editor is built on first use, since the container only exists once there is history to show. */
   async function mountEditor() {
@@ -154,8 +160,12 @@ export function useMonacoDiff(containerRef, { isInline }) {
    * @param {{text: string, language: string}} sides.modified
    * @param {() => boolean} [sides.isStale] Asked again after the mount await -- a newer comparison
    *   started while this one was waiting owns the editor now, and this one must not touch it.
+   * @param {boolean} [sides.scrollToFirstChange] Scroll to the first changed line once Monaco's diff
+   *   computation resolves (OpenProject #2930). Opt-in: `PageHistoryOverlay.vue`, the other consumer,
+   *   does not pass this and keeps opening scrolled to the top, its existing behaviour.
    */
-  async function showDiff({ original, modified, isStale }) {
+  async function showDiff({ original, modified, isStale, scrollToFirstChange = false }) {
+    const thisGeneration = ++generation
     await mountEditor()
     if (isStale?.() || !diffEditor) {
       return
@@ -169,6 +179,37 @@ export function useMonacoDiff(containerRef, { isInline }) {
     for (const model of previous) {
       model?.dispose()
     }
+
+    if (scrollToFirstChange) {
+      revealFirstChangeOnceComputed(thisGeneration)
+    }
+  }
+
+  /**
+   * Monaco's diff computation runs off the main thread, so `getLineChanges()` answers nothing until
+   * `onDidUpdateDiff` fires -- this waits on that event rather than reading it straight after
+   * `setModel`. `revealLineNearTop` lives on the modified side's own `ICodeEditor`, not on the diff
+   * editor itself (`monaco-editor`'s `editor.api.d.ts`).
+   */
+  function revealFirstChangeOnceComputed(thisGeneration) {
+    const editor = diffEditor
+    const subscription = editor.onDidUpdateDiff(() => {
+      subscription.dispose()
+      // -> A newer showDiff() call, or a dispose, happened while this was waiting on the worker
+      if (thisGeneration !== generation || editor !== diffEditor) {
+        return
+      }
+      const firstChange = editor.getLineChanges()?.[0]
+      if (!firstChange) {
+        return
+      }
+      /*
+        A pure deletion has no modified range -- Monaco reports modifiedStartLineNumber: 0 for that
+        case rather than a real line, so fall back to where it would have landed, then to the top.
+      */
+      const line = firstChange.modifiedStartLineNumber || firstChange.modifiedEndLineNumber || 1
+      editor.getModifiedEditor().revealLineNearTop(line)
+    })
   }
 
   return { showDiff, setInline, disposeModels, disposeEditor }

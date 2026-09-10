@@ -26,6 +26,7 @@
           aria-live="polite">
           {{ t(`editor.collab.draftRecovery.loadFailed`) }}
         </div>
+        <div v-else-if="state.draft" ref="diffEl" class="draft-diff mt-2" />
       </w-card-section>
       <w-card-actions class="card-actions">
         <w-space />
@@ -48,10 +49,11 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { useMonacoDiff } from '@/composables/monacoDiff'
 
 /**
  * The recovery-draft prompt (OpenProject #2455), opened by `composables/collab.js#offerDraftRestore`
@@ -66,6 +68,16 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
  * draft, and `currentContent`, the room's live content at the moment the prompt went up. The caller
  * keeps every side effect (applying the restore, discarding the stored draft, the toasts); this
  * component only answers the question.
+ *
+ * The diff itself (OpenProject #2930) is `composables/monacoDiff.js`'s `useMonacoDiff()` in inline
+ * mode, with no version-list sidebar -- the only other consumer, `PageHistoryOverlay.vue`, wires up
+ * both a timeline and a side-by-side/inline toggle, neither of which belongs on a two-way comparison
+ * with no history to browse. It renders once `draftRequest` resolves AND the dialog is actually open
+ * (there is nothing to diff before the former, and nowhere to mount into before the latter -- see the
+ * `watch` in the DIFF section below) inside a compact, fixed-height container -- Monaco's own
+ * `automaticLayout` plus its internal scrollbar makes that scrollable without the container itself
+ * needing `overflow-y: auto` -- opened already scrolled to the first changed line via `showDiff()`'s
+ * `scrollToFirstChange` option.
  */
 const props = defineProps({
   /** Who was last known to be editing when the draft was recorded, or null when unattributed. */
@@ -126,4 +138,47 @@ props.draftRequest.then(
     state.loading = false
   }
 )
+
+// DIFF
+
+const diffEl = ref(null)
+const { showDiff, disposeEditor } = useMonacoDiff(diffEl, { isInline: () => true })
+
+onUnmounted(disposeEditor)
+
+/*
+  Both halves have to be true before `diffEl` exists to mount into: `<w-dialog>` renders its panel
+  only once `dialogVisible` flips true (`useDialogComponent()`'s own doc comment), which can land
+  either side of `draftRequest` resolving -- an already-cached response beats the dialog's own open
+  transition often enough that calling showDiff() straight from the `.then()` above would silently
+  find no container yet, with nothing left to retry it later.
+*/
+watch(
+  () => dialogVisible.value && Boolean(state.draft),
+  (ready) => {
+    if (!ready) {
+      return
+    }
+    showDiff({
+      original: { text: props.currentContent, language: 'markdown' },
+      modified: { text: state.draft.content ?? '', language: 'markdown' },
+      scrollToFirstChange: true
+    })
+  }
+)
 </script>
+
+<style lang="scss">
+/*
+  Compact rather than the full-size pane `PageHistoryOverlay.vue`/`PageSaveConflictDialog.vue` each
+  give theirs (this dialog is a prompt, not a dedicated diff view) -- a fixed height plus
+  `overflow: hidden` is enough, since Monaco's own `automaticLayout` fills exactly this box and its
+  internal scrollbar handles anything taller than it, matching `PageSaveConflictDialog.vue`'s
+  `.save-conflict-diff` treatment.
+*/
+.draft-diff {
+  height: 240px;
+  border: 1px solid rgba(#fff, 0.08);
+  overflow: hidden;
+}
+</style>
