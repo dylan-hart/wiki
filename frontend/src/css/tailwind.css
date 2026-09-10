@@ -848,12 +848,14 @@ body.body--cobalt {
   --page-header-shadow: none;
   /*
     Split into direction-specific tokens (OpenProject #2970): the horizontal margin and the top
-    margin are NOT the same value -- `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` both draw
-    the banner as `margin:10px 24px 0`, and one shared token feeding both `margin-inline` and
-    `margin-block-start` in `Index.vue` was overstating the top gap at 24px instead of 10px.
+    margin are NOT the same value -- one shared token feeding both `margin-inline` and
+    `margin-block-start` in `Index.vue` was overstating the top gap at 24px. The mockup's stated
+    `margin:10px 24px 0` put the top gap at 10px, but Dylan's hands-on review (OpenProject #2998)
+    found the computed top margin should be 0, so the top-margin token stays its own value
+    (currently 0, matching Ledger) rather than collapsing back into the horizontal one.
   */
   --page-header-margin-inline: 24px;
-  --page-header-margin-block-start: 10px;
+  --page-header-margin-block-start: 0;
   --page-header-subtitle-fg: #dbe4ff;
   --page-header-icon-bg: rgb(255 255 255 / 0.16);
   --page-header-icon-fg: #fff;
