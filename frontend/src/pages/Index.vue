@@ -1657,7 +1657,8 @@ $toc-overlay-max: 749.98px;
   }
 }
 /*
-  The article and the footer under it, stacked inside the one box that scrolls.
+  The article and the footer under it, stacked inside the one box that scrolls -- Ledger only; see the
+  `.w-footer` rule below for what Cobalt does with the same markup.
 
   `flex: 1 0 auto` on the article is what keeps the footer at the BOTTOM of a short page instead of
   leaving it hanging under two lines of content: the article takes the leftover height, and past that
@@ -1667,6 +1668,43 @@ $toc-overlay-max: 749.98px;
 .page-container-scrl {
   display: flex;
   flex-direction: column;
+
+  /*
+    Cobalt (OpenProject #3017, Feature #3010): the site footer stops being the last item in this
+    scrolling column and becomes a full-viewport-width bar pinned to the bottom of the WINDOW instead
+    -- outside any grid or flex flow, `WLayout.vue`'s included (that file is untouched; this is scoped
+    to the page view alone).
+
+    `position: fixed` is the whole mechanism: it removes `.w-footer` from this flex column's layout on
+    its own, so nothing here needs to relocate the element in the template to get there -- a
+    fixed-position descendant paints relative to the viewport regardless of how deep in the DOM it
+    sits, as long as nothing between it and the viewport sets a `transform`/`filter`/`contain` that
+    would give it a nearer containing block, and nothing under `WLayout.vue`, `WPage.vue` or in this
+    file does.
+
+    `inset-inline: 0` rather than `width: 100vw`: on a desktop browser with a reserved scrollbar
+    gutter, `100vw` counts the scrollbar itself as part of the viewport and overshoots the page's own
+    content width by that many pixels, forcing a horizontal scrollbar into existence. Pinning both
+    edges to `0` instead stretches the bar to exactly the width the page already renders at.
+
+    `z-index: 45` sits one step above the overlay nav drawer's `z-40` (`WDrawer.vue`) and its `z-30`
+    scrim, so the bar stays the topmost thing on screen even with a drawer open on a narrow viewport --
+    clearing the drawer's own last item is the drawer's job (`--footer-bar-height`, `tailwind.css`;
+    OpenProject #3018), not this bar yielding the space back to it.
+
+    `.page-container-scrl` in the selector, not a bare `.w-footer`: this stylesheet is unscoped (no
+    `scoped` attribute on the `<style>` tag below), so an unqualified class selector here would reach
+    every `<w-footer>` in the app, not just this page's site footer -- `FileManager.vue`'s status bar
+    and `Search.vue`'s own footer both use the same component and must not be affected.
+  */
+  .w-footer {
+    @at-root body.body--cobalt & {
+      position: fixed;
+      inset-inline: 0;
+      bottom: 0;
+      z-index: 45;
+    }
+  }
 }
 /*
   The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
