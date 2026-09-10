@@ -25,7 +25,7 @@
   piece of it this file actually owns; the formula's own look comes from KaTeX's stylesheet, imported
   globally in `app.scss`.
 
-  The measurements follow what the documentation platforms have converged on -- 16px body text, headings
+  The measurements follow what the documentation platforms have converged on -- 15.5px body text, headings
   at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a tinted
   strip in a framed, ruled and banded body, a left-ruled quote -- because those conventions are what
   makes a long page scannable, not because any one of them is copied.
@@ -334,12 +334,18 @@
     `--font-sans` resolves to -- the same font the rest of the app is using, not the browser default.
   */
   font-family: var(--font-content, var(--font-sans));
-  font-size: 1rem;
   /*
-    1.6, not the 1.7 the documentation platforms tend to set: at this measure the looser leading read
-    as gappy rather than airy, with the lines of a paragraph no longer holding together as a block.
+    `ui-iteration-cobalt-typography/cobalt-typography.md` §0.1: 15.5px, not the 16px (`1rem`) this
+    used to read -- `rem` rather than a bare px value so a reader's browser-level font-size
+    preference still scales the whole article the same way it always has.
   */
-  line-height: 1.6;
+  font-size: 0.96875rem;
+  /*
+    1.72, not the 1.6 this used to read at 16px: the same design pass raises both together, and at
+    15.5px the looser leading is what keeps a paragraph's lines reading as a block rather than
+    gapping open.
+  */
+  line-height: 1.72;
   /* -> A pasted URL or a long identifier wraps rather than widening the whole column */
   overflow-wrap: break-word;
 
@@ -723,19 +729,20 @@
     /* -> Less than the 1.5em its size would give it, which at 32px was a gap of over 50px */
     margin-top: 1.25em;
     color: var(--content-h1);
-    font-size: 2em;
+    /* -> `rem`, not `em`: pinned to 32px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    font-size: 2rem;
     letter-spacing: normal;
 
     /*
       A step down on a phone, where 32px of display type is a fifth of the column's width and a long
       title wraps to three lines before the article has started.
 
-      28px rather than further: it has to stay clearly above the 1.5em (24px) of the h2 under it, or the
+      28px rather than further: it has to stay clearly above the 26px of the h2 under it, or the
       two top levels stop reading as two -- and only this level moves, so the rest of the ramp descends
       from a shorter first step rather than being redrawn.
     */
     @media (max-width: $breakpoint-xs-max) {
-      font-size: 1.75em;
+      font-size: 1.75rem;
     }
   }
 
@@ -744,14 +751,15 @@
     --content-heading-rule-color: var(--content-h2-rule);
 
     color: var(--content-h2);
-    /* -> A shade under the shared 1.5em, so it stays clear of the h1 above it in the ramp */
+    /* -> A shade under the heading's own 1.625rem, so it stays clear of the h1 above it in the ramp */
     margin-top: 1.4em;
-    font-size: 1.5em;
+    /* -> `rem`, not `em`: pinned to 26px (`ui-iteration-cobalt-typography/cobalt-typography.md` §0.1) */
+    font-size: 1.625rem;
     letter-spacing: normal;
 
     /*
       Down with the h1 on a phone, and by the same proportion, so the two top levels keep the distance
-      between them: 28px over 22px reads as a title over its sections, where 28 over 24 had them almost
+      between them: 28px over 22px reads as a title over its sections, where 28 over 26 had them almost
       level.
 
       It closes to within 2px of the h3 below, which is further than the ramp would otherwise allow --
@@ -759,7 +767,7 @@
       column separates it from a plain heading far more than two points of type ever did.
     */
     @media (max-width: $breakpoint-xs-max) {
-      font-size: 1.375em;
+      font-size: 1.375rem;
     }
   }
 
@@ -773,12 +781,15 @@
   }
 
   h3 {
-    font-size: 1.25em;
+    /* -> `rem`, not `em`: pinned to 20px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    font-size: 1.25rem;
   }
   h4 {
-    font-size: 1.0625em;
+    /* -> `rem`, not `em`: pinned to 17px (unchanged), regardless of `.page-contents`'s own 15.5px base */
+    font-size: 1.0625rem;
   }
   h5 {
+    /* -> `em`, not `rem`: h5 IS the base -- 15.5px, exactly `.page-contents`'s own size */
     font-size: 1em;
   }
   /*
@@ -890,7 +901,8 @@
 
   /* The last level reads as a label rather than a title; there is no room left to go smaller */
   h6 {
-    font-size: 0.875em;
+    /* -> `rem`, not `em`: pinned to 13.5px, regardless of `.page-contents`'s own 15.5px base */
+    font-size: 0.84375rem;
     color: var(--content-ink-muted);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1184,6 +1196,9 @@
   }
 
   li {
+    /* -> `rem`, not `em`: pinned to 15px/1.6, regardless of `.page-contents`'s own 15.5px/1.72 base */
+    font-size: 0.9375rem;
+    line-height: 1.6;
     margin-top: 0.35em;
 
     &::marker {
@@ -1426,6 +1441,12 @@
   */
   blockquote {
     position: relative;
+    /*
+      -> `rem`, not `em`: an absolute 14.5px/1.6 regardless of `.page-contents`'s own 15.5px/1.72
+         base, the same reasoning the table cells further down already use.
+    */
+    font-size: 0.90625rem;
+    line-height: 1.6;
     margin: 1.5em 0;
     padding-block: 0.9em;
     padding-inline: 3.5em 1.1em;
@@ -1668,7 +1689,8 @@
     background-color: var(--content-code-chip-bg);
     color: var(--content-code-ink);
     font-family: var(--font-mono);
-    font-size: 0.875em;
+    /* -> `rem`, not `em`: pinned to 14px (unchanged), regardless of the surrounding text's own size */
+    font-size: 0.875rem;
   }
 
   /* A heading's code is already emphasised; a wash inside one only muddies it */
@@ -2174,8 +2196,8 @@
     text-align: start;
     vertical-align: top;
     /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size, matching how
-          `markdown-tables.md` states it and how this file's own base size is stated (`font-size: 1rem`
-          further up) rather than inherited-and-scaled */
+          `markdown-tables.md` states it and how this file's own base size is stated (`font-size:
+          0.96875rem` further up) rather than inherited-and-scaled */
     font-size: 0.90625rem;
     line-height: 1.5;
     color: var(--content-ink);
