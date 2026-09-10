@@ -515,11 +515,19 @@
                   @click="selectItem(item)"
                   @dblclick="doubleClickItem(item)">
                   <w-item-section class="fileman-filelist-icon" avatar>
-                    <w-icon :name="item.icon" :size="state.isCompact ? `md` : `xl`" />
+                    <w-icon :name="item.icon" :size="state.isCompact ? `sm` : `xl`" />
                   </w-item-section>
                   <w-item-section class="fileman-filelist-label">
                     <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
-                    <w-item-label caption v-if="!state.isCompact">{{ item.caption }}</w-item-label>
+                  </w-item-section>
+                  <!--
+                    -> The filetype caption ("PNG Image", "Markdown Page", ...) used to be a
+                       sub-line under the filename, hidden in compact mode. It's now its own
+                       column between the filename and the size, shown regardless of compact
+                       state -- the filename column is exclusive to the name now.
+                  -->
+                  <w-item-section class="fileman-filelist-type">
+                    <div>{{ item.caption }}</div>
                   </w-item-section>
                   <!--
                     -> A file size is a MEASUREMENT, and the design sets every one of those in the
@@ -1800,16 +1808,35 @@ $fileman-hdr-wrap-max: 899.98px;
       }
     }
 
-    // -> The design's own row type scale: a 14.5px/500 name over a 12px caption
+    // -> The design's own row type scale: a 14.5px/500 name, the filename column now exclusive
     &-label {
       .w-item-label {
         font-size: 14.5px;
         font-weight: 500;
       }
+    }
 
-      .w-item-label--caption {
-        font-size: 12px;
-        font-weight: 400;
+    /*
+      The dedicated filetype column ("PNG Image", "Markdown Page", ...) that used to be a sub-line
+      under the filename (WP #2920). A fixed, non-growing width -- not `side`, so it stays out of
+      `WItemSection`'s main-section container-query stacking -- with the same 12px caption treatment
+      the sub-line used to carry, and truncated rather than wrapped: a long caption wrapping onto a
+      second line would blow out the compact row height this same task set.
+    */
+    &-type {
+      flex: 0 0 auto;
+      width: 110px;
+      font-size: 12px;
+      font-weight: 400;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+
+      @at-root .body--light & {
+        color: var(--color-text-caption);
+      }
+      @at-root .body--dark & {
+        color: var(--color-text-caption-dark);
       }
     }
 
@@ -1826,10 +1853,16 @@ $fileman-hdr-wrap-max: 899.98px;
       }
     }
 
+    /*
+      Compact mode (WP #2920): roughly half the ~69px a row rendered at before -- a 34px floor
+      (matching the `.fileman-locale` chip's own 34px band elsewhere in this file) plus a smaller
+      icon slot. The icon glyph itself (which icon, not its size) is `fileTypes.js`'s concern
+      (sibling Task #2921).
+    */
     &.is-compact {
       > .w-item {
         padding: 0 16px;
-        min-height: 36px;
+        min-height: 34px;
       }
 
       .fileman-filelist-icon {
