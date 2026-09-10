@@ -2300,16 +2300,49 @@
   }
 
   /*
-    `width: max-content` keeps the table its natural width up to the column's; `min-width: 100%` is
-    what makes a narrow table still fill the wrapper (and therefore the article) rather than leaving
-    the frame around it wider than the grid it holds. The wrapper carries the vertical margin and the
-    perimeter now, so the table itself has neither.
+    Column sizing, CSS Grid style (OpenProject #2997/#3014/#3015). The table is a
+    `div[role="table"]` now, not a `<table>` -- see `renderers/markdown.js`'s "TABLE GRID MARKUP"
+    comment for why -- so there is no `border-collapse`/automatic-table-layout box to size columns
+    off any more, and no CSS selector can read the real column count out of the markup either.
+
+    `[role="table"]` is `display: grid` with a FIXED, generous number of explicit `max-content`
+    column tracks (16 -- comfortably above any table in this file's own test fixtures, which top
+    out at 12) rather than the real count. A track no row's cell ever lands in has nothing to
+    measure and collapses to 0 width, so a table with fewer real columns leaves no dead space; a
+    table with more than 16 loses alignment past the 16th, with no author-facing signal today --
+    a known, accepted limitation, not a silent regression from prior behaviour (which had no cap at
+    all). `max-content`, not `minmax(0, max-content)`: with a `0` floor a track would happily shrink
+    below its content's natural size to fit whatever room is left, which is exactly backwards for a
+    WIDE table -- `max-content` as the floor is what lets a track refuse to shrink and forces
+    `[role="table"]`'s own box past `.table-scroll`'s width instead, which is what triggers the
+    scrollbar in the first place. One real behaviour change from the old `width: max-content;
+    min-width: 100%`: a table narrower than the frame no longer stretches its own columns to fill it
+    (that was the browser's automatic `<table>` column-width redistribution, which a fixed grid
+    template has no equivalent for without knowing the real column count) -- it now renders at its
+    natural width, leaving blank frame background after the last column instead.
+
+    Every `[role="row"]` is `display: grid; grid-template-columns: subgrid; grid-column: 1 / -1` --
+    CSS SUBGRID, not `display: contents`. Subgrid is what lets each row's own cells size against the
+    SAME shared tracks the table above defines, so a column's width agrees across every row -- the
+    entire point of a table -- while `grid-column: 1 / -1` (spanning the full generous width) is what
+    forces each row onto its own grid line, the same way a `<tr>` always started a new table row.
+    `display: contents` alone cannot do this: flattening every cell straight into the table's own
+    grid gives the browser no notion of a row boundary once the row's own box is gone -- the next
+    row's cells would just keep filling the CURRENT grid row's remaining (mostly unused) tracks
+    instead of starting a new one. A cell needs no `grid-column` of its own inside its row's subgrid:
+    implicit auto-placement fills the row's subgridded tracks left-to-right in DOM order, exactly one
+    cell per column the way `<td>` always was.
   */
-  table {
-    width: max-content;
-    min-width: 100%;
+  [role='table'] {
+    display: grid;
+    grid-template-columns: repeat(16, max-content);
     margin: 0;
-    border-collapse: collapse;
+  }
+
+  [role='row'] {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
   }
 
   /*
@@ -2317,8 +2350,8 @@
     perimeter, and at the corners it would be a straight line cut off by the radius -- a notch rather
     than a curve.
   */
-  th,
-  td {
+  [role='columnheader'],
+  [role='cell'] {
     padding: var(--content-table-cell-padding);
     border-inline-end: 1px solid var(--content-table-col-rule);
     border-bottom: 1px solid var(--content-table-rule);
@@ -2330,7 +2363,9 @@
          column follows `dir` instead of being stuck on the physical left.
     */
     text-align: start;
-    vertical-align: top;
+    /* -> `align-self`, not `vertical-align`: these are grid items now, and `vertical-align` has no
+          effect on one -- `align-self: start` is the grid equivalent of the old top alignment. */
+    align-self: start;
     /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size, matching how
           `markdown-tables.md` states it and how this file's own base size is stated (`font-size:
           0.96875rem` further up) rather than inherited-and-scaled */
@@ -2346,8 +2381,8 @@
     yields to rather than a class. A centre-aligned (`:---:`) column gets no inline `text-align:right`
     and stays in Barlow.
   */
-  th[style*='text-align:right'],
-  td[style*='text-align:right'] {
+  [role='columnheader'][style*='text-align:right'],
+  [role='cell'][style*='text-align:right'] {
     font-family: var(--font-mono);
     font-size: 0.84375rem;
     line-height: 1.6;
@@ -2355,13 +2390,11 @@
     white-space: nowrap;
   }
 
-  tr > :last-child {
+  [role='row'] > :last-child {
     border-inline-end: 0;
   }
 
-  /* -> `tbody:last-child`, because a MultiMarkdown table can have several: only the bottom of the last
-        one is the bottom of the table, and the others need their rule to keep the grid closed */
-  tbody:last-child tr:last-child > * {
+  [role='table'] > [role='row']:last-child > * {
     border-bottom: 0;
   }
 
@@ -2371,31 +2404,37 @@
     they are the container's at the top level. Without this a multi-line row stands 1.15em taller than
     the single-line rows around it.
   */
-  th > :first-child,
-  td > :first-child {
+  [role='columnheader'] > :first-child,
+  [role='cell'] > :first-child {
     margin-top: 0;
   }
-  th > :last-child,
-  td > :last-child {
+  [role='columnheader'] > :last-child,
+  [role='cell'] > :last-child {
     margin-bottom: 0;
   }
 
-  /* -> A row header inside the BODY (author HTML; markdown has no syntax for one) keeps the plain
-        wash -- a title bar down the side of a table is a different thing altogether, see below */
+  /* -> A row header inside the body (author HTML; markdown has no syntax for one, and the renderer's
+        own token overrides never touch raw author HTML, so a hand-written `<th>` mid-body stays a
+        real `<th>`, not a `[role="columnheader"]` div) keeps the plain wash -- a title bar down the
+        side of a table is a different thing altogether, see below. It won't slot into the
+        surrounding grid the way a role-bearing cell does; that's a markup-shape gap in the renderer
+        (OpenProject #3014), not something this rule can fix on its own. */
   th {
     background-color: var(--content-surface-alt);
     font-weight: 600;
   }
 
-  /* -> The head as a tinted strip in the theme's own tint colour, not a dark title bar */
-  thead {
-    background-color: var(--content-table-head);
-  }
-
-  thead th {
+  /*
+    The head as a tinted strip in the theme's own tint colour, not a dark title bar -- painted
+    directly on each header cell rather than on a `thead` ancestor (there isn't one any more; the
+    renderer's `thead_open`/`thead_close` render as nothing). Grid cells sit flush with no gap
+    between them, so per-cell painting reads as one continuous strip exactly like the old
+    ancestor-painted version did.
+  */
+  [role='columnheader'] {
     border-inline-end-color: var(--content-table-head-rule);
     border-bottom-color: var(--content-table-head-rule);
-    background-color: transparent;
+    background-color: var(--content-table-head);
     color: var(--content-table-head-ink);
     font: var(--content-table-head-font);
     letter-spacing: var(--content-table-head-tracking);
@@ -2407,12 +2446,19 @@
     row still needs the declaration so a future retint is a token change, not a rule rewrite. Faint
     enough that the band still guides the eye across a wide row without striping the page, and the two
     are a step apart rather than a contrast -- the head is what the eye lands on.
+
+    `:nth-child(... of S)` with `S` excluding a row that has a `[role="columnheader"]` child is the
+    replacement for the old `tbody > tr:nth-child(...)` scoping -- there's no `tbody` any more to
+    keep the header row out of the count, and a header row (when one exists) is always the first row,
+    so a plain `:nth-child(even)` here would count it as row 1 and shift every table's banding phase
+    by one. The `:not(:has(...))` filter also correctly falls through to "every row counts" for a
+    headerless MultiMarkdown table, where no row carries a `columnheader` cell at all.
   */
-  tbody > tr > td {
+  [role='row']:not(:has(> [role='columnheader'])) > [role='cell'] {
     background-color: var(--content-table-row);
   }
 
-  tbody > tr:nth-child(even) > td {
+  [role='row']:nth-child(even of [role='row']:not(:has(> [role='columnheader']))) > [role='cell'] {
     background-color: var(--content-table-row-alt);
   }
 
@@ -2423,10 +2469,10 @@
     second border running the row's own width.
   */
   @media (hover: hover) {
-    tbody > tr:hover > td {
+    [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell'] {
       background: var(--content-table-row-hover);
     }
-    tbody > tr:hover > td:first-child {
+    [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell']:first-child {
       box-shadow: var(--content-table-hover-edge);
     }
   }
@@ -2441,7 +2487,9 @@
     in that column inherits this one -- which matters, because a label like that is usually written as
     code in the first place.
   */
-  table.table-leading-col > tbody > tr > :first-child {
+  [role='table'].table-leading-col
+    > [role='row']:not(:has(> [role='columnheader']))
+    > :first-child {
     font-weight: 600;
   }
 
@@ -2454,7 +2502,7 @@
     The padding goes with the wash, as it does inside a heading: it exists to keep the tint off the
     glyphs, and left behind on its own it is a gap in the middle of a phrase with nothing to explain it.
   */
-  table.table-code-nohighlight code {
+  [role='table'].table-code-nohighlight code {
     padding: 0;
     background: none;
   }
@@ -2464,9 +2512,11 @@
     what a row of prose wants -- the first lines of each cell line up and the row reads across. A row of
     single lines next to one tall cell does not: an image, a `^^` rowspan or one long wrapped sentence
     leaves the short cells hanging at the top of the row with the gap under them.
+
+    -> `align-self`, not `vertical-align` -- see the base cell rule above for why.
   */
-  table.table-vertical-middle > tbody > tr > * {
-    vertical-align: middle;
+  [role='table'].table-vertical-middle > [role='row']:not(:has(> [role='columnheader'])) > * {
+    align-self: center;
   }
 
   caption {
