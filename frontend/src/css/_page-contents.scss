@@ -559,15 +559,17 @@
     /*
       Cobalt table styling, light (OpenProject #2918). Every colour a table needs is already one of
       the `--content-table-*` tokens above; the one thing with no token slot is the wide-table
-      scrollbar the shared `.table-wrap` mechanics (`// TABLES`, further down this file) leave to
+      scrollbar the shared `.table-scroll` mechanics (`// TABLES`, further down this file) leave to
       `scrollbar-width`/`scrollbar-color` -- both plain CSS properties, not custom properties this
       file threads through a variable, so the pair is written directly here rather than invented as
       two more tokens with only Cobalt ever setting them. `#c5cff5` is the same ink `--color-
       sidebar-actions-text`/`--color-admin-sidebar-text` already carry on this aesthetic; the track
       is `--color-paper` (`#f2f5ff`, this aesthetic's own page ground), so an idle scrollbar reads
-      as part of the page rather than a chrome-grey stripe cutting across a card's own tint.
+      as part of the page rather than a chrome-grey stripe cutting across a card's own tint. On
+      `.table-scroll`, the inner scrolling box (OpenProject #2935), not `.table-wrap` -- that outer
+      frame no longer has `overflow` of its own to paint a scrollbar into.
     */
-    .table-wrap {
+    .table-scroll {
       scrollbar-width: thin;
       scrollbar-color: #c5cff5 #f2f5ff;
     }
@@ -634,9 +636,10 @@
     /*
       Wide-table scrollbar, dark half of the light block's own comment above: thumb `rgba(255,255,
       255,.14)`, track `--color-dark-3-5` (`#0e1540`, the same rung the head strip already sits on,
-      so an idle scrollbar reads as part of the card rather than a seam across it).
+      so an idle scrollbar reads as part of the card rather than a seam across it). On `.table-scroll`
+      for the same reason as the light block above.
     */
-    .table-wrap {
+    .table-scroll {
       scrollbar-width: thin;
       scrollbar-color: rgba(255, 255, 255, 0.14) var(--color-dark-3-5);
     }
@@ -2032,35 +2035,54 @@
   // ---------------------------------------------------------------------------
 
   /*
-    A wide table scrolls itself rather than widening the article -- inside its own wrapper now, not
-    through a `table { display:block; overflow-x:auto }` trick on the table itself (OpenProject
+    A wide table scrolls itself rather than widening the article -- inside its own scroll box now,
+    not through a `table { display:block; overflow-x:auto }` trick on the table itself (OpenProject
     #2916). That trick has no box of its own to hang a frame on that sits OUTSIDE the table's own
     border box: Cobalt's rounded corners (`#2918`) would still get squared off by the scrollbar
     painting across the bottom of the table's own box, which has no radius of its own to clip it to.
-    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes this div exist at
-    all -- the renderer wraps every table, from either the built-in parser or
-    `markdown-it-multimd-table`'s, in `<div class="table-wrap">` before it ever reaches this file.
+    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes these two nested divs
+    exist at all -- the renderer wraps every table, from either the built-in parser or
+    `markdown-it-multimd-table`'s, in `<div class="table-wrap"><div class="table-scroll">` before it
+    ever reaches this file.
 
-    `position: relative` is what the corner marks below position against. `overflow-x: auto` alone
-    is enough to also clip the square corners under `--content-table-radius`: CSS resolves a lone
-    `overflow-x` of anything but `visible` by computing `overflow-y` to `auto` too, so the box is
-    never `visible` on either axis and a rounded corner clips its content the same as `overflow:
-    hidden` would. The same computed `auto` is why the corner marks below land flush with the frame
-    rather than 4px past it -- see that rule's own comment.
+    TWO boxes, not one (OpenProject #2935, resolving the variance this restructure deleted from
+    `docs/variances.md`): `.table-wrap` is the outer, non-scrolling FRAME -- border, radius, shadow,
+    background and the corner marks below all live here, and it carries no `overflow` of its own, so
+    nothing it draws past its own edge (the marks) is ever clipped. `.table-scroll`, nested inside
+    it, is the actual scroller: `overflow-x: auto` alone is enough to also clip square corners under
+    `--content-table-radius` -- CSS resolves a lone `overflow-x` of anything but `visible` by
+    computing `overflow-y` to `auto` too, so the box is never `visible` on either axis and a rounded
+    corner clips its content (the table's head strip and rows) the same as `overflow: hidden` would
+    -- which is why it repeats `border-radius` on its own rather than relying on the frame's; the two
+    boxes occupy the same rectangle (the scroller fills the frame's border box, with no padding
+    between them), so the same radius value clips correctly on either. A single combined box, as this
+    used to be, could not do both at once: giving IT `overflow-x: auto` for the scroll behaviour also
+    clipped its own `::before`/`::after` pseudo-elements -- the corner marks below -- the moment they
+    rendered past its edge, which is exactly what forced them flush instead of the 4px overhang
+    `markdown-tables.md` specifies. Splitting the frame from the scroller is what lets the marks
+    overhang a box that itself never clips them, confirmed directly in a real Chromium; see
+    `_page-contents.test.js`.
 
+    `position: relative` (on the frame) is what the corner marks below position against.
     `background-color` is the body's own ground (OpenProject #2917) -- a plain row is `transparent`
     now (see `--content-table-row`), so without this the surface behind it would be whatever the
-    article column happens to sit on rather than the stated ground a framed table draws on.
+    article column happens to sit on rather than the stated ground a framed table draws on. It stays
+    on the frame rather than the scroller so it shows through consistently regardless of which box a
+    reader's cursor happens to be over.
   */
   .table-wrap {
     position: relative;
     margin: 20px 0;
     max-width: 100%;
-    overflow-x: auto;
     border: 1px solid var(--content-table-frame);
     border-radius: var(--content-table-radius);
     box-shadow: var(--content-table-shadow);
     background-color: var(--content-surface);
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+    border-radius: var(--content-table-radius);
     scrollbar-width: thin;
     scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
   }
@@ -2072,23 +2094,16 @@
     gated on the same `--corner-marks` token those two read (`none` under Cobalt, which draws no
     marks at all -- `#2918`).
 
-    Drawn FLUSH with the frame rather than `markdown-tables.md`'s "4px outside" it, which the wrapper
-    above cannot support: this box's own `overflow-x: auto` (needed for a wide table to scroll itself
-    rather than the article) clips ANY of its own descendants -- including a `::before`/`::after`
-    pseudo-element -- that render past its padding edge, in every direction, not only the one a
-    reader could scroll to. A negative inset is silently cropped away outright (there is no direction
-    to scroll IT into view), and a positive one still inflates `scrollWidth` past `clientWidth`,
-    forcing a scrollbar onto a table that would otherwise fit -- confirmed directly in a real
-    Chromium, not assumed; see `_page-contents.test.js`. `border-image-outset` is the one standard
-    mechanism that escapes an element's OWN overflow the way `box-shadow` does, but border-image
-    replaces the frame's plain-border rendering wholesale and shifts as ONE image, so there is no way
-    to keep the 1px hairline flush while only a two-corner mark overhangs past it. Recorded as a
-    variance rather than silently shipped -- see `docs/variances.md`.
+    Drawn 4px outside the frame (`inset: -5px` against the frame's own 1px border), matching
+    `.page-header-icon__marks` and the blockquote's `&::after` exactly (OpenProject #2935) -- this
+    lives on `.table-wrap`, the outer frame above, which has no `overflow` of its own, so the negative
+    inset is never cropped the way it was when the frame and the scroller were the same box. See that
+    box's own comment for the split that made this possible.
   */
   .table-wrap::after {
     content: '';
     position: absolute;
-    inset: 0;
+    inset: -5px;
     display: var(--content-table-corner-marks);
     pointer-events: none;
     background:
