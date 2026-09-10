@@ -254,7 +254,6 @@ const MIN_RADIUS = 20
 
 describe('drawLabels', () => {
   const nodes = [{ x: 0, y: 0, title: 'Intro' }]
-  // -> Above LABEL_VISIBILITY_ZOOM_THRESHOLD (0.6) so the label layer actually draws.
   const scale = 1
 
   beforeEach(resetLabelCache)
@@ -271,25 +270,16 @@ describe('drawLabels', () => {
     expect(ctx.fillStyle).toBe('#e8e8e8')
   })
 
-  it('still skips drawing below the zoom threshold regardless of mode', () => {
-    const ctx = makeCtx()
-    drawLabels(ctx, nodes, labelRadiusFor, 0.5, true, undefined, MIN_RADIUS)
-    expect(ctx.fillText).not.toHaveBeenCalled()
-  })
-
-  it('draws at 0.6 -- the retuned threshold -- where the old 0.75 would have stayed silent (OpenProject #2593)', () => {
-    const belowCtx = makeCtx()
-    drawLabels(belowCtx, nodes, labelRadiusFor, 0.59, false, undefined, MIN_RADIUS)
-    expect(belowCtx.fillText).not.toHaveBeenCalled()
-
-    const atCtx = makeCtx()
-    drawLabels(atCtx, nodes, labelRadiusFor, 0.6, false, undefined, MIN_RADIUS)
-    expect(atCtx.fillText).toHaveBeenCalled()
-
-    // -> The value this replaced. A label at this zoom is exactly what #2593 buys.
-    const betweenCtx = makeCtx()
-    drawLabels(betweenCtx, nodes, labelRadiusFor, 0.7, false, undefined, MIN_RADIUS)
-    expect(betweenCtx.fillText).toHaveBeenCalled()
+  it('draws labels regardless of zoom scale -- there is no zoom-linked visibility cutoff any more (OpenProject #3027)', () => {
+    // -> Every one of these used to be hidden outright: 0.5 and 0.59 sat below the old 0.6
+    //    threshold, and 0.05 sits far below even the 0.6 -> 0.75 -> 1.1 values this constant was
+    //    ever tuned to (OpenProject #2593, #2292, #1287/#1288). Now scale never suppresses the
+    //    label layer -- only a node's own too-small-to-fit-any-text cutoff (`fitLabel()`) can.
+    for (const testScale of [0.05, 0.5, 0.59, 0.6, 0.7]) {
+      const ctx = makeCtx()
+      drawLabels(ctx, nodes, labelRadiusFor, testScale, false, undefined, MIN_RADIUS)
+      expect(ctx.fillText).toHaveBeenCalled()
+    }
   })
 })
 

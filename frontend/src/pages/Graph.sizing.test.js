@@ -10,7 +10,7 @@ import { mountWithApp } from '../../test/mount.js'
 /*
  * How a node's radius is derived -- which counter it reads (contributors vs pageviews), which
  * bucket of that counter (unique vs total, and which client types), over which window -- plus the
- * control-rail affordances that pick between them, and the label layer's zoom thresholds.
+ * control-rail affordances that pick between them, and the label layer's zoom-linked max-size cap.
  */
 describe('Graph.vue node sizing and the control rail', () => {
   it('defaults to edits sizing (no "uniform" mode any more) while pageview tracking is off, scaling by contributor count', async () => {
@@ -295,17 +295,14 @@ describe('Graph.vue node sizing and the control rail', () => {
     expect(wrapper.vm.radiusFor({ synthetic: true })).toBe(3)
   })
 
-  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2593, #2292, #1287/#1288)', async () => {
+  it('drawLabels never hides labels for being zoomed out -- the zoom-linked visibility threshold was removed entirely (OpenProject #3027)', async () => {
     const wrapper = await mountGraph()
 
-    // -> `0.7` sits between the old `0.75` threshold (OpenProject #2292) and the new, lower `0.6`
-    //    (OpenProject #2593) -- proving labels now persist at a zoom level that used to hide them,
-    //    the same way `0.8` proved it against the `1.1` before that. Mount's own initial draw (at
-    //    the default `k = 1` zoom, itself above the threshold) already logged fillText calls, so
-    //    clear those before asserting on the below-threshold case.
+    // -> `0.05` is far below every value this threshold was ever tuned to (`0.6` -> `0.75` ->
+    //    `1.1`, OpenProject #2593, #2292, #1287/#1288) and used to hide every label outright.
     wrapper.vm.ctx.fillText.mockClear()
-    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.5)
-    expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
+    drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.05)
+    expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
 
     wrapper.vm.ctx.fillText.mockClear()
     drawLabels(wrapper.vm.ctx, wrapper.vm.nodes, wrapper.vm.radiusFor, 0.7)
@@ -330,15 +327,16 @@ describe('Graph.vue node sizing and the control rail', () => {
   it('paintGraph feeds the live zoom scale into drawLabels, not a fixed 1', async () => {
     const wrapper = await mountGraph()
 
-    // -> The two drawLabels tests above call it directly with a scale. This one goes through
+    // -> The drawLabels tests above call it directly with a scale. This one goes through
     //    `repaint()` -> `paintGraph({ transform: zoomTransform })`, which is the only caller in the
-    //    app: `paintGraph` passes `transform?.k` down as the label scale, so a zoom below the
-    //    visibility threshold must silence the label layer and a zoom past the font cap must shrink
-    //    the drawn font. A `paintGraph` that hardcoded `1` would draw labels at 10px in both cases.
+    //    app: `paintGraph` passes `transform?.k` down as the label scale, so a zoom past the font
+    //    cap must shrink the drawn font. A `paintGraph` that hardcoded `1` would draw labels at
+    //    10px regardless of zoom. Labels are never hidden for being zoomed out (OpenProject #3027),
+    //    so `0.5` is asserted to still draw rather than to stay silent.
     wrapper.vm.zoomTransform = { k: 0.5, x: 0, y: 0 }
     wrapper.vm.ctx.fillText.mockClear()
     wrapper.vm.repaint()
-    expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
+    expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
 
     wrapper.vm.zoomTransform = { k: 4, x: 0, y: 0 }
     wrapper.vm.ctx.fillText.mockClear()
