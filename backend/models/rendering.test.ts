@@ -427,6 +427,60 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
 })
 
 /*
+ * OpenProject #2911: an `<iframe>`/`<script>`/`<style>` stripped for lacking `write:scripts`/
+ * `write:styles` used to simply vanish, with nothing in the stored render saying why -- which is also
+ * what let a page look fine to whoever last saved it (with the permission) while quietly losing the
+ * embed for anyone re-rendering without it. `applyPermissionPlaceholders`'s own unit coverage lives
+ * in `helpers/htmlSanitizePolicy.test.ts`; what belongs here is that `postProcess` actually wires it
+ * in ahead of the real `sanitizeHtml()` pass, against the same allowlist a block or icon goes through.
+ */
+describe('rendering.postProcess: visible callout for a permission-gated tag (OpenProject #2911)', () => {
+  test('replaces an <iframe> with a "write:scripts" callout when the actor lacks the permission', async () => {
+    const html = '<p>before</p><iframe src="https://example.com"></iframe><p>after</p>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /<iframe/)
+    assert.match(result.render, /<blockquote class="is-danger">/)
+    assert.match(result.render, /<p class="alert-title">Caution<\/p>/)
+    assert.match(result.render, /write:scripts permission and was not rendered/)
+    // -> The surrounding content survives untouched, same as any other stripped element
+    assert.match(result.render, /<p>before<\/p>/)
+    assert.match(result.render, /<p>after<\/p>/)
+  })
+
+  test('replaces a <script> with the same "write:scripts" callout when the actor lacks the permission', async () => {
+    const html = '<script>alert(1)</script>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /<script/)
+    assert.doesNotMatch(result.render, /alert\(1\)/)
+    assert.match(result.render, /write:scripts permission and was not rendered/)
+  })
+
+  test('replaces a <style> with a "write:styles" callout when the actor lacks that permission', async () => {
+    const html = '<style>body { color: red; }</style>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /<style/)
+    assert.match(result.render, /write:styles permission and was not rendered/)
+  })
+
+  test('leaves an <iframe> and a <style> alone -- no callout -- when the actor holds both permissions', async () => {
+    const html = '<iframe src="https://example.com"></iframe><style>body { color: red; }</style>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: true, styles: true })
+
+    assert.match(result.render, /<iframe src="https:\/\/example\.com">/)
+    assert.match(result.render, /<style>/)
+    assert.match(result.render, /color:\s*red/)
+    assert.doesNotMatch(result.render, /alert-title/)
+  })
+})
+
+/*
  * OpenProject #2459 (Feature #2418's Scope): `postProcess` reads a site's admin-configured
  * `allowedUrlSchemes` off `WIKI.sites[siteId].config` and passes it through to `sanitizeOptions()`.
  * The scheme-filtering logic itself (dedupe, the categorical javascript:/vbscript:/data: denylist)

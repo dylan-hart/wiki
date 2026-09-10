@@ -329,7 +329,7 @@
           <div
             class="editor-markdown-preview-content page-contents"
             ref="editorPreviewContainerRef"
-            v-html="pageStore.render" />
+            v-html="previewHtml" />
         </div>
       </transition>
     </div>
@@ -398,13 +398,14 @@ import { useCommonStore } from '@/stores/common'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { enhanceRenderedContent } from '@/helpers/renderedContent'
 
 import { debounce } from 'es-toolkit/function'
 import * as monaco from 'monaco-editor'
 import { Position, Range } from 'monaco-editor'
-import { MarkdownRenderer } from '@/renderers/markdown'
+import { MarkdownRenderer, sanitizeForPreview } from '@/renderers/markdown'
 
 // STORES
 
@@ -412,6 +413,7 @@ const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // AESTHETIC
 
@@ -637,6 +639,24 @@ const previewInlineStyle = computed(() => {
     flex: `0 0 ${state.previewWidth}px`
   }
 })
+
+/**
+ * What the preview pane actually draws (OpenProject #2911).
+ *
+ * `pageStore.render` itself stays exactly what `md.render()` produced -- that is the payload
+ * `pageSave` sends, and the server re-derives its own sanitized copy from it at save time regardless
+ * of what this preview shows, so there is nothing to gain and a save/preview distinction to lose by
+ * mutating the store value itself. This is only ever read by the `v-html` below, gated on the same
+ * `write:scripts`/`write:styles` permissions the save is about to be sanitized against --
+ * `userStore.pagePermissions`, since these are page-scoped permissions (see CLAUDE.md's Permissions
+ * section), refreshed for the page under edit by `pageStore.pageLoad()`'s `applyViewerState()`.
+ */
+const previewHtml = computed(() =>
+  sanitizeForPreview(pageStore.render, {
+    scripts: userStore.pagePermissions.includes('write:scripts'),
+    styles: userStore.pagePermissions.includes('write:styles')
+  })
+)
 
 // METHODS
 

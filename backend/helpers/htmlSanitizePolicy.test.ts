@@ -1,7 +1,12 @@
 import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import sanitizeHtml from 'sanitize-html'
-import { blockAllowances, mergeAllowedSchemes, sanitizeOptions } from './htmlSanitizePolicy.ts'
+import {
+  blockAllowances,
+  gatedContentPlaceholder,
+  mergeAllowedSchemes,
+  sanitizeOptions
+} from './htmlSanitizePolicy.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import type { RenderPermissions } from './htmlSanitizePolicy.ts'
 
@@ -495,5 +500,30 @@ describe('sanitizeOptions -- admin-configured allowedUrlSchemes (OpenProject #24
       schemes.filter((s) => !['http', 'https', 'mailto', 'tel', 'ftp'].includes(s)),
       ['discord']
     )
+  })
+})
+
+/*
+ * OpenProject #2911: the exact wording/markup a permission-gated `<iframe>`/`<script>`/`<style>` is
+ * replaced with. `applyPermissionPlaceholders`'s wiring into a real sanitize pass is covered at the
+ * `postProcess` level in `models/rendering.test.ts` -- what belongs here is that this pure string
+ * stays pinned to the same shape a `> [!CAUTION]` GitHub-style admonition renders
+ * (`renderers/modules/github-alerts.js`'s `caution` kind), since the frontend's own copy of this
+ * function has no import path back to this one to guarantee the two agree.
+ */
+describe('gatedContentPlaceholder (OpenProject #2911)', () => {
+  test('names the missing permission inside a "caution"-classed admonition', () => {
+    const html = gatedContentPlaceholder('write:scripts')
+
+    assert.match(html, /^<blockquote class="is-danger">/)
+    assert.match(html, /<p class="alert-title">Caution<\/p>/)
+    assert.match(html, /write:scripts permission and was not rendered/)
+    assert.match(html, /<\/blockquote>$/)
+  })
+
+  test('names write:styles when that is the missing permission', () => {
+    const html = gatedContentPlaceholder('write:styles')
+
+    assert.match(html, /write:styles permission and was not rendered/)
   })
 })
