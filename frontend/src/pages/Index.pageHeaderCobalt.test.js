@@ -143,7 +143,10 @@ describe(
         expect(theme.boxShadow).toBe('none')
         expect(theme.borderBottomWidth).toBe('0px')
         expect(theme.marginLeft).toBe('24px')
-        expect(theme.marginTop).toBe('24px')
+        // -> OpenProject #2970: the top margin is 10px, not the horizontal margin's 24px -- the
+        //    mockup (`Page View 3x - Cobalt`) draws the banner as `margin:10px 24px 0`, a smaller
+        //    top gap than the sides, not the unwanted 24px top margin one shared token used to give it.
+        expect(theme.marginTop).toBe('10px')
       }
       // -> One token block covers both themes; `tailwind.css`'s Cobalt-dark block does not restate
       //    `--page-header-*`, so the flat colour itself is identical either way.
