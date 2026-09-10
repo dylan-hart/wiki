@@ -960,14 +960,21 @@ body.body--cobalt .admin-page-icon {
   }
 
   /*
-    Nav rows are 13px Barlow at the ordinary weight, in the muted tone the design gives an index on
-    ink -- the current row picks up the weight and the white below. Stated here rather than left to
-    WItem's own defaults, which sized these rows off the app's body scale and drew them a step larger
-    than the sidebar they sit in.
+    Nav rows are 16px Barlow at weight 300, in the muted tone the design gives an index on ink -- the
+    current row picks up the weight and the white below. Stated here rather than left to WItem's own
+    defaults, which sized these rows off the app's body scale and drew them a step larger than the
+    sidebar they sit in.
+
+    Weight 300 is deliberate (OpenProject #2983, `ui-iteration-cobalt-typography/
+    cobalt-typography.md` §3 "Admin"): the one place Barlow (sans, not Condensed) drops below 600 --
+    §6's removal rule is scoped to Barlow CONDENSED, so this sans-family row is not the violation it
+    looks like. Metric, not colour, so it is shared by both aesthetics like every other role that
+    isn't one of the four §4 swaps; Cobalt's own block below only re-points the colour.
   */
   .admin-nav-list {
     color: var(--color-slate-pale);
-    font-size: 13px;
+    font-size: 16px;
+    font-weight: 300;
 
     .w-item {
       min-height: 0;
@@ -1100,8 +1107,15 @@ body.body--cobalt {
     border-bottom-color: transparent;
   }
 
+  /*
+    OpenProject #2983: `--color-header-eyebrow` (#dfe6ff) is the SITE header's own "Platform wiki"
+    eyebrow token (`HeaderSearch.vue`) -- a different role with a different mockup value. The admin
+    kicker's own target, `cobalt-typography.md` §3 "Admin", is #e6ecff; no existing custom property
+    already carries that literal for this role, so it is stated directly rather than reusing a
+    token that means something else.
+  */
   .admin-area-label {
-    color: var(--color-header-eyebrow);
+    color: #e6ecff;
   }
 
   .admin-page-eyebrow {
