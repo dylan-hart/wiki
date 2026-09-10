@@ -126,3 +126,153 @@ describe('.card-header title band resolves through runtime tokens only', () => {
     expect(body).not.toMatch(/theme\.\$/)
   })
 })
+
+/**
+ * OpenProject #3006 ("Implement Cobalt overlay-pill scrollbar spec, light + dark"). Source-scan,
+ * matching the rationale every other describe in this file already gives: nothing compiles Sass in
+ * this test environment, and a scrollbar's own visual behavior isn't observable through jsdom either
+ * (no real layout engine, no `::-webkit-scrollbar` pseudo-element support) -- so this pins the rule
+ * text down directly, the same way `_page-contents.test.js` does for its own file.
+ */
+describe('_base.scss Cobalt overlay-pill scrollbar block', () => {
+  const fullSource = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+
+  /*
+    Scoped to this task's own block (its header comment through to the FONTS section that follows
+    it), not the whole file: the pre-existing generic scrollbar rule above it (the one OpenProject
+    #3005, a sibling task, replaces with its own Ledger-specific block) is a known, separately-owned
+    issue -- asserting the engine gotcha file-wide would fail against code this task does not touch.
+  */
+  const blockStart = fullSource.indexOf('// SCROLLBAR — COBALT')
+  const blockEnd = fullSource.indexOf('// FONTS', blockStart)
+  const source = fullSource.slice(blockStart, blockEnd)
+
+  it('has a Cobalt scrollbar block to check (scan is not silently matching nothing)', () => {
+    expect(blockStart).toBeGreaterThan(-1)
+    expect(blockEnd).toBeGreaterThan(blockStart)
+  })
+
+  it('wraps the standards scrollbar-width/scrollbar-color properties in @supports not selector(::-webkit-scrollbar)', () => {
+    const supportsBlocks = [
+      ...source.matchAll(/@supports not selector\(::-webkit-scrollbar\) \{([^]*?)\n\}/g)
+    ]
+    expect(supportsBlocks.length).toBe(2)
+    expect(supportsBlocks[0][1]).toMatch(
+      /\.body--cobalt\s*\{\s*scrollbar-width:\s*thin;\s*scrollbar-color:\s*rgba\(31,\s*79,\s*214,\s*0\.28\)\s*transparent;/
+    )
+    expect(supportsBlocks[1][1]).toMatch(
+      /scrollbar-color:\s*rgba\(255,\s*255,\s*255,\s*0\.22\)\s*transparent;/
+    )
+  })
+
+  it('never states scrollbar-width/scrollbar-color unwrapped alongside a ::-webkit-scrollbar* rule on the same selector', () => {
+    // -> Every line touching the standards properties, anywhere in this block, must sit inside an
+    //    @supports block.
+    const lines = source.split('\n')
+    let depth = 0
+    const supportsDepths = []
+    for (const line of lines) {
+      if (/@supports not selector\(::-webkit-scrollbar\)/.test(line)) {
+        supportsDepths.push(depth)
+      }
+      const insideSupports = supportsDepths.length > 0
+      if (/\b(scrollbar-width|scrollbar-color)\s*:/.test(line)) {
+        expect(insideSupports, `"${line.trim()}" must be wrapped in @supports`).toBe(true)
+      }
+      depth += (line.match(/\{/g) || []).length
+      depth -= (line.match(/\}/g) || []).length
+      while (supportsDepths.length && depth <= supportsDepths[supportsDepths.length - 1]) {
+        supportsDepths.pop()
+      }
+    }
+  })
+
+  it('draws a 14px gutter with no track fill and no rule', () => {
+    expect(source).toMatch(
+      /\.body--cobalt ::-webkit-scrollbar \{\s*width:\s*14px;\s*height:\s*14px;\s*\}/
+    )
+    expect(source).toMatch(
+      /\.body--cobalt ::-webkit-scrollbar-track,\s*\n\.body--cobalt ::-webkit-scrollbar-corner \{\s*background:\s*transparent;\s*\}/
+    )
+  })
+
+  it('draws an 8px pill thumb (via a 3px transparent border) that narrows to 2px on hover/active', () => {
+    const thumbRule = source.match(/\.body--cobalt ::-webkit-scrollbar-thumb \{([^}]*)\}/)
+    expect(thumbRule, 'idle thumb rule found').toBeTruthy()
+    expect(thumbRule[1]).toMatch(/background:\s*rgba\(31,\s*79,\s*214,\s*0\.28\);/)
+    expect(thumbRule[1]).toMatch(/border:\s*3px solid transparent;/)
+    expect(thumbRule[1]).toMatch(/background-clip:\s*padding-box;/)
+    expect(thumbRule[1]).toMatch(/border-radius:\s*999px;/)
+
+    const hoverRule = source.match(/\.body--cobalt ::-webkit-scrollbar-thumb:hover \{([^}]*)\}/)
+    expect(hoverRule[1]).toMatch(/background-color:\s*rgba\(31,\s*79,\s*214,\s*0\.5\);/)
+    expect(hoverRule[1]).toMatch(/border-width:\s*2px;/)
+
+    const activeRule = source.match(/\.body--cobalt ::-webkit-scrollbar-thumb:active \{([^}]*)\}/)
+    expect(activeRule[1]).toMatch(/background-color:\s*#1f4fd6;/)
+    expect(activeRule[1]).toMatch(/border-width:\s*2px;/)
+  })
+
+  it('hides the scrollbar buttons', () => {
+    expect(source).toMatch(/\.body--cobalt ::-webkit-scrollbar-button \{\s*display:\s*none;\s*\}/)
+  })
+
+  it('applies the white dark-ground tint to dark mode, the sidebar and rendered code blocks alike, unconditioned on .body--dark', () => {
+    // -> The dark-ground selector group: whole page in dark mode, plus the two real sidebar classes
+    //    and the real code-block selector -- none of the latter three gated behind `.body--dark`.
+    //    Allows for the @supports-nested occurrence's extra indentation vs. the three top-level
+    //    thumb/hover/active occurrences.
+    const groupPattern =
+      /^[ \t]*\.body--cobalt\.body--dark,\s*\n[ \t]*\.body--cobalt \.sidebar-nav,\s*\n[ \t]*\.body--cobalt \.admin-sidebar,\s*\n[ \t]*\.body--cobalt \.page-contents pre \{/gm
+    const groupMatches = [...source.matchAll(groupPattern)]
+    // -> The bare-selector form, used once for the @supports scrollbar-color rule.
+    expect(groupMatches.length).toBe(1)
+
+    // -> The thumb/hover/active forms each repeat the same four-selector group with
+    //    `::-webkit-scrollbar-thumb[:hover|:active]` appended to every one of the four.
+    const suffixedGroup = (suffix) =>
+      new RegExp(
+        `\\.body--cobalt\\.body--dark ::-webkit-scrollbar-thumb${suffix},\\s*\\n` +
+          `\\.body--cobalt \\.sidebar-nav ::-webkit-scrollbar-thumb${suffix},\\s*\\n` +
+          `\\.body--cobalt \\.admin-sidebar ::-webkit-scrollbar-thumb${suffix},\\s*\\n` +
+          `\\.body--cobalt \\.page-contents pre::-webkit-scrollbar-thumb${suffix} \\{([^}]*)\\}`
+      )
+
+    const thumbMatch = source.match(suffixedGroup(''))
+    expect(thumbMatch, 'dark-ground idle thumb rule found').toBeTruthy()
+    expect(thumbMatch[1]).toMatch(/background-color:\s*rgba\(255,\s*255,\s*255,\s*0\.22\);/)
+
+    const hoverMatch = source.match(suffixedGroup(':hover'))
+    expect(hoverMatch, 'dark-ground hover thumb rule found').toBeTruthy()
+    expect(hoverMatch[1]).toMatch(/background-color:\s*rgba\(143,\s*176,\s*255,\s*0\.6\);/)
+
+    const activeMatch = source.match(suffixedGroup(':active'))
+    expect(activeMatch, 'dark-ground active thumb rule found').toBeTruthy()
+    expect(activeMatch[1]).toMatch(/background-color:\s*#8fb0ff;/)
+  })
+
+  it('never gates the sidebar/code-block dark-ground selectors behind .body--dark', () => {
+    expect(source).not.toMatch(/\.body--cobalt\.body--dark \.sidebar-nav/)
+    expect(source).not.toMatch(/\.body--cobalt\.body--dark \.admin-sidebar/)
+    expect(source).not.toMatch(/\.body--cobalt\.body--dark \.page-contents pre/)
+  })
+})
+
+/**
+ * OpenProject #3006. `WScrollArea.vue` used to hardcode its own grey scrollbar, at a specificity
+ * (Vue's scoped-style `[data-v-xxx]` attribute) that outranked the new global `.body--ledger`/
+ * `.body--cobalt` rules above -- so every `<w-scroll-area>` region silently kept the old grey bar.
+ * Source-scan rather than a mount/computed-style assertion for the same reason as the rest of this
+ * file: jsdom has no `::-webkit-scrollbar` pseudo-element to read a computed style off of at all.
+ */
+describe('WScrollArea.vue carries no scrollbar rule of its own', () => {
+  const source = readFileSync(resolve(CSS_DIR, '../components/shared/WScrollArea.vue'), 'utf-8')
+
+  it('carries no <style> block at all (the rule it existed for is gone, not just its content)', () => {
+    expect(source).not.toMatch(/<style/)
+  })
+
+  it('still scrolls via the overflow-auto utility class in its template', () => {
+    expect(source).toMatch(/class="w-scroll-area overflow-auto"/)
+  })
+})

@@ -84,6 +84,94 @@
 }
 
 // ------------------------------------------------------------------
+// SCROLLBAR — COBALT (OpenProject #3006)
+// ------------------------------------------------------------------
+//
+// Overlay pill: 14px gutter, no track fill, no rule -- the same "no hairline" language Cobalt draws
+// everywhere else. An 8px pill thumb, grown to 10px (via a shrinking transparent border rather than
+// a width change, so the track never reflows) and deepened on hover/drag. Cobalt tint on light
+// ground; a white tint on dark-toned ground -- the whole page in dark mode, PLUS the sidebar and
+// rendered code blocks, which stay dark-toned Cobalt surfaces regardless of light/dark mode.
+//
+// Handoff source: `ui-iteration-scrollbars/scrollbars.md`'s Cobalt section, reviewed 2026-09-10.
+// Two of its selectors are generic placeholders, mapped here to this codebase's real classes:
+//   - `.sidebar` -> `.sidebar-nav` (`NavSidebar.vue`) + `.admin-sidebar` (`AdminLayout.vue`), named
+//     explicitly in this task's own spec. Both wrap a nested `<w-scroll-area>` that does the actual
+//     overflow scrolling; the descendant-combinator form below (`.body--cobalt .sidebar-nav
+//     ::-webkit-scrollbar-thumb`) reaches it with no extra nesting, same as the handoff's own shape.
+//     Deliberately unconditioned on `.body--dark`: both sidebars are dark-toned even under Cobalt
+//     LIGHT, so the dark-ground tint has to apply there too.
+//   - `.code-block` -> `.page-contents pre`, the real `overflow-x: auto` element behind every
+//     rendered or previewed code block (`_page-contents.scss`'s own header comment: every selector
+//     there is nested under `.page-contents`, "the article column in the page view, and the preview
+//     pane in the markdown editor"). Also unconditioned on `.body--dark`: `--content-surface-code`
+//     resolves to the same `#10194a` in Cobalt light and dark, so the block is dark-toned in both.
+//
+// Same engine gotcha as the Ledger block above: Chromium 121+ ignores every `::-webkit-scrollbar*`
+// rule on an element carrying a non-auto `scrollbar-width`/`scrollbar-color`, so the standards
+// properties stay wrapped in `@supports not selector(::-webkit-scrollbar)` and are never stated
+// unwrapped alongside a `::-webkit-scrollbar*` rule on the same selector.
+@supports not selector(::-webkit-scrollbar) {
+  .body--cobalt {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(31, 79, 214, 0.28) transparent;
+  }
+}
+.body--cobalt ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+.body--cobalt ::-webkit-scrollbar-track,
+.body--cobalt ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.body--cobalt ::-webkit-scrollbar-thumb {
+  background: rgba(31, 79, 214, 0.28);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+.body--cobalt ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(31, 79, 214, 0.5);
+  border-width: 2px;
+}
+.body--cobalt ::-webkit-scrollbar-thumb:active {
+  background-color: #1f4fd6;
+  border-width: 2px;
+}
+.body--cobalt ::-webkit-scrollbar-button {
+  display: none;
+}
+
+// Dark ground: whole page in dark mode, plus the sidebar and rendered code blocks in either mode.
+@supports not selector(::-webkit-scrollbar) {
+  .body--cobalt.body--dark,
+  .body--cobalt .sidebar-nav,
+  .body--cobalt .admin-sidebar,
+  .body--cobalt .page-contents pre {
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  }
+}
+.body--cobalt.body--dark ::-webkit-scrollbar-thumb,
+.body--cobalt .sidebar-nav ::-webkit-scrollbar-thumb,
+.body--cobalt .admin-sidebar ::-webkit-scrollbar-thumb,
+.body--cobalt .page-contents pre::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+.body--cobalt.body--dark ::-webkit-scrollbar-thumb:hover,
+.body--cobalt .sidebar-nav ::-webkit-scrollbar-thumb:hover,
+.body--cobalt .admin-sidebar ::-webkit-scrollbar-thumb:hover,
+.body--cobalt .page-contents pre::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(143, 176, 255, 0.6);
+}
+.body--cobalt.body--dark ::-webkit-scrollbar-thumb:active,
+.body--cobalt .sidebar-nav ::-webkit-scrollbar-thumb:active,
+.body--cobalt .admin-sidebar ::-webkit-scrollbar-thumb:active,
+.body--cobalt .page-contents pre::-webkit-scrollbar-thumb:active {
+  background-color: #8fb0ff;
+}
+
+// ------------------------------------------------------------------
 // FONTS
 // ------------------------------------------------------------------
 
