@@ -1100,18 +1100,20 @@ describe('NavSidebar', () => {
    * then scaled the reach-back box and dot count off `--nav-depth` instead of a fixed one-lane
    * offset -- but by reaching BACKWARD from the row's own edge, which anchored the trail at the
    * row's own (icon-side) position and grew it toward the navbar edge as depth increased: the
-   * wrong direction (OpenProject #2951). The fix here drops the reach-back arithmetic entirely: the
-   * box now sits at a FIXED `inset-inline-start: 0` (the row's own left edge, which -- since the
-   * row spans the navbar's full width at every depth now -- is the same absolute position
-   * regardless of nesting) and only its `width` scales with `--nav-depth`, so the trail's far end
-   * grows TOWARD the icon as depth increases instead of away from the edge.
+   * wrong direction (OpenProject #2951). #2951's own fix dropped the reach-back arithmetic and sat
+   * the box at a FIXED `inset-inline-start: 0`, but #2996 corrects that flat value: Cobalt's rows
+   * already carry `margin-inline: var(--nav-item-inset)` (10px in Cobalt, 0 in Ledger) OUTSIDE this
+   * box, so a flat offset would overshoot Cobalt's true distance from the navbar edge. The offset
+   * is now derived from that SAME token (`calc(16px - var(--nav-item-inset, 0px))`), landing both
+   * aesthetics at the same true 16px from the edge, and `width` is narrowed by a further 4px (icon-
+   * side gap tightening), clamped to never go negative at depth 0.
    *
    * Asserted on the source rather than rendered, for the same happy-dom-cannot-resolve-logical-
    * properties/no-real-layout reason the tests around this one give -- but the actual regression
-   * this WP fixes (which end is fixed, which end grows) is a real-layout question, covered by the
-   * real behavior test right after this one in an actual browser instead.
+   * this WP fixes (the per-aesthetic offset, and which end grows with depth) is a real-layout
+   * question, covered by the real behavior test right after this one in an actual browser instead.
    */
-  it("anchors the depth-cue dot at the row's own fixed left edge, scaling only its reach with --nav-depth", () => {
+  it('derives the depth-cue dot offset from --nav-item-inset and tightens its reach with --nav-depth', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
@@ -1127,12 +1129,16 @@ describe('NavSidebar', () => {
     expect(styleBlock.slice(itemRuleStart, itemRuleStart + 200)).toMatch(/position:\s*relative/)
     expect(itemRule).toMatch(/opacity:\s*0;/)
     expect(itemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
-    // -> Fixed, not reaching back -- a MULTIPLE of the ancestor-wrapper offset the old version
-    //    subtracted `--nav-item-inset` to compensate for is gone entirely.
-    expect(itemRule).toMatch(/inset-inline-start:\s*0;/)
-    expect(itemRule).not.toMatch(/--nav-item-inset/)
-    // -> Only the width scales with depth, so the box's far end (toward the icon) is what moves.
-    expect(itemRule).toMatch(/width:\s*calc\(var\(--nav-depth,\s*0\)\s*\*\s*10px\)/)
+    // -> Derived from the SAME --nav-item-inset token the row's own margin uses (OpenProject
+    //    #2996), not a flat constant that would overshoot Cobalt.
+    expect(itemRule).toMatch(
+      /inset-inline-start:\s*calc\(16px\s*-\s*var\(--nav-item-inset,\s*0px\)\)/
+    )
+    // -> Width scales with depth, narrowed by 4px (icon-side gap tightening) and clamped so a
+    //    depth-0 row never gets a negative width.
+    expect(itemRule).toMatch(
+      /width:\s*max\(0px,\s*calc\(var\(--nav-depth,\s*0\)\s*\*\s*10px\s*-\s*4px\)\)/
+    )
     // -> One dot PER lane, not one dot for the whole (now depth-scaled) box: a `repeat-x` tile
     //    exactly one lane (10px) wide, rather than a single centered, non-repeating image.
     expect(itemRule).toMatch(/background-repeat:\s*repeat-x/)
@@ -1140,15 +1146,15 @@ describe('NavSidebar', () => {
   })
 
   /**
-   * OpenProject #2906/#2932, real-behavior regression: the tests above can only read the source
-   * text, not confirm either bug is actually gone -- `:has(:hover)` matching every ancestor of a
-   * hovered descendant, and a fixed-width reach-back box that can only ever draw one dot
-   * regardless of depth, are both exactly the kind of thing neither `jsdom` nor `happy-dom` can be
-   * trusted to emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom
-   * can't catch layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/
-   * `WItem` markup -- not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which
-   * has no `.w-item` class, `depth`-derived inline style, or computed styles of its own to hover at
-   * all -- three folders deep, in a real headless Chromium page, and hovers each row in turn.
+   * OpenProject #2906/#2932/#2996, real-behavior regression: the tests above can only read the
+   * source text, not confirm either bug is actually gone -- `:has(:hover)` matching every ancestor
+   * of a hovered descendant, and a reach-back box whose per-aesthetic offset or per-lane width is
+   * wrong, are both exactly the kind of thing neither `jsdom` nor `happy-dom` can be trusted to
+   * emulate (see `test/realGridLayout.js`'s own header, and this project's own "jsdom can't catch
+   * layout bugs" lesson). This mounts the REAL `NavSidebarItem`/`WExpansionItem`/`WItem` markup --
+   * not the `CapturingWItem` stub `mountNav` uses elsewhere in this file, which has no `.w-item`
+   * class, `depth`-derived inline style, or computed styles of its own to hover at all -- three
+   * folders deep, in a real headless Chromium page, and hovers each row in turn.
    *
    * The tree nests one level deeper than #2906's own original fixture (four levels, not three) so
    * the row actually asserted against #2932's own worked example (a folder 3 levels deep) is the
@@ -1156,7 +1162,7 @@ describe('NavSidebar', () => {
    * `top` at depth 0 with no ancestor lane of its own to light at all.
    */
   describe(
-    'depth-cue dot hover scoping, anchor point & depth scaling — real behavior (OpenProject #2906, #2932, #2951)',
+    'depth-cue dot hover scoping, anchor point & depth scaling — real behavior (OpenProject #2906, #2932, #2951, #2996)',
     { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
     () => {
       const nestedTree = [
@@ -1240,19 +1246,24 @@ describe('NavSidebar', () => {
 
           // -> Each row's reach-back box is already sized to its own depth even at rest (opacity
           //    0 -- nothing is lit yet) -- this is the #2932 fix itself: `width` scales with
-          //    `--nav-depth` rather than staying a fixed 10px regardless of nesting.
-          expect((await dotStyle(middleHeader)).width).toBe('10px')
-          expect((await dotStyle(deepHeader)).width).toBe('20px')
-          expect((await dotStyle(leaf)).width).toBe('30px')
+          //    `--nav-depth`, narrowed a further 4px per #2996's icon-side gap tightening (`max(0px,
+          //    depth * 10px - 4px)`), rather than staying a fixed 10px regardless of nesting.
+          expect((await dotStyle(middleHeader)).width).toBe('6px')
+          expect((await dotStyle(deepHeader)).width).toBe('16px')
+          expect((await dotStyle(leaf)).width).toBe('26px')
 
           // -> OpenProject #2951's own regression: the trail's NEAR edge (`left`, resolved off
-          //    `inset-inline-start: 0`) is a FIXED `0px` -- the row's own left edge -- at every
-          //    depth, not a depth-dependent negative reach-back. It is the box's `width` (above)
-          //    that grows toward the icon as depth increases, never this.
-          expect((await dotStyle(topHeader)).left).toBe('0px')
-          expect((await dotStyle(middleHeader)).left).toBe('0px')
-          expect((await dotStyle(deepHeader)).left).toBe('0px')
-          expect((await dotStyle(leaf)).left).toBe('0px')
+          //    `inset-inline-start`) is FIXED -- the same absolute position -- at every depth, not a
+          //    depth-dependent negative reach-back. It is the box's `width` (above) that grows
+          //    toward the icon as depth increases, never this. #2996 corrects the fixed value
+          //    itself from a bare `0px` (the row's own left edge) to `16px` (`calc(16px -
+          //    var(--nav-item-inset, 0px))` with no `--nav-item-inset` set in this test's compiled
+          //    CSS, i.e. Ledger's own default of 0), which is the true distance from the navbar edge
+          //    this WP calibrates for.
+          expect((await dotStyle(topHeader)).left).toBe('16px')
+          expect((await dotStyle(middleHeader)).left).toBe('16px')
+          expect((await dotStyle(deepHeader)).left).toBe('16px')
+          expect((await dotStyle(leaf)).left).toBe('16px')
 
           // -> The structural half of the same fix: every row spans the navbar's full width at
           //    every depth now (no more ancestor `.w-expansion-item__content` border narrowing the
@@ -1271,7 +1282,7 @@ describe('NavSidebar', () => {
           await leaf.hover()
           const leafDot = await dotStyle(leaf)
           expect(leafDot.opacity).toBeCloseTo(0.5)
-          expect(leafDot.width).toBe('30px')
+          expect(leafDot.width).toBe('26px')
           // -> Still scoped to the hovered row alone: hovering the leaf lights neither ancestor
           //    folder's OWN row lane (the #2906 bug this test file already guarded, and which
           //    #2932's fix must not have reintroduced).
@@ -1284,7 +1295,7 @@ describe('NavSidebar', () => {
           await deepHeader.hover()
           const deepDot = await dotStyle(deepHeader)
           expect(deepDot.opacity).toBeCloseTo(0.5)
-          expect(deepDot.width).toBe('20px')
+          expect(deepDot.width).toBe('16px')
           expect((await dotStyle(leaf)).opacity).toBe(0)
           expect((await dotStyle(middleHeader)).opacity).toBe(0)
         } finally {
@@ -1295,14 +1306,18 @@ describe('NavSidebar', () => {
       /**
        * OpenProject #2951's second reported symptom: under Cobalt (`--nav-item-inset: 10px`, the
        * row gutter `Page View 3x - Cobalt` insets every row by), the dots used to sit flush against
-       * -- or past -- the column edge, because the old reach-back box's `inset-inline-start`
-       * subtracted `--nav-item-inset` to compensate for the row's own `margin-inline`. Now that the
-       * box sits at a fixed `inset-inline-start: 0` on the row's own (already margin-inset) box,
-       * with no subtraction, the row's own edge -- and so the dot's near edge -- naturally carries
-       * that same gutter, with no separate math needed. Asserted as the row's own rendered gap from
-       * its container's edge (`getBoundingClientRect`, not a computed-style read), and that the gap
-       * is IDENTICAL at depth 0 and depth 3 -- a depth-dependent gap would mean the old subtraction
-       * bug (or a new variant of it) survived.
+       * -- or past -- the column edge. #2951's own fix (a fixed `inset-inline-start: 0` on the
+       * row's own already-margin-inset box) got the row-gutter breathing room back, but #2996's
+       * later calibration correction (2026-09-10) found that fix still landed Cobalt short of the
+       * SAME true distance from the navbar edge Ledger gets: Cobalt's dot sat only 10px from the
+       * edge (the row's own margin alone) while Ledger's sat the full 16px this WP targets. The
+       * offset is now `calc(16px - var(--nav-item-inset, 0px))` -- 6px in Cobalt -- which, ADDED to
+       * Cobalt's own 10px row margin, lands both aesthetics at the identical true 16px. The first
+       * two assertions below are the row's own rendered gap from its container's edge (unaffected by
+       * this WP -- the row's own `margin-inline` is unchanged), asserted IDENTICAL at depth 0 and
+       * depth 3 as before; the assertions after that are the actual #2996 acceptance criterion --
+       * the dot's own absolute left edge, which must land at the same true 16px in Cobalt as the
+       * plain/Ledger-like context above already asserts.
        */
       it("gives Cobalt's row gutter the same edge breathing room at every depth", async () => {
         const wrapper = await mountRealTree(nestedTree)
@@ -1351,6 +1366,24 @@ describe('NavSidebar', () => {
 
           expect(await gapFromContainer(topHeader)).toBe(10)
           expect(await gapFromContainer(leaf)).toBe(10)
+
+          // -> The dot's own absolute left edge (row's own rendered left + the pseudo-element's
+          //    `left`, since `.w-item` is the `position: relative` anchor) from the container's
+          //    edge -- the true, aesthetic-independent distance OpenProject #2996 calibrates for.
+          //    Must equal the SAME 16px the plain/Ledger-like context asserts above, even though
+          //    Cobalt's own `inset-inline-start` value (6px) differs from Ledger's (16px): the
+          //    other 10px comes from Cobalt's row margin, which this read captures via the row's
+          //    own `getBoundingClientRect()`.
+          const dotAbsoluteLeft = async (locator) => {
+            const rowLeft = await locator.evaluate((el) => el.getBoundingClientRect().left)
+            const dotOffset = await locator.evaluate((el) =>
+              Number.parseFloat(getComputedStyle(el, '::before').left)
+            )
+            return rowLeft + dotOffset
+          }
+          const containerLeft = await container.evaluate((el) => el.getBoundingClientRect().left)
+          expect((await dotAbsoluteLeft(topHeader)) - containerLeft).toBe(16)
+          expect((await dotAbsoluteLeft(leaf)) - containerLeft).toBe(16)
         } finally {
           await page.close()
         }
