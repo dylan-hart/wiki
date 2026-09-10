@@ -31,7 +31,7 @@
           :style="{ left: `${(hsv.h / 360) * 100}%`, backgroundColor: hueColor }" />
       </div>
       <span
-        class="h-6 w-6 shrink-0 rounded-full border border-black/12 dark:border-white/15"
+        class="h-6 w-6 shrink-0 rounded-full border border-hairline dark:border-hairline-dark"
         :style="{ backgroundColor: hex }" />
     </div>
 
