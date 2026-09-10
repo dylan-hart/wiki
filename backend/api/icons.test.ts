@@ -185,3 +185,79 @@ describe('icons picker permissions (task #931)', () => {
     assert.equal(getSetsCalls, 0)
   })
 })
+
+/**
+ * `POST /sideload` (OpenProject #2939/#2946): a `manage:system`-only trigger for
+ * `WIKI.models.icons.sideloadFromDataPath()`, letting an admin rescan `<dataPath>/icons/` for a
+ * dropped-in icon set collection file against a running instance without a restart. Mirrors
+ * `locales.test.ts`'s own `POST /sideload` suite, including its `session: 'header', permissions:
+ * true` harness setup — needed because this route (unlike the picker routes above) enforces the
+ * real `config.permissions` preHandler rather than the in-handler `mayUseIconPicker()` check, so it
+ * gets its own `buildTestApp` instance instead of reusing the describe block's.
+ */
+describe('icons sideload route (task #2946)', () => {
+  const sideloadResult = {
+    loaded: [{ prefix: 'tabler', iconCount: 42 }],
+    skipped: [{ prefix: 'broken', error: 'invalid JSON' }]
+  }
+
+  function headersFor(permissions: string[]) {
+    return {
+      'x-test-session': JSON.stringify({ authenticated: true, permissions, groups: [] })
+    }
+  }
+
+  let sideloadApp: FastifyInstance
+  let sideloadCalls = 0
+
+  before(async () => {
+    sideloadApp = await buildTestApp({
+      routes: iconsRoutes,
+      session: 'header',
+      permissions: true,
+      wiki: {
+        models: {
+          icons: {
+            sideloadFromDataPath: async () => {
+              sideloadCalls++
+              return sideloadResult
+            }
+          }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(sideloadApp))
+
+  beforeEach(() => {
+    sideloadCalls = 0
+  })
+
+  test('requires manage:system', async () => {
+    const res = await sideloadApp.inject({
+      method: 'POST',
+      url: '/sideload',
+      headers: headersFor(['manage:users'])
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(sideloadCalls, 0)
+  })
+
+  test('refuses an unauthenticated request', async () => {
+    const res = await sideloadApp.inject({ method: 'POST', url: '/sideload' })
+    assert.equal(res.statusCode, 401)
+    assert.equal(sideloadCalls, 0)
+  })
+
+  test('runs the rescan and returns what it did, verbatim from the model', async () => {
+    const res = await sideloadApp.inject({
+      method: 'POST',
+      url: '/sideload',
+      headers: headersFor(['manage:system'])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), sideloadResult)
+    assert.equal(sideloadCalls, 1)
+  })
+})
