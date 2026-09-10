@@ -1,7 +1,7 @@
 <template>
   <div
     class="w-date inline-block rounded p-3"
-    :class="bordered ? 'border border-black/12 dark:border-white/15' : ''"
+    :class="bordered ? 'border border-hairline dark:border-hairline-dark' : ''"
     role="group"
     :aria-label="resolvedAriaLabel">
     <div class="mb-2 flex items-center justify-between gap-2">

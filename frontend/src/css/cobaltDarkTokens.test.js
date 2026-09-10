@@ -131,8 +131,8 @@ describe('Plain Cobalt aesthetic tokens, restated for dark', () => {
 })
 
 describe('--shadow-card dark override', () => {
-  it('carries its own dark hairline-ring colour, distinct from the light Cobalt value (OpenProject #2856)', () => {
-    expect(declaredValue(darkSource, 'shadow-card')).toBe('0 0 0 1px rgb(255 255 255 / 0.1)')
+  it('carries a blue-tinted dark hairline-ring colour, distinct from the light Cobalt value (OpenProject #2933)', () => {
+    expect(declaredValue(darkSource, 'shadow-card')).toBe('0 0 0 1px var(--color-hairline-dark)')
   })
 })
 
