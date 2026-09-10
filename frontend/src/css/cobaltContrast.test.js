@@ -97,6 +97,32 @@ function compositeOverHex(rgba, baseHex) {
 
 const meetsAA = (fg, bg) => contrastRatio(fg, bg) >= WCAG_AA_CONTRAST
 
+/**
+ * WCAG 2.x SC 1.4.11 (Non-text Contrast) minimum, 3:1 -- distinct from `WCAG_AA_CONTRAST` above
+ * (4.5:1), which is the SC 1.4.3 threshold for TEXT. A focus/hover ring is a UI component outline,
+ * not text, so it is held to this lower bar rather than the text one.
+ */
+const WCAG_NON_TEXT_CONTRAST = 3
+const meetsNonTextAA = (fg, bg) => contrastRatio(fg, bg) >= WCAG_NON_TEXT_CONTRAST
+
+/**
+ * Resolves a `var(--name)` reference against a Cobalt block, falling back to the light block for a
+ * token the dark block doesn't restate -- the normal CSS cascade for a property Cobalt-dark never
+ * overrides (`--color-slate-soft`, for one), not the `:root`-only freeze `--tabs-strip-rule`'s own
+ * comment elsewhere in `tailwind.css` describes -- `.w-input-control` is a plain class selector
+ * matched per element, so each one resolves its own inherited value normally.
+ */
+function resolveVar(value, { light, dark }) {
+  const match = value?.match(/^var\(--(.+)\)$/)
+  if (!match) {
+    return resolveColor(value)
+  }
+  const name = match[1]
+  const fromDark = dark ? declaredValue(dark, name) : undefined
+  const fromLight = light ? declaredValue(light, name) : undefined
+  return resolveColor(fromDark ?? fromLight)
+}
+
 describe('Cobalt light: every text/surface pairing the handoff specifies clears AA', () => {
   // Sidebar ground and Header bar are the admin-configurable --q-sidebar / --q-header brand colors,
   // not tokens in this file -- their Cobalt defaults come from aestheticDefaults.js (OpenProject
@@ -234,6 +260,98 @@ describe('Cobalt dark: every text/surface pairing the handoff specifies clears A
     it('the lightened accent text over the accent wash, composited on the raised (card) surface', () => {
       const composited = compositeOverHex(darkToken('color-accent-wash-dark'), raisedSurface)
       expect(meetsAA(darkToken('color-accent-dark'), composited)).toBe(true)
+    })
+  })
+})
+
+// OpenProject #3028: the WInput/WSelect focus ring. `.w-input-control`'s own Cobalt overrides live
+// as separate rules (not inside the `body.body--cobalt`/`body.body--cobalt.body--dark` token blocks
+// sliced above), so they get their own slice, same technique.
+const ringLightBlockStart = source.indexOf('body.body--cobalt .w-input-control {')
+const ringLightBlockEnd =
+  ringLightBlockStart === -1 ? -1 : source.indexOf('\n  }', ringLightBlockStart)
+const ringLightSource =
+  ringLightBlockStart === -1 ? '' : source.slice(ringLightBlockStart, ringLightBlockEnd)
+
+const ringDarkBlockStart = source.indexOf('body.body--cobalt.body--dark .w-input-control {')
+const ringDarkBlockEnd =
+  ringDarkBlockStart === -1 ? -1 : source.indexOf('\n  }', ringDarkBlockStart)
+const ringDarkSource =
+  ringDarkBlockStart === -1 ? '' : source.slice(ringDarkBlockStart, ringDarkBlockEnd)
+
+describe('Cobalt WInput/WSelect focus ring (OpenProject #3028)', () => {
+  it('both override rules are present, dark layered after light', () => {
+    expect(ringLightBlockStart).toBeGreaterThan(-1)
+    expect(ringDarkBlockStart).toBeGreaterThan(ringLightBlockStart)
+  })
+
+  // The control's own surface (`WInput`/`WSelect`'s `bg-surface dark:bg-dark-3`) -- the two faces
+  // the ring is actually drawn against as an inset box-shadow.
+  const controlSurfaceLight = colorWhite
+  const controlSurfaceDark = darkToken('color-dark-3')
+
+  it("both rules re-point --w-input-ring-active at Cobalt's accent-strong hue, not the neutral ramp", () => {
+    expect(declaredValue(ringLightSource, 'w-input-ring-active')).toBe('var(--color-accent-strong)')
+    expect(declaredValue(ringDarkSource, 'w-input-ring-active')).toBe('var(--color-accent-strong)')
+  })
+
+  it('both rules re-point --w-input-ring-hover at --color-slate-soft, the hue-distinct half-step', () => {
+    expect(declaredValue(ringLightSource, 'w-input-ring-hover')).toBe('var(--color-slate-soft)')
+    expect(declaredValue(ringDarkSource, 'w-input-ring-hover')).toBe('var(--color-slate-soft)')
+  })
+
+  it('the pre-existing --w-input-ring-error override survives untouched', () => {
+    expect(declaredValue(ringDarkSource, 'w-input-ring-error')).toBe('var(--color-accent-fill)')
+  })
+
+  describe('the focused (active) ring clears the 4.5:1 text-contrast bar against the control face', () => {
+    const cases = {
+      'light, against the white control surface': [
+        resolveVar(declaredValue(ringLightSource, 'w-input-ring-active'), {
+          light: lightSource
+        }),
+        controlSurfaceLight
+      ],
+      'dark, against the raised (dark-3) control surface': [
+        resolveVar(declaredValue(ringDarkSource, 'w-input-ring-active'), {
+          light: lightSource,
+          dark: darkSource
+        }),
+        controlSurfaceDark
+      ]
+    }
+
+    it.each(Object.entries(cases))('%s', (_role, [fg, bg]) => {
+      expect(fg, 'ring-active token resolved').toBeTruthy()
+      expect(bg, 'control surface resolved').toBeTruthy()
+      expect(meetsAA(fg, bg), `${fg} on ${bg} => ${contrastRatio(fg, bg).toFixed(2)}:1`).toBe(true)
+    })
+  })
+
+  describe('the hover ring clears the 3:1 non-text-contrast bar (WCAG 1.4.11) against the control face', () => {
+    const cases = {
+      'light, against the white control surface': [
+        resolveVar(declaredValue(ringLightSource, 'w-input-ring-hover'), {
+          light: lightSource
+        }),
+        controlSurfaceLight
+      ],
+      'dark, against the raised (dark-3) control surface': [
+        resolveVar(declaredValue(ringDarkSource, 'w-input-ring-hover'), {
+          light: lightSource,
+          dark: darkSource
+        }),
+        controlSurfaceDark
+      ]
+    }
+
+    it.each(Object.entries(cases))('%s', (_role, [fg, bg]) => {
+      expect(fg, 'ring-hover token resolved').toBeTruthy()
+      expect(bg, 'control surface resolved').toBeTruthy()
+      expect(
+        meetsNonTextAA(fg, bg),
+        `${fg} on ${bg} => ${contrastRatio(fg, bg).toFixed(2)}:1`
+      ).toBe(true)
     })
   })
 })
