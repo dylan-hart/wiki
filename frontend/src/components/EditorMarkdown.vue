@@ -299,7 +299,7 @@
           :style="previewInlineStyle"
           v-if="state.previewShown">
           <div class="editor-markdown-preview-toolbar">
-            <strong
+            <strong class="editor-markdown-preview-toolbar-title"
               ><em>{{ t('editor.renderPreview') }}</em></strong
             >
             <w-separator class="ms-4 me-2" vertical inset />
@@ -1500,6 +1500,17 @@ onMounted(async () => {
     cursorBlinking: 'blink',
     // cursorSmoothCaretAnimation: true,
     fontSize: resolveEditorFontSize(userSettings),
+    /*
+      Written out rather than left to Monaco's defaults: `fontFamily` has no default of its own here
+      otherwise (Monaco falls back to its own generic monospace stack, not this app's `--font-mono`),
+      and `lineHeight` -- a ratio, since Monaco treats anything under 8 as a multiplier of `fontSize`
+      rather than a pixel value -- was left to Monaco's own default ratio, not the design's 1.85. Both
+      mirror `composables/monacoDiff.js`'s own already-established `12.5px Roboto Mono / 1.85` pair;
+      `fontSize` itself stays the reader's own saved preference rather than a fixed role, unlike the
+      read-only diff editor's.
+    */
+    fontFamily: "'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace",
+    lineHeight: 1.85,
     formatOnType: true,
     language: 'markdown',
     lineNumbersMinChars: 4,
@@ -2000,6 +2011,15 @@ $toolbar-btn: 30px;
       .w-btn {
         min-height: $toolbar-btn !important;
       }
+
+      /*
+        The "Render preview" label. Colour comes from `-toolbar`'s own `color` above, which already
+        resolves correctly per aesthetic -- only the face itself (italic display sans, not the
+        `<strong><em>` default of bold-and-italic body text) needs stating here.
+      */
+      &-title {
+        font: italic 600 12px var(--font-sans);
+      }
     }
     &-content {
       height: calc(100% - #{$toolbar-height});
@@ -2017,6 +2037,43 @@ $toolbar-btn: 30px;
       }
       p.line {
         overflow-wrap: break-word;
+      }
+
+      /*
+        The inset column this pane renders onto runs a shade smaller than the published article's own
+        `.page-contents` (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Editor"'s "Preview
+        h2 / paragraph" and "Preview inline code" rows) -- it is half a screen wide, not a full reading
+        column. Colour, weight and line-height already come out right by inheriting `_page-contents.scss`'s
+        own rules (which this element's shared `page-contents` class pulls in); only the SIZE differs, so
+        only `font-size` (plus `p`'s own line-height, since it does not track a shared heading rule the
+        way `h2`'s already-correct 1.15 does) is restated here -- combined with `.page-contents` for
+        specificity over that shared file's own rules, rather than depending on stylesheet load order.
+      */
+      &.page-contents {
+        h2 {
+          font-size: 25px;
+        }
+        p {
+          font-size: 15px;
+          line-height: 1.7;
+        }
+        /* -> `pre`'s own code stays at the shared file's size; only an inline span shrinks here */
+        :not(pre) > code {
+          font-size: 13.5px;
+          color: var(--color-slate);
+        }
+        /*
+          The GitHub-alert label ("Note", "Tip", …) reads as a flat mono eyebrow in this preview --
+          `Editor 3x - Cobalt`'s own admonition draws it in one neutral tone regardless of severity,
+          unlike the published article's hue-per-kind title (`_page-contents.scss`'s `.alert-title`,
+          untouched here and left keyed to `--alert-hue`).
+        */
+        .alert-title {
+          font: 600 9.5px/normal var(--font-mono);
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: var(--color-text-secondary);
+        }
       }
       /*
         A block this site has switched off, marked by `markDisabledBlock`. Editor-only styling: the
