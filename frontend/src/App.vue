@@ -89,14 +89,22 @@ const state = reactive({
 
 // WATCHERS
 
+/**
+ * OpenProject #2956: routes through `applyTheme()` (the #2887 fix, mirrored here) rather than
+ * calling `dark.set()` directly. `dark.set()` alone only flips `body--dark`/`body--light`, but the
+ * brand CSS custom properties (`--q-header`, `--q-sidebar`, ...) are dark-sensitive too --
+ * `resolveAestheticColors()` inside `applyTheme()` below takes the resolved dark state as an
+ * argument (Cobalt's header/sidebar deepen one step on dark). Without this, toggling personal
+ * appearance left those custom properties stale at whatever `applyTheme()` last resolved -- for
+ * Cobalt light specifically, that could be the `:root` `#fff` fallback if no aesthetic-affecting
+ * change had happened yet this session, rendering the header bar bright white instead of Cobalt's
+ * blue. `applyTheme()` itself resolves dark mode identically to what this watch used to do inline
+ * (see its own "-> Dark Mode" block just below), so this is a pure routing change, not new logic.
+ */
 watch(
   () => userStore.appearance,
-  (newValue) => {
-    if (newValue === 'site') {
-      dark.set(siteStore.theme.dark)
-    } else {
-      dark.set(newValue === 'dark')
-    }
+  () => {
+    applyTheme()
   }
 )
 
