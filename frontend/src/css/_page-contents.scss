@@ -167,6 +167,16 @@
 
   --content-table-cell-padding: 9px 14px;
 
+  /*
+    OpenProject #2917. A wide table's own scrollbar, thinned and coloured to match the frame rather
+    than sit in the OS default grey -- `scrollbar-width`/`scrollbar-color` are the one pair of
+    standard properties for this (no `-webkit-scrollbar` pseudo-element fallback needed; every
+    browser this app supports understands both). Ledger's thumb is `--color-rule`, its track the
+    same tint the head strip sits on.
+  */
+  --content-table-scrollbar-thumb: var(--color-rule);
+  --content-table-scrollbar-track: var(--color-tint-alt);
+
   --content-mark: #fdf1a0;
 
   /*
@@ -386,6 +396,9 @@
     --content-table-row-alt: rgba(255, 255, 255, 0.025);
     --content-table-row-hover: rgba(255, 255, 255, 0.05);
     --content-table-hover-edge: inset 2px 0 0 #f08287;
+    /* -> The scrollbar drops to the dark hairline on the page's own ground rung */
+    --content-table-scrollbar-thumb: var(--color-hairline-dark);
+    --content-table-scrollbar-track: var(--color-ink-dark);
 
     --content-mark: #6b5d13;
 
@@ -1979,18 +1992,22 @@
     A wide table scrolls itself rather than widening the article -- inside its own wrapper now, not
     through a `table { display:block; overflow-x:auto }` trick on the table itself (OpenProject
     #2916). That trick has no box of its own to hang a frame on that sits OUTSIDE the table's own
-    border box: Ledger's corner marks (drawn 4px past the frame -- see `#2917`) would be clipped by a
-    borderless table box, and Cobalt's rounded corners (`#2918`) would still get squared off by the
-    scrollbar painting across the bottom of the table's own box, which has no radius of its own to
-    clip it to. `renderers/markdown.js`'s `table_open`/`table_close` override is what makes this div
-    exist at all -- the renderer wraps every table, from either the built-in parser or
+    border box: Cobalt's rounded corners (`#2918`) would still get squared off by the scrollbar
+    painting across the bottom of the table's own box, which has no radius of its own to clip it to.
+    `renderers/markdown.js`'s `table_open`/`table_close` override is what makes this div exist at
+    all -- the renderer wraps every table, from either the built-in parser or
     `markdown-it-multimd-table`'s, in `<div class="table-wrap">` before it ever reaches this file.
 
-    `position: relative` is for `#2917`'s corner marks, an absolutely-positioned pair sitting outside
-    this box -- nothing here draws on it. `overflow-x: auto` alone is enough to also clip the square
-    corners under `--content-table-radius`: CSS resolves a lone `overflow-x` of anything but `visible`
-    by computing `overflow-y` to `auto` too, so the box is never `visible` on either axis and a
-    rounded corner clips its content the same as `overflow: hidden` would.
+    `position: relative` is what the corner marks below position against. `overflow-x: auto` alone
+    is enough to also clip the square corners under `--content-table-radius`: CSS resolves a lone
+    `overflow-x` of anything but `visible` by computing `overflow-y` to `auto` too, so the box is
+    never `visible` on either axis and a rounded corner clips its content the same as `overflow:
+    hidden` would. The same computed `auto` is why the corner marks below land flush with the frame
+    rather than 4px past it -- see that rule's own comment.
+
+    `background-color` is the body's own ground (OpenProject #2917) -- a plain row is `transparent`
+    now (see `--content-table-row`), so without this the surface behind it would be whatever the
+    article column happens to sit on rather than the stated ground a framed table draws on.
   */
   .table-wrap {
     position: relative;
@@ -2000,6 +2017,44 @@
     border: 1px solid var(--content-table-frame);
     border-radius: var(--content-table-radius);
     box-shadow: var(--content-table-shadow);
+    background-color: var(--content-surface);
+    scrollbar-width: thin;
+    scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
+  }
+
+  /*
+    Ledger's corner marks (OpenProject #2917): a blueprint L at the top-left and bottom-right corners
+    only, in `--color-slate-soft` -- the same background-gradient technique `.page-header-icon__marks`
+    (`PageHeader.vue`) and the blockquote's own `&::after` use, just two corners instead of four, and
+    gated on the same `--corner-marks` token those two read (`none` under Cobalt, which draws no
+    marks at all -- `#2918`).
+
+    Drawn FLUSH with the frame rather than `markdown-tables.md`'s "4px outside" it, which the wrapper
+    above cannot support: this box's own `overflow-x: auto` (needed for a wide table to scroll itself
+    rather than the article) clips ANY of its own descendants -- including a `::before`/`::after`
+    pseudo-element -- that render past its padding edge, in every direction, not only the one a
+    reader could scroll to. A negative inset is silently cropped away outright (there is no direction
+    to scroll IT into view), and a positive one still inflates `scrollWidth` past `clientWidth`,
+    forcing a scrollbar onto a table that would otherwise fit -- confirmed directly in a real
+    Chromium, not assumed; see `_page-contents.test.js`. `border-image-outset` is the one standard
+    mechanism that escapes an element's OWN overflow the way `box-shadow` does, but border-image
+    replaces the frame's plain-border rendering wholesale and shifts as ONE image, so there is no way
+    to keep the 1px hairline flush while only a two-corner mark overhangs past it. Recorded as a
+    variance rather than silently shipped -- see `docs/variances.md`.
+  */
+  .table-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    display: var(--content-table-corner-marks);
+    pointer-events: none;
+    background:
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 7px 1px no-repeat,
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 0 0 / 1px 7px no-repeat,
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 7px 1px
+        no-repeat,
+      linear-gradient(var(--color-slate-soft), var(--color-slate-soft)) 100% 100% / 1px 7px
+        no-repeat;
   }
 
   /*
