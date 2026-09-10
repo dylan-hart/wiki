@@ -304,6 +304,45 @@ $sidebar-overlay-max: 1199.98px;
     }
 
     /*
+      OpenProject #3011: the plain hover/press tint on a non-active row must be a saturated blue
+      LIGHTENING wash in Cobalt, not `WItem.vue`'s shared gray darken/lighten -- the sidebar's own
+      surface is always dark navy in Cobalt (`--q-sidebar`, `#10194a` light-Cobalt / `#0e1540`
+      dark-Cobalt, `helpers/aestheticDefaults.js`'s `AESTHETIC_DEFAULT_COLORS`/
+      `AESTHETIC_DARK_CHROME`), so a Cobalt LIGHT row still needs LIGHTENING, not the `bg-black/8`
+      darkening `WItem.vue` applies whenever the app's `.body--dark` MODE class is absent -- wrong
+      whenever the row's own surface is dark regardless of app mode. Cobalt DARK already gets a
+      lightening tint from `WItem.vue`'s `dark:hover:bg-white/14`, so it isn't "backwards" there, but
+      it's a flat gray-white wash rather than the requested saturated blue.
+
+      `!important` is what beats `WItem.vue`'s own Tailwind `hover:`/`active:`/`dark:hover:`/
+      `dark:active:` utility classes. `@at-root` with the full selector (rather than `&`) is what
+      keeps this from nesting under the surrounding `.sidebar-nav .w-list` scope, which it doesn't
+      need: `.w-item--clickable` is shared by menus/lists on ordinary light surfaces too, where the
+      generic black/8 treatment stays correct, so scoping through `.sidebar-nav` in the selector is
+      what confines this to the sidebar's own rows. The active-row fill just above
+      (`--color-sidebar-active-bg`) is untouched -- this only changes the tint on non-active rows.
+    */
+    @at-root body.body--cobalt .sidebar-nav .w-item--clickable {
+      &:hover {
+        background-color: rgba(31, 79, 214, 0.12) !important;
+      }
+
+      &:active {
+        background-color: rgba(31, 79, 214, 0.2) !important;
+      }
+    }
+
+    @at-root body.body--cobalt.body--dark .sidebar-nav .w-item--clickable {
+      &:hover {
+        background-color: rgba(143, 176, 255, 0.16) !important;
+      }
+
+      &:active {
+        background-color: rgba(143, 176, 255, 0.26) !important;
+      }
+    }
+
+    /*
       Cobalt's rows are plates rather than full-bleed bands: `Page View 3x - Cobalt` insets the whole
       list 10px from the column's edges and rounds each row's corner, so the active fill reads as a
       chip the reader could have clicked rather than as a stripe across the column. On EVERY row, not
@@ -382,24 +421,31 @@ $sidebar-overlay-max: 1199.98px;
         compensate for the row's own gutter margin (OpenProject #2951).
 
         Now that the indent lives on the row's own padding instead of a nested border chain (above),
-        the dot needs no reach-back math at all: `inset-inline-start: 0` sits at the row's own left
-        edge, and since every row now spans the navbar's full width and `margin-inline` (Cobalt's
-        own row-gutter inset) sits OUTSIDE this box, that edge is the SAME absolute position for
-        every row regardless of depth -- already carrying Cobalt's own gutter breathing room, with
-        no separate subtraction needed. `width` still scales with `--nav-depth`, so it is the FAR
-        end (toward the icon) that moves as depth increases, landing exactly across the depth-indent
-        padding this same rule reserves above and never spilling under the icon/label. The dot image
-        itself is a `repeat-x` tile exactly one lane (10px) wide, so it draws once per lane crossed
-        rather than once for the whole box regardless of its width. `@media (hover: hover)` keeps a
-        touch tap from leaving a lane lit (`WItem.vue`'s own `:has(:disabled):hover` rule uses the
-        same guard).
+        the dot needs no reach-back math -- but it does need a small aesthetic-aware correction
+        (OpenProject #2996). `margin-inline: var(--nav-item-inset)` above (Cobalt's own row-gutter
+        inset, 10px in Cobalt, 0 in Ledger) sits OUTSIDE this box, so a flat `inset-inline-start`
+        would land Cobalt's dot at a DIFFERENT true distance from the navbar's own left edge than
+        Ledger's -- Cobalt's row margin already supplies part of the desired offset "for free". The
+        fix derives the offset from the SAME `--nav-item-inset` token already in play rather than a
+        second, aesthetic-blind constant: `calc(16px - var(--nav-item-inset, 0px))` resolves to a
+        full 16px in Ledger and 6px in Cobalt, which -- ADDED to Cobalt's own 10px row margin --
+        lands both aesthetics at the same true 16px from the navbar's left edge. `width` still scales
+        with `--nav-depth`, so it is the FAR end (toward the icon) that moves as depth increases, but
+        it is now 4px narrower per lane than the depth-indent padding reserves, tightening the gap
+        before the icon (clamped to `0px` at depth 0 via `max()`, never a negative width). Both
+        corrections are relative to the row's own coordinate system, so the dot trail and the icon
+        move together with the row's margin in Cobalt -- only the START point relative to the true
+        navbar edge needed the per-aesthetic offset above. The dot image itself is a `repeat-x` tile
+        exactly one lane (10px) wide, so it draws once per lane crossed rather than once for the
+        whole box regardless of its width. `@media (hover: hover)` keeps a touch tap from leaving a
+        lane lit (`WItem.vue`'s own `:has(:disabled):hover` rule uses the same guard).
       */
       &::before {
         content: '';
         position: absolute;
         inset-block: 0;
-        inset-inline-start: 0;
-        width: calc(var(--nav-depth, 0) * 10px);
+        inset-inline-start: calc(16px - var(--nav-item-inset, 0px));
+        width: max(0px, calc(var(--nav-depth, 0) * 10px - 4px));
         background-image: radial-gradient(circle, var(--color-slate-faint) 1px, transparent 1.4px);
         background-repeat: repeat-x;
         background-size: 10px 100%;

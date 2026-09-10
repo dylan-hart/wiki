@@ -245,6 +245,13 @@ describe('drawNodes: hovered-node tint', () => {
 const LABELLED_NODE_RADIUS = 20
 const labelRadiusFor = () => LABELLED_NODE_RADIUS
 
+/** The `minRadius` `drawLabels()` now requires (OpenProject #2993) -- stands in for `Graph.vue`'s own
+ *  `MIN_NODE_RADIUS`. Deliberately equal to `LABELLED_NODE_RADIUS` above: a node drawn at exactly its
+ *  own floor has `labelBaseFontFor()`'s `nodeGrowth` clamp at `1`, so it draws at the plain, unscaled
+ *  `LABEL_BASE_FONT_PX` -- every pre-#2993 assertion in this file that assumed a flat `10px` base font
+ *  stays correct unchanged once this is threaded through. */
+const MIN_RADIUS = 20
+
 describe('drawLabels', () => {
   const nodes = [{ x: 0, y: 0, title: 'Intro' }]
   // -> Above LABEL_VISIBILITY_ZOOM_THRESHOLD (0.6) so the label layer actually draws.
@@ -254,34 +261,34 @@ describe('drawLabels', () => {
 
   it('fills with the original dark-gray in light mode', () => {
     const ctx = makeCtx()
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
     expect(ctx.fillStyle).toBe('#333')
   })
 
   it('fills with a near-white in dark mode', () => {
     const ctx = makeCtx()
-    drawLabels(ctx, nodes, labelRadiusFor, scale, true)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, true, undefined, MIN_RADIUS)
     expect(ctx.fillStyle).toBe('#e8e8e8')
   })
 
   it('still skips drawing below the zoom threshold regardless of mode', () => {
     const ctx = makeCtx()
-    drawLabels(ctx, nodes, labelRadiusFor, 0.5, true)
+    drawLabels(ctx, nodes, labelRadiusFor, 0.5, true, undefined, MIN_RADIUS)
     expect(ctx.fillText).not.toHaveBeenCalled()
   })
 
   it('draws at 0.6 -- the retuned threshold -- where the old 0.75 would have stayed silent (OpenProject #2593)', () => {
     const belowCtx = makeCtx()
-    drawLabels(belowCtx, nodes, labelRadiusFor, 0.59, false)
+    drawLabels(belowCtx, nodes, labelRadiusFor, 0.59, false, undefined, MIN_RADIUS)
     expect(belowCtx.fillText).not.toHaveBeenCalled()
 
     const atCtx = makeCtx()
-    drawLabels(atCtx, nodes, labelRadiusFor, 0.6, false)
+    drawLabels(atCtx, nodes, labelRadiusFor, 0.6, false, undefined, MIN_RADIUS)
     expect(atCtx.fillText).toHaveBeenCalled()
 
     // -> The value this replaced. A label at this zoom is exactly what #2593 buys.
     const betweenCtx = makeCtx()
-    drawLabels(betweenCtx, nodes, labelRadiusFor, 0.7, false)
+    drawLabels(betweenCtx, nodes, labelRadiusFor, 0.7, false, undefined, MIN_RADIUS)
     expect(betweenCtx.fillText).toHaveBeenCalled()
   })
 })
@@ -304,7 +311,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 40, y: 25, title: 'Intro' }
 
-    drawLabels(ctx, [node], labelRadiusFor, scale, false)
+    drawLabels(ctx, [node], labelRadiusFor, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.fillText).toHaveBeenCalledWith('Intro', 40, 25)
     expect(ctx.textAlign).toBe('center')
@@ -315,7 +322,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'An extremely long page title' }
 
-    drawLabels(ctx, [node], labelRadiusFor, scale, false)
+    drawLabels(ctx, [node], labelRadiusFor, scale, false, undefined, MIN_RADIUS)
 
     const [text] = ctx.fillText.mock.calls[0]
     expect(text).not.toBe(node.title)
@@ -331,7 +338,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Short' }
 
-    drawLabels(ctx, [node], labelRadiusFor, scale, false)
+    drawLabels(ctx, [node], labelRadiusFor, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.fillText).toHaveBeenCalledWith('Short', 0, 0)
   })
@@ -342,7 +349,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
 
     // -> A radius below half the 10px font height leaves no text box of that height any width at
     //    all, so the cutoff falls out of the geometry rather than out of a copied radius constant.
-    drawLabels(ctx, [node], () => 4, scale, false)
+    drawLabels(ctx, [node], () => 4, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.fillText).not.toHaveBeenCalled()
     expect(ctx.strokeText).not.toHaveBeenCalled()
@@ -362,7 +369,7 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const node = { path: 'a', locale: 'en', x: 5, y: 6 }
 
-    drawLabels(ctx, [node], labelRadiusFor, scale, false)
+    drawLabels(ctx, [node], labelRadiusFor, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.fillText).toHaveBeenCalledWith('a', 5, 6)
   })
@@ -378,7 +385,9 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
       [{ path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }],
       labelRadiusFor,
       scale,
-      false
+      false,
+      undefined,
+      MIN_RADIUS
     )
 
     expect(order).toEqual([
@@ -398,7 +407,9 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
       [{ path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }],
       labelRadiusFor,
       scale,
-      true
+      true,
+      undefined,
+      MIN_RADIUS
     )
 
     expect(order).toEqual([
@@ -414,7 +425,15 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
       { path: 'docs', locale: 'en', synthetic: true, x: 50, y: 0, title: 'docs', color: '#9e9e9e' }
     ]
 
-    drawLabels(ctx, nodes, (node) => (node.synthetic ? 3 : LABELLED_NODE_RADIUS), scale, false)
+    drawLabels(
+      ctx,
+      nodes,
+      (node) => (node.synthetic ? 3 : LABELLED_NODE_RADIUS),
+      scale,
+      false,
+      undefined,
+      MIN_RADIUS
+    )
 
     // -> Both halo, both fill: the mechanism is deliberately blind to the fill underneath, which is
     //    the whole reason it is a halo rather than a per-node contrast-switched ink.
@@ -426,18 +445,18 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const nodes = [{ path: 'a', locale: 'en', x: 0, y: 0, title: 'An extremely long page title' }]
 
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
     const firstPass = ctx.measureText.mock.calls.length
     expect(firstPass).toBeGreaterThan(1)
 
     ctx.measureText.mockClear()
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
     expect(ctx.measureText).not.toHaveBeenCalled()
 
     // -> A different drawn font size is a different answer, so it must measure again.
     ctx.measureText.mockClear()
-    drawLabels(ctx, nodes, labelRadiusFor, 8, false)
+    drawLabels(ctx, nodes, labelRadiusFor, 8, false, undefined, MIN_RADIUS)
     expect(ctx.measureText).toHaveBeenCalled()
   })
 
@@ -445,12 +464,85 @@ describe('drawLabels inside the node (OpenProject #2593)', () => {
     const ctx = makeCtx()
     const nodes = [{ path: 'a', locale: 'en', x: 0, y: 0, title: 'An extremely long page title' }]
 
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
     resetLabelCache()
     ctx.measureText.mockClear()
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
 
     expect(ctx.measureText).toHaveBeenCalled()
+  })
+})
+
+/**
+ * OpenProject #2993: a real node's own base font now scales up with its drawn radius, at half the
+ * node's own relative growth rate over `minRadius` -- so a real graph's smallest and largest ranked
+ * nodes (drawn at `MIN_NODE_RADIUS`/`MAX_NODE_RADIUS`, `Graph.vue`) label at `10px`/`32.5px`
+ * respectively. `ctx.font` is asserted directly rather than through `fitLabel()`'s truncation output,
+ * since that is the one property this formula actually decides.
+ */
+describe('drawLabels: font scales with node radius (OpenProject #2993)', () => {
+  const scale = 1
+
+  beforeEach(resetLabelCache)
+
+  it('draws a node at exactly minRadius with the plain, unscaled base font', () => {
+    const ctx = makeCtx()
+    const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
+
+    drawLabels(ctx, [node], () => MIN_RADIUS, scale, false, undefined, MIN_RADIUS)
+
+    expect(ctx.font).toBe('10px sans-serif')
+  })
+
+  it('scales the base font up at half the node’s own relative growth rate over minRadius', () => {
+    const ctx = makeCtx()
+    const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
+
+    // -> 2x growth over minRadius (nodeGrowth) -> labelScale 1 + 0.5 * (2 - 1) = 1.5 -> 15px base,
+    //    well under the LABEL_MAX_EFFECTIVE_FONT_PX zoom cap at this scale.
+    drawLabels(ctx, [node], () => MIN_RADIUS * 2, scale, false, undefined, MIN_RADIUS)
+
+    expect(ctx.font).toBe('15px sans-serif')
+  })
+
+  it('reaches 3.25x the base font at a 5.5x radius growth -- half the node’s own 5.5x growth, the real MAX_NODE_RADIUS/MIN_NODE_RADIUS ratio', () => {
+    const ctx = makeCtx()
+    const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
+
+    // -> A slightly-zoomed-out scale keeps LABEL_MAX_EFFECTIVE_FONT_PX's cap (32px at scale 1) from
+    //    masking the uncapped 32.5px this test is actually about.
+    drawLabels(ctx, [node], () => MIN_RADIUS * 5.5, 0.9, false, undefined, MIN_RADIUS)
+
+    expect(ctx.font).toBe('32.5px sans-serif')
+  })
+
+  it('still applies the existing zoom cap on top of a radius-scaled font', () => {
+    const ctx = makeCtx()
+    const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
+
+    // -> At scale 1 the zoom cap is LABEL_MAX_EFFECTIVE_FONT_PX itself (32px), below the 32.5px this
+    //    node's radius would otherwise scale its base font to.
+    drawLabels(ctx, [node], () => MIN_RADIUS * 5.5, 1, false, undefined, MIN_RADIUS)
+
+    expect(ctx.font).toBe('32px sans-serif')
+  })
+
+  it('a real node at or below minRadius still draws at the plain base font (defensive floor -- radiusFor never actually returns below minRadius in production)', () => {
+    const ctx = makeCtx()
+    const node = { path: 'a', locale: 'en', x: 0, y: 0, title: 'Intro' }
+
+    drawLabels(ctx, [node], () => MIN_RADIUS / 2, scale, false, undefined, MIN_RADIUS)
+
+    expect(ctx.font).toBe('10px sans-serif')
+  })
+
+  it('never scales a synthetic node’s label past the plain base font, regardless of minRadius', () => {
+    const ctx = makeCtx()
+    const node = { path: 'docs', locale: 'en', synthetic: true, x: 0, y: 0, title: 'docs' }
+
+    drawLabels(ctx, [node], () => 3, scale, false, undefined, MIN_RADIUS)
+
+    expect(ctx.font).toBe('10px sans-serif')
   })
 })
 
@@ -467,7 +559,7 @@ describe('drawLabels (OpenProject #2480)', () => {
     const textAlphas = []
     ctx.fillText.mockImplementation(() => textAlphas.push(ctx.globalAlpha))
 
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false, new Set(['en:match']))
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, new Set(['en:match']), MIN_RADIUS)
 
     expect(textAlphas[0]).toBe(1)
     expect(textAlphas[1]).toBeLessThan(1)
@@ -481,7 +573,7 @@ describe('drawLabels (OpenProject #2480)', () => {
     const textAlphas = []
     ctx.fillText.mockImplementation(() => textAlphas.push(ctx.globalAlpha))
 
-    drawLabels(ctx, nodes, labelRadiusFor, scale, false)
+    drawLabels(ctx, nodes, labelRadiusFor, scale, false, undefined, MIN_RADIUS)
 
     expect(textAlphas).toEqual([1])
   })
@@ -504,6 +596,7 @@ describe('paintGraph', () => {
       edges: [{ source: { x: 0, y: 0 }, target: { x: 5, y: 5 } }],
       clusters: [],
       radiusFor: () => 5,
+      minRadius: MIN_RADIUS,
       dark: true
     })
     // -> Edge layer ran with dark's stroke color, label layer with dark's fill color -- proof the
@@ -532,6 +625,7 @@ describe('paintGraph (OpenProject #2480)', () => {
         edges: [],
         clusters: [],
         radiusFor,
+        minRadius: MIN_RADIUS,
         highlightedIds: new Set(['en:a'])
       })
     ).not.toThrow()
@@ -544,7 +638,16 @@ describe('paintGraph (OpenProject #2480)', () => {
     const canvas = { width: 100, height: 100 }
     const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
 
-    paintGraph({ ctx, canvas, transform: null, nodes, edges: [], clusters: [], radiusFor })
+    paintGraph({
+      ctx,
+      canvas,
+      transform: null,
+      nodes,
+      edges: [],
+      clusters: [],
+      radiusFor,
+      minRadius: MIN_RADIUS
+    })
 
     expect(ctx.stroke).not.toHaveBeenCalled()
   })

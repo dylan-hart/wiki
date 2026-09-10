@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { MarkdownRenderer, gatedContentPlaceholder, sanitizeForPreview } from './markdown.js'
+import { CHROMIUM_TIMEOUT, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
   Runs under Vitest, not `node --test` -- see `docs/variances.md` for why, since this file's own
@@ -86,14 +87,17 @@ describe('MarkdownRenderer - multimd-table', () => {
       ].join('\n')
     )
 
-    expect(html).toContain('<th colspan="3">A</th>')
-    expect(html).toContain('<td rowspan="2">B</td>')
+    // -> `colspan`/`rowspan` are not valid attributes on the `<div role="columnheader"/"cell">` the
+    //    table grid markup renders (see the "table grid markup" describe block below) -- the
+    //    renderer renames them to their ARIA grid-cell equivalents before rendering.
+    expect(html).toContain('<div aria-colspan="3" role="columnheader">A</div>')
+    expect(html).toContain('<div aria-rowspan="2" role="cell">B</div>')
     // -> The merged cell's own row has only the two cells it actually contributes, not a `^^`
     //    placeholder for the one it inherited
     expect(html).not.toContain('^^')
   })
 
-  it('merges a backslash-continued cell across lines into one <td> when multimdTable is enabled', () => {
+  it('merges a backslash-continued cell across lines into one grid cell when multimdTable is enabled', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
     const html = renderer.render(
       ['A         | B', '----------|-------', 'line one  | x     \\', 'line two  | y', ''].join(
@@ -103,7 +107,7 @@ describe('MarkdownRenderer - multimd-table', () => {
 
     // -> One merged row, not two: the continuation line joined into the SAME cell as the line above
     //    it rather than starting a new row
-    const rowCount = (html.match(/<tr>/g) ?? []).length
+    const rowCount = (html.match(/role="row"/g) ?? []).length
     expect(rowCount).toBe(2) // header row + the single merged body row
     expect(html).toContain('<p>line one\nline two</p>')
     expect(html).toContain('<p>x\ny</p>')
@@ -121,13 +125,86 @@ describe('MarkdownRenderer - multimd-table', () => {
       ].join('\n')
     )
 
-    // -> markdown-it's built-in table rule still renders a plain <table> -- multimd syntax on top of
-    //    it is simply not understood, not a parse failure
-    expect(html).toContain('<table>')
+    // -> markdown-it's built-in table rule still renders a plain grid table -- multimd syntax on top
+    //    of it is simply not understood, not a parse failure
+    expect(html).toContain('role="table"')
     expect(html).not.toContain('rowspan')
     expect(html).not.toContain('colspan')
     // -> `^^` is left as the literal cell text rather than being read as a rowspan marker
-    expect(html).toContain('<td>^^</td>')
+    expect(html).toContain('<div role="cell">^^</div>')
+  })
+})
+
+/**
+ * OpenProject #2997/#3014: a rendered table is CSS Grid, not a real `<table>` -- `table_open`/
+ * `table_close` and the row/cell rules retag every table-related token to `<div>`, adding the
+ * matching ARIA role (`table`/`row`/`columnheader`/`cell`) instead of letting markdown-it emit
+ * `<table>`/`<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>` at all. `border-collapse` combined with an
+ * ancestor `overflow: hidden` + `border-radius` clip is a known cross-browser rendering gap that
+ * three rounds of container-level fixes (#2916/#2935/#2958) could not close from the outside, so the
+ * table element itself had to stop being a `<table>`.
+ */
+describe('MarkdownRenderer - table grid markup', () => {
+  it('renders a plain table as nested div[role] elements: table > row > columnheader/cell', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).toContain('role="table"')
+    expect(html).not.toContain('<table')
+    expect(html).not.toContain('<thead')
+    expect(html).not.toContain('<tbody')
+    expect(html).not.toContain('<tr')
+    expect(html).not.toContain('<th')
+    expect(html).not.toContain('<td')
+
+    expect(html).toContain('<div role="columnheader">A</div>')
+    expect(html).toContain('<div role="columnheader">B</div>')
+    expect(html).toContain('<div role="cell">1</div>')
+    expect(html).toContain('<div role="cell">2</div>')
+
+    // -> Two rows (header + one body row), each a direct child of the grid -- there is no rowgroup
+    //    wrapper left over from the dropped thead/tbody
+    const rowCount = (html.match(/role="row"/g) ?? []).length
+    expect(rowCount).toBe(2)
+  })
+
+  it('carries a column-alignment style from markdown-it onto the header/cell div, same as it did on <th>/<td>', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|:-----|-----:|', '| 1    | 2    |', ''].join('\n')
+    )
+
+    expect(html).toContain('<div style="text-align:left" role="columnheader">A</div>')
+    expect(html).toContain('<div style="text-align:right" role="columnheader">B</div>')
+  })
+
+  it('renders a multimd table (rowspan/colspan) as the same div[role] shape', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| A                |||', '|------|------|------|', '| B    | C    | D    |', ''].join('\n')
+    )
+
+    expect(html).toContain('role="table"')
+    expect(html).not.toContain('<table')
+    expect(html).toContain('<div aria-colspan="3" role="columnheader">A</div>')
+  })
+
+  /*
+    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
+    class onto the TABLE token, at parse time -- before it is retagged to `<div>` at render time --
+    so it still lands on the same token, now rendered as `role="table"` rather than `<table>`.
+  */
+  it('keeps an author\'s markdown-it-attrs class on the grid\'s outer div, alongside role="table"', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
+        '\n'
+      )
+    )
+
+    expect(html).toContain('<div class="table-leading-col" role="table">')
   })
 })
 
@@ -139,10 +216,10 @@ describe('MarkdownRenderer - multimd-table', () => {
  * two combined divs, so a corner mark can overhang the frame without a box that also has
  * `overflow-x: auto` clipping it away (#2935), AND so the radius clip lives on a box that isn't
  * itself producing a native scrollbar, which is not reliably clipped by `border-radius` on the same
- * element that renders it (#2958). None of the three boxes exist on `<table>` itself, which is why
- * they have to actually exist rather than being left to a `display:block` trick on the table alone.
- * `table_open`/`table_close` are overridden the same way `link_open` already is, so this covers both
- * the plain built-in table parser and multimd's richer one, which produce the same core tokens.
+ * element that renders it (#2958). `table_open`/`table_close` wrap whatever the table itself renders
+ * as -- a real `<table>` before #3014, the CSS Grid `<div role="table">` after it -- so this coverage
+ * is unaffected by the grid-markup change above and still covers both the plain built-in table parser
+ * and multimd's richer one, which produce the same core tokens.
  */
 describe('MarkdownRenderer - table scroll wrapper', () => {
   it('wraps a plain table in div.table-wrap > div.table-clip > div.table-scroll', () => {
@@ -152,9 +229,9 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
     )
 
     expect(html).toContain(
-      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table>'
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><div role="table">'
     )
-    expect(html).toMatch(/<\/table>\n?<\/div><\/div><\/div>/)
+    expect(html).toMatch(/<\/div>\n?<\/div><\/div><\/div>$/)
   })
 
   it('wraps a multimd table (rowspan/colspan) in the same nested divs', () => {
@@ -164,29 +241,161 @@ describe('MarkdownRenderer - table scroll wrapper', () => {
     )
 
     expect(html).toContain(
-      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table>'
+      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><div role="table">'
     )
-    expect(html).toMatch(/<\/table>\n?<\/div><\/div><\/div>/)
+    expect(html).toMatch(/<\/div>\n?<\/div><\/div><\/div>$/)
   })
+})
 
-  /*
-    `markdown-it-attrs` reads `{.table-leading-col}` off the line under the table and joins the
-    class onto the TABLE token, at parse time -- before this wrapping ever runs at render time -- so
-    it still lands on `<table>` itself, three levels inside the new wrapper divs, not on any of them.
-  */
-  it("keeps an author's markdown-it-attrs class on <table>, inside all three wrappers rather than on any of them", () => {
-    const renderer = new MarkdownRenderer({})
-    const html = renderer.render(
-      ['| A    | B    |', '|------|------|', '| 1    | 2    |', '', '{.table-leading-col}'].join(
+/*
+  OpenProject #3016: post-implementation verification of #3014's div/role grid markup, against two
+  things neither jsdom nor happy-dom can answer -- accessibility-tree computation and clipboard
+  behavior -- so this reaches for the same real-Chromium harness `_page-contents.test.js` already
+  uses (`test/realGridLayout.js`) rather than reasoning about either from spec alone. Both describes
+  render through the real `MarkdownRenderer`, not a hand-written fixture, so this is coverage of
+  what a page actually ships, not of an idealized shape.
+*/
+describe(
+  'MarkdownRenderer - table grid accessibility & clipboard (OpenProject #3016)',
+  { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
+  () => {
+    let browser
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    const html = new MarkdownRenderer({}).render(
+      ['| Key   | Value |', '|-------|-------|', '| alpha | 1     |', '| beta  | 2     |', ''].join(
         '\n'
       )
     )
 
-    expect(html).toContain(
-      '<div class="table-wrap"><div class="table-clip"><div class="table-scroll"><table class="table-leading-col">'
-    )
-  })
-})
+    /*
+      A real `<table>` counterpart to the rendered grid, for a like-for-like accessibility-tree and
+      clipboard comparison -- the question this WP answers is "does the new markup behave the same
+      as the `<table>` it replaced", not "what does the new markup look like in isolation".
+    */
+    const REAL_TABLE_HTML =
+      '<table><thead><tr><th>Key</th><th>Value</th></tr></thead>' +
+      '<tbody><tr><td>alpha</td><td>1</td></tr><tr><td>beta</td><td>2</td></tr></tbody></table>'
+
+    it('exposes the same table/row/columnheader/cell accessibility roles a real <table> would, with row/column associations intact from DOM order alone', async () => {
+      const page = await browser.newPage()
+      try {
+        await page.setContent(`<!doctype html><html><body>${html}</body></html>`)
+        const gridSnapshot = await page.locator('[role="table"]').ariaSnapshot()
+
+        await page.setContent(`<!doctype html><html><body>${REAL_TABLE_HTML}</body></html>`)
+        const tableSnapshot = await page.locator('table').ariaSnapshot()
+
+        // -> The real `<table>`'s tree additionally nests each row under a `rowgroup` (from
+        //    `thead`/`tbody`), which the ARIA `table` role has no equivalent concept for and #3014
+        //    deliberately renders as nothing (see its own "TABLE GRID MARKUP" comment) -- everything
+        //    else (the `table`/`row`/`columnheader`/`cell` roles and their accessible names) is
+        //    asserted identically for both, line order included, which is what "announces it the
+        //    same way a real <table> does" concretely means.
+        const roleLines = (snapshot) =>
+          snapshot
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0 && !line.startsWith('- rowgroup'))
+            .map((line) => line.replace(/:$/, ''))
+
+        expect(roleLines(gridSnapshot)).toEqual(roleLines(tableSnapshot))
+        expect(roleLines(gridSnapshot)).toEqual([
+          '- table',
+          '- row "Key Value"',
+          '- columnheader "Key"',
+          '- columnheader "Value"',
+          '- row "alpha 1"',
+          '- cell "alpha"',
+          '- cell "1"',
+          '- row "beta 2"',
+          '- cell "beta"',
+          '- cell "2"'
+        ])
+
+        // -> Row/column-header and cell associations read correctly with no `aria-colindex`/
+        //    `aria-rowindex` on the markup at all (#3014 sets neither) -- the accessible names above
+        //    prove the browser is associating each cell with its own row's text, which is the
+        //    behavior those two attributes exist to restore only when DOM order can't be trusted (a
+        //    virtualized or reordered grid). Neither is true here: `grid-template-columns: subgrid`
+        //    places every cell left-to-right in DOM order, so no index hint is needed.
+      } finally {
+        await page.close()
+      }
+    })
+
+    /*
+      OpenProject #2997/#3016 acceptance: "confirm a role="table" div structure still pastes as a
+      grid into Excel/Sheets the way a real <table> does, or document the regression if it doesn't."
+      Neither Excel nor Google Sheets is reachable from this suite, but what actually lands on the
+      clipboard is: Excel's and Google Sheets' HTML-paste importers both key off literal `<table>`/
+      `<tr>`/`<td>` markup (the CF_HTML clipboard convention), not ARIA roles, so whether the copied
+      fragment still contains a real `<table>` is the decisive, testable question. `navigator.
+      clipboard.read()` needs a real http(s) origin with clipboard permissions granted -- `about:
+      blank`/`data:` URLs have no stable origin to grant against -- so this fakes one via `page.
+      route()` rather than `page.setContent()`.
+    */
+    it('documents the copy/paste-to-spreadsheet regression: the copied HTML fragment no longer contains a real <table> the way the markup it replaced did (see docs/variances.md)', async () => {
+      const page = await browser.newPage()
+      try {
+        await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
+          origin: 'http://localhost'
+        })
+
+        async function copiedHtmlFor(selector, body) {
+          await page.route('**/probe.html', (route) =>
+            route.fulfill({
+              body: `<!doctype html><html><body>${body}</body></html>`,
+              contentType: 'text/html'
+            })
+          )
+          await page.goto('http://localhost/probe.html')
+          return page.evaluate(async (sel) => {
+            const el = document.querySelector(sel)
+            const range = document.createRange()
+            range.selectNodeContents(el)
+            const selection = window.getSelection()
+            selection.removeAllRanges()
+            selection.addRange(range)
+            document.execCommand('copy')
+            for (const item of await navigator.clipboard.read()) {
+              if (item.types.includes('text/html')) {
+                return await (await item.getType('text/html')).text()
+              }
+            }
+            return null
+          }, selector)
+        }
+
+        const gridClipboardHtml = await copiedHtmlFor('[role="table"]', html)
+        const realTableClipboardHtml = await copiedHtmlFor('table', REAL_TABLE_HTML)
+
+        // -> The real `<table>` copies with its own tag intact -- proving the technique above
+        //    actually captures what the browser puts on the clipboard, not an artifact of the probe
+        expect(realTableClipboardHtml).toContain('<table')
+        expect(realTableClipboardHtml).toContain('<td')
+
+        // -> The grid copies as a flat run of role-bearing `<div>`s -- no `<table>`/`<tr>`/`<td>` at
+        //    all -- which is the regression: an app whose paste importer looks for those tags has
+        //    nothing to recognize as tabular data here, even though a screen reader (previous test)
+        //    reads it back identically to a real table.
+        expect(gridClipboardHtml).not.toContain('<table')
+        expect(gridClipboardHtml).not.toContain('<td')
+        expect(gridClipboardHtml).toContain('role="row"')
+        expect(gridClipboardHtml).toContain('role="cell"')
+      } finally {
+        await page.close()
+      }
+    })
+  }
+)
 
 describe('MarkdownRenderer - previously-broken edge cases', () => {
   it('does not throw when a fence names an unrecognized/malformed language', () => {

@@ -122,3 +122,34 @@ describe('BlueprintIcon plate size', () => {
     expect(compact).toMatch(/font-size:\s*15px/)
   })
 })
+
+/**
+ * OpenProject #2999. Cobalt has no theming of its own for the plate today, so it falls through to
+ * either the base Ledger-light styling or, in dark mode, the `body--dark` override -- both of which
+ * draw a hairline/slate frame rather than Cobalt's rounded, backgroundless, saturated-accent one.
+ *
+ * Asserted the same way as the plate-size describe above: by reading the scoped `<style>` source
+ * rather than `getComputedStyle`, since jsdom runs no layout/cascade engine and would pass against
+ * any rule at all.
+ */
+describe('BlueprintIcon Cobalt theming', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'BlueprintIcon.vue'),
+    'utf-8'
+  )
+
+  it('rounds the plate, clears its background, and swaps to the accent colour under Cobalt', () => {
+    const cobalt = source.match(/body\.body--cobalt \.blueprint-icon\) \{([\s\S]*?)\}/)?.[1] ?? ''
+    expect(cobalt).toMatch(/border-radius:\s*var\(--radius-mark\)/)
+    expect(cobalt).toMatch(/background-color:\s*transparent/)
+    expect(cobalt).toMatch(/border-color:\s*var\(--color-accent-strong\)/)
+    expect(cobalt).toMatch(/color:\s*var\(--color-accent-strong\)/)
+  })
+
+  it('declares the Cobalt override after the dark override, so it wins the specificity tie in Cobalt dark', () => {
+    const darkIndex = source.indexOf('body.body--dark .blueprint-icon')
+    const cobaltIndex = source.indexOf('body.body--cobalt .blueprint-icon')
+    expect(darkIndex).toBeGreaterThan(-1)
+    expect(cobaltIndex).toBeGreaterThan(darkIndex)
+  })
+})

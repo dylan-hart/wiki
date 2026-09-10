@@ -2,6 +2,7 @@
 @use 'animation';
 @use 'page-contents';
 @use 'print';
+@use 'overlay-dialog';
 
 /*
   KaTeX's own stylesheet, loaded globally rather than per-block: `renderers/markdown.js` resolves

@@ -292,6 +292,23 @@ function measureFit(ctx, text, maxWidth) {
   return `${text.slice(0, best)}${LABEL_ELLIPSIS}`
 }
 
+/** How much a real node's own drawn-radius growth (relative to `minRadius`, the floor every real
+ *  node is lerped from -- `Graph.vue`'s `MIN_NODE_RADIUS`) carries over into its label's font size,
+ *  at HALF the node's own relative growth rate (OpenProject #2993): a node at `minRadius` draws its
+ *  label at the plain `LABEL_BASE_FONT_PX`, and a node at `5.5x` that floor (the real-graph
+ *  `MAX_NODE_RADIUS`/`MIN_NODE_RADIUS` ratio as of this writing) draws its label at `3.25x` --
+ *  `1 + 0.5 * (5.5 - 1)`. `Math.max(1, …)` floors `nodeGrowth` at `1` rather than letting it run
+ *  negative-relative-scale below `minRadius`: no real node ever draws smaller than `minRadius`
+ *  (`lerpRadius()` clamps to `[MIN_NODE_RADIUS, MAX_NODE_RADIUS]`), so this only matters for a caller
+ *  that hands in an out-of-range radius directly (a test harness), and it is what makes THIS
+ *  function's own floor answer exactly today's flat `LABEL_BASE_FONT_PX`, matching `drawLabels()`'s
+ *  pre-#2993 behavior at `minRadius` and below rather than shrinking past it. */
+function labelBaseFontFor(radius, minRadius) {
+  const nodeGrowth = Math.max(1, radius / minRadius)
+  const labelScale = 1 + 0.5 * (nodeGrowth - 1)
+  return LABEL_BASE_FONT_PX * labelScale
+}
+
 /** Draws each node's title -- since OpenProject #2593 INSIDE the node's own circle, centered and
  *  truncated to fit, rather than unclipped to the right of its edge. The full, untruncated title is
  *  still reachable through `Graph.vue`'s existing DOM hover tooltip, unchanged; this layer
@@ -301,21 +318,29 @@ function measureFit(ctx, text, maxWidth) {
  *  a fixed radius of `3`, so it has no inside to draw in, and silently dropping the folder-hub
  *  basenames and the `(root)` marker from the static view would lose real structure -- the
  *  folder-hierarchy edge mode fans the whole graph out from exactly those nodes, and #2563 just gave
- *  the root its own ring to make it MORE identifiable, not less.
+ *  the root its own ring to make it MORE identifiable, not less. Since a synthetic node's fixed `3`
+ *  radius sits well outside the real-node `minRadius`/`MAX_NODE_RADIUS` range entirely and is not
+ *  part of "Size by" at all, it is excluded from the radius-based font scaling below (OpenProject
+ *  #2993) and keeps drawing at the plain, zoom-capped `LABEL_BASE_FONT_PX`.
+ *
+ *  A REAL node's own base font grows with its drawn radius -- see `labelBaseFontFor()` -- before the
+ *  existing zoom cap (`LABEL_MAX_EFFECTIVE_FONT_PX / scale`) is applied on top, so `minRadius` (the
+ *  same floor `radiusFor` lerps real nodes from -- `Graph.vue`'s `MIN_NODE_RADIUS`) is a required
+ *  parameter here for exactly the reason `fitLabel()`'s own doc comment gives: that floor is a
+ *  `Graph.vue`-local, retuned more than once, and only the value the caller actually hands in stays
+ *  correct by construction rather than by a hand-copied duplicate silently drifting out of step.
  *
  *  `highlightedIds` (OpenProject #2480), same optional-`Set` contract as `drawNodes` above: a
  *  non-matching label dims along with its node rather than staying full-strength while its dot
  *  fades, which would read as two disagreeing signals for the same node. */
-export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds) {
+export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds, minRadius) {
   if (scale < LABEL_VISIBILITY_ZOOM_THRESHOLD) {
     return
   }
   const hasHighlights = highlightedIds && highlightedIds.size > 0
-  const fontPx = Math.min(LABEL_BASE_FONT_PX, LABEL_MAX_EFFECTIVE_FONT_PX / scale)
-  ctx.font = `${fontPx}px sans-serif`
+  const zoomCappedFontPx = LABEL_MAX_EFFECTIVE_FONT_PX / scale
   ctx.textBaseline = 'middle'
   ctx.lineJoin = 'round'
-  ctx.lineWidth = fontPx * LABEL_HALO_WIDTH_RATIO
   ctx.fillStyle = dark ? LABEL_COLOR.dark : LABEL_COLOR.light
   ctx.strokeStyle = dark ? LABEL_HALO_COLOR.dark : LABEL_HALO_COLOR.light
   for (const node of nodes) {
@@ -324,6 +349,10 @@ export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds) {
     }
     const title = node.title ?? node.path
     const radius = radiusFor(node)
+    const baseFontPx = node.synthetic ? LABEL_BASE_FONT_PX : labelBaseFontFor(radius, minRadius)
+    const fontPx = Math.min(baseFontPx, zoomCappedFontPx)
+    ctx.font = `${fontPx}px sans-serif`
+    ctx.lineWidth = fontPx * LABEL_HALO_WIDTH_RATIO
     let text = title
     let x = node.x
     if (node.synthetic) {
@@ -356,6 +385,7 @@ export function paintGraph({
   edges,
   clusters,
   radiusFor,
+  minRadius,
   dark,
   highlightedIds,
   hoveredNode
@@ -373,6 +403,6 @@ export function paintGraph({
   drawEdges(ctx, edges, dark)
   drawClusterHulls(ctx, clusters)
   drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode)
-  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds)
+  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds, minRadius)
   ctx.restore()
 }

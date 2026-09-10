@@ -168,14 +168,21 @@
   --content-table-cell-padding: 9px 14px;
 
   /*
-    OpenProject #2917. A wide table's own scrollbar, thinned and coloured to match the frame rather
-    than sit in the OS default grey -- `scrollbar-width`/`scrollbar-color` are the one pair of
-    standard properties for this (no `-webkit-scrollbar` pseudo-element fallback needed; every
-    browser this app supports understands both). Ledger's thumb is `--color-rule`, its track the
-    same tint the head strip sits on.
+    OpenProject #2917, reconciled with the handoff's global scrollbar spec under #3007. A wide
+    table's own scrollbar stays thinned and coloured to match the frame rather than the app's more
+    prominent chrome scrollbar (`--color-rule` thumb, the same tint the head strip sits on for a
+    track) -- deliberately subtler at rest than the global `.body--ledger` scrollbar's own
+    `--color-slate-faint` thumb, so a table reads as part of its own frame rather than a chrome
+    fixture. Hover steps up to that exact global resting tone; the drag colour is `--color-negative-
+    fill`, matching the global rule's own drag colour exactly -- the one state kept consistent
+    everywhere, table included, since that's the strong signal the handoff cares most about being
+    recognisable. `::-webkit-scrollbar*` rules live with `.table-scroll` itself, further down this
+    file (`// TABLES`), which is what actually consumes these four tokens for every aesthetic.
   */
   --content-table-scrollbar-thumb: var(--color-rule);
   --content-table-scrollbar-track: var(--color-tint-alt);
+  --content-table-scrollbar-thumb-hover: var(--color-slate-faint);
+  --content-table-scrollbar-thumb-active: var(--color-negative-fill);
 
   --content-mark: #fdf1a0;
 
@@ -402,9 +409,16 @@
     --content-table-row-alt: rgba(255, 255, 255, 0.025);
     --content-table-row-hover: rgba(255, 255, 255, 0.05);
     --content-table-hover-edge: inset 2px 0 0 #f08287;
-    /* -> The scrollbar drops to the dark hairline on the page's own ground rung */
+    /*
+      The scrollbar drops to the dark hairline on the page's own ground rung. Hover steps up to
+      `--color-border-dark` -- the same tone the global `.body--ledger.body--dark` scrollbar rests at
+      -- and the drag colour is `--color-accent-dark`, matching that global rule's own drag colour
+      exactly, same reconciliation as the light pair above.
+    */
     --content-table-scrollbar-thumb: var(--color-hairline-dark);
     --content-table-scrollbar-track: var(--color-ink-dark);
+    --content-table-scrollbar-thumb-hover: var(--color-border-dark);
+    --content-table-scrollbar-thumb-active: var(--color-accent-dark);
 
     --content-mark: #6b5d13;
 
@@ -582,21 +596,25 @@
 
     /*
       Cobalt table styling, light (OpenProject #2918). Every colour a table needs is already one of
-      the `--content-table-*` tokens above; the one thing with no token slot is the wide-table
-      scrollbar the shared `.table-scroll` mechanics (`// TABLES`, further down this file) leave to
-      `scrollbar-width`/`scrollbar-color` -- both plain CSS properties, not custom properties this
-      file threads through a variable, so the pair is written directly here rather than invented as
-      two more tokens with only Cobalt ever setting them. `#c5cff5` is the same ink `--color-
-      sidebar-actions-text`/`--color-admin-sidebar-text` already carry on this aesthetic; the track
-      is `--color-paper` (`#f2f5ff`, this aesthetic's own page ground), so an idle scrollbar reads
-      as part of the page rather than a chrome-grey stripe cutting across a card's own tint. On
-      `.table-scroll`, the inner scrolling box (OpenProject #2935), not `.table-wrap` -- that outer
-      frame no longer has `overflow` of its own to paint a scrollbar into.
+      the `--content-table-*` tokens above; the wide-table scrollbar (`// TABLES`, further down this
+      file) is the one exception the handoff's global scrollbar spec (#3005/#3006) doesn't cover
+      identically -- its own `.body--cobalt ::-webkit-scrollbar-thumb` is a blue pill on a
+      TRANSPARENT track, chosen to read against every kind of surface the app has, whereas a table
+      sits on a known, single surface (this aesthetic's own page ground) and can afford to blend the
+      idle scrollbar into it instead. Reconciled under #3007 into the same
+      `--content-table-scrollbar-*` token pair Ledger's own table rule already uses (below), rather
+      than staying a separate `.table-scroll` override: `--color-sidebar-actions-text` is the same
+      ink `--color-admin-sidebar-text` already carries on this aesthetic (`#c5cff5`), `--color-paper`
+      is this aesthetic's own page ground (`#f2f5ff`), so an idle scrollbar reads as part of the page
+      rather than a chrome-grey stripe cutting across a card's own tint. Hover deepens toward the
+      sidebar's own icon-stroke indigo; the drag colour is `--color-accent-strong`, matching the
+      global rule's own drag colour exactly -- the one state kept consistent everywhere, table
+      included, since that's the strong signal the handoff cares most about being recognisable.
     */
-    .table-scroll {
-      scrollbar-width: thin;
-      scrollbar-color: #c5cff5 #f2f5ff;
-    }
+    --content-table-scrollbar-thumb: var(--color-sidebar-actions-text);
+    --content-table-scrollbar-track: var(--color-paper);
+    --content-table-scrollbar-thumb-hover: var(--color-slate-light);
+    --content-table-scrollbar-thumb-active: var(--color-accent-strong);
   }
 
   /*
@@ -660,13 +678,17 @@
     /*
       Wide-table scrollbar, dark half of the light block's own comment above: thumb `rgba(255,255,
       255,.14)`, track `--color-dark-3-5` (`#0e1540`, the same rung the head strip already sits on,
-      so an idle scrollbar reads as part of the card rather than a seam across it). On `.table-scroll`
-      for the same reason as the light block above.
+      so an idle scrollbar reads as part of the card rather than a seam across it), for the same
+      "blend into the table's own surface" reason as the light block. Hover steps the same white up
+      to `.3` alpha; the drag colour is `--color-heading-h2` (`#8fb0ff` here), matching the global
+      rule's own dark-ground drag colour exactly -- `--color-accent-strong` is NOT that value on this
+      ground (`#7fa0ff`, reserved for a table's own link colour just below), so it is deliberately
+      not reused here the way the light block reuses `--color-accent-strong`.
     */
-    .table-scroll {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.14) var(--color-dark-3-5);
-    }
+    --content-table-scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --content-table-scrollbar-track: var(--color-dark-3-5);
+    --content-table-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+    --content-table-scrollbar-thumb-active: var(--color-heading-h2);
   }
 
   /* -> The page's own margins are the container's business; the first and last block give theirs up */
@@ -2205,8 +2227,48 @@
 
   .table-scroll {
     overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
+  }
+
+  /*
+    OpenProject #3007: reconciling this shared rule with the handoff's global scrollbar spec. The
+    engine gotcha applies here exactly as it does in `_base.scss` -- `scrollbar-width`/`scrollbar-
+    color` never sit unwrapped on the same selector as a `::-webkit-scrollbar*` rule, so the standard
+    properties stay isolated in their own `@supports not selector(::-webkit-scrollbar)` block below.
+
+    Both aesthetics' global scrollbar already reaches `.table-scroll` for free, as a descendant of
+    `.body--ledger`/`.body--cobalt` -- width, shape (Ledger's square corners, Cobalt's pill growth)
+    and buttons all inherit unchanged. Only colour is overridden here, off the four `--content-table-
+    scrollbar-*` tokens each aesthetic's own section above sets, which is what lets a table's
+    scrollbar blend into ITS OWN surface (the frame in Ledger, the page ground in Cobalt) rather than
+    read as the app's more prominent chrome scrollbar dropped onto a table. The leading `body`
+    element on every selector below is deliberate, not decoration: it is what keeps each override at
+    a strictly higher specificity than the aesthetic-scoped global rule it overrides (both are
+    otherwise one class plus one pseudo-element/-class, which would tie and fall back to source
+    order between two different files -- exactly the trap `PageActionsCol.vue`'s own header comment
+    warns about) regardless of how the two stylesheets end up concatenated. Each is `@at-root`
+    rather than plain nesting for a second, purely structural reason: everything in this file sits
+    inside the outer `.page-contents { ... }` block, so an ordinary nested rule here would compile to
+    `.page-contents body .table-scroll::-webkit-scrollbar-thumb` -- `body` AFTER `.page-contents`,
+    requiring a `<body>` descendant of the article column, which does not exist. `@at-root` writes
+    the selector exactly as stated instead, `body` first.
+  */
+  @supports not selector(::-webkit-scrollbar) {
+    .table-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
+    }
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-track {
+    background: var(--content-table-scrollbar-track);
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-thumb {
+    background: var(--content-table-scrollbar-thumb);
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--content-table-scrollbar-thumb-hover);
+  }
+  @at-root body .table-scroll::-webkit-scrollbar-thumb:active {
+    background-color: var(--content-table-scrollbar-thumb-active);
   }
 
   /*
@@ -2238,16 +2300,49 @@
   }
 
   /*
-    `width: max-content` keeps the table its natural width up to the column's; `min-width: 100%` is
-    what makes a narrow table still fill the wrapper (and therefore the article) rather than leaving
-    the frame around it wider than the grid it holds. The wrapper carries the vertical margin and the
-    perimeter now, so the table itself has neither.
+    Column sizing, CSS Grid style (OpenProject #2997/#3014/#3015). The table is a
+    `div[role="table"]` now, not a `<table>` -- see `renderers/markdown.js`'s "TABLE GRID MARKUP"
+    comment for why -- so there is no `border-collapse`/automatic-table-layout box to size columns
+    off any more, and no CSS selector can read the real column count out of the markup either.
+
+    `[role="table"]` is `display: grid` with a FIXED, generous number of explicit `max-content`
+    column tracks (16 -- comfortably above any table in this file's own test fixtures, which top
+    out at 12) rather than the real count. A track no row's cell ever lands in has nothing to
+    measure and collapses to 0 width, so a table with fewer real columns leaves no dead space; a
+    table with more than 16 loses alignment past the 16th, with no author-facing signal today --
+    a known, accepted limitation, not a silent regression from prior behaviour (which had no cap at
+    all). `max-content`, not `minmax(0, max-content)`: with a `0` floor a track would happily shrink
+    below its content's natural size to fit whatever room is left, which is exactly backwards for a
+    WIDE table -- `max-content` as the floor is what lets a track refuse to shrink and forces
+    `[role="table"]`'s own box past `.table-scroll`'s width instead, which is what triggers the
+    scrollbar in the first place. One real behaviour change from the old `width: max-content;
+    min-width: 100%`: a table narrower than the frame no longer stretches its own columns to fill it
+    (that was the browser's automatic `<table>` column-width redistribution, which a fixed grid
+    template has no equivalent for without knowing the real column count) -- it now renders at its
+    natural width, leaving blank frame background after the last column instead.
+
+    Every `[role="row"]` is `display: grid; grid-template-columns: subgrid; grid-column: 1 / -1` --
+    CSS SUBGRID, not `display: contents`. Subgrid is what lets each row's own cells size against the
+    SAME shared tracks the table above defines, so a column's width agrees across every row -- the
+    entire point of a table -- while `grid-column: 1 / -1` (spanning the full generous width) is what
+    forces each row onto its own grid line, the same way a `<tr>` always started a new table row.
+    `display: contents` alone cannot do this: flattening every cell straight into the table's own
+    grid gives the browser no notion of a row boundary once the row's own box is gone -- the next
+    row's cells would just keep filling the CURRENT grid row's remaining (mostly unused) tracks
+    instead of starting a new one. A cell needs no `grid-column` of its own inside its row's subgrid:
+    implicit auto-placement fills the row's subgridded tracks left-to-right in DOM order, exactly one
+    cell per column the way `<td>` always was.
   */
-  table {
-    width: max-content;
-    min-width: 100%;
+  [role='table'] {
+    display: grid;
+    grid-template-columns: repeat(16, max-content);
     margin: 0;
-    border-collapse: collapse;
+  }
+
+  [role='row'] {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
   }
 
   /*
@@ -2255,8 +2350,8 @@
     perimeter, and at the corners it would be a straight line cut off by the radius -- a notch rather
     than a curve.
   */
-  th,
-  td {
+  [role='columnheader'],
+  [role='cell'] {
     padding: var(--content-table-cell-padding);
     border-inline-end: 1px solid var(--content-table-col-rule);
     border-bottom: 1px solid var(--content-table-rule);
@@ -2268,7 +2363,9 @@
          column follows `dir` instead of being stuck on the physical left.
     */
     text-align: start;
-    vertical-align: top;
+    /* -> `align-self`, not `vertical-align`: these are grid items now, and `vertical-align` has no
+          effect on one -- `align-self: start` is the grid equivalent of the old top alignment. */
+    align-self: start;
     /* -> `rem`, not `em`: an absolute 14.5px regardless of any ancestor's own font-size, matching how
           `markdown-tables.md` states it and how this file's own base size is stated (`font-size:
           0.96875rem` further up) rather than inherited-and-scaled */
@@ -2284,8 +2381,8 @@
     yields to rather than a class. A centre-aligned (`:---:`) column gets no inline `text-align:right`
     and stays in Barlow.
   */
-  th[style*='text-align:right'],
-  td[style*='text-align:right'] {
+  [role='columnheader'][style*='text-align:right'],
+  [role='cell'][style*='text-align:right'] {
     font-family: var(--font-mono);
     font-size: 0.84375rem;
     line-height: 1.6;
@@ -2293,13 +2390,11 @@
     white-space: nowrap;
   }
 
-  tr > :last-child {
+  [role='row'] > :last-child {
     border-inline-end: 0;
   }
 
-  /* -> `tbody:last-child`, because a MultiMarkdown table can have several: only the bottom of the last
-        one is the bottom of the table, and the others need their rule to keep the grid closed */
-  tbody:last-child tr:last-child > * {
+  [role='table'] > [role='row']:last-child > * {
     border-bottom: 0;
   }
 
@@ -2309,31 +2404,37 @@
     they are the container's at the top level. Without this a multi-line row stands 1.15em taller than
     the single-line rows around it.
   */
-  th > :first-child,
-  td > :first-child {
+  [role='columnheader'] > :first-child,
+  [role='cell'] > :first-child {
     margin-top: 0;
   }
-  th > :last-child,
-  td > :last-child {
+  [role='columnheader'] > :last-child,
+  [role='cell'] > :last-child {
     margin-bottom: 0;
   }
 
-  /* -> A row header inside the BODY (author HTML; markdown has no syntax for one) keeps the plain
-        wash -- a title bar down the side of a table is a different thing altogether, see below */
+  /* -> A row header inside the body (author HTML; markdown has no syntax for one, and the renderer's
+        own token overrides never touch raw author HTML, so a hand-written `<th>` mid-body stays a
+        real `<th>`, not a `[role="columnheader"]` div) keeps the plain wash -- a title bar down the
+        side of a table is a different thing altogether, see below. It won't slot into the
+        surrounding grid the way a role-bearing cell does; that's a markup-shape gap in the renderer
+        (OpenProject #3014), not something this rule can fix on its own. */
   th {
     background-color: var(--content-surface-alt);
     font-weight: 600;
   }
 
-  /* -> The head as a tinted strip in the theme's own tint colour, not a dark title bar */
-  thead {
-    background-color: var(--content-table-head);
-  }
-
-  thead th {
+  /*
+    The head as a tinted strip in the theme's own tint colour, not a dark title bar -- painted
+    directly on each header cell rather than on a `thead` ancestor (there isn't one any more; the
+    renderer's `thead_open`/`thead_close` render as nothing). Grid cells sit flush with no gap
+    between them, so per-cell painting reads as one continuous strip exactly like the old
+    ancestor-painted version did.
+  */
+  [role='columnheader'] {
     border-inline-end-color: var(--content-table-head-rule);
     border-bottom-color: var(--content-table-head-rule);
-    background-color: transparent;
+    background-color: var(--content-table-head);
     color: var(--content-table-head-ink);
     font: var(--content-table-head-font);
     letter-spacing: var(--content-table-head-tracking);
@@ -2345,12 +2446,19 @@
     row still needs the declaration so a future retint is a token change, not a rule rewrite. Faint
     enough that the band still guides the eye across a wide row without striping the page, and the two
     are a step apart rather than a contrast -- the head is what the eye lands on.
+
+    `:nth-child(... of S)` with `S` excluding a row that has a `[role="columnheader"]` child is the
+    replacement for the old `tbody > tr:nth-child(...)` scoping -- there's no `tbody` any more to
+    keep the header row out of the count, and a header row (when one exists) is always the first row,
+    so a plain `:nth-child(even)` here would count it as row 1 and shift every table's banding phase
+    by one. The `:not(:has(...))` filter also correctly falls through to "every row counts" for a
+    headerless MultiMarkdown table, where no row carries a `columnheader` cell at all.
   */
-  tbody > tr > td {
+  [role='row']:not(:has(> [role='columnheader'])) > [role='cell'] {
     background-color: var(--content-table-row);
   }
 
-  tbody > tr:nth-child(even) > td {
+  [role='row']:nth-child(even of [role='row']:not(:has(> [role='columnheader']))) > [role='cell'] {
     background-color: var(--content-table-row-alt);
   }
 
@@ -2361,10 +2469,10 @@
     second border running the row's own width.
   */
   @media (hover: hover) {
-    tbody > tr:hover > td {
+    [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell'] {
       background: var(--content-table-row-hover);
     }
-    tbody > tr:hover > td:first-child {
+    [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell']:first-child {
       box-shadow: var(--content-table-hover-edge);
     }
   }
@@ -2379,7 +2487,9 @@
     in that column inherits this one -- which matters, because a label like that is usually written as
     code in the first place.
   */
-  table.table-leading-col > tbody > tr > :first-child {
+  [role='table'].table-leading-col
+    > [role='row']:not(:has(> [role='columnheader']))
+    > :first-child {
     font-weight: 600;
   }
 
@@ -2392,7 +2502,7 @@
     The padding goes with the wash, as it does inside a heading: it exists to keep the tint off the
     glyphs, and left behind on its own it is a gap in the middle of a phrase with nothing to explain it.
   */
-  table.table-code-nohighlight code {
+  [role='table'].table-code-nohighlight code {
     padding: 0;
     background: none;
   }
@@ -2402,9 +2512,11 @@
     what a row of prose wants -- the first lines of each cell line up and the row reads across. A row of
     single lines next to one tall cell does not: an image, a `^^` rowspan or one long wrapped sentence
     leaves the short cells hanging at the top of the row with the gap under them.
+
+    -> `align-self`, not `vertical-align` -- see the base cell rule above for why.
   */
-  table.table-vertical-middle > tbody > tr > * {
-    vertical-align: middle;
+  [role='table'].table-vertical-middle > [role='row']:not(:has(> [role='columnheader'])) > * {
+    align-self: center;
   }
 
   caption {

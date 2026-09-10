@@ -404,9 +404,14 @@
       the corner `scroll-to-top` stands down from, a pairing with ANOTHER fixed corner rather than with
       the reading direction, so it must not move when the locale does. See
       `frontend/src/physicalPositioning.test.js`.
+
+      `toc-open-btn-anchor` (OpenProject #3019): a hook for the Cobalt-only `bottom` override below,
+      clearing the fixed footer bar the same way the two drawers already do -- see that rule's own
+      comment for why. Bare Tailwind utilities carry the Ledger/default `bottom: 0`; nothing here
+      changes for Ledger, which has no fixed footer to clear.
     -->
     <transition name="toc-open-btn">
-      <div v-if="showTocPanelBtn" class="fixed bottom-0 right-0 z-30">
+      <div v-if="showTocPanelBtn" class="toc-open-btn-anchor fixed bottom-0 right-0 z-30">
         <w-btn
           class="corner-btn corner-btn--right"
           icon="tabler:binary-tree"
@@ -1657,7 +1662,8 @@ $toc-overlay-max: 749.98px;
   }
 }
 /*
-  The article and the footer under it, stacked inside the one box that scrolls.
+  The article and the footer under it, stacked inside the one box that scrolls -- Ledger only; see the
+  `.w-footer` rule below for what Cobalt does with the same markup.
 
   `flex: 1 0 auto` on the article is what keeps the footer at the BOTTOM of a short page instead of
   leaving it hanging under two lines of content: the article takes the leftover height, and past that
@@ -1667,6 +1673,43 @@ $toc-overlay-max: 749.98px;
 .page-container-scrl {
   display: flex;
   flex-direction: column;
+
+  /*
+    Cobalt (OpenProject #3017, Feature #3010): the site footer stops being the last item in this
+    scrolling column and becomes a full-viewport-width bar pinned to the bottom of the WINDOW instead
+    -- outside any grid or flex flow, `WLayout.vue`'s included (that file is untouched; this is scoped
+    to the page view alone).
+
+    `position: fixed` is the whole mechanism: it removes `.w-footer` from this flex column's layout on
+    its own, so nothing here needs to relocate the element in the template to get there -- a
+    fixed-position descendant paints relative to the viewport regardless of how deep in the DOM it
+    sits, as long as nothing between it and the viewport sets a `transform`/`filter`/`contain` that
+    would give it a nearer containing block, and nothing under `WLayout.vue`, `WPage.vue` or in this
+    file does.
+
+    `inset-inline: 0` rather than `width: 100vw`: on a desktop browser with a reserved scrollbar
+    gutter, `100vw` counts the scrollbar itself as part of the viewport and overshoots the page's own
+    content width by that many pixels, forcing a horizontal scrollbar into existence. Pinning both
+    edges to `0` instead stretches the bar to exactly the width the page already renders at.
+
+    `z-index: 45` sits one step above the overlay nav drawer's `z-40` (`WDrawer.vue`) and its `z-30`
+    scrim, so the bar stays the topmost thing on screen even with a drawer open on a narrow viewport --
+    clearing the drawer's own last item is the drawer's job (`--footer-bar-height`, `tailwind.css`;
+    OpenProject #3018), not this bar yielding the space back to it.
+
+    `.page-container-scrl` in the selector, not a bare `.w-footer`: this stylesheet is unscoped (no
+    `scoped` attribute on the `<style>` tag below), so an unqualified class selector here would reach
+    every `<w-footer>` in the app, not just this page's site footer -- `FileManager.vue`'s status bar
+    and `Search.vue`'s own footer both use the same component and must not be affected.
+  */
+  .w-footer {
+    @at-root body.body--cobalt & {
+      position: fixed;
+      inset-inline: 0;
+      bottom: 0;
+      z-index: 45;
+    }
+  }
 }
 /*
   The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
@@ -1882,7 +1925,16 @@ $toc-overlay-max: 749.98px;
   @at-root body.body--cobalt & {
     background-color: transparent;
     border-inline-start: 0;
-    padding: 28px 24px 28px 0;
+    /*
+      Left padding is 2px, not 0: `.page-sidebar-card`'s edge is a box-shadow ring
+      (`--shadow-card`), which extends 1px OUTSIDE its own border-box. This column's
+      `overflow-y: auto` silently computes `overflow-x` to `auto` too (the CSS Overflow
+      spec's same-axis-pairing quirk, per `_page-contents.scss`'s `.table-scroll` comment),
+      so with 0 left padding that 1px of ring had nothing to render into and was clipped
+      away -- the card was missing its left hairline while the other three sides, which
+      have 24-28px of padding to spare, were fine. 2px is just enough room to contain it.
+    */
+    padding: 28px 24px 28px 2px;
   }
 
   // The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the
@@ -1905,11 +1957,50 @@ $toc-overlay-max: 749.98px;
     The column is the height of the shell, so its own content scrolls when there is more of it than
     there is room -- a long contents list, in practice. Nothing sticky is involved: the shell holds
     still on its own, and the article beside this scrolls in its own box.
+
+    OpenProject #3007: this used to carry its own hardcoded flat-grey standard scrollbar declarations
+    here, unconditioned on either aesthetic -- the same near-duplicate of the rule `WScrollArea.vue`
+    used to hardcode (see that component's own header comment, OpenProject #3006). One of those two
+    standard properties is inherited, and Chromium 121+ ignores every `::-webkit-scrollbar*` rule on
+    an element carrying a non-auto value of the other -- so that direct, unwrapped pair was actively
+    defeating the global `.body--ledger`/`.body--cobalt` scrollbar spec for this column in every
+    engine, not merely losing a specificity fight. Deleting it (not just recolouring it) is what lets
+    the aesthetic-scoped global rule reach this element instead, matching every other scrolling region.
   */
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(102 102 102 / 0.5) transparent;
+}
+
+/*
+  OpenProject #3018: mirrors `MainLayout.vue`'s own `.bg-sidebar` fix for the same fixed footer bar
+  (OpenProject #3017/#3010) -- see that file's comment for the full reasoning. On a wide viewport
+  this column stretches to the full height of `.page-container`'s row (`items-stretch`, the
+  template's own class), so Cobalt's `position: fixed` footer bar now paints straight over its
+  bottom edge. `margin-bottom` shrinks the stretched box itself, rather than padding blank space
+  inside one that stays full height, which is what lets this column's own `overflow-y: auto`
+  scrollport -- and the native scrollbar riding along it -- stop above the bar, not merely be
+  followed by hidden padding the bar still covers.
+*/
+body.body--cobalt .page-sidebar {
+  margin-bottom: var(--footer-bar-height);
+}
+
+/*
+  The narrow-viewport counterpart: below `$toc-overlay-max` this column is a `position: fixed`
+  overlay of its own (`top: 0; right: 0; bottom: 0`, in the block above). A margin is NOT a no-op
+  there the way it would be for a plain fixed box: with both `top` and `bottom` set non-auto and
+  `height: auto`, the spec solves the used height as the containing block's size minus `top`,
+  `bottom` AND both margins -- so left un-reset, the `margin-bottom` above (which carries no width
+  scoping of its own, and so still applies down here too) would apply a SECOND time on top of the
+  `bottom` override just below, double-subtracting the bar's height. `bottom` is overridden directly
+  here, and `margin-bottom` explicitly zeroed to cancel the other rule; same clearance, same token,
+  same reasoning as `.bg-sidebar.w-drawer--overlay` in `MainLayout.vue`.
+*/
+@media (max-width: $toc-overlay-max) {
+  body.body--cobalt .page-sidebar {
+    margin-bottom: 0;
+    bottom: var(--footer-bar-height);
+  }
 }
 
 /*
@@ -2085,6 +2176,24 @@ body.body--cobalt .page-sidebar-revision {
 .toc-open-btn-enter-from,
 .toc-open-btn-leave-to {
   opacity: 0;
+}
+
+/*
+  OpenProject #3019 (Feature #3010's own cross-viewport verification task): the TOC-open corner
+  button is the one other `fixed bottom-0 right-0` occupant of this corner (see its template
+  comment) -- below `750px`, exactly where Cobalt's `.w-footer` rule above also switches to
+  `position: fixed`, so left un-cleared the two would occupy the same bottom-right patch of the
+  window with the opaque, higher `z-index: 45` footer bar painting directly over the button and
+  hiding the reader's only way to open the contents panel. `--footer-bar-height` is the same token
+  `.page-sidebar`/`.bg-sidebar` already clear by (OpenProject #3018); this button gets no
+  `margin-bottom` counterpart because it is never a stretched box, only ever `position: fixed`, so
+  there is no earlier rule's `margin-bottom` to zero out here the way those two drawers' narrow-mode
+  overrides do. Cobalt-only, and with no separate narrow-viewport media query: `showTocPanelBtn` is
+  already `false` at `750px` and up, so this rule is dormant whenever the button itself is not
+  rendered.
+*/
+body.body--cobalt .toc-open-btn-anchor {
+  bottom: var(--footer-bar-height);
 }
 
 /*

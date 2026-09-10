@@ -219,18 +219,40 @@
             </w-chip>
           </div>
         </template>
-        <div class="searchpanel-header">{{ t('common.header.searchOperators') }}</div>
-        <div class="searchpanel-tip">
-          <code>!foo</code> or <code>-bar</code> to exclude "foo" and "bar".
-        </div>
-        <div class="searchpanel-tip">
-          <code>bana*</code> for to match any term starting with "bana" (e.g. banana).
-        </div>
-        <div class="searchpanel-tip">
-          <code>foo,bar</code> or <code>foo|bar</code> to search for "foo" OR "bar".
-        </div>
-        <div class="searchpanel-tip">
-          <code>"foo bar"</code> to match exactly the phrase "foo bar".
+        <!--
+          Collapsed by default every time the panel opens (the watcher below resets the ref once the
+          panel closes) -- clicking the header is what reveals the four tip rows. `@mousedown.prevent`
+          for the same reason as every other clickable control in this panel above: without it, the
+          field blurs on press before the click fires, and `searchPanelIsShown` closing the panel out
+          from under it eats the click.
+        -->
+        <button
+          type="button"
+          class="searchpanel-header searchpanel-operators-toggle"
+          :aria-expanded="String(searchOperatorsExpanded)"
+          :aria-controls="searchOperatorsId"
+          @mousedown.prevent
+          @click="searchOperatorsExpanded = !searchOperatorsExpanded">
+          <span>{{ t('common.header.searchOperators') }}</span>
+          <w-space />
+          <w-icon
+            name="tabler:chevron-down"
+            class="searchpanel-operators-arrow"
+            :class="{ 'rotate-180': searchOperatorsExpanded }" />
+        </button>
+        <div v-if="searchOperatorsExpanded" :id="searchOperatorsId">
+          <div class="searchpanel-tip">
+            <code>!foo</code> or <code>-bar</code> to exclude "foo" and "bar".
+          </div>
+          <div class="searchpanel-tip">
+            <code>bana*</code> for to match any term starting with "bana" (e.g. banana).
+          </div>
+          <div class="searchpanel-tip">
+            <code>foo,bar</code> or <code>foo|bar</code> to search for "foo" OR "bar".
+          </div>
+          <div class="searchpanel-tip">
+            <code>"foo bar"</code> to match exactly the phrase "foo bar".
+          </div>
         </div>
       </div>
     </div>
@@ -239,7 +261,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useSiteStore } from '@/stores/site'
@@ -326,6 +348,15 @@ const searchPanel = ref(null)
 const searchField = ref(null)
 
 /**
+ * Whether the "Search Operators" hints are expanded -- collapsed by default every time the panel
+ * opens (OpenProject #2995), with no persisted state: the watcher below resets this back to `false`
+ * whenever the panel closes, so a reader who expanded it once does not find it still open on the
+ * next open. Popular Tags, above it, is unaffected and stays always visible.
+ */
+const searchOperatorsExpanded = ref(false)
+const searchOperatorsId = useId()
+
+/**
  * Bumped on every fetch that is started or invalidated. A response is only applied if this still
  * matches the token it was issued under -- otherwise a slower, earlier request landing after a
  * faster, later one would clobber the fresher results with stale ones.
@@ -381,6 +412,9 @@ const previewResultRows = computed(() => state.previewResults.slice(0, PREVIEW_R
 watch(searchPanelIsShown, (newValue) => {
   if (newValue) {
     siteStore.fetchTags()
+  } else {
+    // -> Collapsed by default on every open (OpenProject #2995) -- no state to persist.
+    searchOperatorsExpanded.value = false
   }
 })
 
@@ -706,12 +740,6 @@ defineExpose({ focus, state })
   `HeaderNav.vue`'s own eyebrow rule uses.
 */
 body.body--cobalt .header-search {
-  .header-search-row-inline.is-focused &-field {
-    background-color: rgb(255 255 255 / 0.26);
-    border-color: rgb(255 255 255 / 0.4);
-    color: #fff;
-  }
-
   &-clear:hover {
     color: #fff;
   }
@@ -722,6 +750,20 @@ body.body--cobalt .header-search {
     border-radius: var(--radius-mark);
     color: #fff;
   }
+}
+
+/*
+  -> Written flat, not nested inside the `.header-search` block above: nesting
+     `.header-search-row-inline.is-focused &-field` there flattens to
+     `.header-search-row-inline.is-focused body.body--cobalt .header-search-field`, which requires
+     `body.body--cobalt` to appear as a DESCENDANT of `.is-focused` -- backwards from the real DOM,
+     where `body.body--cobalt` is always the top-level ancestor, so it can never match
+     (OpenProject #2994). Written flat here, matching the tags-btn pattern below.
+*/
+body.body--cobalt .header-search-row-inline.is-focused .header-search-field {
+  background-color: rgb(255 255 255 / 0.26);
+  border-color: rgb(255 255 255 / 0.4);
+  color: #fff;
 }
 
 body.body--cobalt .header-search-tags-btn {
@@ -748,12 +790,6 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
     color: var(--color-text-caption-dark);
   }
 
-  .header-search-row-inline.is-focused &-field {
-    background-color: var(--color-dark-3);
-    border-color: var(--color-slate-light);
-    color: var(--color-text-dark);
-  }
-
   &-lead {
     color: var(--color-slate-light);
   }
@@ -767,6 +803,19 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
     border-color: var(--color-hairline-dark);
     color: var(--color-text-caption-dark);
   }
+}
+
+/*
+  -> Written flat, not nested inside the `.header-search` block above: the same backwards-nesting
+     mistake as the Cobalt rule above, and the one actually reported (OpenProject #2994) -- nesting
+     `.header-search-row-inline.is-focused &-field` there flattens to
+     `.header-search-row-inline.is-focused .body--dark:not(.body--cobalt) .header-search-field`,
+     which can never match the real DOM. Written flat here, matching the tags-btn pattern below.
+*/
+.body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-field {
+  background-color: var(--color-dark-3);
+  border-color: var(--color-slate-light);
+  color: var(--color-text-dark);
 }
 
 /*
@@ -898,6 +947,26 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   &-tip {
     + .searchpanel-tip {
       margin-top: 0.5rem;
+    }
+  }
+
+  /*
+    The "Search Operators" header row is a `<button>` (Preflight already strips its border/background/
+    padding), not a `<div>`, so it needs `width: 100%` -- a button shrink-wraps its content by default,
+    where the div it replaces was block-level -- plus its own cursor, since `.searchpanel-header`
+    itself carries none.
+  */
+  &-operators-toggle {
+    width: 100%;
+    cursor: pointer;
+    text-align: start;
+  }
+
+  &-operators-arrow {
+    transition: transform 0.3s var(--ease-standard);
+
+    @media (prefers-reduced-motion: reduce) {
+      transition-duration: 0.01ms;
     }
   }
 

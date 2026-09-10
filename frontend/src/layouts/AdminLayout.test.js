@@ -380,6 +380,18 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     expect(localeBtn.attributes('style')).toContain('var(--color-slate)')
   })
 
+  // -> OpenProject #3001: both header action buttons carry a dedicated class so Cobalt can give them
+  //    a solid white stroke/border via CSS, since `color` alone never reaches the outline WBtn's border.
+  it('gives both the Exit and locale-switcher buttons the admin-header-action-btn class', async () => {
+    const wrapper = await mountToolbar()
+
+    const exitBtn = findButtonByIcon(wrapper, 'tabler:circle-x')
+    const localeBtn = findButtonByIcon(wrapper, 'tabler:language')
+
+    expect(exitBtn.classes()).toContain('admin-header-action-btn')
+    expect(localeBtn.classes()).toContain('admin-header-action-btn')
+  })
+
   it('keeps the account-menu button on the shared header-nav-btn treatment too, for a flush group', async () => {
     const wrapper = await mountToolbar()
 
@@ -663,6 +675,16 @@ describe('AdminLayout Cobalt aesthetic overrides (OpenProject #2780)', () => {
 
     expect(styleBlock).toMatch(
       /\.admin-contribute-btn\s*\{\s*border-color:\s*var\(--color-accent-fill\)\s*!important;/
+    )
+  })
+
+  // -> OpenProject #3001: solid white stroke/border for the Exit and locale-switcher header buttons,
+  //    with no light/dark split needed since plain white applies uniformly to both Cobalt modes.
+  it('gives the header action buttons a solid white stroke and border (OpenProject #3001)', () => {
+    const block = cobaltOverrideBlock()
+
+    expect(block).toMatch(
+      /\.admin-header-action-btn\s*\{\s*border-color:\s*#fff\s*!important;\s*color:\s*#fff\s*!important;/
     )
   })
 })

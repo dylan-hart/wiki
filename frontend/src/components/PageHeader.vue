@@ -119,7 +119,6 @@
         -->
         <w-badge
           v-if="pageStore.publishState === `draft`"
-          class="uppercase page-header-badge"
           color="negative"
           :label="t(`editor.props.draft`)" />
         <!--
@@ -790,22 +789,6 @@ async function toggleWatch() {
 .page-header-actions > .w-btn {
   min-height: 2.572em !important;
   padding: 0 1.12em !important;
-}
-
-/*
-  The Draft badge (`ui-iteration-cobalt-typography/cobalt-typography.md` §3, "Page header banner"):
-  600 9.5px mono, .16em tracking, uppercase -- shared metric, not a Cobalt-only swap (§2: Cobalt
-  moves colour only). `WBadge` itself is already mono/600/9px -- what it does not carry is the
-  size step to 9.5px or the tracking, and both are scoped to this one badge rather than added to
-  `WBadge` itself, which draws plenty of untracked, sentence-case labels elsewhere (group/user
-  counts, history markers, ...). `uppercase` is the caller's own Tailwind class already; this rule
-  is the two properties Tailwind has no utility for at this exact value. Unlayered scoped rule, so
-  it beats `WBadge`'s `text-[9px]` utility with no `!important` needed -- same reasoning as the
-  mobile title override below.
-*/
-.page-header-badge {
-  font-size: 9.5px;
-  letter-spacing: 0.16em;
 }
 
 /*

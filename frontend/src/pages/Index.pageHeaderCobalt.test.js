@@ -143,10 +143,13 @@ describe(
         expect(theme.boxShadow).toBe('none')
         expect(theme.borderBottomWidth).toBe('0px')
         expect(theme.marginLeft).toBe('24px')
-        // -> OpenProject #2970: the top margin is 10px, not the horizontal margin's 24px -- the
-        //    mockup (`Page View 3x - Cobalt`) draws the banner as `margin:10px 24px 0`, a smaller
-        //    top gap than the sides, not the unwanted 24px top margin one shared token used to give it.
-        expect(theme.marginTop).toBe('10px')
+        // -> OpenProject #2970 split the top margin from the horizontal margin's 24px into its own
+        //    token, since the mockup (`Page View 3x - Cobalt`) draws the banner as `margin:10px 24px
+        //    0`. Dylan's hands-on review (OpenProject #2998) then found the computed top margin
+        //    should be 0, not the mockup's stated 10px, matching Ledger's own no-op default --
+        //    `--page-header-margin-block-start` was corrected to 0 there, alongside
+        //    `cobaltTokens.test.js`'s own copy of this same assertion.
+        expect(theme.marginTop).toBe('0px')
       }
       // -> One token block covers both themes; `tailwind.css`'s Cobalt-dark block does not restate
       //    `--page-header-*`, so the flat colour itself is identical either way.

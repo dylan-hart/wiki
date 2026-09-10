@@ -720,6 +720,16 @@ html.theme-transition-suppress *::after {
   --article-card-pad: 0;
   --content-bleed-default: 28px;
   --content-bleed-xs: 16px;
+
+  /*
+    Cobalt's fixed footer bar (OpenProject #3017/#3010, `Index.vue`'s `.page-container-scrl .w-footer`
+    rule): once the bar is pinned to the bottom of the window instead of sitting in normal flow,
+    nothing downstream of it in the DOM knows how much room it occupies any more. Published once here
+    so a sibling that needs to clear it -- `WDrawer.vue`'s own bottom padding, OpenProject #3018 --
+    reads the SAME number rather than a second, independently-guessed one. `0` in Ledger: the footer
+    stays in normal flow there, so nothing needs to make room for it.
+  */
+  --footer-bar-height: 0;
 }
 
 /*
@@ -838,12 +848,14 @@ body.body--cobalt {
   --page-header-shadow: none;
   /*
     Split into direction-specific tokens (OpenProject #2970): the horizontal margin and the top
-    margin are NOT the same value -- `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` both draw
-    the banner as `margin:10px 24px 0`, and one shared token feeding both `margin-inline` and
-    `margin-block-start` in `Index.vue` was overstating the top gap at 24px instead of 10px.
+    margin are NOT the same value -- one shared token feeding both `margin-inline` and
+    `margin-block-start` in `Index.vue` was overstating the top gap at 24px. The mockup's stated
+    `margin:10px 24px 0` put the top gap at 10px, but Dylan's hands-on review (OpenProject #2998)
+    found the computed top margin should be 0, so the top-margin token stays its own value
+    (currently 0, matching Ledger) rather than collapsing back into the horizontal one.
   */
   --page-header-margin-inline: 24px;
-  --page-header-margin-block-start: 10px;
+  --page-header-margin-block-start: 0;
   --page-header-subtitle-fg: #dbe4ff;
   --page-header-icon-bg: rgb(255 255 255 / 0.16);
   --page-header-icon-fg: #fff;
@@ -891,6 +903,28 @@ body.body--cobalt {
   --color-footer-bg: #10194a;
   --color-footer-text: #a7b3ea;
   --color-footer-link: #ff7a84;
+  /*
+    The bar's own height, published for `WDrawer.vue`'s bottom padding to consume (OpenProject #3018)
+    -- see the bare `:root` declaration above for why this exists at all. Revisited by OpenProject
+    #3019's cross-viewport pass, exactly as flagged here when #3017 first landed: 64px was a
+    conservative ESTIMATE, not a measurement, and a real-Chromium measurement of the actual two-line
+    fixture both #3017's and #3018's own suites use (`common.footerCopyright` + a `siteStore.footerExtra`
+    line, `Index.footerCobalt.test.js`) found it wrapping to THREE rendered lines below ~382px --
+    `.site-footer`'s `padding: 8px 16px` around three lines of 11px Roboto Mono measures 83px there,
+    against this token's 64px, an 19px shortfall that left the two drawers' (and the TOC-open corner
+    button's, OpenProject #3019) own bottom edge painted UNDER the footer bar on an actual narrow
+    phone. 96px is a flat, width-independent bump with the same "conservative estimate" character as
+    the original 64px, chosen to clear that measured 83px worst case with margin rather than adding a
+    second content-length-dependent breakpoint of its own (the wrap point is a function of the site's
+    own `company`/`contentLicense`/`footerExtra` TEXT, not a stable viewport width, so a breakpoint
+    tuned to this one fixture's wrap point would just be a differently-fragile guess). This remains an
+    estimate, still: an unusually long, unbroken `company`/`footerExtra` value can still wrap past even
+    96px on a narrow phone (`overflow-wrap: anywhere` lets it keep wrapping with no cap) -- true
+    pixel-exact clearance would need the footer's real rendered height synced live (a `ResizeObserver`
+    writing this custom property, say), which is a real feature past what a verification pass should
+    take on; flagged here again rather than re-hidden behind a number that merely looks precise.
+  */
+  --footer-bar-height: 96px;
   --color-inner-rule: #e6edff;
   --color-heading-h2: #1f4fd6;
   --color-heading-rule: transparent;
