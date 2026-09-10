@@ -858,7 +858,7 @@ $action-btn-height: 3rem;
     > .aspect-square:first-child {
       width: 40px;
       height: 40px;
-      margin: 8px auto 4px;
+      margin: 0 auto 4px;
       border-radius: var(--radius-control);
       border-block-end: 0;
       /*
