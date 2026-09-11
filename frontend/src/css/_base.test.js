@@ -154,26 +154,42 @@ describe('_base.scss Ledger dark-ground scrollbar block covers .admin-sidebar', 
   it('lists .admin-sidebar alongside .body--ledger.body--dark and .body--ledger .code-block in every rule', () => {
     const groupPattern =
       /^[ \t]*\.body--ledger\.body--dark,\s*\n[ \t]*\.body--ledger \.code-block,\s*\n[ \t]*\.body--ledger \.admin-sidebar \{/gm
-    // -> The bare-selector form, used once for the @supports scrollbar-color rule.
+    // -> The bare-selector form, used once for the @supports scrollbar-color rule. No descendant
+    // combinator needed here: scrollbar-color is an inherited property, so setting it on
+    // .admin-sidebar itself already cascades down to the nested <w-scroll-area> that actually
+    // scrolls.
     expect([...source.matchAll(groupPattern)].length).toBe(1)
 
+    // Unlike scrollbar-color, a ::-webkit-scrollbar-* pseudo-element is NOT inherited -- it has to
+    // be declared on the element that actually has the scrollbar. .admin-sidebar itself has no
+    // `overflow` set (AdminLayout.vue) and never scrolls; the real scroll region is the nested
+    // <w-scroll-area class="admin-nav"> descendant, so every one of these rules needs the
+    // descendant-combinator space (`.admin-sidebar ::-webkit-scrollbar-*`), exactly like Cobalt's
+    // own `.admin-sidebar ::-webkit-scrollbar-thumb` block below. A selector missing that space
+    // (`.admin-sidebar::-webkit-scrollbar-*`) compiles and lists the class name, but matches
+    // nothing on the real page -- OpenProject #3036 was exactly this: the string was present, the
+    // selector was dead.
     const suffixedGroup = (suffix) =>
       new RegExp(
         `\\.body--ledger\\.body--dark ::-webkit-scrollbar-${suffix},\\s*\\n` +
           `\\.body--ledger \\.code-block::-webkit-scrollbar-${suffix},\\s*\\n` +
-          `\\.body--ledger \\.admin-sidebar::-webkit-scrollbar-${suffix} \\{`
+          `\\.body--ledger \\.admin-sidebar ::-webkit-scrollbar-${suffix} \\{`
       )
 
     for (const suffix of ['track', 'thumb', 'thumb:hover', 'thumb:active', 'corner']) {
       expect(
         suffixedGroup(suffix).test(source),
-        `::-webkit-scrollbar-${suffix} rule includes .admin-sidebar`
+        `::-webkit-scrollbar-${suffix} rule reaches .admin-sidebar's nested <w-scroll-area> via a descendant combinator`
       ).toBe(true)
     }
   })
 
   it('never gates the .admin-sidebar dark-ground selector behind .body--dark', () => {
     expect(source).not.toMatch(/\.body--ledger\.body--dark \.admin-sidebar/)
+  })
+
+  it('regression: does not compound .admin-sidebar directly onto ::-webkit-scrollbar-* (OpenProject #3036 -- matches nothing, since .admin-sidebar itself never scrolls)', () => {
+    expect(source).not.toMatch(/\.body--ledger \.admin-sidebar::-webkit-scrollbar/)
   })
 
   it('does not extend the dark-ground tint to .sidebar-nav (theme/site-configurable, not always-dark under Ledger)', () => {
