@@ -1588,7 +1588,7 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
     const hoverStart = source.indexOf('@media (hover: hover) {', tablesSectionStart)
     expect(hoverStart).toBeGreaterThan(-1)
     const rowHoverBlock = blockFor(
-      "[role='row']:not(:has(> [role='columnheader'])):hover > [role='cell'] {"
+      "[role='row']:not(:has(> [role='columnheader'])):not(:has(> [role='columnheader'])):hover\n      > [role='cell'] {"
     )
     expect(rowHoverBlock).toMatch(/background:\s*var\(--content-table-row-hover\)/)
 
@@ -1596,6 +1596,19 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
       "[role='row']:not(:has(> [role='columnheader'])):hover > [role='cell']:first-child {"
     )
     expect(hoverEdgeBlock).toMatch(/box-shadow:\s*var\(--content-table-hover-edge\)/)
+  })
+
+  it("ties the hover row selector to the zebra rule's specificity, so hover wins on a banded row (OpenProject #3039)", () => {
+    // -> The zebra rule is `[role='row']` (1) + `:nth-child(even of S)` where S =
+    //    `[role='row']:not(:has(>[role='columnheader']))` (specificity 2) -- nth-child contributes
+    //    1+2=3 -- + `[role='cell']` (1) = 5. A single `:not(:has(...))` clause on the hover selector
+    //    only reaches 4 and loses to the band regardless of source order or a real `:hover` match.
+    //    Duplicating the `:not()` clause (redundant, but valid) is what brings hover to 5 too, and
+    //    with the tie, the hover rule -- declared after the zebra rule -- wins via cascade order.
+    const hoverSelectorOccurrences = source.match(
+      /\[role='row'\]:not\(:has\(> \[role='columnheader'\]\)\):not\(:has\(> \[role='columnheader'\]\)\):hover\s*\n?\s*> \[role='cell'\] \{/g
+    )
+    expect(hoverSelectorOccurrences).toHaveLength(1)
   })
 
   it('would fail if the head went back to a dark title-bar gradient or the wrapper regained a real shadow', () => {
@@ -1733,6 +1746,39 @@ describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015
       // -> `--content-table-row-alt` in Ledger light, `#f7f8fb`
       expect(bodyRowBackgrounds[1]).toBe('rgb(247, 248, 251)')
       expect(bodyRowBackgrounds[2]).toBe('rgba(0, 0, 0, 0)')
+    })
+
+    it('lets a real :hover win over the band on a banded row, not just an unbanded one (OpenProject #3039)', async () => {
+      // -> A source-level check can pin the selector text, but only a real browser can tell a
+      //    genuinely-tied specificity from one that merely looks tied -- this is that check. The
+      //    SECOND body row is the "alt" band (`--content-table-row-alt`, `#f7f8fb` in Ledger
+      //    light); before the fix its zebra rule (specificity 5) beat the hover rule (specificity
+      //    4) regardless of the real `:hover` match below, so the assertion would have failed on
+      //    the pre-fix selector.
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body>${SAMPLE}</body></html>`
+        )
+        const bandedRow = page.locator('[role="row"]').nth(2)
+        await bandedRow.hover()
+        const hoveredBackground = await bandedRow
+          .locator('[role="cell"]')
+          .first()
+          .evaluate((cell) => getComputedStyle(cell).backgroundColor)
+        // -> `--content-table-row-hover` in Ledger light, `#eef1f7` -- and explicitly not the alt
+        //    band's `rgb(247, 248, 251)` the un-hovered row already asserts above.
+        expect(hoveredBackground).toBe('rgb(238, 241, 247)')
+      } finally {
+        await page.close()
+      }
     })
   })
 })

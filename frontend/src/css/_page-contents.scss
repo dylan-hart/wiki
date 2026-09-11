@@ -2467,9 +2467,17 @@
     screen has no hover state to leave stuck on the last row it happened to scroll past. The inset
     edge on the leading cell only, so the accent reads as a marker on the live row rather than a
     second border running the row's own width.
+
+    The `:not(:has(> [role='columnheader']))` clause is duplicated here (redundant, but valid) purely
+    to bump specificity: the zebra rule above resolves to specificity 5 (`:nth-child(even of S)`
+    contributes 1 for the pseudo-class plus S's own specificity of 2, plus `[role='row']` and
+    `[role='cell']`), while a single `:not()` clause here would only reach 4 and lose to the band on
+    every banded row regardless of a real `:hover` match. Tied at 5, source order (this rule comes
+    after the zebra rule) is what lets hover win -- see OpenProject #3039.
   */
   @media (hover: hover) {
-    [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell'] {
+    [role='row']:not(:has(> [role='columnheader'])):not(:has(> [role='columnheader'])):hover
+      > [role='cell'] {
       background: var(--content-table-row-hover);
     }
     [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell']:first-child {
