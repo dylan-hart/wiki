@@ -842,14 +842,36 @@ $action-btn-height: 3rem;
     margin: 28px 24px 28px 0;
     border-inline-start: 0;
     border-radius: var(--radius-card);
-    box-shadow: var(--shadow-card);
     background-color: var(--color-white);
+
+    /*
+      An INSET ring, not `--shadow-card` (every other consumer's plain outer one): OpenProject #3040.
+      `.page-actions` carries an unconditional `overflow-y: auto` a few rules down, which per spec
+      forces `overflow-x` to compute to `auto` too -- so any child that tried to physically overhang
+      this box (to paint over an OUTER ring sitting past its own edge) would just get clipped there,
+      ring and all, confirmed by screenshotting an isolated repro in real Chromium before landing
+      this. An inset ring instead lives INSIDE the box's own paintable area, in the same paint layer
+      as the background, so the page-properties plate below -- flush with this box's edges, not
+      overhanging them -- covers it in ordinary z-order with no overflow or margin tricks needed.
+      Deliberately local to this one selector rather than flipping the shared `--shadow-card` token
+      itself, which every other floating Cobalt card/panel still draws as a plain outer ring.
+      `--color-hairline` (not `-dark`): this token is already redefined inside `body.body--cobalt.
+      body--dark` to the same value `--shadow-card`'s own dark branch uses, so this stays correct
+      under dark mode with no second, dark-scoped copy of this rule.
+    */
+    box-shadow: inset 0 0 0 1px var(--color-hairline);
 
     /*
       The rail's own primary action (Page Properties), lifted into a 40px rounded accent-fill plate --
       the mockup's own "40px rounded primary action plate" -- rather than Ledger's square first cell.
-      `border-radius` alone rather than a fresh box: the cell is already square-aspect, so rounding it
-      is the whole of the difference.
+
+      OpenProject #3040: the top corners take the CARD's own `--radius-card` (8px), not the plate's
+      usual `--radius-control` (6px), and `margin-top` is 0 rather than an 8px inset -- this plate is
+      the rail's only cell flush with a card edge on three sides (left, right, top; the ring above is
+      the reason those three, and only those three, need it) and is drawn to actually cap the card
+      there, top corners included, rather than sit inset from it with the card's hairline showing
+      around it. The bottom corners stay `--radius-control`: the plate doesn't reach the card's
+      bottom edge, so there's no card corner there to match.
 
       OpenProject #2813: this plate is a plain cell, not a `WBtn`, so it can't pick up
       `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
@@ -859,7 +881,8 @@ $action-btn-height: 3rem;
       width: 40px;
       height: 40px;
       margin: 0 auto 4px;
-      border-radius: var(--radius-control);
+      border-radius: var(--radius-card) var(--radius-card) var(--radius-control)
+        var(--radius-control);
       border-block-end: 0;
       /*
         `--color-accent`, not `--color-accent-fill`: this plate carries a white glyph, and the

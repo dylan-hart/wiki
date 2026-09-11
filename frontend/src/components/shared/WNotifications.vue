@@ -14,53 +14,70 @@
     <div
       class="w-notifications fixed bottom-0 left-1/2 z-[9000] flex w-full max-w-md -translate-x-1/2 flex-col items-center gap-2 p-2 pointer-events-none">
       <transition-group name="w-notification">
+        <!--
+          The repeat-count badge below deliberately overhangs this wrapper's bottom-left corner
+          (`-bottom-1.5 -left-1.5`), so it has to sit OUTSIDE the clipped, rounded `.w-notification`
+          box rather than inside it (OpenProject #3038) -- this wrapper, not `.w-notification`
+          itself, is what `v-for`/`:key` and the transition-group's generated enter/leave/move
+          classes apply to; those classes are keyed off `<transition-group>`'s `name` prop, not off
+          any element's own `class` attribute, so moving them here changes nothing about how the
+          leave/move transitions behave.
+        -->
         <div
           v-for="n of queue"
           :key="n.id"
-          role="alert"
-          aria-live="polite"
-          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-2.5 rounded-control px-3 py-2.5"
-          :class="n.classes">
-          <w-icon :name="n.icon" size="sm" class="shrink-0" />
-          <div class="min-w-0 flex-1 py-1">
-            <div class="w-notification-title break-words">{{ n.message }}</div>
-            <div v-if="n.caption" class="w-notification-caption break-words opacity-80">
-              {{ n.caption }}
-            </div>
-          </div>
-          <button
-            v-if="n.action"
-            type="button"
-            class="w-notification-undo w-unstyled shrink-0 cursor-pointer border border-current/60 px-2 py-0.5 hover:bg-current/15"
-            @click="runAction(n)">
-            {{ n.action.label }}
-          </button>
-          <button
-            type="button"
-            :aria-label="t('common.actions.close')"
-            class="w-unstyled shrink-0 cursor-pointer p-1 leading-none opacity-70 transition-opacity hover:opacity-100"
-            @click="dismiss(n.id)">
-            <w-icon name="tabler:x" size="xs" />
-          </button>
-          <!--
-            Keyed on the count so a repeat replaces the element: a CSS animation does not restart
-            when its element merely re-renders, so a merged toast would otherwise keep running the
-            original countdown, empty the bar, and then sit there for the remainder of its
-            restarted timer with nothing left to show.
-
-            `start-0` (OpenProject #1590), not `left-0`: the bar's WIDTH keyframes from 100% to 0%
-            while this edge stays put, so whichever edge it is anchored to is the edge the bar
-            drains TOWARD as time runs out. `left-0` pinned that to the physical left always, which
-            reads as depleting toward the trailing edge under RTL instead of the reading-end one --
-            this is a spacing gutter's usual leading/trailing question, not a screen-position one,
-            so it belongs with the rest of this component's already-logical classes, not the
-            allowlist.
-          -->
+          class="w-notification-wrap pointer-events-auto relative w-full">
           <div
-            v-if="n.timeout > 0"
-            :key="`${n.id}-${n.count}`"
-            class="w-notification-progress absolute bottom-0 start-0 h-[3px] bg-white/40"
-            :style="{ animationDuration: `${n.timeout}ms` }" />
+            role="alert"
+            aria-live="polite"
+            class="w-notification relative flex w-full flex-nowrap items-center gap-2.5 overflow-hidden rounded-control px-3 py-2.5"
+            :class="n.classes">
+            <w-icon :name="n.icon" size="sm" class="shrink-0" />
+            <div class="min-w-0 flex-1 py-1">
+              <div class="w-notification-title break-words">{{ n.message }}</div>
+              <div v-if="n.caption" class="w-notification-caption break-words opacity-80">
+                {{ n.caption }}
+              </div>
+            </div>
+            <button
+              v-if="n.action"
+              type="button"
+              class="w-notification-undo w-unstyled shrink-0 cursor-pointer border border-current/60 px-2 py-0.5 hover:bg-current/15"
+              @click="runAction(n)">
+              {{ n.action.label }}
+            </button>
+            <button
+              type="button"
+              :aria-label="t('common.actions.close')"
+              class="w-unstyled shrink-0 cursor-pointer p-1 leading-none opacity-70 transition-opacity hover:opacity-100"
+              @click="dismiss(n.id)">
+              <w-icon name="tabler:x" size="xs" />
+            </button>
+            <!--
+              Keyed on the count so a repeat replaces the element: a CSS animation does not restart
+              when its element merely re-renders, so a merged toast would otherwise keep running the
+              original countdown, empty the bar, and then sit there for the remainder of its
+              restarted timer with nothing left to show.
+
+              `start-0` (OpenProject #1590), not `left-0`: the bar's WIDTH keyframes from 100% to 0%
+              while this edge stays put, so whichever edge it is anchored to is the edge the bar
+              drains TOWARD as time runs out. `left-0` pinned that to the physical left always, which
+              reads as depleting toward the trailing edge under RTL instead of the reading-end one --
+              this is a spacing gutter's usual leading/trailing question, not a screen-position one,
+              so it belongs with the rest of this component's already-logical classes, not the
+              allowlist.
+
+              `overflow-hidden` on `.w-notification` (OpenProject #3038) clips this bar's own square
+              corners to whatever `--radius-control` currently resolves to -- 0 under Ledger (no
+              visible change), a real radius under Cobalt, where the 3px-tall, full-width bar used
+              to poke past the container's now-rounded bottom corners.
+            -->
+            <div
+              v-if="n.timeout > 0"
+              :key="`${n.id}-${n.count}`"
+              class="w-notification-progress absolute bottom-0 start-0 h-[3px] bg-white/40"
+              :style="{ animationDuration: `${n.timeout}ms` }" />
+          </div>
           <!--
             How many times this notification has been raised while on screen. `aria-hidden`
             because the count is already spoken: each repeat re-fires the alert.
@@ -72,6 +89,11 @@
             Drawn as Cardinal draws every other count -- Roboto Mono on the chrome slate -- rather
             than the orange chip it used to be. It sits on a toast that is already carrying its own
             status colour, so a second status hue there said nothing and competed with the first.
+
+            A sibling of `.w-notification`, not a child of it: `.w-notification` now carries
+            `overflow-hidden` (OpenProject #3038) and this badge deliberately overhangs its
+            bottom-left corner, so nesting it inside would clip it the moment the bar-clipping fix
+            landed.
           -->
           <span
             v-if="n.count > 1"

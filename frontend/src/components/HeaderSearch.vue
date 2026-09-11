@@ -779,8 +779,15 @@ body.body--cobalt .header-search-tags-btn {
   }
 }
 
+/*
+  -> The other half of Cobalt's shared focus ring: without this override, the base cobalt tags-btn
+     rule's `border-color: transparent` above wins and the button stays visually unchanged while the
+     field lights up, breaking the grouped-control effect Ledger's equivalent rule already produces
+     (OpenProject #3037). Matches the field's own focused border color at line 765 exactly, so the
+     two controls read as one lit ring when the row is focused.
+*/
 body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
-  border-color: transparent;
+  border-color: rgb(255 255 255 / 0.4);
 }
 
 .body--dark:not(.body--cobalt) .header-search {
