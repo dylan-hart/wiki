@@ -72,3 +72,26 @@ describe('HeaderSearch.vue focused-field selectors', () => {
     )
   })
 })
+
+/**
+ * Regression test for OpenProject #3037: in Cobalt, focusing the search bar lit up the field but
+ * left the adjacent "browse by tags" button visually unchanged, because a second, cobalt-only rule
+ * immediately reset the button's border back to `transparent` after the shared `.is-focused` class
+ * would otherwise have colored it -- cancelling the grouped-ring effect Ledger's equivalent rule
+ * already produces. The fix matches the tags button's focused border color to the field's own
+ * (`rgb(255 255 255 / 0.4)`) so the two controls read as one lit ring when the row is focused.
+ */
+describe('HeaderSearch.vue Cobalt focused-tags-btn selector', () => {
+  const componentDir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(componentDir, 'HeaderSearch.vue'), 'utf8')
+  const styleBlock = source.slice(source.indexOf('<style lang="scss">'))
+
+  it('gives the tags button a real focused border color, matching the field, in Cobalt', () => {
+    const body = ruleBody(
+      styleBlock,
+      'body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn'
+    )
+    expect(body).not.toContain('border-color: transparent')
+    expect(body).toContain('border-color: rgb(255 255 255 / 0.4)')
+  })
+})
