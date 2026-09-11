@@ -66,28 +66,28 @@
 }
 .body--ledger.body--dark ::-webkit-scrollbar-track,
 .body--ledger .code-block::-webkit-scrollbar-track,
-.body--ledger .admin-sidebar::-webkit-scrollbar-track {
+.body--ledger .admin-sidebar ::-webkit-scrollbar-track {
   background: #14171f;
   border-color: #2a3040;
 }
 .body--ledger.body--dark ::-webkit-scrollbar-thumb,
 .body--ledger .code-block::-webkit-scrollbar-thumb,
-.body--ledger .admin-sidebar::-webkit-scrollbar-thumb {
+.body--ledger .admin-sidebar ::-webkit-scrollbar-thumb {
   background: #3a4256;
 }
 .body--ledger.body--dark ::-webkit-scrollbar-thumb:hover,
 .body--ledger .code-block::-webkit-scrollbar-thumb:hover,
-.body--ledger .admin-sidebar::-webkit-scrollbar-thumb:hover {
+.body--ledger .admin-sidebar ::-webkit-scrollbar-thumb:hover {
   background: #4e5870;
 }
 .body--ledger.body--dark ::-webkit-scrollbar-thumb:active,
 .body--ledger .code-block::-webkit-scrollbar-thumb:active,
-.body--ledger .admin-sidebar::-webkit-scrollbar-thumb:active {
+.body--ledger .admin-sidebar ::-webkit-scrollbar-thumb:active {
   background: #f08287;
 }
 .body--ledger.body--dark ::-webkit-scrollbar-corner,
 .body--ledger .code-block::-webkit-scrollbar-corner,
-.body--ledger .admin-sidebar::-webkit-scrollbar-corner {
+.body--ledger .admin-sidebar ::-webkit-scrollbar-corner {
   background: #14171f;
 }
 
