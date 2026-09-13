@@ -178,7 +178,7 @@
               v-for="item of previewResultRows"
               :key="item.path"
               clickable
-              :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)"
+              :to="resultHref(item)"
               @mousedown.prevent>
               <w-item-section avatar>
                 <w-icon :name="item.icon || defaultPageIcon" />
@@ -573,6 +573,24 @@ function applySuggestion() {
   }
   siteStore.search = state.previewSuggestion
   searchField.value?.focus()
+}
+
+/**
+ * A preview result row's in-app link -- the page's own localized path, plus the active search query
+ * carried forward as a `?highlight=` query param (OpenProject #3067) so the landing page can offer an
+ * in-page highlight/find for it, the same way the knowledge graph's click-through already does
+ * (`Graph.vue#fallbackHref`, OpenProject #2540). `Index.vue`'s existing `applyKeywordHighlight`
+ * consumer needs no change to read this -- it already reads `route.query.highlight` off whatever
+ * navigation lands on it.
+ *
+ * `siteStore.search` (not `item.highlight`, which is the backend's own matched-text snippet with
+ * `<b>` markup) is what the reader actually typed, so it is what a find-in-page pass should look
+ * for. No query means no param, matching the graph's own "nothing to carry forward" behavior.
+ */
+function resultHref(item) {
+  const path = localizedPagePath(item.path, item.locale, siteStore.localeRouting)
+  const query = (siteStore.search ?? '').trim()
+  return query ? `${path}?highlight=${encodeURIComponent(query)}` : path
 }
 
 function addTag(tag) {
