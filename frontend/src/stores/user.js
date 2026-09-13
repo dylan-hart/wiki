@@ -136,6 +136,13 @@ export const useUserStore = defineStore('user', {
      * `appearance` uses for dark mode, resolved the same way (see `App.vue`'s aesthetic watch).
      */
     aesthetic: 'site',
+    /**
+     * Per-user content-width preference (Feature #3051 / Task #3068): `'site'` (default) inherits the
+     * site's own `contentWidth` admin setting, or a per-user override of `'measured'`/`'full'` --
+     * the same three-value shape `aesthetic` uses, resolved the same way (see `Index.vue`'s
+     * `resolvedContentWidth` computed).
+     */
+    contentWidth: 'site',
     cvd: 'none',
     permissions: [],
     pagePermissions: [],
@@ -184,6 +191,7 @@ export const useUserStore = defineStore('user', {
         timeFormat: resp.timeFormat || '12h',
         appearance: resp.appearance || 'site',
         aesthetic: resp.aesthetic || 'site',
+        contentWidth: resp.contentWidth || 'site',
         cvd: resp.cvd || 'none',
         permissions: resp.permissions || [],
         authenticated: true,
@@ -232,6 +240,7 @@ export const useUserStore = defineStore('user', {
         timeFormat: '12h',
         appearance: 'site',
         aesthetic: 'site',
+        contentWidth: 'site',
         cvd: 'none',
         permissions: [],
         // -> Page permissions arrive with the page, so leaving them would keep edit buttons on screen

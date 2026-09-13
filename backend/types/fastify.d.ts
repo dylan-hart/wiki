@@ -48,6 +48,7 @@ declare module 'fastify' {
       timeFormat?: string
       appearance?: string
       aesthetic?: string
+      contentWidth?: string
       cvd?: string
       locale?: string
       graph?: GraphPrefs
