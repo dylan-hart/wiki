@@ -1610,8 +1610,6 @@ dependency (production never needs it).
   and the tiptap task-list extensions, and parity-testing cost outweighs the maintenance-status gain
   for a tiny frozen-format plugin; revisit if it breaks on a future markdown-it bump). Each targets a
   narrow, unchanging piece of CommonMark-adjacent syntax with no active development needed.
-- **`akismet-api`** 6.0.0 (backend) — last published 2023; a thin wrapper over Akismet's HTTP API,
-  actively in use by the comments spam check. Nothing about the API it wraps has changed.
 
 `markdown-it-decorate` is intentionally **not** listed above — it is being dropped, not kept, per
 Task #1180's decision to standardize on `markdown-it-attrs`.
