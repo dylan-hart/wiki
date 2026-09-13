@@ -199,6 +199,7 @@ test('GET /whoami serializes the logged in shape, permissions included', async (
       timeFormat: session.user.timeFormat,
       appearance: session.user.appearance,
       aesthetic: 'site',
+      contentWidth: 'site',
       cvd: session.user.cvd,
       locale: ''
     }
@@ -214,6 +215,7 @@ test('GET /whoami serializes the logged in shape, permissions included', async (
       authenticated: true,
       ...session.user,
       aesthetic: 'site',
+      contentWidth: 'site',
       locale: '',
       permissions: session.permissions
     })
@@ -245,6 +247,7 @@ test('GET /whoami sources prefs fresh from the database rather than the session 
       timeFormat: '12h',
       appearance: 'light',
       aesthetic: 'site',
+      contentWidth: 'site',
       cvd: 'none',
       locale: ''
     },
@@ -258,6 +261,7 @@ test('GET /whoami sources prefs fresh from the database rather than the session 
       timeFormat: '24h',
       appearance: 'dark',
       aesthetic: 'sunset',
+      contentWidth: 'full',
       cvd: 'protanopia',
       locale: 'de'
     }
@@ -281,6 +285,7 @@ test('GET /whoami sources prefs fresh from the database rather than the session 
     assert.equal(body.timeFormat, '24h')
     assert.equal(body.appearance, 'dark')
     assert.equal(body.aesthetic, 'sunset')
+    assert.equal(body.contentWidth, 'full')
     assert.equal(body.cvd, 'protanopia')
     assert.equal(body.locale, 'de')
   } finally {

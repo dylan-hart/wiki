@@ -44,8 +44,9 @@ const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy:
  * Exported because `bootstrap` answers the same question as part of the one call an app load makes,
  * and two versions of "who is this" would be one too many.
  *
- * The `prefs`-derived fields (`appearance`, `aesthetic`, and the rest of `profilePrefsKeys` —
- * `timezone`, `dateFormat`, `timeFormat`, `cvd`, `locale`, `graph`, `iconPicker`) are re-read from the
+ * The `prefs`-derived fields (`appearance`, `aesthetic`, `contentWidth`, and the rest of
+ * `profilePrefsKeys` — `timezone`, `dateFormat`, `timeFormat`, `cvd`, `locale`, `graph`,
+ * `iconPicker`) are re-read from the
  * `users` table on every call rather than served from `req.session.user`'s login-time snapshot
  * (OpenProject #3045). `models/users.ts#updateProfile` only refreshes `req.session.user` for the
  * session that made the save, so a different session (a different browser or device, logged in
@@ -71,6 +72,7 @@ export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> 
       timeFormat: profile.timeFormat,
       appearance: profile.appearance,
       aesthetic: profile.aesthetic,
+      contentWidth: profile.contentWidth,
       cvd: profile.cvd,
       locale: profile.locale,
       graph: profile.graph,
