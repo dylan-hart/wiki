@@ -1,0 +1,99 @@
+/*
+  The click-to-zoom lightbox for ordinary content images (OpenProject #3066), built and appended
+  straight to `<body>` by `helpers/contentImageZoom.js` -- entirely outside any Vue component's
+  scoped styles, and outside `.page-contents`'s own nesting (`_page-contents.scss` styles only what
+  is INSIDE that element; this dialog is a sibling of it, not a descendant). So it gets its own
+  partial, pulled into `app.scss` unconditionally, the same way `_overlay-dialog.scss` is (see that
+  file's own header comment for why "unconditional" matters here: a route-based Vite chunk split
+  must not gate whether this loads at all).
+
+  Visually the same shell/backdrop language as `blocks/shared/lightbox.js`'s `lightboxStyles` --
+  full-viewport `<dialog>`, `rgb(0 0 0 / 0.82)` backdrop with a blur, a clickable "stage" the
+  enlarged content is centred on -- because it is conceptually the same primitive; see
+  `contentImageZoom.js`'s own header comment for why this is a second, independent implementation
+  rather than an import of that one.
+*/
+
+.content-image-lightbox {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  overflow: hidden;
+
+  &::backdrop {
+    background-color: rgb(0 0 0 / 0.82);
+    backdrop-filter: blur(18px);
+  }
+
+  > .stage {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 4rem;
+    cursor: zoom-out;
+    /* -> This dialog owns pinch/pan itself; the browser's own touch-scroll/zoom gesture would fight it */
+    touch-action: none;
+  }
+
+  @media (max-width: 640px) {
+    > .stage {
+      padding: 3.5rem 0.5rem;
+    }
+  }
+
+  img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: default;
+    touch-action: none;
+  }
+
+  /* -> Only once zoomed past 100% is there anywhere to drag the image to */
+  &.is-zoomed img {
+    cursor: grab;
+  }
+  &.is-panning img {
+    cursor: grabbing;
+  }
+}
+
+.content-image-lightbox-controls {
+  position: absolute;
+  bottom: 1.5rem;
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  /* -> The gaps between buttons stay part of the stage, so a click there still closes the dialog */
+  pointer-events: none;
+}
+
+.content-image-lightbox-button {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-radius: 999px;
+  background-color: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background-color: rgb(0 0 0 / 0.7);
+  }
+}
