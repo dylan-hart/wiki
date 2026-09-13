@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
 import {
   DEFAULT_SETS,
@@ -299,6 +300,116 @@ describe('icons.fetchIconsUpstream logging level', () => {
 })
 
 /**
+ * `searchIcons()` degrading gracefully when Iconify is unreachable (OpenProject #3041): offline mode
+ * skips the network attempt entirely, and a genuine upstream failure is caught and logged rather than
+ * left to reject -- both fall back to `searchIconsLocally()`, a plain query over the icons already
+ * materialized in the permanent record. A fake `WIKI.db` distinguishes `iconSetsTable` (what
+ * `getEnabledPrefixes()` reads) from `iconsTable` (what the local fallback searches), the same
+ * per-table dispatch `icons.getSet`'s fake db above uses.
+ */
+describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
+  const calls = { fetch: 0, localSearch: 0 }
+
+  function makeFakeDb({
+    enabledPrefixes = ['tabler'],
+    localRows = [] as { prefix: string; name: string }[]
+  } = {}) {
+    return {
+      select: (_cols?: any) => ({
+        from: (table: any) => {
+          if (table === iconSetsTable) {
+            return {
+              where: async (_where: any) => enabledPrefixes.map((prefix) => ({ prefix }))
+            }
+          }
+          if (table === iconsTable) {
+            return {
+              where: (_where: any) => ({
+                limit: async (_n: number) => {
+                  calls.localSearch++
+                  return localRows
+                }
+              })
+            }
+          }
+          throw new Error(`unexpected table passed to select().from(): ${String(table)}`)
+        }
+      })
+    }
+  }
+
+  beforeEach(() => {
+    calls.fetch = 0
+    calls.localSearch = 0
+    ;(globalThis as any).WIKI = {
+      db: makeFakeDb(),
+      config: { offline: false, icons: {} },
+      logger: { debug: mock.fn(), warn: mock.fn() }
+    }
+    mock.method(globalThis, 'fetch', async () => {
+      calls.fetch++
+      return { ok: true, status: 200, json: async () => ({ icons: ['tabler:upstream-hit'] }) }
+    })
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+    mock.restoreAll()
+  })
+
+  it('goes straight to the local fallback in offline mode, never attempting the network', async () => {
+    ;(globalThis as any).WIKI.config.offline = true
+    ;(globalThis as any).WIKI.db = makeFakeDb({
+      localRows: [{ prefix: 'tabler', name: 'home' }]
+    })
+    const result = await icons.searchIcons({ query: 'home' })
+    assert.deepEqual(result, ['tabler:home'])
+    assert.equal(calls.fetch, 0)
+    assert.equal(calls.localSearch, 1)
+  })
+
+  it('returns the upstream result and never touches the local fallback when Iconify answers', async () => {
+    const result = await icons.searchIcons({ query: 'home' })
+    assert.deepEqual(result, ['tabler:upstream-hit'])
+    assert.equal(calls.fetch, 1)
+    assert.equal(calls.localSearch, 0)
+  })
+
+  it('falls back to local icons and logs a warning when Iconify cannot be reached', async () => {
+    ;(globalThis as any).WIKI.db = makeFakeDb({
+      localRows: [{ prefix: 'tabler', name: 'home' }]
+    })
+    mock.method(globalThis, 'fetch', async () => {
+      throw new Error('fetch failed')
+    })
+    const result = await icons.searchIcons({ query: 'home' })
+    assert.deepEqual(result, ['tabler:home'])
+    const wiki = (globalThis as any).WIKI
+    assert.equal(wiki.logger.warn.mock.calls.length, 1)
+    const [scope, message] = wiki.logger.warn.mock.calls[0].arguments
+    assert.equal(scope, 'icons')
+    assert.equal(typeof message, 'string')
+  })
+
+  it('returns an empty result, not a rejection, when the fallback also finds nothing', async () => {
+    mock.method(globalThis, 'fetch', async () => {
+      throw new Error('fetch failed')
+    })
+    const result = await icons.searchIcons({ query: 'nope' })
+    assert.deepEqual(result, [])
+  })
+
+  it('returns no results without ever reaching the network when the requested prefix is not enabled', async () => {
+    // -> `enabledPrefixes` defaults to `['tabler']` -- a request scoped to a prefix that is not
+    //    enabled here narrows to nothing before `searchIcons()` ever attempts upstream or local
+    const result = await icons.searchIcons({ query: 'home', prefixes: ['disabled-prefix'] })
+    assert.deepEqual(result, [])
+    assert.equal(calls.fetch, 0)
+    assert.equal(calls.localSearch, 0)
+  })
+})
+
+/**
  * `parseSideloadIconCollection()` (OpenProject #2945): the pure shape validation
  * `sideloadFromDataPath` runs each `<dataPath>/icons/<prefix>.json` file's parsed content through
  * before anything touches the database or the filesystem again -- a plain function, tested the same
@@ -545,5 +656,164 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
     assert.equal(wiki.logger.warn.mock.calls.length, 1)
     const [scope] = wiki.logger.warn.mock.calls[0].arguments
     assert.equal(scope, 'icons')
+  })
+
+  /**
+   * OpenProject #3043: `init()` passes `vendoredIconSetsPath()` here instead of relying on the
+   * default, so this loader has to actually honor an explicit `dir` rather than always resolving
+   * `sideloadPath()` itself.
+   */
+  it('reads from a passed-in directory instead of the default sideload path', async () => {
+    // -> The default operator sideload dir is deliberately left absent -- anything loaded below
+    //    must have come from `customDir`, not from falling back to `sideloadPath()`.
+    const customDir = path.join(tmpRoot, 'vendored')
+    await fs.mkdir(customDir, { recursive: true })
+    await fs.writeFile(
+      path.join(customDir, 'tabler.json'),
+      JSON.stringify({ icons: { foo: { body: '<path d="M0 0"/>' } } })
+    )
+
+    const result = await icons.sideloadFromDataPath(customDir)
+
+    assert.equal(result.skipped.length, 0)
+    assert.equal(result.loaded.length, 1)
+    assert.equal(result.loaded[0].prefix, 'tabler')
+    assert.ok(writes.some((w) => w.kind === 'icon' && w.name === 'foo'))
+  })
+})
+
+/**
+ * `vendoredIconSetsPath()` (OpenProject #3043): the committed, read-only release-asset directory
+ * `init()` materializes Tabler from -- distinct from `sideloadPath()`'s writeable data-volume one,
+ * and resolved off `WIKI.SERVERPATH` (the backend directory) rather than `WIKI.ROOTPATH`.
+ */
+describe('icons.vendoredIconSetsPath()', () => {
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  it('resolves to assets/icon-sets under WIKI.SERVERPATH', () => {
+    ;(globalThis as any).WIKI = { SERVERPATH: '/srv/cardinal/backend' }
+    assert.equal(
+      icons.vendoredIconSetsPath(),
+      path.join('/srv/cardinal/backend', 'assets/icon-sets')
+    )
+  })
+})
+
+/**
+ * `init()` (OpenProject #3043): beyond seeding `DEFAULT_SETS` metadata, a fresh instance's first
+ * boot must also materialize the vendored Tabler collection into the `icons` table -- through the
+ * same `sideloadFromDataPath` insert path a real fetch or an operator sideload uses, against
+ * `vendoredIconSetsPath()` specifically, never the operator-writable `sideloadPath()`.
+ */
+describe('icons.init() (DB-backed, fake db)', () => {
+  let tmpRoot: string
+  const writes: { kind: 'set' | 'icon'; prefix: string; name?: string; value: any }[] = []
+
+  function makeFakeDb() {
+    return {
+      insert: (table: any) => ({
+        values: (value: any) => ({
+          onConflictDoNothing: async () => {
+            if (table === iconSetsTable) {
+              const rows = Array.isArray(value) ? value : [value]
+              for (const row of rows) {
+                writes.push({ kind: 'set', prefix: row.prefix, value: row })
+              }
+            }
+          },
+          onConflictDoUpdate: async (_opts: any) => {
+            if (table === iconsTable) {
+              writes.push({ kind: 'icon', prefix: value.prefix, name: value.name, value })
+            }
+          }
+        })
+      })
+    }
+  }
+
+  beforeEach(async () => {
+    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'icons-init-'))
+    writes.length = 0
+    ;(globalThis as any).WIKI = {
+      db: makeFakeDb(),
+      ROOTPATH: tmpRoot,
+      SERVERPATH: tmpRoot,
+      config: { dataPath: '.' },
+      logger: { debug: mock.fn(), warn: mock.fn() }
+    }
+  })
+
+  afterEach(async () => {
+    delete (globalThis as any).WIKI
+    await fs.rm(tmpRoot, { recursive: true, force: true })
+  })
+
+  it('seeds every DEFAULT_SETS prefix as an iconSets row', async () => {
+    await icons.init()
+    const seededPrefixes = writes.filter((w) => w.kind === 'set').map((w) => w.prefix)
+    for (const set of DEFAULT_SETS) {
+      assert.ok(seededPrefixes.includes(set.prefix), `expected ${set.prefix} to be seeded`)
+    }
+  })
+
+  it('materializes icons found under vendoredIconSetsPath()', async () => {
+    const vendoredDir = icons.vendoredIconSetsPath()
+    await fs.mkdir(vendoredDir, { recursive: true })
+    await fs.writeFile(
+      path.join(vendoredDir, 'tabler.json'),
+      JSON.stringify({
+        prefix: 'tabler',
+        icons: { 'device-desktop': { body: '<path d="M0 0"/>' } }
+      })
+    )
+
+    await icons.init()
+
+    const iconWrites = writes.filter((w) => w.kind === 'icon' && w.prefix === 'tabler')
+    assert.equal(iconWrites.length, 1)
+    assert.equal(iconWrites[0].name, 'device-desktop')
+  })
+
+  it('does not read from the operator-writable sideload directory', async () => {
+    // -> `sideloadPath()` (`<dataPath>/icons`, here `<tmpRoot>/icons`) is a DIFFERENT directory from
+    //    `vendoredIconSetsPath()` (`<tmpRoot>/assets/icon-sets`) -- init() must only touch the latter.
+    const operatorDir = icons.sideloadPath()
+    await fs.mkdir(operatorDir, { recursive: true })
+    await fs.writeFile(
+      path.join(operatorDir, 'mdi.json'),
+      JSON.stringify({ icons: { account: { body: '<path/>' } } })
+    )
+
+    await icons.init()
+
+    assert.equal(writes.filter((w) => w.kind === 'icon').length, 0)
+  })
+})
+
+/**
+ * The actual committed release asset (OpenProject #3043), not a fixture standing in for it -- a
+ * corrupted or empty vendored file would otherwise only surface as a silently-empty Tabler set on
+ * whoever's fresh instance hits it first.
+ */
+describe('vendored Tabler icon-set release asset', () => {
+  it('is present, valid, and covers the full Tabler collection', async () => {
+    const assetPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../assets/icon-sets/tabler.json'
+    )
+    const raw = JSON.parse(await fs.readFile(assetPath, 'utf8'))
+
+    const parsed = parseSideloadIconCollection(raw)
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.error)
+    if (!parsed.ok) {
+      return
+    }
+    assert.equal(parsed.collection.prefix, 'tabler')
+    // -> Tabler is ~6,200 icons as of this writing; a low bound rather than an exact count so a
+    //    routine upstream bump doesn't need this test touched.
+    assert.ok(Object.keys(parsed.collection.icons).length > 5000)
+    assert.equal((parsed.collection.info as any)?.license?.spdx, 'MIT')
   })
 })

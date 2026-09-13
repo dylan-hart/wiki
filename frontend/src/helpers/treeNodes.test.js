@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { mergeFolderEntries, parentFolderIdOf } from './treeNodes'
+import {
+  ancestorFolderIds,
+  descendantFolderIds,
+  mergeFolderEntries,
+  parentFolderIdOf
+} from './treeNodes'
 
 const folder = (id, folderPath, fileName, extra = {}) => ({
   id,
@@ -132,5 +137,81 @@ describe('parentFolderIdOf', () => {
     }
     expect(parentFolderIdOf(ambiguous, 'f-blog-setup')).toBe('f-blog')
     expect(parentFolderIdOf(ambiguous, 'f-setup')).toBe('f-docs')
+  })
+})
+
+/**
+ * OpenProject #3063 ("Bring File Manager tree click/keyboard behavior to parity with the main
+ * navbar"): the two pure lookups shift+click isolate and ctrl+click cycle are built on, extracted
+ * out of `TreeNode.vue` so both it and (for the ancestor half) `TreeNav.vue#onMounted` share one
+ * implementation. Deliberately children-array-based rather than `parentFolderIdOf`'s `folderPath`
+ * parsing -- these need no `folderPath`/`fileName` fields, only `children`, which is also all a
+ * hand-built test fixture below needs to carry.
+ */
+describe('ancestorFolderIds', () => {
+  const nodes = {
+    root: { title: 'Root', children: ['branch'] },
+    branch: { title: 'Branch', children: ['leaf'] },
+    leaf: { title: 'Leaf', children: [] },
+    sibling: { title: 'Sibling', children: [] }
+  }
+
+  it('returns every ancestor, outermost first', () => {
+    expect(ancestorFolderIds(nodes, 'leaf')).toEqual(['root', 'branch'])
+  })
+
+  it('returns an empty array for a root-level folder', () => {
+    expect(ancestorFolderIds(nodes, 'root')).toEqual([])
+  })
+
+  it('returns an empty array for an id the map has never heard of', () => {
+    expect(ancestorFolderIds(nodes, 'missing')).toEqual([])
+  })
+
+  it('does not confuse an unrelated sibling for an ancestor', () => {
+    expect(ancestorFolderIds(nodes, 'leaf')).not.toContain('sibling')
+  })
+})
+
+describe('descendantFolderIds', () => {
+  const nodes = {
+    root: { title: 'Root', children: ['midA', 'midB'] },
+    midA: { title: 'Mid A', children: ['leafA'] },
+    midB: { title: 'Mid B', children: [] },
+    leafA: { title: 'Leaf A', children: ['deep1'] },
+    deep1: { title: 'Deep 1', children: ['deep2'] },
+    deep2: { title: 'Deep 2', children: ['deep3'] },
+    deep3: { title: 'Deep 3', children: [] }
+  }
+
+  it('walks every descendant folder, recursively', () => {
+    expect(descendantFolderIds(nodes, 'root')).toEqual(
+      expect.arrayContaining(['midA', 'midB', 'leafA', 'deep1'])
+    )
+  })
+
+  it('does not include the folder itself', () => {
+    expect(descendantFolderIds(nodes, 'root')).not.toContain('root')
+  })
+
+  it('returns an empty array for a folder with no children', () => {
+    expect(descendantFolderIds(nodes, 'midB')).toEqual([])
+  })
+
+  it('caps the walk at the given depth below the starting node (default 3)', () => {
+    // -> root -> midA -> leafA -> deep1 is depth 3; deep2/deep3 are one and two levels past that
+    const descendants = descendantFolderIds(nodes, 'root')
+    expect(descendants).toContain('deep1')
+    expect(descendants).not.toContain('deep2')
+    expect(descendants).not.toContain('deep3')
+  })
+
+  it('honors an explicit maxDepth', () => {
+    expect(descendantFolderIds(nodes, 'root', 1)).toEqual(expect.arrayContaining(['midA', 'midB']))
+    expect(descendantFolderIds(nodes, 'root', 1)).not.toContain('leafA')
+  })
+
+  it('returns an empty array for an id the map has never heard of', () => {
+    expect(descendantFolderIds(nodes, 'missing')).toEqual([])
   })
 })

@@ -171,6 +171,15 @@ export const useSiteStore = defineStore('site', {
     tags: [],
     tagsLoaded: false,
     /**
+     * The Header Search "Popular Tags" widget's own, narrower list (OpenProject #3046): at most 10
+     * tags, ranked by 60-day content activity rather than `tags`' all-time usage count. Deliberately
+     * separate state/fetch from `tags`/`tagsLoaded`/`fetchTags()` above -- those stay the complete,
+     * unlimited, all-time list `PageTags.vue`'s tag-edit autocomplete and `TagsBrowse.vue`/`Search.vue`
+     * still need.
+     */
+    popularTags: [],
+    popularTagsLoaded: false,
+    /**
      * The case style (Feature #2574/#2577) applied to a path-derived label at every render site --
      * breadcrumbs, sidebar/tree nav, auto-nav, and a page's own heading (#2578) -- via
      * `composables/pathDisplay.js#usePathDisplay()`. `'off'` (the default) means every one of those
@@ -344,6 +353,8 @@ export const useSiteStore = defineStore('site', {
         },
         tags: [],
         tagsLoaded: false,
+        popularTags: [],
+        popularTagsLoaded: false,
         theme: {
           ...this.theme,
           ...siteInfo.theme
@@ -407,6 +418,26 @@ export const useSiteStore = defineStore('site', {
         })
       } catch (err) {
         log.warn('site', 'could not load the tag list', err)
+        throw err
+      }
+    },
+    /**
+     * The Header Search "Popular Tags" widget's own fetch (OpenProject #3046) -- a separate endpoint
+     * and a separate cached-until-asked-again flag from `fetchTags()` above, since the two answer
+     * different questions (60-day activity, capped at 10, vs. every tag in use, unlimited).
+     */
+    async fetchPopularTags(forceRefresh = false) {
+      if (this.popularTagsLoaded && !forceRefresh) {
+        return
+      }
+      try {
+        const tags = await API_CLIENT.get(`sites/${this.id}/tags/popular`).json()
+        this.$patch({
+          popularTags: tags ?? [],
+          popularTagsLoaded: true
+        })
+      } catch (err) {
+        log.warn('site', 'could not load the popular tag list', err)
         throw err
       }
     },

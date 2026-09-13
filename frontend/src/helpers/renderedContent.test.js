@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { _resetContentImageZoom } from './contentImageZoom'
 import { enhanceRenderedContent, routableHref, sameDocumentHash } from './renderedContent'
 import { queue as notifyQueue } from '@/composables/notify'
 
@@ -286,6 +287,38 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
     expect(notifyQueue).toHaveLength(1)
     expect(notifyQueue[0].type).toBe('negative')
     expect(notifyQueue[0].caption).toBe('denied')
+  })
+})
+
+/**
+ * OpenProject #3066: `enhanceRenderedContent` wires content images into the click-to-zoom lightbox
+ * too, the same way it wires the code-copy button and heading anchors -- see
+ * `contentImageZoom.test.js` for the lightbox's own full behavior (zoom, pan, the linked-image
+ * exclusion, ...); this is only proof the two are actually connected.
+ */
+describe('renderedContent content-image click-to-zoom wiring (#3066)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    _resetContentImageZoom()
+  })
+
+  it('opens the lightbox when a rendered image is clicked', () => {
+    const container = document.createElement('div')
+    const img = document.createElement('img')
+    img.src = 'https://example.com/diagram.png'
+    container.appendChild(img)
+    document.body.appendChild(container)
+
+    enhanceRenderedContent(container, t)
+    img.click()
+
+    const box = document.querySelector('dialog.content-image-lightbox')
+    expect(box).not.toBeNull()
+    expect(box.open).toBe(true)
+    expect(box.querySelector('img').src).toBe('https://example.com/diagram.png')
   })
 })
 

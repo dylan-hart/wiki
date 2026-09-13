@@ -81,13 +81,21 @@ import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
  *
  * To still carry the per-page identity `content-staging.ts` already resolved (`StagedPage.creatorId`,
  * itself falling back to the operator wherever the source row's id was null or unmapped),
- * `importOne()` builds one synthetic `PageActor` **per page** — `{ id:
- * staged.creatorId, permissions: options.actorPermissions }` — rather than one fixed actor for every
- * call. Only `permissions` (which gates the `write:scripts`/`write:styles` checks `postProcess` makes)
- * comes from the operator's own grant; a migration is not "logged in as" each original 2.x author, so
- * using the actual (possibly unprivileged, possibly nonexistent) author's permissions would make the
- * result depend on who happened to write the page in 2.x rather than on what the operator running the
- * import is entitled to carry across.
+ * `importOne()` builds one synthetic `PageActor` **per page** — `{ id: staged.creatorId, groupIds: [],
+ * permissions: [], forcedPagePermissions: options.forcedPagePermissions }` — rather than one fixed
+ * actor for every call. This actor holds no group membership at all (`groupIds: []`), which means it
+ * could never earn `write:scripts`/`write:styles` through the ordinary page-rule engine
+ * (`WIKI.models.groups.checkAccess()` resolves those two permissions from `groupIds`-derived rules
+ * only, and never from a flat `permissions` list — see `hasPermission()`'s own doc comment in
+ * `models/pages.ts`, and the regression test guarding exactly that in `pages.hasPermission.test.ts`).
+ * `forcedPagePermissions` is `hasPermission()`'s dedicated escape hatch for a caller in exactly this
+ * position (OpenProject #3054): it short-circuits straight to `true` for exactly the permission names
+ * listed here, with no `checkAccess()` call and no group of any kind — which is what actually gives
+ * migrated content "full content authority" (see `phases/content.ts`'s own comment on why this is
+ * unconditional rather than derived from the real operator's own permission grant): a migration is not
+ * "logged in as" each original 2.x author, so using the actual (possibly unprivileged, possibly
+ * nonexistent) author's permissions would make the result depend on who happened to write the page in
+ * 2.x rather than on a deliberate operator decision to carry 2.x content through as-is.
  *
  * `StagedPage.authorId` (2.x's *last editor*, as opposed to `creatorId`'s *original author*) has
  * nowhere to land on the row `createPage()` produces — the call collapses both onto `creatorId`. A page
@@ -160,9 +168,12 @@ export interface ImportPagesDeps {
 export interface ImportPagesOptions {
   /** The 3.0 site being imported into. */
   siteId: string
-  /** The operator's own permission grant, used for every synthetic per-page actor's `write:scripts` /
-   * `write:styles` checks — see "The synthetic per-page actor" in the module doc comment. */
-  actorPermissions: string[]
+  /** Page-rule permission names force-granted to every synthetic per-page actor this run creates,
+   * bypassing the group-rule engine entirely (`PageActor.forcedPagePermissions`, `models/pages.ts`) —
+   * see "The synthetic per-page actor" in the module doc comment for why the importer's actor needs
+   * this rather than a real page rule of its own. `phases/content.ts` always passes
+   * `['write:scripts', 'write:styles']`. */
+  forcedPagePermissions: string[]
   /** See "The render bootstrap decision" in the module doc comment. Defaults to `'passthrough'`. */
   renderBootstrap?: 'passthrough' | 'queue'
   /** Epoch milliseconds to treat as "now" when deriving `publishState` — injectable for deterministic
@@ -348,7 +359,7 @@ function mapStagedPageToInput(
   assignment: TreePathAssignment,
   renderBootstrap: 'passthrough' | 'queue',
   nowMillis: number,
-  actorPermissions: string[]
+  forcedPagePermissions: string[]
 ): MappedPage {
   const warnings: string[] = []
   const editor = mapEditor(staged, warnings)
@@ -409,7 +420,7 @@ function mapStagedPageToInput(
 
   return {
     input,
-    actor: { id: staged.creatorId, groupIds: [], permissions: actorPermissions },
+    actor: { id: staged.creatorId, groupIds: [], permissions: [], forcedPagePermissions },
     warnings
   }
 }
@@ -659,7 +670,7 @@ export function createPageImporter(
       assignment,
       renderBootstrap,
       nowMillis,
-      options.actorPermissions
+      options.forcedPagePermissions
     )
 
     if (resolved.status === 'renamed') {

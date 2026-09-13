@@ -173,7 +173,7 @@
         <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.timeFormat"
           :options="timeFormats"
@@ -183,24 +183,48 @@
     </w-item>
     <w-separator inset />
     <w-item>
+      <blueprint-icon icon="tabler:layout-grid" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.aesthetic`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.aestheticHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.aesthetic"
+          :options="aesthetics"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.aesthetic`)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
       <blueprint-icon icon="tabler:sun" />
       <w-item-section>
         <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
       </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.appearance"
+          :options="appearances"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.appearance`)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <!-- -> Feature #3051 / Task #3068: per-user override of the site's `contentWidth` admin setting. -->
+    <w-item>
+      <blueprint-icon icon="tabler:arrows-horizontal" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.contentWidth`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.contentWidthHint`) }}</w-item-label>
+      </w-item-section>
       <w-item-section side>
-        <div class="flex items-center gap-2 flex-wrap">
-          <w-btn-toggle
-            v-model="state.config.aesthetic"
-            :options="aesthetics"
-            :disabled="!canEdit"
-            :aria-label="t(`profile.aesthetic`)" />
-          <w-btn-toggle
-            v-model="state.config.appearance"
-            :options="appearances"
-            :disabled="!canEdit"
-            :aria-label="t(`profile.appearance`)" />
-        </div>
+        <w-btn-toggle
+          v-model="state.config.contentWidth"
+          :options="contentWidths"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.contentWidth`)" />
       </w-item-section>
     </w-item>
     <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
@@ -210,7 +234,7 @@
         <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.cvd"
           :options="cvdChoices"
@@ -275,6 +299,7 @@ const state = reactive({
     timeFormat: '12h',
     aesthetic: 'site',
     appearance: 'site',
+    contentWidth: 'site',
     cvd: 'none'
   },
   loading: 0
@@ -301,6 +326,11 @@ const appearances = [
   { value: 'site', label: t('profile.appearanceDefault') },
   { value: 'light', label: t('profile.appearanceLight') },
   { value: 'dark', label: t('profile.appearanceDark') }
+]
+const contentWidths = [
+  { value: 'site', label: t('profile.contentWidthDefault') },
+  { value: 'measured', label: t('profile.contentWidthMeasured') },
+  { value: 'full', label: t('profile.contentWidthFull') }
 ]
 const cvdChoices = [
   { value: 'none', label: t('profile.cvdNone') },
@@ -355,6 +385,7 @@ function applyProfile(profile) {
   state.config.timeFormat = profile.timeFormat || '12h'
   state.config.aesthetic = profile.aesthetic || 'site'
   state.config.appearance = profile.appearance || 'site'
+  state.config.contentWidth = profile.contentWidth || 'site'
   state.config.cvd = profile.cvd || 'none'
   // -> After the whole record is in the fields, not per-field: the answer depends on all three.
   syncDisplayName()
@@ -386,6 +417,7 @@ async function save() {
         timeFormat: state.config.timeFormat,
         aesthetic: state.config.aesthetic,
         appearance: state.config.appearance,
+        contentWidth: state.config.contentWidth,
         cvd: state.config.cvd,
         // -> No dedicated form control: `LocaleSelectorMenu` already owns picking the UI language,
         //    so saving the profile records whatever that's currently set to as the mail preference.
@@ -404,6 +436,7 @@ async function save() {
       timeFormat: state.config.timeFormat,
       aesthetic: state.config.aesthetic,
       appearance: state.config.appearance,
+      contentWidth: state.config.contentWidth,
       cvd: state.config.cvd
     })
     notify({

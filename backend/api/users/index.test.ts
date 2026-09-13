@@ -46,6 +46,13 @@ let deleteUserFixture: { id: string; email: string; isSystem: boolean } | null =
 let deleteUserError: Error | null = null
 const deleteUserWarnCalls: any[] = []
 
+/**
+ * `GET /whoami`'s prefs-freshness fix (OpenProject #3045): the profile `getProfile()` answers with,
+ * keyed by the id the test session carries. `null` for an id with no entry, matching what a deleted
+ * account looks like to `whoAmI()`.
+ */
+let profileFixtures: Record<string, Record<string, any> | null> = {}
+
 before(async () => {
   const wiki = {
     config: {
@@ -92,7 +99,8 @@ before(async () => {
         deleteUser: async () => {
           if (deleteUserError) throw deleteUserError
           return true
-        }
+        },
+        getProfile: async (id: string) => profileFixtures[id] ?? null
       },
       groups: {
         hasUnknownGroupIds: async (ids: string[]) =>
@@ -166,10 +174,11 @@ test('GET /whoami serializes the guest shape', async () => {
 })
 
 test('GET /whoami serializes the logged in shape, permissions included', async () => {
+  const userId = '11111111-1111-1111-1111-111111111111'
   const session = {
     authenticated: true,
     user: {
-      id: '11111111-1111-1111-1111-111111111111',
+      id: userId,
       email: 'alice@example.com',
       name: 'Alice',
       hasAvatar: true,
@@ -181,17 +190,137 @@ test('GET /whoami serializes the logged in shape, permissions included', async (
     },
     permissions: ['read:pages', 'write:pages']
   }
-  const res = await app.inject({
-    method: 'GET',
-    url: '/whoami',
-    headers: { 'x-test-session': JSON.stringify(session) }
-  })
-  assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), {
+  // -> Fresh DB read agrees with the session snapshot here, so this test alone would pass even
+  //    without the fix -- the dedicated staleness test below is what actually exercises it.
+  profileFixtures = {
+    [userId]: {
+      timezone: session.user.timezone,
+      dateFormat: session.user.dateFormat,
+      timeFormat: session.user.timeFormat,
+      appearance: session.user.appearance,
+      aesthetic: 'site',
+      cvd: session.user.cvd,
+      locale: ''
+    }
+  }
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/whoami',
+      headers: { 'x-test-session': JSON.stringify(session) }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), {
+      authenticated: true,
+      ...session.user,
+      aesthetic: 'site',
+      locale: '',
+      permissions: session.permissions
+    })
+  } finally {
+    profileFixtures = {}
+  }
+})
+
+/**
+ * OpenProject #3045: `req.session.user` is the login-time snapshot, so a preference saved from a
+ * different session (a different browser or device) never reaches this one's `req.session.user`
+ * until it logs in again -- only `whoAmI()` sourcing `appearance`/`aesthetic`/the rest of the prefs
+ * fresh from the `users` table on every call fixes that. Session and DB are deliberately given
+ * DIFFERENT values below so the response can only match the DB fixture by actually reading it, not by
+ * coincidentally agreeing with the session the way the test above does.
+ */
+test('GET /whoami sources prefs fresh from the database rather than the session snapshot', async () => {
+  const userId = '22222222-2222-2222-2222-222222222222'
+  const session = {
     authenticated: true,
-    ...session.user,
-    permissions: session.permissions
-  })
+    user: {
+      id: userId,
+      email: 'bob@example.com',
+      name: 'Bob',
+      hasAvatar: false,
+      // -> The session's own stale snapshot, from this session's login.
+      timezone: 'America/New_York',
+      dateFormat: 'YYYY-MM-DD',
+      timeFormat: '12h',
+      appearance: 'light',
+      aesthetic: 'site',
+      cvd: 'none',
+      locale: ''
+    },
+    permissions: []
+  }
+  // -> What another session saved since, now the row's real value.
+  profileFixtures = {
+    [userId]: {
+      timezone: 'Europe/Berlin',
+      dateFormat: 'DD/MM/YYYY',
+      timeFormat: '24h',
+      appearance: 'dark',
+      aesthetic: 'sunset',
+      cvd: 'protanopia',
+      locale: 'de'
+    }
+  }
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/whoami',
+      headers: { 'x-test-session': JSON.stringify(session) }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    // -> Untouched: these never lived in `prefs`, and stay off the session snapshot as before.
+    assert.equal(body.id, userId)
+    assert.equal(body.email, session.user.email)
+    assert.equal(body.name, session.user.name)
+    assert.equal(body.hasAvatar, session.user.hasAvatar)
+    // -> The DB fixture's values, not the stale session ones.
+    assert.equal(body.timezone, 'Europe/Berlin')
+    assert.equal(body.dateFormat, 'DD/MM/YYYY')
+    assert.equal(body.timeFormat, '24h')
+    assert.equal(body.appearance, 'dark')
+    assert.equal(body.aesthetic, 'sunset')
+    assert.equal(body.cvd, 'protanopia')
+    assert.equal(body.locale, 'de')
+  } finally {
+    profileFixtures = {}
+  }
+})
+
+/**
+ * The account behind the session no longer exists (deleted mid-request) -- `getProfile()` answers
+ * `null`, and `whoAmI()` falls back to the session's own snapshot rather than throwing.
+ */
+test('GET /whoami falls back to the session snapshot when the account row is gone', async () => {
+  const userId = '33333333-3333-3333-3333-333333333333'
+  const session = {
+    authenticated: true,
+    user: {
+      id: userId,
+      email: 'carol@example.com',
+      name: 'Carol',
+      appearance: 'dark',
+      aesthetic: 'site'
+    },
+    permissions: []
+  }
+  profileFixtures = { [userId]: null }
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/whoami',
+      headers: { 'x-test-session': JSON.stringify(session) }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), {
+      authenticated: true,
+      ...session.user,
+      permissions: session.permissions
+    })
+  } finally {
+    profileFixtures = {}
+  }
 })
 
 /**

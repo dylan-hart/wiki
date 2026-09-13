@@ -143,7 +143,7 @@
                   the stylesheet has `--content-bleed` to match -->
           <div
             class="page-container-body"
-            :class="{ 'is-measured': siteStore.theme.contentWidth === `measured` }">
+            :class="{ 'is-measured': resolvedContentWidth === `measured` }">
             <!--
               Delegated rather than bound per link: the anchors are written by `v-html`, so there is
               nothing here to put a handler on, and they are replaced wholesale on every render.
@@ -248,142 +248,153 @@
         :style="siteStore.theme.tocPosition === `left` ? `order: 1;` : `order: 2;`"
         @click="onSidebarClick">
         <!--
-          The rail's sections are grouped into two boxes -- Contents, then Tags/Revision/Watching --
-          because Cobalt draws them as two floating white cards on its paper ground where Ledger
-          draws one continuous rail ruled off with hairlines. The grouping is the same in both: it is
-          the `--float-*` tokens that decide whether a box is a card (`--float-bg`, `--float-pad`,
-          `--radius-card`, `--shadow-card`, `--float-gap`) or nothing at all, and every one of them
-          collapses to transparent/0/none under Ledger, so these two wrappers render exactly as the
-          bare sections did. See the stylesheet.
+          OpenProject #3056: this wrapper is what lets the two cards below grow to fill
+          `.page-sidebar`'s own available height through the SAME flex layout pass that computes
+          that height (`flex: 1 0 auto`, in the stylesheet), rather than through their own
+          independent block-flow measurement -- see `NavSidebar.vue`'s `.sidebar-nav > nav` for the
+          reference writeup of why a mismatch between those two measurements can round a hair
+          taller than the actual space and trip `overflow-y: auto` even when nothing is actually
+          cut off.
         -->
-        <div class="page-sidebar-card" v-if="showToc">
-          <!-- TOC -->
-          <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
-               article and reads better short, where "Table of Contents" is the full name of the
-               thing and belongs where there is room for it -->
-          <div class="page-sidebar-heading">{{ t('common.page.contents') }}</div>
-          <page-toc
-            :nodes="pageStore.toc"
-            :min-depth="pageStore.tocDepth.min"
-            :max-depth="pageStore.tocDepth.max"
-            v-model:selected="state.tocSelected" />
-        </div>
-        <div class="page-sidebar-card" v-if="showTags || showRevision || showWatching">
-          <!-- Tags -->
-          <template v-if="showTags">
-            <w-separator v-if="showToc" />
-            <div
-              @mouseover="state.showTagsEditBtn = true"
-              @mouseleave="state.showTagsEditBtn = false">
-              <div class="flex items-center">
-                <div class="page-sidebar-heading flex-1">{{ t('common.page.tags') }}</div>
-                <!--
-                Rendered for whoever may save the page, and hidden with `visibility` rather than
-                removed as the pointer comes and goes: `display: none` took the row's height with it,
-                so the heading jumped 6px the moment the pointer arrived. `visibility` also keeps it
-                out of the tab order and out of hit-testing while hidden, which `opacity: 0` on its own
-                would not.
-
-                It stays put while editing, because that is when it is the way back out.
-
-                A reader gets no button at all -- `v-if`, not the same `visibility` treatment, because
-                for them it is not a control that happens to be out of sight.
-              -->
-                <w-btn
-                  v-if="canEditPage"
-                  class="tags-edit-btn"
-                  :class="{ 'is-hidden': !state.tagEditMode && !state.showTagsEditBtn }"
-                  size="sm"
-                  padding="none xs"
-                  :icon="state.tagEditMode ? `tabler:check` : `tabler:pencil`"
-                  color="deep-orange-9"
-                  flat
-                  :label="
-                    state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')
-                  "
-                  @click="state.tagEditMode = !state.tagEditMode" />
-              </div>
-              <page-tags :edit="state.tagEditMode" />
-            </div>
-          </template>
-          <!-- Revision -->
+        <div class="page-sidebar-content">
           <!--
-          Where the page stands in its own history: `rev 14 &middot; 6 changes`, who last wrote it, and when.
-          Three lines of text and no controls -- the history itself is a page of its own, reached from
-          the actions column, and a link here would be a fourth way to the same place.
-
-          Unlike Contents and Tags this is not gated on the page having volunteered anything: every
-          page has an author and a last-saved moment, so the section is always at least those two
-          lines. What varies is how much of the first line there is (see `revisionLine`), and the
-          guard below is only for the store before a page has actually landed in it -- drawing a
-          heading over three empty lines during a load is what it prevents, not any real page.
-        -->
-          <template v-if="showRevision">
-            <w-separator v-if="showToc || showTags" />
-            <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
-            <div class="page-sidebar-revision">
-              <div v-if="revisionLine">{{ revisionLine }}</div>
-              <div v-if="pageStore.authorName" class="flex flex-wrap items-center gap-1">
-                <span>{{ pageStore.authorName }}</span>
-                <!--
-                #2735: provenance -- did the person actually type this, or did an MCP tool call
-                acting as them? Same badge, same strings, as `PageHistoryOverlay.vue`'s history
-                timeline; `flex-wrap` on the row is what lets the badge drop under the name on a
-                narrow column rather than truncating either.
-              -->
-                <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="accent">
-                  {{ t('history.viaMcp') }}
-                  <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
-                </w-badge>
-              </div>
-              <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
-                 `userStore` has: the two are the same fact about the same page and must not drift -->
-              <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
-                {{ lastModified }}
-              </div>
-            </div>
-          </template>
-          <!--
-          Watching (OpenProject #2649) -- who else is following this page, as a run of initial plates
-          with a `+N` remainder for everybody past the third.
-
-          Absent entirely, heading and rule included, on a page nobody watches: the same reasoning
-          `showTags` above is written against, and the reason a failed or refused request leaves this
-          empty rather than saying so. A rail section is a glance, not a place to report an error --
-          the bell in the page header is where watching is acted on and where a failure there is
-          reported.
-        -->
-          <template v-if="showWatching">
-            <!--
-            Each rail section owns the rule ABOVE it, conditioned on there being anything above it to
-            separate from -- the pattern Tags follows for Contents. Revision (Task #2652) sits between
-            Tags and this, so its own `showRevision` is the third thing there can be something above.
+            The rail's sections are grouped into two boxes -- Contents, then Tags/Revision/Watching --
+            because Cobalt draws them as two floating white cards on its paper ground where Ledger
+            draws one continuous rail ruled off with hairlines. The grouping is the same in both: it is
+            the `--float-*` tokens that decide whether a box is a card (`--float-bg`, `--float-pad`,
+            `--radius-card`, `--shadow-card`, `--float-gap`) or nothing at all, and every one of them
+            collapses to transparent/0/none under Ledger, so these two wrappers render exactly as the
+            bare sections did. See the stylesheet.
           -->
-            <w-separator v-if="showToc || showTags || showRevision" />
-            <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
-            <div class="page-watchers">
-              <!--
-              `title` rather than a visible name: the plate is two letters wide by design and the
-              full name is what a reader hovers for. `aria-label` says the same thing to a screen
-              reader, for which two uppercase letters are not a name at all.
-            -->
+          <div class="page-sidebar-card" v-if="showToc">
+            <!-- TOC -->
+            <!-- -> Its own string, not `common.page.toc`: this heading labels a column beside the
+                 article and reads better short, where "Table of Contents" is the full name of the
+                 thing and belongs where there is room for it -->
+            <div class="page-sidebar-heading">{{ t('common.page.contents') }}</div>
+            <page-toc
+              :nodes="pageStore.toc"
+              :min-depth="pageStore.tocDepth.min"
+              :max-depth="pageStore.tocDepth.max"
+              v-model:selected="state.tocSelected" />
+          </div>
+          <div class="page-sidebar-card" v-if="showTags || showRevision || showWatching">
+            <!-- Tags -->
+            <template v-if="showTags">
+              <w-separator v-if="showToc" />
               <div
-                v-for="watcher of watcherPlates"
-                :key="watcher.userId"
-                class="page-watchers-plate"
-                :title="watcher.name"
-                :aria-label="watcher.name">
-                {{ watcher.initials }}
+                @mouseover="state.showTagsEditBtn = true"
+                @mouseleave="state.showTagsEditBtn = false">
+                <div class="flex items-center">
+                  <div class="page-sidebar-heading flex-1">{{ t('common.page.tags') }}</div>
+                  <!--
+                  Rendered for whoever may save the page, and hidden with `visibility` rather than
+                  removed as the pointer comes and goes: `display: none` took the row's height with it,
+                  so the heading jumped 6px the moment the pointer arrived. `visibility` also keeps it
+                  out of the tab order and out of hit-testing while hidden, which `opacity: 0` on its own
+                  would not.
+
+                  It stays put while editing, because that is when it is the way back out.
+
+                  A reader gets no button at all -- `v-if`, not the same `visibility` treatment, because
+                  for them it is not a control that happens to be out of sight.
+                -->
+                  <w-btn
+                    v-if="canEditPage"
+                    class="tags-edit-btn"
+                    :class="{ 'is-hidden': !state.tagEditMode && !state.showTagsEditBtn }"
+                    size="sm"
+                    padding="none xs"
+                    :icon="state.tagEditMode ? `tabler:check` : `tabler:pencil`"
+                    color="deep-orange-9"
+                    flat
+                    :label="
+                      state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')
+                    "
+                    @click="state.tagEditMode = !state.tagEditMode" />
+                </div>
+                <page-tags :edit="state.tagEditMode" />
               </div>
-              <span
-                v-if="watcherRemainder > 0"
-                class="page-watchers-remainder"
-                :title="t('common.page.watchingMore', { count: watcherRemainder })"
-                :aria-label="t('common.page.watchingMore', { count: watcherRemainder })">
-                +{{ watcherRemainder }}
-              </span>
-            </div>
-          </template>
+            </template>
+            <!-- Revision -->
+            <!--
+            Where the page stands in its own history: `rev 14 &middot; 6 changes`, who last wrote it, and when.
+            Three lines of text and no controls -- the history itself is a page of its own, reached from
+            the actions column, and a link here would be a fourth way to the same place.
+
+            Unlike Contents and Tags this is not gated on the page having volunteered anything: every
+            page has an author and a last-saved moment, so the section is always at least those two
+            lines. What varies is how much of the first line there is (see `revisionLine`), and the
+            guard below is only for the store before a page has actually landed in it -- drawing a
+            heading over three empty lines during a load is what it prevents, not any real page.
+          -->
+            <template v-if="showRevision">
+              <w-separator v-if="showToc || showTags" />
+              <div class="page-sidebar-heading">{{ t('common.page.revision') }}</div>
+              <div class="page-sidebar-revision">
+                <div v-if="revisionLine">{{ revisionLine }}</div>
+                <div v-if="pageStore.authorName" class="flex flex-wrap items-center gap-1">
+                  <span>{{ pageStore.authorName }}</span>
+                  <!--
+                  #2735: provenance -- did the person actually type this, or did an MCP tool call
+                  acting as them? Same badge, same strings, as `PageHistoryOverlay.vue`'s history
+                  timeline; `flex-wrap` on the row is what lets the badge drop under the name on a
+                  narrow column rather than truncating either.
+                -->
+                  <w-badge v-if="pageStore.revision?.via === 'mcp'" outline color="accent">
+                    {{ t('history.viaMcp') }}
+                    <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
+                  </w-badge>
+                </div>
+                <!-- -> The masthead's own "Last modified" value, from the one relative-time formatter
+                   `userStore` has: the two are the same fact about the same page and must not drift -->
+                <div v-if="pageStore.updatedAt" class="page-sidebar-revision-time">
+                  {{ lastModified }}
+                </div>
+              </div>
+            </template>
+            <!--
+            Watching (OpenProject #2649) -- who else is following this page, as a run of initial plates
+            with a `+N` remainder for everybody past the third.
+
+            Absent entirely, heading and rule included, on a page nobody watches: the same reasoning
+            `showTags` above is written against, and the reason a failed or refused request leaves this
+            empty rather than saying so. A rail section is a glance, not a place to report an error --
+            the bell in the page header is where watching is acted on and where a failure there is
+            reported.
+          -->
+            <template v-if="showWatching">
+              <!--
+              Each rail section owns the rule ABOVE it, conditioned on there being anything above it to
+              separate from -- the pattern Tags follows for Contents. Revision (Task #2652) sits between
+              Tags and this, so its own `showRevision` is the third thing there can be something above.
+            -->
+              <w-separator v-if="showToc || showTags || showRevision" />
+              <div class="page-sidebar-heading">{{ t('common.page.watching') }}</div>
+              <div class="page-watchers">
+                <!--
+                `title` rather than a visible name: the plate is two letters wide by design and the
+                full name is what a reader hovers for. `aria-label` says the same thing to a screen
+                reader, for which two uppercase letters are not a name at all.
+              -->
+                <div
+                  v-for="watcher of watcherPlates"
+                  :key="watcher.userId"
+                  class="page-watchers-plate"
+                  :title="watcher.name"
+                  :aria-label="watcher.name">
+                  {{ watcher.initials }}
+                </div>
+                <span
+                  v-if="watcherRemainder > 0"
+                  class="page-watchers-remainder"
+                  :title="t('common.page.watchingMore', { count: watcherRemainder })"
+                  :aria-label="t('common.page.watchingMore', { count: watcherRemainder })">
+                  +{{ watcherRemainder }}
+                </span>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
       <!-- -> Every action on it acts on a page: there is none here to edit, share, rate or delete -->
@@ -641,6 +652,16 @@ const watchers = ref([])
 const watcherTotal = ref(0)
 
 // COMPUTED
+
+/**
+ * The article column's resolved content width (Feature #3051 / Task #3068): a per-user override
+ * layered on top of the site's own `contentWidth` admin setting, not a replacement for it. `'site'`
+ * (the default) defers entirely to `siteStore.theme.contentWidth`; `'measured'`/`'full'` force that
+ * reader's own choice on every page they view, regardless of what the site currently has configured.
+ */
+const resolvedContentWidth = computed(() =>
+  userStore.contentWidth === 'site' ? siteStore.theme.contentWidth : userStore.contentWidth
+)
 
 /**
  * Below 750px, where the contents stop being a column beside the article and become a panel over it.
@@ -942,6 +963,39 @@ watch(
     })
   },
   { immediate: true }
+)
+
+/*
+  OpenProject #3061: on save, `pageStore.pageSave()` (`stores/page.js`) `$patch`es `pageStore.render`
+  with the freshly-rendered HTML WHILE THE EDITOR IS STILL MOUNTED (`editorStore.isActive` is still
+  `true`) -- that alone is what fires the watcher above, but `pageContents` is the reading view's own
+  template ref and is still null at that moment (the `v-else` branch above hasn't mounted), so the
+  call hits `enhanceRenderedContent`'s `if (!root) return` guard as a silent no-op.
+
+  Only afterward does `pageSaveFlow.js`'s `saveChangesCommit` flip `editorStore.isActive` to `false`,
+  unmounting the editor and mounting `pageContents` for the first time already holding the updated
+  render -- but none of the three sources above change again at that point, so the watcher never
+  re-fires against the now-real DOM, and the code-copy button never appears until something else
+  changes render/title/highlight (a second save, or navigating away and back).
+
+  This watcher bridges exactly that gap: `isActive` flipping to `false` is the one signal the watcher
+  above cannot see for itself, since it is what makes `pageContents` a real element rather than a
+  state change to `pageStore`/`highlightTerm` itself. Re-running here is safe on every OTHER path the
+  editor can close onto (the page turns out locked, not found, or a redirect) -- `pageContents` stays
+  null on all three, so `enhanceRenderedContent`'s own guard makes this a no-op there, same as
+  `editorStore.isActive` turning `true` does on the way in.
+*/
+watch(
+  () => editorStore.isActive,
+  (isActive) => {
+    if (isActive) {
+      return
+    }
+    nextTick(() => {
+      enhanceRenderedContent(pageContents.value, t)
+      syncKeywordHighlight()
+    })
+  }
 )
 
 /*
@@ -1737,6 +1791,32 @@ $toc-overlay-max: 749.98px;
     }
   }
 }
+
+/*
+  OpenProject #3055: `.page-container-scrl` above is not itself the flex item `.page-container`'s
+  row stretches -- it is that item's `height: 100%` child (the template's own `.min-w-0.flex-1` div,
+  which wraps everything the article column can render, this element included). A margin-bottom
+  on `.page-container-scrl` itself would only push empty space out past its OWN border box, which is
+  already pinned to 100% of an unchanged parent height -- it would not shrink anything visible, since
+  percentage height ignores margins. `.page-sidebar` (below) has no such wrapper: it IS the stretched
+  flex item, which is exactly why a bare `margin-bottom: var(--footer-bar-height)` works there.
+
+  So the clearance goes on the wrapper instead, addressed by the child combinator off the unique
+  `.page-container` (this file's only element with that class) rather than a bare `.min-w-0.flex-1`,
+  which recurs elsewhere in this same template (the relation columns further down) and, being a
+  Tailwind utility pair, elsewhere in the app entirely. Shrinking THIS flex item's own stretch-computed
+  height is what then shrinks `.page-container-scrl`'s 100% of it in turn, so its scrollport -- and the
+  native scrollbar riding along it -- stops above the bar instead of running behind it. The extra 16px
+  (over the bare `--footer-bar-height` `.page-sidebar` uses) is this WP's own fix: a little daylight
+  between the scrollbar's end and the bar's top edge, not flush clearance.
+
+  No narrow-viewport counterpart is needed here the way `.page-sidebar` needs one below
+  `$toc-overlay-max`: this wrapper is never repositioned to `position: fixed` at any breakpoint, so a
+  single unconditioned rule covers every viewport width.
+*/
+body.body--cobalt .page-container > .min-w-0.flex-1 {
+  margin-bottom: calc(var(--footer-bar-height) + 16px);
+}
 /*
   The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
   foot is what stops the last paragraph sitting on the footer. It replaces a `p-2 sm:p-4` pair
@@ -1995,6 +2075,30 @@ $toc-overlay-max: 749.98px;
   */
   overflow-y: auto;
   overscroll-behavior: contain;
+
+  /*
+    OpenProject #3056: `.page-sidebar` is itself a flex item stretched to the row's own height
+    (`items-stretch`, the template's own class on `.page-container`), which -- like `NavSidebar.vue`'s
+    `.sidebar-nav` -- can resolve to a fractional pixel value. Declaring THIS column a flex column of
+    its own is what lets `.page-sidebar-content` below grow to fill it through that SAME flex layout
+    pass rather than through an independent block-flow measurement of its own content, which is what
+    keeps the two figures from rounding a hair apart and spuriously tripping the `overflow-y: auto`
+    above on content that genuinely fits -- see that file's own comment for the full mechanism.
+  */
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+  OpenProject #3056: the sole flex child of the column above, growing to consume whatever height
+  `.page-sidebar` has left over rather than only its own two cards' natural content height --
+  `flex: 1 0 auto` mirrors `NavSidebar.vue`'s `.sidebar-nav > nav` exactly (flex-grow so it is sized by
+  the SAME pass that sizes `.page-sidebar` itself when the cards are shorter than the column,
+  flex-shrink: 0 so it never shrinks below them when they are taller, which is genuine overflow and
+  correctly still scrolls).
+*/
+.page-sidebar-content {
+  flex: 1 0 auto;
 }
 
 /*

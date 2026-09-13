@@ -87,6 +87,70 @@ class Tags {
   }
 
   /**
+   * The most ACTIVE tags of this site, most active first: not lifetime usage (`getTags`'s ranking)
+   * but a count of pages carrying the tag that were created or updated in the last `days` days. This
+   * is what the Popular Tags panel in `HeaderSearch.vue` ranks by (OpenProject #3046) — a wiki whose
+   * early, now-abandoned content happens to carry the most tags overall shouldn't crowd out what
+   * people are actually writing about lately. `getTags` above is untouched and keeps its all-time,
+   * unlimited-by-default ranking for the tag-edit autocomplete and the tag-browse page, which both
+   * still want the complete picture.
+   *
+   * @param siteId Site the pages belong to
+   * @param limit Ceiling on how many distinct tags come back, most active first
+   * @param days How many days back counts as "active"
+   * @param actor Who is asking — see `getTags`'s doc comment; the same permission-filtered accounting
+   *              applies here, just over a recency-filtered set of pages instead of every page.
+   */
+  async getPopularTags(
+    siteId: string,
+    { limit = 10, days = 60, actor }: { limit?: number; days?: number; actor?: AccessActor } = {}
+  ): Promise<Tag[]> {
+    if (!actor) {
+      const result = await WIKI.db.execute(sql`
+        SELECT tag, COUNT(*)::int AS "usageCount"
+        FROM pages, unnest(tags) AS tag
+        WHERE "siteId" = ${siteId}
+          AND GREATEST("createdAt", "updatedAt") >= now() - (${days} * interval '1 day')
+        GROUP BY tag
+        ORDER BY COUNT(*) DESC, tag ASC
+        LIMIT ${limit}
+      `)
+      return ((result.rows ?? result) as any[]).map((row) => ({
+        tag: row.tag as string,
+        usageCount: row.usageCount as number
+      }))
+    }
+
+    // See `getTags`'s doc comment for why this is aggregated here rather than in postgres.
+    const result = await WIKI.db.execute(sql`
+      SELECT path, locale, tags, classification
+      FROM pages
+      WHERE "siteId" = ${siteId} AND array_length(tags, 1) > 0
+        AND GREATEST("createdAt", "updatedAt") >= now() - (${days} * interval '1 day')
+    `)
+    const counts = new Map<string, number>()
+    for (const row of (result.rows ?? result) as any[]) {
+      const page = {
+        path: row.path as string,
+        locale: row.locale as string,
+        siteId,
+        tags: (row.tags ?? []) as string[],
+        classification: (row.classification as string | null) ?? null
+      }
+      if (!WIKI.models.groups.checkAccess(actor, 'read:pages', page)) {
+        continue
+      }
+      for (const tag of page.tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      }
+    }
+    return [...counts.entries()]
+      .map(([tag, usageCount]) => ({ tag, usageCount }))
+      .sort((a, b) => b.usageCount - a.usageCount || a.tag.localeCompare(b.tag))
+      .slice(0, limit)
+  }
+
+  /**
    * Every page of this site that currently carries `tag`, as candidates for a rename or delete.
    *
    * Deliberately returns every carrier regardless of who is asking — this is not the read-permission

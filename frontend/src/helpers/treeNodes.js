@@ -1,3 +1,5 @@
+import { findKey } from 'es-toolkit/object'
+
 /**
  * The folder tree behind the three browsers that read it — `FileManager.vue`,
  * `TreeBrowserDialog.vue` and `LinkPickerDialog.vue`.
@@ -92,6 +94,64 @@ export function parentFolderIdOf(treeNodes, folderId) {
       (candidate.folderPath ?? '') === parentFolderPath && candidate.fileName === parentFileName
   )
   return entry?.[0] ?? null
+}
+
+/**
+ * The ids of every ancestor folder of `targetId`, outer-to-inner, not including `targetId` itself --
+ * what shift+click isolate (OpenProject #3063, mirroring `NavSidebarItem.vue`'s own
+ * `ancestorIds`/OpenProject #2848/#3062) keeps open alongside the clicked folder while collapsing
+ * every other id in the map. Empty when `targetId` is not in `nodes`, or is itself root-level.
+ *
+ * Walks parent-by-parent via each folder's own `children` array (the same mechanism
+ * `TreeNav.vue#onMounted` already used inline to auto-open a selected page's ancestor chain -- this
+ * is that walk, extracted so a second caller doesn't have to duplicate it) rather than
+ * `parentFolderIdOf`'s `folderPath` string parsing: both answer the same question over the same
+ * map, but a `children`-array walk needs no `folderPath`/`fileName` fields to be populated, which is
+ * the only shape a bare unit-test fixture (or a future caller building nodes by hand) has to satisfy.
+ *
+ * @param {object} nodes The `id -> node` map, as `mergeFolderEntries` builds it.
+ * @param {string} targetId The folder to find the ancestor chain of.
+ * @returns {string[]} Ancestor ids, outermost first.
+ */
+export function ancestorFolderIds(nodes, targetId) {
+  const ids = []
+  let currentId = targetId
+  for (;;) {
+    const parentId = findKey(nodes ?? {}, (node) => node.children?.includes(currentId))
+    if (!parentId) {
+      return ids
+    }
+    ids.unshift(parentId)
+    currentId = parentId
+  }
+}
+
+/**
+ * Every folder in `targetId`'s own descendant subtree, recursively -- NOT including `targetId`
+ * itself -- capped at `maxDepth` levels below it (default 3, matching `NavSidebarItem.vue`'s own
+ * `MAX_EXPAND_CYCLE_DEPTH`/OpenProject #2909: ctrl+click expand-cycle's own reach limit, so a click
+ * on a massive, already-loaded subtree cannot walk and toggle all of it in one go). A folder never
+ * yet fetched reads the same as one already fetched but genuinely empty -- both have `children: []`
+ * in this map, with nothing here to tell them apart -- so a click-cycle over an unfetched branch
+ * naturally stops at its edge rather than reaching into folders the tree hasn't loaded yet.
+ *
+ * @param {object} nodes The `id -> node` map, as `mergeFolderEntries` builds it.
+ * @param {string} targetId The folder to walk the descendants of.
+ * @param {number} [maxDepth] How many levels below `targetId` to descend.
+ * @returns {string[]} Descendant folder ids, in walk order.
+ */
+export function descendantFolderIds(nodes, targetId, maxDepth = 3) {
+  function walk(id, depth) {
+    if (depth >= maxDepth) {
+      return []
+    }
+    const ids = []
+    for (const childId of nodes?.[id]?.children ?? []) {
+      ids.push(childId, ...walk(childId, depth + 1))
+    }
+    return ids
+  }
+  return walk(targetId, 0)
 }
 
 /**

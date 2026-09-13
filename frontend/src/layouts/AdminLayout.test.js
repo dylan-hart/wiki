@@ -592,6 +592,41 @@ describe('AdminLayout beta badge removal (OpenProject #2635)', () => {
 })
 
 /**
+ * Regression coverage for OpenProject #3069: the admin home-link button was missing the
+ * `header-nav-btn` class that `HeaderNav.vue`'s equivalent logo button carries, so it fell back to
+ * `WBtn`'s own `dense` padding (`0 0.8em`, ~10px at this button's base font size) instead of the
+ * flush `padding: 0 !important` `header-nav-btn` forces -- producing extra left/right inset on the
+ * admin logo that the main header's logo does not have. Fixed by matching `HeaderNav.vue` exactly:
+ * `header-nav-btn` added, the now-redundant `dense` prop dropped (`header-nav-btn`'s `!important`
+ * rules override both of `dense`'s effects anyway).
+ */
+describe('AdminLayout home-link button padding (OpenProject #3069)', () => {
+  it('gives the home-link button the header-nav-btn class, matching HeaderNav.vue', async () => {
+    const router = await createTestRouter(['/_admin/:siteid?/:rest*'], '/_admin/site-1/dashboard')
+
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: ['manage:system'] } }
+    })
+    await flushPromises()
+
+    const homeLink = wrapper.find(`a[href="/"].header-nav-btn`)
+    expect(homeLink.exists()).toBe(true)
+  })
+
+  it('drops the redundant dense prop off the home-link button', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'AdminLayout.vue'), 'utf-8')
+    const template = source.slice(0, source.indexOf('</template>'))
+
+    const homeButtonMatch = template.match(/<w-btn[^>]*to="\/"[^>]*common\.header\.home[^>]*>/)
+    expect(homeButtonMatch).not.toBeNull()
+    expect(homeButtonMatch[0]).toContain('header-nav-btn')
+    expect(homeButtonMatch[0]).not.toMatch(/\bdense\b/)
+  })
+})
+
+/**
  * Diffed against the Cobalt mockups (OpenProject #2780): before this task, every colour in this
  * layout's `<style>` block was a plain `$scss` constant or a hardcoded `#fff`, none of which vary
  * with `body.body--cobalt` -- so the admin header stayed white and the sidebar stayed on Ledger's

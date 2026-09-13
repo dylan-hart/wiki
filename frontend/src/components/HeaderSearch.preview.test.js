@@ -205,6 +205,27 @@ describe('HeaderSearch preview results panel', () => {
     expect(wrapper.text()).toContain('common.header.searchResultsCount')
   })
 
+  /**
+   * Regression test for OpenProject #3044: the results list was rendered as `<w-list dark>`, which
+   * unconditionally forces white text (`WList.vue`'s `.w-list--dark`) intended only for a panel that
+   * is dark in both themes -- but `.searchpanel` itself is theme-reactive (white background in light
+   * mode), so the hardcoded `dark` prop produced white-on-white text there. The results list must
+   * resolve its text color through the normal theme-reactive path instead.
+   */
+  it('does not force the always-dark `w-list--dark` styling onto the results list', async () => {
+    const { wrapper } = await mountForPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'foo', title: 'Foo' }], totalHits: 1 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    const resultsList = wrapper.find('.searchpanel-results')
+    expect(resultsList.exists()).toBe(true)
+    expect(resultsList.classes()).not.toContain('w-list--dark')
+  })
+
   it('falls back to the default page icon when a result has none', async () => {
     const { wrapper } = await mountForPreview()
     API_CLIENT.get.mockReturnValueOnce({

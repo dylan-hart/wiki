@@ -1,6 +1,7 @@
 import { BUNDLED_ICONS } from '@/assets/icons.generated'
 
 import { copyToClipboard } from './clipboard'
+import { enhanceContentImageZoom } from './contentImageZoom'
 import { isServerPath } from './serverPaths'
 import { notify } from '@/composables/notify'
 
@@ -272,6 +273,7 @@ export function enhanceRenderedContent(root, t) {
   addCodeCopyButtons(root, t)
   addTableCopyButtons(root, t)
   addHeadingAnchors(root, t)
+  enhanceContentImageZoom(root, t)
 }
 
 /*

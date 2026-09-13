@@ -266,12 +266,13 @@ async function search() {
     const resp = await API_CLIENT.get(`icons/search?${params}`).json()
     state.results = resp?.icons ?? []
   } catch (err) {
+    // -> The backend already degrades to already-materialized local icons on its own (offline mode,
+    //    or Iconify being unreachable, OpenProject #3041) rather than throwing for either -- a
+    //    degraded-but-working search is not a user-facing failure, so a genuine error reaching here
+    //    is rare and gets no toast either, just an empty-results state (the template already shows
+    //    one whenever `state.results` is empty and not loading).
     state.results = []
-    notify({
-      type: 'negative',
-      message: t('iconPicker.searchFailed'),
-      caption: apiErrorMessage(err)
-    })
+    log.warn('dialog', 'icon search failed', err)
   }
   state.loading = false
 }

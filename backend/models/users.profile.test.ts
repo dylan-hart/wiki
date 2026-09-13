@@ -108,6 +108,32 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 
   /**
+   * Feature #3051 / Task #3068: `contentWidth` follows the same site-default-with-override pass-
+   * through path as `aesthetic` above -- `'site'` defers to the site's own admin setting (resolved
+   * elsewhere, in `Index.vue`), while `'measured'`/`'full'` are stored and read back verbatim.
+   */
+  test("defaults contentWidth to 'site' for a user who has never set one", async () => {
+    const profile = await usersModel.getProfile(fixtures.userId)
+    assert.equal(profile?.contentWidth, 'site')
+  })
+
+  test('persists a contentWidth preference and reads it back on reload', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, { contentWidth: 'measured' })
+    assert.equal(updated?.contentWidth, 'measured')
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.equal(reloaded?.contentWidth, 'measured')
+  })
+
+  test('leaves contentWidth untouched when only aesthetic changes, and vice versa', async () => {
+    await usersModel.updateProfile(fixtures.userId, { contentWidth: 'full' })
+    const updated = await usersModel.updateProfile(fixtures.userId, { aesthetic: 'cobalt' })
+
+    assert.equal(updated?.aesthetic, 'cobalt')
+    assert.equal(updated?.contentWidth, 'full')
+  })
+
+  /**
    * OpenProject #2854: the knowledge graph view's five persisted controls, stored under
    * `prefs.graph` and saved/read back as one whole object -- unlike every other prefs field above,
    * which is a flat string with a forced default, `graph` gets NO forced default from the model:

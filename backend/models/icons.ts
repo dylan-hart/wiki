@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { and, count, eq, inArray } from 'drizzle-orm'
+import { and, count, eq, ilike, inArray } from 'drizzle-orm'
 import { getIconData, iconToHTML, iconToSVG, replaceIDs } from '@iconify/utils'
 import { LRUCache } from 'lru-cache'
 import { isPlainObject } from 'es-toolkit/predicate'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
+import { escapeLikePattern } from '../helpers/common.ts'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
 
@@ -425,6 +426,13 @@ class Icons {
   /**
    * Search icons upstream, within the sets that are enabled here.
    *
+   * Degrades to `searchIconsLocally` -- the icons already materialized into the permanent record --
+   * rather than surfacing a hard failure, in two cases (OpenProject #3041): offline mode, checked up
+   * front so a doomed network attempt is never even made, and a genuine upstream failure (a network
+   * error, a non-2xx response), caught here so the caller never has to. Either way this method never
+   * rejects for "upstream could not be reached" -- only an unexpected failure in the fallback path
+   * itself (e.g. the database being unreachable) still does.
+   *
    * @returns References shaped `prefix:name`
    */
   async searchIcons({
@@ -442,13 +450,47 @@ class Icons {
     if (searchIn.length < 1) {
       return []
     }
+    const clampedLimit = Math.min(Math.max(limit, 32), 999)
+
+    if (WIKI.config.offline) {
+      return this.searchIconsLocally(query, searchIn, clampedLimit)
+    }
+
     const params = new URLSearchParams({
       query,
-      limit: `${Math.min(Math.max(limit, 32), 999)}`,
+      limit: `${clampedLimit}`,
       prefixes: searchIn.join(',')
     })
-    const result = await this.apiFetch(`/search?${params}`)
-    return (result.icons ?? []) as string[]
+    try {
+      const result = await this.apiFetch(`/search?${params}`)
+      return (result.icons ?? []) as string[]
+    } catch (err: any) {
+      WIKI.logger.warn('icons', 'could not search the Iconify API, falling back to local icons', {
+        error: err
+      })
+      return this.searchIconsLocally(query, searchIn, clampedLimit)
+    }
+  }
+
+  /**
+   * Search the icons already stored locally -- the one permanent tier of the four described in the
+   * class doc above -- for `searchIcons()`'s offline/unreachable fallback.
+   *
+   * Results are necessarily limited to whatever has been materialized here before (an icon a page
+   * already uses, or one an author has already picked), not the full breadth of an enabled set's
+   * catalog -- bundling more than that is OpenProject #3041's own companion Task under Epic #2938,
+   * deliberately out of scope here.
+   *
+   * @returns References shaped `prefix:name`
+   */
+  async searchIconsLocally(query: string, prefixes: string[], limit: number): Promise<string[]> {
+    const pattern = `%${escapeLikePattern(query)}%`
+    const rows = await WIKI.db
+      .select({ prefix: iconsTable.prefix, name: iconsTable.name })
+      .from(iconsTable)
+      .where(and(inArray(iconsTable.prefix, prefixes), ilike(iconsTable.name, pattern)))
+      .limit(limit)
+    return rows.map((row) => `${row.prefix}:${row.name}`)
   }
 
   /**
@@ -881,6 +923,17 @@ class Icons {
   }
 
   /**
+   * `backend/assets/icon-sets` -- a read-only, committed release asset directory (as opposed to
+   * `sideloadPath()`'s writeable data-volume one), holding icon sets vendored straight into the
+   * repo/image so a fresh instance already has them without any operator or network action.
+   * Currently just `tabler.json` (OpenProject #3043) -- see `scripts/vendor-icon-sets.ts`, which
+   * generates it from the `@iconify-json/tabler` npm package.
+   */
+  vendoredIconSetsPath(): string {
+    return path.join(WIKI.SERVERPATH, 'assets/icon-sets')
+  }
+
+  /**
    * Loads every `<prefix>.json` file under `sideloadPath()` straight into the permanent record (the
    * `icons` table), the offline-vendored equivalent of `fetchIconsUpstream`'s API fetch. Missing
    * directory is not an error: most instances have nothing sideloaded, and this runs unconditionally
@@ -901,12 +954,17 @@ class Icons {
    * one usable icon also upserts its `iconSets` row (`onConflictDoNothing`, so a set already added
    * with real upstream metadata through the admin picker keeps that metadata) BEFORE its icons are
    * written, since `icons.prefix` has a foreign key on `iconSets.prefix`.
+   *
+   * @param dir The directory to scan, defaulting to the operator-writable `sideloadPath()`.
+   *   `init()` (OpenProject #3043) passes `vendoredIconSetsPath()` instead, to materialize the
+   *   committed Tabler release asset into the same table through this exact same path -- so a
+   *   preloaded row is written the same way, and stays just as overridable by a later real fetch
+   *   or operator sideload, as one loaded from the data volume.
    */
-  async sideloadFromDataPath(): Promise<{
+  async sideloadFromDataPath(dir: string = this.sideloadPath()): Promise<{
     loaded: { prefix: string; iconCount: number }[]
     skipped: { prefix: string; error: string }[]
   }> {
-    const dir = this.sideloadPath()
     let files: string[]
     try {
       files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json'))
@@ -1077,6 +1135,14 @@ class Icons {
    * `initDbValues()`, and `20260905190000_main` seeds `tabler` -- the set the interface itself is
    * drawn in -- so that an instance created before Tabler existed is offered it too. On a fresh
    * database that migration and this seed both run, in that order, and both name `tabler`.
+   *
+   * Beyond the metadata row above, a fresh instance also gets Tabler's actual icons -- not just the
+   * empty set -- materialized straight into the `icons` table via `sideloadFromDataPath` against the
+   * committed `vendoredIconSetsPath()` release asset (OpenProject #3043), so the picker has all of
+   * Tabler available offline with zero admin action, the same way `postBoot()`'s own unconditional
+   * `sideloadFromDataPath()` call already does for anything an operator drops into the data volume.
+   * This runs exactly once, since `init()` itself only runs on a genuine first boot (see
+   * `ensureSeeded()`'s advisory lock around `initDbValues()`).
    */
   async init(): Promise<void> {
     WIKI.logger.debug('config', 'seeding the default icon sets')
@@ -1084,6 +1150,7 @@ class Icons {
       .insert(iconSetsTable)
       .values(DEFAULT_SETS.map((set) => ({ ...set, isEnabled: true })))
       .onConflictDoNothing()
+    await this.sideloadFromDataPath(this.vendoredIconSetsPath())
   }
 }
 

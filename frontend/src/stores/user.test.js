@@ -273,6 +273,34 @@ describe('user store: applyProfile() / setToGuest()', () => {
 
     expect(store.aesthetic).toBe('site')
   })
+
+  /**
+   * Feature #3051 / Task #3068: `contentWidth` follows the exact same three-value
+   * (`site`/`measured`/`full`) pass-through `aesthetic` already gets from `applyProfile()` and
+   * `setToGuest()`.
+   */
+  it('adopts a per-user contentWidth override from the session response', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123', contentWidth: 'full' })
+
+    expect(store.contentWidth).toBe('full')
+  })
+
+  it('defaults contentWidth to site when the session response carries none', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123' })
+
+    expect(store.contentWidth).toBe('site')
+  })
+
+  it('resets contentWidth to site on setToGuest', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123', contentWidth: 'measured' })
+
+    store.setToGuest()
+
+    expect(store.contentWidth).toBe('site')
+  })
 })
 
 describe('user store: logout()', () => {

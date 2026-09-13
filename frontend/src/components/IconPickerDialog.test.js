@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
+import { queue as notifyQueue } from '@/composables/notify'
 import { mountWithApp } from '../../test/mount.js'
 import IconPickerDialog from './IconPickerDialog.vue'
 
@@ -92,5 +93,52 @@ describe('IconPickerDialog: persisted set filter', () => {
     await flushPromises()
 
     expect(API_CLIENT.put).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * OpenProject #3041: the backend already degrades a failed search to its own local fallback rather
+ * than rejecting, so a rejection reaching the frontend at all is the rare, genuinely-unexpected case
+ * -- and even then, a degraded-but-working search is not a user-facing failure. No toast, either way;
+ * just an empty-results state, same as a search that legitimately matched nothing.
+ */
+describe('IconPickerDialog: search failure', () => {
+  it('degrades silently on a search failure -- empty results, no error toast', async () => {
+    const wrapper = await mountPicker({ authenticated: false })
+    notifyQueue.splice(0, notifyQueue.length)
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'icons/sets') {
+        return { json: () => Promise.resolve([TABLER_SET, MDI_SET]) }
+      }
+      if (typeof url === 'string' && url.startsWith('icons/search')) {
+        return { json: () => Promise.reject(new Error('network failed')) }
+      }
+      return { json: () => Promise.resolve({}) }
+    })
+
+    wrapper.vm.state.query = 'home'
+    await wrapper.vm.search()
+
+    expect(wrapper.vm.state.results).toEqual([])
+    expect(wrapper.vm.state.loading).toBe(false)
+    expect(notifyQueue).toHaveLength(0)
+  })
+
+  it('shows the real results once a later search succeeds again', async () => {
+    const wrapper = await mountPicker({ authenticated: false })
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'icons/sets') {
+        return { json: () => Promise.resolve([TABLER_SET, MDI_SET]) }
+      }
+      if (typeof url === 'string' && url.startsWith('icons/search')) {
+        return { json: () => Promise.resolve({ icons: ['tabler:home'] }) }
+      }
+      return { json: () => Promise.resolve({}) }
+    })
+
+    wrapper.vm.state.query = 'home'
+    await wrapper.vm.search()
+
+    expect(wrapper.vm.state.results).toEqual(['tabler:home'])
   })
 })

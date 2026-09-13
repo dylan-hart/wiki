@@ -177,6 +177,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       aesthetic: {
         type: 'string'
       },
+      contentWidth: {
+        type: 'string',
+        description:
+          "Per-user content-width preference: 'site' inherits the site's own `contentWidth` admin setting, or 'measured'/'full' overrides it for this reader on every page."
+      },
       cvd: {
         type: 'string',
         description: 'Color vision deficiency to adjust the palette for.'
@@ -267,6 +272,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       aesthetic: {
         type: 'string',
         enum: ['site', 'ledger', 'cobalt']
+      },
+      contentWidth: {
+        type: 'string',
+        description:
+          "'site' (default) inherits the site's own `contentWidth` admin setting; 'measured'/'full' overrides it for this reader on every page they view, regardless of what the site currently has configured.",
+        enum: ['site', 'measured', 'full']
       },
       cvd: {
         type: 'string',

@@ -15,14 +15,21 @@
     (OpenProject #2611) — `public/favicon.ico` stays for the Vite dev server alone.
 
   So this file ships regardless, and it has to be the Cardinal mark rather than the icon inherited
-  from upstream. Its source of truth is `public/_assets/logo-cardinal.svg` — the same placeholder
-  mark the admin chrome draws — so re-run this whenever that changes.
+  from upstream. Its source of truth is `public/_assets/logo-cardinal.svg` — the same mark the admin
+  chrome draws — so re-run this whenever that changes.
+
+  As of the official Cardinal.js brand kit landing (task: apply the new logo assets), the committed
+  `favicon.ico` is the kit's own hand-supplied icon rather than this script's output — a purpose-made
+  small-size render of an illustrated, multi-tone mark reads better than what canvas downscaling of
+  the full SVG would produce at 16px. This script stays for the case that changes: a future SVG
+  revision with no matching hand-supplied icon set should be regenerated through here, with `SIZES`
+  kept in step with whatever the currently-committed file actually carries.
 
   Rendering goes through Playwright's Chromium: the SVG is drawn into a `<canvas>` at each target
   size and read back as raw RGBA, which needs no PNG decoder on this side. Chromium is a developer-
   machine precondition for THIS script only — the output is committed, so neither `npm run test`
   nor CI ever launches a browser for it. `scripts/generate-favicon.test.js` asserts the committed
-  bytes really are the Cardinal mark, and `backend/controllers/site.test.ts` asserts the two
+  bytes really are the Cardinal mark, and `backend/core/http/server.test.ts` asserts the two
   committed copies stay byte-identical.
 
   Usage: node scripts/generate-favicon.mjs
@@ -38,12 +45,13 @@ const OUT = path.join(ROOT, 'public/favicon.ico')
 const BACKEND_OUT = path.join(ROOT, '../backend/assets/branding/favicon.ico')
 
 /**
- * 48 and 32 are what the file this replaces carried. 16 is added because it is the size a browser
- * tab actually asks for, and a purpose-drawn 16 reads better than a downscaled 32. The wider PWA /
- * apple-touch set (192, 512, and their own `<link>` declarations) is deliberately NOT here — it
- * does not exist today and is its own piece of work, not a widening of this one.
+ * 64 and 32 are what the currently-committed, hand-supplied icon carries. 16 is kept because it is
+ * the size a browser tab actually asks for, and a purpose-drawn 16 reads better than a downscaled
+ * 32. The wider PWA / apple-touch set (192, 512, and their own `<link>` declarations) is
+ * deliberately NOT here — it does not exist today and is its own piece of work, not a widening of
+ * this one.
  */
-const SIZES = [16, 32, 48]
+const SIZES = [16, 32, 64]
 
 /**
  * Rasterizes the mark at every size in `SIZES`, in one browser.

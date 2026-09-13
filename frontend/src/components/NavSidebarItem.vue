@@ -12,8 +12,7 @@
     :style="depthStyle"
     :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
     @update:model-value="setOpen(item.id, $event)"
-    @auxclick.middle="handleIsolateClick($event, item)"
-    @click.capture="handleExpandCycleClick($event, item)">
+    @click.capture="handleHeaderClick($event, item)">
     <!-- The icon goes through a header slot rather than the `icon` prop, so that an Iconify -->
     <!-- reference is drawn by w-icon like everywhere else -->
     <template #header>
@@ -66,6 +65,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import { useNavCreateMenu } from '@/composables/navCreateMenu'
 import { useNavExpansionState } from '@/composables/navExpansionState'
+import { isolateOnLeftClick } from '@/composables/navIsolatePreference'
 import {
   ancestorIds,
   folderIds,
@@ -137,43 +137,50 @@ function iconFor(item) {
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// MIDDLE-CLICK ISOLATE (OpenProject #2848)
+// HEADER CLICK DISPATCH: SHIFT+CLICK ISOLATE (OpenProject #2848/#3057/#3062) AND CTRL+CLICK
+// EXPAND/COLLAPSE CYCLE (OpenProject #2847)
 
 /**
- * Middle-click a folder's own header row: toggles it exactly like a plain left click would --
- * closing it alone, and leaving every other folder's state untouched, when it is already open --
- * except that OPENING it also isolates: it and its ancestor chain end up open, and every OTHER
- * folder in the whole tree (`siteStore.nav.items`, not just this row's own subtree) collapses.
- * Bound to `auxclick` rather than `click` -- a non-primary mouse button fires `auxclick`, never `click`, in
- * every evergreen browser (Chromium, Firefox, WebKit all follow the UI Events spec here), and the
- * `.middle` modifier narrows it to button 1 alone so a right-click's `auxclick`/`contextmenu` does
- * not also trigger this.
+ * Is the row that owns this component instance the one actually clicked? Shared by both branches
+ * below (isolate and the ctrl+click cycle), since both are bound to the same capture-phase
+ * `@click.capture` on this row's own `<w-expansion-item>` root (see the template) and both need to
+ * be told apart from an ancestor or descendant folder's identical listener seeing the same bubbling
+ * native event.
  *
- * `@auxclick.middle` is bound on the whole `<w-expansion-item>` (see the template), whose single
- * root element wraps BOTH the header row and this folder's own (possibly open) content -- Vue's
- * attrs fallthrough has nowhere narrower to attach to without restructuring `WExpansionItem.vue`'s
- * markup. So a middle-click anywhere in this folder's content -- a child leaf's own link, or a
- * nested folder's header, which handles its own isolate and stops the event there before it can
- * reach here -- bubbles up to this same listener too and must be told apart from an actual click on
- * THIS row's own header, or it would misfire as if this folder had been clicked, and -- worse --
- * call `preventDefault()` on a leaf link's native middle-click-opens-a-new-tab behavior.
- * `.w-expansion-item__header` is that row's own class (`WExpansionItem.vue`); content lives in a
- * sibling `.w-expansion-item__content`, never inside the header, so `closest()` from the real click
- * target reliably tells the two apart.
+ * `.w-expansion-item__header` is that row's own class (`WExpansionItem.vue`); content -- a child
+ * leaf's own link, or a nested folder's header -- lives in a sibling `.w-expansion-item__content`,
+ * never inside the header, so a click anywhere in THIS folder's content (or on a folder nested
+ * inside it) fails this check and is correctly left alone. And because `.capture` visits ancestors
+ * OUTERMOST-first -- the opposite order from a bubble-phase listener -- "first listener sees it
+ * wins" (which the old bubble-phase middle-click isolate could lean on) does not hold here: every
+ * ancestor folder up to the sidebar root carries this exact same capture listener on its OWN root
+ * (this component recurses), so each instance must check whether the ACTUALLY clicked header's
+ * nearest owning `.w-expansion-item` (`event.target.closest(...)`) is THIS instance's own root
+ * (`event.currentTarget`, which a native capture-phase listener always reports as the exact node
+ * it is attached to). Only the genuinely clicked instance matches and acts; every ancestor's check
+ * fails and it does nothing, leaving capture free to keep travelling inward until it reaches the
+ * real target.
  */
-function handleIsolateClick(event, item) {
-  if (!event.target.closest('.w-expansion-item__header')) {
-    return
-  }
-  // -> Scoped to this header alone: never touches the `v-else` leaf branch's own link, and
-  //    stopPropagation keeps a click on a nested folder's header (already handled there) or on this
-  //    folder's own content from re-triggering an ancestor folder's identical listener above it.
-  event.preventDefault()
-  event.stopPropagation()
+function ownsClickedHeader(event) {
+  const header = event.target.closest('.w-expansion-item__header')
+  return Boolean(header) && header.closest('.w-expansion-item') === event.currentTarget
+}
+
+/**
+ * Isolate this folder: opens it and its ancestor chain, and collapses every OTHER folder in the
+ * whole tree (`siteStore.nav.items`, not just this row's own subtree) -- except when the folder is
+ * already open, which instead just closes it alone, leaving every other folder's state untouched,
+ * exactly like a plain left click would (closing an already-open folder is not "opening" it, so
+ * there is nothing to isolate).
+ *
+ * Triggered by shift+click by default, or by a bare left-click once the profile toggle
+ * (`isolateOnLeftClick()`, OpenProject #3062) is switched on -- see `handleHeaderClick` below for
+ * which. Originally a middle-click gesture (OpenProject #2848); middle-click no longer triggers
+ * this at all.
+ */
+function runIsolateClick(item) {
   const currentlyOpen = isOpen(item.id, item.expandByDefault || containsCurrent(item))
   if (currentlyOpen) {
-    // -> The closing half of the toggle: exactly a left click's own `@update:model-value`, and
-    //    nothing else -- no isolation, since closing a folder that was open is not "opening" it.
     setOpen(item.id, false)
     return
   }
@@ -183,8 +190,6 @@ function handleIsolateClick(event, item) {
     setOpen(id, openIds.has(id))
   }
 }
-
-// CTRL+CLICK EXPAND/COLLAPSE CYCLE (OpenProject #2847)
 
 /**
  * Ctrl+click's own reach limit (OpenProject #2909): the tree can nest up to `MAX_DEPTH` (10,
@@ -201,11 +206,11 @@ const MAX_EXPAND_CYCLE_DEPTH = 3
  * Every folder (item carrying at least one child) in `item`'s own descendant subtree, recursively
  * -- NOT including `item` itself, and capped at `MAX_EXPAND_CYCLE_DEPTH` levels below it (see
  * above). Local to this cycle, and deliberately distinct from `navSidebarDestination.js`'s exported
- * `folderIds` (OpenProject #2848's whole-tree walk for middle-click isolate): that one walks a
+ * `folderIds` (OpenProject #2848's whole-tree walk for shift+click isolate): that one walks a
  * top-level items array; this one walks a single folder's own `children`, which is what ctrl+click
  * cycling a subtree calls for. Returns full item objects rather than bare ids, since each one's own
  * `expandByDefault`/`containsCurrent` default is needed to read its CURRENT open/closed state
- * faithfully (see `handleExpandCycleClick` below).
+ * faithfully (see `runExpandCycle` below).
  *
  * `depth` counts levels already descended below the originally clicked node -- 0 on the initial
  * call, incremented once per recursive step -- and is never an absolute depth from the tree root.
@@ -234,35 +239,12 @@ function descendantFolders(item, depth = 0) {
  * Forcing open rather than toggling matters: toggling would let a ctrl+click on an already-open
  * folder collapse the very folder whose contents it was meant to reveal.
  *
- * Bound with `.capture`, not a plain bubble listener, and that is load-bearing:
- * `WExpansionItem.vue`'s header binds an unconditional `@click="toggle"` directly on
- * `.w-expansion-item__header`, which -- being the actual click target -- fires before any
- * bubble-phase listener an ANCESTOR of it could register. A bubble-phase handler here would always
- * run too late, after toggle() had already flipped this row. Capturing instead lets this handler
- * run, and call `stopPropagation()`, BEFORE the event ever reaches the header, which is what
- * suppresses toggle() on a ctrl+click.
- *
- * That in turn means every ancestor folder up to the sidebar root carries this exact same capture
- * listener on its OWN `<w-expansion-item>` root (this component recurses), and capture fires
- * outermost-first -- the opposite order from `handleIsolateClick`'s bubble-based scoping above. So
- * this cannot lean on "first listener to see it wins" the way that one does: an ancestor's handler
- * would otherwise claim a click meant for one of its own nested folders. Instead, each instance
- * checks whether the ACTUALLY clicked header's nearest owning `.w-expansion-item`
- * (`event.target.closest(...)`) is this instance's own root (`event.currentTarget`, which a native
- * capture-phase listener always reports as the exact node it is attached to). Only the genuinely
- * clicked instance matches and acts; every ancestor's check fails and it does nothing, leaving
- * capture free to keep travelling inward until it reaches the real target.
+ * `ownsClickedHeader`'s guard (see above) is what suppresses `WExpansionItem.vue`'s own unconditional
+ * `@click="toggle"` on a ctrl+click: `handleHeaderClick` calls `preventDefault()`/`stopPropagation()`
+ * on the shared capture-phase listener before this runs, which happens BEFORE the event ever reaches
+ * the header's own bubble-phase `toggle()` binding.
  */
-function handleExpandCycleClick(event, item) {
-  if (!event.ctrlKey) {
-    return
-  }
-  const header = event.target.closest('.w-expansion-item__header')
-  if (!header || header.closest('.w-expansion-item') !== event.currentTarget) {
-    return
-  }
-  event.preventDefault()
-  event.stopPropagation()
+function runExpandCycle(item) {
   const folders = descendantFolders(item)
   const allOpen = folders.every((folder) =>
     isOpen(folder.id, folder.expandByDefault || containsCurrent(folder))
@@ -271,6 +253,36 @@ function handleExpandCycleClick(event, item) {
     setOpen(folder.id, !allOpen)
   }
   setOpen(item.id, true)
+}
+
+/**
+ * The single `@click.capture` entry point for this row's header (see the template): decides which
+ * of the two mutually-exclusive header gestures a click is, then runs it. Ctrl+click always wins and
+ * always cycles (`runExpandCycle`), regardless of shift or the isolate-on-left-click toggle below --
+ * the two gestures are not meant to combine. Otherwise, whether THIS click isolates
+ * (`runIsolateClick`) depends on `isolateOnLeftClick()` (OpenProject #3062): OFF (the default) means
+ * shift+click isolates and a bare click falls through to the regular toggle; ON swaps the two, so a
+ * bare click isolates and shift+click falls through instead. "Falls through" means this function
+ * simply returns without calling `preventDefault()`/`stopPropagation()`, leaving
+ * `WExpansionItem.vue`'s own `@click="toggle"` free to run as it would with no listener here at all.
+ */
+function handleHeaderClick(event, item) {
+  if (!ownsClickedHeader(event)) {
+    return
+  }
+  if (event.ctrlKey) {
+    event.preventDefault()
+    event.stopPropagation()
+    runExpandCycle(item)
+    return
+  }
+  const shouldIsolate = isolateOnLeftClick() ? !event.shiftKey : event.shiftKey
+  if (!shouldIsolate) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  runIsolateClick(item)
 }
 
 // COMPUTED

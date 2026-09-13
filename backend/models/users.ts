@@ -133,6 +133,13 @@ export interface UserProfile {
   timeFormat: string
   appearance: string
   aesthetic: string
+  /**
+   * Per-user content-width preference (Feature #3051 / Task #3068): `'site'` (default) inherits the
+   * site's own `contentWidth` admin setting, or `'measured'`/`'full'` forces that reader's own choice
+   * on every page they view, overriding whatever the site currently has configured -- the same
+   * three-value shape `aesthetic` uses for the site-default-with-override pattern.
+   */
+  contentWidth: string
   cvd: string
   locale: string
   /** Absent for a user who has never saved a graph view preference. */
@@ -154,6 +161,7 @@ export interface UserProfilePatch {
   timeFormat?: string
   appearance?: string
   aesthetic?: string
+  contentWidth?: string
   cvd?: string
   locale?: string
   graph?: GraphPrefs
@@ -184,6 +192,7 @@ const profilePrefsKeys = [
   'timeFormat',
   'appearance',
   'aesthetic',
+  'contentWidth',
   'cvd',
   'locale',
   'graph',
@@ -285,6 +294,7 @@ function localUserRow(input: {
     timeFormat?: string
     appearance?: string
     aesthetic?: string
+    contentWidth?: string
     cvd?: string
   }
   createdAt?: Date
@@ -322,6 +332,7 @@ function localUserRow(input: {
       timeFormat: prefs.timeFormat ?? WIKI.config.userDefaults?.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
       aesthetic: prefs.aesthetic ?? 'site',
+      contentWidth: prefs.contentWidth ?? 'site',
       cvd: prefs.cvd ?? 'none'
     },
     createdAt: input.createdAt,
@@ -914,6 +925,7 @@ class Users {
       timeFormat: prefs.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
       aesthetic: prefs.aesthetic ?? 'site',
+      contentWidth: prefs.contentWidth ?? 'site',
       cvd: prefs.cvd ?? 'none',
       // -> An empty locale means "no preference recorded" — mail resolves such a user's messages in
       //    `en`, the same fallback `models/locales.ts#resolveString`'s server-side string resolver
@@ -1527,6 +1539,7 @@ class Users {
           timeFormat: '12h',
           appearance: 'site',
           aesthetic: 'site',
+          contentWidth: 'site',
           cvd: 'none'
         }
       }
@@ -1573,6 +1586,7 @@ class Users {
       timeFormat: user.prefs?.timeFormat,
       appearance: user.prefs?.appearance,
       aesthetic: user.prefs?.aesthetic,
+      contentWidth: user.prefs?.contentWidth,
       cvd: user.prefs?.cvd,
       locale: user.prefs?.locale
     }

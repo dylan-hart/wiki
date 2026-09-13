@@ -211,8 +211,8 @@ describe('HeaderNav replication warning banner (OpenProject #2851/#2852)', () =>
 /**
  * OpenProject #2610: the logo button was the one thing in this 64px bar NOT on the shared
  * `header-nav-btn` band -- it carried `dense flat` and nothing else, so `WBtn`'s own dense sizing
- * drew a rounded ~54px box around the 34px mark and lit only that box on hover, visibly unlike the
- * five flush squares at the opposite end of the same toolbar (and `AccountMenu`'s avatar, which
+ * drew a rounded box around the mark and lit only that box on hover, visibly unlike the five flush
+ * squares at the opposite end of the same toolbar (and `AccountMenu`'s avatar, which
  * `AdminLayout.test.js` already pins to the same class).
  *
  * `_base.scss`'s `.w-btn.header-nav-btn` is not loaded here -- these are component tests, not the
@@ -242,17 +242,17 @@ describe('HeaderNav logo button hover target (OpenProject #2610)', () => {
     expect(homeButton.props('dense')).toBe(false)
   })
 
-  it('keeps the mark at the 34px the Cardinal Ledger mockup draws it at, in both logo branches', async () => {
+  it('fills the full 64px band with the mark, in both logo branches', async () => {
     const { wrapper, siteStore } = await mountHeaderNav()
 
-    // `logoText: true` (the store default) puts the mark in a squared 34px avatar beside the wordmark
-    expect(findHomeButton(wrapper).find('.w-avatar').attributes('style')).toContain('34px')
+    // `logoText: true` (the store default) puts the mark in a squared 64px avatar beside the wordmark
+    expect(findHomeButton(wrapper).find('.w-avatar').attributes('style')).toContain('64px')
 
     siteStore.logoText = false
     await wrapper.vm.$nextTick()
 
     // Without the wordmark it is a bare image, sized by its own height instead
-    expect(findHomeButton(wrapper).find('img').attributes('style')).toContain('34px')
+    expect(findHomeButton(wrapper).find('img').attributes('style')).toContain('64px')
   })
 })
 

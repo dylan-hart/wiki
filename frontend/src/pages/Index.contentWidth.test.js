@@ -1,9 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as sass from 'sass'
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 
+import Index from './Index.vue'
+import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 import { chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
@@ -168,13 +175,20 @@ describe(
  * The rule and the class binding have to agree, and both have to spell the same value the store
  * defaults to -- three separate files. A rename that missed one would leave the measure permanently
  * off with nothing failing above, since the real-browser suite drives the class directly.
+ *
+ * The class binding itself reads a resolved computed rather than `siteStore.theme.contentWidth`
+ * directly as of Task #3068 (the per-user override) -- `resolvedContentWidth` is what layers that
+ * override on top of the site default, so this is now what the wiring check follows.
  */
 describe('Index.vue measure wiring', () => {
-  it('binds `is-measured` off `contentWidth === measured`, the store default', async () => {
+  it('binds `is-measured` off the resolved contentWidth, and the site store still defaults to measured', async () => {
     const sfc = await readFile(join(pagesDir, 'Index.vue'), 'utf8')
     const store = await readFile(join(frontendRoot, 'src', 'stores', 'site.js'), 'utf8')
 
-    expect(sfc).toContain("'is-measured': siteStore.theme.contentWidth === `measured`")
+    expect(sfc).toContain("'is-measured': resolvedContentWidth === `measured`")
+    expect(sfc).toContain(
+      "userStore.contentWidth === 'site' ? siteStore.theme.contentWidth : userStore.contentWidth"
+    )
     expect(sfc).toContain('.page-container-body.is-measured > .page-contents > :not(block-infobox)')
     expect(store).toContain("contentWidth: 'measured'")
   })
@@ -253,5 +267,109 @@ describe('Index.vue measured content excludes block-infobox', () => {
         await page.close()
       }
     })
+  })
+})
+
+/**
+ * Feature #3051 / Task #3068: the per-user override, layered on top of the site's own `contentWidth`
+ * admin setting rather than replacing it. `resolvedContentWidth` is exercised behaviourally here (the
+ * class actually applied under each combination of site setting and user preference), separately from
+ * the structural "the source still spells it this way" check above.
+ */
+describe('Index.vue contentWidth: per-user override precedence (Task #3068)', () => {
+  beforeEach(() => {
+    window.matchMedia =
+      window.matchMedia ??
+      vi.fn().mockImplementation((query) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
+
+    const store = new Map()
+    globalThis.localStorage = {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+      clear: () => store.clear()
+    }
+  })
+
+  let activeWrapper = null
+
+  afterEach(() => {
+    activeWrapper?.unmount()
+    activeWrapper = null
+  })
+
+  async function mountIndex() {
+    setActivePinia(createPinia())
+
+    const router = await createTestRouter(['/'])
+    const i18n = createTestI18n({})
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    activeWrapper = wrapper
+
+    return {
+      wrapper,
+      siteStore: useSiteStore(),
+      userStore: useUserStore()
+    }
+  }
+
+  function isMeasured(wrapper) {
+    return wrapper.find('.page-container-body').classes().includes('is-measured')
+  }
+
+  it("applies the site's own measured setting when the user pref is 'site' (the default)", async () => {
+    const { wrapper, siteStore, userStore } = await mountIndex()
+    siteStore.theme.contentWidth = 'measured'
+    userStore.contentWidth = 'site'
+    await wrapper.vm.$nextTick()
+
+    expect(isMeasured(wrapper)).toBe(true)
+  })
+
+  it("applies the site's own full setting when the user pref is 'site'", async () => {
+    const { wrapper, siteStore, userStore } = await mountIndex()
+    siteStore.theme.contentWidth = 'full'
+    userStore.contentWidth = 'site'
+    await wrapper.vm.$nextTick()
+
+    expect(isMeasured(wrapper)).toBe(false)
+  })
+
+  it('forces measured for this reader even when the site is set to full', async () => {
+    const { wrapper, siteStore, userStore } = await mountIndex()
+    siteStore.theme.contentWidth = 'full'
+    userStore.contentWidth = 'measured'
+    await wrapper.vm.$nextTick()
+
+    expect(isMeasured(wrapper)).toBe(true)
+  })
+
+  it('forces full for this reader even when the site is set to measured', async () => {
+    const { wrapper, siteStore, userStore } = await mountIndex()
+    siteStore.theme.contentWidth = 'measured'
+    userStore.contentWidth = 'full'
+    await wrapper.vm.$nextTick()
+
+    expect(isMeasured(wrapper)).toBe(false)
   })
 })
