@@ -198,15 +198,7 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url)),
-        /*
-          monaco-editor 0.56 declares `"./*.js": "./esm/vs/*.js"` in its exports map, so the full
-          `monaco-editor/esm/vs/...` path a dependency writes now resolves to `esm/vs/esm/vs/...` and
-          fails. y-monaco imports the API entry that way; this points it at the same file the app's
-          own `monaco-editor` import lands on, which matters beyond resolving at all -- two copies of
-          that module would give the binding a different `Range` class than the editor's.
-        */
-        'monaco-editor/esm/vs/editor/editor.api.js': 'monaco-editor/editor/editor.api.js'
+        '@': fileURLToPath(new URL('./src', import.meta.url))
       }
     },
     server: {

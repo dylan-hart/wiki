@@ -60,8 +60,6 @@ vi.mock('monaco-editor', () => ({
   Selection: class Selection {}
 }))
 
-vi.mock('y-monaco', () => ({ MonacoBinding: vi.fn() }))
-
 vi.mock('@/composables/collab', () => ({
   startCollabSession: vi.fn(),
   stopCollabSession: vi.fn(),

@@ -5,12 +5,6 @@ import { mountEditorMarkdown, previewFlexWidth } from './editorMarkdownHarness.j
 
 vi.mock('monaco-editor', async () => (await import('./editorMarkdownHarness.js')).monacoMock())
 
-// -> `y-monaco` pulls in `monaco-editor/esm/vs/editor/editor.api.js` directly (not the `monaco-editor`
-//    specifier mocked above), which assumes a real browser and errors under happy-dom. Never actually
-//    exercised here -- live collaboration is gated on `collabEnabled`, false with no page id -- so a
-//    trivial stand-in is all the module graph needs to resolve.
-vi.mock('y-monaco', () => ({ MonacoBinding: vi.fn() }))
-
 const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)

@@ -285,13 +285,13 @@ export function startCollabSession({ siteId, pageId }) {
  * making the editor say whatever an empty document says.
  *
  * Takes a factory rather than the editor itself, because Monaco and TipTap bind to a Yjs document in
- * incompatible ways: `y-monaco`'s `MonacoBinding` is a constructor this file could call given the
- * model, while TipTap's `@tiptap/extension-collaboration` binds itself as an extension configured
- * with the document, and owns its own lifecycle from there rather than handing back an object. What
- * every binding needs is the same regardless -- the shared `ytext` and the live `awareness` -- so
- * `createBinding(ytext, awareness)` receives exactly those two and returns whatever should be torn
- * down when the session ends (anything with a `destroy()` method), or a falsy value if there is
- * nothing left for this session to own.
+ * incompatible ways: `composables/monacoYjsBinding.js`'s `MonacoYjsBinding` is a constructor this file
+ * could call given the model, while TipTap's `@tiptap/extension-collaboration` binds itself as an
+ * extension configured with the document, and owns its own lifecycle from there rather than handing
+ * back an object. What every binding needs is the same regardless -- the shared `ytext` and the live
+ * `awareness` -- so `createBinding(ytext, awareness)` receives exactly those two and returns whatever
+ * should be torn down when the session ends (anything with a `destroy()` method), or a falsy value if
+ * there is nothing left for this session to own.
  */
 export function bindCollabEditor(createBinding) {
   if (!doc || binding) {
@@ -578,10 +578,10 @@ function ensureStyleElement() {
 /**
  * The stylesheet behind the remote cursors.
  *
- * y-monaco draws each remote selection as a decoration whose class carries the client id and nothing
- * else — `yRemoteSelection-42` — leaving what it looks like entirely to CSS. So one rule per
- * participant is generated here, which is also the only way the name can appear beside the caret: it
- * is drawn as generated content, there being no element to put it in.
+ * `composables/monacoYjsBinding.js` draws each remote selection as a decoration whose class carries
+ * the client id and nothing else — `yRemoteSelection-42` — leaving what it looks like entirely to
+ * CSS. So one rule per participant is generated here, which is also the only way the name can appear
+ * beside the caret: it is drawn as generated content, there being no element to put it in.
  */
 function renderCursorStyles(participants) {
   ensureStyleElement()
