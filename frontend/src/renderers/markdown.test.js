@@ -501,6 +501,47 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
     expect(html).toContain('not independently traced here](https://example.com/page)')
   })
 
+  it('renders an unterminated bracket span nested inside an outer footnote-shaped label without throwing (OpenProject #3078)', () => {
+    /*
+      Same crash class as WP #3070 above, but the specific edge case that patch's bounds check
+      diverged from upstream on: a nested `[` with no closing `]` anywhere before end-of-input.
+
+      Upstream's `mdc_inline_span` scan (traced against the real `markdown-it-mdc` source) only
+      bails early via `index === start`; it has no length-bound check of its own, relying on the
+      `while (index < state.src.length)` loop condition to exit naturally -- at which point
+      `nextChar` (`state.src[index + 1]`) is safely `undefined` (not `(`/`[`), so in silent mode it
+      falls through to `if (silent) return true`, matching without ever assigning `state.pos`. This
+      fork's `matchSpanEnd()` re-derives that scan to learn where `state.pos` should land, but had
+      added an extra `|| index >= src.length` clause upstream doesn't have -- so for this exact
+      end-of-input case it returned `-1` instead of `index + 1`, and the call site's
+      `if (end !== -1) { state.pos = end }` never fired, reopening the "inline rule didn't
+      increment state.pos" crash for an unterminated `[` running to end-of-input.
+
+      This specific shape is needed to reach that silent-mode scan at all: an outer `[` that is
+      itself immediately followed by `^` sidesteps `mdc_inline_span` entirely (the footnote-ref
+      guard just above this rule's registration declines without even scanning), handing straight
+      to core's `link` rule -- which calls `parseLinkLabel`, and THAT scans forward through the
+      "label" via `skipToken` (always silent) until it hits the nested `[`, right into the bug.
+      (A genuinely mdc-recognised outer span/link can't reach this: for its own top-level, non-silent
+      scan to decline in the first place it has to find a real balanced `]`, and by the same
+      depth-tracked algorithm a nested unterminated `[` would too -- so an ordinary nested case
+      always resolves to a normal match, never this end-of-input path. The footnote-guard shortcut
+      is what skips that requirement.)
+    */
+    const renderer = new MarkdownRenderer({})
+
+    let html
+    expect(() => {
+      html = renderer.render(
+        '[^1 outer label, then a nested unterminated bracket [with no closing bracket anywhere in the rest of this string'
+      )
+    }).not.toThrow()
+
+    expect(html).not.toContain('<a ')
+    expect(html).toContain('outer label, then a nested unterminated bracket')
+    expect(html).toContain('with no closing bracket anywhere in the rest of this string')
+  })
+
   it('applies a markdown-it-attrs brace on its own line without the mdc inline-props collision crashing the render', () => {
     /*
       MDC's inline props (`{.class}`) and markdown-it-attrs both claim `{`. A brace that opens a line
