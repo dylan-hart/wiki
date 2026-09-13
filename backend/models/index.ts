@@ -48,6 +48,7 @@ import { replication } from './replication.ts'
 import { replicationExport } from './replicationExport.ts'
 import { replicationImportModel } from './replicationImport.ts'
 import { search } from './search.ts'
+import { semanticSearch } from './semanticSearch.ts'
 import { security } from './security.ts'
 import { sessions } from './sessions.ts'
 import { settings } from './settings.ts'
@@ -109,6 +110,7 @@ export default {
   replicationExport,
   replicationImport: replicationImportModel,
   search,
+  semanticSearch,
   security,
   sessions,
   settings,
