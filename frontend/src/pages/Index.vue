@@ -945,6 +945,39 @@ watch(
 )
 
 /*
+  OpenProject #3061: on save, `pageStore.pageSave()` (`stores/page.js`) `$patch`es `pageStore.render`
+  with the freshly-rendered HTML WHILE THE EDITOR IS STILL MOUNTED (`editorStore.isActive` is still
+  `true`) -- that alone is what fires the watcher above, but `pageContents` is the reading view's own
+  template ref and is still null at that moment (the `v-else` branch above hasn't mounted), so the
+  call hits `enhanceRenderedContent`'s `if (!root) return` guard as a silent no-op.
+
+  Only afterward does `pageSaveFlow.js`'s `saveChangesCommit` flip `editorStore.isActive` to `false`,
+  unmounting the editor and mounting `pageContents` for the first time already holding the updated
+  render -- but none of the three sources above change again at that point, so the watcher never
+  re-fires against the now-real DOM, and the code-copy button never appears until something else
+  changes render/title/highlight (a second save, or navigating away and back).
+
+  This watcher bridges exactly that gap: `isActive` flipping to `false` is the one signal the watcher
+  above cannot see for itself, since it is what makes `pageContents` a real element rather than a
+  state change to `pageStore`/`highlightTerm` itself. Re-running here is safe on every OTHER path the
+  editor can close onto (the page turns out locked, not found, or a redirect) -- `pageContents` stays
+  null on all three, so `enhanceRenderedContent`'s own guard makes this a no-op there, same as
+  `editorStore.isActive` turning `true` does on the way in.
+*/
+watch(
+  () => editorStore.isActive,
+  (isActive) => {
+    if (isActive) {
+      return
+    }
+    nextTick(() => {
+      enhanceRenderedContent(pageContents.value, t)
+      syncKeywordHighlight()
+    })
+  }
+)
+
+/*
   A protected page asks for its password the moment it arrives: the reader followed a link to read it,
   and making them press a button first would only add a step. Keyed on the page rather than on the
   flag, so dismissing the prompt does not immediately reopen it -- the lock screen's own button is the
