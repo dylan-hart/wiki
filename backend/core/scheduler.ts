@@ -216,9 +216,13 @@ export default {
       // -> Forwarded verbatim to `new Worker(file, options)`, so this is what `worker.ts` reads out
       //    of `node:worker_threads`' `workerData` to build its own `INSTANCE_ID` before its logger
       //    exists. One object for the whole pool — the per-worker half of the id is the thread's own
-      //    `threadId`, not anything sent from here.
+      //    `threadId`, not anything sent from here. `capabilities` rides along the same object for
+      //    the same reason: it's settled once, here, after the db boot phase that populates
+      //    `WIKI.capabilities`, and a worker thread never calls `syncSchemas()` itself to learn it
+      //    (OpenProject #3124) — without this a worker-thread task guarding on
+      //    `WIKI.capabilities?.semanticSearch` always reads `undefined` and silently no-ops.
       workerOptions: {
-        workerData: { parentInstanceId: WIKI.INSTANCE_ID }
+        workerData: { parentInstanceId: WIKI.INSTANCE_ID, capabilities: WIKI.capabilities }
       }
     }
     /*

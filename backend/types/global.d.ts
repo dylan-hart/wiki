@@ -54,9 +54,14 @@ declare global {
      * pgvector installed at all. Every Feature under Epic #3050 (local embedding pipeline / semantic
      * search) reads this rather than re-probing.
      *
-     * Optional here (rather than always-present): `worker.ts`'s minimal `WIKI` never sets it (a
-     * worker thread never calls `syncSchemas()`), and a test `WIKI` stub that never sets it should
-     * read `undefined` rather than throw. Every consumer reads it as `WIKI.capabilities?.semanticSearch`.
+     * Optional here (rather than always-present): a worker thread never calls `syncSchemas()` itself
+     * to compute it, so `worker.ts` instead reads it out of poolifier's `workerData`
+     * (`core/scheduler.ts`'s `poolOptions.workerOptions.workerData`, forwarded once at pool-creation
+     * time, the same transport `INSTANCE_ID`'s `parentInstanceId` uses) and assigns it onto its own
+     * minimal `WIKI` before that value is ever read -- so `capabilities` DOES reach a worker-thread
+     * task, just via a different route than the main process's own `syncSchemas()` write (OpenProject
+     * #3124). Still optional because a test `WIKI` stub that never sets it should read `undefined`
+     * rather than throw. Every consumer reads it as `WIKI.capabilities?.semanticSearch`.
      */
     capabilities?: {
       semanticSearch: boolean
