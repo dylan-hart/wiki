@@ -211,7 +211,6 @@ onMounted(() => {
     display: flex;
     align-items: center;
     position: relative;
-    transition: background-color 0.4s ease;
 
     &:hover,
     &:focus,
@@ -258,19 +257,6 @@ onMounted(() => {
         opacity: 0.5;
       }
     }
-  }
-
-  // Animations
-
-  &-enter-active,
-  &-leave-active {
-    transition: all 0.2s ease;
-  }
-
-  &-enter-from,
-  &-leave-to {
-    transform: translateY(-10px);
-    opacity: 0;
   }
 }
 </style>

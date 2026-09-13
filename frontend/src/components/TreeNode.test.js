@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, describe, expect, it } from 'vitest'
 
 import TreeNav from './TreeNav.vue'
@@ -432,5 +436,26 @@ describe('TreeNode: keyboard activation (OpenProject #3063)', () => {
     await wrapper.vm.$nextTick()
 
     expect(isExpanded(wrapper, 'target')).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #3090 ("File Manager tree has hover/expand-collapse animations the main navbar
+ * doesn't"): the sub-level used to be wrapped in `<transition name="treeview">`, fading/sliding a
+ * folder's children in and out on expand/collapse -- something `NavSidebarItem.vue`'s own children
+ * have never done. The fix unwraps it back to a bare `v-if`. A mounted `<transition>`'s enter/leave
+ * classes are only present mid-transition (nothing left to assert once settled, and jsdom runs no
+ * real CSS transitions to catch mid-flight), so this checks the template source directly rather than
+ * the rendered DOM -- the same reasoning behind this workspace's other source-scanning suites (see
+ * `src/docsBaseGate.test.js`).
+ */
+describe('TreeNode: no expand/collapse transition wrapper (OpenProject #3090)', () => {
+  it('does not wrap its sub-level in a <transition>, matching the main navbar', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'TreeNode.vue'),
+      'utf-8'
+    )
+
+    expect(source).not.toMatch(/<transition\b/)
   })
 })
