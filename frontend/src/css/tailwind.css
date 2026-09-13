@@ -869,7 +869,13 @@ body.body--cobalt {
   --float-pad: 18px 20px;
   --float-gap: 14px;
   --float-rule-display: none;
-  --article-column-pad: 28px 24px 44px;
+  /*
+    OpenProject #3055: bottom value is +16px over Ledger's 44px, matching the same +16px this WP
+    adds to `.page-container-scrl`'s own Cobalt footer clearance (`Index.vue`) -- so the last
+    paragraph keeps its same margin of daylight above the fixed footer bar that the scroll
+    container's own bottom edge now gets.
+  */
+  --article-column-pad: 28px 24px 60px;
   --article-column-pad-xs: 18px 14px 32px;
   --article-card-pad: 32px 36px;
   --content-bleed-default: 0px;
