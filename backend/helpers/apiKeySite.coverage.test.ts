@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import ajvFormats from 'ajv-formats'
+import { registerAjvFormats } from '../core/http/ajvFormats.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
@@ -46,20 +46,11 @@ before(async () => {
   wikiHandle = installTestWiki({ config: { security: {} } })
 
   app = fastify({
-    // -> Mirrors `index.ts`'s own fastify() options for the same reason it needs them: several
-    //    schemas (e.g. a site's theme color) use the custom `hexcolor` ajv format, and route
-    //    registration fails outright building a schema that references an unknown format.
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any],
-      onCreate: (ajv: any) => {
-        ajv.addFormat('hexcolor', (data: unknown) => {
-          return (
-            typeof data === 'string' &&
-            /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-          )
-        })
-      }
-    }
+    // -> Mirrors `createHttpApp()`'s own fastify() options for the same reason it needs them:
+    //    several schemas (e.g. a site's theme color, or an `id` param) use one of the 5
+    //    hand-registered ajv formats (`core/http/ajvFormats.ts`), and route registration fails
+    //    outright building a schema that references an unknown format.
+    ajv: { onCreate: registerAjvFormats }
   })
 
   routes = []

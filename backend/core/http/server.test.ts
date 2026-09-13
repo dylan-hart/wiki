@@ -182,6 +182,89 @@ describe("createHttpApp: the ajv 'hexcolor' format", () => {
 })
 
 /**
+ * The 4 formats `ajv-formats` used to supply (OpenProject #3081/#3115): schema `format:` usage
+ * across `api/schemas/` exercises exactly `uuid`, `hostname`, `email` and `date-time`, and all 4 are
+ * now hand-registered in `createHttpApp()`'s `onCreate` hook the same way `hexcolor` already was.
+ * One describe per format, each booting its own app with a single `POST /value` route declaring
+ * `{ value: { type: 'string', format } }`, so a value is accepted (200) or refused (400) by the real
+ * registration rather than by a copy of the regex asserted against directly.
+ */
+const HAND_REGISTERED_FORMATS: Array<{ format: string; accept: string[]; reject: string[] }> = [
+  {
+    format: 'uuid',
+    accept: [
+      '123e4567-e89b-12d3-a456-426614174000',
+      '123E4567-E89B-12D3-A456-426614174000',
+      'urn:uuid:123e4567-e89b-12d3-a456-426614174000'
+    ],
+    reject: ['not-a-uuid', '123e4567-e89b-12d3-a456', '123e4567e89b12d3a456426614174000']
+  },
+  {
+    format: 'hostname',
+    accept: ['example.com', 'localhost', 'sub.example.co.uk', 'example.com.'],
+    reject: ['exa mple.com', '-example.com', 'example..com', `${'a'.repeat(254)}.com`]
+  },
+  {
+    format: 'email',
+    accept: ['user@example.com', 'user.name+tag@sub.example.co'],
+    reject: ['not-an-email', '@example.com', 'user@', 'user@@example.com']
+  },
+  {
+    format: 'date-time',
+    accept: ['2024-01-01T00:00:00Z', '2024-01-01t00:00:00.123+05:30', '2024-12-31T23:59:60z'],
+    reject: ['2024-01-01', 'not-a-date', '2024-01-01T00:00:00', '2024-01-01T00:00:00X']
+  }
+]
+
+for (const { format, accept, reject } of HAND_REGISTERED_FORMATS) {
+  describe(`createHttpApp: the ajv '${format}' format`, () => {
+    let restoreWiki: () => void
+    let app: FastifyInstance
+
+    before(async () => {
+      restoreWiki = installWikiStub()
+      app = createHttpApp()
+      // -> Pino writes an access line per request to stdout; nothing here is asserting on logs, so
+      //    silence the instance rather than interleaving them with the test runner's own output.
+      app.log.level = 'silent'
+      app.post<{ Body: { value: string } }>(
+        '/value',
+        {
+          schema: {
+            body: {
+              type: 'object',
+              required: ['value'],
+              properties: { value: { type: 'string', format } }
+            }
+          }
+        },
+        async () => ({ ok: true })
+      )
+      await app.ready()
+    })
+
+    after(async () => {
+      await app.close()
+      restoreWiki()
+    })
+
+    for (const value of accept) {
+      test(`accepts ${JSON.stringify(value)}`, async () => {
+        const res = await app.inject({ method: 'POST', url: '/value', payload: { value } })
+        assert.equal(res.statusCode, 200, `expected ${JSON.stringify(value)} to be accepted`)
+      })
+    }
+
+    test('refuses malformed values', async () => {
+      for (const value of reject) {
+        const res = await app.inject({ method: 'POST', url: '/value', payload: { value } })
+        assert.equal(res.statusCode, 400, `expected ${JSON.stringify(value)} to be refused`)
+      }
+    })
+  })
+}
+
+/**
  * The access log (OpenProject #2662).
  *
  * Pino used to write `incoming request` / `request completed` per request straight to stdout, in its

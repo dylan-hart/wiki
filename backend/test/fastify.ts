@@ -21,11 +21,11 @@
 import fastify from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import fastifySwagger from '@fastify/swagger'
-import ajvFormats from 'ajv-formats'
 import { mock } from 'node:test'
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 
 import { registerAllSchemas } from '../api/index.ts'
+import { registerAjvFormats } from '../core/http/ajvFormats.ts'
 import { permissionPreHandler } from '../core/http/authHooks.ts'
 import { apiKeySitePinHook } from '../helpers/apiKeySite.ts'
 import { apiErrorHandler } from '../helpers/errorHandler.ts'
@@ -66,7 +66,7 @@ export interface BuildTestAppOptions {
   permissions?: boolean
   /** Install the real `apiKeySitePinHook`, so a site-pinned key is refused off its own site. */
   apiKeySitePin?: boolean
-  /** Build the instance with `index.ts`'s ajv customization (`ajv-formats` + the `hexcolor` format). */
+  /** Build the instance with `createHttpApp()`'s ajv customization (the 5 hand-registered formats). */
   ajv?: boolean
   /** Register `@fastify/swagger` with `hideUntagged: true`, for a suite asserting on the OpenAPI doc. */
   swagger?: boolean
@@ -116,24 +116,9 @@ function identityFromHeaders(req: FastifyRequest): { session?: any; apiKey?: any
   return out
 }
 
-/** The ajv customization `index.ts` builds its own instance with — same plugin, same custom format. */
+/** The ajv customization `createHttpApp()` builds its own instance with — same 5 formats. */
 function ajvOptions() {
-  return {
-    // -> `ajv-formats` is CJS: the default import resolves to `module.exports`, so the callable
-    //    plugin is reached via `.default`. Same tuple assertion `index.ts` needs, for the same
-    //    overload-resolution and variance reasons documented there.
-    plugins: [[ajvFormats.default, {}] as any],
-    onCreate: (ajv: any) => {
-      // -> Accepts the shorthand, alpha and full forms a color picker can produce:
-      //    #RGB, #RGBA, #RRGGBB and #RRGGBBAA
-      ajv.addFormat('hexcolor', (data: unknown) => {
-        return (
-          typeof data === 'string' &&
-          /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-        )
-      })
-    }
-  }
+  return { onCreate: registerAjvFormats }
 }
 
 /** Restore handles keyed by the app that owns them, so `closeTestApp` can put `WIKI` back. */
