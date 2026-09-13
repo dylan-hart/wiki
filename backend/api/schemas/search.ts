@@ -75,19 +75,25 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'SemanticSearchResult',
     type: 'object',
     properties: {
-      id: { type: 'string', format: 'uuid' },
+      pageId: { type: 'string', format: 'uuid' },
       path: { type: 'string' },
       locale: { type: 'string' },
       title: { type: 'string' },
       description: { type: ['string', 'null'] },
       icon: { type: ['string', 'null'] },
-      tags: { type: 'array', items: { type: 'string' } },
-      updatedAt: { type: 'string', format: 'date-time' },
-      relevancy: { type: 'number' },
-      highlight: {
-        type: ['string', 'null'],
+      chunkText: {
+        type: 'string',
         description:
-          'Always `null` here -- semantic search has no matched query terms to wrap in `<b>`, unlike a full-text `pages/search` result.'
+          "The stored page-content chunk this result's embedding matched against -- semantic search's own excerpt, since it has no matched query terms to highlight the way a full-text `pages/search` result's `highlight` does."
+      },
+      chunkIndex: {
+        type: 'integer',
+        description: "Which chunk of the page's content this is, in the order it was split into."
+      },
+      distance: {
+        type: 'number',
+        description:
+          'Cosine distance between the query embedding and this chunk -- smaller is closer. A page appearing in both hops keeps its real, unpenalized hop-1 distance.'
       },
       hop: {
         type: 'integer',
