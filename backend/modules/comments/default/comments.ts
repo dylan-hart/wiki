@@ -26,7 +26,6 @@ import { full as markdownItEmoji } from 'markdown-it-emoji'
 import hljs from 'highlight.js'
 import sanitizeHtml from 'sanitize-html'
 import { escape } from 'es-toolkit/string'
-import { AkismetClient } from 'akismet-api'
 
 /**
  * What a comment renders to: the raw markdown as submitted, and the sanitized HTML derived from it.
@@ -236,76 +235,141 @@ function renderComment(content: string): CommentRenderResult {
 }
 
 /**
- * Minimal surface of `akismet-api`'s `AkismetClient` this module actually calls. Exists purely as a
- * test seam: `akismet-api` builds its own `superagent` request inside the client with no way to
- * inject a transport, so `comments.test.ts` substitutes a fake implementing this shape (via
- * `_setAkismetClientFactoryForTesting`) instead of making a real network call to Akismet.
+ * How long an Akismet REST call is allowed to hang before this gives up on it, matching
+ * `models/liveData.ts`'s `FETCH_TIMEOUT_MS` for the same reason: a hung upstream must not hang a
+ * comment submission.
  */
-interface AkismetClientLike {
-  verifyKey(): Promise<boolean>
-  checkSpam(comment: Record<string, string | boolean | undefined>): Promise<boolean>
-}
-
-type AkismetClientFactory = (opts: { key: string; blog: string }) => AkismetClientLike
-
-let createAkismetClient: AkismetClientFactory = (opts) => new AkismetClient(opts)
+const AKISMET_REQUEST_TIMEOUT_MS = 10000
 
 /**
- * Test-only seam — substitutes the factory used to construct the Akismet client so
- * `comments.test.ts` can exercise the validate/warn/fail-open paths without hitting the real Akismet
- * service. Not part of the `CommentProviderModule` contract. Pass `null` to restore the real client.
+ * POSTs `body` form-encoded to an Akismet REST endpoint and returns the trimmed response text — every
+ * Akismet call (`verify-key`, `comment-check`) shares exactly this shape, a form POST answered by a
+ * short plain-text body. Built on Node's global `fetch` (undici-backed, same as `models/liveData.ts`
+ * uses); unlike that module's author-supplied URLs, `url` here is always one of Akismet's own fixed
+ * hosts, so none of `liveData.ts`'s SSRF-pinning machinery is needed here.
  */
-export function _setAkismetClientFactoryForTesting(factory: AkismetClientFactory | null): void {
-  createAkismetClient = factory ?? ((opts) => new AkismetClient(opts))
-}
-
-/**
- * One entry per distinct (key, blog) pair this process has seen, resolving to the validated client
- * or `null` if the key was rejected or couldn't be verified. Memoized for the process lifetime rather
- * than re-verified on every comment — this is the "on module load, validate the configured key" part
- * of the contract, adapted to a per-call `conf` (this module has no separate init lifecycle hook, and
- * `conf` can differ per site): the first `checkSpam` call for a given key pays the verification cost,
- * every later call for that same key is a map lookup. Storing the pending promise (not just the
- * resolved value) also means two concurrent `checkSpam` calls for a brand-new key share one
- * `verifyKey()` request instead of firing two.
- */
-const akismetClients = new Map<string, Promise<AkismetClientLike | null>>()
-
-/** Clears the memoized-client cache. Test-only — a real process never needs to forget a validated key. */
-export function _resetAkismetClientCacheForTesting(): void {
-  akismetClients.clear()
+async function postAkismetForm(url: string, body: URLSearchParams): Promise<string> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      // -> Akismet's docs ask every client to identify itself, e.g. "WordPress/4.6 | Akismet/3.1.9".
+      'User-Agent': `Cardinal.js/${WIKI.version} | akismet-http-client`
+    },
+    body,
+    signal: AbortSignal.timeout(AKISMET_REQUEST_TIMEOUT_MS)
+  })
+  if (!response.ok) {
+    throw new Error(`Akismet answered ${response.status} ${response.statusText}`)
+  }
+  return (await response.text()).trim()
 }
 
 /**
- * Resolve the validated Akismet client for `key`/`blog`, constructing and verifying it on first use.
- * Never rejects: a validation failure (an invalid key, or Akismet being unreachable) is logged as a
- * warning and cached as `null`, matching 2.5.x's `comment.js#init()` — "logged as warnings but don't
- * block submission" — so a mistyped or expired key disables the spam check, not comment posting.
+ * Verifies an Akismet API key against the `verify-key` endpoint. Field names (`key`, `blog`) match
+ * Akismet's own documented REST API exactly — confirmed against the `akismet-api` package's source
+ * this replaces, which sends the identical wire fields under its own renamed constructor options.
  */
-function getAkismetClient(key: string, blog: string): Promise<AkismetClientLike | null> {
-  const cacheKey = `${key} ${blog}`
-  let pending = akismetClients.get(cacheKey)
+async function verifyAkismetKey(key: string, blog: string): Promise<boolean> {
+  const text = await postAkismetForm(
+    'https://rest.akismet.com/1.1/verify-key',
+    new URLSearchParams({ key, blog })
+  )
+  if (text === 'valid') {
+    return true
+  }
+  if (text === 'invalid') {
+    return false
+  }
+  throw new Error(text)
+}
+
+/**
+ * Runs one comment through Akismet's `comment-check` endpoint. Field names map `CheckSpamParams` to
+ * Akismet's documented REST fields exactly as the `akismet-api` package's internal alias table did
+ * (verified directly against its source, `lib/akismet.js`'s `commentAliases`): notably
+ * `permalinkDate` maps to `comment_post_modified_gmt` ("when the parent post was last updated"), not
+ * `comment_date_gmt` (a different field this module has never populated) — which happens to be
+ * exactly what `CheckSpamParams.permalinkDate`'s own doc already promises.
+ */
+async function submitAkismetCommentCheck(
+  key: string,
+  blog: string,
+  comment: CheckSpamParams
+): Promise<boolean> {
+  const body = new URLSearchParams({ blog })
+  const set = (field: string, value: string | undefined) => {
+    if (value !== undefined) {
+      body.set(field, value)
+    }
+  }
+  set('user_ip', comment.ip)
+  set('user_agent', comment.userAgent)
+  set('comment_content', comment.content)
+  set('comment_author', comment.name)
+  set('comment_author_email', comment.email)
+  set('permalink', comment.permalink)
+  set('comment_post_modified_gmt', comment.permalinkDate)
+  set('comment_type', comment.type)
+  set('user_role', comment.role)
+
+  const text = await postAkismetForm(`https://${key}.rest.akismet.com/1.1/comment-check`, body)
+  if (text === 'true') {
+    return true
+  }
+  if (text === 'false') {
+    return false
+  }
+  if (text === 'invalid') {
+    throw new Error('Invalid API key')
+  }
+  throw new Error(text)
+}
+
+/**
+ * One entry per distinct (key, blog) pair this process has seen, resolving to whether that key is
+ * valid. Memoized for the process lifetime rather than re-verified on every comment — this is the "on
+ * module load, validate the configured key" part of the contract, adapted to a per-call `conf` (this
+ * module has no separate init lifecycle hook, and `conf` can differ per site): the first `checkSpam`
+ * call for a given key pays the verification cost, every later call for that same key is a map lookup.
+ * Storing the pending promise (not just the resolved value) also means two concurrent `checkSpam`
+ * calls for a brand-new key share one `verify-key` request instead of firing two.
+ */
+const akismetKeyValidity = new Map<string, Promise<boolean>>()
+
+/** Clears the memoized-validity cache. Test-only — a real process never needs to forget a validated key. */
+export function _resetAkismetKeyCacheForTesting(): void {
+  akismetKeyValidity.clear()
+}
+
+/**
+ * Resolve whether `key`/`blog` is a valid Akismet key, verifying on first use. Never rejects: a
+ * validation failure (an invalid key, or Akismet being unreachable) is logged as a warning and cached
+ * as `false`, matching 2.5.x's `comment.js#init()` — "logged as warnings but don't block submission" —
+ * so a mistyped or expired key disables the spam check, not comment posting.
+ */
+function isAkismetKeyValid(key: string, blog: string): Promise<boolean> {
+  const cacheKey = `${key} ${blog}`
+  let pending = akismetKeyValidity.get(cacheKey)
   if (!pending) {
     pending = (async () => {
-      const client = createAkismetClient({ key, blog })
       try {
-        const isValid = await client.verifyKey()
+        const isValid = await verifyAkismetKey(key, blog)
         if (!isValid) {
           WIKI.logger.warn('ext', 'akismet key rejected, spam checking disabled', {
             module: 'default'
           })
-          return null
         }
-        return client
+        return isValid
       } catch (err: any) {
         WIKI.logger.warn('ext', 'verifying the akismet key failed', {
           module: 'default',
           error: err
         })
-        return null
+        return false
       }
     })()
-    akismetClients.set(cacheKey, pending)
+    akismetKeyValidity.set(cacheKey, pending)
   }
   return pending
 }
@@ -320,7 +384,7 @@ async function checkSpam(
 ): Promise<SpamCheckResult> {
   const key = typeof conf?.akismet === 'string' ? conf.akismet.trim() : ''
   // -> Empty key: the configured no-op, per `definition.yml`'s "Leave empty to disable" hint. No
-  //    client is constructed and no `WIKI.logger.warn` is emitted — this is not a failure, it is the
+  //    request is made and no `WIKI.logger.warn` is emitted — this is not a failure, it is the
   //    documented way to turn spam checking off.
   if (!key) {
     return { isSpam: false }
@@ -334,23 +398,13 @@ async function checkSpam(
     return { isSpam: false, reason: 'Akismet is not configured (missing site host).' }
   }
 
-  const client = await getAkismetClient(key, blog)
-  if (!client) {
+  const isValid = await isAkismetKeyValid(key, blog)
+  if (!isValid) {
     return { isSpam: false, reason: 'Akismet key is not valid, or could not be verified.' }
   }
 
   try {
-    const isSpam = await client.checkSpam({
-      ip: params.ip,
-      useragent: params.userAgent,
-      content: params.content,
-      name: params.name,
-      email: params.email,
-      permalink: params.permalink,
-      permalinkDate: params.permalinkDate,
-      type: params.type,
-      role: params.role
-    })
+    const isSpam = await submitAkismetCommentCheck(key, blog, params)
     return { isSpam }
   } catch (err: any) {
     WIKI.logger.warn('ext', 'akismet spam check failed', { module: 'default', error: err })
