@@ -64,4 +64,67 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   })
+
+  /**
+   * SEMANTIC SEARCH RESULT - One page returned by `GET .../pages/search/semantic` (Epic #3050, Task
+   * #3102). Same shape as a plain `pages/search` result -- the two are meant to render through the
+   * same result row on the frontend -- plus `hop`, which the multi-hop retrieval pipeline
+   * (`models/semanticSearch.ts`, Feature #3092) attaches to say how it found this page.
+   */
+  app.addSchema({
+    $id: 'SemanticSearchResult',
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      path: { type: 'string' },
+      locale: { type: 'string' },
+      title: { type: 'string' },
+      description: { type: ['string', 'null'] },
+      icon: { type: ['string', 'null'] },
+      tags: { type: 'array', items: { type: 'string' } },
+      updatedAt: { type: 'string', format: 'date-time' },
+      relevancy: { type: 'number' },
+      highlight: {
+        type: ['string', 'null'],
+        description:
+          'Always `null` here -- semantic search has no matched query terms to wrap in `<b>`, unlike a full-text `pages/search` result.'
+      },
+      hop: {
+        type: 'integer',
+        enum: [1, 2],
+        description:
+          "Which hop of the retrieval pipeline this page's best-matching chunk was found in. `1` for a direct match on the query embedding, including a page that ALSO turned up as a hop-2 seed's neighbour -- appearing in both hops always reports its real, unpenalized hop-1 distance, never `2`. `2` only for a page found solely by following a hop-1 result's own embedding to a further page."
+      }
+    }
+  })
+
+  /**
+   * SEMANTIC SEARCH PAGES RESULT - The response envelope for `GET .../pages/search/semantic`, mirroring
+   * `SearchPagesResult`'s own field-by-field meaning (`api/pages/read.ts`'s `pages/search` route)
+   * against the multi-hop pipeline's merged, deduped, permission-filtered result set.
+   */
+  app.addSchema({
+    $id: 'SemanticSearchPagesResult',
+    type: 'object',
+    properties: {
+      results: {
+        type: 'array',
+        items: { $ref: 'SemanticSearchResult#' }
+      },
+      totalHits: {
+        type: 'integer',
+        description:
+          'How many pages match and are visible to you, ignoring `limit`/`offset` -- counted only from rows that survived `filterVisible`, same meaning as `SearchPagesResult.totalHits`.'
+      },
+      totalHitsApproximate: {
+        type: 'boolean',
+        description:
+          "`true` when this searcher's page rules dropped one or more of the pipeline's own matches, so `totalHits` is a floor rather than exact -- same meaning as `SearchPagesResult.totalHitsApproximate`."
+      },
+      suggestion: {
+        type: ['string', 'null'],
+        description: 'Always `null` -- semantic search has no "did you mean" of its own.'
+      }
+    }
+  })
 }
