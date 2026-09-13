@@ -4,7 +4,7 @@
       <div class="flex flex-nowrap">
         <w-toolbar style="height: 64px">
           <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
-            <w-avatar size="34px" square>
+            <w-avatar size="64px" square>
               <img src="/_assets/logo-cardinal.svg" alt="" />
             </w-avatar>
           </w-btn>

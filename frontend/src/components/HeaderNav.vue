@@ -34,17 +34,17 @@
           On the same `header-nav-btn` band as the five icon buttons at the far end of this 64px bar
           (and `AccountMenu`'s avatar): a flush, squared 64x64 target whose hover lights the header's
           full height, rather than the smaller rounded box `WBtn`'s own dense sizing draws around a
-          34px mark. `flat` alone, no `dense` -- `_base.scss`'s rule overrides both of `dense`'s
+          64px mark. `flat` alone, no `dense` -- `_base.scss`'s rule overrides both of `dense`'s
           effects with `!important` anyway, so leaving it on would only misdescribe the button.
 
-          The mark stays 34px: that is what `ui-redesign/Cardinal Wiki - Ledger 3x.dc.html` draws it
-          at, so the 15px of inset on each side inside the square is the intended figure, not slack.
+          The mark fills the full 64px band, flush with no inset: the official brand kit's
+          illustrated mark reads better at size than the earlier flat placeholder did inset within it.
         -->
         <w-btn class="header-nav-btn" flat to="/" :aria-label="t(`common.header.home`)">
-          <w-avatar v-if="siteStore.logoText" size="34px" square>
+          <w-avatar v-if="siteStore.logoText" size="64px" square>
             <img :src="`/_site/current/logo`" alt="" />
           </w-avatar>
-          <img v-else :src="`/_site/current/logo`" style="height: 34px" alt="" />
+          <img v-else :src="`/_site/current/logo`" style="height: 64px" alt="" />
         </w-btn>
         <!--
           The wordmark: the site's name in tracked uppercase Barlow Condensed, with its description
