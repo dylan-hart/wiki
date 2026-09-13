@@ -27,8 +27,8 @@ export async function mountForPreview() {
       site: (store) => {
         store.id = 'site1'
         store.features.search = true
-        store.tagsLoaded = true
-        store.tags = []
+        store.popularTagsLoaded = true
+        store.popularTags = []
       }
     }
   })
