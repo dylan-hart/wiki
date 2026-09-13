@@ -34,7 +34,7 @@ import type { FastifyInstance } from 'fastify'
  */
 export const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
   logo: 'assets/branding/logo-cardinal.svg',
-  favicon: 'assets/branding/logo-cardinal.svg',
+  favicon: 'assets/branding/favicon.ico',
   loginBg: 'assets/branding/login-bg.jpg'
 }
 
