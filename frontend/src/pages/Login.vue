@@ -132,7 +132,7 @@ useMeta(() => ({
     margin-bottom: 6px;
 
     img {
-      height: 72px;
+      height: 192px;
     }
   }
 
