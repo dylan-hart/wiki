@@ -140,7 +140,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           semanticSearch: {
             type: 'boolean',
             description:
-              "Whether semantic (vector) search is available on this site right now -- the AND of the instance-wide boot-time capability (`WIKI.capabilities.semanticSearch`, Task #3095: whether pgvector was successfully provisioned) and this site's own `search.semanticEnabled` admin setting (Task #3104). Computed at request time in `buildSitePayload` (api/sites.ts); this is the single source of truth the semantic-search route (Task #3102) and the frontend mode toggle/admin setting visibility both read, rather than re-deriving it from the two inputs themselves."
+              "Whether semantic (vector) search is available on this site right now -- the AND of the instance-wide boot-time capability (`WIKI.capabilities.semanticSearch`, Task #3095: whether pgvector was successfully provisioned) and this site's own `search.config.semanticEnabled` admin setting (Task #3104). Computed at request time in `buildSitePayload` (api/sites.ts); this is the single source of truth the semantic-search route (Task #3102) and the frontend mode toggle/admin setting visibility both read, rather than re-deriving it from the two inputs themselves."
           },
           showOtherGroups: {
             type: 'boolean',
