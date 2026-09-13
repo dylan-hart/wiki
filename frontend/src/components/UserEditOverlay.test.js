@@ -723,6 +723,32 @@ describe('UserEditOverlay aesthetic toggle (WP #2770)', () => {
       aesthetic: 'ledger'
     })
   })
+
+  /*
+    OpenProject #3052: WP #2770 put the aesthetic toggle beside the appearance one in one shared
+    "Site Appearance" row/label -- the same visual-combination bug ProfileInfo.vue had. Each now gets
+    its own row with its own label and hint, so the two toggles must resolve to two distinct
+    `.w-item` ancestors, not a shared one.
+  */
+  it('gives the aesthetic and light/dark toggles separate rows, each with its own label', async () => {
+    const wrapper = await mountOverview()
+
+    const aestheticToggle = wrapper.find('[aria-label="profile.aesthetic"]')
+    const appearanceToggle = wrapper.find('[aria-label="admin.users.appearance"]')
+    expect(aestheticToggle.exists()).toBe(true)
+    expect(appearanceToggle.exists()).toBe(true)
+
+    const aestheticRow = aestheticToggle.element.closest('.w-item')
+    const appearanceRow = appearanceToggle.element.closest('.w-item')
+    expect(aestheticRow).not.toBe(null)
+    expect(appearanceRow).not.toBe(null)
+    expect(aestheticRow).not.toBe(appearanceRow)
+
+    expect(aestheticRow.textContent).toContain('admin.users.aesthetic')
+    expect(aestheticRow.textContent).toContain('admin.users.aestheticHint')
+    expect(appearanceRow.textContent).toContain('admin.users.appearance')
+    expect(appearanceRow.textContent).toContain('admin.users.darkModeHint')
+  })
 })
 
 /**
