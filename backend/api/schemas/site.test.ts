@@ -172,3 +172,79 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
 
   wikiHandle.restore()
 })
+
+/**
+ * Task #3103: `features.semanticSearch` on the site-info response is true only when BOTH the
+ * instance-wide boot-time capability flag (`WIKI.capabilities.semanticSearch`, Task #3095) and this
+ * site's own `search.semanticEnabled` admin setting (Task #3104) are true -- all four combinations,
+ * per the work package's own acceptance criteria.
+ */
+const semanticSearchCombinations: Array<{
+  capability: boolean | undefined
+  siteSetting: boolean | undefined
+  expected: boolean
+}> = [
+  { capability: true, siteSetting: true, expected: true },
+  { capability: true, siteSetting: false, expected: false },
+  { capability: false, siteSetting: true, expected: false },
+  { capability: false, siteSetting: false, expected: false }
+]
+
+for (const { capability, siteSetting, expected } of semanticSearchCombinations) {
+  test(`buildSitePayload reports features.semanticSearch: ${expected} for capability=${capability}, search.semanticEnabled=${siteSetting}`, async () => {
+    const wikiHandle = installTestWiki({
+      config: { docsBase: '' },
+      capabilities: { semanticSearch: capability },
+      models: {
+        renderQueue: { isAvailable: async () => false },
+        blocks: { getSiteBlocks: async () => [] },
+        navigation: { ensureSiteNav: async () => 'nav-id' }
+      }
+    })
+
+    const payload = await buildSitePayload({
+      id: 'site-id',
+      hostname: 'example.test',
+      isEnabled: true,
+      config: {
+        features: { browse: true },
+        search: { engine: 'db', config: {}, semanticEnabled: siteSetting }
+      }
+    })
+
+    assert.equal(payload.features.semanticSearch, expected)
+    // -> `browse` (an ordinary, directly-stored features.* key) must survive the merge unchanged --
+    //    computing `semanticSearch` must not replace the rest of `features`.
+    assert.equal(payload.features.browse, true)
+    assert.ok(!('search' in payload), '`search` must never reach the public site payload')
+
+    wikiHandle.restore()
+  })
+}
+
+/**
+ * The capability flag is absent entirely on a `WIKI` that hasn't gone through the Task #3095 boot
+ * step (the default test stub, and any real instance that hasn't been rebuilt with that change yet)
+ * -- must read as unavailable, not throw.
+ */
+test('buildSitePayload reports features.semanticSearch: false when WIKI.capabilities is entirely absent', async () => {
+  const wikiHandle = installTestWiki({
+    config: { docsBase: '' },
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' }
+    }
+  })
+
+  const payload = await buildSitePayload({
+    id: 'site-id',
+    hostname: 'example.test',
+    isEnabled: true,
+    config: { search: { engine: 'db', config: {}, semanticEnabled: true } }
+  })
+
+  assert.equal(payload.features.semanticSearch, false)
+
+  wikiHandle.restore()
+})

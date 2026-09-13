@@ -109,6 +109,27 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
 }
 
 /**
+ * Whether semantic (vector) search is actually usable on this site right now -- Task #3103's whole
+ * scope. True only when BOTH:
+ *   - `WIKI.capabilities.semanticSearch` -- the instance-wide, boot-time flag Task #3095 records
+ *     after attempting to provision the pgvector extension and its `pageEmbeddingChunks` table
+ *     (`core/db.ts`). Absent entirely on a `WIKI` that hasn't gone through that boot step yet (e.g.
+ *     a test stub), which reads as `false` here rather than throwing.
+ *   - `search.semanticEnabled` -- this site's own admin toggle (Task #3104), stored alongside the
+ *     existing `search.engine`/`search.config` in `site.config.search` (see `models/sites.ts`'s
+ *     `createSite` defaults). Not spread from `config.search` directly -- `buildSitePayload` never
+ *     lets the raw `search` key reach the response at all (it also carries active search-engine
+ *     credentials), so this reads the one boolean it needs out of it.
+ *
+ * This is the SINGLE place the two flags are combined: `GET /sites/:siteId/pages/search/semantic`
+ * (Task #3102) and the admin toggle's visibility (Task #3104/#3105) both read the resulting
+ * `features.semanticSearch` off the site-info response rather than re-deriving this AND themselves.
+ */
+function semanticSearchAvailable(config: Record<string, any>): boolean {
+  return WIKI.capabilities?.semanticSearch === true && config.search?.semanticEnabled === true
+}
+
+/**
  * Assemble the payload a site's config alone doesn't cover: the row fields (`id`, `hostname`,
  * `isEnabled`) plus `pdfExportAvailable`, which isn't something a site chooses — it's whether this
  * whole instance ever installed the Puppeteer extension, per `WIKI.models.renderQueue.isAvailable()`,
@@ -169,7 +190,10 @@ export async function buildSitePayload(site: {
     allowedUrlSchemes: config.allowedUrlSchemes,
     discoverable: config.discoverable,
     defaults: config.defaults,
-    features: config.features,
+    features: {
+      ...config.features,
+      semanticSearch: semanticSearchAvailable(config)
+    },
     uploads: config.uploads,
     logoText: config.logoText,
     sitemap: config.sitemap,
