@@ -226,6 +226,18 @@ describe('AdminNavigation', () => {
     )
   })
 
+  it('renders the "Edit Default Menu" button in the standard accent color, not the deep-orange-9 red-tint (OpenProject #3108)', async () => {
+    const { wrapper } = await mountPage()
+    await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
+
+    const editBtn = wrapper
+      .findAllComponents({ name: 'WBtn' })
+      .find((btn) => btn.text().includes('Edit Default Menu'))
+    expect(editBtn.exists()).toBe(true)
+    expect(editBtn.props('color')).toBe('accent')
+    expect(editBtn.props('color')).not.toBe('deep-orange-9')
+  })
+
   it('resolves the default menu for whichever locale is currently selected', async () => {
     dialog.mockClear()
 
