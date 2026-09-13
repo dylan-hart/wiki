@@ -1,6 +1,5 @@
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { MonacoBinding } from 'y-monaco'
 
 import {
   bindCollabEditor,
@@ -8,6 +7,7 @@ import {
   startCollabSession,
   stopCollabSession
 } from '@/composables/collab'
+import { MonacoYjsBinding } from '@/composables/monacoYjsBinding'
 import { notify } from '@/composables/notify'
 
 import { useCollabStore } from '@/stores/collab'
@@ -22,7 +22,7 @@ import { useUserStore } from '@/stores/user'
  *
  * Kept apart from `composables/collab.js`, which owns the session itself (socket, provider, awareness)
  * for every editor. This is only the Monaco-specific wiring `EditorMarkdown.vue` used to hold inline
- * -- the `MonacoBinding`, the read-only gate while the shared document is still arriving, and the two
+ * -- the `MonacoYjsBinding`, the read-only gate while the shared document is still arriving, and the two
  * notifications that tell an author what the session is doing.
  *
  * `stop()` is returned rather than hung on an `onBeforeUnmount` of its own: it has to run before the
@@ -113,7 +113,7 @@ export function useMarkdownCollab() {
             if (!model) {
               return null
             }
-            return new MonacoBinding(ytext, model, new Set([editor]), awareness)
+            return new MonacoYjsBinding(ytext, model, new Set([editor]), awareness)
           })
         }
         editor.updateOptions({ readOnly: effects.readOnly })
