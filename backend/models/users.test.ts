@@ -74,6 +74,7 @@ describe('users.updateSession', () => {
         dateFormat: 'YYYY-MM-DD',
         appearance: 'dark',
         aesthetic: 'cobalt',
+        contentWidth: 'measured',
         cvd: 'none',
         locale: 'fr'
       }
@@ -93,6 +94,7 @@ describe('users.updateSession', () => {
       timeFormat: undefined,
       appearance: 'dark',
       aesthetic: 'cobalt',
+      contentWidth: 'measured',
       cvd: 'none',
       locale: 'fr'
     })

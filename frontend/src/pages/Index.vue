@@ -143,7 +143,7 @@
                   the stylesheet has `--content-bleed` to match -->
           <div
             class="page-container-body"
-            :class="{ 'is-measured': siteStore.theme.contentWidth === `measured` }">
+            :class="{ 'is-measured': resolvedContentWidth === `measured` }">
             <!--
               Delegated rather than bound per link: the anchors are written by `v-html`, so there is
               nothing here to put a handler on, and they are replaced wholesale on every render.
@@ -641,6 +641,16 @@ const watchers = ref([])
 const watcherTotal = ref(0)
 
 // COMPUTED
+
+/**
+ * The article column's resolved content width (Feature #3051 / Task #3068): a per-user override
+ * layered on top of the site's own `contentWidth` admin setting, not a replacement for it. `'site'`
+ * (the default) defers entirely to `siteStore.theme.contentWidth`; `'measured'`/`'full'` force that
+ * reader's own choice on every page they view, regardless of what the site currently has configured.
+ */
+const resolvedContentWidth = computed(() =>
+  userStore.contentWidth === 'site' ? siteStore.theme.contentWidth : userStore.contentWidth
+)
 
 /**
  * Below 750px, where the contents stop being a column beside the article and become a panel over it.
