@@ -6,7 +6,6 @@ import fastifySensible from '@fastify/sensible'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
 import gracefulServer, { type IGracefulServer } from '@gquittet/graceful-server'
-import ajvFormats from 'ajv-formats'
 
 import {
   isHashedAssetFilename,
@@ -14,6 +13,7 @@ import {
   replyWithFile
 } from '../../helpers/common.ts'
 import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
+import { registerAjvFormats } from './ajvFormats.ts'
 
 /**
  * The Fastify instance itself, everything wrapped around it that is not routing, and the static
@@ -29,25 +29,16 @@ import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
 export function createHttpApp(): FastifyInstance {
   const app = fastify({
     ajv: {
-      // -> `ajv-formats` is CJS: the default import resolves to `module.exports`, so the callable
-      //    plugin is reached via `.default` (verified identical at runtime: `f === f.default`).
-      //    The tuple assertion is load-bearing twice over: it stops the element from widening
-      //    (which makes fastify's overload resolution fall through to the HTTP/2 signature), and
-      //    it bridges an upstream variance mismatch — @fastify/ajv-compiler declares plugin
-      //    options as `unknown`, while ajv-formats declares its own narrower options type, and the
-      //    two are contravariantly incompatible. (`ajv` itself is only a nested dependency here, so
-      //    its `Plugin` type is not importable to state this more precisely.)
-      plugins: [[ajvFormats.default, {}] as any],
-      onCreate: (ajv: any) => {
-        // -> Accepts the shorthand, alpha and full forms a color picker can produce:
-        //    #RGB, #RGBA, #RRGGBB and #RRGGBBAA
-        ajv.addFormat('hexcolor', (data: unknown) => {
-          return (
-            typeof data === 'string' &&
-            /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-          )
-        })
-      }
+      // -> `ajv-formats` used to be registered here as a CJS plugin purely to reach 5 of its
+      //    ~20 formats (OpenProject #3081/#3115): `uuid`/`hostname`/`email`/`date-time`, alongside
+      //    this codebase's own `hexcolor`, which was already hand-registered via `ajv.addFormat()`
+      //    — proving the pattern one line away. All 5 are hand-registered together now, in
+      //    `ajvFormats.ts`, shared with `test/fastify.ts` and `helpers/apiKeySite.coverage.test.ts`
+      //    so the three fastify/ajv instances this codebase builds can never validate a schema
+      //    `format:` differently. Nothing here needs the dependency, its `.default` CJS-interop
+      //    read or the `as any` cast bridging @fastify/ajv-compiler's `unknown` plugin-options type
+      //    against ajv-formats' own narrower one any more.
+      onCreate: registerAjvFormats
     },
     bodyLimit: WIKI.config.bodyParserLimit || 5242880, // 5mb
     // -> Fastify's own `incoming request` / `request completed` pair is off: `registerAccessLogging`
