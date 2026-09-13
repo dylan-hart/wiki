@@ -1,7 +1,15 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import StorageDeliveryGraph from './StorageDeliveryGraph.vue'
+
+const componentSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'StorageDeliveryGraph.vue'),
+  'utf8'
+)
 
 /**
  * `StorageDeliveryGraph.vue` is a pure presentational pass over
@@ -94,6 +102,32 @@ describe('StorageDeliveryGraph.vue - nodes', () => {
     expect(label.text()).toBe('Amazon S3')
     expect(Number(label.attributes('y'))).toBeGreaterThan(0)
     expect(label.attributes('text-anchor')).toBe('middle')
+  })
+})
+
+describe('StorageDeliveryGraph.vue - node hover', () => {
+  /**
+   * OpenProject #3134: `v-network-graph` drew node hover effects (scale, highlight) by default;
+   * the #3116 rewrite dropped them outright. `jsdom`/`happy-dom` run no layout engine and don't
+   * evaluate `:hover` (confirmed live in real headless Chromium during implementation, not just
+   * asserted here), so this is a source-level regression guard rather than a rendered-style
+   * assertion: it fails the moment the hover rule is removed or stops actually scaling/highlighting,
+   * the same way it silently disappeared in #3116 with nothing catching it.
+   */
+  it('keeps a :hover rule on the node group that scales it and highlights its fill', () => {
+    const hoverRuleMatch = componentSource.match(/\.storage-delivery-graph__node:hover\s*{([^}]*)}/)
+    expect(hoverRuleMatch).not.toBeNull()
+    expect(hoverRuleMatch[1]).toMatch(/transform:\s*scale\(/)
+
+    const rectHoverRuleMatch = componentSource.match(
+      /\.storage-delivery-graph__node:hover rect\s*{([^}]*)}/
+    )
+    expect(rectHoverRuleMatch).not.toBeNull()
+    expect(rectHoverRuleMatch[1]).toMatch(/filter:/)
+  })
+
+  it('marks the node group cursor: pointer, the old library’s visible click affordance', () => {
+    expect(componentSource).toMatch(/\.storage-delivery-graph__node\s*{[^}]*cursor:\s*pointer/)
   })
 })
 
@@ -193,6 +227,27 @@ describe('StorageDeliveryGraph.vue - edges', () => {
       lines[1].attributes('style').match(/animation-duration:\s*([\d.]+)s/)[1]
     )
     expect(slowDuration).toBeGreaterThan(defaultDuration)
+  })
+
+  /**
+   * OpenProject #3134: confirmed live in real headless Chromium that a bare-number
+   * `--sdg-dash-len` custom property made the flow animation interpolate as a discrete jump at the
+   * keyframe's 50% mark instead of a continuous sweep -- `calc(-2 * var(--sdg-dash-len, 1px))`
+   * types as an untyped <number> when the substituted value carries no unit, which cannot
+   * interpolate against the keyframe's implicit <length> start value. Asserting the unit stays on
+   * the custom property is what this regression looks like from the render output alone; the
+   * interpolation behaviour itself isn't observable under jsdom/happy-dom (see the node-hover
+   * describe above for the same caveat).
+   */
+  it('gives --sdg-dash-len an explicit length unit so the animation interpolates continuously', () => {
+    const wrapper = mountGraph({
+      nodes: { a: { name: 'A' }, b: { name: 'B' } },
+      edges: { ab: { source: 'a', target: 'b' } },
+      layouts: { nodes: { a: { x: 0, y: 0 }, b: { x: 100, y: 0 } } }
+    })
+
+    const style = wrapper.find('line.storage-delivery-graph__edge').attributes('style')
+    expect(style).toMatch(/--sdg-dash-len:\s*[\d.]+px/)
   })
 })
 
