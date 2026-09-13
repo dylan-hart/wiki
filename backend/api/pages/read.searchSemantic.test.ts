@@ -32,6 +32,13 @@ let searchCalls: Array<{
 let allPages: Array<{ id: string; path: string; visibleTo: string | null }>
 let capabilityEnabled: boolean
 let siteSemanticEnabled: boolean
+/**
+ * OpenProject #3137: when set, replaces the `sites` getter's usual `search.config.semanticEnabled`
+ * shape with this literal `search` value instead — used to prove the route reads the same nesting
+ * `api/search.ts`'s PATCH handler actually saves to, not the shallower shape a since-fixed bug once
+ * read from.
+ */
+let siteSearchConfigOverride: Record<string, any> | null
 
 async function search(
   query: string,
@@ -78,7 +85,11 @@ before(async () => {
     },
     get sites() {
       return {
-        [SITE_ID]: { config: { search: { semanticEnabled: siteSemanticEnabled } } }
+        [SITE_ID]: {
+          config: {
+            search: siteSearchConfigOverride ?? { config: { semanticEnabled: siteSemanticEnabled } }
+          }
+        }
       }
     },
     models: {
@@ -111,6 +122,7 @@ beforeEach(() => {
   ]
   capabilityEnabled = true
   siteSemanticEnabled = true
+  siteSearchConfigOverride = null
 })
 
 test('404s for a site that does not exist', async () => {
@@ -133,6 +145,22 @@ test('503s when the boot-time capability flag is off, even with the site setting
 
 test("503s when the site's own admin setting is off, even with the capability flag on", async () => {
   siteSemanticEnabled = false
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello`
+  })
+  assert.equal(res.statusCode, 503)
+  assert.equal(searchCalls.length, 0)
+})
+
+/**
+ * OpenProject #3137: `semanticSearchEnabledFor` used to read `search.semanticEnabled` -- one level
+ * shallower than where `api/search.ts`'s PATCH handler actually saves it
+ * (`search.config.semanticEnabled`) -- so the route always 503'd regardless of the stored setting.
+ * Reproduces the exact stale shape to prove it no longer satisfies the gate.
+ */
+test('503s when the setting is present but at the old, un-nested `search.semanticEnabled` shape', async () => {
+  siteSearchConfigOverride = { semanticEnabled: true }
   const res = await app.inject({
     method: 'GET',
     url: `/sites/${SITE_ID}/pages/search/semantic?query=hello`

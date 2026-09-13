@@ -176,8 +176,14 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
 /**
  * Task #3103: `features.semanticSearch` on the site-info response is true only when BOTH the
  * instance-wide boot-time capability flag (`WIKI.capabilities.semanticSearch`, Task #3095) and this
- * site's own `search.semanticEnabled` admin setting (Task #3104) are true -- all four combinations,
- * per the work package's own acceptance criteria.
+ * site's own `search.config.semanticEnabled` admin setting (Task #3104) are true -- all four
+ * combinations, per the work package's own acceptance criteria.
+ *
+ * `semanticEnabled` is nested inside `search.config` here to match exactly where `api/search.ts`'s
+ * PATCH handler actually saves it (`{ config: { search: { config: { semanticEnabled } } } }`) and
+ * where `models/search.ts#getConfig()` reads it back from -- OpenProject #3137: `semanticSearchAvailable()`
+ * used to read one level shallower (`search.semanticEnabled`) and so never matched the real saved
+ * shape, always reporting `false` regardless of either input.
  */
 const semanticSearchCombinations: Array<{
   capability: boolean | undefined
@@ -191,7 +197,7 @@ const semanticSearchCombinations: Array<{
 ]
 
 for (const { capability, siteSetting, expected } of semanticSearchCombinations) {
-  test(`buildSitePayload reports features.semanticSearch: ${expected} for capability=${capability}, search.semanticEnabled=${siteSetting}`, async () => {
+  test(`buildSitePayload reports features.semanticSearch: ${expected} for capability=${capability}, search.config.semanticEnabled=${siteSetting}`, async () => {
     const wikiHandle = installTestWiki({
       config: { docsBase: '' },
       capabilities: { semanticSearch: capability },
@@ -208,7 +214,7 @@ for (const { capability, siteSetting, expected } of semanticSearchCombinations) 
       isEnabled: true,
       config: {
         features: { browse: true },
-        search: { engine: 'db', config: {}, semanticEnabled: siteSetting }
+        search: { engine: 'db', config: { semanticEnabled: siteSetting } }
       }
     })
 
@@ -230,6 +236,35 @@ for (const { capability, siteSetting, expected } of semanticSearchCombinations) 
 test('buildSitePayload reports features.semanticSearch: false when WIKI.capabilities is entirely absent', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' }
+    }
+  })
+
+  const payload = await buildSitePayload({
+    id: 'site-id',
+    hostname: 'example.test',
+    isEnabled: true,
+    config: { search: { engine: 'db', config: { semanticEnabled: true } } }
+  })
+
+  assert.equal(payload.features.semanticSearch, false)
+
+  wikiHandle.restore()
+})
+
+/**
+ * OpenProject #3137: reproduces the exact stale shape the read side used before the fix --
+ * `semanticEnabled` sitting directly under `search` rather than under `search.config` -- to prove
+ * `buildSitePayload` no longer reads it from there. A real saved site never has this shape (see the
+ * nested-shape tests above), but this pins the read path against silently reverting.
+ */
+test('buildSitePayload reports features.semanticSearch: false when the setting is only present at the old, un-nested search.semanticEnabled shape', async () => {
+  const wikiHandle = installTestWiki({
+    config: { docsBase: '' },
+    capabilities: { semanticSearch: true },
     models: {
       renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] },

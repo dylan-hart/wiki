@@ -1083,6 +1083,43 @@ test('pdfExportAvailable reflects the rendering model when the extension is not 
 })
 
 /**
+ * OpenProject #3137: `features.semanticSearch` is the AND of `WIKI.capabilities.semanticSearch` (the
+ * instance-wide, boot-time pgvector flag) and the site's own `search.config.semanticEnabled` admin
+ * toggle — the exact path `api/search.ts`'s PATCH handler saves to and `models/search.ts#getConfig()`
+ * reads back (`{ config: { search: { config: { semanticEnabled } } } }`). The flag used to read one
+ * level shallower (`config.search?.semanticEnabled`), which never matched the saved shape and so
+ * always reported `false` regardless of either half. `WIKI.capabilities` is mutated directly on the
+ * installed global per test, mirroring `api/search.test.ts`'s own convention, since `buildTestApp`
+ * only installs the `WIKI` stub once for the whole file.
+ */
+test('features.semanticSearch is true only when the capability and the correctly-nested setting are both on', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  sites[WILDCARD_SITE_ID].config.search = { config: { semanticEnabled: true } }
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().features.semanticSearch, true)
+  delete sites[WILDCARD_SITE_ID].config.search
+})
+
+test('features.semanticSearch stays false when the setting is only present at the old, wrong nesting level', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  sites[WILDCARD_SITE_ID].config.search = { semanticEnabled: true }
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().features.semanticSearch, false)
+  delete sites[WILDCARD_SITE_ID].config.search
+})
+
+test('features.semanticSearch stays false when the capability is off, even with the setting correctly enabled', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  sites[WILDCARD_SITE_ID].config.search = { config: { semanticEnabled: true } }
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().features.semanticSearch, false)
+  delete sites[WILDCARD_SITE_ID].config.search
+})
+
+/**
  * OpenProject #1922: `docsBase` surfaces `WIKI.config.docsBase` (a `base.yml` default, not per-site
  * config) on the same site-info payload `pdfExportAvailable` above already does, so
  * `siteStore.docsBase` never needs a hardcoded frontend fallback.

@@ -145,8 +145,8 @@ interface SemanticSearchPagesResult {
 
 /**
  * Whether semantic search may actually be used on this site right now -- the AND of Task #3095's
- * boot-time pgvector capability flag and this site's own `search.semanticEnabled` admin setting
- * (Task #3104), exactly how Task #3103 defines the combined `features.semanticSearch` flag.
+ * boot-time pgvector capability flag and this site's own `search.config.semanticEnabled` admin
+ * setting (Task #3104), exactly how Task #3103 defines the combined `features.semanticSearch` flag.
  *
  * Computed locally rather than calling into Task #3103's own work: neither it nor Task #3095's
  * `WIKI.capabilities` typing exists yet in this worktree (see the round-2 coordination note's
@@ -158,7 +158,7 @@ interface SemanticSearchPagesResult {
  */
 function semanticSearchEnabledFor(siteId: string): boolean {
   const capabilityEnabled = Boolean((WIKI as any).capabilities?.semanticSearch)
-  const siteEnabled = Boolean(WIKI.sites[siteId]?.config?.search?.semanticEnabled)
+  const siteEnabled = Boolean(WIKI.sites[siteId]?.config?.search?.config?.semanticEnabled)
   return capabilityEnabled && siteEnabled
 }
 
