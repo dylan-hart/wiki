@@ -9,12 +9,11 @@ import mdSub from 'markdown-it-sub'
 import mdMark from 'markdown-it-mark'
 import mdMultiTable from 'markdown-it-multimd-table'
 import mdFootnote from 'markdown-it-footnote'
-import mdMdc from 'markdown-it-mdc'
 import mdUnderline from './modules/markdown-it-underline'
 import mdImsize from './modules/markdown-it-imsize'
 import mdGithubAlerts from './modules/github-alerts'
 import mdGlossary from './modules/markdown-it-glossary'
-import mdMdcCompat from './modules/markdown-it-mdc-compat'
+import mdBlocks from './modules/markdown-it-blocks'
 import mdIconShortcode from './modules/markdown-it-icon-shortcode'
 import mdTex from './modules/markdown-it-tex'
 import twemoji from '@twemoji/api'
@@ -265,25 +264,6 @@ export class MarkdownRenderer {
         }
       }
     })
-      /*
-        MDC's INLINE component syntax is off, and deliberately: `:name` is how it writes one, which is
-        also how markdown writes an emoji, and MDC parses first. With it on, `:rocket:` came out as
-        `<rocket>:` and no emoji shortcode in any page ever rendered — while this file goes to the
-        trouble of drawing them as twemoji SVGs, and the editor has a picker for them.
-
-        Everything else MDC brings is untouched: block components (`::note`), inline props and inline
-        spans. Turning this back on means giving up emoji shortcodes again.
-
-        OpenProject #2372 recorded a working hypothesis that a `::block-name{...}` block fails to
-        parse once one of its quoted attribute values contains a space, corrupting every block after
-        it in the document (seen via a Playwright trace against `e2e/tests/csp.spec.js`). That does
-        not reproduce against this renderer, this fork's own MDC config, and `markdown-it-mdc` 0.2.12
-        (the version pinned in `package.json`) -- see `markdown.test.js`'s "MDC block attribute values
-        containing a space" describe for the regression coverage and the WP's own comment thread for
-        the full investigation. If a future dependency bump reintroduces this, that test is what will
-        catch it.
-      */
-      .use(mdMdc, { syntax: { inlineComponent: false } })
       .use(mdAttrs, {
         allowedAttributes: ['id', 'class', 'target']
       })
@@ -299,10 +279,11 @@ export class MarkdownRenderer {
       .use(mdGithubAlerts)
       .use(mdGlossary, { terms: config.glossaryTerms })
       /*
-        MDC's own quirks, told apart from the syntax this wiki already spends on footnotes,
-        `markdown-it-attrs` braces and markdown headings -- see the module for each case.
+        `::block-name{...}` block containers, `[text]{.class}` inline spans, and trailing
+        `[text](url){.class}`/`![alt](url){.class}` props -- see the module for the full syntax and
+        why it replaced `markdown-it-mdc` (OpenProject #3071).
       */
-      .use(mdMdcCompat)
+      .use(mdBlocks)
       .use(mdIconShortcode)
       .use(mdTex)
 
@@ -550,15 +531,15 @@ export class MarkdownRenderer {
       // -> A stack, because a tabset may sit inside another one; a panel belongs to the innermost
       const open = []
       for (const token of state.tokens) {
-        if (token.tag === 'block-tabs' && token.type === 'mdc_block_open') {
+        if (token.tag === 'block-tabs' && token.type === 'wiki_block_open') {
           const tabset = []
           this.tabsMap.push(tabset)
           open.push(tabset)
-        } else if (token.tag === 'block-tabs' && token.type === 'mdc_block_close') {
+        } else if (token.tag === 'block-tabs' && token.type === 'wiki_block_close') {
           open.pop()
         } else if (
           token.tag === 'block-tab' &&
-          token.type === 'mdc_block_open' &&
+          token.type === 'wiki_block_open' &&
           token.map &&
           open.length > 0
         ) {

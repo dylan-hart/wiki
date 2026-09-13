@@ -558,15 +558,15 @@ frontend test.
 
 `MarkdownRenderer` is otherwise exactly what the task predicted: pure, DOM-free, and importable
 directly (confirmed by `renderers/headless.js`, which runs the identical class server-side under
-Puppeteer). The one twist is that it could not originally be imported under Vitest at all —
-`markdown-it-mdc` still imports the `markdown-it/lib/token.mjs` subpath that markdown-it 15 removed,
-which `vite.config.js` already aliases around for the real app build, but `vitest.config.js`
-(deliberately a separate config, see its own header comment) had no reason to carry that alias until
-this test needed it. Vitest also externalizes `node_modules` packages to Node's own resolver by
-default, which bypasses Vite `resolve.alias` entirely, so the fix needed two parts, both now in
-`vitest.config.js`: the same `markdown-it/lib/token.mjs` alias `vite.config.js` has, plus
-`test.server.deps.inline: ['markdown-it-mdc']` to force that one package through Vite's resolver
-(where the alias applies) instead of Node's.
+Puppeteer). The one twist, at the time, was that it could not originally be imported under Vitest at
+all — `markdown-it-mdc`, then still a dependency, imported the `markdown-it/lib/token.mjs` subpath
+that markdown-it 15 removed, which needed both a `resolve.alias` and a `test.server.deps.inline`
+entry in `vitest.config.js` (mirroring `vite.config.js`'s own alias for the real app build) before
+`renderers/markdown.js` would resolve under test at all. OpenProject #3071 later replaced
+`markdown-it-mdc` with a purpose-built plugin implementing only the block/inline syntax this wiki
+actually authors, and both `vitest.config.js` entries came out with it — nothing left importing that
+subpath. The test-runner choice recorded above is unaffected: `markdown.test.js` stays an ordinary
+Vitest file regardless, for the `test/setup.js`/Tailwind/SCSS/`@`-alias reasons given above.
 
 Recording this so a future pass over task 479 does not re-propose `node --test` for this file.
 
