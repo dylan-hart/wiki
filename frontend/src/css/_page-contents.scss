@@ -249,6 +249,9 @@
   */
   --content-important: var(--color-ink);
   --content-important-wash: rgba(28, 34, 51, 0.06);
+  /* -> A sixth tone, for `[!QUESTION]`: teal, distinct from every status hue the other five draw on */
+  --content-question: var(--color-teal);
+  --content-question-wash: rgba(0, 150, 136, 0.08);
 
   /*
     The ink of an inline code chip and of a `<kbd>` plate -- the two small mono marks that sit IN
@@ -449,6 +452,8 @@
     --content-danger-wash: rgba(240, 130, 135, 0.12);
     --content-important: #e6eaf2;
     --content-important-wash: rgba(230, 234, 242, 0.08);
+    --content-question: #5fc9bb;
+    --content-question-wash: rgba(95, 201, 187, 0.12);
 
     /* -> Both small mono marks move onto the lightened chrome tone, as the dark Ledger draws them */
     --content-code-ink: var(--color-slate-light);
@@ -1719,6 +1724,19 @@
       &::before {
         color: var(--content-danger);
         mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m-3.4 14L12 13.4L8.4 17L7 15.6l3.6-3.6L7 8.4L8.4 7l3.6 3.6L15.6 7L17 8.4L13.4 12l3.6 3.6z'/%3E%3C/svg%3E");
+      }
+    }
+
+    &.is-question,
+    &:has(> .is-question) {
+      --alert-hue: var(--content-question);
+
+      border-inline-start-color: var(--content-question);
+      background-color: var(--content-question-wash);
+
+      &::before {
+        color: var(--content-question);
+        mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2c5.523 0 10 4.477 10 10a10 10 0 0 1-19.995.324L2 12l.004-.28C2.152 6.327 6.57 2 12 2m0 13a1 1 0 0 0-.993.883L11 16l.007.127a1 1 0 0 0 1.986 0L13 16.01l-.007-.127A1 1 0 0 0 12 15m1.368-6.673a2.98 2.98 0 0 0-3.631.728a1 1 0 0 0 1.44 1.383l.171-.18a.98.98 0 0 1 1.11-.15a1 1 0 0 1-.34 1.886l-.232.012A1 1 0 0 0 11.997 14a3 3 0 0 0 1.371-5.673'/%3E%3C/svg%3E");
       }
     }
   }
