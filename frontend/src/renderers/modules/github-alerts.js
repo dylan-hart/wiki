@@ -18,7 +18,8 @@ const KINDS = new Map([
   ['tip', { className: 'is-success', label: 'Tip' }],
   ['important', { className: 'is-important', label: 'Important' }],
   ['warning', { className: 'is-warning', label: 'Warning' }],
-  ['caution', { className: 'is-danger', label: 'Caution' }]
+  ['caution', { className: 'is-danger', label: 'Caution' }],
+  ['question', { className: 'is-question', label: 'Question' }]
 ])
 
 /**

@@ -25,7 +25,8 @@ describe('github-alerts', () => {
     ['tip', 'is-success', 'Tip'],
     ['important', 'is-important', 'Important'],
     ['warning', 'is-warning', 'Warning'],
-    ['caution', 'is-danger', 'Caution']
+    ['caution', 'is-danger', 'Caution'],
+    ['question', 'is-question', 'Question']
   ])(
     'maps [!%s] to the %s admonition class with its own default title',
     (kind, className, label) => {
@@ -64,7 +65,7 @@ describe('github-alerts', () => {
 
   it('leaves an ordinary blockquote with no marker untouched', () => {
     const html = render('> Just a quote, nothing special')
-    expect(html).not.toMatch(/is-info|is-success|is-important|is-warning|is-danger/)
+    expect(html).not.toMatch(/is-info|is-success|is-important|is-warning|is-danger|is-question/)
     expect(html).not.toContain('alert-title')
     expect(html).toContain('Just a quote, nothing special')
   })

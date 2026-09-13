@@ -203,6 +203,14 @@
                   </w-item-section>
                   <w-item-section>{{ t('editor.markup.admonitionDanger') }}</w-item-section>
                 </w-item>
+                <w-item
+                  clickable
+                  @click="insertBeforeEachLine({ content: `> `, before: `> [!QUESTION]` })">
+                  <w-item-section side>
+                    <w-icon name="tabler:help-circle" color="teal" />
+                  </w-item-section>
+                  <w-item-section>{{ t('editor.markup.admonitionQuestion') }}</w-item-section>
+                </w-item>
               </w-list>
             </w-menu>
           </w-btn>
