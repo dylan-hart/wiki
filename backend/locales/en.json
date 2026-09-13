@@ -2394,6 +2394,8 @@
   "common.renderedContent.highlightDismiss": "Clear highlight",
   "common.renderedContent.highlightNext": "Next match",
   "common.renderedContent.highlightPrevious": "Previous match",
+  "common.renderedContent.zoomIn": "Zoom in",
+  "common.renderedContent.zoomOut": "Zoom out",
   "common.select.noOptions": "No options",
   "common.sidebar.browse": "Browse",
   "common.sidebar.collapse": "Collapse Sidebar",

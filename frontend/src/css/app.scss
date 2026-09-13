@@ -3,6 +3,7 @@
 @use 'page-contents';
 @use 'print';
 @use 'overlay-dialog';
+@use 'content-image-lightbox';
 
 /*
   KaTeX's own stylesheet, loaded globally rather than per-block: `renderers/markdown.js` resolves
