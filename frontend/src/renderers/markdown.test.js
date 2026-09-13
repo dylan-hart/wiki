@@ -518,6 +518,71 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
 })
 
 /**
+ * `frontend/src/renderers/modules/markdown-it-blocks.js` -- the purpose-built plugin that replaced
+ * `markdown-it-mdc` (OpenProject #3071). Coverage specific to this plugin's own two remaining shapes
+ * that predated it had no unit test for: trailing props landing on a just-closed link/image rather
+ * than opening a new span, and the block container's code-fence-awareness while scanning for its own
+ * close (everything else -- the footnote/markdown-it-attrs collisions, the block smoke test, the
+ * OpenProject #2372/#3070 regressions above -- already exercises the plugin through the same tests
+ * that exercised `markdown-it-mdc` before it).
+ */
+describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () => {
+  it('adds trailing props to a completed link rather than opening a new span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('[Docs](https://example.com/docs){.external #docs-link}\n')
+
+    expect(html).toMatch(
+      /<a href="https:\/\/example\.com\/docs" class="[^"]*\bexternal\b[^"]*" id="docs-link">Docs<\/a>/
+    )
+    expect(html).not.toContain('<span')
+  })
+
+  it('adds trailing props to a completed image rather than opening a new span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('![A photo](https://example.com/photo.jpg){.thumb}\n')
+
+    expect(html).toContain('class="thumb"')
+    expect(html).toMatch(/<img[^>]*src="https:\/\/example\.com\/photo\.jpg"/)
+    expect(html).not.toContain('<span')
+  })
+
+  it('leaves a brace after plain prose alone, for markdown-it-attrs to find instead', () => {
+    // -> Not preceded by a just-closed link/image (nor abutting, since a space sits before it) --
+    //    this is markdown-it-attrs' own "attributes for the whole paragraph" shape, unrelated to a
+    //    block/link/image's own trailing props.
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('Some plain text\n{.is-warning}\n')
+
+    expect(html).toMatch(/<p class="is-warning[^"]*"[^>]*>Some plain text<\/p>/)
+  })
+
+  it('does not let a literal "::" inside a fenced code body close the block early', () => {
+    /*
+      `block-infobox`'s own smoke-test body (see the csp.spec.js-derived describe above) fences a YAML
+      sample, but nothing there happens to contain a bare "::" line. This is the case that would break
+      without the block rule's own code-fence tracking: a `::` written as ordinary text inside a ```
+      fence must never be read as the block's own closing marker.
+    */
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      '::block-infobox{name="Example"}\n```text\nnotation: a::b\n::\nmore text\n```\n::\n'
+    )
+
+    expect(html).toContain('<block-infobox name="Example">')
+    expect(html).toContain('notation: a::b')
+    expect(html).toContain('more text')
+    expect(html).toMatch(/<\/block-infobox>\s*$/)
+  })
+
+  it('joins several shorthand classes on an inline span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('A [word]{.a .b} in a sentence.\n')
+
+    expect(html).toContain('<span class="a b">word</span>')
+  })
+})
+
+/**
  * The `markdown-it-attrs` whitelist (OpenProject #1180): only `id`, `class` and `target` are ever
  * let through onto the rendered element -- everything else an author writes in a `{...}` block is
  * silently dropped, since arbitrary attributes from page content (`onclick`, `style`, ...) are an

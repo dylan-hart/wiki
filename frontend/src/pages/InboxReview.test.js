@@ -16,10 +16,8 @@ vi.mock('monaco-editor', () => ({
 }))
 
 /*
-  The real renderer pulls in the full markdown-it plugin chain, unrelated to what this suite covers
-  and, in this environment, broken independently of it (`markdown-it-mdc` reaches into a
-  `markdown-it` subpath the installed `markdown-it@15` no longer exports). Approving here only needs
-  *some* HTML string to send along with the content.
+  The real renderer pulls in the full markdown-it plugin chain, unrelated to what this suite covers.
+  Approving here only needs *some* HTML string to send along with the content.
 */
 vi.mock('@/renderers/markdown', () => ({
   MarkdownRenderer: class {
