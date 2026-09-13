@@ -598,6 +598,37 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     expect(excerpt.find('b').text()).toBe('credentials')
   })
 
+  /*
+    OpenProject #3122: a semantic result carries `chunkText` (the matched embedding chunk) and no
+    `highlight` -- the route/schema fix restores this field to the payload, and this is the frontend
+    half: render it as the excerpt, as plain text rather than `v-html`, since it is raw stored
+    content, not pre-escaped highlight markup with `<b>` wrapping.
+  */
+  it("renders a semantic result's chunkText as its excerpt when it carries no highlight", async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [
+        {
+          ...FIXTURE_RICH_RESULT,
+          highlight: undefined,
+          chunkText: 'the worker reads its credentials from the secret store',
+          chunkIndex: 2,
+          distance: 0.12,
+          hop: 1
+        }
+      ],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const row = wrapper.find('.layout-search-row')
+    const excerpt = row.find('.layout-search-rowexcerpt')
+    expect(excerpt.exists()).toBe(true)
+    expect(excerpt.classes()).not.toContain('text-highlight')
+    expect(excerpt.find('b').exists()).toBe(false)
+    expect(excerpt.text()).toBe('the worker reads its credentials from the secret store')
+  })
+
   it('shows the recent form, not the legacy absolute one, for a page updated within the last week', async () => {
     const recentUpdatedAt = Temporal.Now.instant().subtract({ hours: 26 }).toString()
     const { wrapper, userStore, i18n } = await mountSearchWithResponse({

@@ -219,6 +219,9 @@
                 <div class="layout-search-rowexcerpt text-highlight" v-if="item.highlight">
                   <span v-html="item.highlight" />
                 </div>
+                <div class="layout-search-rowexcerpt" v-else-if="item.chunkText">
+                  <span>{{ item.chunkText }}</span>
+                </div>
               </div>
               <div class="layout-search-rowmeta">
                 <div class="layout-search-rowdate">{{ item.updatedAtFormatted }}</div>

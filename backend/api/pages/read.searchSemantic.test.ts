@@ -9,13 +9,15 @@ import { ensureTemporal } from '../../test/temporal.ts'
 /**
  * Route-wiring tests for `GET /sites/:siteId/pages/search/semantic` (Epic #3050, Task #3102).
  *
- * `WIKI.models.semanticSearch.search()` is stubbed outright -- the multi-hop retrieval/ranking logic
- * itself belongs to Feature #3092's own tests (Tasks #3099/#3100/#3101), which do not exist in this
- * worktree yet (see this work package's `[implementation plan]` comment). This suite covers only what
- * `read.ts` itself does: the unknown-site 404, the `features.semanticSearch` 503 gate (both halves —
- * the boot-time capability flag AND the site's own admin setting, so neither alone can turn the route
- * on), that query/locale/limit/offset reach `search()` as documented, and that the route forwards the
- * caller's actor through to `search()` rather than doing its own filtering (or none at all).
+ * `WIKI.models.semanticSearch.search()` is stubbed outright -- the real multi-hop retrieval/ranking
+ * logic has its own coverage in `models/semanticSearch.test.ts` (Feature #3092). This suite covers
+ * only what `read.ts` itself does: the unknown-site 404, the `features.semanticSearch` 503 gate (both
+ * halves — the boot-time capability flag AND the site's own admin setting, so neither alone can turn
+ * the route on), that query/locale/limit/offset reach `search()` as documented, and that the route
+ * forwards the caller's actor through to `search()` rather than doing its own filtering (or none at
+ * all). The stub's returned rows use the real `SemanticSearchResult` shape (`pageId`/`chunkText`/
+ * `chunkIndex`/`distance`/`hop`, OpenProject #3122) rather than the earlier stub's full-text-
+ * `SearchResult` shape, so this suite would catch a route/schema drift back toward that stale shape.
  */
 
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -47,16 +49,15 @@ async function search(
   const visible = allPages.filter((p) => p.visibleTo === null || p.visibleTo === actor?.id)
   return {
     results: visible.map((p) => ({
-      id: p.id,
+      pageId: p.id,
       path: p.path,
       locale: 'en',
       title: p.path,
       description: null,
       icon: null,
-      tags: [],
-      updatedAt: '2026-09-01T00:00:00.000Z',
-      relevancy: 1,
-      highlight: null,
+      chunkText: `chunk of ${p.path}`,
+      chunkIndex: 0,
+      distance: 0.1,
       hop: 1 as const
     })),
     totalHits: visible.length,
@@ -160,6 +161,20 @@ test('calls the model with query/locale/limit/offset and returns its results whe
     [['docs/one', 1]]
   )
   assert.equal(body.totalHits, 1)
+
+  // -> OpenProject #3122: the real chunk-based fields must survive serialization, and the earlier
+  //    stub's full-text fields must not reappear -- proves the response schema matches the model's
+  //    actual `SemanticSearchResult` shape rather than silently stripping/re-adding the wrong ones.
+  const [result] = body.results
+  assert.equal(result.pageId, 'page-1')
+  assert.equal(result.chunkText, 'chunk of docs/one')
+  assert.equal(result.chunkIndex, 0)
+  assert.equal(result.distance, 0.1)
+  assert.equal('id' in result, false)
+  assert.equal('tags' in result, false)
+  assert.equal('updatedAt' in result, false)
+  assert.equal('relevancy' in result, false)
+  assert.equal('highlight' in result, false)
 })
 
 test('defaults locale, limit and offset when omitted', async () => {

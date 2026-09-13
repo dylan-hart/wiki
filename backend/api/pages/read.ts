@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { SEARCH_ORDER_BY, type SearchOrderBy, type SearchResult } from '../../models/search.ts'
-import type { AccessActor } from '../../models/groups.ts'
 import {
   CustomError,
   generatePathHash,
@@ -108,39 +107,6 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
   for (const result of results) {
     result.localeStatus = statuses.get(result.path) ?? []
   }
-}
-
-/**
- * `WIKI.models.semanticSearch`'s contract for `search()`, exactly as Task #3101's own scope and the
- * round-2 epic coordination note (OpenProject #3102's own work-package comments) document it.
- *
- * `models/semanticSearch.ts` is owned by Tasks #3099/#3100/#3101, and `WIKI.models` is typed strictly
- * against that file's real exports (`types/global.d.ts`) -- so until it lands in this worktree, this
- * route is built against this locally-declared copy of the documented contract plus a narrow cast at
- * its one call site below, per the coordination note's "contract-only dep, don't block" guidance.
- * Nothing here should need to change once the real model lands other than removing that cast.
- */
-interface SemanticSearchModel {
-  search(
-    query: string,
-    actor: AccessActor | undefined,
-    siteId: string,
-    locale: string,
-    options: { limit: number; offset: number }
-  ): Promise<SemanticSearchPagesResult>
-}
-
-/** One page returned by semantic search -- a plain `SearchResult` plus which retrieval hop found it. */
-interface SemanticSearchResult extends SearchResult {
-  hop: 1 | 2
-}
-
-/** The response envelope `WIKI.models.semanticSearch.search()` resolves to. Mirrors `SearchPagesResult`. */
-interface SemanticSearchPagesResult {
-  results: SemanticSearchResult[]
-  totalHits: number
-  totalHitsApproximate: boolean
-  suggestion: string | null
 }
 
 /**
@@ -424,11 +390,7 @@ async function routes(app: FastifyInstance) {
         )
       }
       const accessActor = WIKI.models.groups.actorForRequest(req)
-      // -> `WIKI.models.semanticSearch` doesn't exist in this worktree's `models/index.ts` yet -- see
-      //    the `SemanticSearchModel` doc comment above.
-      const semanticSearch = (WIKI.models as unknown as { semanticSearch: SemanticSearchModel })
-        .semanticSearch
-      return semanticSearch.search(
+      return WIKI.models.semanticSearch.search(
         req.query.query,
         accessActor,
         siteId,
