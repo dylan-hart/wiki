@@ -1,4 +1,40 @@
 /**
+ * Re-derives the match `markdown-it-mdc`'s `mdc_inline_span` rule computes for a `[` at `start`:
+ * a depth-tracked scan to the balancing `]` (an escaped `\[`/`\]` never counts, and a further-nested
+ * `[...]` inside just deepens the count rather than ending the scan), rejecting a match immediately
+ * followed by `(` or `[` (the real link / reference-link case the rule steps aside for so `link`
+ * gets first refusal). Returns the position just past the matched `]`, or -1 if `start` is not the
+ * head of a match at all. Copied from the upstream algorithm on purpose -- see the call site below.
+ */
+function matchSpanEnd(src, start) {
+  let index = start + 1
+  let depth = 0
+  while (index < src.length) {
+    if (src[index] === '\\') {
+      index += 2
+      continue
+    }
+    if (src[index] === '[') {
+      depth += 1
+    } else if (src[index] === ']') {
+      if (depth === 0) {
+        break
+      }
+      depth -= 1
+    }
+    index += 1
+  }
+  if (index === start || index >= src.length) {
+    return -1
+  }
+  const nextChar = src[index + 1]
+  if (nextChar === '(' || nextChar === '[') {
+    return -1
+  }
+  return index + 1
+}
+
+/**
  * The three places `markdown-it-mdc` has to be told to keep its hands off syntax this wiki already
  * spends elsewhere -- MDC's block slots, its inline span at a footnote reference, and its inline props
  * at a `markdown-it-attrs` brace. Each is explained where it is applied below.
@@ -38,7 +74,30 @@ export default (md) => {
     if (state.src[state.pos] === '[' && state.src[state.pos + 1] === '^') {
       return false
     }
-    return inlineSpan(state, silent)
+    const matched = inlineSpan(state, silent)
+    if (matched && silent) {
+      // `markdown-it-mdc`'s own silent branch (`if (silent) return true`) never touches
+      // `state.pos` -- a genuine invariant violation in the upstream package (0.2.12, its latest
+      // release; reported upstream to antfu/markdown-it-mdc, whose one-line fix is to move the
+      // `state.pos = index + 1` assignment before that early return). `skipToken()` -- which core's
+      // `link` rule runs, via `helpers.parseLinkLabel()`, to step over whatever inline sits inside
+      // an outer `[...]` link label it is still scanning -- runs every rule once in silent mode and
+      // throws `"inline rule didn't increment state.pos"` the instant one reports a match without
+      // moving `state.pos`. A bracket span nested inside an outer link label
+      // (`[See it, noting **[CONTEXT]**, not traced](url)`) hits exactly this: the inner
+      // `[CONTEXT]` matches this rule while the outer label's scan is still open and silent.
+      //
+      // `matchSpanEnd` below re-derives the same match the real rule already computed (the same
+      // depth-tracked scan to the balancing `]`, rejecting one immediately followed by `(` or `[`,
+      // which is the reference-link case the real rule steps aside for) purely to learn where
+      // `state.pos` has to land -- it changes no parsing decision, only supplies the position
+      // assignment the silent branch is missing.
+      const end = matchSpanEnd(state.src, state.pos)
+      if (end !== -1) {
+        state.pos = end
+      }
+    }
+    return matched
   })
 
   /*
