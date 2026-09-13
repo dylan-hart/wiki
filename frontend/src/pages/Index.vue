@@ -1737,6 +1737,32 @@ $toc-overlay-max: 749.98px;
     }
   }
 }
+
+/*
+  OpenProject #3055: `.page-container-scrl` above is not itself the flex item `.page-container`'s
+  row stretches -- it is that item's `height: 100%` child (the template's own `.min-w-0.flex-1` div,
+  which wraps everything the article column can render, this element included). A margin-bottom
+  on `.page-container-scrl` itself would only push empty space out past its OWN border box, which is
+  already pinned to 100% of an unchanged parent height -- it would not shrink anything visible, since
+  percentage height ignores margins. `.page-sidebar` (below) has no such wrapper: it IS the stretched
+  flex item, which is exactly why a bare `margin-bottom: var(--footer-bar-height)` works there.
+
+  So the clearance goes on the wrapper instead, addressed by the child combinator off the unique
+  `.page-container` (this file's only element with that class) rather than a bare `.min-w-0.flex-1`,
+  which recurs elsewhere in this same template (the relation columns further down) and, being a
+  Tailwind utility pair, elsewhere in the app entirely. Shrinking THIS flex item's own stretch-computed
+  height is what then shrinks `.page-container-scrl`'s 100% of it in turn, so its scrollport -- and the
+  native scrollbar riding along it -- stops above the bar instead of running behind it. The extra 16px
+  (over the bare `--footer-bar-height` `.page-sidebar` uses) is this WP's own fix: a little daylight
+  between the scrollbar's end and the bar's top edge, not flush clearance.
+
+  No narrow-viewport counterpart is needed here the way `.page-sidebar` needs one below
+  `$toc-overlay-max`: this wrapper is never repositioned to `position: fixed` at any breakpoint, so a
+  single unconditioned rule covers every viewport width.
+*/
+body.body--cobalt .page-container > .min-w-0.flex-1 {
+  margin-bottom: calc(var(--footer-bar-height) + 16px);
+}
 /*
   The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
   foot is what stops the last paragraph sitting on the footer. It replaces a `p-2 sm:p-4` pair
