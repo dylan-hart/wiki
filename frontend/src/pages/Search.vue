@@ -426,6 +426,17 @@ watch(
     if (newQueryObj.q) {
       siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
       syncTags()
+      // -> HeaderSearch.vue's own mode toggle (OpenProject #3138) carries its pending mode here so a
+      //    semantic search started from the header lands already in Semantic mode. Only ever turns
+      //    the mode ON or explicitly back to Keyword when the site actually has semantic search --
+      //    a stray `mode=semantic` is not honoured on a site where the feature (and therefore the
+      //    in-page toggle) is unavailable. No `mode` param (e.g. `syncTags`'s own `router.replace`
+      //    round trip) leaves whatever mode was already selected untouched.
+      if (newQueryObj.mode === 'semantic' && siteStore.features.semanticSearch) {
+        state.mode = 'semantic'
+      } else if (newQueryObj.mode === 'keyword') {
+        state.mode = 'keyword'
+      }
       performSearch()
     }
   },

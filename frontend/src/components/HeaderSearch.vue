@@ -85,6 +85,31 @@
         </div>
 
         <!--
+          -> Semantic search mode toggle (OpenProject #3138), docked immediately to the LEFT of the
+             Browse by Tags button -- same icon (`tabler:sparkles`) as the admin -> Search page's own
+             semantic-enabled row (`AdminSearch.vue`). Absent entirely, not merely disabled, when the
+             site doesn't have semantic search available: `siteStore.features.semanticSearch` is the
+             same combined flag `Search.vue`'s own in-page mode toggle already gates on, never
+             re-derived here. Never in `row` form, for the same reason as the tags button beside it.
+
+          A toggle, not a navigation link: clicking it flips `state.searchMode` (the header's own
+          pending mode, separate from `Search.vue`'s `state.mode` -- there is no results page open
+          yet for this control to reach into) and, only when a query is already typed, immediately
+          resubmits under the new mode so the click has a visible effect rather than silently
+          arming a mode nothing reflects back.
+        -->
+        <button
+          v-if="!row && siteStore.features.semanticSearch"
+          type="button"
+          class="header-search-mode-btn"
+          :class="{ 'is-active': state.searchMode === 'semantic' }"
+          :aria-pressed="state.searchMode === 'semantic'"
+          :aria-label="t('search.modeSemantic')"
+          @click="toggleSearchMode">
+          <w-icon name="tabler:sparkles" />
+          <w-tooltip>{{ t('search.modeSemantic') }}</w-tooltip>
+        </button>
+        <!--
           -> 2.5.x parity (OpenProject #987, #1120, #1218): docked flush against the search field's
              right edge so the two read as one continuous pill, matching the 2.5.x reference. Never
              in `row` form -- that is the phone field's own full-width row, with no room for a second
@@ -341,7 +366,15 @@ const state = reactive({
   previewLoading: false,
   previewTotal: 0,
   /** The backend's "did you mean" title, only ever set alongside a real, zero-hit query. */
-  previewSuggestion: null
+  previewSuggestion: null,
+  /**
+   * 'keyword' (default) or 'semantic' (OpenProject #3138) -- the header's OWN pending mode, set by
+   * `toggleSearchMode` below and carried as the `mode` query param on the navigation to `/_search`
+   * that submitting the search performs. Distinct from `Search.vue`'s own `state.mode`: that is the
+   * results page's live mode once a search is already showing, this is only ever a reader's not-yet-
+   * submitted choice.
+   */
+  searchMode: 'keyword'
 })
 
 const searchPanel = ref(null)
@@ -468,11 +501,33 @@ function onSearchEnter() {
   if (!siteStore.search) {
     return
   }
+  submitSearch()
+}
+
+/**
+ * Navigates to `/_search` carrying the current query and the header's own pending mode (OpenProject
+ * #3138) -- `replace` when a results page is already open (refining an in-place search), `push`
+ * otherwise, exactly as this used to inline before the mode toggle needed the same two call sites.
+ */
+function submitSearch() {
+  const query = { q: siteStore.search, mode: state.searchMode }
   if (route.path === '/_search') {
-    router.replace({ path: '/_search', query: { q: siteStore.search } })
+    router.replace({ path: '/_search', query })
   } else {
     siteStore.searchIsLoading = true
-    router.push({ path: '/_search', query: { q: siteStore.search } })
+    router.push({ path: '/_search', query })
+  }
+}
+
+/**
+ * Flips the header's pending Keyword/Semantic mode (OpenProject #3138). When a query is already
+ * typed, also resubmits immediately under the new mode -- otherwise the click would have no visible
+ * effect until the reader separately pressed Enter, which reads as the toggle having done nothing.
+ */
+function toggleSearchMode() {
+  state.searchMode = state.searchMode === 'semantic' ? 'keyword' : 'semantic'
+  if (siteStore.search) {
+    submitSearch()
   }
 }
 
@@ -792,10 +847,10 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-field {
   color: #fff;
 }
 
-body.body--cobalt .header-search-tags-btn {
+body.body--cobalt .header-search-tags-btn,
+body.body--cobalt .header-search-mode-btn {
   background-color: rgb(255 255 255 / 0.16);
   border-color: transparent;
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   color: #fff;
 
   &:hover,
@@ -805,13 +860,25 @@ body.body--cobalt .header-search-tags-btn {
   }
 }
 
+/* -> Only the tags button, the row's actual outer-right control here, gets the rounded corner. */
+body.body--cobalt .header-search-tags-btn {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+body.body--cobalt .header-search-mode-btn.is-active {
+  background-color: rgb(255 255 255 / 0.32);
+  color: #fff;
+}
+
 /*
   -> The other half of Cobalt's shared focus ring: without this override, the base cobalt tags-btn
      rule's `border-color: transparent` above wins and the button stays visually unchanged while the
      field lights up, breaking the grouped-control effect Ledger's equivalent rule already produces
      (OpenProject #3037). Matches the field's own focused border color at line 765 exactly, so the
-     two controls read as one lit ring when the row is focused.
+     two controls read as one lit ring when the row is focused. Extended to the mode toggle by
+     #3138, for the same reason.
 */
+body.body--cobalt .header-search-row-inline.is-focused .header-search-mode-btn,
 body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   border-color: rgb(255 255 255 / 0.4);
 }
@@ -855,8 +922,13 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   The browse-by-tags button docked to the search field's trailing edge (OpenProject #987, #1120,
   #1218) -- the same 36px box and hairline edge as `.header-search-field`, sharing the field's own
   border rather than drawing a second one beside it, so the seam reads as one control.
+
+  `.header-search-mode-btn` (OpenProject #3138) is its sibling one seam further in, docked between
+  the field and this button rather than replacing either -- same box, same hairline, sharing every
+  rule below that doesn't depend on which end of the row a control sits at.
 */
-.header-search-tags-btn {
+.header-search-tags-btn,
+.header-search-mode-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -879,16 +951,36 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
 }
 
 /*
-  -> The other half of the shared focus ring above: the field's own `is-focused` rule darkens its
-     top/bottom/left edges, but its right edge is never drawn (`--field--docked`) -- this button
-     draws that edge instead, so it needs its own border darkened for the ring to read as continuous
-     around both controls rather than stopping where they meet (OpenProject #2718).
+  -> The mode button sits BETWEEN the field and the tags button, not at the row's outer edge, so it
+     owns no rounded corner of its own (square all around, matching the tags button's own base
+     shape) and hands its own trailing edge off to the tags button's leading border -- the same
+     "the earlier control omits the shared border, the later one draws it" rule
+     `.header-search-field--docked` already uses against this button.
 */
-.header-search-row-inline.is-focused .header-search-tags-btn {
+.header-search-mode-btn {
+  border-inline-end: 0;
+}
+
+/* -> The pressed state: filled with the accent wash, same vocabulary as an active tag chip. */
+.header-search-mode-btn.is-active {
+  background-color: var(--color-accent-wash);
+  color: var(--color-accent-strong);
+}
+
+/*
+  -> The other half of the shared focus ring above: the field's own `is-focused` rule darkens its
+     top/bottom/left edges, but its right edge is never drawn (`--field--docked`) -- these two
+     buttons draw the rest of that edge between them, so each needs its own border darkened for the
+     ring to read as continuous across every control rather than stopping where the first two meet
+     (OpenProject #2718, extended for the mode toggle by #3138).
+*/
+.header-search-row-inline.is-focused .header-search-tags-btn,
+.header-search-row-inline.is-focused .header-search-mode-btn {
   border-color: var(--color-slate);
 }
 
-.body--dark:not(.body--cobalt) .header-search-tags-btn {
+.body--dark:not(.body--cobalt) .header-search-tags-btn,
+.body--dark:not(.body--cobalt) .header-search-mode-btn {
   background-color: var(--color-dark-4);
   border-color: var(--color-hairline-dark);
   color: var(--color-slate-light);
@@ -900,7 +992,13 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   }
 }
 
-.body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-tags-btn {
+.body--dark:not(.body--cobalt) .header-search-mode-btn.is-active {
+  background-color: var(--color-accent-wash-dark);
+  color: var(--color-accent-dark);
+}
+
+.body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-tags-btn,
+.body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-mode-btn {
   border-color: var(--color-slate-light);
 }
 
