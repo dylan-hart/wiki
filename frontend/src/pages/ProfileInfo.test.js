@@ -204,6 +204,45 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenP
 })
 
 /**
+ * OpenProject #3060: Time Format, Aesthetic, Light/Dark Mode and Color Vision Deficiency each wrap
+ * their `w-btn-toggle` in a flanking `w-item-section side`, which the shared `WItemSection.vue`
+ * responsive stacking (OpenProject #2822/#2823) deliberately excludes -- only two ADJACENT MAIN
+ * sections (`.w-item-section--main + .w-item-section--main`) collapse to field-over-value on a
+ * narrow row, the same shape Pronouns/Job Title already use. Dropping `side` on these four rows'
+ * value section is the whole fix; this asserts the resulting DOM shape rather than re-proving the
+ * container-query mechanism itself, which `WItem.responsiveStacking.test.js` already covers in a
+ * real browser.
+ */
+describe('ProfileInfo toggle-style fields collapse to field-over-value (OpenProject #3060)', () => {
+  it('wraps Time Format/Aesthetic/Appearance/CVD in a MAIN section, not a flanking `side` one', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const toggleLabels = [
+      'profile.timeFormat',
+      'profile.aesthetic',
+      'profile.appearance',
+      'profile.cvd'
+    ]
+    expect.assertions(toggleLabels.length * 4)
+    for (const label of toggleLabels) {
+      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+      expect(toggle.exists()).toBe(true)
+
+      const valueSection = toggle.element.closest('.w-item-section')
+      expect(valueSection.classList.contains('w-item-section--side')).toBe(false)
+      expect(valueSection.classList.contains('w-item-section--main')).toBe(true)
+
+      // -> Immediately preceded by the label's own MAIN section -- the two-adjacent-MAIN-sections
+      //    shape Pronouns/Job Title already have, which is what the container query keys off.
+      const labelSection = valueSection.previousElementSibling
+      expect(labelSection.classList.contains('w-item-section--main')).toBe(true)
+    }
+  })
+})
+
+/**
  * The claims above that are MEASUREMENTS rather than class names, checked where a measurement can
  * actually be taken. jsdom runs no layout engine -- `min-h-[34px]` being on an element proves the
  * class is there, not that a 34px field is what renders, and a padding declared in

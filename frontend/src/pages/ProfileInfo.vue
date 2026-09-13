@@ -173,7 +173,7 @@
         <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.timeFormat"
           :options="timeFormats"
@@ -188,7 +188,7 @@
         <w-item-label>{{ t(`profile.aesthetic`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.aestheticHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.aesthetic"
           :options="aesthetics"
@@ -203,7 +203,7 @@
         <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.appearance"
           :options="appearances"
@@ -218,7 +218,7 @@
         <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.cvd"
           :options="cvdChoices"
