@@ -183,24 +183,32 @@
     </w-item>
     <w-separator inset />
     <w-item>
+      <blueprint-icon icon="tabler:layout-grid" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.aesthetic`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.aestheticHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section side>
+        <w-btn-toggle
+          v-model="state.config.aesthetic"
+          :options="aesthetics"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.aesthetic`)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
       <blueprint-icon icon="tabler:sun" />
       <w-item-section>
         <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
       </w-item-section>
       <w-item-section side>
-        <div class="flex items-center gap-2 flex-wrap">
-          <w-btn-toggle
-            v-model="state.config.aesthetic"
-            :options="aesthetics"
-            :disabled="!canEdit"
-            :aria-label="t(`profile.aesthetic`)" />
-          <w-btn-toggle
-            v-model="state.config.appearance"
-            :options="appearances"
-            :disabled="!canEdit"
-            :aria-label="t(`profile.appearance`)" />
-        </div>
+        <w-btn-toggle
+          v-model="state.config.appearance"
+          :options="appearances"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.appearance`)" />
       </w-item-section>
     </w-item>
     <w-separator inset />

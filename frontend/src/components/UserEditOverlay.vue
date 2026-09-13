@@ -243,30 +243,38 @@
                 </w-item>
                 <w-separator class="my-2" inset />
                 <w-item>
+                  <blueprint-icon icon="tabler:layout-grid" />
+                  <w-item-section>
+                    <w-item-label>{{ t(`admin.users.aesthetic`) }}</w-item-label>
+                    <w-item-label caption>{{ t(`admin.users.aestheticHint`) }}</w-item-label>
+                  </w-item-section>
+                  <w-item-section class="flex-none">
+                    <w-btn-toggle
+                      v-model="state.user.prefs.aesthetic"
+                      :aria-label="t(`profile.aesthetic`)"
+                      :options="[
+                        { label: t('profile.aestheticDefault'), value: 'site' },
+                        { label: t('profile.aestheticLedger'), value: 'ledger' },
+                        { label: t('profile.aestheticCobalt'), value: 'cobalt' }
+                      ]" />
+                  </w-item-section>
+                </w-item>
+                <w-separator class="my-2" inset />
+                <w-item>
                   <blueprint-icon icon="tabler:bulb" />
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.appearance`) }}</w-item-label>
                     <w-item-label caption>{{ t(`admin.users.darkModeHint`) }}</w-item-label>
                   </w-item-section>
                   <w-item-section class="flex-none">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <w-btn-toggle
-                        v-model="state.user.prefs.aesthetic"
-                        :aria-label="t(`profile.aesthetic`)"
-                        :options="[
-                          { label: t('profile.aestheticDefault'), value: 'site' },
-                          { label: t('profile.aestheticLedger'), value: 'ledger' },
-                          { label: t('profile.aestheticCobalt'), value: 'cobalt' }
-                        ]" />
-                      <w-btn-toggle
-                        v-model="state.user.prefs.appearance"
-                        :aria-label="t(`admin.users.appearance`)"
-                        :options="[
-                          { label: t('profile.appearanceDefault'), value: 'site' },
-                          { label: t('profile.appearanceLight'), value: 'light' },
-                          { label: t('profile.appearanceDark'), value: 'dark' }
-                        ]" />
-                    </div>
+                    <w-btn-toggle
+                      v-model="state.user.prefs.appearance"
+                      :aria-label="t(`admin.users.appearance`)"
+                      :options="[
+                        { label: t('profile.appearanceDefault'), value: 'site' },
+                        { label: t('profile.appearanceLight'), value: 'light' },
+                        { label: t('profile.appearanceDark'), value: 'dark' }
+                      ]" />
                   </w-item-section>
                 </w-item>
                 <w-separator class="my-2" inset />

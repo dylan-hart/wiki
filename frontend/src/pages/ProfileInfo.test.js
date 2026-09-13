@@ -498,6 +498,33 @@ describe('ProfileInfo first/last/display name (Feature #2608)', () => {
     })
   })
 
+  /*
+    OpenProject #3052: the two prefs used to share one "Appearance" row/label with both toggles side
+    by side in a flex-wrap div. Each now gets its own row with its own label and hint, so the two
+    toggles must resolve to two distinct `.w-item` ancestors, not a shared one.
+  */
+  it('gives the aesthetic and light/dark toggles separate rows, each with its own label', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    const aestheticToggle = wrapper.find('[aria-label="profile.aesthetic"]')
+    const appearanceToggle = wrapper.find('[aria-label="profile.appearance"]')
+    expect(aestheticToggle.exists()).toBe(true)
+    expect(appearanceToggle.exists()).toBe(true)
+
+    const aestheticRow = aestheticToggle.element.closest('.w-item')
+    const appearanceRow = appearanceToggle.element.closest('.w-item')
+    expect(aestheticRow).not.toBe(null)
+    expect(appearanceRow).not.toBe(null)
+    expect(aestheticRow).not.toBe(appearanceRow)
+
+    // -> Each row carries its own label and hint text now, rather than one row describing both.
+    expect(aestheticRow.textContent).toContain('profile.aesthetic')
+    expect(aestheticRow.textContent).toContain('profile.aestheticHint')
+    expect(appearanceRow.textContent).toContain('profile.appearance')
+    expect(appearanceRow.textContent).toContain('profile.appearanceHint')
+  })
+
   it('patches userStore.aesthetic on save, the same way appearance already does', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({
       json: () => Promise.resolve({ ...FULL_PROFILE, aesthetic: 'ledger' })
