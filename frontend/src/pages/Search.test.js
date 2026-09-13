@@ -520,6 +520,74 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
 })
 
 /**
+ * OpenProject #3136 -- `watch(() => state.params, debounce(performSearch, 500), { deep: true })`
+ * let Vue's own `(newValue, oldValue, onCleanup)` watch-callback arguments flow straight through
+ * the debounced wrapper into `performSearch(append = false)`, so `append` received the (always
+ * truthy) new `state.params` object instead of defaulting to `false`. `runSearchRequest` then
+ * reused the stale `state.offset` left over from the initial load instead of resetting to 0,
+ * which -- once `state.offset` had advanced past `totalHits` -- made every filter/sort change
+ * request a page past the end of the results and come back empty.
+ */
+describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3136)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('resets to offset 0 when a param changes after the offset has advanced past it, instead of reusing the stale offset', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 2,
+      suggestion: null
+    })
+    expect(wrapper.vm.state.offset).toBe(2)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 2, suggestion: null })
+    })
+
+    wrapper.vm.state.params.orderBy = 'title'
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
+  })
+
+  it('re-searches from offset 0 for every state.params field, not just sort order', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 2,
+      suggestion: null
+    })
+    expect(wrapper.vm.state.offset).toBe(2)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 2, suggestion: null })
+    })
+
+    wrapper.vm.state.params.filterPublishState = 'published'
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+  })
+})
+
+/**
  * OpenProject #2697 -- handoff 2's Search screen.
  *
  * Two deliberate removals from 2.x and one new row shape. The removals are only half visible from
