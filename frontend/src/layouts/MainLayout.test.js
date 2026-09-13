@@ -785,6 +785,61 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     expect(style.padding).toBe('0px')
   })
 
+  // -> OpenProject #3133: the Top button also fills its 40x40 cell under LEDGER, which #3109 never
+  //    fixed (it only sized the button under Cobalt) -- the missing case this WP's own title reports.
+  it('sizes the Top tile to fill its 40x40 cell with no padding under Ledger', async () => {
+    const { wrapper } = await mountStrip()
+
+    const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
+    expect(style.width).toBe('40px')
+    expect(style.height).toBe('40px')
+    expect(style.padding).toBe('0px')
+  })
+
+  /**
+   * OpenProject #3133: #3109 gave Cobalt's Top button a bespoke one-off "plate" style (its own
+   * background/hover/colour scheme), instead of the shared `.sidebar-actions .icon-lg` treatment
+   * Locale and Browse already use under Cobalt. Reverted: the Top button now carries `icon-lg` too.
+   */
+  it("gives the Top button the icon-lg class, matching Locale/Browse's shared treatment", async () => {
+    const { wrapper } = await mountStrip()
+
+    const topBtn = wrapper.get('.sidebar-actions-top .w-btn')
+    expect(topBtn.classes()).toContain('icon-lg')
+  })
+
+  it('insets the Top button into the same flat tile as Locale/Browse under Cobalt', async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
+    expect(style.marginTop).toBe('4px')
+    expect(style.marginRight).toBe('0px')
+    expect(style.marginBottom).toBe('4px')
+    expect(style.marginLeft).toBe('4px')
+  })
+
+  it("colours the Top icon from the sidebar-icon token under Cobalt, not #3109's bespoke pink", async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    expect(styleBlock).not.toMatch(/#ff8f97/)
+
+    const topIcon = wrapper.get('.sidebar-actions-top .w-icon')
+    const iconRuleWins =
+      /\.sidebar-actions \.icon-lg \{[\s\S]*?\.w-icon \{\s*color: var\(--color-sidebar-icon\);\s*\}/
+    expect(styleBlock).toMatch(iconRuleWins)
+    // -> The icon rule is scoped inside `body.body--cobalt`, applied after the Top cell's own
+    //    unscoped rule -- checked live via the element the same way the Ledger icon-size test above
+    //    does, rather than re-deriving the cascade by hand.
+    expect(getComputedStyle(topIcon.element).fontSize).toBe('15px')
+  })
+
+  it('resets the unscoped Ledger white-plate background to transparent under Cobalt', async () => {
+    const { wrapper } = await mountStrip({ cobalt: true })
+
+    const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
+    expect(style.backgroundColor).toBe('transparent')
+  })
+
   it("resolves Ledger's cell-separator hairline colour from the light/dark hairline tokens", () => {
     expect(styleBlock).toMatch(
       /\.sidebar-actions \.w-separator \{\s*--w-hairline-color: var\(--color-hairline\);\s*\}/
