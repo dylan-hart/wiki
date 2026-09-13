@@ -5,6 +5,12 @@
  * followed by `(` or `[` (the real link / reference-link case the rule steps aside for so `link`
  * gets first refusal). Returns the position just past the matched `]`, or -1 if `start` is not the
  * head of a match at all. Copied from the upstream algorithm on purpose -- see the call site below.
+ *
+ * Deliberately has no length-bound check of its own, matching upstream: an unterminated `[` that
+ * never finds its closing `]` simply runs the `while` loop to `index === src.length` and is treated
+ * the same as a found `]` (OpenProject #3078 -- an earlier version of this function returned -1 for
+ * that case, diverging from upstream and reopening the "inline rule didn't increment state.pos"
+ * crash for an unterminated `[` at end-of-input).
  */
 function matchSpanEnd(src, start) {
   let index = start + 1
@@ -24,7 +30,7 @@ function matchSpanEnd(src, start) {
     }
     index += 1
   }
-  if (index === start || index >= src.length) {
+  if (index === start) {
     return -1
   }
   const nextChar = src[index + 1]
