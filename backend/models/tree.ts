@@ -494,13 +494,16 @@ class Tree {
 
     const locations: SQL[] = [sql`${treeTable.folderPath} ~ ${pathQuery}::lquery`]
     if (includeAncestors && path) {
-      // -> Each iteration drops one level off the end, walking the branch back up to the root
+      // -> Each iteration drops one level off the end, walking the branch back up to the root.
+      //    Matches on `folderPath` alone (no `fileName` filter) so every folder AT that level comes
+      //    back, not just the one ancestor node on the chain -- mirroring `includeRootFolders`'s own
+      //    unconditional root-level match below, so a caller opening a deep folder sees its siblings
+      //    at every intermediate level too, not only an unbroken ancestor chain (OpenProject #3132).
       const parts = path.split('.')
       for (let i = 0; i < parts.length; i++) {
         locations.push(
           and(
             eq(treeTable.folderPath, parts.slice(0, parts.length - 1 - i).join('.')),
-            eq(treeTable.fileName, parts[parts.length - 1 - i]),
             eq(treeTable.type, 'folder')
           )!
         )
