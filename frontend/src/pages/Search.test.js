@@ -811,6 +811,102 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
 })
 
 /**
+ * OpenProject #3138: `HeaderSearch.vue`'s own new mode toggle carries its pending mode as a `mode`
+ * query param on the navigation to `/_search` -- these confirm this page reads it back on load (and
+ * on any later route-query change) to initialize/update `state.mode`, so a semantic search started
+ * from the header lands here already in Semantic mode rather than requiring a second click.
+ */
+describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
+  it('initializes state.mode to semantic and queries the semantic endpoint when ?mode=semantic', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.vm.state.mode).toBe('semantic')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding' })
+      })
+    )
+  })
+
+  it('does not honour ?mode=semantic when the site has no semantic search available', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: false,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.vm.state.mode).toBe('keyword')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding' })
+      })
+    )
+  })
+
+  it('defaults to keyword mode when no mode param is present', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.vm.state.mode).toBe('keyword')
+  })
+
+  it('switches back to keyword mode on a route-query change carrying ?mode=keyword', async () => {
+    const { wrapper, router } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    expect(wrapper.vm.state.mode).toBe('semantic')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE], totalHits: 1, suggestion: null })
+    })
+    await router.push({ path: '/_search', query: { q: 'onboarding', mode: 'keyword' } })
+    await flushPromises()
+
+    expect(wrapper.vm.state.mode).toBe('keyword')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding' })
+      })
+    )
+  })
+
+  it('preserves the current mode on a route-query change carrying no mode param at all', async () => {
+    const { wrapper, router } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    expect(wrapper.vm.state.mode).toBe('semantic')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE], totalHits: 1, suggestion: null })
+    })
+    await router.push({ path: '/_search', query: { q: 'onboarding tag' } })
+    await flushPromises()
+
+    expect(wrapper.vm.state.mode).toBe('semantic')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding tag' })
+      })
+    )
+  })
+})
+
+/**
  * OpenProject #3106: the hop-2 "related via" indicator. `SearchResultHopBadge.test.js` owns the
  * badge's own draw/no-draw rules across every `hop` value; this only confirms `Search.vue` threads a
  * result's `hop` field through to the row that renders it, with no re-derivation of its own.
