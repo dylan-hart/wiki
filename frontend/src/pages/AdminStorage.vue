@@ -518,35 +518,13 @@
             </w-chip>
           </w-card-section>
           <w-separator />
-          <v-network-graph
-            :zoom-level="2"
-            :configs="state.deliveryConfig"
+          <storage-delivery-graph
             :nodes="state.deliveryNodes"
             :edges="state.deliveryEdges"
             :paths="state.deliveryPaths"
             :layouts="state.deliveryLayouts"
-            :style="deliveryGraphStyle">
-            <template #override-node="{ nodeId, scale, config, ...slotProps }">
-              <rect
-                :rx="config.borderRadius * scale"
-                :x="-config.radius * scale"
-                :y="-config.radius * scale"
-                :width="config.radius * scale * 2"
-                :height="config.radius * scale * 2"
-                :fill="config.color"
-                v-bind="slotProps" />
-              <image
-                v-if="
-                  state.deliveryNodes[nodeId].icon &&
-                  state.deliveryNodes[nodeId].icon.endsWith(`.svg`)
-                "
-                :x="(-config.radius + 5) * scale"
-                :y="(-config.radius + 5) * scale"
-                :width="(config.radius - 5) * scale * 2"
-                :height="(config.radius - 5) * scale * 2"
-                :xlink:href="state.deliveryNodes[nodeId].icon" />
-            </template>
-          </v-network-graph>
+            :dark="dark.isActive"
+            :aria-label="t('admin.storage.deliveryPaths')" />
         </w-card>
       </div>
     </div>
@@ -568,8 +546,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import * as VNG from 'v-network-graph'
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
+import StorageDeliveryGraph from '@/components/StorageDeliveryGraph.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
@@ -580,14 +558,6 @@ import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 // COMPOSABLES
 
 const dark = useDark()
-
-// COMPONENTS
-//
-// Task #1888: this is the sole consumer of v-network-graph, so it's registered locally off the
-// namespace import above rather than globally in boot/components.js. `<script setup>` auto-exposes
-// this top-level binding to the template, resolving the `<v-network-graph>` tag -- a property access
-// on `VNG` directly in the template would not resolve the same way.
-const VNetworkGraph = VNG.VNetworkGraph
 
 // STORES
 
@@ -649,68 +619,7 @@ const state = reactive({
   deliveryLayouts: {
     nodes: {}
   },
-  deliveryPaths: [],
-  deliveryConfig: VNG.defineConfigs({
-    view: {
-      layoutHandler: new VNG.GridLayout({ grid: 15 }),
-      fit: true,
-      mouseWheelZoomEnabled: false,
-      grid: {
-        visible: true,
-        interval: 2.5,
-        thickIncrements: 0
-      }
-    },
-    node: {
-      draggable: false,
-      selectable: true,
-      normal: {
-        type: 'rect',
-        color: (node) => node.color || '#1976D2',
-        borderRadius: (node) => node.borderRadius || 5
-      },
-      label: {
-        margin: 8,
-        // OpenProject #2500: the library's own default label color is a literal `#000000`, which
-        // is only readable against the hardcoded white background `deliveryGraphStyle` above used
-        // to draw. Read reactively (v-network-graph calls this per node, so `dark.isActive` is
-        // tracked as a normal Vue dependency the same way `node.normal.color` already is above) so
-        // a dark-mode toggle repaints existing labels instead of freezing them at whichever mode
-        // was active when the graph first mounted.
-        color: () => (dark.isActive ? '#e8eaed' : '#000000')
-      }
-    },
-    edge: {
-      normal: {
-        width: 3,
-        dasharray: (edge) => (edge.animate === false ? 20 : 3),
-        animate: (edge) => !(edge.animate === false),
-        animationSpeed: (edge) => edge.animationSpeed || 50,
-        color: (edge) => edge.color || '#1976D2'
-      },
-      type: 'straight',
-      gap: 7,
-      margin: 4,
-      marker: {
-        source: {
-          type: 'none'
-        },
-        target: {
-          type: 'none'
-        }
-      }
-    },
-    path: {
-      visible: true,
-      end: 'edgeOfNode',
-      margin: 4,
-      path: {
-        width: 7,
-        color: (p) => p.color,
-        linecap: 'square'
-      }
-    }
-  })
+  deliveryPaths: []
 })
 
 // COMPUTED
@@ -744,18 +653,6 @@ const syncModeHint = computed(() => {
 
 /** 'error' | 'never' | 'outOfDate' | 'synced' -- see `syncStatusKind` for the priority order. */
 const syncStatus = computed(() => syncStatusKind(state.syncStatus))
-
-/** OpenProject #2500: `<v-network-graph>` draws a transparent SVG, so the delivery-paths panel
- *  needs an explicit background of its own -- this used to be a hardcoded `#fff`, a stark white box
- *  inside an otherwise dark-themed admin page. Bound to `dark.isActive` the same way OpenProject
- *  #2412 rebound the knowledge graph canvas's own hardcoded colors. The dark value is `.w-card`'s
- *  own dark surface (`--color-dark-3` in `css/tailwind.css`) rather than a second hardcoded hex, so
- *  the graph blends into the card it sits inside instead of reading as a mismatched panel of its
- *  own. */
-const deliveryGraphStyle = computed(() => ({
-  height: '600px',
-  backgroundColor: dark.isActive ? 'var(--color-dark-3)' : '#fff'
-}))
 
 // WATCHERS
 
@@ -996,7 +893,7 @@ async function executeAction(act) {
 /**
  * Rebuild the Delivery Paths diagram from the current targets. The graph itself is built by
  * `helpers/storageDeliveryGraph.js`, which is a pure function of them; this only hands the result to
- * the four props `v-network-graph` reads.
+ * the four props `StorageDeliveryGraph.vue` reads.
  */
 function generateGraph() {
   const graph = buildDeliveryGraph(state.targets, t)
@@ -1025,15 +922,4 @@ onMounted(() => {
 <style lang="scss" scoped>
 .admin-storage-logo {
 }
-</style>
-
-<style>
-/*
-  Task #1888: kept in its own unscoped block, not folded into the `scoped` block above -- Vue's
-  scoped-CSS rewriting only reaches this component's own template output and each child component's
-  root element, not the deeply-nested `.v-ng-*` elements v-network-graph renders inside its own
-  render tree. A scoped `@import` here would compile to attribute selectors those elements never
-  carry, silently breaking the diagram's styling.
-*/
-@import 'v-network-graph/lib/style.css';
 </style>

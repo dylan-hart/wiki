@@ -9,6 +9,4 @@ export function initializeComponents(app) {
   app.component('StatusLight', StatusLight)
   // -> The `w-*` shared library; see components/shared/index.js
   registerSharedComponents(app)
-  // -> v-network-graph is registered locally in AdminStorage.vue, the sole consumer -- see
-  //    AdminStorage.vue's own `VNetworkGraph` binding and <style> block.
 }
