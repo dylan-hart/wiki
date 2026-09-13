@@ -67,12 +67,12 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
 
 describe('MarkdownRenderer - multimd-table', () => {
   /*
-    Regression coverage for the fix at the `multimdTable` branch in markdown.js: the option was
-    misspelled `mdmultiTable`, so the plugin was never installed, and correcting the name on its own
-    made the constructor throw `md.utils.assign is not a function` -- markdown-it-multimd-table calls
-    a `md.utils.assign` helper that markdown-it dropped in v14, and the plugin has had no release
-    since. The shim (`this.md.utils.assign ??= Object.assign`) is what makes the corrected name safe
-    to use. If either half of that regresses, these throw instead of asserting.
+    Regression coverage for OpenProject #3110: the `multimdTable` option used to be misspelled
+    `mdmultiTable` in the branch that installed the table plugin, so the plugin was never installed
+    and none of these three features ever actually worked. `./modules/markdown-it-table.js` is a
+    from-scratch replacement for the third-party plugin that name used to install (see its own doc
+    comment for the full syntax and design) -- these tests are the regression coverage for the typo
+    AND the first real coverage these three features have ever had.
   */
 
   it('merges a ^^ rowspan cell into the row above when multimdTable is enabled', () => {
@@ -132,6 +132,24 @@ describe('MarkdownRenderer - multimd-table', () => {
     expect(html).not.toContain('colspan')
     // -> `^^` is left as the literal cell text rather than being read as a rowspan marker
     expect(html).toContain('<div role="cell">^^</div>')
+  })
+
+  it('renders a table with no header row when multimdTable and headerless are both enabled', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| ------ | ------ |', '| A      | B      |', '| C      | D      |', ''].join('\n')
+    )
+
+    expect(html).toContain('role="table"')
+    // -> No `thead`/`columnheader` at all -- the table's very first row IS the separator, so every
+    //    row that follows it is body content
+    expect(html).not.toContain('role="columnheader"')
+    const rowCount = (html.match(/role="row"/g) ?? []).length
+    expect(rowCount).toBe(2)
+    expect(html).toContain('<div role="cell">A</div>')
+    expect(html).toContain('<div role="cell">B</div>')
+    expect(html).toContain('<div role="cell">C</div>')
+    expect(html).toContain('<div role="cell">D</div>')
   })
 })
 
@@ -208,15 +226,14 @@ describe('MarkdownRenderer - table grid markup', () => {
   })
 
   /*
-    OpenProject #3023: `markdown-it-multimd-table` always pushes `caption_open`/`caption_close` as
-    the first child inside `table_open`/`table_close`, and left as a real `<caption>` tag it is
-    silently DROPPED by every browser's own HTML parser -- the WHATWG "in body" insertion mode treats
-    an orphan `caption` start tag (one not inside an ACTUAL `<table>` element's own insertion mode) as
-    a parse error and ignores it outright (verified directly against a real Chromium). Since
-    `table_open` above already retags every table token to `<div>`, there is no `<table>` anywhere on
-    the page for a caption to be "inside" any more, so it has to be retagged the same way the rest of
-    the table already is -- a `<div class="table-caption">` is never subject to that rule and
-    survives parsing with every attribute intact.
+    OpenProject #3023. Left as a real `<caption>` tag, it is silently DROPPED by every browser's own
+    HTML parser -- the WHATWG "in body" insertion mode treats an orphan `caption` start tag (one not
+    inside an ACTUAL `<table>` element's own insertion mode) as a parse error and ignores it outright
+    (verified directly against a real Chromium). Since `table_open` above already retags every table
+    token to `<div>`, there is no `<table>` anywhere on the page for a caption to be "inside" any
+    more, so it has to be retagged the same way the rest of the table already is -- a
+    `<div class="table-caption">` is never subject to that rule and survives parsing with every
+    attribute intact.
   */
   it('renders a caption authored above the table as a div, not a <caption> the browser would silently drop', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
@@ -225,12 +242,13 @@ describe('MarkdownRenderer - table grid markup', () => {
     )
 
     expect(html).not.toContain('<caption')
-    expect(html).toContain('<div id="topcaption" class="table-caption">Top Caption</div>')
-    // -> First child inside the table div, ahead of every row -- matches the plugin's own token order
+    expect(html).toContain('<div class="table-caption">Top Caption</div>')
+    // -> First child inside the table div, ahead of every row -- the caption's own tokens are emitted
+    //    in their natural authored position (above the rows, since it was authored above the table)
     expect(html.indexOf('table-caption')).toBeLessThan(html.indexOf('role="row"'))
   })
 
-  it("carries the plugin's own inline caption-side: bottom style onto the retagged div, for a caption authored below the table", () => {
+  it('carries an inline caption-side: bottom style onto the retagged div, for a caption authored below the table', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
     const html = renderer.render(
       ['| A    | B    |', '|------|------|', '| 1    | 2    |', '[Bottom Caption]', ''].join('\n')
@@ -238,8 +256,12 @@ describe('MarkdownRenderer - table grid markup', () => {
 
     expect(html).not.toContain('<caption')
     expect(html).toContain(
-      '<div id="bottomcaption" style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
+      '<div style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
     )
+    // -> Emitted after the last row this time -- its own natural authored position, since it was
+    //    authored below the table. `_page-contents.scss`'s `order: 1` rule (keyed off this same
+    //    inline style) is what still puts it at the visual end of the grid regardless.
+    expect(html.indexOf('table-caption')).toBeGreaterThan(html.lastIndexOf('role="row"'))
   })
 })
 

@@ -7,10 +7,10 @@ import mdAbbr from 'markdown-it-abbr'
 import mdSup from 'markdown-it-sup'
 import mdSub from 'markdown-it-sub'
 import mdMark from 'markdown-it-mark'
-import mdMultiTable from 'markdown-it-multimd-table'
 import mdFootnote from 'markdown-it-footnote'
 import mdMdc from 'markdown-it-mdc'
 import mdUnderline from './modules/markdown-it-underline'
+import mdTable from './modules/markdown-it-table'
 import mdImsize from './modules/markdown-it-imsize'
 import mdGithubAlerts from './modules/github-alerts'
 import mdGlossary from './modules/markdown-it-glossary'
@@ -311,26 +311,20 @@ export class MarkdownRenderer {
     }
 
     /*
-      MultiMarkdown tables: multi-line cells, `^^` rowspans, and a table with no header row.
+      MultiMarkdown tables: multi-line cells, `^^` rowspans, and a table with no header row -- see
+      `./modules/markdown-it-table.js`'s own doc comment for the syntax and the token shape it emits.
 
       `multimdTable` is the name the setting has everywhere else -- `base.yml`, `models/sites.ts`, the
-      editor's config overlay -- and this read it as `mdmultiTable`, so the plugin was never installed
-      and none of those three features has ever worked.
-
-      The shim is what makes fixing that safe. `markdown-it-multimd-table` merges its options with
-      `md.utils.assign`, which markdown-it dropped in 14; on 15 the `use()` call throws
-      `md.utils.assign is not a function`, out of the CONSTRUCTOR -- so with the name corrected and
-      nothing else, every render in the app would have died instead. 4.2.3 is the last release of the
-      plugin (Aug 2023) and there is no fixed version to move to.
-
-      `md.utils` is one object shared by every markdown-it instance, so this restores the helper
-      process-wide rather than for this renderer. That is as narrow as it can be made and it is benign:
-      the removed helper WAS this, minus a guard against non-object sources that the one call site
-      cannot hit.
+      editor's config overlay -- and this used to read it as `mdmultiTable`, so the plugin was never
+      installed and none of those three features ever actually worked (OpenProject #3110). Fixing the
+      typo alone would not have been enough: `markdown-it-multimd-table`, the third-party plugin this
+      used to install here, calls a `md.utils.assign` helper markdown-it dropped in v14, throwing out
+      of its own constructor on 15 -- and the plugin has had no release since Aug 2023 to fix that in.
+      `./modules/markdown-it-table.js` is a from-scratch replacement, written directly against
+      markdown-it 15's own block-rule API, with no such gap and no shim required.
     */
     if (config.multimdTable) {
-      this.md.utils.assign ??= Object.assign
-      this.md.use(mdMultiTable, { multiline: true, rowspan: true, headerless: true })
+      this.md.use(mdTable, { multiline: true, rowspan: true, headerless: true })
     }
 
     // --------------------------------
@@ -375,7 +369,7 @@ export class MarkdownRenderer {
       `role="table"` -- and `table`/`row`/`columnheader`/`cell` are the whole of what a screen reader
       needs to read this back as a table.
 
-      `th`/`td`'s `colspan`/`rowspan` (set by `markdown-it-multimd-table`'s `^^`/`\` continuation
+      `th`/`td`'s `colspan`/`rowspan` (set by `./modules/markdown-it-table.js`'s `^^`/`\` continuation
       syntax -- see the MultiMarkdown tables comment above) are renamed to `aria-colspan`/
       `aria-rowspan` rather than carried over as-is: those are real HTML attributes only on
       `<td>`/`<th>`, meaningless on a `<div>`, and the backend sanitizer
@@ -424,24 +418,27 @@ export class MarkdownRenderer {
     this.md.renderer.rules.td_close = asDiv
 
     /*
-      A caption (OpenProject #3023). `markdown-it-multimd-table` always pushes `caption_open`/
-      `caption_close` as the first child inside `table_open`/`table_close`, regardless of whether
-      `[Caption]` was authored above or below the table (see the plugin source) -- left as a real
-      `<caption>`, it is silently DROPPED by every browser's own HTML parser the moment this HTML
-      lands in a live DOM. The WHATWG tree-construction algorithm's "in body" insertion mode treats
-      an orphan `caption` start tag -- one that isn't inside an ACTUAL `<table>` element's own
-      insertion mode -- as a parse error and ignores the token outright, leaving its text to spill
-      out as a bare, unwrapped, unstyled text node instead (verified directly against a real
-      Chromium: `<div role="table"><caption>Cap</caption>…` parses back with the tag gone and plain
-      "Cap" text in its place). Since `table_open` above already retags every table token to a
-      `<div>`, there is no `<table>` anywhere on the rendered page any more for a caption to be
-      "inside" -- this is not a hypothetical, it is what happens on every real save.
+      A caption (OpenProject #3023). Left as a real `<caption>`, it is silently DROPPED by every
+      browser's own HTML parser the moment this HTML lands in a live DOM. The WHATWG tree-construction
+      algorithm's "in body" insertion mode treats an orphan `caption` start tag -- one that isn't
+      inside an ACTUAL `<table>` element's own insertion mode -- as a parse error and ignores the
+      token outright, leaving its text to spill out as a bare, unwrapped, unstyled text node instead
+      (verified directly against a real Chromium: `<div role="table"><caption>Cap</caption>…` parses
+      back with the tag gone and plain "Cap" text in its place). Since `table_open` above already
+      retags every table token to a `<div>`, there is no `<table>` anywhere on the rendered page any
+      more for a caption to be "inside" -- this is not a hypothetical, it is what happens on every
+      real save.
 
       Retagging the caption the same way the rest of the table already is fixes it at the root: a
       `<div>` is never subject to that in-body table-tag rule, so it survives parsing intact with
-      every attribute the plugin gave it (its own `id`/`style="caption-side: bottom"`).
-      `.table-caption` is what `_page-contents.scss`'s grid-caption rules key off of to size and
-      place it -- there is no ARIA role for "caption" to give it the way a row or cell gets one.
+      whichever attribute `./modules/markdown-it-table.js` gave it (`style="caption-side: bottom"` for
+      one authored below the table, nothing extra for one authored above). `.table-caption` is what
+      `_page-contents.scss`'s grid-caption rules key off of to size and place it -- including, via its
+      `order: 1` rule keyed off that same inline style, putting a bottom caption at the visual end of
+      the grid regardless of where its own tokens sit in the document (the plugin emits a caption's
+      tokens in its own natural authored position, above the rows or after them, rather than always
+      first -- there is no ARIA role for "caption" to give it the way a row or cell gets one, so
+      nothing here depends on DOM order the way an actual `<table>`/`<caption>` pairing would).
     */
     this.md.renderer.rules.caption_open = (tokens, idx, options, env, slf) => {
       tokens[idx].attrJoin('class', 'table-caption')
