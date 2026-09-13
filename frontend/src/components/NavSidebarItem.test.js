@@ -1,10 +1,11 @@
 import { defineComponent, h } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import NavSidebarItem from './NavSidebarItem.vue'
 import WTooltip from './shared/WTooltip.vue'
 import routes from '@/router/routes'
 import { useProvideNavExpansionState } from '@/composables/navExpansionState'
+import { isolateOnLeftClick, setIsolateOnLeftClick } from '@/composables/navIsolatePreference'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
@@ -286,13 +287,14 @@ describe('NavSidebarItem: label truncation tooltip', () => {
 })
 
 /**
- * OpenProject #2848: middle-click a folder's header to isolate it -- open it plus its ancestor
- * chain, collapse every other folder in the whole tree. Mounted through a `Host` that provides the
- * shared expansion state itself (`useProvideNavExpansionState`, mirroring `NavSidebar.vue`), since a
- * standalone `NavSidebarItem` mount falls back to a fresh, UNSHARED map per instance -- the isolate
- * handler's writes to a nested folder's state would otherwise never reach that folder's own,
- * separate map. `siteStore.nav.items` is seeded with the same tree so the handler's whole-tree walk
- * has something real to read.
+ * OpenProject #2848/#3062: shift+click (or, with the isolate-on-left-click toggle on, a bare
+ * left-click) a folder's header to isolate it -- open it plus its ancestor chain, collapse every
+ * other folder in the whole tree. Mounted through a `Host` that provides the shared expansion state
+ * itself (`useProvideNavExpansionState`, mirroring `NavSidebar.vue`), since a standalone
+ * `NavSidebarItem` mount falls back to a fresh, UNSHARED map per instance -- the isolate handler's
+ * writes to a nested folder's state would otherwise never reach that folder's own, separate map.
+ * `siteStore.nav.items` is seeded with the same tree so the handler's whole-tree walk has something
+ * real to read.
  *
  * `root` and `sibling` both start expanded (`expandByDefault: true`) so the test can observe
  * `sibling` actually closing and `root` staying open, rather than merely never having opened.
@@ -353,20 +355,40 @@ function isExpanded(wrapper, id) {
 
 /** Dispatches a real, bubbling middle-click (`auxclick`, button 1) on an element -- the same event a
  *  browser fires for a non-primary mouse button, never `click`. Returns `dispatchEvent`'s own
- *  boolean: `false` once something along the path called `preventDefault()`. */
+ *  boolean: `false` once something along the path called `preventDefault()`. Kept only for the
+ *  regression test below proving middle-click no longer triggers isolation at all (OpenProject
+ *  #3062) -- isolation itself now goes through `shiftClick`. */
 function middleClick(element) {
   return element.dispatchEvent(
     new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
   )
 }
 
-describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
+/** Dispatches a real, bubbling, shift-held left click -- what isolates a folder by default
+ *  (OpenProject #3062), in place of the retired middle-click gesture. */
+function shiftClick(element) {
+  return element.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, shiftKey: true })
+  )
+}
+
+// -> Every describe below that touches the toggle restores it to the documented OFF default
+//    afterwards, so test order never leaks one suite's toggle state into the next.
+afterEach(() => {
+  setIsolateOnLeftClick(false)
+})
+
+describe('NavSidebarItem: shift+click isolate (OpenProject #2848/#3062), toggle OFF (default)', () => {
+  it('the isolate-on-left-click toggle defaults to OFF', () => {
+    expect(isolateOnLeftClick()).toBe(false)
+  })
+
   it('opens the clicked folder and its ancestor chain, and collapses every sibling folder', async () => {
     const wrapper = await mountIsolateTree()
     expect(isExpanded(wrapper, 'target')).toBe(false)
     expect(isExpanded(wrapper, 'sibling')).toBe(true)
 
-    const notPrevented = middleClick(
+    const notPrevented = shiftClick(
       itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element
     )
     await wrapper.vm.$nextTick()
@@ -377,7 +399,7 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
     expect(isExpanded(wrapper, 'sibling')).toBe(false) // -> every other folder collapses
   })
 
-  it('does not fire on a plain click (only a middle-click auxclick isolates)', async () => {
+  it('does not fire on a plain click (only shift+click isolates)', async () => {
     const wrapper = await mountIsolateTree()
 
     itemWrapper(wrapper, 'target')
@@ -390,16 +412,29 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
     expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected
   })
 
-  it('is scoped to the header row -- a middle-click on a nested leaf link does not isolate its parent folder, and does not preventDefault', async () => {
+  it('no longer fires on a middle-click (OpenProject #3062: middle-click isolation was retired)', async () => {
     const wrapper = await mountIsolateTree()
 
-    const notPrevented = middleClick(itemWrapper(wrapper, 'sibling-leaf').element)
+    const notPrevented = middleClick(
+      itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element
+    )
     await wrapper.vm.$nextTick()
 
-    // -> Nothing along the bubble path (sibling's own folder, then root's) treated this as its own
-    //    header being clicked, so the browser's native middle-click-opens-a-new-tab is left intact...
+    expect(notPrevented).toBe(true) // -> nothing called preventDefault -- no listener reacts to it any more
+    expect(isExpanded(wrapper, 'target')).toBe(false) // -> unaffected
+    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected
+  })
+
+  it('is scoped to the header row -- a shift+click on a nested leaf link does not isolate its parent folder, and does not preventDefault', async () => {
+    const wrapper = await mountIsolateTree()
+
+    const notPrevented = shiftClick(itemWrapper(wrapper, 'sibling-leaf').element)
+    await wrapper.vm.$nextTick()
+
+    // -> Nothing along the capture path (root's own listener, then sibling's) claimed this click as
+    //    its own header being clicked, so nothing prevented the browser's own native handling...
     expect(notPrevented).toBe(true)
-    // -> ...and no folder's open/closed state changed as a side effect of the bubble.
+    // -> ...and no folder's open/closed state changed as a side effect.
     expect(isExpanded(wrapper, 'sibling')).toBe(true)
     expect(isExpanded(wrapper, 'target')).toBe(false)
     expect(isExpanded(wrapper, 'root')).toBe(true)
@@ -408,24 +443,24 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
   it('a second isolate on a different folder re-collapses the first one', async () => {
     const wrapper = await mountIsolateTree()
 
-    middleClick(itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element)
+    shiftClick(itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
     expect(isExpanded(wrapper, 'target')).toBe(true)
     expect(isExpanded(wrapper, 'sibling')).toBe(false)
 
-    middleClick(itemWrapper(wrapper, 'sibling').find('.w-expansion-item__header').element)
+    shiftClick(itemWrapper(wrapper, 'sibling').find('.w-expansion-item__header').element)
     await wrapper.vm.$nextTick()
     expect(isExpanded(wrapper, 'sibling')).toBe(true)
     expect(isExpanded(wrapper, 'target')).toBe(false)
     expect(isExpanded(wrapper, 'root')).toBe(true)
   })
 
-  it('middle-clicking an already-open folder just closes it, like a plain left click -- no isolation', async () => {
+  it('shift-clicking an already-open folder just closes it, like a plain left click -- no isolation', async () => {
     const wrapper = await mountIsolateTree()
     expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> expandByDefault: true
     expect(isExpanded(wrapper, 'root')).toBe(true) // -> untouched sibling, to prove it stays that way
 
-    const notPrevented = middleClick(
+    const notPrevented = shiftClick(
       itemWrapper(wrapper, 'sibling').find('.w-expansion-item__header').element
     )
     await wrapper.vm.$nextTick()
@@ -434,6 +469,92 @@ describe('NavSidebarItem: middle-click isolate (OpenProject #2848)', () => {
     expect(isExpanded(wrapper, 'sibling')).toBe(false) // -> closed, exactly as a left click would
     expect(isExpanded(wrapper, 'root')).toBe(true) // -> not isolated: no OTHER folder was touched
     expect(isExpanded(wrapper, 'target')).toBe(false) // -> already closed, still closed
+  })
+})
+
+/**
+ * OpenProject #3062: the profile toggle swaps which gesture isolates. ON means a BARE left-click
+ * isolates and shift+click instead falls back to the regular open/close toggle -- the exact mirror
+ * image of the OFF-default suite above, over the same `ISOLATE_TREE`.
+ */
+describe('NavSidebarItem: isolate-on-left-click toggle ON', () => {
+  it('a bare left-click isolates the clicked folder and its ancestor chain', async () => {
+    setIsolateOnLeftClick(true)
+    const wrapper = await mountIsolateTree()
+    expect(isExpanded(wrapper, 'target')).toBe(false)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true)
+
+    const notPrevented = itemWrapper(wrapper, 'target')
+      .find('.w-expansion-item__header')
+      .element.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+      )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(isExpanded(wrapper, 'target')).toBe(true)
+    expect(isExpanded(wrapper, 'root')).toBe(true)
+    expect(isExpanded(wrapper, 'sibling')).toBe(false)
+  })
+
+  it('shift+click instead behaves as the regular open/close toggle -- no isolation', async () => {
+    setIsolateOnLeftClick(true)
+    const wrapper = await mountIsolateTree()
+
+    const notPrevented = shiftClick(
+      itemWrapper(wrapper, 'target').find('.w-expansion-item__header').element
+    )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(true) // -> our handler never called preventDefault
+    expect(isExpanded(wrapper, 'target')).toBe(true) // -> the ordinary toggle still ran (was closed)
+    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> unaffected -- not isolated
+  })
+})
+
+/**
+ * OpenProject #3062's own risk note: shift+click must not fight the existing ctrl+click
+ * expand-cycle handler on the same header. Ctrl+click always wins and always cycles, regardless of
+ * shift or the toggle's value.
+ */
+describe('NavSidebarItem: ctrl+click takes priority over shift+click isolate', () => {
+  it('ctrl+shift+click on a folder cycles its descendants rather than isolating it', async () => {
+    const wrapper = await mountIsolateTree()
+    // -> `target` has one leaf-only child (no nested folder), so a ctrl+click on it has nothing to
+    //    cycle below it but still force-opens `target` itself -- see OpenProject #2890. If shift had
+    //    won instead, `sibling` would have collapsed as part of isolation; it must not.
+    const notPrevented = itemWrapper(wrapper, 'target')
+      .find('.w-expansion-item__header')
+      .element.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          ctrlKey: true,
+          shiftKey: true
+        })
+      )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false) // -> preventDefault() was called
+    expect(isExpanded(wrapper, 'target')).toBe(true) // -> force-opened by the cycle, not isolation
+    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> untouched: isolation never ran
+  })
+
+  it('still cycles with the isolate-on-left-click toggle ON', async () => {
+    setIsolateOnLeftClick(true)
+    const wrapper = await mountIsolateTree()
+
+    const notPrevented = itemWrapper(wrapper, 'target')
+      .find('.w-expansion-item__header')
+      .element.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })
+      )
+    await wrapper.vm.$nextTick()
+
+    expect(notPrevented).toBe(false)
+    expect(isExpanded(wrapper, 'target')).toBe(true) // -> force-opened by the cycle
+    expect(isExpanded(wrapper, 'sibling')).toBe(true) // -> untouched: isolation never ran even though ON
   })
 })
 
