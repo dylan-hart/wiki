@@ -613,3 +613,71 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     expect(untagged.find('.layout-search-rowtags').exists()).toBe(false)
   })
 })
+
+/**
+ * OpenProject #3106: the hop-2 "related via" indicator. `SearchResultHopBadge.test.js` owns the
+ * badge's own draw/no-draw rules across every `hop` value; this only confirms `Search.vue` threads a
+ * result's `hop` field through to the row that renders it, with no re-derivation of its own.
+ */
+function createSearchI18nWithHop() {
+  return createTestI18n({
+    search: {
+      results: 'Search Results',
+      emptyQuery: 'Enter a query in the search field above and press Enter.',
+      totalResults: 'No result | {0} result | {0} results',
+      totalResultsApprox: 'No result | At least {0} result | At least {0} results',
+      loadMore: 'Load More',
+      relatedResult: 'Related',
+      relatedResultHint: 'This result did not match your search directly.'
+    }
+  })
+}
+
+async function mountSearchWithHopResponse(searchResponse) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(searchResponse) })
+
+  const router = await createSearchRouter('/_search?q=onboarding')
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createSearchI18nWithHop()],
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper }
+}
+
+describe('Search.vue hop-2 "related via" indicator (OpenProject #3106)', () => {
+  it('shows the badge on a hop-2 row and not on a hop-1 row beside it', async () => {
+    const { wrapper } = await mountSearchWithHopResponse({
+      results: [
+        { ...FIXTURE_RICH_RESULT, hop: 1 },
+        { ...FIXTURE_RICH_RESULT, id: 'p11', path: 'other-page', title: 'Other Page', hop: 2 }
+      ],
+      totalHits: 2,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const [hop1Row, hop2Row] = wrapper.findAll('.layout-search-row')
+    expect(hop1Row.find('.search-result-hop-badge').exists()).toBe(false)
+    expect(hop2Row.find('.search-result-hop-badge').exists()).toBe(true)
+    expect(hop2Row.text()).toContain('Related')
+  })
+
+  it('shows no badge at all for a keyword-mode result, which carries no hop field', async () => {
+    const { wrapper } = await mountSearchWithHopResponse({
+      results: [FIXTURE_RICH_RESULT],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.search-result-hop-badge').exists()).toBe(false)
+  })
+})

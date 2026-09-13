@@ -3539,6 +3539,8 @@
   "search.publishStateDraft": "Draft",
   "search.publishStatePublished": "Published",
   "search.publishStateScheduled": "Scheduled",
+  "search.relatedResult": "Related",
+  "search.relatedResultHint": "This result did not match your search directly -- it surfaced because it is closely related to another result that did.",
   "search.results": "Search Results",
   "search.sortBy": "Sort By",
   "search.sortByLastUpdated": "Last Updated",
