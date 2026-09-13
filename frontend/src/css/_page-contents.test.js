@@ -145,6 +145,34 @@ describe('_page-contents.scss logical properties (whole file)', () => {
     expect(source).toMatch(/border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/)
   })
 
+  /**
+   * OpenProject #3130 ("Question admonition icon tiles, wrong color, and has no thick left border
+   * -- falls back to the base blockquote gutter"). `.is-question` had its own severity-specific
+   * block (`--alert-hue`, `border-inline-start-color`, `background-color`, `::before` color/
+   * mask-image -- covered by the hue loop above) but was missing from THIS shared selector list,
+   * so it never received the shared block's `border-inline-start-width: 4px`, icon `::before`
+   * sizing/masking (`width`/`height: 1.25em`, `mask-repeat: no-repeat`, `mask-size: contain`) or
+   * `.alert-title` styling below. Without those it fell back to the base `blockquote::before`
+   * gutter (44px wide, tiled, `--content-surface-alt` fill), which is what produced the reported
+   * oversized/repeating/wrong-colour icon and the thin 1px border instead of the 4px accent bar.
+   * Asserted that `.is-question` sits in the SAME selector list as the other five kinds, not just
+   * that its own tail block exists somewhere in the file (the hue loop above already covers that
+   * and would not have caught this regression).
+   */
+  it('includes .is-question in the shared admonition selector list, alongside the other five kinds', () => {
+    const sharedBlockStart = source.indexOf('&.is-info,')
+    const sharedBlockEnd = source.indexOf('&::before {', sharedBlockStart)
+    if (sharedBlockStart === -1 || sharedBlockEnd === -1) {
+      throw new Error(
+        'Shared admonition blockquote block not found -- has it moved or been renamed?'
+      )
+    }
+    const selectorList = source.slice(sharedBlockStart, sharedBlockEnd)
+    for (const kind of ['info', 'success', 'important', 'warning', 'danger', 'question']) {
+      expect(selectorList).toMatch(new RegExp(`&\\.is-${kind},\\s*&:has\\(> \\.is-${kind}\\)`))
+    }
+  })
+
   it('positions the admonition icon from the logical leading edge', () => {
     expect(source).toMatch(/inset-inline-start:\s*1\.1em;\s*width:\s*1\.25em;/)
   })

@@ -1594,7 +1594,9 @@
     &.is-warning,
     &:has(> .is-warning),
     &.is-danger,
-    &:has(> .is-danger) {
+    &:has(> .is-danger),
+    &.is-question,
+    &:has(> .is-question) {
       position: relative;
       padding-block: 0.9em;
       /* -> Start (leading edge) is the wider half: it clears the icon and the accent bar */
