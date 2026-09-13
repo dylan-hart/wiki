@@ -542,10 +542,6 @@ async function runSearchRequest(endpoint, searchParams, append) {
  * matching the route's singular `locale` param -- unlike keyword's comma-joined `locales`. Zero or
  * multiple selected means "let the server decide" (its own locale-scoping default) rather than this
  * page guessing which one the reader meant.
- *
- * FIXME: the real shape of Task #3102's route isn't landed in this worktree yet (round-2 coordination
- * note: build against the documented contract, expect small wiring fixes at integration) -- revisit
- * this once #3102 is real, in case its actual query-param contract differs from the design doc's.
  */
 function performSemanticSearch(append) {
   const q = (siteStore.search ?? '').trim().replaceAll(/\s\s+/g, ' ')
