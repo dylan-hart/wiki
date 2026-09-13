@@ -42,6 +42,17 @@ declare global {
     }
 
     /**
+     * Boot-time feature availability, resolved once and read everywhere rather than re-probed.
+     * `semanticSearch` reflects whether `pgvector` (and the `pageEmbeddingChunks` table/index it
+     * backs) is usable on this instance's database -- see Task #3095 and Epic #3050. Every consumer
+     * (the embed-page worker job, the semantic search route, the admin toggle) reads this rather
+     * than attempting the extension/table again.
+     */
+    capabilities: {
+      semanticSearch: boolean
+    }
+
+    /**
      * Merged config.yml + base.yml defaults + the `settings` DB table. Assembled at runtime from
      * YAML and JSONB, so it stays intentionally untyped.
      */
