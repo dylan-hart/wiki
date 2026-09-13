@@ -117,3 +117,81 @@ test('hasPermission: manage:system still bypasses everywhere, via checkAccess', 
     true
   )
 })
+
+/**
+ * Regression tests for task 3054: the 2.5.x migration importer's synthetic per-page actor has no
+ * group membership at all (`groupIds: []`) and is not logged in as anyone real, so it can never earn
+ * `write:scripts`/`write:styles` through `checkAccess()` the way the tests above establish. These
+ * cover `PageActor.forcedPagePermissions`, the dedicated escape hatch `hasPermission()` checks BEFORE
+ * ever calling `checkAccess()` — confirming it grants exactly the names it lists, grants nothing else,
+ * and that `checkAccess()` is never even reached when it applies (the stub above would throw a
+ * TypeError reading `page.path` if it were, since these tests pass no `page` fields `checkAccess()`
+ * itself needs).
+ */
+
+test('hasPermission: forcedPagePermissions grants a listed permission with no group membership at all', () => {
+  const actor = {
+    id: 'migration-actor',
+    permissions: [],
+    groupIds: [],
+    forcedPagePermissions: ['write:scripts', 'write:styles']
+  }
+  assert.equal(
+    hasPermission(actor, 'write:scripts', {
+      path: 'anywhere/at/all',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
+    true
+  )
+  assert.equal(
+    hasPermission(actor, 'write:styles', {
+      path: 'anywhere/at/all',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
+    true
+  )
+})
+
+test('hasPermission: forcedPagePermissions does not grant a permission it does not list', () => {
+  const actor = {
+    id: 'migration-actor',
+    permissions: [],
+    groupIds: [],
+    forcedPagePermissions: ['write:scripts']
+  }
+  assert.equal(
+    hasPermission(actor, 'write:styles', {
+      path: 'docs/allowed/getting-started',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
+    false
+  )
+})
+
+test('hasPermission: an unset forcedPagePermissions falls through to checkAccess exactly as before', () => {
+  const actor = { id: 'user-1', permissions: [], groupIds: ['rule-group'] }
+  assert.equal(
+    hasPermission(actor, 'write:scripts', {
+      path: 'docs/allowed/getting-started',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
+    true
+  )
+  assert.equal(
+    hasPermission(actor, 'write:scripts', {
+      path: 'other/page',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
+    false
+  )
+})

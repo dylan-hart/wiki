@@ -273,7 +273,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: ['write:scripts', 'write:styles'] }
+      { siteId: 'site-1', forcedPagePermissions: ['write:scripts', 'write:styles'] }
     )
 
     assert.equal(result.failed.length, 0)
@@ -290,6 +290,12 @@ describe('per-page import', () => {
     assert.equal(input.publishState, 'published')
     assert.equal(input.render, '<h1>Welcome</h1>')
     assert.equal(actor.id, 'actor-1')
+    // -> Regression coverage for task 3054: the option's permission names must actually reach the
+    //    actor's `forcedPagePermissions` field -- `hasPermission()`'s dedicated escape hatch -- rather
+    //    than the inert `permissions` field `checkAccess()` never reads them from.
+    assert.deepEqual(actor.forcedPagePermissions, ['write:scripts', 'write:styles'])
+    assert.deepEqual(actor.permissions, [])
+    assert.deepEqual(actor.groupIds, [])
 
     assert.equal(result.pageIdMap.get(42), 'page-1')
     assert.equal(result.succeeded[0].pageId, 'page-1')
@@ -310,7 +316,7 @@ describe('per-page import', () => {
     await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created[0].input.createdAt, '2018-05-01T12:00:00.000Z')
@@ -324,7 +330,7 @@ describe('per-page import', () => {
     await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created[0].input.createdAt, undefined)
@@ -341,7 +347,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(result.failed.length, 0)
@@ -364,7 +370,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created[0].input.publishStartDate, null)
@@ -385,7 +391,7 @@ describe('per-page import', () => {
     await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created[0].input.publishStartDate, '2024-01-01T00:00:00.000Z')
@@ -399,7 +405,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created[0].actor.id, 'creator-uuid')
@@ -415,7 +421,7 @@ describe('per-page import', () => {
     await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created[0].input.render, '<p>from 2.x</p>')
@@ -429,7 +435,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
+      { siteId: 'site-1', forcedPagePermissions: [], renderBootstrap: 'queue' }
     )
 
     assert.equal(pagesModel.created[0].input.render, undefined)
@@ -449,7 +455,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
+      { siteId: 'site-1', forcedPagePermissions: [], renderBootstrap: 'queue' }
     )
 
     assert.equal(pagesModel.created[0].input.render, '<p>from 2.x</p>')
@@ -464,7 +470,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created.length, 1)
@@ -488,7 +494,7 @@ describe('per-page import', () => {
         pagesModel,
         existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName === 'taken'
       },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created.length, 0)
@@ -507,7 +513,7 @@ describe('per-page import', () => {
     const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created.length, 0)
@@ -526,7 +532,7 @@ describe('per-page import', () => {
     const result = await runImport(
       pages,
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(result.failed.length, 1)
@@ -553,7 +559,7 @@ describe('per-page import', () => {
     const result = await runImport(
       pages,
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created.length, 2)
@@ -584,7 +590,7 @@ describe('per-page import', () => {
         //    the incidental existing-entry-collisions the suffixed retries hit) is what's reported.
         existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName !== 'foobar'
       },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(pagesModel.created.length, 1)
@@ -623,7 +629,7 @@ describe('per-page import', () => {
 
     const importer = createPageImporter(
       { pagesModel, existingEntry: noExistingEntries, backfillHistory },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
     for await (const page of source()) {
       await importer.importOne(page)
@@ -658,7 +664,7 @@ describe('per-page import', () => {
         existingEntry: noExistingEntries,
         backfillHistory
       },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     // -> All three pages were created — the history failure did not abort the run.
@@ -684,7 +690,7 @@ describe('per-page import', () => {
     const result = await runImport(
       staged,
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     assert.equal(result.succeeded.length, 1)
@@ -697,7 +703,7 @@ describe('createPageImporter', () => {
     const pagesModel = new FakePagesModel()
     const importer = createPageImporter(
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     await importer.importOne(buildStagedPage({ oldId: 1, path: 'one' }))
@@ -719,7 +725,7 @@ describe('createPageImporter', () => {
     const pagesModel = new FakePagesModel()
     const importer = createPageImporter(
       { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
+      { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
     await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
@@ -744,7 +750,7 @@ describe('createPageImporter', () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(
         { pagesModel, existingEntry: noExistingEntries },
-        { siteId: 'site-1', actorPermissions: [] }
+        { siteId: 'site-1', forcedPagePermissions: [] }
       )
 
       const outcome = await importer.importOne(buildStagedPage({ oldId: 1, path: 'one' }))
@@ -757,7 +763,7 @@ describe('createPageImporter', () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(
         { pagesModel, existingEntry: noExistingEntries },
-        { siteId: 'site-1', actorPermissions: [] }
+        { siteId: 'site-1', forcedPagePermissions: [] }
       )
 
       await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
@@ -776,7 +782,7 @@ describe('createPageImporter', () => {
           //    entry, so the retry budget is exhausted and the original sibling-collision is reported.
           existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName !== 'foobar'
         },
-        { siteId: 'site-1', actorPermissions: [] }
+        { siteId: 'site-1', forcedPagePermissions: [] }
       )
 
       await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
@@ -795,7 +801,7 @@ describe('createPageImporter', () => {
           pagesModel,
           existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName === 'taken'
         },
-        { siteId: 'site-1', actorPermissions: [] }
+        { siteId: 'site-1', forcedPagePermissions: [] }
       )
 
       const outcome = await importer.importOne(buildStagedPage({ oldId: 5, path: 'taken' }))
@@ -811,7 +817,7 @@ describe('createPageImporter', () => {
       pagesModel.failNextCreate = 'A page cannot be empty.'
       const importer = createPageImporter(
         { pagesModel, existingEntry: noExistingEntries },
-        { siteId: 'site-1', actorPermissions: [] }
+        { siteId: 'site-1', forcedPagePermissions: [] }
       )
 
       const outcome = await importer.importOne(buildStagedPage({ oldId: 1, path: 'empty-page' }))
@@ -825,7 +831,7 @@ describe('createPageImporter', () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(
         { pagesModel, existingEntry: noExistingEntries },
-        { siteId: 'site-1', actorPermissions: [] }
+        { siteId: 'site-1', forcedPagePermissions: [] }
       )
 
       const outcome = await importer.importOne(buildStagedPage({ oldId: 6, path: '' }))
