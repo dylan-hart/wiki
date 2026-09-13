@@ -306,7 +306,7 @@
                     size="sm"
                     padding="none xs"
                     :icon="state.tagEditMode ? `tabler:check` : `tabler:pencil`"
-                    color="deep-orange-9"
+                    color="accent"
                     flat
                     :label="
                       state.tagEditMode ? t('common.actions.exitEdit') : t('common.actions.edit')
