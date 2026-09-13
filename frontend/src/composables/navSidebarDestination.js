@@ -166,9 +166,9 @@ export function folderIds(items) {
 
 /**
  * The ids of every ancestor FOLDER of the item `targetId`, outer-to-inner, not including `targetId`
- * itself -- what middle-click isolate (OpenProject #2848) keeps open alongside the clicked folder
- * while collapsing every other id `folderIds` names. Empty when `targetId` is not found in `items`,
- * or is itself a root-level item with no ancestors.
+ * itself -- what shift+click isolate (OpenProject #2848/#3062) keeps open alongside the clicked
+ * folder while collapsing every other id `folderIds` names. Empty when `targetId` is not found in
+ * `items`, or is itself a root-level item with no ancestors.
  */
 export function ancestorIds(items, targetId) {
   function walk(list) {

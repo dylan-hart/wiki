@@ -157,8 +157,8 @@ describe('useNavSidebarDestination#destination -- empty-folder path fallback (Op
 })
 
 /**
- * OpenProject #2848: `folderIds`/`ancestorIds` are the plain, store-free tree-walk helpers
- * middle-click isolate builds on -- deliberately outside `useNavSidebarDestination()` since they
+ * OpenProject #2848/#3062: `folderIds`/`ancestorIds` are the plain, store-free tree-walk helpers
+ * shift+click isolate builds on -- deliberately outside `useNavSidebarDestination()` since they
  * take an already-in-hand tree (`siteStore.nav.items`) rather than resolving anything through the
  * router/pinia the composable itself needs.
  */
