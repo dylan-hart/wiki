@@ -42,6 +42,23 @@ declare global {
     }
 
     /**
+     * Boot-time feature flags for optional capabilities that depend on something outside this
+     * codebase's control -- an extension the connected Postgres role may not be permitted to
+     * install, say. Set once, in `core/db.ts#syncSchemas()`, and read by every consumer rather than
+     * each re-probing for itself.
+     */
+    capabilities: {
+      /**
+       * True once `core/pgvectorBootstrap.ts#bootstrapPgvector()` has successfully created the
+       * `vector` extension, the `pageEmbeddingChunks` table and its HNSW index at boot -- false when
+       * the connected role lacked privilege to create the extension, or the Postgres server has no
+       * pgvector installed at all. Every Feature under Epic #3050 (local embedding pipeline /
+       * semantic search) reads this rather than re-probing.
+       */
+      semanticSearch: boolean
+    }
+
+    /**
      * Merged config.yml + base.yml defaults + the `settings` DB table. Assembled at runtime from
      * YAML and JSONB, so it stays intentionally untyped.
      */
