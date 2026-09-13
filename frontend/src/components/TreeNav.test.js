@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { useDark } from '@/composables/dark'
@@ -69,5 +73,26 @@ describe('TreeNav context menu icon colors (OpenProject #2742)', () => {
     expect(iconColorClasses(wrapper, 'tabler:trash')).toContain('text-negative-fill')
 
     wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #3090 ("File Manager tree has hover/expand-collapse animations the main navbar
+ * doesn't"): `.treeview-label` used to fade its hover/active background in/out
+ * (`transition: background-color 0.4s ease`), and the tree's own `treeview-enter/-leave` classes
+ * used to slide+fade a folder's children in/out on expand/collapse -- both absent from
+ * `NavSidebar.vue`/`NavSidebarItem.vue`. Checks the stylesheet source directly, since a settled
+ * hover/active state and a settled expanded/collapsed state both look identical with or without a
+ * `transition` declaration -- only the source shows whether one exists.
+ */
+describe('TreeNav: no hover or expand/collapse transitions (OpenProject #3090)', () => {
+  it('declares no transition on .treeview-label and no treeview-enter/-leave animation rules', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'TreeNav.vue'),
+      'utf-8'
+    )
+
+    expect(source).not.toMatch(/transition\s*:/)
+    expect(source).not.toMatch(/treeview-(enter|leave)/)
   })
 })
