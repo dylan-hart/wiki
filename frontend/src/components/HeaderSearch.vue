@@ -168,7 +168,7 @@
           </button>
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length > 0">
-          <w-list dense dark class="searchpanel-results">
+          <w-list dense class="searchpanel-results">
             <!--
               `mousedown.prevent` for the same reason as the clear button above: without it, pressing
               a row blurs the input first, which closes the panel (`searchPanelIsShown` goes false)
