@@ -186,15 +186,29 @@ above).
   recognizable Iconify collection export, so a bad drop is visible immediately. Admin → Icons carries
   an "Offline Sideload" card triggering the same rescan, mirroring Admin → Localization's.
 
-**Worked example: pre-populating Tabler and Font Awesome for an air-gapped install.** The interface's
-own default icon sets (`models/icons.ts`'s `DEFAULT_SETS`) are `tabler`, `mdi`, `la`, `fa6-solid`,
-`fa6-regular` and `fa6-brands` — Font Awesome Free is three separate Iconify collections (solid,
-regular, brands), not one `fa` prefix. On a machine **with** network access, before the target
-instance ever needs to be reachable:
+**Tabler ships pre-vendored — no operator action needed.** Unlike the rest of `DEFAULT_SETS`, Tabler
+(the set the interface itself is drawn in) is committed straight into the release as
+`backend/assets/icon-sets/tabler.json` — a full Iconify collection export vendored from the
+`@iconify-json/tabler` npm package by `backend/scripts/vendor-icon-sets.ts` (OpenProject #3043) — and
+`Icons.init()` materializes it into the `icons` table on a fresh instance's first boot, the same
+`sideloadFromDataPath()` path described above, just pointed at this read-only, committed directory
+(`vendoredIconSetsPath()`) instead of the writeable `<dataPath>/icons/` one. A brand-new, never-online
+instance therefore already has the full Tabler set searchable and resolvable with zero admin action.
+This adds roughly 2 MB of (MIT-licensed) JSON to the release. It is preloaded, not pinned: the row it
+writes is indistinguishable from one loaded any other way, so an admin with connectivity can still
+refresh Tabler from upstream Iconify (Admin → Icons → Refresh), or overwrite it with a newer sideload
+pack, exactly as for any other materialized set.
+
+**Worked example: pre-populating the remaining default sets (`mdi`, `la`, Font Awesome) for an
+air-gapped install.** The interface's own default icon sets (`models/icons.ts`'s `DEFAULT_SETS`) are
+`tabler`, `mdi`, `la`, `fa6-solid`, `fa6-regular` and `fa6-brands` — Font Awesome Free is three
+separate Iconify collections (solid, regular, brands), not one `fa` prefix. Tabler needs nothing
+further (see above); for the rest, on a machine **with** network access, before the target instance
+ever needs to be reachable:
 
 ```sh
 mkdir -p sideload-icons
-for prefix in tabler fa6-solid fa6-regular fa6-brands; do
+for prefix in mdi la fa6-solid fa6-regular fa6-brands; do
   curl -fsSL "https://api.iconify.design/${prefix}.json" -o "sideload-icons/${prefix}.json"
 done
 ```
@@ -203,25 +217,27 @@ Copy that directory's contents into the air-gapped instance's `<dataPath>/icons/
 `kubectl cp`, or directly onto the mounted volume — see the locale section's mount-point note above,
 which applies identically here: `<dataPath>/icons/` only survives a container replacement if the
 whole `/wiki/data` volume is mounted, not just `/wiki/data/content`). On next boot, or immediately via
-`POST /_api/icons/sideload` / the admin "Offline Sideload" button, every icon in those four sets
-resolves and searches locally — no `api.iconify.design` reachability needed afterward, for those sets.
-An icon from a set not sideloaded still resolves only if individually materialized, or not at all
-under `offline: true`.
+`POST /_api/icons/sideload` / the admin "Offline Sideload" button, every icon in those sets resolves
+and searches locally — no `api.iconify.design` reachability needed afterward, for those sets. An icon
+from a set not sideloaded (and not Tabler) still resolves only if individually materialized, or not at
+all under `offline: true`.
 
 ## What must be present before first boot
 
 For a fresh instance that will never reach the network:
 
-- **The image itself** — already contains the full vendored locale set, self-hosted fonts, and every
-  UI icon reference, per the audit above. No further action needed for base functionality.
+- **The image itself** — already contains the full vendored locale set, self-hosted fonts, every UI
+  icon reference, and the full Tabler icon set (auto-materialized on first boot, see above), per the
+  audit above. No further action needed for base functionality.
 - **`config.yml` (or `WIKI_OFFLINE=true` / Helm's `offline: true`)** setting offline mode, so the daily
   version/locale-sync jobs stop attempting network calls instead of failing (harmlessly, but noisily)
   every day.
 - **Any locale beyond the vendored set**, pre-populated into `<dataPath>/locales/` before or shortly
   after first boot (see above) — there is no other way to add one offline.
-- **Any icon set an author will pick from** beyond whatever has already been individually
-  materialized, pre-populated into `<dataPath>/icons/` before or shortly after first boot (see
-  above) — otherwise an icon nobody has resolved yet simply does not resolve under `offline: true`.
+- **Any icon set an author will pick from beyond Tabler** — Tabler alone needs nothing further (see
+  above) — pre-populated into `<dataPath>/icons/` before or shortly after first boot, beyond whatever
+  has already been individually materialized (see above) — otherwise an icon nobody has resolved yet
+  simply does not resolve under `offline: true`.
 - **Puppeteer, if server-side Mermaid rendering (PDF export with diagrams) is wanted.** The official
   Docker image already installs both Chromium and the Puppeteer _extension_ itself — pinned to the
   version in `backend/modules/extensions/puppeteer/definition.yml`, and pointed at that Chromium via
