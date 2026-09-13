@@ -235,7 +235,10 @@ function createSearchI18n() {
       emptyQuery: 'Enter a query in the search field above and press Enter.',
       totalResults: 'No result | {0} result | {0} results',
       totalResultsApprox: 'No result | At least {0} result | At least {0} results',
-      loadMore: 'Load More'
+      loadMore: 'Load More',
+      modeKeyword: 'Keyword',
+      modeSemantic: 'Semantic',
+      modeToggleLabel: 'Search Mode'
     }
   })
 }
@@ -332,6 +335,37 @@ async function mountSearchWithOffset(initialPath = '/_search?q=test', firstRespo
 
 function findLoadMoreButton(wrapper) {
   return wrapper.findAll('button').find((b) => b.text() === 'Load More')
+}
+
+/**
+ * Mounts with `siteStore.features.semanticSearch` set before the component's own `onMounted()`
+ * runs, and (like `mountSearchWithOffset`) queues `firstResponse` ahead of the immediate
+ * `route.query` watcher's own request when one is given.
+ */
+async function mountSearchWithMode({
+  semanticEnabled = true,
+  initialPath = '/_search?q=onboarding',
+  firstResponse
+} = {}) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+  siteStore.features.semanticSearch = semanticEnabled
+
+  if (firstResponse) {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(firstResponse) })
+  }
+
+  const router = await createSearchRouter(initialPath)
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createSearchI18n()],
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper, router, siteStore }
 }
 
 describe('Search.vue totalHitsApproximate labeling (OpenProject #2006)', () => {
@@ -611,5 +645,167 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     // -> No empty tag row left drawing a gap under the date
     expect(untagged.find('.layout-search-rowdate').exists()).toBe(true)
     expect(untagged.find('.layout-search-rowtags').exists()).toBe(false)
+  })
+})
+
+describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
+  it('is absent entirely -- not merely disabled -- when the site has not enabled semantic search', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: false,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.find('.layout-search-modetoggle').exists()).toBe(false)
+  })
+
+  it('is present when the site has semantic search enabled', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.find('.layout-search-modetoggle').exists()).toBe(true)
+  })
+
+  it('switching to Semantic re-queries pages/search/semantic, preserving the typed query text', async () => {
+    const { wrapper, siteStore } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE_A], totalHits: 1, suggestion: null }
+    })
+    expect(siteStore.search).toBe('onboarding')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          results: [FIXTURE_PAGE_B],
+          totalHits: 1,
+          totalHitsApproximate: false,
+          suggestion: null
+        })
+    })
+
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    // -> The query box itself is untouched by the mode switch
+    expect(siteStore.search).toBe('onboarding')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding', offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p2'])
+  })
+
+  it('switching back to Keyword re-queries pages/search fresh, not a stale cache of the earlier results', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE_A], totalHits: 1, suggestion: null }
+    })
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_B], totalHits: 1, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p2'])
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 1, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('keyword')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding', offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
+  })
+
+  it('sends locale only when exactly one locale filter is selected', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    wrapper.vm.state.params.filterLocale = ['en']
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ locale: 'en' })
+      })
+    )
+  })
+
+  it('omits locale when zero or multiple locales are selected', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    wrapper.vm.state.params.filterLocale = ['en', 'fr']
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    const lastCall = API_CLIENT.get.mock.calls.at(-1)
+    expect(lastCall[1].searchParams).not.toHaveProperty('locale')
+  })
+
+  it('hides the keyword-only sort/filter sidebar while Semantic mode is active', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    expect(wrapper.find('.layout-search-sd').attributes('style') ?? '').not.toContain(
+      'display: none'
+    )
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    expect(wrapper.find('.layout-search-sd').attributes('style')).toContain('display: none')
+  })
+
+  it('an empty query resets results in Semantic mode instead of calling the API', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search'
+    })
+    const callsBefore = API_CLIENT.get.mock.calls.length
+
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    expect(API_CLIENT.get.mock.calls.length).toBe(callsBefore)
+    expect(wrapper.vm.state.results).toEqual([])
+  })
+
+  it('setSearchMode is a no-op when already in the requested mode', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    const callsBefore = API_CLIENT.get.mock.calls.length
+
+    wrapper.vm.setSearchMode('keyword')
+    await flushPromises()
+
+    expect(API_CLIENT.get.mock.calls.length).toBe(callsBefore)
   })
 })

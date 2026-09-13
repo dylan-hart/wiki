@@ -125,6 +125,13 @@ export const useSiteStore = defineStore('site', {
       profile: false,
       reasonForChange: 'required',
       search: false,
+      /**
+       * True only when BOTH `WIKI.capabilities.semanticSearch` (boot-time pgvector availability)
+       * AND this site's own `search.semanticEnabled` admin setting are true (Task #3103). Defaults
+       * false here so `Search.vue`'s Keyword/Semantic toggle stays hidden until the site-info
+       * response actually says otherwise, rather than flashing on for an instant on a slow fetch.
+       */
+      semanticSearch: false,
       showOtherGroups: false
     },
     /** How this site handles signing in. Set in the admin area's Login section. */
