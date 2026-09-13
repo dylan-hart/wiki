@@ -279,8 +279,8 @@ describe('HeaderSearch preview results panel', () => {
         site: (store) => {
           store.id = 'site1'
           store.features.search = true
-          store.tagsLoaded = true
-          store.tags = []
+          store.popularTagsLoaded = true
+          store.popularTags = []
         }
       }
     })
@@ -413,8 +413,8 @@ describe('HeaderSearch preview edge cases', () => {
         site: (store) => {
           store.id = 'site1'
           store.features.search = true
-          store.tagsLoaded = true
-          store.tags = [{ tag: 'foo', usageCount: 1 }]
+          store.popularTagsLoaded = true
+          store.popularTags = [{ tag: 'foo', usageCount: 1 }]
         }
       }
     })
