@@ -13,8 +13,13 @@ running an earlier state of this branch, so do not write migration shims, legacy
 deprecated aliases or "old data may still contain X" handling. Change the shape, change the callers,
 and delete the old path — a fallback for a case that cannot occur is dead code that still has to be
 read, tested and reasoned about. This applies to db columns, API payloads, stored settings and
-config keys alike; only real migrations under `backend/db/migrations/` are exempt, because Drizzle
-needs the history to get a live dev database to the current schema.
+config keys alike, and it applies to `backend/db/migrations/` too: while this branch is pre-release
+with no real installations to preserve, its migration history is periodically squashed back to a
+single fresh-install schema init rather than accumulating incremental ALTERs forever. Anyone holding
+an existing local or CI dev database from before a squash has to drop and recreate it (or otherwise
+reset Drizzle's own migration ledger) rather than expect it to reconcile against the new consolidated
+migration — Drizzle has no way to know a squashed history is equivalent to the one it already
+applied.
 
 Four independently-installed workspaces (each has its own `package.json` / `node_modules`, there is
 no root package or monorepo tooling):
