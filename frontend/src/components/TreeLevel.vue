@@ -8,7 +8,15 @@
         Cobalt). It used to be set in the Material palette's purple in both themes -- a hue that
         appears nowhere else in either language, and that no mockup ever sanctioned.
       -->
-      <div class="treeview-label" @click="setRoot" :class="{ active: !selection }">
+      <!-- -> Keyboard-operable the same way `TreeNode.vue`'s own rows are (OpenProject #3063) --
+              this is the one row that isn't a `TreeNode`, so it needs the same treatment on its own. -->
+      <div
+        class="treeview-label"
+        tabindex="0"
+        role="button"
+        @click="setRoot"
+        @keydown="handleRootKeydown"
+        :class="{ active: !selection }">
         <w-icon class="treeview-root-icon" name="tabler:folder-share" size="sm" />
         <div class="treeview-label-text treeview-root-text">root</div>
         <w-menu v-if="rootContextActionList.length > 0" context-menu auto-close>
@@ -102,6 +110,15 @@ const level = computed(() => {
 
 function setRoot() {
   selection.value = null
+}
+
+/** Keyboard parity for the root row (OpenProject #3063), matching `TreeNode.vue`'s own Enter/Space
+ *  handling and `WItem.vue`'s pattern it in turn mirrors. */
+function handleRootKeydown(event) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    setRoot()
+  }
 }
 </script>
 

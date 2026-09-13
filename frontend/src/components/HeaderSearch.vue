@@ -168,7 +168,7 @@
           </button>
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length > 0">
-          <w-list dense dark class="searchpanel-results">
+          <w-list dense class="searchpanel-results">
             <!--
               `mousedown.prevent` for the same reason as the clear button above: without it, pressing
               a row blurs the input first, which closes the panel (`searchPanelIsShown` goes false)
@@ -178,7 +178,7 @@
               v-for="item of previewResultRows"
               :key="item.path"
               clickable
-              :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)"
+              :to="resultHref(item)"
               @mousedown.prevent>
               <w-item-section avatar>
                 <w-icon :name="item.icon || defaultPageIcon" />
@@ -199,7 +199,7 @@
           </w-list>
         </template>
 
-        <template v-if="siteStore.tagsLoaded && siteStore.tags.length > 0">
+        <template v-if="siteStore.popularTagsLoaded && siteStore.popularTags.length > 0">
           <div class="searchpanel-header">
             <span>{{ t('common.header.popularTags') }}</span>
             <w-space />
@@ -372,8 +372,16 @@ const searchPanelIsShown = computed(() => {
   )
 })
 
+/**
+ * Ranked by 60-day content activity, capped to 10, by `GET sites/:siteId/tags/popular` (OpenProject
+ * #3046) -- `siteStore.popularTags`, not the all-time/unlimited `siteStore.tags` the tag-edit
+ * autocomplete and the tag-browse page still use. The backend already returns these sorted and
+ * capped; the sort/slice here are a defensive belt-and-braces, not the primary ranking.
+ */
 const popularTags = computed(() => {
-  return orderBy(siteStore.tags, ['usageCount'], ['desc']).map((t) => t.tag)
+  return orderBy(siteStore.popularTags, ['usageCount'], ['desc'])
+    .map((t) => t.tag)
+    .slice(0, 10)
 })
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
@@ -411,7 +419,7 @@ const previewResultRows = computed(() => state.previewResults.slice(0, PREVIEW_R
 
 watch(searchPanelIsShown, (newValue) => {
   if (newValue) {
-    siteStore.fetchTags()
+    siteStore.fetchPopularTags()
   } else {
     // -> Collapsed by default on every open (OpenProject #2995) -- no state to persist.
     searchOperatorsExpanded.value = false
@@ -573,6 +581,24 @@ function applySuggestion() {
   }
   siteStore.search = state.previewSuggestion
   searchField.value?.focus()
+}
+
+/**
+ * A preview result row's in-app link -- the page's own localized path, plus the active search query
+ * carried forward as a `?highlight=` query param (OpenProject #3067) so the landing page can offer an
+ * in-page highlight/find for it, the same way the knowledge graph's click-through already does
+ * (`Graph.vue#fallbackHref`, OpenProject #2540). `Index.vue`'s existing `applyKeywordHighlight`
+ * consumer needs no change to read this -- it already reads `route.query.highlight` off whatever
+ * navigation lands on it.
+ *
+ * `siteStore.search` (not `item.highlight`, which is the backend's own matched-text snippet with
+ * `<b>` markup) is what the reader actually typed, so it is what a find-in-page pass should look
+ * for. No query means no param, matching the graph's own "nothing to carry forward" behavior.
+ */
+function resultHref(item) {
+  const path = localizedPagePath(item.path, item.locale, siteStore.localeRouting)
+  const query = (siteStore.search ?? '').trim()
+  return query ? `${path}?highlight=${encodeURIComponent(query)}` : path
 }
 
 function addTag(tag) {

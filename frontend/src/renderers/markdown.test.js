@@ -467,6 +467,40 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
     expect(html).not.toContain('<span>^1</span>')
   })
 
+  it('renders a bracket span nested inside an outer link label without throwing (OpenProject #3070)', () => {
+    /*
+      markdown-it core's `link` rule, on hitting an outer `[`, calls
+      `helpers.parseLinkLabel(state, pos, true)` to find the matching `]` -- which scans forward
+      running every inline rule once in SILENT mode via `state.md.inline.skipToken(state)`, and
+      throws `"inline rule didn't increment state.pos"` if a rule reports a match without moving
+      `state.pos`. `markdown-it-mdc`'s own `mdc_inline_span` rule does exactly that in its silent
+      branch (a genuine bug in the upstream package, 0.2.12) -- so a bracket span sitting inside an
+      outer link label's text (a plausible shape in a long descriptive link label) used to crash the
+      render outright, not just fail to parse.
+
+      This is the WP's own real-world repro, reduced only by removing surrounding paragraph text
+      that isn't load-bearing to the crash. Fixing the crash does NOT make the outer `[...]` become a
+      link -- `parseLinkLabel`'s own `disableNested` check (unrelated to this bug, and unchanged by
+      this fix) already refuses to treat an outer label as a link candidate at all once a nested `[`
+      resolves to its own complete token rather than a literal character, the same rule that refuses
+      a genuinely nested `[a [b](inner) c](outer)` link -- so the correct, non-crashing render is the
+      brackets and URL staying literal text, with the nested span still substituted inside them.
+    */
+    const renderer = new MarkdownRenderer({})
+
+    let html
+    expect(() => {
+      html = renderer.render(
+        '[See the analysis, noting it is **[CONTEXT]**, not independently traced here](https://example.com/page)\n'
+      )
+    }).not.toThrow()
+
+    expect(html).not.toContain('<a ')
+    expect(html).toContain('<span>CONTEXT</span>')
+    expect(html).toContain('[See the analysis, noting it is')
+    expect(html).toContain('not independently traced here](https://example.com/page)')
+  })
+
   it('applies a markdown-it-attrs brace on its own line without the mdc inline-props collision crashing the render', () => {
     /*
       MDC's inline props (`{.class}`) and markdown-it-attrs both claim `{`. A brace that opens a line

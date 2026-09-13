@@ -78,6 +78,50 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * POPULAR TAGS
+   *
+   * A static segment ('popular'), never a value `:tag` could take on its own — this sits alongside
+   * the PATCH/DELETE `:tag` routes below with no collision since neither of those is a GET.
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/tags/popular',
+    {
+      // -> No route-level `permissions`, for the same reason as LIST TAGS above: filtered per page.
+      schema: {
+        summary: 'List the most active tags on a site',
+        description:
+          "Up to 10 tags carried by at least one page the caller may read that was created or updated in the last 60 days, most active first, counted over those pages only. This is what the header search panel's Popular Tags widget renders — ranked by recent activity, not lifetime usage, unlike GET /sites/:siteId/tags.",
+        tags: ['Pages'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          200: {
+            description: 'Most active tags, most active first',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                tag: {
+                  type: 'string'
+                },
+                usageCount: {
+                  type: 'integer',
+                  description:
+                    'How many pages carry the tag, created or updated in the last 60 days.'
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.tags.getPopularTags(req.params.siteId, {
+        actor: WIKI.models.groups.actorForRequest(req)
+      })
+    }
+  )
+
+  /**
    * RENAME TAG (also how merge works — see `models/tags.ts#renameTag`)
    */
   app.patch<{ Params: { siteId: string; tag: string }; Body: { newTag: string } }>(

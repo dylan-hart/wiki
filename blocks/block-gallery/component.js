@@ -1,6 +1,7 @@
 import { LitElement, html, css, svg } from 'lit'
 
 import { readFencedSource } from '../shared/body.js'
+import { LightboxController, lightboxStyles } from '../shared/lightbox.js'
 import { boolean } from '../shared/props.js'
 import { renderError } from '../shared/render.js'
 import { errorBox } from '../shared/styles.js'
@@ -48,23 +49,6 @@ function resolveSource(value) {
     return address
   }
   return FILES_PREFIX + address.replace(/^\/+/, '')
-}
-
-/**
- * The box the block actually scrolls in.
- *
- * The article has its own scroller rather than the window — the shell stays put and the column moves
- * — so that is the element a lightbox has to hold still while it is open. Same walk as
- * `helpers/anchors.js` on the frontend, for the same reason.
- */
-function scrollerOf(el) {
-  for (let node = el.parentElement; node; node = node.parentElement) {
-    const { overflowY } = getComputedStyle(node)
-    if (/(auto|scroll|overlay)/.test(overflowY) && node.scrollHeight > node.clientHeight + 1) {
-      return node
-    }
-  }
-  return document.scrollingElement ?? document.documentElement
 }
 
 /**
@@ -136,6 +120,7 @@ https://example.com/photo-2.jpg`
   static get styles() {
     return [
       errorBox,
+      lightboxStyles,
       css`
         :host {
           display: block;
@@ -245,80 +230,12 @@ https://example.com/photo-2.jpg`
         }
 
         /*
-        The lightbox is a modal dialog, which is what puts it over the whole site.
-
-        An element in the top layer is drawn above the page whatever the block is nested in -- where a
-        fixed-position overlay in the shadow root is still clipped by the first ancestor with a
-        transform, a filter or an overflow of its own, and the app has all three between the page and
-        a block. Opened this way it also comes with most of what a lightbox has to do anyway: Escape
-        closes it, the page behind cannot be tabbed into or clicked, and focus returns to the
-        thumbnail that was opened. Scrolling is the exception -- see _holdPage below.
+        The lightbox's own dialog shell (the full-viewport <dialog>, its backdrop, its fade
+        transition, and the clickable .stage) is lightboxStyles, from ../shared/lightbox.js --
+        see LightboxController's own doc for why Escape/focus-return/inert-background all come free
+        with it, and for the scroll lock (the one thing that isn't). What's left here is this
+        block's own chrome drawn over that stage: the prev/next/close buttons and the counter.
       */
-        .lightbox {
-          width: 100vw;
-          max-width: 100vw;
-          height: 100vh;
-          max-height: 100vh;
-          margin: 0;
-          padding: 0;
-          border: 0;
-          background-color: transparent;
-          overflow: hidden;
-          opacity: 0;
-          transition:
-            opacity 150ms ease,
-            overlay 150ms allow-discrete,
-            display 150ms allow-discrete;
-        }
-        .lightbox[open] {
-          opacity: 1;
-        }
-        /* -> Where the fade starts from. Without it the dialog is simply there, which is no worse. */
-        @starting-style {
-          .lightbox[open] {
-            opacity: 0;
-          }
-        }
-        /*
-        -> A shade lighter than a flat backdrop would be, since the blur is doing some of the work of
-           putting the page away. Not much lighter: dark enough on its own that a browser without
-           backdrop-filter loses the softness and nothing else.
-      */
-        .lightbox::backdrop {
-          background-color: rgb(0 0 0 / 0.82);
-          backdrop-filter: blur(18px);
-        }
-
-        /*
-        The clickable ground the image sits on: anywhere off the image closes the lightbox.
-
-        -> border-box, because the padding is what keeps the image clear of the chevrons over it and
-           a content-box stage is the width of the dialog plus that padding, which pushes what it is
-           centring off to one side. The app's own reset does not reach in here.
-      */
-        .stage {
-          box-sizing: border-box;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 100%;
-          height: 100%;
-          padding: 4rem;
-          cursor: zoom-out;
-        }
-        @media (max-width: 640px) {
-          .stage {
-            padding: 3.5rem 0.5rem;
-          }
-        }
-
-        .stage img {
-          max-width: 100%;
-          max-height: 100%;
-          object-fit: contain;
-          cursor: default;
-        }
-
         .chrome {
           position: absolute;
           display: flex;
@@ -412,9 +329,7 @@ https://example.com/photo-2.jpg`
       unlockAspectRatio: { ...boolean, attribute: 'unlock-aspect-ratio' },
 
       // Internal Properties
-      _images: { state: true },
-      /** Which image the lightbox is showing, or -1 while it is closed. */
-      _index: { state: true }
+      _images: { state: true }
     }
   }
 
@@ -424,15 +339,17 @@ https://example.com/photo-2.jpg`
     this.fit = 'cover'
     this.unlockAspectRatio = false
     this._images = []
-    this._index = -1
     // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
-    /** What the page was doing before the lightbox held it still. See `_holdPage`. */
-    this._held = null
-  }
-
-  get _dialog() {
-    return this.renderRoot?.querySelector('.lightbox') ?? null
+    this._lightbox = new LightboxController(this, {
+      count: () => this._images.length,
+      // -> Preloading is this block's own concern, not the shared primitive's; -1 is the close case
+      onIndexChange: (index) => {
+        if (index >= 0) {
+          this._preloadNeighbours(index)
+        }
+      }
+    })
   }
 
   /**
@@ -461,103 +378,10 @@ https://example.com/photo-2.jpg`
   }
 
   /** Keep the neighbours of what is showing ready, so a chevron is a step rather than a load. */
-  _preloadNeighbours() {
+  _preloadNeighbours(index) {
     for (const step of [-1, 1]) {
       const image = new Image()
-      image.src = this._images[this._wrap(this._index + step)]
-    }
-  }
-
-  /** An index brought back into the gallery, so that the last photo is followed by the first. */
-  _wrap(index) {
-    const count = this._images.length
-    return (index + count) % count
-  }
-
-  async _show(index) {
-    this._index = index
-    // -> Shown only once the image it is showing has been rendered, so the lightbox never opens empty
-    await this.updateComplete
-    this._dialog?.showModal()
-    this._holdPage(true)
-    this._preloadNeighbours()
-  }
-
-  /**
-   * Stop the page moving under the lightbox, and let it go again afterwards.
-   *
-   * The one thing a modal dialog does not do for itself: the page behind it cannot be clicked or
-   * tabbed into, but a wheel still scrolls it — so the reader closes the lightbox somewhere other
-   * than where they opened it. The offset is put back along with the overflow, because an element
-   * that has spent a moment not scrolling does not reliably keep the position it was scrolled to.
-   *
-   * Nothing of this is visible while it happens: the backdrop covers the page it is done to.
-   */
-  _holdPage(held) {
-    if (held) {
-      const scroller = scrollerOf(this)
-      this._held = { scroller, overflow: scroller.style.overflow, top: scroller.scrollTop }
-      scroller.style.overflow = 'hidden'
-      return
-    }
-    if (this._held) {
-      const { scroller, overflow, top } = this._held
-      scroller.style.overflow = overflow
-      scroller.scrollTop = top
-      this._held = null
-    }
-  }
-
-  _step(delta) {
-    this._index = this._wrap(this._index + delta)
-    this._preloadNeighbours()
-  }
-
-  _previous() {
-    this._step(-1)
-  }
-
-  _next() {
-    this._step(1)
-  }
-
-  _close() {
-    this._dialog?.close()
-  }
-
-  /** However it was closed — the X, a click beside the image, or Escape, which is the dialog's own. */
-  _onClose() {
-    this._index = -1
-    this._holdPage(false)
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback()
-    // -> A block taken off the page while its lightbox is open would otherwise leave the article
-    //    unable to scroll, with nothing left to close
-    this._holdPage(false)
-  }
-
-  /** Escape is the dialog's own; the arrow keys are what a gallery adds to it. */
-  _onKeydown(ev) {
-    if (ev.key === 'ArrowLeft') {
-      ev.preventDefault()
-      this._previous()
-    } else if (ev.key === 'ArrowRight') {
-      ev.preventDefault()
-      this._next()
-    }
-  }
-
-  /**
-   * A click on the ground the image sits on, rather than on the image or a button over it.
-   *
-   * The dialog itself is included: it is the whole viewport, and a stage narrower than the window --
-   * which is what a portrait window leaves -- puts the edges of the backdrop there.
-   */
-  _onStageClick(ev) {
-    if (ev.target === ev.currentTarget || ev.target.classList.contains('stage')) {
-      this._close()
+      image.src = this._images[this._lightbox.wrap(index + step)]
     }
   }
 
@@ -569,14 +393,14 @@ https://example.com/photo-2.jpg`
    * for is a photo fetched per gallery on every page it appears on.
    */
   _renderLightbox() {
-    const address = this._images[this._index]
+    const address = this._images[this._lightbox.index]
     return html`
       <dialog
         class="lightbox"
         aria-label="Image viewer"
-        @click=${this._onStageClick}
-        @keydown=${this._onKeydown}
-        @close=${this._onClose}>
+        @click=${this._lightbox.onStageClick}
+        @keydown=${this._lightbox.onKeydown}
+        @close=${this._lightbox.onClose}>
         ${
           address
             ? html`
@@ -591,7 +415,7 @@ https://example.com/photo-2.jpg`
                           type="button"
                           title="Previous image"
                           aria-label="Previous image"
-                          @click=${this._previous}>
+                          @click=${this._lightbox.previous}>
                           ${PREVIOUS_SVG}
                         </button>
                         <button
@@ -599,10 +423,12 @@ https://example.com/photo-2.jpg`
                           type="button"
                           title="Next image"
                           aria-label="Next image"
-                          @click=${this._next}>
+                          @click=${this._lightbox.next}>
                           ${NEXT_SVG}
                         </button>
-                        <div class="counter">${this._index + 1} / ${this._images.length}</div>
+                        <div class="counter">
+                          ${this._lightbox.index + 1} / ${this._images.length}
+                        </div>
                       `
                     : null
                 }
@@ -613,7 +439,7 @@ https://example.com/photo-2.jpg`
                   autofocus
                   title="Close"
                   aria-label="Close"
-                  @click=${this._close}>
+                  @click=${this._lightbox.close}>
                   ${CLOSE_SVG}
                 </button>
               `
@@ -645,7 +471,7 @@ https://example.com/photo-2.jpg`
               type="button"
               title="Enlarge Image"
               aria-label="View ${labelFor(address)} full size"
-              @click=${() => this._show(index)}>
+              @click=${() => this._lightbox.open(index)}>
               <i class="marks" aria-hidden="true"></i>
               <img src=${address} alt=${labelFor(address)} loading="lazy" decoding="async" />
             </button>

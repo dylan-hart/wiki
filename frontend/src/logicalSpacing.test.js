@@ -69,8 +69,6 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       'centered page title over the header (left: 50% + translateX(-50%)), not a reading-direction lean',
     'components/PageRelationDialog.vue':
       'physical left/center/right position picker preview, not a gutter (carried over from OpenProject #1596)',
-    'components/TreeNav.vue':
-      'compensates a physical border-left-driven nesting indent via --indent (carried over from OpenProject #1596)',
     'components/UtilCodeEditor.vue':
       "code-editor line-number gutter (right: calc(...)), conventionally fixed to one side regardless of UI direction -- the same convention Monaco's own gutter follows, since the edited content (CSS/HTML/JS/JSON/YAML) is always LTR even when the surrounding UI is not",
     'components/WelcomeOverlay.vue':

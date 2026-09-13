@@ -321,6 +321,21 @@ export interface PageActor {
    * every write method would have to accept and pass along (OpenProject #1119).
    */
   via?: PageHistoryVia
+  /**
+   * A closed set of page-rule permission names this actor is force-granted on every page,
+   * bypassing `WIKI.models.groups.checkAccess()`'s group-rule engine entirely for exactly the names
+   * listed here (OpenProject #3054). `checkAccess()` only ever resolves a page-rule permission from
+   * `groupIds`-derived rules, or from a `manage:system` grant in `permissions` -- it never reads
+   * `permissions` for a page-rule-scoped name like `write:scripts`/`write:styles` even when
+   * `groupIds` is empty (see `hasPermission()`'s own doc comment, and the regression test in
+   * `pages.hasPermission.test.ts` guarding that `permissions` alone must never grant one). This field
+   * is that engine's one deliberate escape hatch, for a caller with no group membership to express
+   * "full content authority" through at all: the 2.5.x migration importer's synthetic per-page actor
+   * (`migration/importers/page-import.ts`). Leave unset for every ordinary actor -- `hasPermission()`
+   * checks it BEFORE `checkAccess()` runs, so this changes nothing about how a real session's or API
+   * key's page permissions are decided.
+   */
+  forcedPagePermissions?: string[]
 }
 
 /**
@@ -356,8 +371,17 @@ function actorFields(actor: { id?: string | null; via?: PageHistoryVia }): LogFi
  * permission list (`PageActor.permissions` alone), so this asks `WIKI.models.groups.checkAccess()` —
  * the same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — rather than scanning
  * `actor.permissions`, which a page-rule-only grant would never appear in.
+ *
+ * `actor.forcedPagePermissions` is checked first and, when it names `permission`, short-circuits
+ * straight to `true` with no `checkAccess()` call at all (OpenProject #3054) — the one migration-only
+ * escape hatch for an actor that can never hold a real page rule (see `PageActor`'s own doc comment).
+ * Unset for every ordinary actor, so this changes nothing about what a real session or API key is
+ * granted.
  */
 export function hasPermission(actor: PageActor, permission: string, page: RulePageRef): boolean {
+  if (actor.forcedPagePermissions?.includes(permission)) {
+    return true
+  }
   return WIKI.models.groups.checkAccess(actor, permission, page)
 }
 

@@ -204,6 +204,45 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenP
 })
 
 /**
+ * OpenProject #3060: Time Format, Aesthetic, Light/Dark Mode and Color Vision Deficiency each wrap
+ * their `w-btn-toggle` in a flanking `w-item-section side`, which the shared `WItemSection.vue`
+ * responsive stacking (OpenProject #2822/#2823) deliberately excludes -- only two ADJACENT MAIN
+ * sections (`.w-item-section--main + .w-item-section--main`) collapse to field-over-value on a
+ * narrow row, the same shape Pronouns/Job Title already use. Dropping `side` on these four rows'
+ * value section is the whole fix; this asserts the resulting DOM shape rather than re-proving the
+ * container-query mechanism itself, which `WItem.responsiveStacking.test.js` already covers in a
+ * real browser.
+ */
+describe('ProfileInfo toggle-style fields collapse to field-over-value (OpenProject #3060)', () => {
+  it('wraps Time Format/Aesthetic/Appearance/CVD in a MAIN section, not a flanking `side` one', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const toggleLabels = [
+      'profile.timeFormat',
+      'profile.aesthetic',
+      'profile.appearance',
+      'profile.cvd'
+    ]
+    expect.assertions(toggleLabels.length * 4)
+    for (const label of toggleLabels) {
+      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+      expect(toggle.exists()).toBe(true)
+
+      const valueSection = toggle.element.closest('.w-item-section')
+      expect(valueSection.classList.contains('w-item-section--side')).toBe(false)
+      expect(valueSection.classList.contains('w-item-section--main')).toBe(true)
+
+      // -> Immediately preceded by the label's own MAIN section -- the two-adjacent-MAIN-sections
+      //    shape Pronouns/Job Title already have, which is what the container query keys off.
+      const labelSection = valueSection.previousElementSibling
+      expect(labelSection.classList.contains('w-item-section--main')).toBe(true)
+    }
+  })
+})
+
+/**
  * The claims above that are MEASUREMENTS rather than class names, checked where a measurement can
  * actually be taken. jsdom runs no layout engine -- `min-h-[34px]` being on an element proves the
  * class is there, not that a 34px field is what renders, and a padding declared in
@@ -498,6 +537,33 @@ describe('ProfileInfo first/last/display name (Feature #2608)', () => {
     })
   })
 
+  /*
+    OpenProject #3052: the two prefs used to share one "Appearance" row/label with both toggles side
+    by side in a flex-wrap div. Each now gets its own row with its own label and hint, so the two
+    toggles must resolve to two distinct `.w-item` ancestors, not a shared one.
+  */
+  it('gives the aesthetic and light/dark toggles separate rows, each with its own label', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    const aestheticToggle = wrapper.find('[aria-label="profile.aesthetic"]')
+    const appearanceToggle = wrapper.find('[aria-label="profile.appearance"]')
+    expect(aestheticToggle.exists()).toBe(true)
+    expect(appearanceToggle.exists()).toBe(true)
+
+    const aestheticRow = aestheticToggle.element.closest('.w-item')
+    const appearanceRow = appearanceToggle.element.closest('.w-item')
+    expect(aestheticRow).not.toBe(null)
+    expect(appearanceRow).not.toBe(null)
+    expect(aestheticRow).not.toBe(appearanceRow)
+
+    // -> Each row carries its own label and hint text now, rather than one row describing both.
+    expect(aestheticRow.textContent).toContain('profile.aesthetic')
+    expect(aestheticRow.textContent).toContain('profile.aestheticHint')
+    expect(appearanceRow.textContent).toContain('profile.appearance')
+    expect(appearanceRow.textContent).toContain('profile.appearanceHint')
+  })
+
   it('patches userStore.aesthetic on save, the same way appearance already does', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({
       json: () => Promise.resolve({ ...FULL_PROFILE, aesthetic: 'ledger' })
@@ -529,6 +595,63 @@ describe('ProfileInfo first/last/display name (Feature #2608)', () => {
 
     expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
       aesthetic: 'site'
+    })
+  })
+
+  /**
+   * Feature #3051 / Task #3068: `contentWidth` follows the same load/send/patch/default shape
+   * `aesthetic` already exercises above.
+   */
+  it('loads and sends the contentWidth choice the same way aesthetic already works', async () => {
+    const wrapper = mountProfile({ ...FULL_PROFILE, contentWidth: 'full' })
+    await flushPromises()
+
+    // -> WBtnToggle draws each option as a labelled button; the test i18n resolves the untranslated
+    //    profile.contentWidth* keys to themselves, so this toggle's own aria-label is distinct from
+    //    the aesthetic/appearance toggles'.
+    const contentWidthToggle = wrapper.find('[aria-label="profile.contentWidth"]')
+    expect(contentWidthToggle.exists()).toBe(true)
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      contentWidth: 'full'
+    })
+  })
+
+  it('patches userStore.contentWidth on save, the same way aesthetic already does', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () => Promise.resolve({ ...FULL_PROFILE, contentWidth: 'measured' })
+    })
+    const { wrapper, userStore } = mountWithApp(ProfileInfo, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        }
+      }
+    })
+    await flushPromises()
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(userStore.contentWidth).toBe('measured')
+  })
+
+  it('defaults the contentWidth choice to site when the profile carries none', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      contentWidth: 'site'
     })
   })
 
