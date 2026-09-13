@@ -157,6 +157,51 @@
         </w-settings-card>
       </div>
     </div>
+    <!--
+      Independent of the engine picker above -- semantic search is always backed directly by
+      Postgres/pgvector regardless of which full-text engine is selected -- so it gets its own
+      full-width card rather than living inside either half of the row above. Card-local save
+      control per `docs/decisions/embedded-setting-save-affordance.md`, the same pattern the engine
+      config panel above already uses on this page.
+    -->
+    <div class="p-4 pt-0">
+      <w-settings-card :title="t('admin.search.semanticTitle')">
+        <template #action>
+          <div class="flex items-center gap-2">
+            <w-btn
+              flat
+              icon="tabler:brain"
+              :label="t('admin.search.rebuildEmbeddingsIndex')"
+              color="purple"
+              :disabled="!state.semanticAvailable"
+              @click="rebuildEmbeddings"
+              :loading="state.semanticRebuildLoading" />
+            <w-btn
+              icon="mdi:check"
+              :label="t('common.actions.apply')"
+              color="slate"
+              @click="saveSemanticEnabled"
+              :loading="state.semanticSaving" />
+          </div>
+        </template>
+        <w-settings-row
+          icon="tabler:sparkles"
+          control-width="auto"
+          :label="t('admin.search.semanticEnabled')"
+          :hint="
+            state.semanticAvailable
+              ? t('admin.search.semanticEnabledHint')
+              : t('admin.search.semanticUnavailableHint')
+          "
+          tag="label">
+          <w-toggle
+            v-model="state.semanticEnabled"
+            :disabled="!state.semanticAvailable"
+            :loading="state.loading > 0"
+            :aria-label="t('admin.search.semanticEnabled')" />
+        </w-settings-row>
+      </w-settings-card>
+    </div>
   </w-page>
 </template>
 
@@ -217,12 +262,30 @@ const { state, load } = useAdminSettings({
   extraState: {
     rebuildLoading: false,
     engines: [],
-    selectedEngineKey: ''
+    selectedEngineKey: '',
+    // -> Semantic search (Task #3104) is unrelated to the engine picker above -- it is always
+    //    backed directly by Postgres/pgvector regardless of which full-text engine is selected --
+    //    but rides the same load/save skeleton since it lives on this same page.
+    semanticEnabled: false,
+    semanticAvailable: false,
+    semanticSaving: false,
+    semanticRebuildLoading: false
   },
-  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}/search/engines`).json(),
-  onLoaded: (engines) => {
+  // -> Two independent reads in one `fetch()`: `useAdminSettings` calls this once per load/site
+  //    switch/refresh, and `Promise.all` keeps them from serializing needlessly. Neither feeds the
+  //    other, so there is nothing to sequence.
+  fetch: async (siteId) => {
+    const [engines, semantic] = await Promise.all([
+      API_CLIENT.get(`sites/${siteId}/search/engines`).json(),
+      API_CLIENT.get(`sites/${siteId}/search/semantic`).json()
+    ])
+    return { engines, semantic }
+  },
+  onLoaded: ({ engines, semantic }) => {
     applyEngines(engines, { resetSelection: adminStore.currentSiteId !== loadedSiteId })
     loadedSiteId = adminStore.currentSiteId
+    state.semanticEnabled = semantic?.enabled ?? false
+    state.semanticAvailable = semantic?.available ?? false
   }
 })
 
@@ -395,6 +458,68 @@ async function rebuild() {
     })
   }
   state.rebuildLoading = false
+}
+
+/**
+ * Save the `search.semanticEnabled` site setting (Task #3104). Card-local, independent of the
+ * engine-config `save()` above -- the two are unrelated settings that happen to share this page.
+ *
+ * On failure, re-fetches just the semantic setting rather than leaving the toggle showing whatever
+ * the reader last clicked: the server is the source of truth for whether it actually took effect
+ * (in particular the `ERR_SEMANTIC_SEARCH_UNAVAILABLE` case, which the toggle being enabled at all
+ * should already prevent client-side, but a stale `state.semanticAvailable` from before an admin
+ * disabled the underlying capability is exactly the gap this closes).
+ */
+async function saveSemanticEnabled() {
+  state.semanticSaving = true
+  try {
+    await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
+      json: { semanticEnabled: state.semanticEnabled }
+    }).json()
+    notify({
+      type: 'positive',
+      message: t('admin.search.semanticSaveSuccess')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.search.semanticSaveFailed'),
+      caption: apiErrorMessage(err)
+    })
+    try {
+      const semantic = await API_CLIENT.get(
+        `sites/${adminStore.currentSiteId}/search/semantic`
+      ).json()
+      state.semanticEnabled = semantic.enabled
+      state.semanticAvailable = semantic.available
+    } catch {
+      // -> The negative toast above already told the reader the save failed; a second failure just
+      //    fetching the current value back isn't worth a second one on top of it.
+    }
+  }
+  state.semanticSaving = false
+}
+
+/**
+ * Queue a full re-embedding of the site's pages (Task #3104), mirroring `rebuild()` above: returns as
+ * soon as the job is queued, the scheduler view is where its progress actually shows.
+ */
+async function rebuildEmbeddings() {
+  state.semanticRebuildLoading = true
+  try {
+    await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild-embeddings`).json()
+    notify({
+      type: 'positive',
+      message: t('admin.search.rebuildEmbeddingsInitSuccess')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.search.rebuildEmbeddingsFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.semanticRebuildLoading = false
 }
 </script>
 

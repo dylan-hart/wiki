@@ -43,9 +43,17 @@ const ENGINE_INIT_TIMEOUT_MS = 30_000
  * `definition.yml` and edited through the same generic engine-picker form as any other engine's props.
  * `dictOverrides` cannot follow it there — it is a free-form locale -> dictionary map, not a scalar
  * `parseModuleProps` can validate — so it keeps its own bucket and its own admin-area editor.
+ *
+ * `semanticEnabled` (Task #3104) is unrelated to the engine-picker system entirely — semantic search
+ * is always backed directly by Postgres/pgvector regardless of which full-text engine a site has
+ * selected — but it lives in this same per-site bucket since it is, like `dictOverrides`, a plain
+ * site-level search setting with no engine of its own to belong to. See `WIKI.capabilities
+ * .semanticSearch` (`types/global.d.ts`) for the separate, instance-wide availability flag this
+ * setting is ANDed with before the feature is actually reachable.
  */
 export interface SearchConfig {
   dictOverrides: Record<string, string>
+  semanticEnabled: boolean
 }
 
 /**
@@ -569,7 +577,8 @@ class Search {
   getConfig(siteId: string): SearchConfig {
     const config = WIKI.sites[siteId]?.config?.search?.config as Partial<SearchConfig> | undefined
     return {
-      dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>
+      dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>,
+      semanticEnabled: config?.semanticEnabled ?? false
     }
   }
 

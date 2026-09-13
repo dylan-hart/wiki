@@ -343,24 +343,40 @@ describe('search.getConfig()', () => {
     }
 
     assert.deepEqual(search.getConfig('site-a'), {
-      dictOverrides: { en: 'english' }
+      dictOverrides: { en: 'english' },
+      semanticEnabled: false
     })
     assert.deepEqual(search.getConfig('site-b'), {
-      dictOverrides: {}
+      dictOverrides: {},
+      semanticEnabled: false
     })
   })
 
-  test('defaults to an empty dictOverrides for a site with no search config', () => {
+  test('reads semanticEnabled off the named site', () => {
+    ;(globalThis as any).WIKI.sites['site-c'] = {
+      id: 'site-c',
+      config: { search: { engine: 'db', config: { dictOverrides: {}, semanticEnabled: true } } }
+    }
+
+    assert.deepEqual(search.getConfig('site-c'), {
+      dictOverrides: {},
+      semanticEnabled: true
+    })
+  })
+
+  test('defaults to an empty dictOverrides and semanticEnabled: false for a site with no search config', () => {
     ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
 
     assert.deepEqual(search.getConfig('site-bare'), {
-      dictOverrides: {}
+      dictOverrides: {},
+      semanticEnabled: false
     })
   })
 
   test('defaults the same way for a siteId nothing in WIKI.sites knows about', () => {
     assert.deepEqual(search.getConfig('site-nonexistent'), {
-      dictOverrides: {}
+      dictOverrides: {},
+      semanticEnabled: false
     })
   })
 })

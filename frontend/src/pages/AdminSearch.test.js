@@ -128,8 +128,12 @@ describe('AdminSearch engine picker', () => {
     adminStore.currentSiteId = 'site-2'
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
-    expect(API_CLIENT.get).toHaveBeenLastCalledWith('sites/site-2/search/engines')
+    // -> Each load makes two GET calls now (the engine list and, in parallel, the semantic search
+    //    setting) -- two loads (initial mount + the site switch) is four calls total. The engines
+    //    call is registered before the semantic one within each load (`Promise.all`'s array order),
+    //    so the site switch's engines call is the third call overall.
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
+    expect(API_CLIENT.get).toHaveBeenNthCalledWith(3, 'sites/site-2/search/engines')
     expect(wrapper.text()).toContain('API Key')
     expect(wrapper.text()).not.toContain('Term Highlighting')
   })
@@ -181,7 +185,9 @@ describe('AdminSearch engine picker', () => {
     await otherItem.trigger('click')
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    // -> One load, two GET calls (the engine list plus the parallel semantic search setting) --
+    //    selecting an already-loaded engine makes no further request of either kind.
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('API Key')
     expect(wrapper.find('input[aria-label="API Key"]').element.value).toBe('stored-value')
   })
@@ -343,7 +349,9 @@ describe('AdminSearch engine picker', () => {
       expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/search/engines/db', {
         json: { config: { termHighlighting: false } }
       })
-      expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+      // -> Two loads (initial mount + the post-save reload) at two GET calls each (the engine list
+      //    plus the parallel semantic search setting).
+      expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
       expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
     })
 
@@ -493,7 +501,9 @@ describe('AdminSearch engine picker', () => {
         json: { dictOverrides: { en: 'english' } }
       })
       expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
-      expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+      // -> Two loads (initial mount + the post-save reload) at two GET calls each (the engine list
+      //    plus the parallel semantic search setting).
+      expect(API_CLIENT.get).toHaveBeenCalledTimes(4)
     })
 
     it('does not call PATCH .../search when the editor was left untouched', async () => {
@@ -516,6 +526,137 @@ describe('AdminSearch engine picker', () => {
       expect(API_CLIENT.patch).not.toHaveBeenCalled()
       expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
     })
+  })
+})
+
+/**
+ * Task #3104 -- the `search.semanticEnabled` toggle and its "Rebuild Embeddings Index" action, both
+ * independent of the engine picker above (semantic search is always backed directly by Postgres/
+ * pgvector regardless of which full-text engine is selected). Each test queues a second
+ * `API_CLIENT.get.mockReturnValueOnce` for the parallel `GET .../search/semantic` call `fetch()`
+ * makes alongside the engine list -- see `AdminSearch.vue`'s own `fetch` doc comment.
+ */
+describe('semantic search setting (task #3104)', () => {
+  let adminStore
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    adminStore = useAdminStore()
+    adminStore.currentSiteId = 'site-1'
+    notifyQueue.splice(0, notifyQueue.length)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function mockLoad({ enabled = false, available = false } = {}) {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([engine()]) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ enabled, available }) })
+  }
+
+  function toggleOf(wrapper) {
+    return wrapper.find('[aria-label="admin.search.semanticEnabled"]')
+  }
+
+  function rebuildBtnOf(wrapper) {
+    return wrapper.findAll('button').find((b) => b.find('[data-icon="tabler:brain"]').exists())
+  }
+
+  function applyBtnOf(wrapper) {
+    return wrapper.findAll('button').find((b) => b.find('[data-icon="mdi:check"]').exists())
+  }
+
+  it('shows the unavailable hint and disables the toggle and rebuild button when the capability is off', async () => {
+    mockLoad({ enabled: false, available: false })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.search.semanticUnavailableHint')
+    expect(toggleOf(wrapper).attributes('disabled')).toBeDefined()
+    expect(rebuildBtnOf(wrapper).attributes('disabled')).toBeDefined()
+  })
+
+  it('shows the enabled hint and an enabled toggle reflecting the stored setting when available', async () => {
+    mockLoad({ enabled: true, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.search.semanticEnabledHint')
+    expect(toggleOf(wrapper).attributes('disabled')).toBeUndefined()
+    expect(toggleOf(wrapper).attributes('aria-checked')).toBe('true')
+  })
+
+  it('saves the toggle via PATCH .../search and notifies on success', async () => {
+    mockLoad({ enabled: false, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    await toggleOf(wrapper).trigger('click')
+
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await applyBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
+      json: { semanticEnabled: true }
+    })
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+  })
+
+  it('notifies semanticSaveFailed and re-fetches the current value when the save is rejected', async () => {
+    mockLoad({ enabled: false, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    await toggleOf(wrapper).trigger('click')
+
+    API_CLIENT.patch.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ enabled: false, available: true })
+    })
+
+    await applyBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    // -> Reverted back to the server's last-known value rather than left showing the rejected click
+    expect(toggleOf(wrapper).attributes('aria-checked')).toBe('false')
+  })
+
+  it('queues a rebuild via POST .../search/rebuild-embeddings and notifies on success', async () => {
+    mockLoad({ enabled: true, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true, id: 'job-1' }) })
+    await rebuildBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/search/rebuild-embeddings')
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+  })
+
+  it('notifies rebuildEmbeddingsFailed when the rebuild request is rejected', async () => {
+    mockLoad({ enabled: true, available: true })
+
+    const wrapper = mountAdminSearch()
+    await flushPromises()
+
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+    await rebuildBtnOf(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
   })
 })
 

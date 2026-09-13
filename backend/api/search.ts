@@ -49,14 +49,26 @@ async function withDbSearchExtras(
  * `rebuild` require it too for consistency with the rest of this surface, even though neither reads a
  * secret itself -- `rebuild` in particular can now run arbitrary engine code, the same reasoning
  * `api/storage.ts`'s action route uses.
+ *
+ * `semanticEnabled` / `GET .../search/semantic` / `POST .../search/rebuild-embeddings` (task #3104,
+ * Epic #3050) are unrelated to the pluggable engine system above — semantic search is always backed
+ * directly by Postgres/pgvector regardless of which full-text engine a site has selected — but they
+ * live in this same file since they are, like `dictOverrides`, a site-level search setting plus a
+ * matching rebuild action with no engine of its own to belong to.
  */
 async function routes(app: FastifyInstance) {
   /**
    * UPDATE SITE SEARCH CONFIGURATION
+   *
+   * `semanticEnabled` (Task #3104) is the per-site half of the semantic-search availability flag
+   * triangle: `WIKI.capabilities.semanticSearch` (instance-wide, Task #3095) AND this setting must
+   * both be true before the feature is actually reachable — enforced here, not just hinted at in the
+   * admin UI, so a stale or hand-crafted request can't flip this on when the capability itself is
+   * false and end up with a setting that can never do anything.
    */
   app.patch<{
     Params: { siteId: string }
-    Body: { dictOverrides?: Record<string, string> }
+    Body: { dictOverrides?: Record<string, string>; semanticEnabled?: boolean }
   }>(
     '/sites/:siteId/search',
     {
@@ -66,7 +78,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update the search configuration of a site',
         description:
-          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content.',
+          'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content. `semanticEnabled` may only be set to `true` when semantic search is available on this instance.',
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -76,6 +88,11 @@ async function routes(app: FastifyInstance) {
               type: 'object',
               description: 'Locale code to postgres dictionary. Replaces the stored mapping.',
               additionalProperties: { type: 'string' }
+            },
+            semanticEnabled: {
+              type: 'boolean',
+              description:
+                'Whether semantic (embedding) search is enabled for this site. Rejected when `true` if semantic search is not available on this instance.'
             }
           }
         },
@@ -92,27 +109,40 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
+          400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
-      if (req.body.dictOverrides === undefined) {
+      if (req.body.dictOverrides === undefined && req.body.semanticEnabled === undefined) {
         return reply.badRequest('No search settings provided to update.')
       }
 
-      const available = await WIKI.models.search.getAvailableDictionaries()
-      for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
-        if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
-          return reply.badRequest('ERR_INVALID_LOCALE_CODE')
-        }
-        if (!available.includes(dictionary)) {
-          return reply.badRequest('ERR_INVALID_SEARCH_DICTIONARY')
+      if (req.body.dictOverrides !== undefined) {
+        const available = await WIKI.models.search.getAvailableDictionaries()
+        for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
+          if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
+            return reply.badRequest('ERR_INVALID_LOCALE_CODE')
+          }
+          if (!available.includes(dictionary)) {
+            return reply.badRequest('ERR_INVALID_SEARCH_DICTIONARY')
+          }
         }
       }
 
-      const patch: Record<string, any> = { dictOverrides: req.body.dictOverrides }
+      if (req.body.semanticEnabled === true && !WIKI.capabilities?.semanticSearch) {
+        return reply.badRequest('ERR_SEMANTIC_SEARCH_UNAVAILABLE')
+      }
+
+      const patch: Record<string, any> = {}
+      if (req.body.dictOverrides !== undefined) {
+        patch.dictOverrides = req.body.dictOverrides
+      }
+      if (req.body.semanticEnabled !== undefined) {
+        patch.semanticEnabled = req.body.semanticEnabled
+      }
 
       const updated = await WIKI.models.sites.updateSite(req.params.siteId, {
         config: { search: { config: patch } }
@@ -124,6 +154,110 @@ async function routes(app: FastifyInstance) {
       return {
         ok: true,
         message: 'Search configuration updated successfully.'
+      }
+    }
+  )
+
+  /**
+   * GET SITE SEMANTIC SEARCH SETTING
+   *
+   * A small, dedicated route rather than folding this onto `GET .../search/engines` (task #1871
+   * deliberately deleted the last caller-less bare `GET .../search`, but this one has a real caller:
+   * `AdminSearch.vue`'s toggle needs both the stored setting and the instance capability to render
+   * itself — disabled with an explanation when the capability is false — and semantic search is not
+   * an engine, so it has no natural home on that list). `manage:sites`, matching the PATCH above: this
+   * is the same site-settings surface, not the credential-bearing engine-picker one.
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/search/semantic',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: "Get a site's semantic search setting",
+        description:
+          "`available` reflects `WIKI.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true.",
+        tags: ['Search'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          200: {
+            description: "The site's semantic search setting",
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+              available: { type: 'boolean' }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return {
+        enabled: WIKI.models.search.getConfig(req.params.siteId).semanticEnabled,
+        available: WIKI.capabilities?.semanticSearch ?? false
+      }
+    }
+  )
+
+  /**
+   * REBUILD SITE EMBEDDINGS INDEX
+   *
+   * Mirrors the full-text `POST .../search/rebuild` route immediately below: queues a job and returns
+   * right away rather than doing per-page work in the request/response cycle (Epic #3050's
+   * coordination note is explicit about this). Refused up front when semantic search is unavailable on
+   * this instance — nothing to rebuild.
+   */
+  app.post<{ Params: { siteId: string } }>(
+    '/sites/:siteId/search/rebuild-embeddings',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: "Rebuild a site's semantic search embeddings index",
+        description:
+          "Queues a job that re-runs the embedding pipeline for every page of this site, deleting and regenerating its passage-level embeddings. Runs in the background: the response only says the job was queued. Idempotent — running it twice leaves the same end state as running it once, since each page's embeddings are fully replaced rather than appended to.",
+        tags: ['Search'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          200: {
+            description: 'Rebuild queued successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description: 'ID of the queued job, which the scheduler view lists.'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.capabilities?.semanticSearch) {
+        return reply.badRequest('ERR_SEMANTIC_SEARCH_UNAVAILABLE')
+      }
+
+      const added = await WIKI.scheduler.addJob({
+        task: 'rebuildEmbeddingsIndex',
+        payload: { siteId: req.params.siteId }
+      })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the rebuild.')
+      }
+      return {
+        ok: true,
+        message: 'Embeddings index rebuild queued successfully.',
+        id: added.id
       }
     }
   )

@@ -503,7 +503,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {} }
+      config: { dictOverrides: {}, semanticEnabled: false }
     })
   })
 
@@ -516,7 +516,20 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: { en: 'english' } }
+      config: { dictOverrides: { en: 'english' }, semanticEnabled: false }
+    })
+  })
+
+  test('createSite() seeds semanticEnabled: true when the instance capability is available', async () => {
+    ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+    const created = await sitesModel.createSite('sites-test-create-semantic.localhost')
+    ;(globalThis as any).WIKI.capabilities = undefined
+
+    const site = await sitesModel.getSiteById({ id: created.id })
+
+    assert.deepEqual(site!.config.search, {
+      engine: 'db',
+      config: { dictOverrides: {}, semanticEnabled: true }
     })
   })
 
@@ -539,7 +552,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { dictOverrides: {} }
+      config: { dictOverrides: {}, semanticEnabled: false }
     })
   })
 })
