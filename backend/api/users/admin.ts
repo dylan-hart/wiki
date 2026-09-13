@@ -43,14 +43,39 @@ const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy:
  *
  * Exported because `bootstrap` answers the same question as part of the one call an app load makes,
  * and two versions of "who is this" would be one too many.
+ *
+ * The `prefs`-derived fields (`appearance`, `aesthetic`, and the rest of `profilePrefsKeys` —
+ * `timezone`, `dateFormat`, `timeFormat`, `cvd`, `locale`, `graph`, `iconPicker`) are re-read from the
+ * `users` table on every call rather than served from `req.session.user`'s login-time snapshot
+ * (OpenProject #3045). `models/users.ts#updateProfile` only refreshes `req.session.user` for the
+ * session that made the save, so a different session (a different browser or device, logged in
+ * separately) kept serving what it had at login until it logged in again — this is deliberately
+ * scoped to just those fields, not `id`/`email`/`name`/`hasAvatar`, which stay off the session
+ * snapshot as before. Falls back to the session's own (possibly stale) snapshot when the account row
+ * is gone by the time this runs — deleted mid-request, an edge case that already exists today and is
+ * not this fix's to solve — rather than a hard failure serving `whoami`/`bootstrap`.
  */
-export function whoAmI(req: FastifyRequest): Record<string, any> {
+export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> {
   if (!req.session?.authenticated) {
     return { authenticated: false }
   }
+  const profile = req.session.user?.id
+    ? await WIKI.models.users.getProfile(req.session.user.id)
+    : null
   return {
     authenticated: true,
     ...req.session.user,
+    ...(profile && {
+      timezone: profile.timezone,
+      dateFormat: profile.dateFormat,
+      timeFormat: profile.timeFormat,
+      appearance: profile.appearance,
+      aesthetic: profile.aesthetic,
+      cvd: profile.cvd,
+      locale: profile.locale,
+      graph: profile.graph,
+      iconPicker: profile.iconPicker
+    }),
     /*
       The same list the route permission hook checks against — written onto the session at login from
       the groups the user belongs to. Nothing is added for the interface's benefit: a control it shows
@@ -291,7 +316,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      return whoAmI(req)
+      return await whoAmI(req)
     }
   )
 

@@ -73,7 +73,7 @@ async function routes(app: FastifyInstance) {
       return {
         site: await buildSitePayload(site),
         flags: WIKI.models.flags.getFlags(),
-        user: whoAmI(req)
+        user: await whoAmI(req)
       }
     }
   )
