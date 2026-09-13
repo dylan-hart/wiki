@@ -881,6 +881,17 @@ class Icons {
   }
 
   /**
+   * `backend/assets/icon-sets` -- a read-only, committed release asset directory (as opposed to
+   * `sideloadPath()`'s writeable data-volume one), holding icon sets vendored straight into the
+   * repo/image so a fresh instance already has them without any operator or network action.
+   * Currently just `tabler.json` (OpenProject #3043) -- see `scripts/vendor-icon-sets.ts`, which
+   * generates it from the `@iconify-json/tabler` npm package.
+   */
+  vendoredIconSetsPath(): string {
+    return path.join(WIKI.SERVERPATH, 'assets/icon-sets')
+  }
+
+  /**
    * Loads every `<prefix>.json` file under `sideloadPath()` straight into the permanent record (the
    * `icons` table), the offline-vendored equivalent of `fetchIconsUpstream`'s API fetch. Missing
    * directory is not an error: most instances have nothing sideloaded, and this runs unconditionally
@@ -901,12 +912,17 @@ class Icons {
    * one usable icon also upserts its `iconSets` row (`onConflictDoNothing`, so a set already added
    * with real upstream metadata through the admin picker keeps that metadata) BEFORE its icons are
    * written, since `icons.prefix` has a foreign key on `iconSets.prefix`.
+   *
+   * @param dir The directory to scan, defaulting to the operator-writable `sideloadPath()`.
+   *   `init()` (OpenProject #3043) passes `vendoredIconSetsPath()` instead, to materialize the
+   *   committed Tabler release asset into the same table through this exact same path -- so a
+   *   preloaded row is written the same way, and stays just as overridable by a later real fetch
+   *   or operator sideload, as one loaded from the data volume.
    */
-  async sideloadFromDataPath(): Promise<{
+  async sideloadFromDataPath(dir: string = this.sideloadPath()): Promise<{
     loaded: { prefix: string; iconCount: number }[]
     skipped: { prefix: string; error: string }[]
   }> {
-    const dir = this.sideloadPath()
     let files: string[]
     try {
       files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json'))
@@ -1077,6 +1093,14 @@ class Icons {
    * `initDbValues()`, and `20260905190000_main` seeds `tabler` -- the set the interface itself is
    * drawn in -- so that an instance created before Tabler existed is offered it too. On a fresh
    * database that migration and this seed both run, in that order, and both name `tabler`.
+   *
+   * Beyond the metadata row above, a fresh instance also gets Tabler's actual icons -- not just the
+   * empty set -- materialized straight into the `icons` table via `sideloadFromDataPath` against the
+   * committed `vendoredIconSetsPath()` release asset (OpenProject #3043), so the picker has all of
+   * Tabler available offline with zero admin action, the same way `postBoot()`'s own unconditional
+   * `sideloadFromDataPath()` call already does for anything an operator drops into the data volume.
+   * This runs exactly once, since `init()` itself only runs on a genuine first boot (see
+   * `ensureSeeded()`'s advisory lock around `initDbValues()`).
    */
   async init(): Promise<void> {
     WIKI.logger.debug('config', 'seeding the default icon sets')
@@ -1084,6 +1108,7 @@ class Icons {
       .insert(iconSetsTable)
       .values(DEFAULT_SETS.map((set) => ({ ...set, isEnabled: true })))
       .onConflictDoNothing()
+    await this.sideloadFromDataPath(this.vendoredIconSetsPath())
   }
 }
 

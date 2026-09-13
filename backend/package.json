@@ -39,6 +39,8 @@
     "seed-rtl-test-locale": "node scripts/seed-rtl-test-locale.ts",
     "block-locale-keys": "node scripts/blockLocaleKeys.ts",
     "block-locale-keys:check": "node scripts/blockLocaleKeys.ts --check",
+    "vendor-icons": "node scripts/vendor-icon-sets.ts",
+    "vendor-icons:check": "node scripts/vendor-icon-sets.ts --check",
     "ncu": "ncu -i",
     "ncu-u": "ncu -u",
     "db-generate": "drizzle-kit generate --dialect=postgresql --schema=./db/schema.ts --out=./db/migrations --name=main",
@@ -114,6 +116,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@iconify-json/tabler": "1.2.38",
     "@types/js-yaml": "4.0.9",
     "@types/markdown-it-emoji": "3.0.1",
     "@types/node": "26.2.0",
