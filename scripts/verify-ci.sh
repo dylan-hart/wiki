@@ -46,6 +46,7 @@ WHAT IT RUNS BY DEFAULT
     backend    npx oxlint --deny-warnings
     backend    npm run test
     backend    npm run block-locale-keys:check
+    backend    npm run vendor-icons:check
     frontend   npm run icons:check
     frontend   npm run emoji:check
     frontend   npm run i18n:check
@@ -271,6 +272,7 @@ run_step 'Backend Typecheck' backend npm run typecheck
 run_step 'Backend Lint' backend npx oxlint --deny-warnings
 run_step 'Backend Tests' backend npm run test
 run_step 'Backend Block Locale Keys Check' backend npm run block-locale-keys:check
+run_step 'Backend Vendor Icons Check' backend npm run vendor-icons:check
 run_step 'Frontend Icons Check' frontend npm run icons:check
 run_step 'Frontend Emoji Check' frontend npm run emoji:check
 run_step 'Frontend i18n Source Check' frontend npm run i18n:check

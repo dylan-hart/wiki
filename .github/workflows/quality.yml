@@ -202,6 +202,15 @@ jobs:
         working-directory: backend
         run: npm run block-locale-keys:check
 
+      # Compares the committed assets/icon-sets/tabler.json against a fresh merge of the pinned
+      # @iconify-json/tabler devDependency's icons.json + info.json (backend/scripts/vendor-icon-sets.ts,
+      # OpenProject #3043) -- byte-for-byte, no network. Fails if the vendored file has drifted from
+      # the package, whether from a hand-edit or a dependency bump with no re-vendor. Same
+      # source-scan/no-network shape as the Icons/Emoji Check steps below.
+      - name: Backend Vendor Icons Check
+        working-directory: backend
+        run: npm run vendor-icons:check
+
       - name: Install Frontend Dependencies
         working-directory: frontend
         run: npm ci
