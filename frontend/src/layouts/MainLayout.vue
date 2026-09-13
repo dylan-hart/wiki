@@ -141,6 +141,7 @@
             <transition name="sidebar-actions-top-fade">
               <w-btn
                 v-if="showSidebarTop"
+                class="icon-lg"
                 flat
                 dense
                 icon="tabler:arrow-up"
@@ -838,6 +839,14 @@ onMounted(() => {
   background-color: var(--color-white);
   color: var(--color-accent);
 
+  // -> OpenProject #3133: fills the 40x40 `.sidebar-actions-top` cell exactly, on every aesthetic --
+  //    WBtn's own inline dense padding (`0 0.8em`) otherwise still governs the button's actual size,
+  //    leaving it short of the cell. `!important` on padding beats that inline `style` binding, which
+  //    no external stylesheet rule can outrank otherwise.
+  width: 40px;
+  height: 40px;
+  padding: 0 !important;
+
   &:hover {
     background-color: var(--color-accent-wash);
   }
@@ -849,8 +858,8 @@ onMounted(() => {
   }
 
   // -> WBtn's content wrapper flips from its default row to a column, so "TOP" sits under the
-  //    arrow rather than beside it -- the only way both fit inside a 40px (Ledger) or 32px
-  //    (Cobalt) cell. Scoped to the Top cell alone; every other labelled button keeps WBtn's row.
+  //    arrow rather than beside it -- the only way both fit inside the 40px cell, on every
+  //    aesthetic. Scoped to the Top cell alone; every other labelled button keeps WBtn's row.
   > span {
     flex-direction: column;
     gap: 1px;
@@ -919,20 +928,15 @@ body.body--cobalt {
     }
   }
 
-  // -> Fills the 40px cell it sits inside exactly, same as Ledger's own 40x40 sizing for this
-  //    button (OpenProject #3109 -- was 32x32, leaving a ~4px gap on every side) -- `!important`
-  //    on padding beats WBtn's own inline `style` binding (dense's `padding: 0 0.8em`), which no
-  //    external stylesheet rule can outrank otherwise.
+  // -> OpenProject #3133: the Top button now shares Locale/Browse's `.icon-lg` treatment above
+  //    (margin, hover wash, icon colour) rather than a bespoke Cobalt-only plate style (OpenProject
+  //    #3109, reverted). The unscoped `.sidebar-actions-top .w-btn` rule's own `background-color:
+  //    var(--color-white)` (Ledger's white plate) isn't scoped away from Cobalt and would otherwise
+  //    bleed through, so only that needs resetting here -- the hover wash and icon colour already
+  //    come from `.sidebar-actions .icon-lg` above, which wins on source order against the unscoped
+  //    rule's equal-specificity hover.
   .sidebar-actions-top .w-btn {
     background-color: transparent;
-    color: #ff8f97;
-    width: 40px;
-    height: 40px;
-    padding: 0 !important;
-
-    &:hover {
-      background-color: rgb(255 77 90 / 0.18);
-    }
   }
 }
 

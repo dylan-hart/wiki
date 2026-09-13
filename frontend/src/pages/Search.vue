@@ -219,6 +219,9 @@
                 <div class="layout-search-rowexcerpt text-highlight" v-if="item.highlight">
                   <span v-html="item.highlight" />
                 </div>
+                <div class="layout-search-rowexcerpt" v-else-if="item.chunkText">
+                  <span>{{ item.chunkText }}</span>
+                </div>
               </div>
               <div class="layout-search-rowmeta">
                 <div class="layout-search-rowdate">{{ item.updatedAtFormatted }}</div>
@@ -426,13 +429,28 @@ watch(
     if (newQueryObj.q) {
       siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
       syncTags()
+      // -> HeaderSearch.vue's own mode toggle (OpenProject #3138) carries its pending mode here so a
+      //    semantic search started from the header lands already in Semantic mode. Only ever turns
+      //    the mode ON or explicitly back to Keyword when the site actually has semantic search --
+      //    a stray `mode=semantic` is not honoured on a site where the feature (and therefore the
+      //    in-page toggle) is unavailable. No `mode` param (e.g. `syncTags`'s own `router.replace`
+      //    round trip) leaves whatever mode was already selected untouched.
+      if (newQueryObj.mode === 'semantic' && siteStore.features.semanticSearch) {
+        state.mode = 'semantic'
+      } else if (newQueryObj.mode === 'keyword') {
+        state.mode = 'keyword'
+      }
       performSearch()
     }
   },
   { immediate: true }
 )
 
-watch(() => state.params, debounce(performSearch, 500), { deep: true })
+watch(
+  () => state.params,
+  debounce(() => performSearch(), 500),
+  { deep: true }
+)
 
 // METHODS
 
@@ -528,10 +546,6 @@ async function runSearchRequest(endpoint, searchParams, append) {
  * matching the route's singular `locale` param -- unlike keyword's comma-joined `locales`. Zero or
  * multiple selected means "let the server decide" (its own locale-scoping default) rather than this
  * page guessing which one the reader meant.
- *
- * FIXME: the real shape of Task #3102's route isn't landed in this worktree yet (round-2 coordination
- * note: build against the documented contract, expect small wiring fixes at integration) -- revisit
- * this once #3102 is real, in case its actual query-param contract differs from the design doc's.
  */
 function performSemanticSearch(append) {
   const q = (siteStore.search ?? '').trim().replaceAll(/\s\s+/g, ' ')

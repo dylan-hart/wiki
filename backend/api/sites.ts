@@ -115,18 +115,21 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  *     after attempting to provision the pgvector extension and its `pageEmbeddingChunks` table
  *     (`core/db.ts`). Absent entirely on a `WIKI` that hasn't gone through that boot step yet (e.g.
  *     a test stub), which reads as `false` here rather than throwing.
- *   - `search.semanticEnabled` -- this site's own admin toggle (Task #3104), stored alongside the
- *     existing `search.engine`/`search.config` in `site.config.search` (see `models/sites.ts`'s
- *     `createSite` defaults). Not spread from `config.search` directly -- `buildSitePayload` never
- *     lets the raw `search` key reach the response at all (it also carries active search-engine
- *     credentials), so this reads the one boolean it needs out of it.
+ *   - `search.config.semanticEnabled` -- this site's own admin toggle (Task #3104), stored inside
+ *     `site.config.search.config` alongside the rest of the active search engine's own config (see
+ *     `api/search.ts`'s PATCH handler and `models/search.ts#getConfig()`, which reads the identical
+ *     path). Not spread from `config.search` directly -- `buildSitePayload` never lets the raw
+ *     `search` key reach the response at all (it also carries active search-engine credentials), so
+ *     this reads the one boolean it needs out of it.
  *
  * This is the SINGLE place the two flags are combined: `GET /sites/:siteId/pages/search/semantic`
  * (Task #3102) and the admin toggle's visibility (Task #3104/#3105) both read the resulting
  * `features.semanticSearch` off the site-info response rather than re-deriving this AND themselves.
  */
 function semanticSearchAvailable(config: Record<string, any>): boolean {
-  return WIKI.capabilities?.semanticSearch === true && config.search?.semanticEnabled === true
+  return (
+    WIKI.capabilities?.semanticSearch === true && config.search?.config?.semanticEnabled === true
+  )
 }
 
 /**

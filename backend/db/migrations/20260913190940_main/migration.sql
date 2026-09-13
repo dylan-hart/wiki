@@ -323,7 +323,7 @@ CREATE TABLE "locales" (
 CREATE TABLE "navigation" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"items" jsonb DEFAULT '[]' NOT NULL,
-	"mode" "treeNavigationSource" DEFAULT 'static'::"treeNavigationSource" NOT NULL,
+	"mode" "treeNavigationSource" DEFAULT 'auto'::"treeNavigationSource" NOT NULL,
 	"locale" varchar(255),
 	"siteId" uuid NOT NULL
 );

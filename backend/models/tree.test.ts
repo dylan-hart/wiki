@@ -291,13 +291,19 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       depth: 1
     })
 
+    // -> Membership checks, not an exact-set `deepEqual`: since #3132, `includeAncestors` widens its
+    //    match at every level (root included, as `shared` is a root folder here) to every folder AT
+    //    that level rather than the one ancestor node, so this listing also legitimately picks up
+    //    whatever OTHER root folders earlier tests in this shared-DB file happened to create. What
+    //    this test still pins down is the actual #992 claim: no `fr` row ever leaks in.
     assert.ok(items.length > 0, 'expected at least the en folder/page to come back')
     for (const item of items) {
       assert.notEqual(item.title, 'Shared FR', 'an fr folder must not appear in an en-only listing')
       assert.notEqual(item.title, 'Intro FR', 'an fr page must not appear in an en-only listing')
     }
-    const titles = items.map((item) => item.title).sort()
-    assert.deepEqual(titles, ['Intro EN', 'Shared EN'])
+    const titles = items.map((item) => item.title)
+    assert.ok(titles.includes('Intro EN'), 'the en page under the listed folder must be present')
+    assert.ok(titles.includes('Shared EN'), 'the en folder itself must be present')
   })
 
   /**
@@ -337,6 +343,81 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       !titles.includes('Root FR Only'),
       'an fr root folder must not appear in an en-only includeRootFolders listing'
     )
+  })
+
+  /**
+   * OpenProject #3132: `includeAncestors` used to match only the single exact ancestor node at each
+   * level (`folderPath` AND `fileName`), so a deep folder's navtree showed an unbroken ancestor chain
+   * with no siblings visible at any intermediate level until the reader expanded one manually. The fix
+   * drops the `fileName` condition so each level's match is `folderPath` alone -- mirroring how
+   * `includeRootFolders` already returns every root folder, not just the one on the chain.
+   */
+  test('getTree with includeAncestors also returns sibling folders at every intermediate level (#3132)', async () => {
+    const a = await treeModel.createFolder({
+      pathName: 'branch-a',
+      title: 'Branch A',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const aSibling = await treeModel.createFolder({
+      pathName: 'branch-a-sibling',
+      title: 'Branch A Sibling',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const b = await treeModel.createFolder({
+      pathName: 'branch-b',
+      title: 'Branch B',
+      locale: 'en',
+      siteId: fixtures.siteId,
+      parentId: a.id
+    })
+    // -> A folder cannot be in a different locale than the one holding it (see `createFolder`'s own
+    //    `effectiveLocale` handling), so a nested folder's locale is always its parent's -- there is
+    //    no way to construct a cross-locale sibling AT an intermediate (non-root) level. #992's own
+    //    coverage above is what proves the outer `eq(treeTable.locale, locale)` still guards the
+    //    widened root-level branch; this test's own concern is siblings, not locale.
+    const bSibling = await treeModel.createFolder({
+      pathName: 'branch-b-sibling',
+      title: 'Branch B Sibling',
+      locale: 'en',
+      siteId: fixtures.siteId,
+      parentId: a.id
+    })
+    await treeModel.createFolder({
+      pathName: 'branch-c',
+      title: 'Branch C',
+      locale: 'en',
+      siteId: fixtures.siteId,
+      parentId: b.id
+    })
+
+    const items = await treeModel.getTree({
+      siteId: fixtures.siteId,
+      locale: 'en',
+      parentPath: 'branch-a/branch-b/branch-c',
+      includeAncestors: true,
+      depth: 1
+    })
+
+    const ids = items.map((item) => item.id)
+    assert.equal(new Set(ids).size, ids.length, 'no folder should appear twice')
+
+    // -> Membership checks, not an exact-set assertion: this suite shares one DB/site across every
+    //    test in the file, so other tests' own root-level folders legitimately show up too, now that
+    //    the ancestor loop's own root-level iteration widens the same way `includeRootFolders` does.
+    const byId = new Map(items.map((item) => [item.id, item]))
+    const bSiblingItem = byId.get(bSibling.id)
+    assert.ok(bSiblingItem, 'the sibling at the intermediate level must be present')
+    assert.equal(
+      bSiblingItem!.isAncestor,
+      true,
+      'a same-level sibling of an ancestor is itself shallower than the listed folder, so it is flagged isAncestor'
+    )
+
+    const aSiblingItem = byId.get(aSibling.id)
+    assert.ok(aSiblingItem, 'the sibling at the shallower ancestor level must also be present')
+    assert.equal(aSiblingItem!.isAncestor, true)
   })
 
   /**

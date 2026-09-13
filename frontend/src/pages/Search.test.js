@@ -520,6 +520,74 @@ describe('Search.vue offset paging (OpenProject #2001)', () => {
 })
 
 /**
+ * OpenProject #3136 -- `watch(() => state.params, debounce(performSearch, 500), { deep: true })`
+ * let Vue's own `(newValue, oldValue, onCleanup)` watch-callback arguments flow straight through
+ * the debounced wrapper into `performSearch(append = false)`, so `append` received the (always
+ * truthy) new `state.params` object instead of defaulting to `false`. `runSearchRequest` then
+ * reused the stale `state.offset` left over from the initial load instead of resetting to 0,
+ * which -- once `state.offset` had advanced past `totalHits` -- made every filter/sort change
+ * request a page past the end of the results and come back empty.
+ */
+describe('Search.vue filter/sort changes re-search from offset 0 (OpenProject #3136)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('resets to offset 0 when a param changes after the offset has advanced past it, instead of reusing the stale offset', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 2,
+      suggestion: null
+    })
+    expect(wrapper.vm.state.offset).toBe(2)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 2, suggestion: null })
+    })
+
+    wrapper.vm.state.params.orderBy = 'title'
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
+  })
+
+  it('re-searches from offset 0 for every state.params field, not just sort order', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 2,
+      suggestion: null
+    })
+    expect(wrapper.vm.state.offset).toBe(2)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 2, suggestion: null })
+    })
+
+    wrapper.vm.state.params.filterPublishState = 'published'
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+  })
+})
+
+/**
  * OpenProject #2697 -- handoff 2's Search screen.
  *
  * Two deliberate removals from 2.x and one new row shape. The removals are only half visible from
@@ -596,6 +664,37 @@ describe('Search.vue result rows and the removed Back control (OpenProject #2697
     const excerpt = row.find('.layout-search-rowexcerpt')
     expect(excerpt.classes()).toContain('text-highlight')
     expect(excerpt.find('b').text()).toBe('credentials')
+  })
+
+  /*
+    OpenProject #3122: a semantic result carries `chunkText` (the matched embedding chunk) and no
+    `highlight` -- the route/schema fix restores this field to the payload, and this is the frontend
+    half: render it as the excerpt, as plain text rather than `v-html`, since it is raw stored
+    content, not pre-escaped highlight markup with `<b>` wrapping.
+  */
+  it("renders a semantic result's chunkText as its excerpt when it carries no highlight", async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [
+        {
+          ...FIXTURE_RICH_RESULT,
+          highlight: undefined,
+          chunkText: 'the worker reads its credentials from the secret store',
+          chunkIndex: 2,
+          distance: 0.12,
+          hop: 1
+        }
+      ],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const row = wrapper.find('.layout-search-row')
+    const excerpt = row.find('.layout-search-rowexcerpt')
+    expect(excerpt.exists()).toBe(true)
+    expect(excerpt.classes()).not.toContain('text-highlight')
+    expect(excerpt.find('b').exists()).toBe(false)
+    expect(excerpt.text()).toBe('the worker reads its credentials from the secret store')
   })
 
   it('shows the recent form, not the legacy absolute one, for a page updated within the last week', async () => {
@@ -807,6 +906,102 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     await flushPromises()
 
     expect(API_CLIENT.get.mock.calls.length).toBe(callsBefore)
+  })
+})
+
+/**
+ * OpenProject #3138: `HeaderSearch.vue`'s own new mode toggle carries its pending mode as a `mode`
+ * query param on the navigation to `/_search` -- these confirm this page reads it back on load (and
+ * on any later route-query change) to initialize/update `state.mode`, so a semantic search started
+ * from the header lands here already in Semantic mode rather than requiring a second click.
+ */
+describe('Search.vue reads the mode query param (OpenProject #3138)', () => {
+  it('initializes state.mode to semantic and queries the semantic endpoint when ?mode=semantic', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.vm.state.mode).toBe('semantic')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding' })
+      })
+    )
+  })
+
+  it('does not honour ?mode=semantic when the site has no semantic search available', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: false,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.vm.state.mode).toBe('keyword')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding' })
+      })
+    )
+  })
+
+  it('defaults to keyword mode when no mode param is present', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    expect(wrapper.vm.state.mode).toBe('keyword')
+  })
+
+  it('switches back to keyword mode on a route-query change carrying ?mode=keyword', async () => {
+    const { wrapper, router } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    expect(wrapper.vm.state.mode).toBe('semantic')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE], totalHits: 1, suggestion: null })
+    })
+    await router.push({ path: '/_search', query: { q: 'onboarding', mode: 'keyword' } })
+    await flushPromises()
+
+    expect(wrapper.vm.state.mode).toBe('keyword')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding' })
+      })
+    )
+  })
+
+  it('preserves the current mode on a route-query change carrying no mode param at all', async () => {
+    const { wrapper, router } = await mountSearchWithMode({
+      semanticEnabled: true,
+      initialPath: '/_search?q=onboarding&mode=semantic',
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    expect(wrapper.vm.state.mode).toBe('semantic')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE], totalHits: 1, suggestion: null })
+    })
+    await router.push({ path: '/_search', query: { q: 'onboarding tag' } })
+    await flushPromises()
+
+    expect(wrapper.vm.state.mode).toBe('semantic')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ query: 'onboarding tag' })
+      })
+    )
   })
 })
 

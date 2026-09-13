@@ -25,7 +25,22 @@
       :stroke-width="EDGE_WIDTH"
       :stroke-dasharray="e.dasharray"
       :style="
-        e.animate ? { animationDuration: e.duration + 's', '--sdg-dash-len': e.dasharray } : null
+        e.animate
+          ? {
+              animationDuration: e.duration + 's',
+              /* OpenProject #3134: this custom property MUST carry an explicit unit. Passed as a
+                 bare number, `calc(-2 * var(--sdg-dash-len, 1px))` resolves to an untyped <number>,
+                 while the keyframe's implicit `from` state (the property's own current value) is a
+                 <length> -- Chromium can't interpolate across that type mismatch and silently falls
+                 back to a discrete jump at the 50% mark instead of a continuous flow, confirmed live
+                 (`getAnimations()` showed the animation running throughout, but
+                 `getComputedStyle().strokeDashoffset` only ever read two fixed values, flipping
+                 partway through each cycle rather than sweeping between them). `px` here resolves to
+                 the SVG user-unit coordinate system this element already draws in, matching every
+                 other unitless SVG length in this component. */
+              '--sdg-dash-len': e.dasharray + 'px'
+            }
+          : null
       " />
     <line
       v-for="p in renderedPaths"
@@ -270,5 +285,27 @@ const viewBox = computed(() => {
   to {
     stroke-dashoffset: calc(-2 * var(--sdg-dash-len, 1px));
   }
+}
+
+/* Restores the node hover affordance `v-network-graph` drew by default (OpenProject #3134) --
+   dropped outright when #3116 replaced it with this plain SVG renderer. There is no old custom
+   config to transcribe (AdminStorage.vue never overrode `node.hover`), so this is a fresh,
+   theme-agnostic restatement: scale the node around its own center rather than the SVG origin, and
+   brighten its fill via `filter` rather than a hardcoded color so it reads correctly against any
+   node color and either theme. */
+.storage-delivery-graph__node {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.1s linear;
+}
+
+.storage-delivery-graph__node:hover {
+  transform: scale(1.15);
+}
+
+.storage-delivery-graph__node:hover rect {
+  filter: brightness(1.2);
+  transition: filter 0.1s linear;
 }
 </style>

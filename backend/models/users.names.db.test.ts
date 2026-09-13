@@ -12,9 +12,8 @@ import { users as usersTable } from '../db/schema.ts'
  * between a patch and the row already stored — `models/users.ts#updateUser` reads the current
  * `firstName`/`lastName`/`nameLocallyEdited` and decides against them, which a stubbed `select`
  * would mostly just be re-describing. And `setupTestDb()` runs the real `db/migrations/` into a
- * fresh schema, so every assertion below is also the proof that the squashed baseline
- * (`20260905003258_main`, hand-edited to carry the three new columns rather than getting a fifth
- * migration directory of its own) actually creates them.
+ * fresh schema, so every assertion below is also the proof that the genesis migration's `users`
+ * `CREATE TABLE` actually creates the three columns this invariant reads and writes.
  *
  * One schema for the whole file, per the `*.db.test.ts` convention.
  */

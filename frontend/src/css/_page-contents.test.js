@@ -141,8 +141,44 @@ describe('_page-contents.scss logical properties (whole file)', () => {
     }
   })
 
-  it('rounds the admonition corners opposite the accent bar via logical corner properties', () => {
-    expect(source).toMatch(/border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/)
+  /*
+   * OpenProject #3131: the admonition rule used to round these two corners unconditionally, in both
+   * aesthetics, with no corner marks (`&::after { content: none; }`). It now only rounds them -- and
+   * only suppresses the marks -- inside an explicit `body.body--cobalt` scope; see the "square
+   * corners, Ledger vs Cobalt" describe below for the split this replaces.
+   */
+  it('rounds the admonition corners opposite the accent bar via logical corner properties, scoped to Cobalt only', () => {
+    expect(source).toMatch(
+      /@at-root body\.body--cobalt & \{\s*border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/
+    )
+  })
+
+  /**
+   * OpenProject #3130 ("Question admonition icon tiles, wrong color, and has no thick left border
+   * -- falls back to the base blockquote gutter"). `.is-question` had its own severity-specific
+   * block (`--alert-hue`, `border-inline-start-color`, `background-color`, `::before` color/
+   * mask-image -- covered by the hue loop above) but was missing from THIS shared selector list,
+   * so it never received the shared block's `border-inline-start-width: 4px`, icon `::before`
+   * sizing/masking (`width`/`height: 1.25em`, `mask-repeat: no-repeat`, `mask-size: contain`) or
+   * `.alert-title` styling below. Without those it fell back to the base `blockquote::before`
+   * gutter (44px wide, tiled, `--content-surface-alt` fill), which is what produced the reported
+   * oversized/repeating/wrong-colour icon and the thin 1px border instead of the 4px accent bar.
+   * Asserted that `.is-question` sits in the SAME selector list as the other five kinds, not just
+   * that its own tail block exists somewhere in the file (the hue loop above already covers that
+   * and would not have caught this regression).
+   */
+  it('includes .is-question in the shared admonition selector list, alongside the other five kinds', () => {
+    const sharedBlockStart = source.indexOf('&.is-info,')
+    const sharedBlockEnd = source.indexOf('&::before {', sharedBlockStart)
+    if (sharedBlockStart === -1 || sharedBlockEnd === -1) {
+      throw new Error(
+        'Shared admonition blockquote block not found -- has it moved or been renamed?'
+      )
+    }
+    const selectorList = source.slice(sharedBlockStart, sharedBlockEnd)
+    for (const kind of ['info', 'success', 'important', 'warning', 'danger', 'question']) {
+      expect(selectorList).toMatch(new RegExp(`&\\.is-${kind},\\s*&:has\\(> \\.is-${kind}\\)`))
+    }
   })
 
   it('positions the admonition icon from the logical leading edge', () => {
@@ -183,6 +219,157 @@ describe('_page-contents.scss logical properties (whole file)', () => {
       /\[role='columnheader'\],\s*\[role='cell'\]\s*\{[^}]*text-align:\s*start;/s
     )
     expect(source).toMatch(/caption\s*\{[^}]*text-align:\s*start;/s)
+  })
+})
+
+/**
+ * OpenProject #3131 ("Admonitions lack Ledger's corner-mark treatment and render with rounded
+ * corners instead of square"). The admonition rule (`blockquote.is-info` and its four siblings) used
+ * to round its two non-accent corners and suppress the plain blockquote's own corner-mark `::after`
+ * unconditionally, in both aesthetics -- an incidental byproduct of no `body.body--cobalt` override
+ * existing, not a deliberate choice, unlike the plain blockquote just above it which already diverged
+ * explicitly per aesthetic. The fix mirrors that split: Ledger (the unscoped default) now draws the
+ * SAME square-cornered, corner-marked box as a plain quote, by dropping the radius and the `::after`
+ * override so the base blockquote rule's own marks cascade through with no duplicated CSS; Cobalt
+ * keeps today's rounded/no-marks look, now via an explicit override scoped by both the severity
+ * selector and `body.body--cobalt` rather than as a side effect of an absent rule.
+ */
+describe('_page-contents.scss admonition corners -- square by default, rounded under Cobalt (OpenProject #3131)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  /** The declarations of the admonition selector group's own block (not a per-severity sub-block). */
+  function admonitionBlock() {
+    const start = source.indexOf('&.is-info,\n    &:has(> .is-info),\n    &.is-success,')
+    if (start === -1) {
+      throw new Error('Admonition selector group not found in _page-contents.scss -- has it moved?')
+    }
+    let depth = 0
+    let braceStart = -1
+    for (let i = start; i < source.length; i += 1) {
+      if (source[i] === '{') {
+        if (braceStart === -1) braceStart = i
+        depth += 1
+      } else if (source[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          return source.slice(start, i + 1)
+        }
+      }
+    }
+    throw new Error('Admonition selector group block is unterminated in _page-contents.scss')
+  }
+
+  const block = admonitionBlock()
+
+  it('sets no border-radius of its own at the top level of the block (Ledger draws it square)', () => {
+    // -> Only the nested `@at-root body.body--cobalt &` sub-block may declare these -- captured
+    //    separately below -- so strip that sub-block out before scanning the rest.
+    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    expect(cobaltStart).toBeGreaterThan(-1)
+    const outsideCobalt = block.slice(0, cobaltStart)
+    expect(outsideCobalt).not.toMatch(/border-radius/)
+    expect(outsideCobalt).not.toMatch(/border-start-end-radius/)
+    expect(outsideCobalt).not.toMatch(/border-end-end-radius/)
+  })
+
+  it('carries no `&::after { content: none }` at the top level, letting the plain blockquote corner marks cascade through', () => {
+    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const outsideCobalt = block.slice(0, cobaltStart)
+    expect(outsideCobalt).not.toMatch(/&::after\s*\{\s*content:\s*none;\s*\}/)
+  })
+
+  it('re-rounds the two corners and re-suppresses the marks, but only inside an explicit body.body--cobalt scope', () => {
+    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltBlock = block.slice(cobaltStart)
+    expect(cobaltBlock).toMatch(/border-start-end-radius:\s*6px;/)
+    expect(cobaltBlock).toMatch(/border-end-end-radius:\s*6px;/)
+    expect(cobaltBlock).toMatch(/&::after\s*\{\s*content:\s*none;\s*\}/)
+  })
+
+  /*
+   * The part source-reading cannot confirm: which of two same-tag rules (the plain blockquote's own
+   * Cobalt override and this admonition's new, more specific one) the cascade actually applies, and
+   * what a browser paints for the resulting corners and pseudo-element. Same real-browser harness
+   * shape as the describes above in this file.
+   */
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+    let stylesheets
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <blockquote class="is-info"><p>An informational note.</p></blockquote>
+      </article>`
+
+    async function buildStylesheets() {
+      const cssDir = dirname(fileURLToPath(import.meta.url))
+      const [appCss, content] = await Promise.all([
+        buildAppCss(),
+        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [cssDir]
+        })
+      ])
+      return { appCss, contentCss: content.css }
+    }
+
+    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+      const { appCss, contentCss } = stylesheets
+      const page = await browser.newPage()
+      try {
+        const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
+          .filter(Boolean)
+          .join(' ')
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${bodyClasses}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const el = document.querySelector('blockquote.is-info')
+          const cs = getComputedStyle(el)
+          const after = getComputedStyle(el, '::after')
+          return {
+            // -> The corner opposite the accent bar under LTR -- top-right, physically.
+            radius: cs.borderTopRightRadius,
+            afterContent: after.content,
+            afterBackgroundImage: after.backgroundImage
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      stylesheets = await buildStylesheets()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('draws a square-cornered box with the corner marks present under Ledger, light and dark', async () => {
+      const light = await measure({ dark: false })
+      const dark = await measure({ dark: true })
+      expect(light.radius).toBe('0px')
+      expect(dark.radius).toBe('0px')
+      // -> `content: none` computes to the keyword string 'none'; a real mark sets `content: ''`,
+      //    which computes to an empty string, not the literal text 'none'.
+      expect(light.afterContent).not.toBe('none')
+      expect(dark.afterContent).not.toBe('none')
+      expect(light.afterBackgroundImage).toMatch(/linear-gradient/)
+      expect(dark.afterBackgroundImage).toMatch(/linear-gradient/)
+    })
+
+    it('draws a rounded box with no corner marks under Cobalt, light and dark', async () => {
+      const cobaltLight = await measure({ dark: false, cobalt: true })
+      const cobaltDark = await measure({ dark: true, cobalt: true })
+      expect(cobaltLight.radius).toBe('6px')
+      expect(cobaltDark.radius).toBe('6px')
+      expect(cobaltLight.afterContent).toBe('none')
+      expect(cobaltDark.afterContent).toBe('none')
+    })
   })
 })
 

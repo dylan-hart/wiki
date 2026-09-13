@@ -1594,24 +1594,26 @@
     &.is-warning,
     &:has(> .is-warning),
     &.is-danger,
-    &:has(> .is-danger) {
+    &:has(> .is-danger),
+    &.is-question,
+    &:has(> .is-question) {
       position: relative;
       padding-block: 0.9em;
       /* -> Start (leading edge) is the wider half: it clears the icon and the accent bar */
       padding-inline: 3.1em 1.1em;
       border-inline-start-width: 4px;
-      /* -> Rounded on the two corners opposite the accent bar, whichever edge that is under `dir` */
-      border-start-end-radius: 6px;
-      border-end-end-radius: 6px;
       color: var(--content-ink);
 
       /*
-        An admonition is a different object: a coloured bar and an icon, not a framed quote -- so the
-        base gutter and the corner marks come off, and `::before` is reused for the icon.
+        An admonition is a different object from a plain quote -- a coloured bar and an icon, not a
+        tinted-gutter box -- but Ledger still draws it with the SAME square-cornered, corner-marked
+        treatment as every other framed thing in the language: no radius set here (there is nothing
+        left to round, where this rule used to unconditionally round the two corners opposite the
+        accent bar), and no `content: none` override on `::after` either, so the base blockquote
+        rule's own eight-stroke corner marks (`--color-slate-soft`, one selector up) cascade straight
+        through onto this box with no duplicated CSS. `::before` is still reused for the icon, below,
+        unchanged.
       */
-      &::after {
-        content: none;
-      }
 
       &::before {
         content: '';
@@ -1658,6 +1660,23 @@
 
       code {
         background-color: var(--content-surface-alt);
+      }
+
+      /*
+        Cobalt's own established "pill growth" language (see this file's comment at ~line 2258),
+        rather than an incidental byproduct of no override existing: the same two corners this rule
+        used to round unconditionally, still rounded, and no corner marks. Scoped by BOTH the
+        severity class/`:has()` AND `body.body--cobalt` so it outranks the plain quote's own Cobalt
+        override above on specificity, regardless of source order -- an admonition is still a
+        `blockquote`, so that generic rule would otherwise also be in the running here.
+      */
+      @at-root body.body--cobalt & {
+        border-start-end-radius: 6px;
+        border-end-end-radius: 6px;
+
+        &::after {
+          content: none;
+        }
       }
     }
 
