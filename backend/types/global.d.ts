@@ -42,6 +42,20 @@ declare global {
     }
 
     /**
+     * Boot-time feature availability flags -- instance-wide, not per-site. Recorded once during
+     * `preBoot()` rather than probed independently by each caller.
+     *
+     * `semanticSearch` (Task #3095) is whether `core/db.ts` successfully provisioned the pgvector
+     * extension and its `pageEmbeddingChunks` table at boot -- `false` on a host that doesn't permit
+     * `CREATE EXTENSION vector`, per the semantic-search design's graceful-degradation decision.
+     * Optional here (rather than always-present) so a test `WIKI` stub that never sets it reads
+     * `undefined` instead of throwing.
+     */
+    capabilities?: {
+      semanticSearch: boolean
+    }
+
+    /**
      * Merged config.yml + base.yml defaults + the `settings` DB table. Assembled at runtime from
      * YAML and JSONB, so it stays intentionally untyped.
      */
