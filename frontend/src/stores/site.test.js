@@ -312,6 +312,76 @@ describe('site store: fetchAcronymMap()', () => {
   })
 })
 
+/**
+ * OpenProject #3046: a fetch/state slice deliberately separate from `fetchTags()`/`tags` — those
+ * still answer "every tag in use, all-time", which `PageTags.vue` and `TagsBrowse.vue`/`Search.vue`
+ * need untouched. This is the Header Search "Popular Tags" widget's own, narrower list.
+ */
+describe('site store: fetchPopularTags()', () => {
+  it('populates popularTags from the dedicated endpoint and marks it loaded', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([
+          { tag: 'active', usageCount: 4 },
+          { tag: 'quiet', usageCount: 1 }
+        ])
+    })
+
+    await store.fetchPopularTags()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/tags/popular')
+    expect(store.popularTags).toEqual([
+      { tag: 'active', usageCount: 4 },
+      { tag: 'quiet', usageCount: 1 }
+    ])
+    expect(store.popularTagsLoaded).toBe(true)
+  })
+
+  it('does not re-fetch once loaded, unless forceRefresh is passed', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    store.$patch({ popularTags: [{ tag: 'stale', usageCount: 1 }], popularTagsLoaded: true })
+
+    await store.fetchPopularTags()
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ tag: 'fresh', usageCount: 2 }])
+    })
+    await store.fetchPopularTags(true)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/tags/popular')
+    expect(store.popularTags).toEqual([{ tag: 'fresh', usageCount: 2 }])
+  })
+
+  it('does not touch tags/tagsLoaded, the separate all-time/unlimited list', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    store.$patch({ tags: [{ tag: 'everything', usageCount: 99 }], tagsLoaded: true })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ tag: 'recent', usageCount: 1 }])
+    })
+
+    await store.fetchPopularTags()
+
+    expect(store.tags).toEqual([{ tag: 'everything', usageCount: 99 }])
+    expect(store.tagsLoaded).toBe(true)
+  })
+
+  it('rethrows a failed request, leaving popularTags empty', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw new Error('network down')
+    })
+
+    await expect(store.fetchPopularTags()).rejects.toThrow('network down')
+    expect(store.popularTags).toEqual([])
+    expect(store.popularTagsLoaded).toBe(false)
+  })
+})
+
 describe('site store: features.comments default', () => {
   it('defaults to false, so PageComments has something real to gate on before the backend sends it', () => {
     const store = useSiteStore()

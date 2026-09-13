@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import HeaderSearch from './HeaderSearch.vue'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { createTestRouter } from '../../test/router.js'
@@ -12,10 +13,13 @@ vi.mock('@/helpers/clipboard', () => ({
  * Regression test for the `popularTags` computed (not part of the backend `FIXME:` list this branch's
  * test infra otherwise regression-tests — see CLAUDE.md's "Testing (backend)" section — this is the
  * fifth, frontend bug the epic separately tracks). It must sort by usage count DESCENDING, most-used
- * first: `orderBy(siteStore.tags, ['usageCount', 'desc'], ['asc', 'asc'])` passed the string `'desc'`
- * as a second sort KEY (es-toolkit's `orderBy(collection, iteratees[], orders[])` has no such
+ * first: `orderBy(siteStore.popularTags, ['usageCount', 'desc'], ['asc', 'asc'])` passed the string
+ * `'desc'` as a second sort KEY (es-toolkit's `orderBy(collection, iteratees[], orders[])` has no such
  * property on a tag) rather than as the ORDER for `usageCount`, so every tag sorted ascending by
  * usage — the opposite of "popular" — regardless of what order strings were written after it.
+ *
+ * Seeds `siteStore.popularTags`/`popularTagsLoaded` (OpenProject #3046's dedicated, 60-day-activity,
+ * capped-to-10 state), not `tags`/`tagsLoaded` -- those back a different, unrelated widget now.
  */
 async function mountWithTags(tags) {
   const router = await createTestRouter(['/'])
@@ -25,8 +29,8 @@ async function mountWithTags(tags) {
     stores: {
       site: (store) => {
         store.features.search = true
-        store.tagsLoaded = true
-        store.tags = tags
+        store.popularTagsLoaded = true
+        store.popularTags = tags
       }
     }
   })
@@ -267,6 +271,45 @@ describe('HeaderSearch popularTags', () => {
     const renderedTags = wrapper.findAll('.w-chip').map((chip) => chip.text().trim())
 
     expect(renderedTags).toEqual(['b', 'c', 'a'])
+  })
+
+  /**
+   * OpenProject #3046: the backend already caps `GET sites/:siteId/tags/popular` at 10, but the
+   * widget defends against rendering more anyway rather than trusting that ceiling blindly.
+   */
+  it('renders at most 10 chips even if popularTags carries more', async () => {
+    const tags = Array.from({ length: 15 }, (_, i) => ({
+      tag: `tag-${i}`,
+      usageCount: 15 - i
+    }))
+    const wrapper = await mountWithTags(tags)
+
+    expect(wrapper.findAll('.w-chip')).toHaveLength(10)
+  })
+
+  /**
+   * OpenProject #3046: opening the panel must fetch the dedicated popular-tags endpoint, not the
+   * all-time/unlimited `sites/:siteId/tags` the tag-edit autocomplete and tag-browse page use.
+   */
+  it('fetches sites/:siteId/tags/popular when the panel opens', async () => {
+    const router = await createTestRouter(['/'])
+    const { wrapper, siteStore } = mountWithApp(HeaderSearch, {
+      router,
+      stores: {
+        site: (store) => {
+          store.id = 'site-1'
+          store.features.search = true
+        }
+      }
+    })
+
+    await wrapper.find('.header-search-input').trigger('focus')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/tags/popular')
+    expect(siteStore.popularTagsLoaded).toBe(true)
+
+    wrapper.unmount()
   })
 })
 

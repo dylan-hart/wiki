@@ -199,7 +199,7 @@
           </w-list>
         </template>
 
-        <template v-if="siteStore.tagsLoaded && siteStore.tags.length > 0">
+        <template v-if="siteStore.popularTagsLoaded && siteStore.popularTags.length > 0">
           <div class="searchpanel-header">
             <span>{{ t('common.header.popularTags') }}</span>
             <w-space />
@@ -372,8 +372,16 @@ const searchPanelIsShown = computed(() => {
   )
 })
 
+/**
+ * Ranked by 60-day content activity, capped to 10, by `GET sites/:siteId/tags/popular` (OpenProject
+ * #3046) -- `siteStore.popularTags`, not the all-time/unlimited `siteStore.tags` the tag-edit
+ * autocomplete and the tag-browse page still use. The backend already returns these sorted and
+ * capped; the sort/slice here are a defensive belt-and-braces, not the primary ranking.
+ */
 const popularTags = computed(() => {
-  return orderBy(siteStore.tags, ['usageCount'], ['desc']).map((t) => t.tag)
+  return orderBy(siteStore.popularTags, ['usageCount'], ['desc'])
+    .map((t) => t.tag)
+    .slice(0, 10)
 })
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
@@ -411,7 +419,7 @@ const previewResultRows = computed(() => state.previewResults.slice(0, PREVIEW_R
 
 watch(searchPanelIsShown, (newValue) => {
   if (newValue) {
-    siteStore.fetchTags()
+    siteStore.fetchPopularTags()
   } else {
     // -> Collapsed by default on every open (OpenProject #2995) -- no state to persist.
     searchOperatorsExpanded.value = false
