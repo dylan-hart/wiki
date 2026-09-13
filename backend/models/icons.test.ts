@@ -300,6 +300,116 @@ describe('icons.fetchIconsUpstream logging level', () => {
 })
 
 /**
+ * `searchIcons()` degrading gracefully when Iconify is unreachable (OpenProject #3041): offline mode
+ * skips the network attempt entirely, and a genuine upstream failure is caught and logged rather than
+ * left to reject -- both fall back to `searchIconsLocally()`, a plain query over the icons already
+ * materialized in the permanent record. A fake `WIKI.db` distinguishes `iconSetsTable` (what
+ * `getEnabledPrefixes()` reads) from `iconsTable` (what the local fallback searches), the same
+ * per-table dispatch `icons.getSet`'s fake db above uses.
+ */
+describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
+  const calls = { fetch: 0, localSearch: 0 }
+
+  function makeFakeDb({
+    enabledPrefixes = ['tabler'],
+    localRows = [] as { prefix: string; name: string }[]
+  } = {}) {
+    return {
+      select: (_cols?: any) => ({
+        from: (table: any) => {
+          if (table === iconSetsTable) {
+            return {
+              where: async (_where: any) => enabledPrefixes.map((prefix) => ({ prefix }))
+            }
+          }
+          if (table === iconsTable) {
+            return {
+              where: (_where: any) => ({
+                limit: async (_n: number) => {
+                  calls.localSearch++
+                  return localRows
+                }
+              })
+            }
+          }
+          throw new Error(`unexpected table passed to select().from(): ${String(table)}`)
+        }
+      })
+    }
+  }
+
+  beforeEach(() => {
+    calls.fetch = 0
+    calls.localSearch = 0
+    ;(globalThis as any).WIKI = {
+      db: makeFakeDb(),
+      config: { offline: false, icons: {} },
+      logger: { debug: mock.fn(), warn: mock.fn() }
+    }
+    mock.method(globalThis, 'fetch', async () => {
+      calls.fetch++
+      return { ok: true, status: 200, json: async () => ({ icons: ['tabler:upstream-hit'] }) }
+    })
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+    mock.restoreAll()
+  })
+
+  it('goes straight to the local fallback in offline mode, never attempting the network', async () => {
+    ;(globalThis as any).WIKI.config.offline = true
+    ;(globalThis as any).WIKI.db = makeFakeDb({
+      localRows: [{ prefix: 'tabler', name: 'home' }]
+    })
+    const result = await icons.searchIcons({ query: 'home' })
+    assert.deepEqual(result, ['tabler:home'])
+    assert.equal(calls.fetch, 0)
+    assert.equal(calls.localSearch, 1)
+  })
+
+  it('returns the upstream result and never touches the local fallback when Iconify answers', async () => {
+    const result = await icons.searchIcons({ query: 'home' })
+    assert.deepEqual(result, ['tabler:upstream-hit'])
+    assert.equal(calls.fetch, 1)
+    assert.equal(calls.localSearch, 0)
+  })
+
+  it('falls back to local icons and logs a warning when Iconify cannot be reached', async () => {
+    ;(globalThis as any).WIKI.db = makeFakeDb({
+      localRows: [{ prefix: 'tabler', name: 'home' }]
+    })
+    mock.method(globalThis, 'fetch', async () => {
+      throw new Error('fetch failed')
+    })
+    const result = await icons.searchIcons({ query: 'home' })
+    assert.deepEqual(result, ['tabler:home'])
+    const wiki = (globalThis as any).WIKI
+    assert.equal(wiki.logger.warn.mock.calls.length, 1)
+    const [scope, message] = wiki.logger.warn.mock.calls[0].arguments
+    assert.equal(scope, 'icons')
+    assert.equal(typeof message, 'string')
+  })
+
+  it('returns an empty result, not a rejection, when the fallback also finds nothing', async () => {
+    mock.method(globalThis, 'fetch', async () => {
+      throw new Error('fetch failed')
+    })
+    const result = await icons.searchIcons({ query: 'nope' })
+    assert.deepEqual(result, [])
+  })
+
+  it('returns no results without ever reaching the network when the requested prefix is not enabled', async () => {
+    // -> `enabledPrefixes` defaults to `['tabler']` -- a request scoped to a prefix that is not
+    //    enabled here narrows to nothing before `searchIcons()` ever attempts upstream or local
+    const result = await icons.searchIcons({ query: 'home', prefixes: ['disabled-prefix'] })
+    assert.deepEqual(result, [])
+    assert.equal(calls.fetch, 0)
+    assert.equal(calls.localSearch, 0)
+  })
+})
+
+/**
  * `parseSideloadIconCollection()` (OpenProject #2945): the pure shape validation
  * `sideloadFromDataPath` runs each `<dataPath>/icons/<prefix>.json` file's parsed content through
  * before anything touches the database or the filesystem again -- a plain function, tested the same
