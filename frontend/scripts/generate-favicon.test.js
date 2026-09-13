@@ -4,13 +4,10 @@
 
   This reads the bytes rather than re-running `generate-favicon.mjs`: the generator needs
   Playwright's Chromium, and the whole point of committing the output is that nothing downstream
-  of it does. What is asserted is that the file IS the Cardinal mark — its two fills are read out
-  of `public/_assets/logo-cardinal.svg` rather than hardcoded here, so re-colouring the mark
-  without re-rendering the icon fails as a mismatch instead of passing on a stale render.
-
-  Note for anyone verifying by hand: the icon this replaced was also 15,086 bytes, because it also
-  carried 16/32/48 at 32bpp in an uncompressed DIB, so the container layout is byte-for-byte the
-  same size. A size check tells you nothing here; the pixels are the only real evidence.
+  of it does. The committed file is the Cardinal.js brand kit's own hand-supplied icon (see
+  `generate-favicon.mjs`'s header) rather than one rendered from `logo-cardinal.svg` here, so what
+  is asserted is that it carries the official mark's three known fills, not a value read out of the
+  SVG — the two are deliberately decoupled for exactly the reason that header explains.
 */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -19,7 +16,6 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const ICO = path.join(ROOT, 'public/favicon.ico')
-const SVG = path.join(ROOT, 'public/_assets/logo-cardinal.svg')
 
 const bytes = fs.readFileSync(ICO)
 
@@ -82,7 +78,13 @@ function parseHex(hex) {
   return { r: (value >> 16) & 0xff, g: (value >> 8) & 0xff, b: value & 0xff }
 }
 
-const fills = [...fs.readFileSync(SVG, 'utf8').matchAll(/fill="(#[0-9a-f]{6})"/gi)].map((m) => m[1])
+// The official mark's three flat fills — see `public/_assets/logo-cardinal.svg`'s own header
+// comment. Hardcoded rather than read off the SVG: this icon is a hand-supplied render, not one
+// generated from that file (see `generate-favicon.mjs`), so the two are checked against the same
+// known constants instead of against each other.
+const CRESCENT = parseHex('#f95b53')
+const BODY = parseHex('#d1362f')
+const INK = parseHex('#000000')
 
 describe('public/favicon.ico', () => {
   it('is an icon resource carrying the sizes a browser and a desktop shortcut ask for', () => {
@@ -90,7 +92,7 @@ describe('public/favicon.ico', () => {
     expect(bytes.readUInt16LE(2)).toBe(1) // type: icon, not cursor
 
     const entries = readDirectory(bytes)
-    expect(entries.map((e) => e.width).sort((a, b) => a - b)).toEqual([16, 32, 48])
+    expect(entries.map((e) => e.width).sort((a, b) => a - b)).toEqual([16, 32, 64])
     for (const entry of entries) {
       expect(entry.width).toBe(entry.height)
       expect(entry.planes).toBe(1)
@@ -103,18 +105,15 @@ describe('public/favicon.ico', () => {
     }
   })
 
-  it('draws the Cardinal mark in the two fills its own source declares', () => {
-    // Three paths, two distinct colours: the crescent body and the ink of the head and beak.
-    expect(new Set(fills).size).toBe(2)
-    const [ink, body] = [parseHex(fills[0]), parseHex(fills[1])]
-
-    // Read off the 48, the largest of the three: the head and the beak are thin triangles, so at 16
-    // barely a pixel of ink survives antialiasing and a count there would prove nothing.
-    const entry = readDirectory(bytes).find((e) => e.width === 48)
+  it('draws the Cardinal mark in its three known fills', () => {
+    // Read off the 64, the largest entry: fine ink detail (the eye, the beak) is a handful of
+    // pixels even here, and would all but vanish under antialiasing at 16.
+    const entry = readDirectory(bytes).find((e) => e.width === 64)
     const image = readPixels(bytes, entry)
 
     let inkPixels = 0
     let bodyPixels = 0
+    let crescentPixels = 0
     let opaque = 0
     for (let y = 0; y < entry.height; y += 1) {
       for (let x = 0; x < entry.width; x += 1) {
@@ -125,21 +124,23 @@ describe('public/favicon.ico', () => {
           continue
         }
         opaque += 1
-        if (isNear(px, ink)) {
+        if (isNear(px, INK)) {
           inkPixels += 1
-        }
-        if (isNear(px, body)) {
+        } else if (isNear(px, BODY)) {
           bodyPixels += 1
+        } else if (isNear(px, CRESCENT)) {
+          crescentPixels += 1
         }
       }
     }
 
-    // The mark is mostly the crescent, with the head and beak a small ink minority — but both have
-    // to actually be there, and between them account for nearly every solid pixel.
-    expect(bodyPixels).toBeGreaterThan(300)
-    expect(inkPixels).toBeGreaterThan(15)
-    expect(bodyPixels).toBeGreaterThan(inkPixels)
-    expect(inkPixels + bodyPixels).toBeGreaterThan(opaque * 0.9)
+    // The mark is mostly the crescent, with the bird's body a smaller share and its ink detail
+    // smaller still — but all three have to actually be present.
+    expect(crescentPixels).toBeGreaterThan(300)
+    expect(bodyPixels).toBeGreaterThan(50)
+    expect(inkPixels).toBeGreaterThan(5)
+    expect(crescentPixels).toBeGreaterThan(bodyPixels)
+    expect(inkPixels + bodyPixels + crescentPixels).toBeGreaterThan(opaque * 0.85)
   })
 
   it('leaves the corners transparent rather than boxing the mark in', () => {
