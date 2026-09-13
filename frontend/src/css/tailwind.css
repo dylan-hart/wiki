@@ -870,12 +870,14 @@ body.body--cobalt {
   --float-gap: 14px;
   --float-rule-display: none;
   /*
-    OpenProject #3055: bottom value is +16px over Ledger's 44px, matching the same +16px this WP
-    adds to `.page-container-scrl`'s own Cobalt footer clearance (`Index.vue`) -- so the last
-    paragraph keeps its same margin of daylight above the fixed footer bar that the scroll
-    container's own bottom edge now gets.
+    OpenProject #3135: bottom value is Ledger's 44px plus 16px of trailing daylight above the fixed
+    footer bar, minus the 32.5px `Index.vue`'s `body.body--cobalt .page-container > .min-w-0.flex-1`
+    rule now takes as its own margin-bottom (44 + 16 - 32.5 = 27.5) -- the two changes net to the same
+    total trailing space below the article, so the page's fully-scrolled content position is
+    unchanged; only the scrollbar's own track now ends flush above the bar instead of running behind
+    it. Was `60px` (the pre-#3135 total, before that margin existed) under OpenProject #3055/#3089.
   */
-  --article-column-pad: 28px 24px 60px;
+  --article-column-pad: 28px 24px 27.5px;
   --article-column-pad-xs: 18px 14px 32px;
   --article-card-pad: 32px 36px;
   --content-bleed-default: 0px;

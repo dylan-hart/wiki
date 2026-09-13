@@ -6,21 +6,28 @@ import * as sass from 'sass'
 import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test/realGridLayout.js'
 
 /**
- * OpenProject #3089: `Index.pageScrollFooterClearance.test.js` (OpenProject #3055) used to assert
+ * OpenProject #3135: `Index.pageScrollFooterClearance.test.js` (OpenProject #3055) used to assert
  * that `body.body--cobalt .page-container > .min-w-0.flex-1` carried a
  * `margin-bottom: calc(var(--footer-bar-height) + 16px)` rule, shrinking the article column's own
- * stretched box so its scrollbar stopped above Cobalt's fixed footer bar. That rule turned out to be
- * redundant -- the same `--article-column-pad` bottom value (bumped from 44px to 60px by the same
- * #3055 commit) already gives the article body enough trailing whitespace to clear the bar in
- * practice, confirmed hands-on -- so #3089 deletes the margin rule outright and this suite replaces
- * that one, asserting the wrapper now behaves exactly like Ledger's (no margin at all) rather than
- * asserting on the deleted rule's old numbers.
+ * stretched box so its scrollbar stopped above Cobalt's fixed footer bar. OpenProject #3089 deleted
+ * that rule outright, reasoning it was redundant with `--article-column-pad`'s own Cobalt bottom
+ * bump -- but that padding lives INSIDE the scrollport and only clears the article's own content, not
+ * where the scrollport (and its native scrollbar) itself ends, so the scrollbar went back to running
+ * behind the fixed bar. #3135 restores the margin rule, as a literal `32.5px` rather than the old
+ * `calc(var(--footer-bar-height) + 16px)` formula, and cuts `--article-column-pad`'s Cobalt bottom
+ * value by the same 32.5px so the two changes net to zero -- this suite asserts the wrapper now
+ * carries exactly `32.5px` of margin-bottom in Cobalt (still none in Ledger), and that the wrapper's
+ * own bottom edge sits that same 32.5px above the row's bottom edge.
  *
  * Real browser, not `jsdom`/`happy-dom`, for the same reason as the suite this replaces: this is
  * genuine box geometry neither DOM emulator's non-existent layout engine can answer.
  */
 
 const frontendRoot = join(import.meta.dirname, '..', '..')
+
+// -> This WP's own literal margin-bottom value (`Index.vue`) -- kept as one constant so a future
+//    change to the number only has to happen once.
+const FOOTER_CLEARANCE_MARGIN = 32.5
 
 async function readSfcStyles(relativePath) {
   const source = await readFile(join(frontendRoot, relativePath), 'utf8')
@@ -96,7 +103,7 @@ async function measureRow({ browser, css, bodyClasses, viewport }) {
 }
 
 describe(
-  'article column wrapper carries no footer-clearance margin — real layout',
+  'article column wrapper carries the Cobalt footer-clearance margin — real layout',
   { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
   () => {
     let browser
@@ -132,7 +139,7 @@ describe(
       expect(ledger.scrlBottom).toBeCloseTo(wideViewport.height, 0)
     })
 
-    it('carries no margin-bottom in Cobalt either, on a wide viewport (OpenProject #3089)', async () => {
+    it('carries a 32.5px margin-bottom in Cobalt, on a wide viewport (OpenProject #3135)', async () => {
       const cobalt = await measureRow({
         browser,
         css,
@@ -142,14 +149,16 @@ describe(
 
       expect(cobalt.footerPosition).toBe('fixed')
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
-      // -> The whole point of #3089: no margin at all any more, in Cobalt exactly as in Ledger --
-      //    the wrapper stretches to the row's full height rather than being shrunk to clear the bar.
-      expect(cobalt.wrapperMarginBottom).toBe('0px')
-      expect(cobalt.wrapperBottom).toBeCloseTo(wideViewport.height, 0)
-      expect(cobalt.scrlBottom).toBeCloseTo(wideViewport.height, 0)
+      expect(cobalt.wrapperMarginBottom).toBe(`${FOOTER_CLEARANCE_MARGIN}px`)
+      // -> Shrunk by exactly the margin, so both the wrapper's own border box and the scrollport it
+      //    hands `.page-container-scrl` (a `height: 100%` child, unaffected by margins of its own)
+      //    stop that same distance above the row's bottom edge -- flush above the fixed footer bar
+      //    rather than running behind it.
+      expect(cobalt.wrapperBottom).toBeCloseTo(wideViewport.height - FOOTER_CLEARANCE_MARGIN, 0)
+      expect(cobalt.scrlBottom).toBeCloseTo(wideViewport.height - FOOTER_CLEARANCE_MARGIN, 0)
     })
 
-    it('carries no margin-bottom in Cobalt, on a narrow viewport (OpenProject #3089)', async () => {
+    it('carries the same 32.5px margin-bottom in Cobalt, on a narrow viewport (OpenProject #3135)', async () => {
       const cobalt = await measureRow({
         browser,
         css,
@@ -158,19 +167,20 @@ describe(
       })
 
       expect(cobalt.footerBarHeight).toBeGreaterThan(0)
-      expect(cobalt.wrapperMarginBottom).toBe('0px')
-      expect(cobalt.wrapperBottom).toBeCloseTo(narrowViewport.height, 0)
+      expect(cobalt.wrapperMarginBottom).toBe(`${FOOTER_CLEARANCE_MARGIN}px`)
+      expect(cobalt.wrapperBottom).toBeCloseTo(narrowViewport.height - FOOTER_CLEARANCE_MARGIN, 0)
     })
   }
 )
 
 /*
- * `--article-column-pad`'s bottom value is the clearance the margin rule's removal now relies on
- * (OpenProject #3089's own scope explicitly keeps this at 60px rather than reverting it to 44px) --
- * a regression here would silently remove the wiki's ONLY remaining footer clearance in Cobalt.
+ * `--article-column-pad`'s bottom value plus the margin above net to the same total trailing space
+ * below the article this WP started from (OpenProject #3055/#3089's `60px`) -- a regression in
+ * either number alone would silently shift the page's fully-scrolled content position, which this
+ * WP's own acceptance criterion says must stay exactly where it is today.
  */
-describe('Cobalt keeps its bumped article-column-pad bottom value (OpenProject #3055/#3089)', () => {
-  it('still declares 60px of bottom padding, not the Ledger default of 44px', async () => {
+describe('Cobalt cuts its article-column-pad bottom value to match the new margin (OpenProject #3135)', () => {
+  it('declares 27.5px of bottom padding, not the pre-#3135 60px', async () => {
     const css = await readFile(join(frontendRoot, 'src', 'css', 'tailwind.css'), 'utf8')
     const cobaltHalf = css.slice(css.indexOf('body.body--cobalt {'))
 
@@ -182,6 +192,9 @@ describe('Cobalt keeps its bumped article-column-pad bottom value (OpenProject #
 
     const parts = match[1].trim().split(/\s+/)
     // -> `top right bottom left` shorthand -- the third value is the bottom pad this WP relies on.
-    expect(parts[2]).toBe('60px')
+    expect(parts[2]).toBe('27.5px')
+    // -> 27.5 + 32.5 (the margin above) == 60, the pre-#3135 total -- the fully-scrolled content
+    //    position this net-zero swap is meant to leave unchanged.
+    expect(Number.parseFloat(parts[2]) + FOOTER_CLEARANCE_MARGIN).toBe(60)
   })
 })

@@ -1793,6 +1793,40 @@ $toc-overlay-max: 749.98px;
 }
 
 /*
+  OpenProject #3135: `.page-container-scrl` above is not itself the flex item `.page-container`'s row
+  stretches -- it is that item's `height: 100%` child (the template's own `.min-w-0.flex-1` div, which
+  wraps everything the article column can render, this element included). A margin-bottom on
+  `.page-container-scrl` itself would only push empty space out past its OWN border box, which is
+  already pinned to 100% of an unchanged parent height -- it would not shrink anything visible, since
+  percentage height ignores margins. `.page-sidebar` (below) has no such wrapper: it IS the stretched
+  flex item, which is exactly why a bare `margin-bottom: var(--footer-bar-height)` works there.
+
+  So the clearance goes on the wrapper instead, addressed by the child combinator off the unique
+  `.page-container` (this file's only element with that class) rather than a bare `.min-w-0.flex-1`,
+  which recurs elsewhere in this same template (the relation columns further down) and, being a
+  Tailwind utility pair, elsewhere in the app entirely. Shrinking THIS flex item's own stretch-computed
+  height is what then shrinks `.page-container-scrl`'s 100% of it in turn, so its scrollport -- and the
+  native scrollbar riding along it -- stops above the bar instead of running behind it.
+
+  A brief same-day attempt (#3089) deleted this rule outright, reasoning that `--article-column-pad`'s
+  Cobalt bottom bump already gave enough trailing whitespace to clear the bar -- true for the article's
+  CONTENT, but the padding lives inside `.page-container-scrl`'s own scrollport and does nothing for
+  where the scrollport (and its native scrollbar) itself ends, which is what this rule is for; #3089
+  conflated the two and was reverted. `32.5px` is a literal figure (Dylan's own measurement, not a
+  formula off `--footer-bar-height`, which is a much larger, deliberately conservative text-wrap
+  estimate unrelated to this bar's actual rendered height) matching the footer bar's height, so the
+  scrollbar's track ends flush with its top edge. `--article-column-pad`'s Cobalt bottom value is cut
+  by this same 32.5px (60px -> 27.5px) so the two changes net to zero -- the page's fully-scrolled
+  content position is unchanged; only the scrollbar's own track now stops above the bar.
+
+  No narrow-viewport counterpart is needed here the way `.page-sidebar` needs one below
+  `$toc-overlay-max`: this wrapper is never repositioned to `position: fixed` at any breakpoint, so a
+  single unconditioned rule covers every viewport width.
+*/
+body.body--cobalt .page-container > .min-w-0.flex-1 {
+  margin-bottom: 32.5px;
+}
+/*
   The article's own whitespace. `32px 28px 44px` is the design's measurement, and the extra at the
   foot is what stops the last paragraph sitting on the footer. It replaces a `p-2 sm:p-4` pair
   (8px/16px), which left a rendered page very nearly flush to the column's edges.
