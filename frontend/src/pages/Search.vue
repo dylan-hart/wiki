@@ -446,7 +446,11 @@ watch(
   { immediate: true }
 )
 
-watch(() => state.params, debounce(performSearch, 500), { deep: true })
+watch(
+  () => state.params,
+  debounce(() => performSearch(), 500),
+  { deep: true }
+)
 
 // METHODS
 
