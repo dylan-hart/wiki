@@ -27,6 +27,13 @@ const WIKI = {
     (workerData as { parentInstanceId?: unknown } | null)?.parentInstanceId,
     threadId
   ),
+  // -> Same transport as `INSTANCE_ID` above, and settled at the same module-scope timing: the
+  //    parent process forwards its already-settled `WIKI.capabilities` into `workerData`
+  //    (`core/scheduler.ts`'s `poolOptions`) once, at pool-creation time, since a worker thread never
+  //    calls `syncSchemas()` itself to learn it (OpenProject #3124). A task run in this thread that
+  //    reads `WIKI.capabilities?.semanticSearch` now sees the real boot-time value instead of always
+  //    `undefined`.
+  capabilities: (workerData as { capabilities?: WikiGlobal['capabilities'] } | null)?.capabilities,
   SERVERPATH: path.join(process.cwd(), 'backend'),
   configSvc,
   ensureDb: async () => {

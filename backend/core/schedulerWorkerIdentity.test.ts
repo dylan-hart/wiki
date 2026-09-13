@@ -24,9 +24,12 @@ const workerTs = readFileSync(path.join(backendDir, 'worker.ts'), 'utf8')
 
 describe('worker thread identity', () => {
   test("the pool's workerOptions carry this instance's id, which is how a worker learns its parent", () => {
+    // -> `workerData` also carries `capabilities` alongside `parentInstanceId` (OpenProject #3124,
+    //    see `schedulerWorkerCapabilities.test.ts`) -- this assertion only cares that the id is still
+    //    on the same object, not that it's the only key.
     assert.match(
       schedulerTs,
-      /workerOptions: \{\s*workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID \}/
+      /workerOptions: \{\s*workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID,/
     )
   })
 
