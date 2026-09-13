@@ -52,15 +52,21 @@ describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () =
 
       const adminPool = new Pool({ connectionString: process.env.DATABASE_URL })
       let restrictedPool: Pool | undefined
+      let roleCreated = false
       try {
         await adminPool.query(`CREATE ROLE "${roleName}" LOGIN PASSWORD '${rolePassword}'`)
+        roleCreated = true
         // -> Grants the role CONNECT-equivalent visibility into this suite's schema (USAGE) but
-        //    explicitly withholds CREATE, which is what makes `CREATE EXTENSION`/`CREATE TABLE`
-        //    fail with a permission error regardless of whether pgvector happens to be installed on
-        //    this server at all -- the acceptance criterion is "role lacks privilege", not
-        //    "extension absent", and this exercises exactly that one cause.
+        //    explicitly withholds CREATE at both the schema level (gates `CREATE TABLE`) and the
+        //    database level (gates `CREATE EXTENSION`, which `bootstrapPgvector()` runs first), so
+        //    every statement it issues fails with a permission error regardless of whether pgvector
+        //    happens to be installed on this server, and regardless of this server's own default
+        //    database-level grants -- the acceptance criterion is "role lacks privilege", not
+        //    "extension absent", and this exercises exactly that one cause for every statement, not
+        //    just the last one.
         await adminPool.query(`GRANT USAGE ON SCHEMA "${schema}" TO "${roleName}"`)
         await adminPool.query(`REVOKE CREATE ON SCHEMA "${schema}" FROM "${roleName}"`)
+        await adminPool.query(`REVOKE CREATE ON DATABASE "${parsed.database}" FROM "${roleName}"`)
 
         restrictedPool = new Pool({
           host: parsed.host ?? undefined,
@@ -81,8 +87,21 @@ describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () =
         assert.equal(tableCheck.rows.length, 0)
       } finally {
         await restrictedPool?.end()
-        // -> DROP ROLE needs any objects it owns cleaned up first, but this role never succeeded in
-        //    creating anything (that's the whole point of the test) -- so a plain DROP suffices.
+        if (roleCreated) {
+          // -> DROP ROLE fails (pg 2BP01) if the role still holds ANY privilege grant anywhere in
+          //    the cluster, or owns any object -- not only object ownership, a bare un-revoked GRANT
+          //    USAGE ON SCHEMA is enough on its own to block it (verified directly: a role granted
+          //    only USAGE, with CREATE revoked and never having created anything, still fails DROP
+          //    ROLE with "privileges for schema" in the detail). `DROP OWNED BY` revokes every
+          //    privilege grant this role holds and drops anything it owns (including the vector
+          //    extension, in the unlikely case some other server configuration still let CREATE
+          //    EXTENSION through despite the DATABASE-level revoke above), so it's run
+          //    unconditionally before DROP ROLE rather than assuming "this role never succeeded in
+          //    creating anything" is enough by itself. Guarded on `roleCreated` since `DROP OWNED
+          //    BY` has no `IF EXISTS` form and would itself throw were CREATE ROLE the statement
+          //    that failed.
+          await adminPool.query(`DROP OWNED BY "${roleName}"`)
+        }
         await adminPool.query(`DROP ROLE IF EXISTS "${roleName}"`)
         await adminPool.end()
       }
