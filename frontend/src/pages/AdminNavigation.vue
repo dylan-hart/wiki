@@ -41,7 +41,7 @@
           class="acrylic-btn me-2"
           icon="tabler:list-details"
           flat
-          color="deep-orange-9"
+          color="accent"
           :label="t(`admin.navigation.editDefaultMenu`)"
           @click="openDefaultMenu" />
         <w-btn

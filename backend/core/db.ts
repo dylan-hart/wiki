@@ -19,6 +19,7 @@ import {
 } from '../helpers/pubsub.ts'
 import { acquireAdvisoryLock, type AdvisoryLockHandle } from '../helpers/advisoryLock.ts'
 import maintenance from './maintenance.ts'
+import { bootstrapPgvector } from './pgvectorBootstrap.ts'
 
 /**
  * Sends the event bus's cross-instance notifications, one at a time.
@@ -846,6 +847,14 @@ export default {
         migrationsSchema: WIKI.config.db.schema,
         migrationsTable: 'migrations'
       })
+
+      // -> A different, optional mechanism from the `REQUIRED_EXTENSIONS` loop above: pgvector is
+      //    not required for boot, so its own failure (privilege, or no pgvector on this Postgres
+      //    build at all) must not fail this method the way `checkForLegacyInstall`/`CREATE SCHEMA`/
+      //    `migrate()` above do -- `bootstrapPgvector()` itself never throws, and its own doc
+      //    comment carries the full reasoning. Runs under the same advisory lock as everything else
+      //    here, so two instances booting cold at once still serialize through it.
+      WIKI.capabilities = { semanticSearch: await bootstrapPgvector(db) }
 
       return lock
     } catch (err) {

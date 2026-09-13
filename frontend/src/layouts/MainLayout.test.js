@@ -776,12 +776,12 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     }
   })
 
-  it('sizes the Top tile to 32x32 with no padding under Cobalt', async () => {
+  it('sizes the Top tile to fill its 40x40 cell with no padding under Cobalt', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.width).toBe('32px')
-    expect(style.height).toBe('32px')
+    expect(style.width).toBe('40px')
+    expect(style.height).toBe('40px')
     expect(style.padding).toBe('0px')
   })
 

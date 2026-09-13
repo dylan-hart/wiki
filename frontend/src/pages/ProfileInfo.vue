@@ -219,7 +219,7 @@
         <w-item-label>{{ t(`profile.contentWidth`) }}</w-item-label>
         <w-item-label caption>{{ t(`profile.contentWidthHint`) }}</w-item-label>
       </w-item-section>
-      <w-item-section side>
+      <w-item-section>
         <w-btn-toggle
           v-model="state.config.contentWidth"
           :options="contentWidths"

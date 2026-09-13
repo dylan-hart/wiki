@@ -919,14 +919,15 @@ body.body--cobalt {
     }
   }
 
-  // -> 32x32, not the 40px cell it sits inside -- `!important` on padding beats WBtn's own inline
-  //    `style` binding (dense's `padding: 0 0.8em`), which no external stylesheet rule can
-  //    outrank otherwise.
+  // -> Fills the 40px cell it sits inside exactly, same as Ledger's own 40x40 sizing for this
+  //    button (OpenProject #3109 -- was 32x32, leaving a ~4px gap on every side) -- `!important`
+  //    on padding beats WBtn's own inline `style` binding (dense's `padding: 0 0.8em`), which no
+  //    external stylesheet rule can outrank otherwise.
   .sidebar-actions-top .w-btn {
     background-color: transparent;
     color: #ff8f97;
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     padding: 0 !important;
 
     &:hover {

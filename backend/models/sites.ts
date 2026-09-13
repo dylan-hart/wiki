@@ -271,7 +271,12 @@ class Sites extends ClusterReloaded {
             search: {
               engine: 'db',
               config: {
-                dictOverrides: {}
+                dictOverrides: {},
+                // -> Can't enable what isn't there (Task #3104): a fresh site only starts with
+                //    semantic search on when the instance-wide capability (pgvector present, Task
+                //    #3095) is itself true. An operator can still flip it off per site afterwards;
+                //    this is only the first-boot default.
+                semanticEnabled: WIKI.capabilities?.semanticSearch ?? false
               }
             }
           },
@@ -639,7 +644,8 @@ class Sites extends ClusterReloaded {
         search: {
           engine: 'db',
           config: {
-            dictOverrides: {}
+            dictOverrides: {},
+            semanticEnabled: WIKI.capabilities?.semanticSearch ?? false
           }
         }
       }

@@ -73,8 +73,6 @@
     "markdown-it-expand-tabs": "1.0.13",
     "markdown-it-footnote": "4.0.0",
     "markdown-it-mark": "4.0.0",
-    "markdown-it-mdc": "0.2.12",
-    "markdown-it-multimd-table": "4.2.3",
     "markdown-it-sub": "2.0.0",
     "markdown-it-sup": "2.0.0",
     "markdown-it-task-lists": "2.1.1",
@@ -92,12 +90,10 @@
     "turndown-plugin-gfm": "1.0.2",
     "twemoji-assets": "https://codeload.github.com/jdecked/twemoji/tar.gz/refs/tags/v17.0.3",
     "uuid": "14.0.2",
-    "v-network-graph": "0.9.23",
     "vue": "3.5.41",
     "vue-i18n": "11.4.9",
     "vue-router": "5.2.0",
     "vue3-otp-input": "0.5.40",
-    "y-monaco": "0.1.6",
     "y-websocket": "3.1.0",
     "yjs": "13.6.32"
   },
@@ -123,9 +119,6 @@
   "overrides": {
     "@twemoji/api": {
       "@twemoji/parser": "17.0.1"
-    },
-    "markdown-it-mdc": {
-      "markdown-it": "$markdown-it"
     }
   },
   "engines": {

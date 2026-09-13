@@ -18,7 +18,7 @@
           The chevron turns rather than being swapped for a second icon, so the two states are one drawing.
         -->
         <w-btn
-          v-if="isFiltersCollapsed"
+          v-if="isFiltersCollapsed && !isSemanticMode"
           class="layout-search-filterbtn"
           flat
           :label="t(`search.filters`)"
@@ -29,7 +29,15 @@
             :class="{ 'is-open': state.filtersOpen }"
             name="tabler:chevron-down" />
         </w-btn>
-        <div class="layout-search-sd" v-show="!isFiltersCollapsed || state.filtersOpen">
+        <!--
+          Hidden entirely in Semantic mode, not merely disabled: none of these controls (sort order,
+          path/tag/locale/editor/publish-state filters) are part of the semantic route's contract
+          (OpenProject #3105), so leaving them visible would offer a control that silently does
+          nothing.
+        -->
+        <div
+          class="layout-search-sd"
+          v-show="!isSemanticMode && (!isFiltersCollapsed || state.filtersOpen)">
           <div class="section-header">{{ t('search.sortBy') }}</div>
           <w-list dense padding>
             <w-item
@@ -141,6 +149,18 @@
         <w-page>
           <div class="section-header">
             <span>{{ t('search.results') }}</span>
+            <!--
+              Absent entirely (not merely disabled) when the site doesn't have semantic search
+              turned on -- Task #3103's combined `features.semanticSearch` flag is the single source
+              of truth for that, never re-derived here (OpenProject #3105).
+            -->
+            <w-btn-toggle
+              v-if="siteStore.features.semanticSearch"
+              class="layout-search-modetoggle ms-3"
+              :model-value="state.mode"
+              :aria-label="t('search.modeToggleLabel')"
+              :options="searchModeOptions"
+              @update:model-value="setSearchMode" />
             <w-space />
             <transition name="slide-up" mode="out-in">
               <i18n-t
@@ -188,7 +208,10 @@
                 <w-icon :name="item.icon || defaultPageIcon" size="18px" />
               </div>
               <div class="layout-search-rowbody">
-                <div class="layout-search-rowtitle">{{ item.title }}</div>
+                <div class="layout-search-rowtitle">
+                  {{ item.title }}
+                  <search-result-hop-badge :hop="item.hop" />
+                </div>
                 <div v-if="item.description" class="layout-search-rowdesc">
                   {{ item.description }}
                 </div>
@@ -254,6 +277,7 @@ import { difference } from 'es-toolkit/array'
 import HeaderNav from '@/components/HeaderNav.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
+import SearchResultHopBadge from '@/components/SearchResultHopBadge.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
@@ -300,6 +324,12 @@ useMeta(() => {
 
 const state = reactive({
   loading: 0,
+  /**
+   * 'keyword' (default) or 'semantic' (OpenProject #3105). Local component state, not persisted --
+   * a fresh visit to `/_search` always starts on Keyword. Only ever set through `setSearchMode()`,
+   * never written to directly, so a mode change always re-queries alongside it.
+   */
+  mode: 'keyword',
   /** Whether the sort/filter panel is open. Only consulted below 900px, where it is a disclosure. */
   filtersOpen: false,
   params: {
@@ -334,6 +364,18 @@ const state = reactive({
  */
 const isAtLeast900 = useMinWidth(900)
 const isFiltersCollapsed = computed(() => !isAtLeast900.value)
+
+/** Whether the Semantic mode toggle (OpenProject #3105) is currently selected. */
+const isSemanticMode = computed(() => state.mode === 'semantic')
+
+/**
+ * Icons reused from elsewhere in the app (`tabler:file-search`, `tabler:wand`) rather than new
+ * Iconify literals, so no `npm run icons` regeneration is needed for this toggle.
+ */
+const searchModeOptions = computed(() => [
+  { label: t('search.modeKeyword'), value: 'keyword', icon: 'tabler:file-search' },
+  { label: t('search.modeSemantic'), value: 'semantic', icon: 'tabler:wand' }
+])
 
 const orderByOptions = computed(() => {
   return [
@@ -426,57 +468,30 @@ function syncTags(newSelection) {
   }
 }
 
+/** Clears the result set back to its pre-search state, e.g. for an empty query in either mode. */
+function resetResults() {
+  state.results = []
+  state.total = 0
+  state.totalApproximate = false
+  state.offset = 0
+  siteStore.searchLastQuery = siteStore.search
+  siteStore.searchIsLoading = false
+}
+
 /**
- * Runs a search. `append` distinguishes the two callers: a fresh search (a new query, filter or
- * sort) starts over at offset 0 and replaces `state.results`, while `loadMore()` asks for the next
- * page at the current offset and appends onto what is already shown.
+ * The fetch/try/catch/finally tail shared by both the keyword and semantic search paths (OpenProject
+ * #3105) -- everything past "we know the endpoint and the search-specific params, now go get a page
+ * of results." `offset`/`limit` are added here rather than by each caller, since both modes derive
+ * `offset` from `state.offset`/`append` identically and cap `limit` at the same `RESULTS_LIMIT`.
  */
-async function performSearch(append = false) {
-  let q = siteStore.search ?? ''
-
-  // -> Extract tags
-  const queryTags = extractTags(q)
-  for (const tag of queryTags) {
-    q = q.replaceAll(`#${tag}`, '')
-  }
-  q = q.trim().replaceAll(/\s\s+/g, ' ')
-
-  const filters = {
-    ...(state.params.filterPath ? { path: state.params.filterPath } : {}),
-    ...(queryTags.length > 0 ? { tags: queryTags.join(',') } : {}),
-    ...(state.params.filterLocale.length > 0
-      ? { locales: state.params.filterLocale.join(',') }
-      : {}),
-    ...(state.params.filterEditor ? { editor: state.params.filterEditor } : {}),
-    ...(state.params.filterPublishState ? { publishState: state.params.filterPublishState } : {})
-  }
-
-  // -> Nothing to go on: the empty state says as much, and asking the server would answer with the
-  //    most recently updated pages, which is not what an empty search box means
-  if (!q && Object.keys(filters).length < 1) {
-    state.results = []
-    state.total = 0
-    state.totalApproximate = false
-    state.offset = 0
-    siteStore.searchLastQuery = siteStore.search
-    siteStore.searchIsLoading = false
-    return
-  }
-
+async function runSearchRequest(endpoint, searchParams, append) {
   const offset = append ? state.offset : 0
 
   state.loading++
   siteStore.searchIsLoading = true
   try {
-    const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
-      searchParams: {
-        ...(q ? { query: q } : {}),
-        ...filters,
-        orderBy: state.params.orderBy,
-        orderByDirection: state.params.orderByDirection,
-        offset,
-        limit: RESULTS_LIMIT
-      }
+    const resp = await API_CLIENT.get(endpoint, {
+      searchParams: { ...searchParams, offset, limit: RESULTS_LIMIT }
     }).json()
     const results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
     state.results = append ? [...state.results, ...results] : results
@@ -500,6 +515,97 @@ async function performSearch(append = false) {
     state.loading--
     siteStore.searchIsLoading = false
   }
+}
+
+/**
+ * The Semantic-mode half of `performSearch()` (OpenProject #3105). Task #3102's route contract takes
+ * only `query`/`locale`/`limit`/`offset` -- no path/tag/editor/publish-state filters, no `orderBy` --
+ * so unlike the keyword path this sends the reader's query text through untouched (no `#tag`
+ * extraction: a semantic query has no filter meaning to extract from it) and ignores every sidebar
+ * filter, which is also why the sidebar itself is hidden while this mode is active.
+ *
+ * `locale` is only sent when exactly one is selected in the (hidden-but-not-cleared) locale filter,
+ * matching the route's singular `locale` param -- unlike keyword's comma-joined `locales`. Zero or
+ * multiple selected means "let the server decide" (its own locale-scoping default) rather than this
+ * page guessing which one the reader meant.
+ *
+ * FIXME: the real shape of Task #3102's route isn't landed in this worktree yet (round-2 coordination
+ * note: build against the documented contract, expect small wiring fixes at integration) -- revisit
+ * this once #3102 is real, in case its actual query-param contract differs from the design doc's.
+ */
+function performSemanticSearch(append) {
+  const q = (siteStore.search ?? '').trim().replaceAll(/\s\s+/g, ' ')
+
+  if (!q) {
+    resetResults()
+    return undefined
+  }
+
+  return runSearchRequest(
+    `sites/${siteStore.id}/pages/search/semantic`,
+    {
+      query: q,
+      ...(state.params.filterLocale.length === 1 ? { locale: state.params.filterLocale[0] } : {})
+    },
+    append
+  )
+}
+
+/**
+ * Runs a search. `append` distinguishes the two callers: a fresh search (a new query, filter, sort
+ * or mode) starts over at offset 0 and replaces `state.results`, while `loadMore()` asks for the next
+ * page at the current offset and appends onto what is already shown.
+ */
+async function performSearch(append = false) {
+  if (isSemanticMode.value) {
+    return performSemanticSearch(append)
+  }
+
+  let q = siteStore.search ?? ''
+
+  // -> Extract tags
+  const queryTags = extractTags(q)
+  for (const tag of queryTags) {
+    q = q.replaceAll(`#${tag}`, '')
+  }
+  q = q.trim().replaceAll(/\s\s+/g, ' ')
+
+  const filters = {
+    ...(state.params.filterPath ? { path: state.params.filterPath } : {}),
+    ...(queryTags.length > 0 ? { tags: queryTags.join(',') } : {}),
+    ...(state.params.filterLocale.length > 0
+      ? { locales: state.params.filterLocale.join(',') }
+      : {}),
+    ...(state.params.filterEditor ? { editor: state.params.filterEditor } : {}),
+    ...(state.params.filterPublishState ? { publishState: state.params.filterPublishState } : {})
+  }
+
+  // -> Nothing to go on: the empty state says as much, and asking the server would answer with the
+  //    most recently updated pages, which is not what an empty search box means
+  if (!q && Object.keys(filters).length < 1) {
+    resetResults()
+    return undefined
+  }
+
+  return runSearchRequest(
+    `sites/${siteStore.id}/pages/search`,
+    {
+      ...(q ? { query: q } : {}),
+      ...filters,
+      orderBy: state.params.orderBy,
+      orderByDirection: state.params.orderByDirection
+    },
+    append
+  )
+}
+
+/** Switches between Keyword and Semantic mode, then immediately re-queries (OpenProject #3105). */
+function setSearchMode(mode) {
+  if (mode === state.mode) {
+    return
+  }
+  state.mode = mode
+  performSearch()
 }
 
 function loadMore() {
@@ -714,6 +820,19 @@ $strip-height: 37px;
     @at-root .body--dark & {
       color: var(--color-text-caption-dark);
     }
+  }
+
+  /*
+    The Keyword/Semantic mode toggle (OpenProject #3105), sitting in the same `.section-header` strip
+    as the label and the mono/uppercase/wide-tracking `.layout-search-count` above -- `w-btn-toggle`'s
+    own segments set their own font-size but not font-family/text-transform/letter-spacing, so without
+    this reset "Keyword"/"Semantic" would inherit the strip's kicker styling instead of reading as
+    ordinary control labels.
+  */
+  &-modetoggle {
+    font-family: var(--font-sans);
+    text-transform: none;
+    letter-spacing: normal;
   }
 
   // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s

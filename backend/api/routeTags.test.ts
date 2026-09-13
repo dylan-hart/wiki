@@ -12,8 +12,8 @@ import {
  * with no build-time signal. This walks every route file under `api/` (excluding this directory's
  * own `*.test.ts` files and `index.ts`, which only re-exports the others) and replays each file's
  * registration function against a recording stub instead of a real Fastify instance: booting the
- * genuine app needs the AJV customization `index.ts` installs (a custom `hexcolor` format, an
- * `ajv-formats` plugin) purely to build validators, none of which this check cares about, and
+ * genuine app needs the AJV customization `createHttpApp()` installs (`core/http/ajvFormats.ts`'s 5
+ * hand-registered formats) purely to build validators, none of which this check cares about, and
  * `index.ts` itself cannot be imported in a test at all (it runs the full boot sequence, database
  * included, via top-level await). Recording the exact `(path, options)` pair each
  * `app.get/post/put/patch/delete` call makes is what a real Fastify instance would also see —

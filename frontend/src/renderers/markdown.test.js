@@ -67,12 +67,12 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
 
 describe('MarkdownRenderer - multimd-table', () => {
   /*
-    Regression coverage for the fix at the `multimdTable` branch in markdown.js: the option was
-    misspelled `mdmultiTable`, so the plugin was never installed, and correcting the name on its own
-    made the constructor throw `md.utils.assign is not a function` -- markdown-it-multimd-table calls
-    a `md.utils.assign` helper that markdown-it dropped in v14, and the plugin has had no release
-    since. The shim (`this.md.utils.assign ??= Object.assign`) is what makes the corrected name safe
-    to use. If either half of that regresses, these throw instead of asserting.
+    Regression coverage for OpenProject #3110: the `multimdTable` option used to be misspelled
+    `mdmultiTable` in the branch that installed the table plugin, so the plugin was never installed
+    and none of these three features ever actually worked. `./modules/markdown-it-table.js` is a
+    from-scratch replacement for the third-party plugin that name used to install (see its own doc
+    comment for the full syntax and design) -- these tests are the regression coverage for the typo
+    AND the first real coverage these three features have ever had.
   */
 
   it('merges a ^^ rowspan cell into the row above when multimdTable is enabled', () => {
@@ -132,6 +132,24 @@ describe('MarkdownRenderer - multimd-table', () => {
     expect(html).not.toContain('colspan')
     // -> `^^` is left as the literal cell text rather than being read as a rowspan marker
     expect(html).toContain('<div role="cell">^^</div>')
+  })
+
+  it('renders a table with no header row when multimdTable and headerless are both enabled', () => {
+    const renderer = new MarkdownRenderer({ multimdTable: true })
+    const html = renderer.render(
+      ['| ------ | ------ |', '| A      | B      |', '| C      | D      |', ''].join('\n')
+    )
+
+    expect(html).toContain('role="table"')
+    // -> No `thead`/`columnheader` at all -- the table's very first row IS the separator, so every
+    //    row that follows it is body content
+    expect(html).not.toContain('role="columnheader"')
+    const rowCount = (html.match(/role="row"/g) ?? []).length
+    expect(rowCount).toBe(2)
+    expect(html).toContain('<div role="cell">A</div>')
+    expect(html).toContain('<div role="cell">B</div>')
+    expect(html).toContain('<div role="cell">C</div>')
+    expect(html).toContain('<div role="cell">D</div>')
   })
 })
 
@@ -208,15 +226,14 @@ describe('MarkdownRenderer - table grid markup', () => {
   })
 
   /*
-    OpenProject #3023: `markdown-it-multimd-table` always pushes `caption_open`/`caption_close` as
-    the first child inside `table_open`/`table_close`, and left as a real `<caption>` tag it is
-    silently DROPPED by every browser's own HTML parser -- the WHATWG "in body" insertion mode treats
-    an orphan `caption` start tag (one not inside an ACTUAL `<table>` element's own insertion mode) as
-    a parse error and ignores it outright (verified directly against a real Chromium). Since
-    `table_open` above already retags every table token to `<div>`, there is no `<table>` anywhere on
-    the page for a caption to be "inside" any more, so it has to be retagged the same way the rest of
-    the table already is -- a `<div class="table-caption">` is never subject to that rule and
-    survives parsing with every attribute intact.
+    OpenProject #3023. Left as a real `<caption>` tag, it is silently DROPPED by every browser's own
+    HTML parser -- the WHATWG "in body" insertion mode treats an orphan `caption` start tag (one not
+    inside an ACTUAL `<table>` element's own insertion mode) as a parse error and ignores it outright
+    (verified directly against a real Chromium). Since `table_open` above already retags every table
+    token to `<div>`, there is no `<table>` anywhere on the page for a caption to be "inside" any
+    more, so it has to be retagged the same way the rest of the table already is -- a
+    `<div class="table-caption">` is never subject to that rule and survives parsing with every
+    attribute intact.
   */
   it('renders a caption authored above the table as a div, not a <caption> the browser would silently drop', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
@@ -225,12 +242,13 @@ describe('MarkdownRenderer - table grid markup', () => {
     )
 
     expect(html).not.toContain('<caption')
-    expect(html).toContain('<div id="topcaption" class="table-caption">Top Caption</div>')
-    // -> First child inside the table div, ahead of every row -- matches the plugin's own token order
+    expect(html).toContain('<div class="table-caption">Top Caption</div>')
+    // -> First child inside the table div, ahead of every row -- the caption's own tokens are emitted
+    //    in their natural authored position (above the rows, since it was authored above the table)
     expect(html.indexOf('table-caption')).toBeLessThan(html.indexOf('role="row"'))
   })
 
-  it("carries the plugin's own inline caption-side: bottom style onto the retagged div, for a caption authored below the table", () => {
+  it('carries an inline caption-side: bottom style onto the retagged div, for a caption authored below the table', () => {
     const renderer = new MarkdownRenderer({ multimdTable: true })
     const html = renderer.render(
       ['| A    | B    |', '|------|------|', '| 1    | 2    |', '[Bottom Caption]', ''].join('\n')
@@ -238,8 +256,12 @@ describe('MarkdownRenderer - table grid markup', () => {
 
     expect(html).not.toContain('<caption')
     expect(html).toContain(
-      '<div id="bottomcaption" style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
+      '<div style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
     )
+    // -> Emitted after the last row this time -- its own natural authored position, since it was
+    //    authored below the table. `_page-contents.scss`'s `order: 1` rule (keyed off this same
+    //    inline style) is what still puts it at the visual end of the grid regardless.
+    expect(html.indexOf('table-caption')).toBeGreaterThan(html.lastIndexOf('role="row"'))
   })
 })
 
@@ -501,6 +523,47 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
     expect(html).toContain('not independently traced here](https://example.com/page)')
   })
 
+  it('renders an unterminated bracket span nested inside an outer footnote-shaped label without throwing (OpenProject #3078)', () => {
+    /*
+      Same crash class as WP #3070 above, but the specific edge case that patch's bounds check
+      diverged from upstream on: a nested `[` with no closing `]` anywhere before end-of-input.
+
+      Upstream's `mdc_inline_span` scan (traced against the real `markdown-it-mdc` source) only
+      bails early via `index === start`; it has no length-bound check of its own, relying on the
+      `while (index < state.src.length)` loop condition to exit naturally -- at which point
+      `nextChar` (`state.src[index + 1]`) is safely `undefined` (not `(`/`[`), so in silent mode it
+      falls through to `if (silent) return true`, matching without ever assigning `state.pos`. This
+      fork's `matchSpanEnd()` re-derives that scan to learn where `state.pos` should land, but had
+      added an extra `|| index >= src.length` clause upstream doesn't have -- so for this exact
+      end-of-input case it returned `-1` instead of `index + 1`, and the call site's
+      `if (end !== -1) { state.pos = end }` never fired, reopening the "inline rule didn't
+      increment state.pos" crash for an unterminated `[` running to end-of-input.
+
+      This specific shape is needed to reach that silent-mode scan at all: an outer `[` that is
+      itself immediately followed by `^` sidesteps `mdc_inline_span` entirely (the footnote-ref
+      guard just above this rule's registration declines without even scanning), handing straight
+      to core's `link` rule -- which calls `parseLinkLabel`, and THAT scans forward through the
+      "label" via `skipToken` (always silent) until it hits the nested `[`, right into the bug.
+      (A genuinely mdc-recognised outer span/link can't reach this: for its own top-level, non-silent
+      scan to decline in the first place it has to find a real balanced `]`, and by the same
+      depth-tracked algorithm a nested unterminated `[` would too -- so an ordinary nested case
+      always resolves to a normal match, never this end-of-input path. The footnote-guard shortcut
+      is what skips that requirement.)
+    */
+    const renderer = new MarkdownRenderer({})
+
+    let html
+    expect(() => {
+      html = renderer.render(
+        '[^1 outer label, then a nested unterminated bracket [with no closing bracket anywhere in the rest of this string'
+      )
+    }).not.toThrow()
+
+    expect(html).not.toContain('<a ')
+    expect(html).toContain('outer label, then a nested unterminated bracket')
+    expect(html).toContain('with no closing bracket anywhere in the rest of this string')
+  })
+
   it('applies a markdown-it-attrs brace on its own line without the mdc inline-props collision crashing the render', () => {
     /*
       MDC's inline props (`{.class}`) and markdown-it-attrs both claim `{`. A brace that opens a line
@@ -514,6 +577,71 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
       const html = renderer.render('> A quote\n{.is-warning}\n')
       expect(html).toContain('<blockquote class="is-warning')
     }).not.toThrow()
+  })
+})
+
+/**
+ * `frontend/src/renderers/modules/markdown-it-blocks.js` -- the purpose-built plugin that replaced
+ * `markdown-it-mdc` (OpenProject #3071). Coverage specific to this plugin's own two remaining shapes
+ * that predated it had no unit test for: trailing props landing on a just-closed link/image rather
+ * than opening a new span, and the block container's code-fence-awareness while scanning for its own
+ * close (everything else -- the footnote/markdown-it-attrs collisions, the block smoke test, the
+ * OpenProject #2372/#3070 regressions above -- already exercises the plugin through the same tests
+ * that exercised `markdown-it-mdc` before it).
+ */
+describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () => {
+  it('adds trailing props to a completed link rather than opening a new span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('[Docs](https://example.com/docs){.external #docs-link}\n')
+
+    expect(html).toMatch(
+      /<a href="https:\/\/example\.com\/docs" class="[^"]*\bexternal\b[^"]*" id="docs-link">Docs<\/a>/
+    )
+    expect(html).not.toContain('<span')
+  })
+
+  it('adds trailing props to a completed image rather than opening a new span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('![A photo](https://example.com/photo.jpg){.thumb}\n')
+
+    expect(html).toContain('class="thumb"')
+    expect(html).toMatch(/<img[^>]*src="https:\/\/example\.com\/photo\.jpg"/)
+    expect(html).not.toContain('<span')
+  })
+
+  it('leaves a brace after plain prose alone, for markdown-it-attrs to find instead', () => {
+    // -> Not preceded by a just-closed link/image (nor abutting, since a space sits before it) --
+    //    this is markdown-it-attrs' own "attributes for the whole paragraph" shape, unrelated to a
+    //    block/link/image's own trailing props.
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('Some plain text\n{.is-warning}\n')
+
+    expect(html).toMatch(/<p class="is-warning[^"]*"[^>]*>Some plain text<\/p>/)
+  })
+
+  it('does not let a literal "::" inside a fenced code body close the block early', () => {
+    /*
+      `block-infobox`'s own smoke-test body (see the csp.spec.js-derived describe above) fences a YAML
+      sample, but nothing there happens to contain a bare "::" line. This is the case that would break
+      without the block rule's own code-fence tracking: a `::` written as ordinary text inside a ```
+      fence must never be read as the block's own closing marker.
+    */
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render(
+      '::block-infobox{name="Example"}\n```text\nnotation: a::b\n::\nmore text\n```\n::\n'
+    )
+
+    expect(html).toContain('<block-infobox name="Example">')
+    expect(html).toContain('notation: a::b')
+    expect(html).toContain('more text')
+    expect(html).toMatch(/<\/block-infobox>\s*$/)
+  })
+
+  it('joins several shorthand classes on an inline span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('A [word]{.a .b} in a sentence.\n')
+
+    expect(html).toContain('<span class="a b">word</span>')
   })
 })
 

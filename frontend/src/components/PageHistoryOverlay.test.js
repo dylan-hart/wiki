@@ -27,9 +27,8 @@ vi.mock('monaco-editor', () => ({
 /*
   Never reached at runtime here -- every version below has `meta.editor: 'html'`, so `renderOf()`
   short-circuits before touching this -- but it is still imported at module scope by
-  `PageHistoryOverlay.vue`, and pulls in `markdown-it-mdc`, which breaks on this environment's
-  `markdown-it` version (a subpath-exports mismatch unrelated to this task). Stubbed so importing the
-  component under test doesn't fail before a single test runs.
+  `PageHistoryOverlay.vue`, pulling in the full markdown-it plugin chain unrelated to this suite.
+  Stubbed so importing the component under test doesn't pay for that before a single test runs.
 */
 vi.mock('@/renderers/markdown', () => ({ MarkdownRenderer: vi.fn() }))
 

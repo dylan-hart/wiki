@@ -1052,6 +1052,11 @@ class Pages {
     //    change this, and why it doesn't apply yet.
 
     await WIKI.models.search.created(page)
+    if (hasRenderInput) {
+      // -> No render-queue path here: when it fires below instead, `storeRender()` is what queues
+      //    the embed job, once the real content actually lands
+      await this.enqueueEmbedJob(page.id)
+    }
     await announce(
       'page:create',
       siteId,
@@ -1340,6 +1345,11 @@ class Pages {
     }
 
     await WIKI.models.search.updated(rawUpdated)
+    if (hasRenderInput) {
+      // -> No render-queue path here: when `needsRerenderQueue` fires instead, `storeRender()` is
+      //    what queues the embed job, once the real content actually lands
+      await this.enqueueEmbedJob(id)
+    }
     // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
     //    caches the page's classification and tags alongside its path/locale, and `getCachedTerms`
     //    runs the actor's `read:pages` check against that cached copy -- so a classification or tags
@@ -2180,7 +2190,26 @@ class Pages {
     // -> Nothing was updated when the page went while it sat in the queue
     if (updated[0]) {
       await WIKI.models.search.updated(updated[0])
+      // -> The one place a render-queue-drained save's real content lands, so this is the only
+      //    embed-job enqueue the queued path needs -- `createPage`/`updatePage` skip it themselves
+      //    when they queued a render rather than post-processing one directly
+      await this.enqueueEmbedJob(id)
     }
+  }
+
+  /**
+   * Queue a semantic-embedding refresh (Task #3098's `tasks/workers/embed-page.ts`) for a page whose
+   * final rendered content just landed.
+   *
+   * Called from exactly the places a page's `searchContent` becomes the real, final text for this
+   * save -- never once per chunk, and never for a save that only queued a render without yet
+   * producing one (the render-queue drain, `storeRender()`, is what calls this once that render is
+   * ready instead). The job itself no-ops when semantic search is unavailable
+   * (`WIKI.capabilities.semanticSearch`) and always fully replaces a page's chunks rather than
+   * appending to them -- see `embedPage()`'s own doc comment.
+   */
+  private async enqueueEmbedJob(pageId: string): Promise<void> {
+    await WIKI.scheduler.addJob({ task: 'embedPage', payload: { pageId } })
   }
 
   /**

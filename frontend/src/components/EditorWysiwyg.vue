@@ -342,9 +342,10 @@ function init() {
 /**
  * Hands the editor over to the shared document once collaboration has synced (OpenProject #1124).
  *
- * TipTap's `Collaboration` extension can only be attached at construction: unlike `y-monaco`'s
- * `MonacoBinding`, which `EditorMarkdown.vue` constructs against an already-live editor via
- * `bindCollabEditor`, there is no supported way to register a packaged Extension -- as opposed to a
+ * TipTap's `Collaboration` extension can only be attached at construction: unlike
+ * `composables/monacoYjsBinding.js`'s `MonacoYjsBinding`, which `EditorMarkdown.vue` constructs
+ * against an already-live editor via `bindCollabEditor`, there is no supported way to register a
+ * packaged Extension -- as opposed to a
  * raw ProseMirror plugin, which `Editor#registerPlugin` does allow after the fact -- onto an editor
  * that already exists. Attaching it at construction time unconditionally, instead of waiting for
  * `bindCollabEditor`'s post-sync gate the way this does, was considered and rejected: `y-tiptap`'s

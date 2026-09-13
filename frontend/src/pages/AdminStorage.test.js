@@ -28,9 +28,9 @@ import { buildTestRouter } from '../../test/router.js'
  * pulls in the admin/site stores and live storage-target API calls that no other Admin* page
  * currently has Vitest coverage driving through, so a full mount here would be a disproportionate
  * lift for what is fundamentally a "this dead code must not silently reappear" check. The
- * v-network-graph delivery-path diagram (task #1888) has its own, separate mount-based coverage below
- * instead, since that one specifically needs to prove the diagram still renders once the library is
- * registered locally rather than globally.
+ * delivery-path diagram (`StorageDeliveryGraph.vue`, task #3116) has its own, separate mount-based
+ * coverage below instead, since that one specifically needs to prove the diagram still renders once
+ * switched into that display mode.
  */
 
 const pagePath = join(import.meta.dirname, 'AdminStorage.vue')
@@ -71,12 +71,6 @@ describe('AdminStorage.vue - GitHub App setup flow removal', () => {
   })
 })
 
-/**
- * Task #1888: v-network-graph used to be registered globally in `boot/components.js` (and its
- * stylesheet globally in `css/app.scss`), even though this page is its sole consumer. Both are now
- * registered locally here instead -- this is the regression coverage proving the delivery-path
- * diagram still renders with no global registration in the picture.
- */
 async function mountPage() {
   setActivePinia(createPinia())
 
@@ -98,7 +92,7 @@ async function mountPage() {
 }
 
 /** Switches an already-mounted page into the delivery-paths display mode and returns the
- *  `<v-network-graph>` wrapper once it has rendered its own DOM. */
+ *  `<storage-delivery-graph>` wrapper once it has rendered its own DOM. */
 async function switchToDeliveryGraph(wrapper) {
   const deliveryToggle = wrapper
     .findAll('button')
@@ -108,34 +102,32 @@ async function switchToDeliveryGraph(wrapper) {
   await deliveryToggle.trigger('click')
   await flushPromises()
 
-  return wrapper.find('.v-network-graph')
+  return wrapper.find('.storage-delivery-graph')
 }
 
-describe('AdminStorage.vue - v-network-graph local registration', () => {
+describe('AdminStorage.vue - delivery-path diagram (StorageDeliveryGraph.vue, task #3116)', () => {
   it('renders the delivery-path diagram once switched to that display mode', async () => {
     const wrapper = await mountPage()
 
     // -> Not rendered yet: default displayMode is `targets`, the diagram is behind a v-if
-    expect(wrapper.find('.v-network-graph').exists()).toBe(false)
+    expect(wrapper.find('.storage-delivery-graph').exists()).toBe(false)
 
     const graph = await switchToDeliveryGraph(wrapper)
     expect(graph.exists()).toBe(true)
-    // -> The library's own root class from its stylesheet -- proves the locally-registered
-    //    component actually mounted and rendered its DOM, not just that the wrapper element exists.
-    expect(graph.classes()).toContain('v-network-graph')
     // -> generateGraph() always seeds at least the `user`/`pages`/`pages_wiki` nodes plus one node
     //    per content type -- confirms the component received real node data, not an empty graph.
-    expect(graph.findAll('.v-ng-node').length).toBeGreaterThan(0)
+    expect(graph.findAll('.storage-delivery-graph__node').length).toBeGreaterThan(0)
   })
 })
 
 /**
- * OpenProject #2500: the delivery-paths graph used to hardcode `style="background-color: #fff"`,
- * rendering as a stark white box inside an otherwise dark-themed admin page. It's now bound to
- * `useDark()`'s `dark.isActive` -- the same composable already driving every other dark-mode-aware
- * control on this page -- so these assert both the actual rendered background AND the node label
- * color: leaving the label at the library's default black would trade one bug (a mismatched white
- * panel) for a worse one (unreadable black-on-dark text) the moment the background goes dark.
+ * OpenProject #2500 (and its task #3116 follow-up, which moved this off `v-network-graph`): the
+ * delivery-paths graph used to hardcode `style="background-color: #fff"`, rendering as a stark white
+ * box inside an otherwise dark-themed admin page. It's now bound to `useDark()`'s `dark.isActive` --
+ * the same composable already driving every other dark-mode-aware control on this page -- so these
+ * assert both the actual rendered background AND the node label color: leaving the label at black
+ * would trade one bug (a mismatched white panel) for a worse one (unreadable black-on-dark text) the
+ * moment the background goes dark.
  */
 describe('AdminStorage.vue - delivery-path diagram dark mode (OpenProject #2500)', () => {
   afterEach(() => {
@@ -144,14 +136,14 @@ describe('AdminStorage.vue - delivery-path diagram dark mode (OpenProject #2500)
     useDark().set(false)
   })
 
-  it('keeps the light background and the library default black label in light mode', async () => {
+  it('keeps the light background and a black label in light mode', async () => {
     useDark().set(false)
     const wrapper = await mountPage()
     const graph = await switchToDeliveryGraph(wrapper)
 
-    expect(graph.attributes('style')).toMatch(/background-color:\s*#fff/)
+    expect(graph.find('.storage-delivery-graph__background').attributes('fill')).toBe('#fff')
 
-    const label = graph.find('.v-ng-text')
+    const label = graph.find('.storage-delivery-graph__label')
     expect(label.exists()).toBe(true)
     expect(label.attributes('fill')).toBe('#000000')
   })
@@ -161,11 +153,11 @@ describe('AdminStorage.vue - delivery-path diagram dark mode (OpenProject #2500)
     const wrapper = await mountPage()
     const graph = await switchToDeliveryGraph(wrapper)
 
-    const style = graph.attributes('style')
-    expect(style).toContain('background-color')
-    expect(style).not.toMatch(/background-color:\s*#fff/)
+    expect(graph.find('.storage-delivery-graph__background').attributes('fill')).toBe(
+      'var(--color-dark-3)'
+    )
 
-    const label = graph.find('.v-ng-text')
+    const label = graph.find('.storage-delivery-graph__label')
     expect(label.exists()).toBe(true)
     expect(label.attributes('fill')).toBe('#e8eaed')
   })

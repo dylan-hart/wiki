@@ -558,15 +558,15 @@ frontend test.
 
 `MarkdownRenderer` is otherwise exactly what the task predicted: pure, DOM-free, and importable
 directly (confirmed by `renderers/headless.js`, which runs the identical class server-side under
-Puppeteer). The one twist is that it could not originally be imported under Vitest at all —
-`markdown-it-mdc` still imports the `markdown-it/lib/token.mjs` subpath that markdown-it 15 removed,
-which `vite.config.js` already aliases around for the real app build, but `vitest.config.js`
-(deliberately a separate config, see its own header comment) had no reason to carry that alias until
-this test needed it. Vitest also externalizes `node_modules` packages to Node's own resolver by
-default, which bypasses Vite `resolve.alias` entirely, so the fix needed two parts, both now in
-`vitest.config.js`: the same `markdown-it/lib/token.mjs` alias `vite.config.js` has, plus
-`test.server.deps.inline: ['markdown-it-mdc']` to force that one package through Vite's resolver
-(where the alias applies) instead of Node's.
+Puppeteer). The one twist, at the time, was that it could not originally be imported under Vitest at
+all — `markdown-it-mdc`, then still a dependency, imported the `markdown-it/lib/token.mjs` subpath
+that markdown-it 15 removed, which needed both a `resolve.alias` and a `test.server.deps.inline`
+entry in `vitest.config.js` (mirroring `vite.config.js`'s own alias for the real app build) before
+`renderers/markdown.js` would resolve under test at all. OpenProject #3071 later replaced
+`markdown-it-mdc` with a purpose-built plugin implementing only the block/inline syntax this wiki
+actually authors, and both `vitest.config.js` entries came out with it — nothing left importing that
+subpath. The test-runner choice recorded above is unaffected: `markdown.test.js` stays an ordinary
+Vitest file regardless, for the `test/setup.js`/Tailwind/SCSS/`@`-alias reasons given above.
 
 Recording this so a future pass over task 479 does not re-propose `node --test` for this file.
 
@@ -1610,8 +1610,6 @@ dependency (production never needs it).
   and the tiptap task-list extensions, and parity-testing cost outweighs the maintenance-status gain
   for a tiny frozen-format plugin; revisit if it breaks on a future markdown-it bump). Each targets a
   narrow, unchanging piece of CommonMark-adjacent syntax with no active development needed.
-- **`akismet-api`** 6.0.0 (backend) — last published 2023; a thin wrapper over Akismet's HTTP API,
-  actively in use by the comments spam check. Nothing about the API it wraps has changed.
 
 `markdown-it-decorate` is intentionally **not** listed above — it is being dropped, not kept, per
 Task #1180's decision to standardize on `markdown-it-attrs`.
@@ -2021,3 +2019,37 @@ that the git feature stays disabled.
 **Resolved when:** either the base image's distro ships a git contemporaneous with the runner's, or a
 way to install a _pinned_ newer git that still writes to `/etc/gitconfig` (a versioned `.deb`, or a
 source build with `--prefix=/usr`) is added to the Dockerfile — at which point delete this entry.
+
+## `pageEmbeddingChunks` is raw SQL, not a `db/schema.ts` table (OpenProject #3095, Epic #3050)
+
+**Date:** 2026-09-13
+
+**Decision:** `core/pgvectorBootstrap.ts#bootstrapPgvector()`, called from `core/db.ts#syncSchemas()`
+right after `migrate()`, creates the `vector` extension, the `pageEmbeddingChunks` table and its HNSW
+cosine-distance index as raw SQL through the same connection `syncSchemas()` already holds — not as a
+`db/schema.ts` table generated into a migration via `drizzle-kit generate`, which is how every other
+table in this codebase is defined. The outcome is recorded once as `WIKI.capabilities.semanticSearch`
+(`types/global.d.ts`), which every Feature under Epic #3050 (local embedding pipeline / semantic
+search) reads rather than re-probing.
+
+**Why this reads as a deviation:** "edit `db/schema.ts`, then `npm run db-generate`" is this
+codebase's one documented way to change schema (see CLAUDE.md's "Backend patterns"), and every other
+table — including ones with far narrower use (`checklistExecutions`, `glossaryTerms`) — goes through
+it. `pageEmbeddingChunks` deliberately does not.
+
+**Why:** `pageEmbeddingChunks`'s existence is conditional on the `vector` extension, which a locked-down
+host's database role may not be permitted to install — a genuinely optional capability, unlike
+`ltree`/`pg_trgm`/`pgcrypto` (`core/db.ts`'s `REQUIRED_EXTENSIONS`), which are load-bearing for the
+migrations that follow them and whose absence is a real boot failure. A Drizzle migration has no
+"skip this statement and carry on" affordance: a migration that fails partway through leaves a row
+in the `migrations` ledger's expected sequence unfilled, and every later boot refuses to run past it
+— exactly the outcome a privilege denial must NOT produce here, since the rest of the schema (and
+every feature that doesn't touch embeddings) has to boot normally regardless. Raw SQL in its own
+try/catch, run after migrations rather than as one of them, is what lets the failure stay local to
+one optional table instead of blocking the schema the whole instance depends on.
+
+**What this means going forward:** any future change to `pageEmbeddingChunks`'s shape (a column, an
+index) is a hand-written change to `pgvectorBootstrap.ts`, not a `db/schema.ts` edit + generated
+migration — and, per the same optionality, must stay wrapped in the same try/catch rather than
+assuming the table exists. Code that reads or writes `pageEmbeddingChunks` checks
+`WIKI.capabilities.semanticSearch` first rather than querying speculatively.

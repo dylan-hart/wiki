@@ -3,9 +3,6 @@ import { mountEditorMarkdown } from './editorMarkdownHarness.js'
 
 vi.mock('monaco-editor', async () => (await import('./editorMarkdownHarness.js')).monacoMock())
 
-// -> Same stand-in every EditorMarkdown suite installs; see `EditorMarkdown.lifecycle.test.js`.
-vi.mock('y-monaco', () => ({ MonacoBinding: vi.fn() }))
-
 const monaco = await import('monaco-editor')
 const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 

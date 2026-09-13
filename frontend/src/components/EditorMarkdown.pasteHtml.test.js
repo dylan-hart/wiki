@@ -4,10 +4,6 @@ import { editorState, mountEditorMarkdown } from './editorMarkdownHarness.js'
 
 vi.mock('monaco-editor', async () => (await import('./editorMarkdownHarness.js')).monacoMock())
 
-// -> See EditorMarkdown.assets.test.js's identical comment: `y-monaco` needs a real browser and is
-//    never actually exercised here (collab is gated on a page id this harness never sets).
-vi.mock('y-monaco', () => ({ MonacoBinding: vi.fn() }))
-
 const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)

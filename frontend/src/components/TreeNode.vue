@@ -49,12 +49,13 @@
       </w-menu>
     </div>
     <!-- SUB-LEVEL -->
-    <transition name="treeview">
-      <tree-level
-        v-if="hasChildren && isOpened"
-        :parent-id="props.node.id"
-        :depth="props.depth + 1" />
-    </transition>
+    <!-- -> Bare `v-if`, no transition wrapper: expand/collapse shows/hides children instantly,
+            matching `NavSidebarItem.vue`'s own children, which have never animated (OpenProject
+            #3090). -->
+    <tree-level
+      v-if="hasChildren && isOpened"
+      :parent-id="props.node.id"
+      :depth="props.depth + 1" />
   </li>
 </template>
 
