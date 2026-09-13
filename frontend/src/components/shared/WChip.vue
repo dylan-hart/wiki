@@ -11,6 +11,7 @@
     :style="styles"
     :tabindex="clickable ? 0 : undefined"
     :role="clickable ? 'button' : undefined"
+    :title="title"
     @click="clickable && $emit('click', $event)"
     @keydown.enter.prevent="clickable && $emit('click', $event)">
     <w-icon v-if="icon" :name="icon" class="shrink-0" />
@@ -71,6 +72,11 @@ const props = defineProps({
   },
   /** Accessible name for the remove button. Falls back to the `common.chip.remove` dictionary entry. */
   removeLabel: {
+    type: String,
+    default: null
+  },
+  /** Native tooltip. */
+  title: {
     type: String,
     default: null
   }

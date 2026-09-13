@@ -41,6 +41,14 @@ describe('WChip', () => {
     expect(clickable.emitted('click')).toHaveLength(1)
   })
 
+  // -> OpenProject #3123: title is a declared prop (not left to $attrs fallthrough), matching
+  //    WBadge.vue/WBtn.vue's convention -- SearchResultHopBadge.vue relies on this.
+  it('renders a native title tooltip', () => {
+    const wrapper = mount(WChip, { props: { label: 'Tag', title: 'Related result' } })
+
+    expect(wrapper.attributes('title')).toBe('Related result')
+  })
+
   it('shows a remove button only when removable, and emits remove without also emitting click', async () => {
     const wrapper = mount(WChip, {
       props: { label: 'Tag', clickable: true, removable: true, removeLabel: 'Remove Tag' }
