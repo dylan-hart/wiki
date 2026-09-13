@@ -7,10 +7,10 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, provide, reactive, toRef } from 'vue'
-import { findKey } from 'es-toolkit/object'
 
 import TreeLevel from './TreeLevel.vue'
 import { useDark } from '@/composables/dark'
+import { ancestorFolderIds } from '@/helpers/treeNodes'
 
 // PROPS
 
@@ -160,16 +160,8 @@ defineExpose({
 
 onMounted(() => {
   if (props.selected) {
-    let foundRoot = false
-    let currentId = props.selected
-    while (!foundRoot) {
-      const parentId = findKey(props.nodes, (n) => n.children?.includes(currentId))
-      if (parentId) {
-        state.opened[parentId] = true
-        currentId = parentId
-      } else {
-        foundRoot = true
-      }
+    for (const ancestorId of ancestorFolderIds(props.nodes, props.selected)) {
+      state.opened[ancestorId] = true
     }
     state.opened[props.selected] = true
   }
