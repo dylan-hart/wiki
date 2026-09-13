@@ -1,6 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { SEARCH_ORDER_BY, type SearchOrderBy, type SearchResult } from '../../models/search.ts'
-import { generatePathHash, isValidUuid, normalizePagePath } from '../../helpers/common.ts'
+import type { AccessActor } from '../../models/groups.ts'
+import {
+  CustomError,
+  generatePathHash,
+  isValidUuid,
+  normalizePagePath
+} from '../../helpers/common.ts'
 import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
 import {
@@ -102,6 +108,58 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
   for (const result of results) {
     result.localeStatus = statuses.get(result.path) ?? []
   }
+}
+
+/**
+ * `WIKI.models.semanticSearch`'s contract for `search()`, exactly as Task #3101's own scope and the
+ * round-2 epic coordination note (OpenProject #3102's own work-package comments) document it.
+ *
+ * `models/semanticSearch.ts` is owned by Tasks #3099/#3100/#3101, and `WIKI.models` is typed strictly
+ * against that file's real exports (`types/global.d.ts`) -- so until it lands in this worktree, this
+ * route is built against this locally-declared copy of the documented contract plus a narrow cast at
+ * its one call site below, per the coordination note's "contract-only dep, don't block" guidance.
+ * Nothing here should need to change once the real model lands other than removing that cast.
+ */
+interface SemanticSearchModel {
+  search(
+    query: string,
+    actor: AccessActor | undefined,
+    siteId: string,
+    locale: string,
+    options: { limit: number; offset: number }
+  ): Promise<SemanticSearchPagesResult>
+}
+
+/** One page returned by semantic search -- a plain `SearchResult` plus which retrieval hop found it. */
+interface SemanticSearchResult extends SearchResult {
+  hop: 1 | 2
+}
+
+/** The response envelope `WIKI.models.semanticSearch.search()` resolves to. Mirrors `SearchPagesResult`. */
+interface SemanticSearchPagesResult {
+  results: SemanticSearchResult[]
+  totalHits: number
+  totalHitsApproximate: boolean
+  suggestion: string | null
+}
+
+/**
+ * Whether semantic search may actually be used on this site right now -- the AND of Task #3095's
+ * boot-time pgvector capability flag and this site's own `search.semanticEnabled` admin setting
+ * (Task #3104), exactly how Task #3103 defines the combined `features.semanticSearch` flag.
+ *
+ * Computed locally rather than calling into Task #3103's own work: neither it nor Task #3095's
+ * `WIKI.capabilities` typing exists yet in this worktree (see the round-2 coordination note's
+ * ground-truth check), and #3103's own ownership note assigns it the site-info route, not a shared
+ * helper. Once #3103 lands, prefer whatever it exports over keeping this as a second, independently
+ * -drifting copy of the same AND -- the coordination note calls this out by name as the "flag
+ * triangle" risk: reading the capability flag alone here would silently bypass a site admin's own
+ * off-switch.
+ */
+function semanticSearchEnabledFor(siteId: string): boolean {
+  const capabilityEnabled = Boolean((WIKI as any).capabilities?.semanticSearch)
+  const siteEnabled = Boolean(WIKI.sites[siteId]?.config?.search?.semanticEnabled)
+  return capabilityEnabled && siteEnabled
 }
 
 /**
@@ -299,6 +357,87 @@ async function routes(app: FastifyInstance) {
         await attachLocaleStatus(req.params.siteId, result.results)
       }
       return result
+    }
+  )
+
+  /**
+   * SEARCH PAGES — SEMANTIC
+   */
+  app.get<{
+    Params: { siteId: string }
+    Querystring: { query: string; locale?: string; offset?: number; limit?: number }
+  }>(
+    '/sites/:siteId/pages/search/semantic',
+    /*
+      No route-level permissions: visibility is enforced per row via `filterVisible`, inherited
+      through `WIKI.models.semanticSearch.search()` (Feature #3092) — same convention as `pages/search`
+      above. See CLAUDE.md's Permissions section.
+    */
+    {
+      schema: {
+        summary: 'Semantic search pages',
+        description:
+          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
+        tags: ['Pages'],
+        params: { $ref: 'SiteIdParams#' },
+        querystring: {
+          type: 'object',
+          required: ['query'],
+          properties: {
+            query: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 2048,
+              description: 'The question or phrase to search for. Embedded once, server-side.'
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: "The site's primary locale when absent."
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 25
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'SemanticSearchPagesResult#' },
+          503: { $ref: 'ApiError#', description: 'Semantic search is not available on this site.' }
+        }
+      }
+    },
+    async (req) => {
+      const siteId = req.params.siteId
+      if (!semanticSearchEnabledFor(siteId)) {
+        throw new CustomError(
+          'semanticSearchUnavailable',
+          'Semantic search is not available on this site.',
+          503
+        )
+      }
+      const accessActor = WIKI.models.groups.actorForRequest(req)
+      // -> `WIKI.models.semanticSearch` doesn't exist in this worktree's `models/index.ts` yet -- see
+      //    the `SemanticSearchModel` doc comment above.
+      const semanticSearch = (WIKI.models as unknown as { semanticSearch: SemanticSearchModel })
+        .semanticSearch
+      return semanticSearch.search(
+        req.query.query,
+        accessActor,
+        siteId,
+        req.query.locale ?? defaultLocale(siteId),
+        {
+          limit: req.query.limit ?? 25,
+          offset: req.query.offset ?? 0
+        }
+      )
     }
   )
 
