@@ -212,9 +212,13 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenP
  * value section is the whole fix; this asserts the resulting DOM shape rather than re-proving the
  * container-query mechanism itself, which `WItem.responsiveStacking.test.js` already covers in a
  * real browser.
+ *
+ * OpenProject #3088: Content Width (added later, by Feature #3051 / Task #3068) kept `side` and
+ * was left right-aligned and non-stacking, unlike the four rows above -- it joins the same
+ * assertion here now that it has been converted too.
  */
 describe('ProfileInfo toggle-style fields collapse to field-over-value (OpenProject #3060)', () => {
-  it('wraps Time Format/Aesthetic/Appearance/CVD in a MAIN section, not a flanking `side` one', async () => {
+  it('wraps Time Format/Aesthetic/Appearance/CVD/Content Width in a MAIN section, not a flanking `side` one', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
     const wrapper = mountPage()
     await flushPromises()
@@ -223,7 +227,8 @@ describe('ProfileInfo toggle-style fields collapse to field-over-value (OpenProj
       'profile.timeFormat',
       'profile.aesthetic',
       'profile.appearance',
-      'profile.cvd'
+      'profile.cvd',
+      'profile.contentWidth'
     ]
     expect.assertions(toggleLabels.length * 4)
     for (const label of toggleLabels) {
