@@ -50,12 +50,16 @@ let refreshCalls: number
 let selectCalls: any[]
 let validateCalls: any[]
 let validateResult: string | null
+let updateSiteCalls: any[]
+let semanticEnabled: boolean
 
 before(async () => {
   refreshCalls = 0
   selectCalls = []
   validateCalls = []
   validateResult = null
+  updateSiteCalls = []
+  semanticEnabled = false
 
   const wiki = {
     sites,
@@ -77,8 +81,14 @@ before(async () => {
         refreshFromDisk: async () => {
           refreshCalls++
         },
-        getConfig: (_siteId: string) => ({ dictOverrides }),
+        getConfig: (_siteId: string) => ({ dictOverrides, semanticEnabled }),
         getAvailableDictionaries: async () => availableDictionaries
+      },
+      sites: {
+        updateSite: async (siteId: string, patch: any) => {
+          updateSiteCalls.push([siteId, patch])
+          return true
+        }
       }
     }
   }
@@ -204,4 +214,103 @@ test('PATCH .../search rejects a dictionary the database does not have with a co
   })
   assert.equal(res.statusCode, 400)
   assert.equal(res.json().message, 'ERR_INVALID_SEARCH_DICTIONARY')
+})
+
+/**
+ * `semanticEnabled` (task #3104) — the per-site half of the two-flag availability triangle. Whether
+ * `WIKI.capabilities.semanticSearch` (the instance-wide half) is true is controlled per test below by
+ * mutating the installed global directly, since `buildTestApp` only installs the `WIKI` stub once for
+ * the whole file.
+ */
+test('PATCH .../search rejects semanticEnabled: true when the capability is unavailable', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { semanticEnabled: true }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_SEMANTIC_SEARCH_UNAVAILABLE')
+  assert.deepEqual(updateSiteCalls, [])
+})
+
+test('PATCH .../search accepts semanticEnabled: true when the capability is available', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { semanticEnabled: true }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.deepEqual(updateSiteCalls.at(-1), [
+    SITE_ID,
+    { config: { search: { config: { semanticEnabled: true } } } }
+  ])
+})
+
+test('PATCH .../search always accepts semanticEnabled: false, capability or no capability', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { semanticEnabled: false }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(updateSiteCalls.at(-1), [
+    SITE_ID,
+    { config: { search: { config: { semanticEnabled: false } } } }
+  ])
+})
+
+test('PATCH .../search 400s when neither dictOverrides nor semanticEnabled is provided', async () => {
+  const res = await app.inject({ method: 'PATCH', url: `/sites/${SITE_ID}/search`, payload: {} })
+  assert.equal(res.statusCode, 400)
+})
+
+test('GET .../search/semantic 404s for a site that does not exist', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/sites/22222222-2222-2222-2222-222222222222/search/semantic'
+  })
+  assert.equal(res.statusCode, 404)
+})
+
+test('GET .../search/semantic reports the stored setting and the instance capability', async () => {
+  semanticEnabled = true
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/search/semantic` })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), { enabled: true, available: false })
+  semanticEnabled = false
+})
+
+test('POST .../search/rebuild-embeddings 400s when the capability is unavailable', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/search/rebuild-embeddings`
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_SEMANTIC_SEARCH_UNAVAILABLE')
+})
+
+test('POST .../search/rebuild-embeddings 404s for a site that does not exist', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  const res = await app.inject({
+    method: 'POST',
+    url: '/sites/22222222-2222-2222-2222-222222222222/search/rebuild-embeddings'
+  })
+  assert.equal(res.statusCode, 404)
+})
+
+test('POST .../search/rebuild-embeddings queues the job and returns its id when the capability is available', async () => {
+  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/search/rebuild-embeddings`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.equal(res.json().id, 'test-job')
 })

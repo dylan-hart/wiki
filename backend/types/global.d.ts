@@ -22,6 +22,18 @@ declare global {
     version: string
     releaseDate: string
     devMode: boolean
+    /**
+     * Boot-time feature availability that depends on the environment rather than configuration —
+     * e.g. `semanticSearch`, set once `core/db.ts` has attempted `CREATE EXTENSION IF NOT EXISTS
+     * vector` and the `pageEmbeddingChunks` table/index after migrations run (Epic #3050). Read this
+     * rather than probing for the extension a second time; the per-site `search.semanticEnabled`
+     * admin setting is a separate, independent gate on top of this one — both must be true for the
+     * feature to actually be reachable (`features.semanticSearch` on the site-info response ANDs
+     * them).
+     */
+    capabilities: {
+      semanticSearch: boolean
+    }
 
     app: FastifyInstance
     server: ReturnType<typeof gracefulServer>
