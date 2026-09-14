@@ -119,6 +119,9 @@
   "overrides": {
     "@twemoji/api": {
       "@twemoji/parser": "17.0.1"
+    },
+    "lowlight": {
+      "highlight.js": "$highlight.js"
     }
   },
   "engines": {
