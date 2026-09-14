@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { MarkdownRenderer, gatedContentPlaceholder, sanitizeForPreview } from './markdown.js'
-import { CHROMIUM_TIMEOUT, chromium, hasChromium } from '../../test/realGridLayout.js'
+import {
+  CHROMIUM_TIMEOUT,
+  buildRenderedContentScript,
+  chromium,
+  hasChromium
+} from '../../test/realGridLayout.js'
 
 /*
   Runs under Vitest, not `node --test` -- this file's own task brief assumed the opposite (on the
@@ -401,15 +406,22 @@ describe(
       clipboard.read()` needs a real http(s) origin with clipboard permissions granted -- `about:
       blank`/`data:` URLs have no stable origin to grant against -- so this fakes one via `page.
       route()` rather than `page.setContent()`.
+
+      #3016 originally left this documenting the regression (no `<table>` on the clipboard); #3238
+      fixed it by intercepting the `copy` event and synthesizing a real `<table>` HTML string, so this
+      now confirms the fix instead -- against the real `enhanceRenderedContent` wiring, via
+      `buildRenderedContentScript()`, not a hand-rewritten mirror of it that could silently drift from
+      what `renderedContent.js` actually does.
     */
-    it('documents the copy/paste-to-spreadsheet regression: the copied HTML fragment no longer contains a real <table> the way the markup it replaced did (fix tracked as OpenProject #3143)', async () => {
+    it('confirms the copy/paste-to-spreadsheet fix: the copied HTML fragment contains a real <table>, the same as the markup it replaced would (OpenProject #3238)', async () => {
       const page = await browser.newPage()
       try {
         await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
           origin: 'http://localhost'
         })
+        const renderedContentScript = await buildRenderedContentScript()
 
-        async function copiedHtmlFor(selector, body) {
+        async function copiedHtmlAndTextFor(selector, body, { wireInterception = false } = {}) {
           await page.route('**/probe.html', (route) =>
             route.fulfill({
               body: `<!doctype html><html><body>${body}</body></html>`,
@@ -417,6 +429,12 @@ describe(
             })
           )
           await page.goto('http://localhost/probe.html')
+          if (wireInterception) {
+            await page.addScriptTag({ content: renderedContentScript })
+            await page.evaluate(() =>
+              window.RenderedContent.enhanceRenderedContent(document.body, (k) => k)
+            )
+          }
           return page.evaluate(async (sel) => {
             const el = document.querySelector(sel)
             const range = document.createRange()
@@ -425,31 +443,41 @@ describe(
             selection.removeAllRanges()
             selection.addRange(range)
             document.execCommand('copy')
+            const out = { html: null, text: null }
             for (const item of await navigator.clipboard.read()) {
               if (item.types.includes('text/html')) {
-                return await (await item.getType('text/html')).text()
+                out.html = await (await item.getType('text/html')).text()
+              }
+              if (item.types.includes('text/plain')) {
+                out.text = await (await item.getType('text/plain')).text()
               }
             }
-            return null
+            return out
           }, selector)
         }
 
-        const gridClipboardHtml = await copiedHtmlFor('[role="table"]', html)
-        const realTableClipboardHtml = await copiedHtmlFor('table', REAL_TABLE_HTML)
+        const gridClipboard = await copiedHtmlAndTextFor('[role="table"]', html, {
+          wireInterception: true
+        })
+        const realTableClipboard = await copiedHtmlAndTextFor('table', REAL_TABLE_HTML)
 
         // -> The real `<table>` copies with its own tag intact -- proving the technique above
         //    actually captures what the browser puts on the clipboard, not an artifact of the probe
-        expect(realTableClipboardHtml).toContain('<table')
-        expect(realTableClipboardHtml).toContain('<td')
+        expect(realTableClipboard.html).toContain('<table')
+        expect(realTableClipboard.html).toContain('<td')
 
-        // -> The grid copies as a flat run of role-bearing `<div>`s -- no `<table>`/`<tr>`/`<td>` at
-        //    all -- which is the regression: an app whose paste importer looks for those tags has
-        //    nothing to recognize as tabular data here, even though a screen reader (previous test)
-        //    reads it back identically to a real table.
-        expect(gridClipboardHtml).not.toContain('<table')
-        expect(gridClipboardHtml).not.toContain('<td')
-        expect(gridClipboardHtml).toContain('role="row"')
-        expect(gridClipboardHtml).toContain('role="cell"')
+        // -> The grid now copies as a synthesized real `<table>` too -- the `copy` interception took
+        //    over before the browser's own default copy (which would have produced the flat run of
+        //    role-bearing `<div>`s #3016 originally documented) ever ran
+        expect(gridClipboard.html).toContain('<table')
+        expect(gridClipboard.html).toContain('<th')
+        expect(gridClipboard.html).toContain('<td')
+        expect(gridClipboard.html).not.toContain('role="row"')
+        expect(gridClipboard.html).not.toContain('role="cell"')
+
+        // -> A tab/newline-delimited plain-text fallback lands alongside the HTML, for a paste target
+        //    that only reads the plain-text clipboard slot
+        expect(gridClipboard.text).toBe('Key\tValue\nalpha\t1\nbeta\t2')
       } finally {
         await page.close()
       }

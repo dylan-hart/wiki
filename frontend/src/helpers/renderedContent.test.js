@@ -296,6 +296,153 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
  * `contentImageZoom.test.js` for the lightbox's own full behavior (zoom, pan, the linked-image
  * exclusion, ...); this is only proof the two are actually connected.
  */
+/**
+ * OpenProject #3143/#3238: whole-table copy synthesizes a real `<table>` HTML string (plus a TSV
+ * plain-text fallback) onto the clipboard, rather than letting the browser copy the rendered
+ * `role="table"` div grid verbatim.
+ *
+ * happy-dom's own `Selection`/`ClipboardEvent` support isn't reliable enough to drive this
+ * end-to-end (real selection-and-copy coverage is `markdown.test.js`'s real-Chromium describe
+ * instead), so `window.getSelection` is stubbed to return a minimal fake -- just enough shape
+ * (`isCollapsed`, `rangeCount`, `getRangeAt`) for `tableForSelection` to read -- and the `copy`
+ * event is dispatched with a hand-built `clipboardData` stand-in, the same way a real browser's
+ * `ClipboardEvent` would carry one.
+ */
+describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** Stubs `window.getSelection()` to report a non-collapsed selection anchored at `node`. */
+  function stubSelectionOn(node) {
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: node })
+    })
+  }
+
+  /** Dispatches a `copy` event on `root` carrying a fake `clipboardData`, returning it and the event. */
+  function dispatchCopy(root) {
+    const clipboardData = { setData: vi.fn() }
+    const event = new Event('copy', { bubbles: true, cancelable: true })
+    event.clipboardData = clipboardData
+    const prevented = !root.dispatchEvent(event)
+    return { clipboardData, prevented }
+  }
+
+  it('sets a real <table> HTML string and a TSV plain-text fallback, and prevents the default copy', () => {
+    const wrap = tableWrap(row(['Name', 'Count'], { header: true }) + row(['apples', '3']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="cell"]'))
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(true)
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><th>Name</th><th>Count</th></tr><tr><td>apples</td><td>3</td></tr></table>'
+    )
+    expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', 'Name\tCount\napples\t3')
+  })
+
+  it('translates aria-colspan/aria-rowspan back to real colspan/rowspan', () => {
+    const wrap = tableWrap(
+      '<div role="row"><div role="columnheader" aria-colspan="2">A</div></div>' + row(['B', 'C'])
+    )
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><th colspan="2">A</th></tr><tr><td>B</td><td>C</td></tr></table>'
+    )
+  })
+
+  it("keeps a cell's inner markup (e.g. a link) rather than flattening it to plain text", () => {
+    const wrap = tableWrap('<div role="row"><div role="cell"><a href="/x">link</a></div></div>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="cell"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><td><a href="/x">link</a></td></tr></table>'
+    )
+  })
+
+  it('carries a .table-caption child over as a real <caption>', () => {
+    const wrap = tableWrap('<div class="table-caption">Cap</div>' + row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><caption>Cap</caption><tr><td>A</td></tr></table>'
+    )
+  })
+
+  it('collapses an embedded tab/newline in a cell to a single space in the TSV fallback', () => {
+    const wrap = tableWrap(row([`line one${'\n'}line two`, 'a\tb']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', 'line one line two\ta b')
+  })
+
+  it('falls through to the normal browser copy when the selection reaches outside the table', () => {
+    const wrap = tableWrap(row(['A']))
+    const outside = document.createElement('p')
+    wrap.parentNode.appendChild(outside)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    // -> A common ancestor above the table (the shared parent), standing in for a selection that
+    //    spans both the table and this sibling paragraph
+    stubSelectionOn(wrap.parentNode)
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(false)
+    expect(clipboardData.setData).not.toHaveBeenCalled()
+  })
+
+  it('falls through when nothing is selected (collapsed selection)', () => {
+    const wrap = tableWrap(row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    vi.spyOn(window, 'getSelection').mockReturnValue({ isCollapsed: true, rangeCount: 0 })
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(false)
+    expect(clipboardData.setData).not.toHaveBeenCalled()
+  })
+
+  it('is wired once -- re-running enhanceRenderedContent over the same root does not double-fire the handler', () => {
+    const wrap = tableWrap(row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    // -> Exactly one text/html call, not two -- a second listener would have called setData twice
+    expect(clipboardData.setData.mock.calls.filter(([kind]) => kind === 'text/html')).toHaveLength(
+      1
+    )
+  })
+})
+
 describe('renderedContent content-image click-to-zoom wiring (#3066)', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
