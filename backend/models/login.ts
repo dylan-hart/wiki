@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs'
 import { eq, sql } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
 import { users as usersTable } from '../db/schema.ts'
 import { BCRYPT_ROUNDS } from '../helpers/common.ts'
+import { randomToken } from '../helpers/randomToken.ts'
 import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { coalesce } from '../helpers/logCoalesce.ts'
 import {
@@ -422,8 +422,9 @@ class Login {
         ...(firstName || lastName ? { firstName, lastName } : { name: profile.name || email }),
         email,
         // -> Nothing signs in with it: this account authenticates at the provider, and the local
-        //    strategy's own entry is what a password would live under
-        password: nanoid(32),
+        //    strategy's own entry is what a password would live under. 24 bytes = 192 bits, at or
+        //    above what this field was given before.
+        password: randomToken(24),
         groups: strategy.autoEnrollGroups ?? [],
         isVerified: true
       })

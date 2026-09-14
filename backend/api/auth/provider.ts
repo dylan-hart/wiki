@@ -1,10 +1,10 @@
-import { nanoid } from 'nanoid'
 import { siteIdForHostname } from '../../helpers/siteResolution.ts'
 import { limitAuthAttempts } from '../../helpers/rateLimit.ts'
 import {
   absoluteRedirectsAllowed,
   isFollowableRedirectTarget
 } from '../../helpers/redirectTarget.ts'
+import { randomToken } from '../../helpers/randomToken.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -236,18 +236,23 @@ async function routes(app: FastifyInstance) {
       const flow = {
         strategyId: strategy.id,
         siteId,
-        state: nanoid(32),
-        nonce: nanoid(32),
-        codeVerifier: nanoid(64),
+        // -> 24 bytes = 192 bits, at or above what each of these was given before
+        state: randomToken(24),
+        nonce: randomToken(24),
+        // -> 48 bytes = 384 bits / 64 base64url characters — matches both the entropy and the
+        //    string length this field was given before, which RFC 7636's PKCE verifier length
+        //    (43-128 chars, unreserved-character alphabet) comfortably allows
+        codeVerifier: randomToken(48),
         /*
-          SAML only: an XML NCName-safe id (must not start with a digit, which `nanoid`'s own
-          alphabet does not guarantee) for the outbound AuthnRequest — ignored by every other
-          module's `authorizationUrl()`, the same way SAML ignores `nonce`/`codeVerifier`. Generated
-          here, ahead of the request being built, so it can be written onto the session first and
-          read back by `finishProviderLogin()` below once the identity provider answers — see
-          `AuthFlow.authnRequestId` in `models/authentication.ts`.
+          SAML only: an XML NCName-safe id (must not start with a digit) for the outbound
+          AuthnRequest — ignored by every other module's `authorizationUrl()`, the same way SAML
+          ignores `nonce`/`codeVerifier`. Generated here, ahead of the request being built, so it can
+          be written onto the session first and read back by `finishProviderLogin()` below once the
+          identity provider answers — see `AuthFlow.authnRequestId` in `models/authentication.ts`.
+          The leading `_` guarantees the digit-safe first character regardless of what follows; 30
+          bytes = 240 bits, at or above what this field was given before.
         */
-        authnRequestId: `_${nanoid(40)}`,
+        authnRequestId: `_${randomToken(30)}`,
         // -> Only a path on this wiki (or, with `security.disallowOpenRedirect` off, a complete
         //    https:// URL): an open redirect is how a login page is turned into a lure, and
         //    `startsWith('/')` alone let `//evil.example` and `/\evil.example` both through, since a
