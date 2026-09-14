@@ -88,8 +88,9 @@ VOLUME ["/wiki/data"]
 # would advertise a listener that never opens.
 EXPOSE 3000
 
-# `/_ready` (registered by `gracefulServer` in `backend/index.ts`) is the same readiness signal a
-# Kubernetes probe would use; a plain Docker deployment gets it too via `docker inspect`/`docker ps`.
+# `/_ready` (registered by `core/http/shutdown.ts#registerProbes`, wired in from `core/http/server.ts`)
+# is the same readiness signal a Kubernetes probe would use; a plain Docker deployment gets it too via
+# `docker inspect`/`docker ps`.
 # --start-period is generous because postBoot() (locale/strategy/site refresh, scheduler start) runs
 # after the HTTP server is already listening, so /_ready can otherwise be probed before the instance
 # is actually usable.

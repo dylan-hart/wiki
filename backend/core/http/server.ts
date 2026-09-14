@@ -5,7 +5,6 @@ import fastifyCompress from '@fastify/compress'
 import fastifySensible from '@fastify/sensible'
 import fastifyStatic from '@fastify/static'
 import fastifyWebsocket from '@fastify/websocket'
-import gracefulServer, { type IGracefulServer } from '@gquittet/graceful-server'
 
 import {
   isHashedAssetFilename,
@@ -14,6 +13,13 @@ import {
 } from '../../helpers/common.ts'
 import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
 import { registerAjvFormats } from './ajvFormats.ts'
+import {
+  createGracefulShutdown,
+  registerProbes,
+  SHUTDOWN,
+  SHUTTING_DOWN,
+  type ShutdownController
+} from './shutdown.ts'
 
 /**
  * The Fastify instance itself, everything wrapped around it that is not routing, and the static
@@ -21,10 +27,10 @@ import { registerAjvFormats } from './ajvFormats.ts'
  * than wiring behaviour onto one.
  *
  * `createHttpApp()` assigns `WIKI.app` and `WIKI.server` as it goes, in the same order `index.ts`
- * did: the graceful-shutdown handlers below are registered on `WIKI.server`, so the object and its
- * handlers cannot be separated from the construction that produces them, and a single
- * `FastifyInstance` return value has nowhere to carry the second one back. `index.ts` keeps the boot
- * sequence and the `listen()` that ends it.
+ * did: the graceful-shutdown handlers below are registered on `WIKI.server` (`./shutdown.ts`'s
+ * `createGracefulShutdown()`), so the object and its handlers cannot be separated from the
+ * construction that produces them, and a single `FastifyInstance` return value has nowhere to carry
+ * the second one back. `index.ts` keeps the boot sequence and the `listen()` that ends it.
  */
 export function createHttpApp(): FastifyInstance {
   const app = fastify({
@@ -83,31 +89,21 @@ export function createHttpApp(): FastifyInstance {
   })
   WIKI.app = app
   registerAccessLogging(app)
-  WIKI.server = gracefulServer(app.server, {
-    livenessEndpoint: '/_live',
-    readinessEndpoint: '/_ready',
-    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST),
-    // -> Awaited via `Promise.allSettled` by the library once the pre-close delay below has
-    //    elapsed — each one is itself internally bounded (`scheduler.stop()`'s own drain timeout,
-    //    `collab.shutdown()`/`dbManager.shutdown()`'s bounded socket/pool teardown), so a hung
-    //    routine here cannot hold the process open indefinitely. Previously empty, so every deploy,
-    //    restart or pod eviction abandoned an in-flight job, a live collab socket and the pg pool's
-    //    LISTEN client rather than draining them (OpenProject #2018/#2028). `dbManager.shutdown()`
-    //    is one call rather than its two steps listed separately here, because those two steps have
-    //    an order dependency (`unsubscribeFromNotifications()`'s own drain needs a live pool) that
-    //    `Promise.allSettled` running sibling entries concurrently would not preserve.
-    closePromises: [
-      () => WIKI.scheduler.stop(),
-      () => WIKI.collab.shutdown(),
-      () => WIKI.dbManager.shutdown()
-    ],
-    // -> Library default is 1000ms, spent entirely as a pre-close delay *before* `closePromises`
-    //    run (not a timeout wrapping them) — barely enough for a readiness probe to notice
-    //    `isReady()` has flipped and stop routing new traffic here. Raised well above that, while
-    //    staying comfortably under a typical 30s Kubernetes `terminationGracePeriodSeconds` once
-    //    added to `scheduler.stop()`'s own drain bound above.
-    timeout: 5000
-  })
+  // -> Awaited via `Promise.allSettled` by `runShutdownSequence()` (`./shutdown.ts`) once the
+  //    pre-close delay has elapsed — each one is itself internally bounded (`scheduler.stop()`'s own
+  //    drain timeout, `collab.shutdown()`/`dbManager.shutdown()`'s bounded socket/pool teardown), so
+  //    a hung routine here cannot hold the process open indefinitely. Previously empty, so every
+  //    deploy, restart or pod eviction abandoned an in-flight job, a live collab socket and the pg
+  //    pool's LISTEN client rather than draining them (OpenProject #2018/#2028). `dbManager.shutdown()`
+  //    is one call rather than its two steps listed separately here, because those two steps have
+  //    an order dependency (`unsubscribeFromNotifications()`'s own drain needs a live pool) that
+  //    `Promise.allSettled` running sibling entries concurrently would not preserve.
+  WIKI.server = createGracefulShutdown(app, [
+    () => WIKI.scheduler.stop(),
+    () => WIKI.collab.shutdown(),
+    () => WIKI.dbManager.shutdown()
+  ])
+  registerProbes(app, WIKI.server.isReady)
 
   app.register(fastifySensible)
   app.register(fastifyCompress, { global: true })
@@ -248,16 +244,16 @@ export function registerAccessLogging(app: FastifyInstance): void {
 /**
  * The signal names an orderly shutdown legitimately ends with.
  *
- * `@gquittet/graceful-server` reports its shutdown reason as an `Error` whose `message` is the bare
- * signal name, so these are matched exactly rather than by prefix — an `Error('SIGTERM handler
- * failed')` is a real fault and still warns.
+ * `./shutdown.ts#runShutdownSequence` reports its shutdown reason as an `Error` whose `message` is
+ * the bare signal name, so these are matched exactly rather than by prefix — an `Error('SIGTERM
+ * handler failed')` is a real fault and still warns.
  */
 const EXPECTED_SHUTDOWN_REASONS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'])
 
 /**
- * The reason reported for a shutdown nobody asked for by signal — a bare `WIKI.server.stop()`,
- * which graceful-server passes no `type` and no `body` for and therefore reports with no `Error` at
- * all. Not a fault, so it does not take the `warn` branch below.
+ * The reason reported for a shutdown nobody asked for by signal — `close-with-grace`'s own manual
+ * `close()` call, which carries neither a `signal` nor an `err` and so is reported with no `Error`
+ * at all. Not a fault, so it does not take the `warn` branch below.
  */
 const PROGRAMMATIC_SHUTDOWN_REASON = 'programmatic'
 
@@ -270,27 +266,28 @@ const PROGRAMMATIC_SHUTDOWN_REASON = 'programmatic'
  *
  * Two lines, one per end of the teardown, replacing the four the HTTP server and scheduler used to
  * emit between them (`Shutting down HTTP Server`, `Stopping Scheduler`, `Scheduler: [ STOPPED ]`,
- * `HTTP Server has exited`). The library's own event pair is what makes them meaningful: it emits
- * `SHUTTING_DOWN` — carrying the reason — at the top of `stop()`, then runs the pre-close delay,
- * `closePromises` (scheduler drain, collab socket close, db unsubscribe + pool end) and the socket
- * close, and only then emits `SHUTDOWN`, immediately before `process.exit`. So `stopping` belongs on
- * the first and `stopped  ms=` on the second, and `ms` is the real cost of the drain rather than a
- * number measured against nothing.
+ * `HTTP Server has exited`). `./shutdown.ts#runShutdownSequence`'s own event pair is what makes them
+ * meaningful: it emits `SHUTTING_DOWN` — carrying the reason — at the top of the teardown, then runs
+ * the pre-close delay, the close tasks (scheduler drain, collab socket close, db unsubscribe + pool
+ * end) and the socket close, and only then emits `SHUTDOWN`, immediately before `close-with-grace`
+ * calls `process.exit()`. So `stopping` belongs on the first and `stopped  ms=` on the second, and
+ * `ms` is the real cost of the drain rather than a number measured against nothing.
  *
  * `SIGTERM` is how Docker, Kubernetes and systemd ask for a shutdown, and `SIGHUP` is how some
  * supervisors do — only `SIGINT` (a developer's Ctrl-C) used to be exempted, so every ordinary
  * restart logged `warn: Error: SIGTERM` with a stack and made the most common benign event in an
  * instance's life read as a fault (OpenProject #2645). An expected reason gets the one `info` line
- * and nothing else; anything else — an uncaught exception routed through graceful-server's own
+ * and nothing else; anything else — an uncaught exception routed through `close-with-grace`'s own
  * handler — keeps the `warn` with its stack.
  */
-export function registerShutdownLogging(server: Pick<IGracefulServer, 'on'>): void {
+export function registerShutdownLogging(server: Pick<ShutdownController, 'on'>): void {
   // -> Captured on the first event and read on the second, rather than recomputed: the two handlers
-  //    are the only readers, one shutdown happens per process, and `stop()` is idempotent (it
-  //    returns early once already shutting down), so there is nothing to key this by.
+  //    are the only readers, one shutdown happens per process, and the teardown runs at most once
+  //    (a second signal is `close-with-grace`'s own immediate `process.exit(1)`, never a second
+  //    `runShutdownSequence`), so there is nothing to key this by.
   let shutdownStartedAt: number | null = null
 
-  server.on(gracefulServer.SHUTTING_DOWN, (err?: Error) => {
+  server.on(SHUTTING_DOWN, (err?: Error) => {
     shutdownStartedAt = Date.now()
     WIKI.logger.info('boot', 'stopping', {
       reason: err?.message ?? PROGRAMMATIC_SHUTDOWN_REASON
@@ -300,10 +297,11 @@ export function registerShutdownLogging(server: Pick<IGracefulServer, 'on'>): vo
     }
   })
 
-  // -> Written synchronously, because graceful-server calls `process.exit()` on the very next
-  //    statement after this event. Writes to stdout are synchronous for both pipes and TTYs on
-  //    Linux and macOS, which is what keeps this line from being dropped under `docker logs`.
-  server.on(gracefulServer.SHUTDOWN, () => {
+  // -> Written synchronously, because `close-with-grace` calls `process.exit()` on the very next
+  //    statement after `runShutdownSequence`'s returned promise resolves. Writes to stdout are
+  //    synchronous for both pipes and TTYs on Linux and macOS, which is what keeps this line from
+  //    being dropped under `docker logs`.
+  server.on(SHUTDOWN, () => {
     WIKI.logger.info('boot', 'stopped', {
       ms: shutdownStartedAt === null ? 0 : Date.now() - shutdownStartedAt
     })

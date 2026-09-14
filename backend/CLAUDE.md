@@ -51,8 +51,11 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   instance runs them, not just the one that received the route), `temporal.ts` (`ensureTemporal()`),
   `processGuards.ts` (the one `unhandledRejection` handler).
   - `core/http/` — everything `index.ts` used to do to a Fastify instance: `server.ts`
-    (`createHttpApp()` — instance options, gracefulServer, `sensible`/`compress`/`websocket`,
-    `WIKI.app`/`WIKI.server`; plus `registerStaticAssets(app)`), `security.ts` (helmet/CSP/CORS),
+    (`createHttpApp()` — instance options, graceful shutdown (`shutdown.ts`),
+    `sensible`/`compress`/`websocket`, `WIKI.app`/`WIKI.server`; plus `registerStaticAssets(app)`),
+    `shutdown.ts` (`close-with-grace` wiring, the `/_live`/`/_ready` probes, the 5s pre-close delay
+    and the `SHUTTING_DOWN`/`SHUTDOWN` events `server.ts#registerShutdownLogging` consumes),
+    `security.ts` (helmet/CSP/CORS),
     `session.ts` (cookie + `@fastify/session` + the cookie-security diagnostic hook), `openapi.ts`
     (swagger + swagger-ui), `authHooks.ts` (API-key bearer, same-origin gate, the two rate limiters,
     the route-permission `preHandler`, the API-key site pin), `siteRouting.ts`

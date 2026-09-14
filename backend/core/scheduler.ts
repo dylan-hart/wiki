@@ -1004,8 +1004,8 @@ export default {
    * drain existed: `workerPool.destroy()` tears it down, and its `jobHistory` row is picked up by
    * `reapStaleJobs()` once `staleJobTimeout` elapses.
    *
-   * Returns the same awaitable promise `backend/index.ts`'s `gracefulServer(...)` `closePromises`
-   * holds (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
+   * Returns the same awaitable promise `core/http/server.ts`'s `createGracefulShutdown(...)` close
+   * tasks hold (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
    */
   async stop(): Promise<void> {
     clearInterval(this.scheduledRef!)
