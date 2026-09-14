@@ -1,7 +1,11 @@
 <template>
   <w-layout
     :class="{ 'main-layout--entrance-flourish': playEntranceFlourish }"
-    :style="{ '--sidebar-current-width': sidebarCurrentWidth }">
+    :style="{
+      '--sidebar-current-width': sidebarCurrentWidth,
+      '--sidebar-inset-inline-start': sidebarInsetInlineStart,
+      '--sidebar-inset-inline-end': sidebarInsetInlineEnd
+    }">
     <!--
       The way past every sidebar link and header control on a keyboard, per WCAG 2.4.1 (Bypass
       Blocks) -- the first focusable element in the whole layout, ahead of even `header-nav`. Still
@@ -555,6 +559,27 @@ const sidebarWidth = computed(() =>
  */
 const sidebarCurrentWidth = computed(() =>
   isSidebarOpen.value ? `${sidebarWidth.value}px` : '0px'
+)
+
+/**
+ * OpenProject #3142: which edge `sidebarCurrentWidth` should inset from. `<w-drawer>`'s own `side`
+ * prop above treats anything but `'right'` (including the `'off'` no-sidebar setting) as the
+ * reading-START side, so this mirrors that exact check rather than inventing a second reading of
+ * `sidebarPosition`. Plain CSS has no way to pick which of `inset-inline-start`/`-end` a rule uses
+ * based on a custom property's string value, so rather than exposing the side as a value for
+ * `Index.vue` to branch on, the two directional widths below are computed here instead --
+ * `sidebarInsetInlineStart`/`sidebarInsetInlineEnd` -- one is always `sidebarCurrentWidth` and the
+ * other always `0px`, so a consumer can set both unconditionally and only the occupied edge ever
+ * insets.
+ */
+const sidebarOnEndSide = computed(() => siteStore.theme.sidebarPosition === 'right')
+
+const sidebarInsetInlineStart = computed(() =>
+  sidebarOnEndSide.value ? '0px' : sidebarCurrentWidth.value
+)
+
+const sidebarInsetInlineEnd = computed(() =>
+  sidebarOnEndSide.value ? sidebarCurrentWidth.value : '0px'
 )
 
 // -> The "Allow Browsing" site feature (admin/general): with it off the tree browser is not something
