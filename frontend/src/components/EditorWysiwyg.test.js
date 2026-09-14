@@ -64,8 +64,14 @@ function stubLinkDialog(payload) {
   })
 }
 
+/*
+  `wysiwygMenuBar.js` translates every title through `t()` against `editor.wysiwyg.*` (OpenProject
+  #3206) -- `createTestI18n()` seeds no messages, so with `missingWarn`/`fallbackWarn` off `t()`
+  resolves an untranslated key to the key string itself, same as `editorMarkupShared.test.js`'s own
+  `[aria-label="editor.markup.insertAssets"]` selector for `EditorMarkdown.vue`'s sibling namespace.
+*/
 function clickLinkButton(wrapper) {
-  return wrapper.find('[aria-label="Link"]').trigger('click')
+  return wrapper.find('[aria-label="editor.wysiwyg.link"]').trigger('click')
 }
 
 /** The lone text node carrying a `link` mark, or `null` if nothing in the doc has one. */

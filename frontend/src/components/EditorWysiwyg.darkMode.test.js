@@ -61,7 +61,12 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
     // -> `WBtn.vue`'s flat variant writes `color: var(--color-<name>)` as an inline style for any
     //    button carrying a `color` prop -- this is `inactiveIconColor`'s real, rendered effect, not
     //    an internal read out for the test's own convenience.
-    const lightBoldColor = lightWrapper.find('[aria-label="Bold"]').element.style.color
+    // -> `[aria-label="editor.wysiwyg.bold"]`, not `"Bold"`: `wysiwygMenuBar.js` now translates
+    //    every title through `t()` against `editor.wysiwyg.*` (OpenProject #3206), and
+    //    `createTestI18n()` seeds no messages, so an untranslated key resolves to the key string
+    //    itself.
+    const lightBoldColor = lightWrapper.find('[aria-label="editor.wysiwyg.bold"]').element.style
+      .color
     lightWrapper.unmount()
 
     const darkWrapper = mountForTheme('dark', 'Hello')
@@ -69,7 +74,7 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
     await nextTick()
     const darkToolbar = darkWrapper.find('.wysiwyg-toolbar').element
     const darkBackground = getComputedStyle(darkToolbar).backgroundImage
-    const darkBoldColor = darkWrapper.find('[aria-label="Bold"]').element.style.color
+    const darkBoldColor = darkWrapper.find('[aria-label="editor.wysiwyg.bold"]').element.style.color
     darkWrapper.unmount()
 
     expect(lightBackground).toContain('fafafa')
