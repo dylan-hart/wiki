@@ -2,6 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   escapeLikePattern,
+  formatByteSize,
   isHashedAssetFilename,
   isSameOriginWebSocketHandshake,
   isUniqueViolation,
@@ -198,4 +199,39 @@ describe('isHashedAssetFilename', () => {
   test('a name with no hyphen at all is not hashed', () => {
     assert.equal(isHashedAssetFilename('renderer.js'), false)
   })
+})
+
+/**
+ * Task 3178: replaces the `filesize` dependency's bare `filesize(bytes)` call, the only way
+ * `api/system/info.ts` ever invoked it (for `ramTotal`). These values pin the exact strings that
+ * call produced, captured against the real `filesize@11.0.22` package before it was removed, so a
+ * future change to `formatByteSize` cannot silently drift from what admins were already shown.
+ *
+ * The values themselves are decimal (1000-based) unit steps, not base-2 — `filesize`'s own default
+ * (no options passed) resolves that way despite its "JEDEC" standard name, verified empirically
+ * against the installed package rather than assumed. 2 ** 30 - 1 is the one entry that looks
+ * surprising at a glance: it is one byte short of 1 GB, but rounds to "1024.00" at the MB step, and
+ * `formatByteSize` (matching `filesize`) promotes that to the next unit rather than printing the
+ * threshold value verbatim.
+ */
+describe('formatByteSize', () => {
+  const TABLE: Array<[number, string]> = [
+    [0, '0 B'],
+    [1, '1 B'],
+    [1023, '1.02 kB'],
+    [1024, '1.02 kB'],
+    [1536, '1.54 kB'],
+    [10 ** 6, '1 MB'],
+    [2 ** 20, '1.05 MB'],
+    [2 ** 30 - 1, '1.07 GB'],
+    [5 * 2 ** 40, '5.5 TB'],
+    // -> A realistic `os.totalmem()` shape (16 GiB), the actual call site in `api/system/info.ts`.
+    [17179869184, '17.18 GB']
+  ]
+
+  for (const [bytes, expected] of TABLE) {
+    test(`formats ${bytes} bytes as "${expected}"`, () => {
+      assert.equal(formatByteSize(bytes), expected)
+    })
+  }
 })
