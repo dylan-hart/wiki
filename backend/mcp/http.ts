@@ -15,11 +15,15 @@
  * authorized as its own caller's real page-rule grants (`mcp/auth.ts`'s `McpAuthContext`), not a
  * process-wide identity the way stdio's single configured key is.
  *
- * Session lifecycle: the SDK's `StreamableHTTPServerTransport` is stateful — one instance per MCP
- * session, addressed by the `Mcp-Session-Id` header a client is handed on `initialize` and echoes on
- * every request after. `sessions` below is the process-local map from that id to its transport (and
- * the key that opened it); a session that outlives its own key's revocation still gets refused, since
- * the bearer token is re-verified on every request regardless of which session it names.
+ * Session lifecycle: the SDK's `WebStandardStreamableHTTPServerTransport` is stateful — one instance
+ * per MCP session, addressed by the `Mcp-Session-Id` header a client is handed on `initialize` and
+ * echoes on every request after. It speaks the Fetch API's `Request`/`Response`, not Fastify's raw
+ * Node req/res — `webBridge.ts`'s `toWebRequest()`/`sendWebResponse()` are the two-way conversion;
+ * see that file's own doc comment for why (OpenProject #3160: the v1-shaped, Node-req/res-native
+ * adapter would drag `hono` back into this project's tree). `sessions` below is the process-local map
+ * from that id to its transport (and the key that opened it); a session that outlives its own key's
+ * revocation still gets refused, since the bearer token is re-verified on every request regardless of
+ * which session it names.
  *
  * That map is capped and idle-expiring (OpenProject #2207, security/09-dos-resource §7), not a plain
  * unbounded `Map`: the only insertion was `onsessioninitialized` and the only removal was
@@ -36,16 +40,19 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { LRUCache } from 'lru-cache'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import {
+  WebStandardStreamableHTTPServerTransport,
+  isInitializeRequest
+} from '@modelcontextprotocol/server'
 import { limitApiKey } from '../helpers/rateLimit.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { contextFromIdentity, type McpAuthContext } from './auth.ts'
 import { createMcpServer } from './server.ts'
 import { registerAllTools } from './tools/index.ts'
+import { sendWebResponse, toWebRequest } from './webBridge.ts'
 
 interface McpSession {
-  transport: StreamableHTTPServerTransport
+  transport: WebStandardStreamableHTTPServerTransport
   /** The key that opened this session — a later request naming this session must be the same key. */
   keyId: string
   /**
@@ -159,7 +166,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
       //    request on this same session (below) authorizes against ITS OWN fresh verification rather
       //    than whichever identity happened to open the session.
       registerAllTools(server, () => newSession.ctx)
-      const transport = new StreamableHTTPServerTransport({
+      const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: async (sid) => {
           sessions.set(sid, newSession)
@@ -193,8 +200,11 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     //    of an existing session, not only once the session itself is torn down.
     session.ctx = ctx
 
+    const webRes = await session.transport.handleRequest(toWebRequest(req), {
+      parsedBody: req.body
+    })
     reply.hijack()
-    await session.transport.handleRequest(req.raw, reply.raw, req.body)
+    await sendWebResponse(reply, webRes)
   })
 
   /** The session a GET/DELETE names, distinguishing "no such session" from "not yours" — same as POST. */
@@ -223,8 +233,9 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     if (!session) {
       return reply.notFound('No MCP session with this id.')
     }
+    const webRes = await session.transport.handleRequest(toWebRequest(req))
     reply.hijack()
-    await session.transport.handleRequest(req.raw, reply.raw)
+    await sendWebResponse(reply, webRes)
   })
 
   app.delete('/', async (req, reply) => {
@@ -235,8 +246,9 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     if (!session) {
       return reply.notFound('No MCP session with this id.')
     }
+    const webRes = await session.transport.handleRequest(toWebRequest(req))
     reply.hijack()
-    await session.transport.handleRequest(req.raw, reply.raw)
+    await sendWebResponse(reply, webRes)
   })
 }
 

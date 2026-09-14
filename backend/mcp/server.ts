@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { McpServer } from '@modelcontextprotocol/server'
 
 /** The version this instance's MCP server reports to a connecting client. */
 export function createMcpServer(version: string): McpServer {
