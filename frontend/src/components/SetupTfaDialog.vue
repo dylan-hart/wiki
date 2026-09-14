@@ -43,13 +43,7 @@
           </div>
           <p class="mt-4">{{ t('auth.tfaSetupInstrSecond') }}</p>
           <div class="flex flex-wrap justify-center">
-            <v-otp-input
-              v-model:value="state.securityCode"
-              :num-inputs="6"
-              :should-auto-focus="true"
-              input-classes="otp-input"
-              input-type="number"
-              separator="" />
+            <w-otp-input v-model="state.securityCode" :length="6" autofocus />
           </div>
           <w-inner-loading :showing="state.isLoading" />
         </w-card-section>
@@ -104,7 +98,6 @@ import { copyToClipboard } from '@/helpers/clipboard'
 import { localizeError } from '@/helpers/localization'
 import { computed, onMounted, reactive } from 'vue'
 
-import VOtpInput from 'vue3-otp-input'
 import RecoveryCodesDisplay from '@/components/RecoveryCodesDisplay.vue'
 
 // PROPS

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-import VOtpInput from 'vue3-otp-input'
+import WOtpInput from './shared/WOtpInput.vue'
 
 import SetupTfaDialog from './SetupTfaDialog.vue'
 import { openDialogs } from '@/composables/dialog'
@@ -39,7 +39,7 @@ function mountDialog() {
 
 /** Fills the OTP widget and clicks Verify, without depending on its internal DOM structure. */
 async function enterCodeAndVerify(wrapper, code) {
-  await wrapper.findComponent(VOtpInput).vm.$emit('update:value', code)
+  await wrapper.findComponent(WOtpInput).vm.$emit('update:modelValue', code)
   const verifyBtn = wrapper.findAll('button').find((b) => b.text() === 'auth.tfa.verifyToken')
   await verifyBtn.trigger('click')
   await flushPromises()

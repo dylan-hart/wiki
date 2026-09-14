@@ -42,6 +42,7 @@ import WLayout from './WLayout.vue'
 import WLinearProgress from './WLinearProgress.vue'
 import WList from './WList.vue'
 import WMenu from './WMenu.vue'
+import WOtpInput from './WOtpInput.vue'
 import WPage from './WPage.vue'
 import WPageContainer from './WPageContainer.vue'
 import WPagination from './WPagination.vue'
@@ -101,6 +102,7 @@ export const sharedComponents = {
   WLinearProgress,
   WList,
   WMenu,
+  WOtpInput,
   WPage,
   WPageContainer,
   WPagination,

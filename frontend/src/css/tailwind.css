@@ -2070,14 +2070,15 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    The digit fields of a security code, as `vue3-otp-input` renders them -- it ships no stylesheet of
-    its own and takes the class name to put on each input. Kept here rather than in each of the two
-    components that use it, since a code entry should look the same on the login screen and in the
-    setup dialog.
+    The digit fields of a security code, as `WOtpInput` (OpenProject #3166) renders them -- it ships
+    no `<style>` of its own and takes these class names on each of its boxes. Kept here rather than in
+    the component itself, since a code entry should look the same on the login screen and in the
+    setup dialog; that shared baseline is also what lets `AuthTfaScreens.vue`'s own `:deep()` rules
+    override it for the one screen with a bespoke design.
 
-    The size has to be stated: the library lays the inputs out in a flex row, so a field with no width
-    of its own is stretched to whatever share of the row it lands in -- which in a dialog several
-    hundred pixels wide is a very wide box for one digit.
+    The size has to be stated: the row is a flex row, so a field with no width of its own is stretched
+    to whatever share of the row it lands in -- which in a dialog several hundred pixels wide is a
+    very wide box for one digit.
   */
   .otp-input {
     width: 3rem;
@@ -2090,11 +2091,11 @@ body.body--cobalt.body--dark {
   }
 
   /*
-    The library puts `display: flex` on the row itself; centering and wrapping are left to whoever
-    styles it. Both matter on a narrow phone, where six fields inside the login screen's padding would
-    otherwise run past the edge.
+    Centering and wrapping matter on a narrow phone, where six fields inside the login screen's
+    padding would otherwise run past the edge.
   */
   .otp-input-container {
+    display: flex;
     flex-wrap: wrap;
     justify-content: center;
   }
@@ -2116,16 +2117,9 @@ body.body--cobalt.body--dark {
     outline-color: var(--color-primary);
   }
 
-  /* Filled in, i.e. this digit is entered -- the library adds the class. */
+  /* Filled in, i.e. this digit is entered -- `WOtpInput` adds the class itself. */
   .otp-input.is-complete {
     border-color: var(--color-positive);
-  }
-
-  /* A digit field is not a number picker, whatever `input-type="number"` implies. */
-  .otp-input::-webkit-inner-spin-button,
-  .otp-input::-webkit-outer-spin-button {
-    appearance: none;
-    margin: 0;
   }
 }
 
