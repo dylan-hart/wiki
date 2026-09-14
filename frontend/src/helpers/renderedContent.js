@@ -6,8 +6,9 @@ import { isServerPath } from './serverPaths'
 import { notify } from '@/composables/notify'
 
 /**
- * The affordances a rendered page grows once it is on screen: a copy button on every code block, and a
- * pilcrow on every heading that copies a link to it.
+ * The affordances a rendered page grows once it is on screen: a copy button on every code block, a
+ * pilcrow on every heading that copies a link to it, and (OpenProject #3239) an explicit cell-range
+ * select mode on every table.
  *
  * Scripted rather than rendered, because a page's HTML arrives through `v-html`: there is no template
  * to put a component in, and no Vue instance inside the render to hang one off. So the same treatment
@@ -274,6 +275,343 @@ export function enhanceRenderedContent(root, t) {
   addTableCopyButtons(root, t)
   addHeadingAnchors(root, t)
   enhanceContentImageZoom(root, t)
+  enableTableSelectMode(root)
+}
+
+/*
+  CELL-RANGE SELECT MODE (OpenProject #3239, Feature #3143)
+  =============================================================
+
+  An explicit, script-driven rectangular cell selection for a rendered table -- independent of the
+  browser's own text selection, which is inherently linear (a start node/offset to an end one), not
+  two-dimensional, and so can never actually express "this row/column rectangle" against a table laid
+  out as CSS Grid `div`s (see `renderers/markdown.js`'s "TABLE GRID MARKUP" comment). Click a cell to
+  start a one-cell range; drag, or shift-click a second cell in the same table, extends it to the
+  rectangle between the two (the "anchor" and the "focus" corner, the same vocabulary a spreadsheet
+  uses). Escape, or a pointerdown that lands outside the active table entirely, ends it. Arrow keys
+  move the focus corner one cell at a time once a cell has keyboard focus; shift held extends the
+  range instead of moving the anchor along with it.
+
+  State lives at module scope, not closed over anywhere unreachable from outside this file:
+  `getActiveTableSelection()` is the read surface OpenProject #3240 (wiring this into the copy
+  handler) needs next round.
+*/
+
+/** Matches a cell OR a header cell -- the two roles `renderers/markdown.js` gives a table's grid
+ *  children (see the module comment above). */
+const TABLE_SELECT_CELL_SELECTOR = '[role="cell"], [role="columnheader"]'
+
+/** A control the content itself already carries, whose own click a table-selection click must not
+ *  steal -- OpenProject #3238's per-table copy button lives in the very `.table-wrap` a click here
+ *  would otherwise be free to land on, and a link/input/contenteditable region has its own job to do. */
+const TABLE_SELECT_INERT_SELECTOR = 'button, a, input, textarea, select, [contenteditable="true"]'
+
+/** The live selection (`{ table, anchorRow, anchorCol, focusRow, focusCol, focusedCell }`), or null
+ *  when nothing is selected anywhere on the page -- there is only ever one at a time. */
+let activeSelection = null
+
+/** Whether the click-away/Escape listeners below have been wired yet -- once ever, not once per
+ *  `root`; see `ensureTableSelectDocumentListeners`. */
+let tableSelectDocumentListenersWired = false
+
+/** Every `[role="row"]` directly under `table`, in document order -- `renderers/markdown.js` always
+ *  nests a row straight under the table itself, with no row-group wrapper (see its own "TABLE GRID
+ *  MARKUP" comment), so a plain `:scope >` walk is the whole of what addressing a row needs. */
+function tableSelectRows(table) {
+  return Array.from(table.querySelectorAll(':scope > [role="row"]'))
+}
+
+/** Every cell/columnheader directly under `row`, in document order. */
+function tableSelectCells(row) {
+  return Array.from(row.querySelectorAll(':scope > [role="cell"], :scope > [role="columnheader"]'))
+}
+
+/**
+ * `{ row, col }` of `cell` inside `table`'s own grid, or null when `cell` does not actually belong to
+ * it (a nested table inside a cell's own content resolves against ITS OWN nearest row/table instead,
+ * which is what the `closest()` calls below naturally do).
+ */
+function tableSelectAddress(table, cell) {
+  const row = cell.closest('[role="row"]')
+  if (!row || row.parentElement !== table) {
+    return null
+  }
+  const rowIndex = tableSelectRows(table).indexOf(row)
+  const colIndex = tableSelectCells(row).indexOf(cell)
+  if (rowIndex === -1 || colIndex === -1) {
+    return null
+  }
+  return { row: rowIndex, col: colIndex }
+}
+
+function clampInt(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
+
+/** Moves the roving `tabindex` (and real keyboard focus) onto `cell`, off whatever held it before. */
+function focusTableSelectCell(cell) {
+  if (activeSelection?.focusedCell && activeSelection.focusedCell !== cell) {
+    activeSelection.focusedCell.removeAttribute('tabindex')
+  }
+  cell.setAttribute('tabindex', '0')
+  cell.focus()
+  if (activeSelection) {
+    activeSelection.focusedCell = cell
+  }
+}
+
+/**
+ * Stamps `data-table-selected` on exactly the cells inside the active anchor<->focus rectangle, and
+ * clears it from every other cell of the same table -- the whole of what `_page-contents.scss` needs
+ * to paint the highlight.
+ */
+function renderTableSelectHighlight() {
+  if (!activeSelection) {
+    return
+  }
+  const { table, anchorRow, anchorCol, focusRow, focusCol } = activeSelection
+  const rowStart = Math.min(anchorRow, focusRow)
+  const rowEnd = Math.max(anchorRow, focusRow)
+  const colStart = Math.min(anchorCol, focusCol)
+  const colEnd = Math.max(anchorCol, focusCol)
+
+  for (const [rowIndex, row] of tableSelectRows(table).entries()) {
+    const inRowRange = rowIndex >= rowStart && rowIndex <= rowEnd
+    for (const [colIndex, cell] of tableSelectCells(row).entries()) {
+      if (inRowRange && colIndex >= colStart && colIndex <= colEnd) {
+        cell.dataset.tableSelected = ''
+      } else {
+        delete cell.dataset.tableSelected
+      }
+    }
+  }
+}
+
+/** Ends the active selection, if there is one: clears its markers and its roving `tabindex`. */
+function clearTableSelection() {
+  if (!activeSelection) {
+    return
+  }
+  for (const cell of activeSelection.table.querySelectorAll('[data-table-selected]')) {
+    delete cell.dataset.tableSelected
+  }
+  activeSelection.focusedCell?.removeAttribute('tabindex')
+  activeSelection = null
+}
+
+/**
+ * The active cell-range selection, for a caller outside this module (OpenProject #3240's copy
+ * handler) to read. `cells` is the selected rectangle as rows of DOM elements, in document order --
+ * the shape a `<table>`-HTML/TSV serializer wants, and already clipped to whichever corner is
+ * actually the top-left/bottom-right regardless of which way the reader dragged.
+ *
+ * @returns {{ table: Element, rowStart: number, rowEnd: number, colStart: number, colEnd: number,
+ *   cells: Element[][] } | null} null when nothing is currently selected.
+ */
+export function getActiveTableSelection() {
+  if (!activeSelection) {
+    return null
+  }
+  const { table, anchorRow, anchorCol, focusRow, focusCol } = activeSelection
+  const rowStart = Math.min(anchorRow, focusRow)
+  const rowEnd = Math.max(anchorRow, focusRow)
+  const colStart = Math.min(anchorCol, focusCol)
+  const colEnd = Math.max(anchorCol, focusCol)
+
+  const rows = tableSelectRows(table)
+  const cells = []
+  for (let r = rowStart; r <= rowEnd; r++) {
+    cells.push(tableSelectCells(rows[r]).slice(colStart, colEnd + 1))
+  }
+  return { table, rowStart, rowEnd, colStart, colEnd, cells }
+}
+
+/**
+ * Tracks the rest of one drag gesture that started on `table`: every `pointermove` landing on one of
+ * its own cells extends the focus corner there.
+ *
+ * Deliberately NOT `helpers/pointerDrag.js`'s `trackPointerDrag` -- that helper captures the pointer
+ * onto one bounded surface (`WColorPicker`'s field, `WRange`'s rail) precisely so every subsequent
+ * event keeps targeting it regardless of where the pointer physically is, which is exactly backwards
+ * for this: hit-testing WHICH cell the pointer is over is the entire point. Plain, uncaptured
+ * `pointermove` listeners get that hit-test for free from `event.target` -- a real browser resolves it
+ * the normal way, and a test can dispatch straight at a target cell with no layout engine required.
+ * The trade-off is that the gesture stops updating once the pointer leaves the table's own content
+ * (there is no capture keeping events aimed at it), an accepted limitation for a simpler, directly
+ * testable path.
+ */
+function beginTableSelectDrag(table) {
+  const onMove = (ev) => {
+    if (!activeSelection || activeSelection.table !== table) {
+      return
+    }
+    const cell = ev.target.closest?.(TABLE_SELECT_CELL_SELECTOR)
+    if (!cell || !table.contains(cell)) {
+      return
+    }
+    const addr = tableSelectAddress(table, cell)
+    if (!addr) {
+      return
+    }
+    activeSelection.focusRow = addr.row
+    activeSelection.focusCol = addr.col
+    renderTableSelectHighlight()
+  }
+  const onEnd = () => {
+    document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onEnd)
+    document.removeEventListener('pointercancel', onEnd)
+  }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onEnd, { once: true })
+  document.addEventListener('pointercancel', onEnd, { once: true })
+}
+
+/**
+ * Escape (ends the selection outright), or an arrow key moving the focus corner one cell at a time --
+ * shift held extends the range instead of dragging the anchor along with it. Arrow keys only act while
+ * the event's own target sits inside the active selection's table, so an arrow key typed anywhere else
+ * on the page (a form field, a different table entered and then tabbed away from) is left alone.
+ */
+function handleTableSelectKeyDown(ev) {
+  if (!activeSelection) {
+    return
+  }
+  if (ev.key === 'Escape') {
+    clearTableSelection()
+    ev.preventDefault()
+    return
+  }
+
+  const delta = {
+    ArrowUp: [-1, 0],
+    ArrowDown: [1, 0],
+    ArrowLeft: [0, -1],
+    ArrowRight: [0, 1]
+  }[ev.key]
+  if (!delta || !activeSelection.table.contains(ev.target)) {
+    return
+  }
+
+  const { table } = activeSelection
+  const rows = tableSelectRows(table)
+  const row = clampInt(activeSelection.focusRow + delta[0], 0, rows.length - 1)
+  const rowCells = tableSelectCells(rows[row])
+  const col = clampInt(activeSelection.focusCol + delta[1], 0, Math.max(rowCells.length - 1, 0))
+
+  activeSelection.focusRow = row
+  activeSelection.focusCol = col
+  if (!ev.shiftKey) {
+    activeSelection.anchorRow = row
+    activeSelection.anchorCol = col
+  }
+  renderTableSelectHighlight()
+  focusTableSelectCell(rowCells[col])
+  ev.preventDefault()
+}
+
+/**
+ * The click-away half of entry/exit: a `pointerdown` anywhere the active selection's own table does
+ * not contain ends it, regardless of whether that landed inside some OTHER enhanced root's content, a
+ * completely unrelated part of the page, or (via `handleTableSelectPointerDown` running first, in the
+ * same bubble phase, for a pointerdown that lands on a cell) has already been superseded by a brand
+ * new selection.
+ */
+function handleTableSelectClickAway(ev) {
+  if (activeSelection && !activeSelection.table.contains(ev.target)) {
+    clearTableSelection()
+  }
+}
+
+/**
+ * Wires the click-away/Escape listeners exactly once for the page's whole lifetime, not once per
+ * `root` -- there is only ever one selection active at a time regardless of how many roots have
+ * called `enableTableSelectMode`, so one shared pair of document-level listeners is enough, and
+ * wiring more would just mean redundant no-op checks on every keystroke/click elsewhere on the page.
+ */
+function ensureTableSelectDocumentListeners() {
+  if (tableSelectDocumentListenersWired) {
+    return
+  }
+  tableSelectDocumentListenersWired = true
+  document.addEventListener('pointerdown', handleTableSelectClickAway)
+  document.addEventListener('keydown', handleTableSelectKeyDown)
+}
+
+/**
+ * Click (or the first `pointerdown` of a drag) on a cell inside `root`: starts a new one-cell
+ * selection, extends the active one (shift held, same table), or switches to a different table
+ * entirely (clearing the old one's markers first, so nothing stale survives). Landing on content that
+ * is not a cell at all does nothing here -- `handleTableSelectClickAway`'s own document-level listener
+ * is what ends whatever was active in that case.
+ */
+function handleTableSelectPointerDown(root, ev) {
+  if (ev.button !== 0 || ev.target.closest?.(TABLE_SELECT_INERT_SELECTOR)) {
+    return
+  }
+  const cell = ev.target.closest?.(TABLE_SELECT_CELL_SELECTOR)
+  const table = cell?.closest('[role="table"]')
+  if (!cell || !table || !root.contains(table)) {
+    return
+  }
+  const addr = tableSelectAddress(table, cell)
+  if (!addr) {
+    return
+  }
+
+  ensureTableSelectDocumentListeners()
+
+  if (ev.shiftKey && activeSelection?.table === table) {
+    activeSelection.focusRow = addr.row
+    activeSelection.focusCol = addr.col
+    renderTableSelectHighlight()
+    focusTableSelectCell(cell)
+    ev.preventDefault()
+    return
+  }
+
+  if (activeSelection && activeSelection.table !== table) {
+    clearTableSelection()
+  }
+  activeSelection = {
+    table,
+    anchorRow: addr.row,
+    anchorCol: addr.col,
+    focusRow: addr.row,
+    focusCol: addr.col,
+    focusedCell: null
+  }
+  renderTableSelectHighlight()
+  focusTableSelectCell(cell)
+  beginTableSelectDrag(table)
+  ev.preventDefault()
+}
+
+/**
+ * Wires cell-range select mode onto every table under `root`, once -- delegated to `root` itself
+ * (idempotent via a dataset flag, the same convention every other pass in this file uses), so it
+ * survives `v-html` replacing the tables underneath it on every re-render without needing to be
+ * re-wired.
+ *
+ * @param {HTMLElement|null} root The element the render was written into.
+ */
+function enableTableSelectMode(root) {
+  if (!root || root.dataset.tableSelect !== undefined) {
+    return
+  }
+  root.dataset.tableSelect = ''
+  root.addEventListener('pointerdown', (ev) => handleTableSelectPointerDown(root, ev))
+}
+
+/**
+ * Test-only reset: clears whatever selection is currently active, without touching the
+ * once-ever-wired document listeners (harmless left attached, same as the rest of this module's
+ * idempotent wiring) or any root's own dataset flag. Mirrors `contentImageZoom.js`'s
+ * `_resetContentImageZoom` -- module state a `document.body.innerHTML = ''` between tests does not
+ * itself clear, since the selection lives at module scope precisely so #3240 can reach it.
+ */
+export function _resetTableSelectMode() {
+  activeSelection = null
 }
 
 /*
