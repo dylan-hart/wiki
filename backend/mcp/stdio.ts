@@ -42,9 +42,8 @@
  */
 
 import { pathToFileURL } from 'node:url'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { isJSONRPCRequest } from '@modelcontextprotocol/sdk/types.js'
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio'
+import { isJSONRPCRequest, type Transport } from '@modelcontextprotocol/server'
 import { bootstrapMcpRuntime } from './bootstrap.ts'
 import { auditActorFor, authenticateApiKey } from './auth.ts'
 import type { McpAuthContext } from './auth.ts'
