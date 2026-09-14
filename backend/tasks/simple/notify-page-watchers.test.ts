@@ -98,6 +98,55 @@ describe('notify-page-watchers task', () => {
 })
 
 /**
+ * OpenProject #3203: a `deleted` event's rows are recorded synchronously by
+ * `models/pages.ts#notifyWatchers`, before the page row `pageWatchEvents.pageId`'s foreign key
+ * depends on is deleted — this job must not call `recordMany()` a second time for them, both because
+ * that would duplicate the row and because the page row it would try to insert against may already be
+ * gone by the time this job runs off the scheduler queue.
+ */
+describe('notify-page-watchers task — recordedEvents (OpenProject #3203)', () => {
+  test('skips recordMany entirely when the payload already carries recordedEvents', async () => {
+    await notifyPageWatchers(
+      payload({
+        action: 'deleted',
+        watchers: [watcher({ userId: 'immediate-1', notifyMode: 'immediate' })],
+        recordedEvents: [{ id: 'pre-recorded-event', userId: 'immediate-1' }]
+      })
+    )
+
+    assert.equal(recordMany.mock.calls.length, 0)
+    assert.equal(sendPageWatchNotification.mock.calls.length, 1)
+    assert.equal(markDelivered.mock.calls.length, 1)
+    assert.equal(markDelivered.mock.calls[0]!.arguments[0], 'pre-recorded-event')
+  })
+
+  test('a digest-mode watcher among recordedEvents is left exactly as recorded, no send attempted', async () => {
+    await notifyPageWatchers(
+      payload({
+        action: 'deleted',
+        watchers: [watcher({ userId: 'digest-1', notifyMode: 'digest' })],
+        recordedEvents: [{ id: 'pre-recorded-digest', userId: 'digest-1' }]
+      })
+    )
+
+    assert.equal(recordMany.mock.calls.length, 0)
+    assert.equal(sendPageWatchNotification.mock.calls.length, 0)
+    assert.equal(markDelivered.mock.calls.length, 0)
+  })
+
+  test('without recordedEvents, a "deleted" payload still calls recordMany itself (the non-#3203 path)', async () => {
+    await notifyPageWatchers(
+      payload({
+        action: 'deleted',
+        watchers: [watcher({ userId: 'immediate-1', notifyMode: 'immediate' })]
+      })
+    )
+
+    assert.equal(recordMany.mock.calls.length, 1)
+  })
+})
+
+/**
  * OpenProject #2173: `filterReadable` is re-checked once per immediate watcher, right before the send
  * — a scheduler backlog can put real time between the synchronous `read:pages` check that built this
  * payload and this job actually running.

@@ -44,7 +44,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   the Yjs collaborative-editing WebSocket upgrade; `metrics.ts` exposes Prometheus metrics;
   `seo.ts` serves `robots.txt`/`sitemap.xml`; `terminal.ts` and `user.ts` round out the set.
 - `core/` — long-lived singletons: `config.ts` (yml + db-backed settings), `db.ts` (pg pool, Drizzle
-  instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (poolifier thread pool +
+  instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (piscina thread pool +
   postgres-backed job queue), `collab.ts` (the Yjs collaborative-editing sync/awareness protocol,
   driven by `controllers/collab.ts`'s WebSocket upgrade), `maintenance.ts` (the admin utilities view's
   cross-instance actions — clear cache, drop websockets — broadcast over the event bus so every
@@ -91,7 +91,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
     `blobStorageModule({ label, build, put, remove, copy, sign })`. The activation cache, the object
     key (`keyFor`), the `Failed to <action>: <message>` wrapping, `DIRECT_ACCESS_TTL_SECONDS` and
     all five lifecycle handlers live in `blobBase.ts` only. A fourth blob target is a driver.
-  - `modules/search/{shared,externalBase}.ts` — the five engines share their vocabulary
+  - `modules/search/{shared,externalBase}.ts` — the four engines share their vocabulary
     (`escapeHtml`, the highlight markers, the scan/indexing caps, `batchBySize`,
     `SearchDocument`/`buildSearchDocument`, `pageStream`, `filterVisible`, `toSearchPagesResult`)
     and the four page-lifecycle forwarders plus the never-throws wrapper (`ExternalSearchModule`). A
@@ -118,7 +118,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   into one fresh 3.0 instance — there is no multi-source conflict policy. Three shared helpers new
   code uses rather than re-deriving: `phases/route.ts#routeOutcome` (the only place a phase turns an
   already-attempted per-record import into a `WriteRecorder` call — the write always happens
-  *before* routing, never as `recorder.create()`'s callback), `phases/dry-run.ts`
+  _before_ routing, never as `recorder.create()`'s callback), `phases/dry-run.ts`
   (`writeUnlessDryRun`, `placeholderRow`) and `mappers/shared.ts` (`isPlainObject`,
   `transformConfig`, `unwrapKnexValue`, and both of `pickDefined` / `pickPresent` — **do not** swap
   these for `es-toolkit`'s, whose `isPlainObject` rejects the class instances a `pg` row is). See
@@ -184,7 +184,7 @@ literal and assert it to `WikiGlobal`, since each populates the object progressi
 **Five dynamic paths are extension-sensitive** and invisible to the type checker — they must be
 updated by hand if the files they point at are ever renamed:
 
-- `core/scheduler.ts` → `path.join(WIKI.SERVERPATH, 'worker.ts')` (the poolifier pool entry)
+- `core/scheduler.ts` → `path.join(WIKI.SERVERPATH, 'worker.ts')` (the piscina pool entry)
 - `worker.ts` → `import('./tasks/workers/${kebabCase(job.task)}.ts')`
 - `models/authentication.ts` → `import('../modules/authentication/${stg.module}/authentication.ts')`
 - `models/storage.ts` → `import('../modules/storage/${key}/storage.ts')`, plus the `storage.ts`
@@ -268,12 +268,12 @@ regression the split existed to prevent.
 - **Hostname → site id**: `helpers/siteResolution.ts#siteIdForHostname(hostname, { strict })`, never
   a bare `WIKI.sitesMappings[…]` index — it folds the case and applies the `*` catch-all (`strict`
   skips the fallback). Siblings: `siteForHostname(hostname)` and `resolveSiteParam(param, hostname,
-  { strict })` for the `current`/uuid/hostname three-way a path parameter can spell.
+{ strict })` for the `current`/uuid/hostname three-way a path parameter can spell.
 - **A cacheable response's ETag/`Cache-Control`/304 dance**:
   `helpers/httpCache.ts#notModifiedOrPrepare(req, reply, { etag, cacheControl, nosniff })`, which
   returns `true` once it has sent the 304 and adds `X-Content-Type-Options: nosniff` by default.
 - **Racing work against a ceiling**: `helpers/timeout.ts#withTimeout(work, ms, onExpire, { unref
-  })`. `onExpire` is a callback so each caller keeps its own error type. Nothing is cancelled — the
+})`. `onExpire` is a callback so each caller keeps its own error type. Nothing is cancelled — the
   work runs on, the caller stops waiting.
 - **Puppeteer availability/refusal/close**: `helpers/puppeteer.ts` (`isPuppeteerAvailable`,
   `assertPuppeteerAvailable(errorName, message)` → 503, `closeQuietly`, `launchPuppeteerBrowser`).
@@ -286,7 +286,7 @@ regression the split existed to prevent.
   `select({ total: count() })` — and the `total` alias is load-bearing, since `paginate` reads
   `totals[0]?.total` and any other alias silently paginates as `total: 0`.
 - **A model's process-local cache of a whole table**: `extends
-  helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEvent` and
+helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEvent` and
   implementing `reloadCache()`. Never write your own `broadcastReload()`/`subscribeToEvents()`. Two
   rules the base class encodes: a mutator calls `broadcastReload()`, never `reloadCache()` directly;
   and `reloadCache()` never emits, or the event echoes around the cluster forever. `groups`,
@@ -358,7 +358,11 @@ Everything the backend writes to stdout goes through `WIKI.logger`, in one shape
 
 ```ts
 WIKI.logger.info('db', 'connected', { postgres: '18.6', schema, migrations: 0, ms })
-WIKI.logger.error('jobs', 'purgeUploads failed, no attempts left', { job: job.id, attempts: 3, error: err })
+WIKI.logger.error('jobs', 'purgeUploads failed, no attempts left', {
+  job: job.id,
+  attempts: 3,
+  error: err
+})
 WIKI.logger.debug('jobs', 'storageSyncTick found nothing due')
 ```
 
@@ -374,12 +378,12 @@ log.debug('pulling from origin', { branch })
 - **Every line has a scope, from the closed vocabulary in `core/logScopes.ts`** (re-exported from
   `core/logger.ts`, so either import reads the same values). It is a `LogScope` union, so a string
   outside it is a type error at the call site. **Do not add, rename or reorder one to describe a
-  narrower subsystem** — that is a *field* (`{ module: 'git' }`, `{ engine: 'elasticsearch' }`), never
+  narrower subsystem** — that is a _field_ (`{ module: 'git' }`, `{ engine: 'elasticsearch' }`), never
   a new scope. A genuinely new subsystem is a one-line addition there, and `docs/operations.md#logs`
   is the operator-facing table of what each name owns.
 - **The level is the status**, in four lines: `error` — broken, and a person has to act. `warn` —
   degraded, self-healing, or a configuration smell. `info` — a state change worth having in the
-  record (boot milestones, a job that *did* something, lifecycle events). `debug` — per-item,
+  record (boot milestones, a job that _did_ something, lifecycle events). `debug` — per-item,
   per-request, per-tick (the access log, every job start/finish, the `sql` and `auth` firehoses). A
   scheduled tick that found nothing to do is `debug` or nothing at all, never `info`.
 - **Voice: a lowercase fragment, no trailing period.** No `[ OK ]` / `[ COMPLETED ]` / `[ FAILED ]` /
@@ -400,10 +404,10 @@ log.debug('pulling from origin', { branch })
   on a first run, which is the only credential the operator has at that point.
 - **No bare `console.log` in `backend/`.** The exceptions are the places that genuinely have no
   logger yet, cannot share the stream, or are talking to a person at a terminal rather than writing
-  a log: `core/config.ts` (runs before `logger.init()`), `core/logger.ts` itself (it *is* the sink),
+  a log: `core/config.ts` (runs before `logger.init()`), `core/logger.ts` itself (it _is_ the sink),
   `mcp/stdio.ts` (stdout is JSON-RPC there), every script under `scripts/`, and the CLI entry points
   `tasks/migrate.ts`, `tasks/verify-migration.ts` and `tasks/promote-admin.ts`. Each carries a
-  file-level disable and a one-line reason. `index.ts` gets three *inline* disables instead — the
+  file-level disable and a one-line reason. `index.ts` gets three _inline_ disables instead — the
   Node-version and cwd refusals, and the `IS_DEBUG` process-warning dump, all of which run before
   `WIKI.logger` exists — since the rest of the file logs normally. A new `console.*` anywhere else
   goes through `WIKI.logger`.
@@ -533,7 +537,7 @@ below, written from the #2687/#2688 test-value audits.
   needs present but does not care about.
   - **`createSilentLogger()` swallows both call shapes and answers `scope()` with itself**, so a
     suite asserting on a log line spies the level method it cares about (`WIKI.logger.warn =
-    mock.fn()`) rather than building its own logger. Assert on the **scope and the fields** a call
+mock.fn()`) rather than building its own logger. Assert on the **scope and the fields** a call
     passed, not on the rendered string: the renderer is `core/logger.ts`'s business, and a test that
     matches formatted text breaks the moment a column widens. **Never assert against
     `WIKI.logger.backlog()` or subscribe to `WIKI.logger.ws`** — both carry structured frames whose
@@ -555,7 +559,7 @@ below, written from the #2687/#2688 test-value audits.
     `mock.fn()`s replace wholesale. The merge copies property DESCRIPTORS, so a stub may declare a
     **getter** to steer what a route sees from a module-level variable per test.
 - **A route test boots through `test/fastify.ts#buildTestApp({ routes, wiki, schemas, session,
-  permissions, apiKeySitePin, ajv, swagger, prefix })`**, closed with `closeTestApp(app)`. It
+permissions, apiKeySitePin, ajv, swagger, prefix })`**, closed with `closeTestApp(app)`. It
   installs the REAL production pieces — `helpers/errorHandler.ts#apiErrorHandler`,
   `core/http/authHooks.ts#permissionPreHandler` (API-key branch included) and, for `schemas: 'all'`,
   `api/index.ts#registerAllSchemas` — so a suite is testing the app's own gate rather than a replica

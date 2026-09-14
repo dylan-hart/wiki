@@ -28,7 +28,13 @@ import { parseMigrationArgs } from '../migration/cli.ts'
 import { computeExitCode, notImplementedPhaseIds } from '../migration/exit-status.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
-import { emptyPhaseReport, formatReportTable, reportsToJson } from '../migration/report.ts'
+import {
+  emptyPhaseReport,
+  formatPostMigrationNotices,
+  formatReportTable,
+  POST_MIGRATION_NOTICES,
+  reportsToJson
+} from '../migration/report.ts'
 import type { MigrationContext } from '../migration/context.ts'
 import type { ParsedMigrationArgs } from '../migration/cli.ts'
 
@@ -154,6 +160,15 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
     if (args.reportFile) {
       await fs.writeFile(args.reportFile, `${reportsToJson(reports)}\n`, 'utf8')
       WIKI.logger.info('migrate', 'report written', { path: args.reportFile })
+    }
+
+    // Static post-migration notices (Issue #3192, Feature 421 task 3217) — always printed,
+    // dry-run or not, same reasoning as the report table above: a record class no phase reads at
+    // all (2.x API tokens, Slack/Discord notification config) has nothing to feed the per-record
+    // `unmappable` mechanism, so this is the only place the operator learns it didn't carry forward.
+    const noticesText = formatPostMigrationNotices(POST_MIGRATION_NOTICES)
+    if (noticesText) {
+      process.stdout.write(`\n${noticesText}\n`)
     }
 
     // -> Whole-branch review Important #4: a live (non-dry-run) run must exit non-zero, with a clear

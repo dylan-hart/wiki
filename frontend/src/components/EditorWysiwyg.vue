@@ -211,15 +211,21 @@ const HIGHLIGHT_COLORS = {
 /*
   The toolbar itself is ~500 lines of static definition and lives in `helpers/wysiwygMenuBar.js`.
   Everything it closes over is handed to it: the editor (as a getter -- `editor` is still null here,
-  and is assigned in `init()` on mount), the two palettes above, and the two actions that are not
-  editor commands.
+  and is assigned in `init()` on mount), the two palettes above, the two actions that are not editor
+  commands, and `t` (OpenProject #3206). Wrapped in `computed()` rather than a one-time `const` so a
+  live locale switch (`App.vue`'s `i18n.locale.value = locale`, e.g. navigating across a
+  locale-routed site without remounting this component) rebuilds every menu item's translated
+  `title` instead of leaving it stuck in whatever locale was active on mount.
 */
-const menuBar = buildMenuBar(() => editor, {
-  TEXT_COLORS,
-  HIGHLIGHT_COLORS,
-  insertLink: () => insertLink(),
-  openFileManager: (opts) => siteStore.openFileManager(opts)
-})
+const menuBar = computed(() =>
+  buildMenuBar(() => editor, {
+    TEXT_COLORS,
+    HIGHLIGHT_COLORS,
+    insertLink: () => insertLink(),
+    openFileManager: (opts) => siteStore.openFileManager(opts),
+    t
+  })
+)
 
 // METHODS
 

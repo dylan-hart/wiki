@@ -163,6 +163,105 @@ describe('useAdminSettings() load', () => {
     expect(mountedFetches).toBe(1)
   })
 
+  it('does not let a response overwrite a config edit made while its fetch was in flight (Task #3195)', async () => {
+    let resolveFetch
+    const fetch = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      })
+    )
+    const { api } = await mountComposable({
+      siteId: 'site-1',
+      defaults: () => ({ colorPrimary: '#FFF', dark: false }),
+      fetch
+    })
+
+    const pending = api.load()
+    // -> The reader toggles something before this in-flight load's response ever lands.
+    api.state.config.dark = true
+    resolveFetch({ colorPrimary: '#000', dark: false })
+    await pending
+
+    expect(api.state.config).toEqual({ colorPrimary: '#FFF', dark: true })
+  })
+
+  it('does not let a response overwrite an extraState edit made while its fetch was in flight', async () => {
+    let resolveFetch
+    const onLoaded = vi.fn()
+    const fetch = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      })
+    )
+    const { api } = await mountComposable({
+      siteId: 'site-1',
+      extraState: { active: ['en'] },
+      onLoaded,
+      fetch
+    })
+
+    const pending = api.load()
+    api.state.active = ['en', 'fr']
+    resolveFetch({})
+    await pending
+
+    expect(api.state.active).toEqual(['en', 'fr'])
+    // -> Neither the superseded mount call nor the edited call ever applies its response
+    expect(onLoaded).not.toHaveBeenCalled()
+  })
+
+  it('drops a response from a call superseded by a newer load() before it resolves', async () => {
+    let resolveFirst
+    let resolveSecond
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve
+        })
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve
+        })
+      )
+    // -> No siteId yet, so mount fires no fetch of its own (the "no site selected" guard) -- the
+    //    watcher below is this test's own first `load()` call, its second an explicit one, so their
+    //    order (and which fetch call each gets) is unambiguous.
+    const { api, adminStore } = await mountComposable({
+      defaults: () => ({ colorPrimary: '#FFF' }),
+      fetch
+    })
+
+    adminStore.currentSiteId = 'site-1'
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    const second = api.load()
+    // -> The second call resolves first; the first call's response arrives after and must not
+    //    overwrite it.
+    resolveSecond({ colorPrimary: '#0F0' })
+    await second
+    expect(api.state.config).toEqual({ colorPrimary: '#0F0' })
+
+    resolveFirst({ colorPrimary: '#F00' })
+    await flushPromises()
+    expect(api.state.config).toEqual({ colorPrimary: '#0F0' })
+  })
+
+  it('applies normally when nothing changed and no newer call superseded it', async () => {
+    const fetch = vi.fn().mockResolvedValue({ colorPrimary: '#000' })
+    const { api } = await mountComposable({
+      siteId: 'site-1',
+      defaults: () => ({ colorPrimary: '#FFF' }),
+      fetch
+    })
+
+    await api.load()
+
+    expect(api.state.config).toEqual({ colorPrimary: '#000' })
+  })
+
   it('takes a per-page key override for a page whose locale stem differs', async () => {
     const { api } = await mountComposable({
       siteId: 'site-1',

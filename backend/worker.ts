@@ -1,4 +1,3 @@
-import { ThreadWorker } from 'poolifier'
 import { kebabCase } from 'es-toolkit/string'
 import path from 'node:path'
 import { threadId, workerData } from 'node:worker_threads'
@@ -21,7 +20,7 @@ const WIKI = {
   //    lines included — carries the same id. It used to be the literal `'worker'` here and was
   //    overwritten with the parent's id on the first job, which meant a worker's own startup was
   //    filed under a different identity than the work it then did (audit N8). The parent id comes
-  //    through poolifier's `workerData` (`core/scheduler.ts`'s `poolOptions`); the ordinal is this
+  //    through piscina's `workerData` (`core/scheduler.ts`'s pool construction); the ordinal is this
   //    thread's own `threadId`, since one `workerData` object is shared by the whole pool.
   INSTANCE_ID: workerInstanceId(
     (workerData as { parentInstanceId?: unknown } | null)?.parentInstanceId,
@@ -29,7 +28,7 @@ const WIKI = {
   ),
   // -> Same transport as `INSTANCE_ID` above, and settled at the same module-scope timing: the
   //    parent process forwards its already-settled `WIKI.capabilities` into `workerData`
-  //    (`core/scheduler.ts`'s `poolOptions`) once, at pool-creation time, since a worker thread never
+  //    (`core/scheduler.ts`'s pool construction) once, at pool-creation time, since a worker thread never
   //    calls `syncSchemas()` itself to learn it (OpenProject #3124). A task run in this thread that
   //    reads `WIKI.capabilities?.semanticSearch` now sees the real boot-time value instead of always
   //    `undefined`.
@@ -76,10 +75,10 @@ WIKI.logger = logger.init()
 // Execute Task
 // ----------------------------------------
 
-export default new ThreadWorker(async (job: any) => {
+export default async (job: any) => {
   // -> No `WIKI.INSTANCE_ID` assignment here any more: the id is settled at boot, above, so a job
   //    can no longer rename the thread it is running on halfway through its life.
   const task = (await import(`./tasks/workers/${kebabCase(job.task)}.ts`)).task
   await task(job)
   return true
-})
+}

@@ -106,7 +106,7 @@
 </template>
 
 <script setup>
-import { CronExpressionParser } from 'cron-parser'
+import { Cron } from 'croner'
 import { useI18n } from 'vue-i18n'
 
 import { useAdminSettings } from '@/composables/adminSettings'
@@ -181,15 +181,18 @@ const rulesCronSchedule = [
     if (!val) {
       return true
     }
-    let expression
+    let job
     try {
-      expression = CronExpressionParser.parse(val, { tz: 'UTC' })
+      job = new Cron(val, { timezone: 'UTC', paused: true })
     } catch {
       return t('admin.replication.cronScheduleInvalid')
     }
-    const firstFire = expression.next().toDate().getTime()
-    const secondFire = expression.next().toDate().getTime()
-    if (secondFire - firstFire < MIN_CRON_INTERVAL_MINUTES * 60 * 1000) {
+    const firstFire = job.nextRun()
+    const secondFire = firstFire ? job.nextRun(firstFire) : null
+    if (!firstFire || !secondFire) {
+      return t('admin.replication.cronScheduleInvalid')
+    }
+    if (secondFire.getTime() - firstFire.getTime() < MIN_CRON_INTERVAL_MINUTES * 60 * 1000) {
       return t('admin.replication.cronScheduleTooFrequent')
     }
     return true

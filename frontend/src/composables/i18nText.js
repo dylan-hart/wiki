@@ -16,6 +16,11 @@ import { useI18n } from 'vue-i18n'
  *
  * The prop stays the way a call site overrides either default; this only resolves what a component
  * falls back to when the caller does not pass one.
+ *
+ * `params` is optional and forwarded to vue-i18n's own `t(key, params)` for a message with named
+ * interpolation (`'Digit {n} of {total}'`) -- pass the already-resolved English text as
+ * `englishFallback` in that case (`\`Digit ${n} of ${total}\``), not a template, since the fallback
+ * path never goes through `t()`'s interpolation at all.
  */
 export function useDictText() {
   let t
@@ -25,8 +30,8 @@ export function useDictText() {
     t = (key) => key
   }
 
-  return function dictText(key, englishFallback) {
-    const resolved = t(key)
+  return function dictText(key, englishFallback, params) {
+    const resolved = t(key, params)
     return resolved === key ? englishFallback : resolved
   }
 }

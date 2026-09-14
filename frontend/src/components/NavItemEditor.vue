@@ -16,14 +16,14 @@
         {{ t('navEdit.menuSourceMixedListHint') }}
       </div>
       <!--
-        Exactly one root node per `#item` invocation, deliberately: `sortablejs-vue3` renders this slot
+        Exactly one root node per `#item` invocation, deliberately: `w-sortable` renders this slot
         directly into the sortable container with no per-item wrapper (see its source), so SortableJS's
         `oldIndex`/`newIndex` are DOM child positions -- a second sibling node per item (e.g. a divider
         rendered alongside the row) would desync those from `state.items`' own indices. The generated
         block's boundary is marked with pure CSS sibling selectors instead (`.is-generated` adjacency,
         below) for exactly this reason.
       -->
-      <sortable
+      <w-sortable
         class="nav-edit-list"
         :list="state.items"
         item-key="id"
@@ -95,7 +95,7 @@
             </w-item-section>
           </div>
         </template>
-      </sortable>
+      </w-sortable>
     </w-scroll-area>
     <!--
       -> Pinned outside the scroll area rather than scrolling with the list (it used to be the last
@@ -474,7 +474,6 @@ import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 
 import { v4 as uuid } from 'uuid'
-import { Sortable } from 'sortablejs-vue3'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { flattenMenuItems, reconstructMenuItems } from '@/helpers/navigation.js'
@@ -1098,7 +1097,7 @@ onMounted(load)
   Cobalt: "padding/row-gap/radius matching `NavSidebar.vue` in Cobalt" (Task #2802's own description)
   -- `--radius-control` gives each row Cobalt's 6px row radius (and is `0` in Ledger, so applying it
   unconditionally below on `.nav-edit-item` is a no-op there). The row gap is approximated as a
-  bottom margin per row rather than a flex `gap`, since `sortable`'s items are plain block children
+  bottom margin per row rather than a flex `gap`, since `w-sortable`'s items are plain block children
   (see the template's own comment on why there is exactly one root node per item) rather than a flex
   container this could add `gap` to directly.
 */
@@ -1144,7 +1143,7 @@ onMounted(load)
 
   /*
     The boundary itself, marked with a rule rather than an extra element: see the template comment on
-    `sortable`'s `#item` slot for why a divider cannot be a sibling DOM node here.
+    `w-sortable`'s `#item` slot for why a divider cannot be a sibling DOM node here.
   */
   &.is-generated + &:not(.is-generated),
   &:not(.is-generated) + &.is-generated {
@@ -1210,7 +1209,7 @@ onMounted(load)
 /*
   The generated block's own eyebrow ("From the page tree"), drawn once above the run rather than on
   every generated row -- present in the DOM on every one (so there is exactly one root node per
-  `sortable` `#item`, per the template's own comment) and shown by CSS only on the row a manual item
+  `w-sortable` `#item`, per the template's own comment) and shown by CSS only on the row a manual item
   (or nothing) precedes.
 */
 .nav-edit-generated-eyebrow {

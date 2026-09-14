@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult } from '@modelcontextprotocol/server'
 
 /**
  * Wrap a tool's answer in the one content shape every tool here returns: a single text block holding

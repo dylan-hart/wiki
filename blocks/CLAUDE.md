@@ -52,16 +52,18 @@ holds through inheritance — a block extending a shared base still declares its
   (`url`/`width`/`height`/`autoplay`/`controls`/`fs`/`loop`), `_size()`, `_frameStyle()` and the
   lazily-loaded `<iframe>` `render()`; a subclass writes `_parse`, `_embedUrl` and `_providerName`,
   and may override `_source()`, the two message hooks, `_frameTitle()`, `_frameAllow()` and `static
-  styles` (spread `VideoEmbedElement.styles` first). It constructs **no** `DarkMode` controller —
+styles` (spread `VideoEmbedElement.styles` first). It constructs **no** `DarkMode` controller —
   there is nothing in an opaque provider iframe to restyle — so `block-youtube` and
   `block-m365-video` never take a `dark` attribute at all, while `block-vimeo` and
   `block-dailymotion` construct their own for the one border they draw.
 - `diagram-image.js` — `DiagramImageElement`, behind `block-kroki` and `block-plantuml` (and
-  `diagramStyles`, which `block-drawio` adopts for the sheet alone). It owns
-  `server`/`format`/`caption`/`align`, a `DarkMode` controller, the body read, the
-  `MAX_DIAGRAM_URL_LENGTH` pre-flight guard, `_measure()`, `_explain()` and `render()`; a subclass
-  writes `_url`, `_defaultServer`, `_fenceName` and `_alt`, and may override
-  `_explainBody(response)` and `_emptySourceMessage()`.
+  `diagramStyles`, which `block-drawio` adopts for the sheet alone). POSTs to this site's Kroki/
+  PlantUML proxy (`POST /_api/sites/:siteId/diagrams/render`, OpenProject task 3228) rather than
+  building a GET URL — there is no client-side encoding and no URL-length ceiling any more
+  (`blocks/shared/url-limit.js` is gone, OpenProject task 3229). It owns
+  `server`/`format`/`caption`/`align`, a `DarkMode` controller, the body read, `_measure()` and
+  `render()`; a subclass writes `_engine`, `_defaultServer`, `_fenceName` and `_alt`, and may override
+  `_extraBody(source)` (Kroki's `diagramType`) and `_emptySourceMessage()`.
 
 **Dark mode goes through `blocks/shared/theme.js`, never `:host-context()`.** The app's source of
 truth is the `body--dark` class on `<body>`, which CSS in a shadow root cannot see; `:host-context()`
@@ -122,11 +124,11 @@ at all" rules apply to it unchanged — a block's suite sits at the component la
   different DOM emulator.
 - **File convention: co-located `*.test.js`**, matching the `*.test.ts` / `*.test.js` convention in
   `backend/` and `frontend/` — `block-gallery/component.js` → `block-gallery/component.test.js`, and
-  the same rule covers `shared/`, where every module but `compress.js` has a co-located suite.
+  the same rule covers `shared/`, where every module has a co-located suite.
   `vitest.config.js`'s `include` is `**/*.test.js`, so a helper file under `blocks/test/` **must
   not** end in `.test.js` — the glob would run it as a suite.
 - **Mounting goes through `blocks/test/mount.js`.** `mountBlock(tag, { pre, text, html, props,
-  attrs, parent, settle })` builds the three body shapes the markdown renderer actually produces —
+attrs, parent, settle })` builds the three body shapes the markdown renderer actually produces —
   `pre` for a fenced body, `text` for an unfenced one, `html` for markup a block reads structure out
   of — since a block reads its content from the _light_ DOM, not from props. `settle` is a number of
   macrotask turns for a block with an async `connectedCallback`, or a function for one that exposes
@@ -140,7 +142,7 @@ at all" rules apply to it unchanged — a block's suite sits at the component la
   IS the suite: call `describeDarkMode(() => mountX(...))` at the end of a block's `describe` rather
   than writing the toggle by hand. `inverted` is for a block mounted light and then turned dark
   (`block-live-data`); `attribute: false` for one whose controller is constructed with `{ attribute:
-  false }` and so has no `dark` attribute to read (`block-map` — the controller's own `isDark` is
+false }` and so has no `dark` attribute to read (`block-map` — the controller's own `isDark` is
   asserted instead). `block-diagram` keeps a bespoke describe, because dark mode there is a real
   second `_draw()` rather than a restyle. The controller reacts through a `MutationObserver`
   callback, which runs as a microtask in jsdom same as a real browser, so no fake timers or polling

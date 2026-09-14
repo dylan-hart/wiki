@@ -4,6 +4,7 @@ import { Readable } from 'node:stream'
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import routes from './assets.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
+import { activeBanMemo } from '../helpers/rateLimit.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import { SVG_CSP } from '../helpers/security.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
@@ -801,6 +802,11 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
               uploadCalls.push(opts)
               return uploadedAsset
             }
+          },
+          // -> The upload route now carries `limitUploads` as a preHandler (OpenProject #3234); this
+          //    suite is about the route's own logic, not the limiter's, so it always allows.
+          rateLimits: {
+            consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
           }
         }
       }
@@ -1005,5 +1011,107 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     } finally {
       checkAccessResult = true
     }
+  })
+})
+
+/**
+ * UPLOAD ASSET route: rate limit wiring (OpenProject #3234).
+ *
+ * `helpers/rateLimit.test.ts` covers `limitUploads` itself in isolation; this proves it is actually
+ * attached to the route as a `preHandler` -- a burst of single-file uploads exceeding the configured
+ * limit is refused with 429 before `WIKI.models.assets.upload` is ever called, and a normal,
+ * one-at-a-time caller is unaffected.
+ */
+describe('UPLOAD ASSET route: rate limit (OpenProject #3234)', () => {
+  const SITE_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+
+  let uploadCalls: number
+  let consumeCalls: { key: string }[]
+  let allowed: boolean
+
+  let app: FastifyInstance
+
+  before(async () => {
+    app = await buildTestApp({
+      routes,
+      session: 'header',
+      wiki: {
+        sites: {
+          [SITE_ID]: { id: SITE_ID, isEnabled: true, config: { locales: { primary: 'en' } } }
+        },
+        config: { security: {} },
+        models: {
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true
+          },
+          assets: {
+            upload: async () => {
+              uploadCalls++
+              return { id: 'asset-1' }
+            }
+          },
+          // -> A minimal stand-in for the real counter: `allowed` flips once the test wants the next
+          //    request refused, rather than re-deriving `helpers/rateLimit.ts`'s own counting logic.
+          rateLimits: {
+            consume: async (key: string) => {
+              consumeCalls.push({ key })
+              return allowed
+                ? { allowed: true, hits: 1, retryAfter: 0 }
+                : { allowed: false, hits: 21, retryAfter: 45 }
+            }
+          }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  function sessionHeader() {
+    return {
+      'x-test-session': JSON.stringify({
+        authenticated: true,
+        user: { id: 'user-1' },
+        permissions: []
+      })
+    }
+  }
+
+  test('a burst exceeding the limit is rejected with 429 and Retry-After, without reaching upload()', async () => {
+    uploadCalls = 0
+    consumeCalls = []
+    allowed = false
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png`,
+      headers: { ...sessionHeader(), 'content-type': 'image/png' },
+      payload: Buffer.from([1, 2, 3])
+    })
+    assert.equal(res.statusCode, 429)
+    assert.equal(res.headers['retry-after'], '45')
+    assert.equal(uploadCalls, 0)
+    assert.equal(consumeCalls.length, 1)
+    assert.equal(consumeCalls[0].key, 'upload:user-1')
+  })
+
+  test('normal single-file usage (one upload at a time) is unaffected', async () => {
+    // -> The previous test's refusal is memoized in the shared `activeBanMemo` (TTL'd to its own
+    //    `retryAfter`) so that a banned key is refused without reaching `consume()` again -- clear it
+    //    here so this test's `allowed = true` genuinely reaches the stub above rather than being
+    //    short-circuited by the earlier ban.
+    activeBanMemo.clear()
+    uploadCalls = 0
+    consumeCalls = []
+    allowed = true
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png`,
+      headers: { ...sessionHeader(), 'content-type': 'image/png' },
+      payload: Buffer.from([1, 2, 3])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(uploadCalls, 1)
+    assert.equal(consumeCalls.length, 1)
   })
 })

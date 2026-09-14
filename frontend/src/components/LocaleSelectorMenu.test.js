@@ -3,11 +3,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import LocaleSelectorMenu from './LocaleSelectorMenu.vue'
+import WMenu from '@/components/shared/WMenu.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useDirection } from '@/composables/direction'
 
 import { createTestI18n } from '../../test/i18n.js'
-import { createTestRouter } from '../../test/router.js'
+import { buildTestRouter, createTestRouter } from '../../test/router.js'
 
 const LOCALES = [
   { code: 'en', language: 'en', name: 'English', nativeName: 'English' },
@@ -65,6 +67,94 @@ function findItemByText(text) {
     el.textContent.includes(text)
   )
 }
+
+/**
+ * Regression coverage for OpenProject #3196: this component's default `anchor`/`self` were a
+ * hardcoded physical pair (`'bottom left'`/`'top left'`) never audited for RTL mirroring, unlike
+ * `PageHeader.vue`'s and `NavSidebar.vue`'s equivalents (task 721). Fixed via
+ * `helpers/directionalAnchor.js`, reactively off `composables/direction.js` since this component
+ * stays mounted across navigations (the header/sidebar locale switcher) rather than being remounted
+ * per page.
+ *
+ * A SEPARATE, TOP-LEVEL describe deliberately placed BEFORE `LocaleSelectorMenu`'s own describe below
+ * -- not nested inside it, and running first -- and using a plain detached `mount()` rather than
+ * `mountMenu()` (which needs `attachTo: document.body` for its click-to-open coverage there):
+ * `anchor`/`self` are plain template-bound props, set whether or not the menu is ever opened.
+ * `LocaleSelectorMenu` now reacts to the SAME module-level `useDirection()` ref every wrapper mounted
+ * below also closes over; those are cleaned up by that describe's own `afterEach` clearing
+ * `document.body.innerHTML` rather than by `wrapper.unmount()`, which leaves their component
+ * instances (and watchers) alive. Flipping direction from AFTER any of those has run would re-trigger
+ * every one of those leaked, now-parentless instances and crash on a null `insertBefore` -- running
+ * first avoids that entirely, and each test below also builds and tears down (`wrapper.unmount()`)
+ * its own wrapper regardless.
+ */
+describe('LocaleSelectorMenu default anchor/self direction (OpenProject #3196)', () => {
+  function mountDetached({ anchor, self } = {}) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.$patch({
+      id: 'site-1',
+      locales: { primary: 'en', showMenu: true, forcePrefix: false, active: LOCALES }
+    })
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', path: 'docs/intro', locale: 'en' })
+
+    return mount(LocaleSelectorMenu, {
+      props: { ...(anchor ? { anchor } : {}), ...(self ? { self } : {}) },
+      global: { plugins: [buildTestRouter(['/:pathMatch(.*)*']), createTestI18n()] }
+    })
+  }
+
+  afterEach(() => {
+    // -> `useDirection`'s backing ref is module-level state shared with every other test file that
+    //    imports it in this run; leaving it flipped would bleed into whichever test runs next
+    useDirection().set(false)
+  })
+
+  it('defaults to the LTR-correct pair when no anchor/self prop is passed', () => {
+    const wrapper = mountDetached()
+
+    const menu = wrapper.findComponent(WMenu)
+    expect(menu.props('anchor')).toBe('bottom left')
+    expect(menu.props('self')).toBe('top left')
+
+    wrapper.unmount()
+  })
+
+  it('mirrors the default pair under rtl', () => {
+    useDirection().set(true)
+    const wrapper = mountDetached()
+
+    const menu = wrapper.findComponent(WMenu)
+    expect(menu.props('anchor')).toBe('bottom right')
+    expect(menu.props('self')).toBe('top right')
+
+    wrapper.unmount()
+  })
+
+  it('re-mirrors reactively when direction flips after mount', async () => {
+    const wrapper = mountDetached()
+    expect(wrapper.findComponent(WMenu).props('anchor')).toBe('bottom left')
+
+    useDirection().set(true)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findComponent(WMenu).props('anchor')).toBe('bottom right')
+
+    wrapper.unmount()
+  })
+
+  it('still lets a caller override anchor/self explicitly, in either direction', () => {
+    useDirection().set(true)
+    const wrapper = mountDetached({ anchor: 'top right', self: 'top left' })
+
+    const menu = wrapper.findComponent(WMenu)
+    expect(menu.props('anchor')).toBe('top right')
+    expect(menu.props('self')).toBe('top left')
+
+    wrapper.unmount()
+  })
+})
 
 describe('LocaleSelectorMenu', () => {
   afterEach(() => {

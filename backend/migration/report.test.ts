@@ -5,10 +5,12 @@ import { describe, test } from 'node:test'
 import {
   KNOWN_3_0_AUTH_MODULES,
   classifyUserAuthProvider,
+  formatPostMigrationNotices,
   formatReportTable,
+  POST_MIGRATION_NOTICES,
   reportsToJson
 } from './report.ts'
-import type { PhaseReport } from './report.ts'
+import type { PhaseReport, PostMigrationNotice } from './report.ts'
 describe('KNOWN_3_0_AUTH_MODULES', () => {
   test('matches the real backend/modules/authentication/ directory listing exactly', async () => {
     const authPath = path.join(import.meta.dirname, '..', 'modules', 'authentication')
@@ -139,5 +141,42 @@ describe('reportsToJson', () => {
   test('round-trips through JSON.parse', () => {
     const parsed = JSON.parse(reportsToJson(sampleReports))
     assert.deepEqual(parsed, sampleReports)
+  })
+})
+
+describe('POST_MIGRATION_NOTICES', () => {
+  test('includes a static notice for dropped API tokens / Slack-Discord config', () => {
+    const entry = POST_MIGRATION_NOTICES.find((notice) => /API token/.test(notice.summary))
+    assert.ok(entry, 'expected a notice mentioning API tokens')
+    assert.match(entry!.summary, /Slack\/Discord/)
+    assert.match(entry!.action, /docs\/migration\/migration-runbook\.md/)
+  })
+})
+
+describe('formatPostMigrationNotices', () => {
+  test('returns an empty string for no notices', () => {
+    assert.equal(formatPostMigrationNotices([]), '')
+  })
+
+  test('renders one line per notice under a shared header', () => {
+    const notices: PostMigrationNotice[] = [
+      { summary: 'Thing A was not migrated.', action: 'Do X — see docs/a.md.' },
+      { summary: 'Thing B was not migrated.', action: 'Do Y — see docs/b.md.' }
+    ]
+    const text = formatPostMigrationNotices(notices)
+    const lines = text.split('\n')
+    assert.equal(lines[0], 'Post-migration notices:')
+    assert.ok(
+      lines.some((line) => line.includes('Thing A was not migrated.') && line.includes('Do X'))
+    )
+    assert.ok(
+      lines.some((line) => line.includes('Thing B was not migrated.') && line.includes('Do Y'))
+    )
+  })
+
+  test('renders the real POST_MIGRATION_NOTICES without throwing', () => {
+    const text = formatPostMigrationNotices(POST_MIGRATION_NOTICES)
+    assert.ok(text.includes('Post-migration notices:'))
+    assert.ok(text.includes('API tokens'))
   })
 })

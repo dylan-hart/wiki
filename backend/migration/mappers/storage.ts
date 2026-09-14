@@ -1,3 +1,4 @@
+import { CronExpressionParser } from 'cron-parser'
 import { pickDefined, transformConfig } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
 import type { ConfigTransform } from './shared.ts'
@@ -66,13 +67,18 @@ import type { ConfigTransform } from './shared.ts'
  * `docs/migration/2.5x-source-schema.md`'s note on the `mode` column). `syncInterval` needs an actual
  * conversion, not a rename: 2.x stored it as a raw five-field cron expression (confirmed by
  * `migration/mappers/fixtures/2.5x-storage.json`'s real-shaped sample, e.g. `*\/15 * * * *`), while
- * 3.0's `scheduleOverride` is a plain ISO-8601 duration (`PT15M`) — a repeating interval, not a full
- * cron trigger. `convertSyncInterval` below converts the two cron shapes that have a lossless
- * duration equivalent ("every N minutes", "every N hours"); anything else a cron expression can
- * express (a specific minute/hour, a day-of-week restriction, …) has no duration equivalent at all.
+ * 3.0's `scheduleOverride` originally accepted only a plain ISO-8601 duration (`PT15M`) — a
+ * repeating interval, not a full cron trigger. `models/storage.ts` now accepts a cron expression
+ * directly too (Issue #3197, `tickScheduledSyncs()` computes the next fire time via `cron-parser`
+ * for one), so `convertSyncInterval` below keeps its original two lossless shortcuts ("every N
+ * minutes"/"every N hours" -> an equivalent ISO-8601 duration, more readable that way than as cron),
+ * but no longer drops everything else a cron expression can express (a pinned minute/hour, a
+ * day-of-week restriction, …): that source value now has a real 3.0 destination and passes through
+ * verbatim as a cron `scheduleOverride`, once confirmed parseable. Only a source value that is
+ * neither a duration nor a valid cron expression at all is still dropped.
  *
- * Either conversion can still come up empty — an unsupported `mode`, or a `syncInterval` cron shape
- * outside the two convertible ones — and that source value genuinely has nowhere to go. Rather than
+ * Either conversion can still come up empty — an unsupported `mode`, or a `syncInterval` that is
+ * genuinely neither shape — and that source value has nowhere to go. Rather than
  * the `authentication` mapper's precedent for its own unmapped column (`order`, silently never read
  * at all — see that module's doc), this mapper reports whichever of the two remain unconverted:
  * `droppedFields.mode` and/or `droppedFields.syncInterval` are set only for a field that had a source
@@ -272,9 +278,9 @@ export interface StorageRowResult {
   /** Present only when `status === 'updated'`. */
   update?: StorageUpdatePayload
   /** Only the field(s) that had a source value but could not be converted — an unsupported `mode`, or
-   * a `syncInterval` cron shape outside the two convertible ones (see the module doc). Absent
-   * entirely once both convert cleanly, and always absent for `unsupported`/`flagged` rows, since
-   * nothing about that row transferred at all. */
+   * a `syncInterval` that parses as neither an ISO-8601 duration nor a valid cron expression (see the
+   * module doc). Absent entirely once both convert cleanly, and always absent for
+   * `unsupported`/`flagged` rows, since nothing about that row transferred at all. */
   droppedFields?: { mode?: unknown; syncInterval?: unknown }
   /** Required for every non-`updated` status. */
   message?: string
@@ -306,12 +312,16 @@ const EVERY_N_MINUTES = /^\*\/(\d+) \* \* \* \*$/
 const EVERY_N_HOURS = /^0 \*\/(\d+) \* \* \*$/
 
 /**
- * Converts 2.x's cron-shaped `syncInterval` into the ISO-8601 duration `scheduleOverride` expects.
- * Only "every N minutes" (`*\/N * * * *`) and "every N hours" (`0 *\/N * * *`) have a lossless
- * duration equivalent — anything else a cron expression can express (a pinned minute/hour, a
- * day-of-week restriction, …) has none, and is left unconverted. An already-ISO-8601 value passes
- * through as-is (verified with the same `Temporal.Duration.from()` parse `models/storage.ts` itself
- * validates `scheduleOverride` with), in case a source ever holds one directly.
+ * Converts 2.x's cron-shaped `syncInterval` into what 3.0's `scheduleOverride` expects. An
+ * already-ISO-8601 value passes through as-is (verified with the same `Temporal.Duration.from()`
+ * parse `models/storage.ts` itself validates `scheduleOverride` with), in case a source ever holds
+ * one directly. "every N minutes" (`*\/N * * * *`) and "every N hours" (`0 *\/N * * *`) have a
+ * lossless duration equivalent and keep converting to one, since a short `PT15M` reads better than
+ * the cron it came from. Since Issue #3197, every OTHER genuinely valid cron expression — a pinned
+ * minute/hour, a day-of-week restriction, … — now has a real 3.0 destination too: `models/storage.ts`
+ * accepts a cron expression directly, so it passes through verbatim rather than being dropped.
+ * Confirmed parseable with the same `cron-parser` `models/storage.ts` itself validates
+ * `scheduleOverride` with. Only a value that parses as neither shape is still left unconverted.
  */
 function convertSyncInterval(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -325,7 +335,7 @@ function convertSyncInterval(value: unknown): string | null {
     Temporal.Duration.from(trimmed)
     return trimmed
   } catch {
-    // -> Not already an ISO-8601 duration; fall through to the cron-shape check below
+    // -> Not already an ISO-8601 duration; fall through to the cron-shape checks below
   }
   const everyNMinutes = EVERY_N_MINUTES.exec(trimmed)
   if (everyNMinutes) {
@@ -335,7 +345,12 @@ function convertSyncInterval(value: unknown): string | null {
   if (everyNHours) {
     return `PT${everyNHours[1]}H`
   }
-  return null
+  try {
+    CronExpressionParser.parse(trimmed)
+    return trimmed
+  } catch {
+    return null
+  }
 }
 
 /** Maps one 2.x `storage` row. See the module doc for the full policy; `mapStorageRows` is the usual

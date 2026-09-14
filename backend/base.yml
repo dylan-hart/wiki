@@ -190,6 +190,13 @@ defaults:
       uploadScanSVG: true
       disallowIframe: true
       uploadMaxFileSize: 10485760
+      # -> Per-request resource-exhaustion protection for the batch upload endpoints
+      #    (`POST .../assets/batch`, `POST .../blocks/batch`), not a user quota -- the same total
+      #    file count is already reachable by looping the single-file endpoint, so this exists only
+      #    to bound how much one synchronous multipart parse can be made to do (OpenProject #3211).
+      #    Enforced by `@fastify/multipart`'s own `limits.files` at parse time, before a file over
+      #    the count is ever read into memory.
+      uploadMaxFilesPerBatch: 10
       forceAssetDownload: true
       disallowOpenRedirect: true
       enforceSameOriginReferrerPolicy: true

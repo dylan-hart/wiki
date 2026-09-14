@@ -95,3 +95,22 @@ describe('HeaderSearch.vue Cobalt focused-tags-btn selector', () => {
     expect(body).toContain('border-color: rgb(255 255 255 / 0.4)')
   })
 })
+
+/**
+ * Regression test for OpenProject #3226: the semantic search mode toggle button
+ * (`.header-search-mode-btn`, a `<button>`, OpenProject #3138) showed no `cursor: pointer` on
+ * hover, unlike its sibling `.header-search-tags-btn` (a `<router-link>`, which gets a pointer
+ * cursor from the browser's own anchor default even without one). Buttons don't reliably get a
+ * pointer cursor from the UA stylesheet, which is why every other clickable control in this file
+ * (`.header-search-clear`, `.header-search-kbd`) already sets it explicitly.
+ */
+describe('HeaderSearch.vue search mode button cursor', () => {
+  const componentDir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(componentDir, 'HeaderSearch.vue'), 'utf8')
+  const styleBlock = source.slice(source.indexOf('<style lang="scss">'))
+
+  it('gives the shared tags/mode button rule an explicit pointer cursor', () => {
+    const body = ruleBody(styleBlock, '.header-search-tags-btn,\n.header-search-mode-btn')
+    expect(body).toContain('cursor: pointer;')
+  })
+})

@@ -160,7 +160,7 @@
             handle would put two leading affordances on one row.
           -->
           <w-card-section class="admin-login-providers">
-            <sortable
+            <w-sortable
               :list="state.providers"
               item-key="id"
               :options="sortableOptions"
@@ -185,7 +185,7 @@
                   </w-item-section>
                 </w-item>
               </template>
-            </sortable>
+            </w-sortable>
             <w-card class="bg-info text-white rounded mt-2">
               <w-card-section class="items-center" horizontal>
                 <w-card-section class="flex-none pe-0">
@@ -217,7 +217,6 @@ import { useSiteStore } from '@/stores/site'
 
 import { isSharpAvailable } from '@/helpers/siteImages'
 
-import { Sortable } from 'sortablejs-vue3'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 // ACCESS

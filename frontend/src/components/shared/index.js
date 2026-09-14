@@ -42,6 +42,7 @@ import WLayout from './WLayout.vue'
 import WLinearProgress from './WLinearProgress.vue'
 import WList from './WList.vue'
 import WMenu from './WMenu.vue'
+import WOtpInput from './WOtpInput.vue'
 import WPage from './WPage.vue'
 import WPageContainer from './WPageContainer.vue'
 import WPagination from './WPagination.vue'
@@ -53,6 +54,7 @@ import WSeparator from './WSeparator.vue'
 import WSettingsCard from './WSettingsCard.vue'
 import WSettingsRow from './WSettingsRow.vue'
 import WSignal from './WSignal.vue'
+import WSortable from './WSortable.vue'
 import WSpace from './WSpace.vue'
 import WSpinner from './WSpinner.vue'
 import WTab from './WTab.vue'
@@ -101,6 +103,7 @@ export const sharedComponents = {
   WLinearProgress,
   WList,
   WMenu,
+  WOtpInput,
   WPage,
   WPageContainer,
   WPagination,
@@ -112,6 +115,7 @@ export const sharedComponents = {
   WSettingsCard,
   WSettingsRow,
   WSignal,
+  WSortable,
   WSpace,
   WSpinner,
   WTab,

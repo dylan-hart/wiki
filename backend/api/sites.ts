@@ -157,7 +157,7 @@ function semanticSearchAvailable(config: Record<string, any>): boolean {
  * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
  * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
  * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]` — `models/search.ts:402`/`:535`, Algolia's
- * `apiKey` and AWS CloudSearch's `secretAccessKey`), seeded under the same top-level `search` key as
+ * `apiKey` and Azure AI Search's `adminApiKey`), seeded under the same top-level `search` key as
  * `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults). It used to stay out of
  * the browser only because `api/schemas/site.ts`'s `Site` schema declared no top-level `search`
  * property and fast-json-stringify silently drops undeclared keys — an invariant nothing stated and

@@ -276,8 +276,69 @@ test('a correct password verifies and hands back a ProvisionableLoginError carry
         name: 'Jane Doe',
         firstName: 'Jane',
         lastName: 'Doe',
-        groups: undefined
+        groups: undefined,
+        picture: undefined
       })
+      return true
+    }
+  )
+})
+
+/*
+  OpenProject #3237. `mappingPicture` mirrors `mappingUID`/`mappingEmail`/`mappingDisplayName`: an
+  optional attribute mapping, absent unless configured -- no such column existed in `CONF` before this
+  Task, so every earlier scenario above already covers "unconfigured" via its own deepEqual/absence
+  assertions.
+*/
+test('reads a mapped picture attribute into the profile', async () => {
+  const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
+  const { factory } = makeClientFactory({
+    bind: () => true,
+    search: () => [
+      {
+        dn: userDn,
+        attrs: {
+          uid: 'jdoe',
+          mail: 'jdoe@example.com',
+          displayName: 'Jane Doe',
+          jpegPhotoUrl: 'https://directory.example.com/photos/jdoe.jpg'
+        }
+      }
+    ]
+  })
+  const mod = new LdapAuthentication(
+    'strategy-1',
+    { ...CONF, mappingPicture: 'jpegPhotoUrl' },
+    factory
+  )
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
+    (err: any) => {
+      assert.equal(err.profile.picture, 'https://directory.example.com/photos/jdoe.jpg')
+      return true
+    }
+  )
+})
+
+test('an entry with no value for the mapped picture attribute leaves profile.picture absent', async () => {
+  const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
+  const { factory } = makeClientFactory({
+    bind: () => true,
+    search: () => [
+      { dn: userDn, attrs: { uid: 'jdoe', mail: 'jdoe@example.com', displayName: 'Jane Doe' } }
+    ]
+  })
+  const mod = new LdapAuthentication(
+    'strategy-1',
+    { ...CONF, mappingPicture: 'jpegPhotoUrl' },
+    factory
+  )
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
+    (err: any) => {
+      assert.equal(err.profile.picture, undefined)
       return true
     }
   )

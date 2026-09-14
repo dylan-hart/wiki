@@ -15,8 +15,13 @@ import { CustomError } from './common.ts'
  * Mermaid source. An operator
  * whose deployment environment cannot give Chromium its own sandbox (typically a container without
  * the setuid sandbox helper) opts into it via `security.allowPuppeteerNoSandbox` (OpenProject
- * #2244/#2250/#2247). Whether the production image (`dev/build/Dockerfile`) actually runs sandboxed
- * with this default is tracked separately — OpenProject #3201.
+ * #2244/#2250/#2247). CONFIRMED (OpenProject #3214) that a container built from
+ * `dev/build/Dockerfile` and started with a plain `docker run` — no extra `--security-opt`/
+ * `--cap-add` — is exactly that environment: Chromium's sandbox cannot initialize (Docker's own
+ * default seccomp profile blocks the unprivileged user-namespace creation it needs, and this image
+ * carries no setuid sandbox helper as a fallback), so every headless-browser feature 500s until an
+ * operator applies one of the two remedies `docs/decisions/sandboxed-puppeteer-requires-runtime-flags.md`
+ * names. `dev/build/verify-sandboxed-puppeteer.sh` reproduces this on demand.
  */
 export function getPuppeteerLaunchArgs(): string[] {
   const args = ['--disable-dev-shm-usage']

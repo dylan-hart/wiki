@@ -35,6 +35,8 @@ let deleteTermCalls: any[]
 let deleteTermResult: boolean
 let getVersionCalls: any[]
 let getVersionResult: any
+let queueRerenderAllPagesCalls: any[]
+let queueRerenderAllPagesResult: number
 
 before(async () => {
   // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
@@ -46,14 +48,34 @@ before(async () => {
   }
   app = await buildTestApp({
     routes: guardedRoutes,
+    // -> `header` only takes effect on a request that actually sends the test headers -- every
+    //    existing test above sends neither, so this changes nothing for them. It is what lets the
+    //    rerender-all-pages tests below put a real, `actorFrom()`-resolvable session on the request.
+    session: 'header',
     wiki: {
       sites: { [SITE_1_ID]: { id: SITE_1_ID, config: {} } },
       models: {
+        // -> The rerender-all-pages route's `limitRenders` preHandler consults this regardless of
+        //    which branch the handler itself takes (OpenProject #3181) -- a fixed "always allowed"
+        //    stub, the same one `api/pages/write.test.ts`'s bulk-render suite uses.
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
         groups: {
           // -> OpenProject #1127: the route hands this straight to `getCachedTerms` as its `actor` --
           //    a fixed sentinel is enough to prove the wiring, since permission filtering itself is
           //    `models/groups.ts`/`models/glossary.ts`'s own DB-backed coverage, not this route's.
-          actorForRequest: () => ACTOR_SENTINEL
+          actorForRequest: () => ACTOR_SENTINEL,
+          // -> `helpers/pageAccess.ts#actorFrom()` (the rerender-all-pages route's own actor
+          //    resolution) calls this for a session-based caller; a fixed empty list is enough since
+          //    what it resolves to plays no part in this route's own field-forwarding.
+          groupIdsForRequest: () => []
+        },
+        pages: {
+          queueRerenderAllPages: async (siteId: string, actor: any) => {
+            queueRerenderAllPagesCalls.push({ siteId, actor })
+            return queueRerenderAllPagesResult
+          }
         },
         glossary: {
           createTerm: async (siteId: string, values: any) => {
@@ -86,6 +108,8 @@ beforeEach(() => {
   deleteTermCalls = []
   deleteTermResult = true
   getVersionCalls = []
+  queueRerenderAllPagesCalls = []
+  queueRerenderAllPagesResult = 0
   getVersionResult = {
     id: VERSION_ID,
     termCount: 0,
@@ -164,4 +188,37 @@ test('GET /sites/:siteId/glossary/versions/:versionId answers 404 when the versi
   })
   assert.equal(res.statusCode, 404)
   assert.deepEqual(getVersionCalls, [{ siteId: SITE_1_ID, versionId: VERSION_ID }])
+})
+
+/**
+ * OpenProject #3181: "rerender all pages" bulk action. `WIKI.models.pages.queueRerenderAllPages`
+ * itself is DB-backed coverage (`models/pages.rerenderAll.test.ts`) -- what belongs here is the
+ * route's own actor resolution and response shape.
+ */
+test('POST /sites/:siteId/glossary/rerender-all-pages queues every page and reports the count', async () => {
+  queueRerenderAllPagesResult = 3
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary/rerender-all-pages`,
+    headers: {
+      'x-test-session': JSON.stringify({
+        authenticated: true,
+        user: { id: 'actor-1' },
+        permissions: ['manage:glossary']
+      })
+    }
+  })
+  assert.equal(res.statusCode, 202)
+  assert.deepEqual(JSON.parse(res.body), { ok: true, queued: 3 })
+  assert.equal(queueRerenderAllPagesCalls.length, 1)
+  assert.equal(queueRerenderAllPagesCalls[0].siteId, SITE_1_ID)
+})
+
+test('POST /sites/:siteId/glossary/rerender-all-pages answers 401 with no logged-in caller', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary/rerender-all-pages`
+  })
+  assert.equal(res.statusCode, 401)
+  assert.deepEqual(queueRerenderAllPagesCalls, [])
 })

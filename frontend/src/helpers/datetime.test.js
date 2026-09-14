@@ -102,6 +102,15 @@ describe('humanizeIsoDuration', () => {
       '1 year, 2 months, 3 weeks, 4 days, 5 hours, 6 minutes, and 7 seconds'
     )
   })
+
+  // -> Issue #3197: a storage target's scheduleOverride may now be a raw cron expression instead of
+  //    an ISO-8601 duration (backend/models/storage.ts accepts one directly, and a 2.5.x-migrated
+  //    row's syncInterval can land as one verbatim). This function doesn't interpret cron -- it must
+  //    not throw on one either, since AdminStorage.vue calls this unconditionally on whatever
+  //    scheduleOverride currently holds.
+  it('returns a non-ISO-8601 value (e.g. a cron expression) as-is rather than throwing', () => {
+    expect(humanizeIsoDuration('30 9 * * 1')).toBe('30 9 * * 1')
+  })
 })
 
 // -> Extended for OpenProject #1881: hoisting the per-call `Intl.NumberFormat`/`Intl.DateTimeFormat`

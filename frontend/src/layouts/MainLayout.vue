@@ -47,7 +47,7 @@
           icon="tabler:language"
           color="slate"
           :aria-label="t('common.sidebar.switchLocale')">
-          <locale-selector-menu anchor="top right" self="top left" />
+          <locale-selector-menu :anchor="miniSideMenu.anchor" :self="miniSideMenu.self" />
           <w-tooltip anchor="center right" self="center left">{{
             t('common.sidebar.switchLocale')
           }}</w-tooltip>
@@ -59,7 +59,7 @@
           icon="tabler:sitemap"
           color="slate"
           :aria-label="t(`common.sidebar.browse`)">
-          <nav-browse-menu anchor="top right" self="top left" />
+          <nav-browse-menu :anchor="miniSideMenu.anchor" :self="miniSideMenu.self" />
           <w-tooltip anchor="center right" self="center left">
             {{ t('common.sidebar.browse') }}
           </w-tooltip>
@@ -73,7 +73,10 @@
           color="slate"
           :aria-label="t(`common.sidebar.editNav`)"
           size="sm">
-          <w-menu ref="navEditMenuMini" anchor="top right" self="bottom left">
+          <w-menu
+            ref="navEditMenuMini"
+            :anchor="miniEditNavMenu.anchor"
+            :self="miniEditNavMenu.self">
             <nav-edit-menu
               :menu-hide-handler="navEditMenuMini.hide"
               :update-position-handler="navEditMenuMini.updatePosition" />
@@ -163,7 +166,11 @@
                   own text line (`FooterNav.vue`) -- see the CSS comment below. -->
           <span class="sidebar-footerbtns-spacer" aria-hidden="true">&nbsp;</span>
           <w-btn class="flex-1" icon="tabler:list-tree" :label="t(`common.sidebar.editNav`)" flat>
-            <w-menu ref="navEditMenu" anchor="top left" self="bottom left" :offset="[0, 10]">
+            <w-menu
+              ref="navEditMenu"
+              :anchor="editNavMenu.anchor"
+              :self="editNavMenu.self"
+              :offset="[0, 10]">
               <nav-edit-menu
                 :menu-hide-handler="navEditMenu.hide"
                 :update-position-handler="navEditMenu.updatePosition" />
@@ -191,6 +198,8 @@ import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
 import { useMinWidth } from '@/composables/screen'
+import { useDirection } from '@/composables/direction'
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { useI18n } from 'vue-i18n'
 
 import { useCommonStore } from '@/stores/common'
@@ -256,6 +265,37 @@ const navEditMenuMini = ref(null)
  * sidebar is a column that is simply there.
  */
 const isNarrowSidebarOpen = ref(false)
+
+// DIRECTION
+
+const direction = useDirection()
+
+/**
+ * `WDrawer.vue`'s own `side` prop is already logical (reading-START/-END, not a raw physical side --
+ * see its doc comment), so this sidebar itself moves to the visual right under `dir="rtl"`. The four
+ * `w-menu` popups below all assumed a physical-left sidebar (`WMenu`/`WTooltip` place themselves in
+ * raw viewport pixels with no idea which way the reader's text flows --
+ * `helpers/directionalAnchor.js`'s own doc comment) and so need the same mirroring
+ * `AdminLayout.vue`'s locale-switcher menu got in task 727. Kept reactive, not read once at setup,
+ * because this layout -- like `AdminLayout.vue`'s header -- stays mounted across navigations, so a
+ * reader picking an RTL locale mid-session must see these flip on the next render.
+ *
+ * (`sidebarPosition`, the site setting for which CONTENT column the sidebar sits in, is a separate,
+ * orthogonal axis -- see `NavSidebar.vue`'s own `--flipped` variant -- and is untouched here.)
+ */
+const miniSideMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'top right', 'top left')
+)
+
+/** The mini-sidebar's own Edit Nav popup -- pairs with `miniSideMenu` above, different `self`. */
+const miniEditNavMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'top right', 'bottom left')
+)
+
+/** The full (non-mini) sidebar's Edit Nav popup, opening upward from its footer bar. */
+const editNavMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'top left', 'bottom left')
+)
 
 // COMPUTED
 
@@ -607,7 +647,7 @@ function scrollSidebarToTop() {
   directions that matter here -- it stays true on a touch-primary 2-in-1 laptop merely because a
   trackpad is also present (so it would not actually catch the touchscreen case this guards against),
   and it goes false on a touch-only tablet that is plenty wide enough to fit the overlay, whose drag
-  library (`sortablejs-vue3`) handles touch input fine on its own. Width is what actually decides
+  library (`sortablejs`, via `w-sortable`) handles touch input fine on its own. Width is what actually decides
   whether the overlay fits, which is the more load-bearing of the two reasons above -- read this as a
   layout-room gate with a touch-UX rationale attached, not a literal pointer-capability check.
 
@@ -929,14 +969,24 @@ body.body--cobalt {
   }
 
   // -> OpenProject #3133: the Top button now shares Locale/Browse's `.icon-lg` treatment above
-  //    (margin, hover wash, icon colour) rather than a bespoke Cobalt-only plate style (OpenProject
-  //    #3109, reverted). The unscoped `.sidebar-actions-top .w-btn` rule's own `background-color:
+  //    (hover wash, icon colour) rather than a bespoke Cobalt-only plate style (OpenProject #3109,
+  //    reverted). The unscoped `.sidebar-actions-top .w-btn` rule's own `background-color:
   //    var(--color-white)` (Ledger's white plate) isn't scoped away from Cobalt and would otherwise
-  //    bleed through, so only that needs resetting here -- the hover wash and icon colour already
-  //    come from `.sidebar-actions .icon-lg` above, which wins on source order against the unscoped
+  //    bleed through, so that needs resetting here -- the hover wash and icon colour already come
+  //    from `.sidebar-actions .icon-lg` above, which wins on source order against the unscoped
   //    rule's equal-specificity hover.
+  //
+  //    OpenProject #3224: that same `.icon-lg` rule's `margin: 4px 0 4px 4px` was never meant for
+  //    the Top button -- it's Locale/Browse's own inset-tile spacing, sized for flex-1 cells with
+  //    room to spare. The Top button sits in a cell that is ALSO exactly 40x40
+  //    (`.sidebar-actions-top` above) and is itself pinned to `width: 40px; height: 40px` by the
+  //    unscoped rule this block already overrides, so the inherited margin pushes it past the
+  //    cell's edge instead of insetting it. Reset to 0 here, at equal specificity and later in
+  //    source order than the `.icon-lg` rule above, so it wins without touching Locale/Browse's
+  //    margin or Ledger's own #3133 sizing (which never applied `.icon-lg`'s margin to begin with).
   .sidebar-actions-top .w-btn {
     background-color: transparent;
+    margin: 0;
   }
 }
 

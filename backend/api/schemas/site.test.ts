@@ -39,8 +39,8 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
  * computed fields, so any key that ever landed in a site's config blob reached the response the
  * moment this schema also declared it — nothing stated or tested that the two had to be kept in sync.
  * `search` is the load-bearing case: it's where active search-engine credentials live
- * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]`, e.g. Algolia's `apiKey` and AWS CloudSearch's
- * `secretAccessKey` — see `models/search.ts:402`/`:535`), seeded under the same top-level `search` key
+ * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]`, e.g. Algolia's `apiKey` and Azure AI Search's
+ * `adminApiKey` — see `models/search.ts:402`/`:535`), seeded under the same top-level `search` key
  * as `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults), and it stayed out of
  * a reader's browser only because the `Site` schema above declares no top-level `search` property.
  * `buildSitePayload` is the body of two `publicAccess: true` routes (`GET /sites/:siteIdorHostname`

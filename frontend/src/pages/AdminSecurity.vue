@@ -369,6 +369,17 @@
               :aria-label="t(`admin.security.maxUploadSize`)" />
           </w-settings-row>
           <w-settings-row
+            control-width="fixed"
+            icon="tabler:files"
+            :label="t(`admin.security.maxFilesPerBatch`)"
+            :hint="t(`admin.security.maxFilesPerBatchHint`)">
+            <w-input
+              v-model.number="state.config.uploadMaxFilesPerBatch"
+              dense
+              :suffix="t(`admin.security.maxFilesPerBatchSuffix`)"
+              :aria-label="t(`admin.security.maxFilesPerBatch`)" />
+          </w-settings-row>
+          <w-settings-row
             tag="label"
             control-width="auto"
             icon="tabler:scan"
@@ -515,6 +526,7 @@ function defaultConfig() {
     apiRateLimitWindow: '5m',
     apiRateLimitBan: '15m',
     uploadMaxFileSize: 0,
+    uploadMaxFilesPerBatch: 10,
     uploadScanSVG: false
   }
 }

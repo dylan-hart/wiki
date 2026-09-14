@@ -211,6 +211,7 @@
                 <div class="layout-search-rowtitle">
                   {{ item.title }}
                   <search-result-hop-badge :hop="item.hop" />
+                  <search-result-similarity-badge :distance="item.distance" />
                 </div>
                 <div v-if="item.description" class="layout-search-rowdesc">
                   {{ item.description }}
@@ -281,6 +282,7 @@ import HeaderNav from '@/components/HeaderNav.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 import SearchResultHopBadge from '@/components/SearchResultHopBadge.vue'
+import SearchResultSimilarityBadge from '@/components/SearchResultSimilarityBadge.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'

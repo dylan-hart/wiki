@@ -103,12 +103,16 @@ describe('comments model — mocked', () => {
       }),
       update: () => ({
         set: (set: Record<string, unknown>) => ({
-          where: (where: unknown) => ({
-            returning: async () => {
-              calls.updates.push({ set, where })
-              return [{ id: 'existing-comment-id', ...config.updateRow, ...set }]
+          // -> Recorded synchronously in `where()` itself, not inside `returning()`: `comments.update()`
+          //    calls `.returning()` to read the row back, but `comments.setReplyTo()` (OpenProject #3204)
+          //    is a fire-and-forget `Promise<void>` that awaits `.where(...)` directly and never calls
+          //    `.returning()` at all -- recording here is what lets both be asserted on the same way.
+          where: (where: unknown) => {
+            calls.updates.push({ set, where })
+            return {
+              returning: async () => [{ id: 'existing-comment-id', ...config.updateRow, ...set }]
             }
-          })
+          }
         })
       }),
       delete: () => ({
@@ -297,6 +301,49 @@ describe('comments model — mocked', () => {
       assert.equal(hookEmits[0].data.authorId, null)
       assert.equal(hookEmits[0].data.isGuest, true)
       assert.equal(hookEmits[0].data.metadata.authorName, 'Casey')
+    })
+
+    // -------------------------------------------------------------------------------------------
+    // createdAt/updatedAt override (OpenProject #3204)
+    // -------------------------------------------------------------------------------------------
+
+    it('with no createdAt/updatedAt override, leaves the insert without those keys (column default applies)', async () => {
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'ordinary comment' })
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(calls.inserts[0].values, 'createdAt'),
+        false
+      )
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(calls.inserts[0].values, 'updatedAt'),
+        false
+      )
+    })
+
+    it('threads a createdAt/updatedAt override into the insert as real Dates', async () => {
+      await comments.create({
+        siteId: 's1',
+        pageId: 'p1',
+        content: 'backdated comment',
+        createdAt: '2019-05-01T12:00:00.000Z',
+        updatedAt: '2019-05-02T08:30:00.000Z'
+      })
+      const values = calls.inserts[0].values
+      assert.equal((values.createdAt as Date).toISOString(), '2019-05-01T12:00:00.000Z')
+      assert.equal((values.updatedAt as Date).toISOString(), '2019-05-02T08:30:00.000Z')
+    })
+  })
+
+  describe('setReplyTo', () => {
+    it('issues an update scoped by a where clause, setting only replyTo', async () => {
+      await comments.setReplyTo('c1', 'parent-1')
+      assert.equal(calls.updates.length, 1)
+      assert.deepEqual(calls.updates[0].set, { replyTo: 'parent-1' })
+      assert.ok(calls.updates[0].where, 'expected a where clause to scope the update')
+    })
+
+    it('does not emit a hook -- this is a migration-only bookkeeping patch, not a user-facing edit', async () => {
+      await comments.setReplyTo('c1', 'parent-1')
+      assert.equal(hookEmits.length, 0)
     })
   })
 

@@ -1,15 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { diagramStyles, DiagramImageElement } from './diagram-image.js'
-import { MAX_DIAGRAM_URL_LENGTH } from './url-limit.js'
-import { mountBlock } from '../test/mount.js'
+import { _resetSiteCache } from './site.js'
+import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID } from '../test/mount.js'
 
 /**
- * The smallest possible subclass: the one hook a remote-image diagram block has to write.
+ * The smallest possible subclass: the two hooks a proxy-backed diagram block has to write.
  *
  * Deliberately not one of the real blocks -- what is under test here is the skeleton they share
- * (the body read, the URL-length guard, the failure explanation, the frame), not either provider's
- * encoding, which `block-kroki`'s and `block-plantuml`'s own suites already cover.
+ * (the body read, the POST to the proxy, the frame), not either engine's own request shape, which
+ * `block-kroki`'s and `block-plantuml`'s own suites already cover.
  */
 class TestDiagramElement extends DiagramImageElement {
   _defaultServer() {
@@ -24,26 +24,34 @@ class TestDiagramElement extends DiagramImageElement {
     return this.caption || 'Test diagram'
   }
 
-  async _url(source) {
-    return `${this._serverBase()}/${this._imageFormat()}/${encodeURIComponent(source)}`
+  _engine() {
+    return 'testdiagram'
   }
 }
 customElements.define('test-diagram-image', TestDiagramElement)
 
-/** A subclass reading a provider-specific header off the second request, the way plantuml does. */
-class TestHeaderDiagramElement extends TestDiagramElement {
-  _explainBody(response) {
-    const reason = response.headers.get('x-test-diagram-error')
-    return reason ? `The server could not read this diagram: ${reason}` : null
+/** A subclass folding an extra field into the POST body, the way Kroki's `diagramType` does. */
+class TestExtraBodyDiagramElement extends TestDiagramElement {
+  _extraBody() {
+    return { flavor: 'fancy' }
   }
 }
-customElements.define('test-diagram-image-header', TestHeaderDiagramElement)
+customElements.define('test-diagram-image-extra', TestExtraBodyDiagramElement)
 
-// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (encoding a source is
+// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (the POST is
 //    asynchronous), so the state change it produces lands after the first update cycle — `_ready`
 //    is the handle `DiagramImageElement` keeps on that work for exactly this.
 const mount = (tag, body, props = {}) =>
   mountBlock(tag, { pre: body, props, settle: (el) => el._ready })
+
+/** A successful proxy response: `data`, defaulting to a tiny SVG, and the `content-type` it answers with. */
+function okResponse(data = '<svg/>', contentType = 'image/svg+xml') {
+  return {
+    ok: true,
+    headers: { get: () => contentType },
+    arrayBuffer: async () => new TextEncoder().encode(data).buffer
+  }
+}
 
 describe('shared/diagram-image.js: diagramStyles', () => {
   it('carries the sheet the drawing sits on, in both themes', () => {
@@ -63,9 +71,12 @@ describe('shared/diagram-image.js: diagramStyles', () => {
 })
 
 describe('shared/diagram-image.js: DiagramImageElement', () => {
+  beforeEach(() => {
+    _resetSiteCache()
+  })
+
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     vi.unstubAllGlobals()
   })
 
@@ -76,13 +87,60 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
     expect(cssText).toContain('.sheet')
   })
 
-  it('draws the URL its subclass builds', async () => {
+  it('POSTs the source to this site’s diagram proxy and draws the answer as a data URL', async () => {
+    const fetchMock = stubSiteFetch({ onRequest: () => okResponse('<svg>hi</svg>') })
     const el = await mount('test-diagram-image', 'hello')
 
     expect(el.shadowRoot.querySelector('.error')).toBeNull()
+    const [url, init] = fetchMock.mock.calls.find(([u]) => u !== '/_api/sites/current')
+    expect(url).toBe(`/_api/sites/${TEST_SITE_ID}/diagrams/render`)
+    expect(init.method).toBe('POST')
+    expect(init.headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(init.body)).toEqual({
+      engine: 'testdiagram',
+      source: 'hello',
+      format: 'svg'
+    })
+
     const img = el.shadowRoot.querySelector('img')
-    expect(img.getAttribute('src')).toBe('https://diagrams.test/svg/hello')
+    expect(img.getAttribute('src')).toBe(`data:image/svg+xml;base64,${btoa('<svg>hi</svg>')}`)
     expect(img.getAttribute('alt')).toBe('Test diagram')
+  })
+
+  it('folds a subclass’s extra body fields in alongside engine/source/format', async () => {
+    const fetchMock = stubSiteFetch({ onRequest: () => okResponse() })
+    await mount('test-diagram-image-extra', 'hello')
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => u !== '/_api/sites/current')
+    expect(JSON.parse(init.body)).toEqual({
+      engine: 'testdiagram',
+      source: 'hello',
+      format: 'svg',
+      flavor: 'fancy'
+    })
+  })
+
+  it('asks for png only when png was asked for', async () => {
+    const fetchMock = stubSiteFetch({ onRequest: () => okResponse() })
+    await mount('test-diagram-image', 'hello', { format: 'png' })
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => u !== '/_api/sites/current')
+    expect(JSON.parse(init.body).format).toBe('png')
+  })
+
+  it('falls back to a format-derived content type when the response carries none', async () => {
+    stubSiteFetch({
+      onRequest: () => ({
+        ok: true,
+        headers: { get: () => null },
+        arrayBuffer: async () => new TextEncoder().encode('<svg/>').buffer
+      })
+    })
+    const el = await mount('test-diagram-image', 'hello')
+
+    expect(el.shadowRoot.querySelector('img').getAttribute('src')).toMatch(
+      /^data:image\/svg\+xml;base64,/
+    )
   })
 
   it('reports an empty body rather than drawing nothing, naming the block’s own fence', async () => {
@@ -94,37 +152,64 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
     )
   })
 
-  it('refuses a diagram whose URL would be over the GET limit, before any request', async () => {
-    const el = await mount('test-diagram-image', 'x'.repeat(MAX_DIAGRAM_URL_LENGTH + 1))
+  it('reports the proxy’s own message when it refuses the diagram', async () => {
+    stubSiteFetch({
+      onRequest: () => ({
+        ok: false,
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        json: async () => ({ message: 'Kroki could not read this diagram: line 3' })
+      })
+    })
+    const el = await mount('test-diagram-image', 'hello')
 
-    const error = el.shadowRoot.querySelector('.error')
-    expect(error.textContent).toContain('too large')
+    expect(el.shadowRoot.querySelector('.error').textContent).toBe(
+      'Kroki could not read this diagram: line 3'
+    )
     expect(el.shadowRoot.querySelector('img')).toBeNull()
   })
 
-  it('trims the server prop and drops its trailing slashes, falling back to the default', async () => {
-    const trailing = await mount('test-diagram-image', 'hello', {
-      server: '  https://own.test/kroki//  '
+  it('falls back to the status line when the failure carries no usable message', async () => {
+    stubSiteFetch({
+      onRequest: () => ({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        json: async () => {
+          throw new Error('not json')
+        }
+      })
     })
-    expect(trailing.shadowRoot.querySelector('img').getAttribute('src')).toBe(
-      'https://own.test/kroki/svg/hello'
-    )
+    const el = await mount('test-diagram-image', 'hello')
 
-    const blank = await mount('test-diagram-image', 'hello', { server: '   ' })
-    expect(blank.shadowRoot.querySelector('img').getAttribute('src')).toBe(
-      'https://diagrams.test/svg/hello'
+    expect(el.shadowRoot.querySelector('.error').textContent).toBe(
+      'The server answered 502 Bad Gateway for this diagram.'
     )
   })
 
-  it('asks for png only when png was asked for', async () => {
-    const png = await mount('test-diagram-image', 'hello', { format: 'png' })
-    expect(png.shadowRoot.querySelector('img').getAttribute('src')).toContain('/png/')
+  it('fails closed with no request at all when the site cannot be resolved', async () => {
+    const fetchMock = stubSiteFetch({ ok: false })
+    const el = await mount('test-diagram-image', 'hello')
 
-    const nonsense = await mount('test-diagram-image', 'hello', { format: 'gif' })
-    expect(nonsense.shadowRoot.querySelector('img').getAttribute('src')).toContain('/svg/')
+    expect(el.shadowRoot.querySelector('.error').textContent).toBe(
+      'Could not determine the current site.'
+    )
+    expect(fetchMock.mock.calls.filter(([u]) => u !== '/_api/sites/current')).toHaveLength(0)
+  })
+
+  it('reports a network failure rather than throwing', async () => {
+    stubSiteFetch({
+      onRequest: () => {
+        throw new Error('network down')
+      }
+    })
+    const el = await mount('test-diagram-image', 'hello')
+
+    expect(el.shadowRoot.querySelector('.error').textContent).toBe('network down')
   })
 
   it('centres the drawing only when asked to', async () => {
+    stubSiteFetch({ onRequest: () => okResponse() })
     const left = await mount('test-diagram-image', 'hello')
     expect(left.shadowRoot.querySelector('.diagram.is-center')).toBeNull()
 
@@ -133,6 +218,7 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
   })
 
   it('draws the caption under the diagram, and uses it as the drawing’s name', async () => {
+    stubSiteFetch({ onRequest: () => okResponse() })
     const el = await mount('test-diagram-image', 'hello', { caption: 'Figure 1' })
 
     expect(el.shadowRoot.querySelector('.caption').textContent).toBe('Figure 1')
@@ -141,6 +227,7 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
 
   describe('_measure', () => {
     it('marks a drawing that laid out at zero inside a sheet that did not', async () => {
+      stubSiteFetch({ onRequest: () => okResponse() })
       const el = await mount('test-diagram-image', 'hello')
       const sheet = el.shadowRoot.querySelector('.sheet')
       Object.defineProperty(sheet, 'clientWidth', { value: 400, configurable: true })
@@ -152,6 +239,7 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
     })
 
     it('leaves a drawing alone when the sheet itself has not been laid out either', async () => {
+      stubSiteFetch({ onRequest: () => okResponse() })
       const el = await mount('test-diagram-image', 'hello')
 
       // -> A block inside a closed spoiler or an unselected tab measures zero throughout
@@ -162,6 +250,7 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
     })
 
     it('leaves a drawing that has a size of its own alone', async () => {
+      stubSiteFetch({ onRequest: () => okResponse() })
       const el = await mount('test-diagram-image', 'hello')
       const sheet = el.shadowRoot.querySelector('.sheet')
       Object.defineProperty(sheet, 'clientWidth', { value: 400, configurable: true })
@@ -170,73 +259,6 @@ describe('shared/diagram-image.js: DiagramImageElement', () => {
       await el.updateComplete
 
       expect(el.shadowRoot.querySelector('.diagram.is-unsized')).toBeNull()
-    })
-  })
-
-  describe('_explain', () => {
-    it('names the server that could not draw the diagram', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response('', { status: 200 }))
-      )
-      const el = await mount('test-diagram-image', 'hello')
-
-      await el._explain('https://diagrams.test/svg/hello')
-
-      expect(el._error).toBe('The diagram could not be drawn by https://diagrams.test.')
-    })
-
-    it('repeats the status when the second request comes back with one', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response('', { status: 502, statusText: 'Bad Gateway' }))
-      )
-      const el = await mount('test-diagram-image', 'hello')
-
-      await el._explain('https://diagrams.test/svg/hello')
-
-      expect(el._error).toBe('The server answered 502 Bad Gateway for this diagram.')
-    })
-
-    it('says to check the address when the second request cannot be made at all', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => {
-          throw new TypeError('Failed to fetch')
-        })
-      )
-      const el = await mount('test-diagram-image', 'hello')
-
-      await el._explain('https://diagrams.test/svg/hello')
-
-      expect(el._error).toContain('Check the server address')
-    })
-
-    it('honours a subclass reading its own reason off the response', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(
-          async () =>
-            new Response('', { status: 400, headers: { 'x-test-diagram-error': 'line 3' } })
-        )
-      )
-      const el = await mount('test-diagram-image-header', 'hello')
-
-      await el._explain('https://diagrams.test/svg/hello')
-
-      expect(el._error).toBe('The server could not read this diagram: line 3')
-    })
-
-    it('falls back to the status when the subclass finds no reason of its own', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response('', { status: 404, statusText: 'Not Found' }))
-      )
-      const el = await mount('test-diagram-image-header', 'hello')
-
-      await el._explain('https://diagrams.test/svg/hello')
-
-      expect(el._error).toBe('The server answered 404 Not Found for this diagram.')
     })
   })
 })

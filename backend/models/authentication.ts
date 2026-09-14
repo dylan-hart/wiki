@@ -135,6 +135,8 @@ export interface ProviderProfile {
    * `models/users.ts`'s `syncProviderGroups()`.
    */
   groups?: string[]
+  /** The provider's own avatar/picture URL, when it reports one. Absent means it did not say — never fabricate one (e.g. a gravatar default). */
+  picture?: string
 }
 
 /**

@@ -516,6 +516,51 @@ describe('createProviderFallbackUserConverter', () => {
       { email: 'ldap@example.com', sourceProvider: 'ldap' }
     )
   })
+
+  // Task 3218: 2.x TOTP secret carry-over. tfaIsActive/tfaSecret live on the 2.x user row itself,
+  // independent of providerKey, so a fallback-routed account carries them over the same as a
+  // local-provider one — see the sibling coverage under `createLocalUserConverter` below for the
+  // exhaustive carry-over/drop cases; this block only proves the fallback converter wires it too.
+  test('carries a valid 2.x TOTP secret over onto the fallback-routed local-strategy entry', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      email: 'tfa@example.com',
+      name: 'TFA User',
+      providerKey: 'ldap',
+      tfaIsActive: true,
+      tfaSecret: 'JBSWY3DPEHPK3PXP'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.tfaIsActive, true)
+    assert.equal(authEntry.tfaSecret, 'JBSWY3DPEHPK3PXP')
+    assert.equal(outcome.message, undefined)
+  })
+
+  test('drops 2FA and attaches a note when tfaIsActive is true but the secret is not usable', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      email: 'broken-tfa@example.com',
+      name: 'Broken TFA User',
+      providerKey: 'ldap',
+      tfaIsActive: true,
+      tfaSecret: ''
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.tfaIsActive, false)
+    assert.equal(authEntry.tfaSecret, '')
+    assert.match(outcome.message ?? '', /2FA/)
+    // -> providerFallback reporting still happens alongside the dropped-2FA note — the two are not
+    //    mutually exclusive.
+    assert.equal(outcome.providerFallback?.email, 'broken-tfa@example.com')
+  })
 })
 
 /**
@@ -1207,6 +1252,132 @@ describe('createLocalUserConverter', () => {
     assert.equal(outcome.status, 'created')
     if (outcome.status !== 'created') return
     assert.deepEqual(outcome.row.createdAt, new Date('2020-01-02T03:04:05.000Z'))
+  })
+
+  // Task 3218 ("Investigate and resolve 2.x TOTP secret handling in migration importer"): 2.5.x's
+  // TOTP implementation (node-2fa@1.1.2, itself built on notp + thirty-two) is the same RFC 6238
+  // construction backend/helpers/totp.ts verifies against — HMAC-SHA1, a 30-second step, 6 digits,
+  // over a base32 secret — confirmed in docs/audits/security-reviews/2026-08-17-passkey-rpid-totp-drift.md.
+  // A 2.x tfaSecret is therefore carried over verbatim rather than the prior hardcoded DROPPED
+  // `false`/`''` — see docs/migration/2.5x-to-3.0-mapping.md's `tfaIsActive`/`tfaSecret` rows.
+  describe('2.x TOTP secret carry-over', () => {
+    test('carries a valid 2.x TOTP secret over when tfaIsActive is true', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local',
+        tfaIsActive: true,
+        tfaSecret: 'JBSWY3DPEHPK3PXP'
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+      assert.equal(authEntry.tfaIsActive, true)
+      assert.equal(authEntry.tfaSecret, 'JBSWY3DPEHPK3PXP')
+      assert.equal(outcome.message, undefined)
+    })
+
+    test('tolerates a secret with whitespace, dashes and padding the same way helpers/totp.ts#base32Decode does', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local',
+        tfaIsActive: true,
+        tfaSecret: 'jbsw y3dp-ehpk 3pxp='
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+      assert.equal(authEntry.tfaIsActive, true)
+    })
+
+    test('accepts an export-bundle integer 1 for tfaIsActive the same as mustChangePwd/isActive/isVerified', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local',
+        tfaIsActive: 1,
+        tfaSecret: 'JBSWY3DPEHPK3PXP'
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      assert.equal((outcome.row.auth as any)[LOCAL_STRATEGY_ID].tfaIsActive, true)
+    })
+
+    test('does not carry a stale secret over when tfaIsActive is false, and adds no note', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local',
+        tfaIsActive: false,
+        tfaSecret: 'JBSWY3DPEHPK3PXP'
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+      assert.equal(authEntry.tfaIsActive, false)
+      assert.equal(authEntry.tfaSecret, '')
+      assert.equal(outcome.message, undefined)
+    })
+
+    test('drops 2FA and attaches a note when tfaIsActive is true but tfaSecret is empty/missing', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local',
+        tfaIsActive: true
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+      assert.equal(authEntry.tfaIsActive, false)
+      assert.equal(authEntry.tfaSecret, '')
+      assert.match(outcome.message ?? '', /2FA/)
+    })
+
+    test('drops 2FA and attaches a note when tfaIsActive is true but tfaSecret is not valid base32 (malformed source row)', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local',
+        tfaIsActive: true,
+        tfaSecret: 'not-base32-at-all-!!!'
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+      assert.equal(authEntry.tfaIsActive, false)
+      assert.equal(authEntry.tfaSecret, '')
+      assert.match(outcome.message ?? '', /2FA/)
+    })
+
+    test('leaves tfaIsActive/tfaSecret dropped with no note when the source has neither column at all', async () => {
+      const outcome = await convert({
+        email: 'a@b.com',
+        name: 'A',
+        password: '$2a$12$fakehash',
+        providerKey: 'local'
+      })
+
+      assert.equal(outcome.status, 'created')
+      if (outcome.status !== 'created') return
+      const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+      assert.equal(authEntry.tfaIsActive, false)
+      assert.equal(authEntry.tfaSecret, '')
+      assert.equal(outcome.message, undefined)
+    })
   })
 })
 

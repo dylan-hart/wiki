@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import fastifyFormBody from '@fastify/formbody'
 import authenticationRoutes from './index.ts'
@@ -597,5 +597,124 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
 
     assert.equal(res.statusCode, 302)
     assert.equal(res.headers.location, '/target')
+  })
+})
+
+/**
+ * OpenProject #3200: a failed provider callback now reaches the audit log, from
+ * `finishProviderLogin()`'s one shared catch -- there is no earlier per-branch choke point for a
+ * redirect-based strategy the way `login()`'s own `str.authenticate()` catch is for a form-based one,
+ * so this single site covers both a `profile()` failure (no identity resolved at all) and a
+ * `loginWithProvider()` refusal of an otherwise-valid profile (unlinked account, inactive user, ...).
+ */
+describe('GET/POST /auth/:strategyId/callback — login.failed audit recording', () => {
+  const STRATEGY_ID = 'a5555555-5555-5555-5555-555555555555'
+  let app: FastifyInstance
+  let session: Record<string, any>
+  let auditLogRecord: ReturnType<typeof mock.fn>
+  let profileImpl: () => Promise<any>
+
+  function freshFlow(overrides: Record<string, any> = {}) {
+    return {
+      strategyId: STRATEGY_ID,
+      siteId: 'site-1',
+      state: 'abc123',
+      nonce: 'nonce123',
+      codeVerifier: 'verifier123',
+      redirect: '/target',
+      startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
+      ...overrides
+    }
+  }
+
+  before(async () => {
+    await ensureTemporal()
+    wikiHandle = installTestWiki({
+      config: { security: { authRateLimitEnabled: false } },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async (id: string) =>
+            id === STRATEGY_ID
+              ? { id: STRATEGY_ID, module: 'oidc', isEnabled: true, registration: true }
+              : null
+        },
+        login: {
+          loginWithProvider: async () => {
+            throw new Error('ERR_ACCOUNT_NOT_LINKED')
+          }
+        },
+        auditLog: {
+          record: (...args: any[]) => auditLogRecord(...args)
+        }
+      },
+      auth: {
+        strategies: {
+          [STRATEGY_ID]: {
+            module: 'oidc',
+            profile: async () => profileImpl()
+          }
+        }
+      }
+    })
+
+    app = await buildTestApp({
+      routes: withFormBody,
+      ajv: true,
+      session: () => session
+    })
+  })
+
+  after(async () => {
+    await closeTestApp(app)
+    wikiHandle.restore()
+  })
+
+  beforeEach(() => {
+    session = { authFlow: freshFlow() }
+    auditLogRecord = mock.fn(async () => {})
+  })
+
+  test('a loginWithProvider() refusal after a resolved profile records login.failed, named by the profile email', async () => {
+    profileImpl = async () => ({ id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/callback?code=abc&state=abc123`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.match(res.headers.location as string, /^\/login\?error=ERR_ACCOUNT_NOT_LINKED/)
+
+    assert.equal(auditLogRecord.mock.callCount(), 1)
+    const entry = (auditLogRecord.mock.calls[0].arguments as any)[0]
+    assert.equal(entry.event, 'login.failed')
+    // -> No local user is ever resolved at this layer, even though the account this failure is about
+    //    does exist -- the best identifier available is what the provider's profile asserted.
+    assert.deepEqual(entry.actor, { id: null, name: 'ada@example.com', ip: '127.0.0.1' })
+    assert.equal(entry.targetType, 'user')
+    assert.equal(entry.targetLabel, 'ada@example.com')
+    assert.deepEqual(entry.detail, { strategyId: STRATEGY_ID, reason: 'ERR_ACCOUNT_NOT_LINKED' })
+    assert.equal(entry.siteId, 'site-1')
+  })
+
+  test('a profile() failure with no identity resolved yet still records login.failed, naming nobody', async () => {
+    profileImpl = async () => {
+      throw new Error('ERR_LOGIN_FAILED')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/callback?code=abc&state=abc123`
+    })
+
+    assert.equal(res.statusCode, 302)
+
+    assert.equal(auditLogRecord.mock.callCount(), 1)
+    const entry = (auditLogRecord.mock.calls[0].arguments as any)[0]
+    assert.equal(entry.event, 'login.failed')
+    assert.deepEqual(entry.actor, { id: null, name: '', ip: '127.0.0.1' })
+    assert.equal(entry.targetLabel, '')
+    assert.deepEqual(entry.detail, { strategyId: STRATEGY_ID, reason: 'ERR_LOGIN_FAILED' })
   })
 })

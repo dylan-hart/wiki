@@ -163,6 +163,7 @@ class Settings {
           hstsDuration: 0,
           trustProxy: false,
           uploadMaxFileSize: 10485760,
+          uploadMaxFilesPerBatch: 10,
           uploadScanSVG: true
         }
       },

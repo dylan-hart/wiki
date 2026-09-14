@@ -4,7 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { CronExpressionParser } from 'cron-parser'
+import { Cron } from 'croner'
 import { runReplicationPostImport } from '../helpers/replicationPostImport.ts'
 
 /** The task `tick()` queues once the configured schedule is due. */
@@ -71,12 +71,11 @@ class Replication {
     }
 
     if (cfg.lastRunAt) {
-      let next
+      let next: Date | null
       try {
-        next = CronExpressionParser.parse(cfg.cronSchedule, {
-          startDate: Temporal.Instant.from(cfg.lastRunAt).toString({ smallestUnit: 'millisecond' }),
-          tz: 'UTC'
-        }).next()
+        next = new Cron(cfg.cronSchedule, { timezone: 'UTC', paused: true }).nextRun(
+          new Date(Temporal.Instant.from(cfg.lastRunAt).epochMilliseconds)
+        )
       } catch (err: any) {
         WIKI.logger.warn('jobs', 'unparseable replication cron expression, skipping', {
           schedule: cfg.cronSchedule,
@@ -84,7 +83,7 @@ class Replication {
         })
         return 0
       }
-      if (next.getTime() > now.epochMilliseconds) {
+      if (!next || next.getTime() > now.epochMilliseconds) {
         return 0
       }
     }

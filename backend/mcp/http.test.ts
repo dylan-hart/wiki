@@ -3,7 +3,7 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from 'node
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server'
 import { activeBanMemo } from '../helpers/rateLimit.ts'
 import httpRoutes from './http.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -15,10 +15,12 @@ let wikiHandle: { restore(): void }
  * Exercises `mcp/http.ts` as a real Fastify plugin (`app.inject()`, same pattern
  * `helpers/rateLimit.test.ts` and `controllers/site.test.ts` use) rather than unit-testing its
  * internals directly — the thing actually worth proving here is the wiring: per-request bearer auth,
- * the rate limiter, and the session lifecycle the MCP SDK's `StreamableHTTPServerTransport` expects,
- * all glued into Fastify's request/reply cycle including `reply.hijack()`. The transport's own
- * protocol-framing correctness is the SDK's problem, not this suite's; `WIKI.models.apiKeys.verify`
- * and `WIKI.models.rateLimits.consume` are stubbed so no database is touched.
+ * the rate limiter, and the session lifecycle the MCP SDK's `WebStandardStreamableHTTPServerTransport`
+ * expects, all glued into Fastify's request/reply cycle including `reply.hijack()` and `webBridge.ts`'s
+ * Fastify↔Web-Standard conversion. The transport's own protocol-framing correctness is the SDK's
+ * problem, not this suite's; `WIKI.models.apiKeys.verify` and `WIKI.models.rateLimits.consume` are
+ * stubbed so no database is touched. `app` here is built with no explicit `bodyLimit`, so it runs
+ * under Fastify's own 1 MiB default — exactly what the body-size-limit test below relies on.
  */
 describe('mcp/http', () => {
   let app: FastifyInstance
@@ -169,6 +171,29 @@ describe('mcp/http', () => {
     })
     assert.equal(res.statusCode, 401)
     assert.deepEqual(verifyCalls, ['nope'])
+  })
+
+  test('a request body over the size limit is refused with 413', async () => {
+    // -> The app-wide Fastify `bodyLimit` (`core/http/server.ts`, 1 MiB here since this suite's `app`
+    //    sets no override) is what refuses this, not anything `mcp/http.ts` does itself — the v1 SDK's
+    //    own missing internal body-size check (OpenProject #3160's audit source) is moot once every
+    //    route, this one included, sits behind the same instance-level guard `/_api/` and everything
+    //    else already does. A valid bearer token, so the `onRequest` auth hook (which runs BEFORE
+    //    Fastify parses the body) completes normally and this genuinely exercises body-size refusal
+    //    rather than short-circuiting on auth first.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { padding: 'x'.repeat(2 * 1024 * 1024) }
+      })
+    })
+    assert.equal(res.statusCode, 413)
+    assert.deepEqual(verifyCalls, [TOKEN_A])
   })
 
   test('a valid token over its rate limit is refused with 429', async () => {
@@ -409,7 +434,11 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
   })
 
   test('an idle session is evicted (no longer reachable) and its transport is closed', async () => {
-    const closeSpy = mock.method(StreamableHTTPServerTransport.prototype, 'close', async () => {})
+    const closeSpy = mock.method(
+      WebStandardStreamableHTTPServerTransport.prototype,
+      'close',
+      async () => {}
+    )
     try {
       const sessionId = await harness.openSession()
       // -> Confirm it is reachable right after opening, before the ttl has had a chance to lapse.

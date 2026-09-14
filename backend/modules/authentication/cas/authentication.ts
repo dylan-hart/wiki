@@ -8,7 +8,6 @@ const xmlParser = new XMLParser({ removeNSPrefix: true })
 /** What `serviceValidate` reported, before it is mapped into a `ProviderProfile`. */
 interface CasValidation {
   username: string
-  /** CAS 1.0 never has any of these — see the module's own doc comment. */
   attrs: Record<string, unknown>
 }
 
@@ -30,8 +29,8 @@ function firstOf(value: unknown): string | undefined {
  * A redirect-based module, like OAuth2/OIDC and SAML, but predating both and with no client library on
  * npm that fits this fork's non-`passport` pattern the way `openid-client` and `@node-saml/node-saml`
  * do for those two — so this module talks the protocol directly. It has exactly two moving parts:
- * `GET /login?service=` to send the browser off, and `GET /serviceValidate` (CAS 1.0) or
- * `GET /p3/serviceValidate` (CAS 3.0) to redeem the `ticket` CAS hands back for who authenticated.
+ * `GET /login?service=` to send the browser off, and `GET /p3/serviceValidate` to redeem the `ticket`
+ * CAS hands back for who authenticated.
  *
  * CAS defines no `state` parameter of its own — see `AuthFlow.state` in `models/authentication.ts` for
  * the full reasoning. In short: `state` is appended as a query parameter onto the `service` URL this
@@ -42,14 +41,12 @@ function firstOf(value: unknown): string | undefined {
  * `service` string from `redirectUri` + `state`, since CAS requires `serviceValidate`'s own `service`
  * parameter to match, character for character, the one the ticket was actually issued against.
  *
- * CAS 1.0's answer is two lines of plain text (`yes\n<username>` or `no\n\n`) and reports no attributes
- * at all — so `emailAttribute`/`displayNameAttribute` are gated out of the admin form entirely once
- * `casVersion` is set to `CAS1.0` (see `definition.yml`), and `id`/`name` always fall back to the bare
- * username. `email`, though, is never fabricated out of that username: per `ProviderProfile`'s own
- * doc comment in `models/authentication.ts`, an account is matched or created by an address this module
- * has established belongs to the person, and an unverified username is not that. A CAS 1.0 strategy
- * therefore has no way to provision or log in an account through this framework's email-keyed model —
- * a real, documented limitation of the protocol version, not a bug here.
+ * `email` is never fabricated out of the bare CAS username: per `ProviderProfile`'s own doc comment in
+ * `models/authentication.ts`, an account is matched or created by an address this module has
+ * established belongs to the person, and an unverified username is not that. (CAS 1.0 support was
+ * removed entirely for exactly this reason — it reports no attributes at all, so a CAS 1.0 strategy had
+ * no way to provision or log in an account through this framework's email-keyed model. See OpenProject
+ * #3184/#3207.)
  */
 export default class CasAuthentication {
   strategyId: string
@@ -62,16 +59,11 @@ export default class CasAuthentication {
     this.conf = conf
   }
 
-  private casVersion(): 'CAS3.0' | 'CAS1.0' {
-    return this.conf.casVersion === 'CAS1.0' ? 'CAS1.0' : 'CAS3.0'
-  }
-
   /**
    * The `service` this module registers with CAS, and later re-presents to `serviceValidate` to redeem
    * a ticket against. `redirectUri` is the callback URL the framework already builds per-request (see
-   * `callbackUrl()` in `api/auth/provider.ts`) — not the strategy's own `baseUrl` config field, which
-   * exists only for parity with 2.5.x's field set and is not read by this module; nothing here needs an
-   * administrator-supplied base URL when the framework already computes an equivalent one dynamically.
+   * `callbackUrl()` in `api/auth/provider.ts`) — there is no separate administrator-supplied base URL
+   * config field here, since the framework already computes an equivalent one dynamically.
    */
   private serviceUrl(redirectUri: string, state: string): string {
     return `${redirectUri}?state=${state}`
@@ -99,10 +91,8 @@ export default class CasAuthentication {
       throw new Error('ERR_NO_CAS_TICKET')
     }
 
-    const casVersion = this.casVersion()
     const service = this.serviceUrl(flowCallback.redirectUri, flowCallback.state)
-    const validatePath = casVersion === 'CAS3.0' ? 'p3/serviceValidate' : 'serviceValidate'
-    const url = new URL(`${this.conf.casUrl}/${validatePath}`)
+    const url = new URL(`${this.conf.casUrl}/p3/serviceValidate`)
     url.searchParams.set('service', service)
     url.searchParams.set('ticket', flowCallback.ticket)
 
@@ -117,12 +107,10 @@ export default class CasAuthentication {
       throw new Error('ERR_CAS_LOGIN_FAILED')
     }
 
-    const { username, attrs } =
-      casVersion === 'CAS3.0' ? this.parseCas3Response(text) : this.parseCas1Response(text)
+    const { username, attrs } = this.parseCas3Response(text)
 
     // -> `id`/`name` fall back to the bare CAS username whenever the mapped attribute is either left
-    //    unconfigured or simply absent from what CAS reported — CAS 1.0's `attrs` is always empty, so
-    //    both always take this path there.
+    //    unconfigured or simply absent from what CAS reported.
     const id = firstOf(attrs[this.conf.uniqueIdAttribute]) || username
     const name = firstOf(attrs[this.conf.displayNameAttribute]) || username
     const email = firstOf(attrs[this.conf.emailAttribute])
@@ -135,21 +123,10 @@ export default class CasAuthentication {
       `given_name`/`family_name` — every deployment releases whatever its own directory happens to be
       configured for — so the two fields this instance stores come from the naive split of whatever
       `name` resolved to, and no attribute is guessed at by convention. Where that was the bare CAS
-      username (the mapped attribute unset or absent, and always under CAS 1.0) the split leaves a
-      mononym: no surname is invented out of a username, the same restraint `email` gets above.
+      username (the mapped attribute unset or absent) the split leaves a mononym: no surname is
+      invented out of a username, the same restraint `email` gets above.
     */
     return { id, email, name, ...splitDisplayName(name) }
-  }
-
-  private parseCas1Response(text: string): CasValidation {
-    const [status, username] = text.split('\n')
-    if (status?.trim() !== 'yes' || !username?.trim()) {
-      WIKI.models.flags.authDebug(
-        `CAS strategy ${this.strategyId}: ticket validation failed (CAS 1.0)`
-      )
-      throw new Error('ERR_CAS_LOGIN_FAILED')
-    }
-    return { username: username.trim(), attrs: {} }
   }
 
   private parseCas3Response(text: string): CasValidation {

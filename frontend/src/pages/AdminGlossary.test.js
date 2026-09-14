@@ -6,6 +6,7 @@ import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
 import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
 import { dialog, confirm } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 
 import { mountWithApp } from '../../test/mount.js'
 
@@ -30,6 +31,7 @@ vi.mock('browser-fs-access', () => ({
 //    .toHaveBeenCalled()` assertion to trip over.
 beforeEach(() => {
   fileSave.mockClear()
+  notifyQueue.splice(0, notifyQueue.length)
 })
 
 const EXPORT_TERMS = [
@@ -49,13 +51,13 @@ const EXPORT_TERMS = [
   }
 ]
 
-function mountAdminGlossary(terms = EXPORT_TERMS) {
+function mountAdminGlossary(terms = EXPORT_TERMS, siteOverrides = {}) {
   API_CLIENT.get.mockReturnValue({
     json: () => Promise.resolve({ formatVersion: 1, terms })
   })
 
   const { wrapper } = mountWithApp(AdminGlossary, {
-    stores: { admin: { currentSiteId: 'site-1' } }
+    stores: { admin: { currentSiteId: 'site-1' }, site: siteOverrides }
   })
   return wrapper
 }
@@ -371,6 +373,57 @@ describe('AdminGlossary: version history', () => {
         }
       })
     )
+  })
+})
+
+describe('AdminGlossary: rerenderAllPages() (OpenProject #3181)', () => {
+  it('is hidden when this instance cannot render server-side', async () => {
+    const wrapper = mountAdminGlossary(EXPORT_TERMS, { pdfExportAvailable: false })
+    await flushPromises()
+
+    expect(wrapper.find('[data-icon="tabler:wand"]').exists()).toBe(false)
+  })
+
+  it('is shown when this instance can render server-side', async () => {
+    const wrapper = mountAdminGlossary(EXPORT_TERMS, { pdfExportAvailable: true })
+    await flushPromises()
+
+    expect(wrapper.find('[data-icon="tabler:wand"]').exists()).toBe(true)
+  })
+
+  it('confirms, then queues every page and reports how many', async () => {
+    const wrapper = mountAdminGlossary(EXPORT_TERMS, { pdfExportAvailable: true })
+    await flushPromises()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, queued: 5 })
+    })
+
+    wrapper.vm.rerenderAllPages()
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalled()
+    expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/glossary/rerender-all-pages')
+    // -> `t()` has no real message catalog under test (see `admin.glossary.noTerms`'s own test
+    //    above, which asserts the raw key for the same reason) -- {count} interpolation isn't
+    //    exercised here, only that the queued count made it into the call at all.
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+  })
+
+  it('surfaces the server message on refusal', async () => {
+    const wrapper = mountAdminGlossary(EXPORT_TERMS, { pdfExportAvailable: true })
+    await flushPromises()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.reject({ data: { message: 'Rendering needs Puppeteer.' } })
+    })
+
+    wrapper.vm.rerenderAllPages()
+    await flushPromises()
+
+    const negative = notifyQueue.find((n) => n.type === 'negative')
+    expect(negative).toBeTruthy()
+    expect(negative.caption).toMatch(/puppeteer/i)
   })
 })
 

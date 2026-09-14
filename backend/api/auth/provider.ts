@@ -6,6 +6,7 @@ import {
   isFollowableRedirectTarget
 } from '../../helpers/redirectTarget.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { ProviderProfile } from '../../models/authentication.ts'
 
 /**
  * How long a redirect login may take before its callback is refused.
@@ -133,8 +134,11 @@ async function finishProviderLogin(
     return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_FAILED'))
   }
 
+  // -> Declared outside the `try` so the `catch` below can still name whoever the provider said this
+  //    was, even though the failure it is reporting happened after `profile()` resolved.
+  let profile: ProviderProfile | undefined
   try {
-    const profile = await instance.profile({
+    const resolvedProfile: ProviderProfile = await instance.profile({
       redirectUri: callbackUrl(req, strategy.id),
       state: flow.state,
       nonce: flow.nonce,
@@ -145,8 +149,9 @@ async function finishProviderLogin(
       ticket: extra.ticket,
       body: extra.body
     })
+    profile = resolvedProfile
     const result = await WIKI.models.login.loginWithProvider(
-      { siteId: flow.siteId, strategy, profile, ip: req.ip },
+      { siteId: flow.siteId, strategy, profile: resolvedProfile, ip: req.ip },
       req
     )
     /*
@@ -166,6 +171,25 @@ async function finishProviderLogin(
     WIKI.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
     )
+    /*
+      OpenProject #3200: the one place a failed provider callback reaches the audit log -- everything
+      from `profile()` itself failing (no identity was ever asserted) through `loginWithProvider()`
+      refusing an otherwise-valid profile (unlinked account, disallowed email, inactive user, a 2FA/
+      change-password continuation that could not be issued, ...) lands here, since a redirect-based
+      strategy has no single earlier choke point the way the local strategy's `str.authenticate()`
+      catch does. Follows the same `{ id: null, name: <best available identifier>, ip }` shape as that
+      catch: no local user is ever resolved at this layer, even for a failure that happened deep
+      inside an existing account's login, so `profile.email` (when the module got that far) is the
+      best identifier there is.
+    */
+    await WIKI.models.auditLog.record({
+      event: 'login.failed',
+      actor: { id: null, name: profile?.email ?? '', ip: req.ip },
+      targetType: 'user',
+      targetLabel: profile?.email ?? '',
+      detail: { strategyId: strategy.id, reason: err.message },
+      siteId: flow.siteId
+    })
     return reply.redirect(loginErrorUrl(redirect, err.message))
   }
 }

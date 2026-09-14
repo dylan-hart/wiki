@@ -91,6 +91,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./checklists.ts'))
     contentApp.register(import('./classificationLevels.ts'), { prefix: '/classification-levels' })
     contentApp.register(import('./comments.ts'))
+    contentApp.register(import('./diagramProxy.ts'))
     contentApp.register(import('./diagrams.ts'), { prefix: '/diagrams' })
     contentApp.register(import('./glossary.ts'))
     contentApp.register(import('./graph.ts'))

@@ -1,5 +1,7 @@
+import fastifyMultipart from '@fastify/multipart'
 import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
 import { CustomError } from '../helpers/common.ts'
+import { limitUploads } from '../helpers/rateLimit.ts'
 import { maySiteAdmin } from '../helpers/siteRules.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
@@ -72,6 +74,24 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  // -> UPLOAD CUSTOM BLOCKS (BATCH)'s body carries several files in one request, which the raw-bytes
+  //    approach above has no room for — `@fastify/multipart` claims `multipart/form-data`
+  //    specifically, which Fastify matches ahead of the generic `'*'` parser above regardless of
+  //    registration order (see `api/assets.ts`'s own batch route, and `api/pages/import.ts`, the
+  //    original precedent for this exact combination). `files` is the admin-configurable per-request
+  //    file-count cap (OpenProject #3211/#3231) — resource-exhaustion protection, not a user upload
+  //    quota. Exceeding it trips `@fastify/multipart`'s own `filesLimit` event while iterating
+  //    `req.parts()` below (`FST_FILES_LIMIT`, 413), before the over-the-limit file's bytes are ever
+  //    read into memory. `throwFileSizeLimit: false`, same OpenProject #849 reasoning as the sibling
+  //    batch routes: one oversized file must fail only its own entry, not the whole batch.
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: WIKI.config.security?.uploadMaxFileSize ?? 10485760,
+      files: WIKI.config.security?.uploadMaxFilesPerBatch ?? 10
+    },
+    throwFileSizeLimit: false
+  })
+
   /**
    * LIST SITE BLOCKS
    */
@@ -139,6 +159,12 @@ async function routes(app: FastifyInstance) {
       config: {
         permissions: ['manage:sites']
       },
+      // -> A tighter, upload-specific limit than the generic per-caller `/_api/*` ceiling -- once a
+      //    multi-file selection goes through the batch endpoint instead, a rapid burst of single-file
+      //    requests here is the signature of a caller working around that endpoint's own file-count
+      //    cap, not real single-upload usage. See `helpers/rateLimit.ts#limitUploads` (OpenProject
+      //    #3234).
+      preHandler: limitUploads,
       schema: {
         summary: 'Upload a custom block',
         description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,
@@ -208,6 +234,174 @@ async function routes(app: FastifyInstance) {
         ok: true,
         message: 'Custom block uploaded successfully.',
         block
+      }
+    }
+  )
+
+  /**
+   * UPLOAD CUSTOM BLOCKS (BATCH)
+   */
+  app.post<{ Params: { siteId: string } }>(
+    '/sites/:siteId/blocks/batch',
+    {
+      /*
+        Same security posture as UPLOAD CUSTOM BLOCK above, and for the identical reason: this route
+        introduces arbitrary script into every page that uses whatever it registers, `manage:sites`
+        is the entire boundary, and no narrower permission name may be invented for it. See the full
+        reasoning on the single-file route's `config` above (docs/security/custom-block-upload.md,
+        OpenProject #2128) — unchanged by batching several uploads into one request.
+      */
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Upload several custom blocks in one request',
+        description: `A \`multipart/form-data\` sibling of \`POST .../blocks\` (OpenProject #3211): several \`component.js\` files in one request (field name \`files\`, repeated), each validated exactly as the single-file route validates one — parsed for a static \`definition\`, its declared \`block\` tag checked against every other block already on this site (built-in, custom, OR already claimed earlier in this same batch — two files in one request cannot both win the same tag), and its \`customElements.define(...)\` call checked against that tag. At most ${WIKI.config.security?.uploadMaxFilesPerBatch ?? 10} files per request (admin-configurable), enforced by the multipart parser itself at parse time, before a file over that count is ever read into memory — exceeding it answers 413 for the whole request rather than a partial result. Each file is still individually capped at ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB, same limit the single-file route enforces. The response carries one result per file, in the order they were sent — a bad file in the batch fails only its own entry, so check each entry's own \`ok\`.`,
+        tags: ['Blocks'],
+        consumes: ['multipart/form-data'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          200: {
+            description: 'One result per uploaded file',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              results: {
+                type: 'array',
+                items: { $ref: 'BlockBatchUploadItem#' }
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          413: {
+            $ref: 'ApiError#',
+            description: 'More files than `security.uploadMaxFilesPerBatch` allows in one request.'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const results: { fileName: string; ok: boolean; message?: string; block?: unknown }[] = []
+      // -> Tags this batch has already claimed but not yet committed to the database — `isTagTaken()`
+      //    alone would let two files in the SAME request both pass its check (neither is inserted
+      //    yet when the second is checked), so both would attempt to register the same element and
+      //    only the database's own unique index would notice, as a raw 500 rather than a named
+      //    per-file conflict. Tracked here so the second file in a batch is refused with the same
+      //    kind of message the first would get from a pre-existing block, not a crash.
+      const claimedTags = new Set<string>()
+
+      try {
+        for await (const part of req.parts()) {
+          if (part.type !== 'file') {
+            continue
+          }
+          const data = await part.toBuffer()
+          if (part.file.truncated) {
+            results.push({
+              fileName: part.filename,
+              ok: false,
+              message: `This file is larger than the ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB upload limit.`
+            })
+            continue
+          }
+          if (data.length < 1) {
+            results.push({ fileName: part.filename, ok: false, message: 'This file is empty.' })
+            continue
+          }
+
+          const source = data.toString('utf8')
+          const result = extractBlockDefinition(source)
+          if (!result.ok) {
+            results.push({ fileName: part.filename, ok: false, message: result.error.message })
+            continue
+          }
+          const { definition } = result
+          if (!definition.block || typeof definition.block !== 'string') {
+            results.push({
+              fileName: part.filename,
+              ok: false,
+              message: 'component.js has no "block" tag in its static definition.'
+            })
+            continue
+          }
+
+          // -> Same promise-vs-reality check the single-file route runs — see its own comment above
+          //    for why nothing upstream of this otherwise confirms the uploaded code registers the
+          //    tag its definition claims.
+          const expectedTag = `block-${definition.block}`
+          const definedTag = extractDefinedElementTag(source)
+          if (definedTag !== expectedTag) {
+            results.push({
+              fileName: part.filename,
+              ok: false,
+              message: definedTag
+                ? `component.js calls customElements.define("${definedTag}", ...), but its definition's "block" ("${definition.block}") requires it to register "${expectedTag}".`
+                : `component.js must call customElements.define("${expectedTag}", ...) to match its definition's "block" ("${definition.block}").`
+            })
+            continue
+          }
+
+          if (claimedTags.has(definition.block)) {
+            results.push({
+              fileName: part.filename,
+              ok: false,
+              message: `Another file in this batch already registers the tag "block-${definition.block}".`
+            })
+            continue
+          }
+          if (await WIKI.models.blocks.isTagTaken(req.params.siteId, definition.block)) {
+            results.push({
+              fileName: part.filename,
+              ok: false,
+              message: `A block already registers the tag "block-${definition.block}" on this site.`
+            })
+            continue
+          }
+
+          claimedTags.add(definition.block)
+          try {
+            const block = await WIKI.models.blocks.createCustomBlock(
+              req.params.siteId,
+              definition,
+              data
+            )
+            results.push({ fileName: part.filename, ok: true, block })
+          } catch (err: any) {
+            results.push({
+              fileName: part.filename,
+              ok: false,
+              message: err.message || 'This block could not be uploaded.'
+            })
+          }
+        }
+      } catch (err: any) {
+        // -> The one whole-request failure mode: too many files in this batch, refused by
+        //    `@fastify/multipart` itself at parse time (see the plugin registration comment above,
+        //    and `api/assets.ts`'s identical batch route for the full reasoning behind checking
+        //    both error codes here — confirmed directly against a real listening server, not just
+        //    `inject()`, that a small batch sent in one TCP write can surface either one).
+        if (err.code === 'FST_FILES_LIMIT' || err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+          return reply.code(413).send({
+            ok: false,
+            statusCode: 413,
+            error: 'Payload Too Large',
+            message: `This batch has more files than the ${WIKI.config.security?.uploadMaxFilesPerBatch ?? 10} file limit for one request.`
+          })
+        }
+        throw err
+      }
+
+      if (results.length < 1) {
+        return reply.badRequest('No files were sent.')
+      }
+
+      return {
+        ok: true,
+        message: `${results.filter((r) => r.ok).length} of ${results.length} file(s) uploaded successfully.`,
+        results
       }
     }
   )

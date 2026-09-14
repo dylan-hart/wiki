@@ -96,33 +96,40 @@ props:
     icon: person
     default: family_name
     order: 13
+  pictureClaim:
+    type: String
+    title: Picture Claim
+    hint: Which claim carries the user's avatar/picture URL. `picture` is the OpenID Connect standard one. A provider that issues no picture claim simply leaves the account's avatar unsynced — nothing is fabricated.
+    icon: photo
+    default: picture
+    order: 14
   logoutURL:
     type: String
     title: Logout URL
     hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
     icon: exit
-    order: 14
+    order: 15
   allowUnverifiedEmail:
     type: Boolean
     title: Accept Unverified Addresses
     hint: Off by default. An address the provider itself reports as unverified (email_verified false) proves nothing about the mailbox, and an account here is matched on the address.
     icon: received
     default: false
-    order: 15
+    order: 16
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
     icon: user-groups
     default: false
-    order: 16
+    order: 17
   groupsClaim:
     type: String
     title: Groups Claim
     hint: Which claim carries the user's group memberships.
     icon: user-groups
     default: 'groups'
-    order: 17
+    order: 18
     if:
       - { key: 'mapGroups', eq: true }
   groupsScope:
@@ -131,7 +138,7 @@ props:
     hint: (optional) A scope to add to Scopes above if it isn't already there, for a provider that only includes group membership when it is explicitly requested (Okta and Keycloak both gate it behind a scope literally named `groups`). Leave empty if the provider needs none.
     icon: rules
     default: ''
-    order: 18
+    order: 19
     if:
       - { key: 'mapGroups', eq: true }
 refs:

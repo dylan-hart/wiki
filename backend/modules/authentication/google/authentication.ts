@@ -14,9 +14,11 @@ const ISSUER = 'https://accounts.google.com'
  * directly, and doing so needs neither a network round trip nor a signed token.
  *
  * Unlike the generic OIDC module there are no configurable claim names here: this is Google, and
- * Google issues the OpenID Connect standard `given_name`/`family_name` (Feature #2608). An account
- * whose Google profile carries only a given name keeps an empty last name — that is the mononym
- * case, and `models/users.ts` derives the display name from whatever halves it is handed.
+ * Google issues the OpenID Connect standard `given_name`/`family_name` (Feature #2608), and the
+ * standard `picture` claim for the account's avatar (Feature #3208) — absent whenever Google does
+ * not report one, never a fabricated default. An account whose Google profile carries only a given
+ * name keeps an empty last name — that is the mononym case, and `models/users.ts` derives the
+ * display name from whatever halves it is handed.
  */
 export function mapGoogleProfile(
   conf: Record<string, any>,
@@ -36,7 +38,10 @@ export function mapGoogleProfile(
     id: claims.sub,
     email,
     name: (claims.name as string) || email,
-    ...providerNameHalves(claims.given_name, claims.family_name)
+    ...providerNameHalves(claims.given_name, claims.family_name),
+    ...(typeof claims.picture === 'string' && claims.picture.trim()
+      ? { picture: claims.picture }
+      : {})
   }
 }
 

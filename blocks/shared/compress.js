@@ -4,9 +4,9 @@
  * for the same job -- packing a diagram source into a GET URL. Every browser able to run these Lit
  * blocks implements `CompressionStream`, including both `'deflate'` and `'deflate-raw'`.
  *
- * The dependency itself stays: `block-drawio`'s `mxgraph.js` still inflates a compressed diagram
- * with `pako`'s `inflateRaw`, which is the other direction and has no `DecompressionStream`
- * conversion here.
+ * `decompressRaw` below is the other direction, used by `block-drawio`'s `mxgraph.js` to read a
+ * compressed `<diagram>` payload back out -- both directions are native now, and pako is no longer a
+ * dependency of this workspace at all.
  *
  * Built from a `ReadableStream` rather than `new Blob([bytes]).stream()`: the same operation, but
  * without depending on `Blob.prototype.stream`, which jsdom (this block's test environment) does
@@ -27,4 +27,26 @@ export async function compress(bytes, format) {
     readable.pipeThrough(new CompressionStream(format))
   ).arrayBuffer()
   return new Uint8Array(buffer)
+}
+
+/**
+ * Inflates raw-deflate `bytes` (no zlib header) through the browser's native `DecompressionStream`
+ * and decodes the result as UTF-8 text, replacing `pako`'s `inflateRaw(bytes, { toText: true })` --
+ * `block-drawio`'s only remaining use of it, for reading back draw.io's compressed `<diagram>`
+ * payload. `DecompressionStream('deflate-raw')` is Baseline widely available (since May 2023) and
+ * present in Node 18+, the same support floor `compress()` above relies on.
+ *
+ * Stream/async-only, unlike pako's synchronous call -- every caller in `mxgraph.js` awaits it.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {Promise<string>}
+ */
+export async function decompressRaw(bytes) {
+  const readable = new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes)
+      controller.close()
+    }
+  })
+  return new Response(readable.pipeThrough(new DecompressionStream('deflate-raw'))).text()
 }

@@ -16,7 +16,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     type: 'object',
     properties: {
       id: { type: 'string', format: 'uuid' },
-      pageId: { type: 'string', format: 'uuid' },
+      pageId: {
+        type: ['string', 'null'],
+        format: 'uuid',
+        description:
+          'Null once the page this notification is about has since been deleted (OpenProject #3203) — `pagePath`/`pageLocale` below are what survives that and are what a link is built from.'
+      },
       pageTitle: {
         type: 'string',
         description:

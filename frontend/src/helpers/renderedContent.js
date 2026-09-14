@@ -6,8 +6,9 @@ import { isServerPath } from './serverPaths'
 import { notify } from '@/composables/notify'
 
 /**
- * The affordances a rendered page grows once it is on screen: a copy button on every code block, and a
- * pilcrow on every heading that copies a link to it.
+ * The affordances a rendered page grows once it is on screen: a copy button on every code block, a
+ * pilcrow on every heading that copies a link to it, and (OpenProject #3239) an explicit cell-range
+ * select mode on every table.
  *
  * Scripted rather than rendered, because a page's HTML arrives through `v-html`: there is no template
  * to put a component in, and no Vue instance inside the render to hang one off. So the same treatment
@@ -147,6 +148,217 @@ function csvOf(table) {
   return lines.join('\n')
 }
 
+/**
+ * `aria-colspan`/`aria-rowspan` -> real `colspan`/`rowspan`, the reverse of `renderers/markdown.js`'s
+ * `asGridCell` rename -- both are always digit-only strings the renderer itself set (from the
+ * multimd-table plugin's own parsed span counts), never free text off the page, so there is nothing
+ * here to escape.
+ */
+function spanAttrs(cell) {
+  let attrs = ''
+  const colspan = cell.getAttribute('aria-colspan')
+  const rowspan = cell.getAttribute('aria-rowspan')
+  if (colspan) {
+    attrs += ` colspan="${colspan}"`
+  }
+  if (rowspan) {
+    attrs += ` rowspan="${rowspan}"`
+  }
+  return attrs
+}
+
+/**
+ * A rendered table's rows -- and its caption, if it has one -- serialized as a real
+ * `<table>...</table>` HTML string: the clipboard's `text/html` counterpart to `csvOf`, and the
+ * reason `event.clipboardData` needs setting by hand at all (OpenProject #3143/#3238). Excel's and
+ * Google Sheets' HTML-paste importers key off literal `<table>`/`<tr>`/`<td>` markup (the CF_HTML
+ * clipboard convention), not ARIA roles -- see `renderers/markdown.js`'s own "TABLE GRID MARKUP"
+ * comment for why the rendered table is a CSS Grid of role-bearing `<div>`s rather than a `<table>`
+ * in the first place, and why reconstructing one is cheaper done on demand, at copy time, than by
+ * keeping a hidden shadow `<table>` twin of every table's DOM around just in case.
+ *
+ * Walks `table`'s own direct children -- rows and, if present, a `.table-caption` -- rather than
+ * `querySelectorAll`, so only THIS table's structure is read even if a cell somehow nests another
+ * table's markup inside it. A cell's `innerHTML` is copied verbatim rather than flattened to
+ * `textContent` the way `csvOf`/`tsvOf` do, so a link or bold run inside a cell survives the round
+ * trip. A `<caption>` is kept in its authored DOM position: `<table>`'s "in table" insertion mode
+ * accepts a `caption` start tag from any of its top-level children, not only the first, and
+ * `caption-side` (carried over via the same inline `style` the source div already carries) is what
+ * actually decides where it draws either way.
+ */
+function tableHtmlOf(table) {
+  let html = '<table>'
+  for (const child of table.children) {
+    if (child.getAttribute('role') === 'row') {
+      html += '<tr>'
+      for (const cell of child.children) {
+        const tag = cell.getAttribute('role') === 'columnheader' ? 'th' : 'td'
+        const style = cell.getAttribute('style')
+        html += `<${tag}${style ? ` style="${style}"` : ''}${spanAttrs(cell)}>${cell.innerHTML}</${tag}>`
+      }
+      html += '</tr>'
+    } else if (child.classList.contains('table-caption')) {
+      const style = child.getAttribute('style')
+      html += `<caption${style ? ` style="${style}"` : ''}>${child.innerHTML}</caption>`
+    }
+  }
+  html += '</table>'
+  return html
+}
+
+/**
+ * A rendered table's rows, serialized as tab-separated plain text -- the clipboard's `text/plain`
+ * fallback alongside `tableHtmlOf`'s `text/html`, read by a paste target that only looks at the
+ * plain-text slot. The `csvOf`/`csvField` counterpart for TSV: cell text is trimmed the same way,
+ * but TSV has no quoting convention to protect a delimiter character the way `csvField`'s RFC4180
+ * quoting does, so a literal tab or newline INSIDE a cell is collapsed to a single space instead of
+ * being escaped -- the alternative is that character silently being read back as a column or row
+ * break by whatever the TSV is pasted into.
+ */
+function tsvOf(table) {
+  const lines = []
+  for (const row of table.querySelectorAll('[role="row"]')) {
+    const cells = row.querySelectorAll('[role="columnheader"], [role="cell"]')
+    lines.push(
+      Array.from(cells, (cell) => cell.textContent.trim().replace(/[\t\r\n]+/g, ' ')).join('\t')
+    )
+  }
+  return lines.join('\n')
+}
+
+/**
+ * What a table copy puts on the clipboard, kept as its own step separate from finding the table and
+ * from the event handling around it -- so OpenProject #3240 (wiring a cell-range select-mode's
+ * active range into this same copy handler) can swap only this piece for one that serializes the
+ * active range's cell subset instead of always the routine table, rather than rewriting the listener.
+ */
+function serializeTableForClipboard(table) {
+  return { html: tableHtmlOf(table), text: tsvOf(table) }
+}
+
+/**
+ * `tableHtmlOf`'s counterpart for a select-mode cell-range (OpenProject #3240): the exact same
+ * role-to-tag mapping, `style` carry-over and `spanAttrs` call as `tableHtmlOf`, walking `cells` --
+ * `getActiveTableSelection()`'s rectangle, already clipped to it and corner-normalized -- instead of
+ * every row of the table. Never includes a `<caption>`: a caption describes the table as a whole,
+ * not one range cut out of it, and `cells` carries no caption element to begin with.
+ */
+function tableHtmlOfRange(cells) {
+  let html = '<table>'
+  for (const cellRow of cells) {
+    html += '<tr>'
+    for (const cell of cellRow) {
+      const tag = cell.getAttribute('role') === 'columnheader' ? 'th' : 'td'
+      const style = cell.getAttribute('style')
+      html += `<${tag}${style ? ` style="${style}"` : ''}${spanAttrs(cell)}>${cell.innerHTML}</${tag}>`
+    }
+    html += '</tr>'
+  }
+  html += '</table>'
+  return html
+}
+
+/**
+ * `tsvOf`'s counterpart for a select-mode cell-range (OpenProject #3240): same trim/tab-newline-
+ * collapse rule per cell, over `cells` -- `getActiveTableSelection()`'s rectangle -- instead of a
+ * walk of the table's own rows.
+ */
+function tsvOfRange(cells) {
+  return cells
+    .map((cellRow) =>
+      cellRow.map((cell) => cell.textContent.trim().replace(/[\t\r\n]+/g, ' ')).join('\t')
+    )
+    .join('\n')
+}
+
+/**
+ * `serializeTableForClipboard`'s counterpart for an active select-mode range (OpenProject #3240):
+ * what `handleTableCopy` puts on the clipboard instead of the whole table once a reader has entered
+ * select mode and named a rectangle.
+ */
+function serializeTableRangeForClipboard(range) {
+  return { html: tableHtmlOfRange(range.cells), text: tsvOfRange(range.cells) }
+}
+
+/**
+ * The `[role="table"]` a copy's current window selection sits entirely inside, or null when it
+ * doesn't -- nothing selected, a collapsed caret, a selection that reaches outside any table, or one
+ * that spans two different tables. `handleTableCopy`'s pre-flight for whether to intercept the event
+ * at all: anything this returns null for falls through to the browser's own copy exactly as it did
+ * before this shipped, which is deliberate -- native browser text selection is linear (one start
+ * node/offset to one end node/offset), so it cannot express a two-dimensional cell-range selection
+ * anyway (see Epic #3143's own reasoning); this only ever recognizes "the whole table", the one
+ * shape a linear selection CAN reliably mean here, and leaves partial cell-range copying to the
+ * explicit select-mode UI (#3239/#3240) instead of trying to reconstruct "which cells" from a Range.
+ */
+function tableForSelection(selection) {
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return null
+  }
+  let table = null
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const container = selection.getRangeAt(i).commonAncestorContainer
+    const startElement =
+      container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement
+    const rangeTable = startElement?.closest('[role="table"]')
+    if (!rangeTable || (table && rangeTable !== table)) {
+      return null
+    }
+    table = rangeTable
+  }
+  return table
+}
+
+/**
+ * The `copy` handler `addTableCopyInterception` wires onto `root`.
+ *
+ * OpenProject #3240: an active select-mode range (`getActiveTableSelection()`) always wins over the
+ * browser's own selection -- select mode exists precisely to name a rectangle the browser's linear
+ * selection cannot express, so once a reader has entered it, a copy from that table means "this
+ * range", not whatever the browser's own selection (typically none at all; select mode's own
+ * pointerdown handler already claims the gesture with `preventDefault()`) happens to reach. With no
+ * active range, this falls through to the original whole-table behavior unchanged.
+ */
+function handleTableCopy(event) {
+  if (!event.clipboardData) {
+    return
+  }
+  const activeRange = getActiveTableSelection()
+  const table = activeRange ? activeRange.table : tableForSelection(window.getSelection())
+  if (!table) {
+    return
+  }
+  const { html, text } = activeRange
+    ? serializeTableRangeForClipboard(activeRange)
+    : serializeTableForClipboard(table)
+  event.clipboardData.setData('text/html', html)
+  event.clipboardData.setData('text/plain', text)
+  event.preventDefault()
+}
+
+/**
+ * Wires the whole-table copy interception onto `root` itself, once (OpenProject #3143/#3238).
+ *
+ * Every other pass in this file re-runs over freshly-rendered CHILDREN on every call, idempotent via
+ * a per-element dataset flag on each one it decorates -- that works because `v-html` only ever
+ * replaces `root`'s children, never `root` itself. A `copy` listener has no per-element home to sit
+ * on that way: it has to be on something that stays put across a re-render to keep working at all,
+ * which is `root`. So the guard flag lives on `root` directly instead, and the listener is attached
+ * exactly once for the element's lifetime rather than once per render pass.
+ *
+ * Delegated (attached to `root`, not to each table) rather than a per-table listener for the same
+ * reason the guard is root-level: a table rendered after this first runs would otherwise get no
+ * listener of its own until the next `enhanceRenderedContent` pass happened to re-decorate it, and
+ * `copy` bubbles, so one listener on `root` already sees every copy started anywhere under it.
+ */
+function addTableCopyInterception(root) {
+  if (root.dataset.tableCopyWired !== undefined) {
+    return
+  }
+  root.dataset.tableCopyWired = ''
+  root.addEventListener('copy', handleTableCopy)
+}
+
 function addCodeCopyButtons(root, t) {
   for (const pre of root.querySelectorAll('pre.codeblock:not([data-code-copy])')) {
     // -> Marks the block as done, and is what the stylesheet keys the button's position off
@@ -272,8 +484,397 @@ export function enhanceRenderedContent(root, t) {
   }
   addCodeCopyButtons(root, t)
   addTableCopyButtons(root, t)
+  addTableCopyInterception(root)
   addHeadingAnchors(root, t)
   enhanceContentImageZoom(root, t)
+  enableTableSelectMode(root)
+}
+
+/*
+  CELL-RANGE SELECT MODE (OpenProject #3239, Feature #3143)
+  =============================================================
+
+  An explicit, script-driven rectangular cell selection for a rendered table -- independent of the
+  browser's own text selection, which is inherently linear (a start node/offset to an end one), not
+  two-dimensional, and so can never actually express "this row/column rectangle" against a table laid
+  out as CSS Grid `div`s (see `renderers/markdown.js`'s "TABLE GRID MARKUP" comment). Click a cell to
+  start a one-cell range; drag, or shift-click a second cell in the same table, extends it to the
+  rectangle between the two (the "anchor" and the "focus" corner, the same vocabulary a spreadsheet
+  uses). Escape, or a pointerdown that lands outside the active table entirely, ends it. Arrow keys
+  move the focus corner one cell at a time once a cell has keyboard focus; shift held extends the
+  range instead of moving the anchor along with it.
+
+  State lives at module scope, not closed over anywhere unreachable from outside this file:
+  `getActiveTableSelection()` is the read surface OpenProject #3240 (wiring this into the copy
+  handler) uses. #3240 also added `syncNativeTableSelectionToRange` (called from
+  `renderTableSelectHighlight`, see its own comment): a real, non-collapsed `Selection` mirrored onto
+  the rectangle's top-left cell purely so Ctrl+C actually raises the `copy` event `handleTableCopy`
+  intercepts.
+*/
+
+/** Matches a cell OR a header cell -- the two roles `renderers/markdown.js` gives a table's grid
+ *  children (see the module comment above). */
+const TABLE_SELECT_CELL_SELECTOR = '[role="cell"], [role="columnheader"]'
+
+/** A control the content itself already carries, whose own click a table-selection click must not
+ *  steal -- OpenProject #3238's per-table copy button lives in the very `.table-wrap` a click here
+ *  would otherwise be free to land on, and a link/input/contenteditable region has its own job to do. */
+const TABLE_SELECT_INERT_SELECTOR = 'button, a, input, textarea, select, [contenteditable="true"]'
+
+/** The live selection (`{ table, anchorRow, anchorCol, focusRow, focusCol, focusedCell }`), or null
+ *  when nothing is selected anywhere on the page -- there is only ever one at a time. */
+let activeSelection = null
+
+/** Whether the click-away/Escape listeners below have been wired yet -- once ever, not once per
+ *  `root`; see `ensureTableSelectDocumentListeners`. */
+let tableSelectDocumentListenersWired = false
+
+/** Every `[role="row"]` directly under `table`, in document order -- `renderers/markdown.js` always
+ *  nests a row straight under the table itself, with no row-group wrapper (see its own "TABLE GRID
+ *  MARKUP" comment), so a plain `:scope >` walk is the whole of what addressing a row needs. */
+function tableSelectRows(table) {
+  return Array.from(table.querySelectorAll(':scope > [role="row"]'))
+}
+
+/** Every cell/columnheader directly under `row`, in document order. */
+function tableSelectCells(row) {
+  return Array.from(row.querySelectorAll(':scope > [role="cell"], :scope > [role="columnheader"]'))
+}
+
+/**
+ * `{ row, col }` of `cell` inside `table`'s own grid, or null when `cell` does not actually belong to
+ * it (a nested table inside a cell's own content resolves against ITS OWN nearest row/table instead,
+ * which is what the `closest()` calls below naturally do).
+ */
+function tableSelectAddress(table, cell) {
+  const row = cell.closest('[role="row"]')
+  if (!row || row.parentElement !== table) {
+    return null
+  }
+  const rowIndex = tableSelectRows(table).indexOf(row)
+  const colIndex = tableSelectCells(row).indexOf(cell)
+  if (rowIndex === -1 || colIndex === -1) {
+    return null
+  }
+  return { row: rowIndex, col: colIndex }
+}
+
+function clampInt(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
+
+/** Moves the roving `tabindex` (and real keyboard focus) onto `cell`, off whatever held it before. */
+function focusTableSelectCell(cell) {
+  if (activeSelection?.focusedCell && activeSelection.focusedCell !== cell) {
+    activeSelection.focusedCell.removeAttribute('tabindex')
+  }
+  cell.setAttribute('tabindex', '0')
+  cell.focus()
+  if (activeSelection) {
+    activeSelection.focusedCell = cell
+  }
+}
+
+/**
+ * Stamps `data-table-selected` on exactly the cells inside the active anchor<->focus rectangle, and
+ * clears it from every other cell of the same table -- the whole of what `_page-contents.scss` needs
+ * to paint the highlight.
+ */
+function renderTableSelectHighlight() {
+  if (!activeSelection) {
+    return
+  }
+  const { table, anchorRow, anchorCol, focusRow, focusCol } = activeSelection
+  const rowStart = Math.min(anchorRow, focusRow)
+  const rowEnd = Math.max(anchorRow, focusRow)
+  const colStart = Math.min(anchorCol, focusCol)
+  const colEnd = Math.max(anchorCol, focusCol)
+
+  for (const [rowIndex, row] of tableSelectRows(table).entries()) {
+    const inRowRange = rowIndex >= rowStart && rowIndex <= rowEnd
+    for (const [colIndex, cell] of tableSelectCells(row).entries()) {
+      if (inRowRange && colIndex >= colStart && colIndex <= colEnd) {
+        cell.dataset.tableSelected = ''
+      } else {
+        delete cell.dataset.tableSelected
+      }
+    }
+  }
+
+  syncNativeTableSelectionToRange(table, rowStart, colStart)
+}
+
+/**
+ * OpenProject #3240: mirrors a real, non-collapsed `Selection` onto the active rectangle's top-left
+ * cell, every time the rectangle changes. Without SOME `Selection` touching the page, most browsers
+ * never raise a `copy` event at all when the reader presses Ctrl+C -- the platform's own copy command
+ * is only enabled once something is selected, and select mode's own pointerdown handler already calls
+ * `preventDefault()` on every cell click specifically to stop the browser's OWN (linear, at most one
+ * corner to another) text selection from starting instead. This exists purely to make that event
+ * fire -- `handleTableCopy` never reads the `Selection` this places back for an active range, it
+ * reads `getActiveTableSelection()` instead.
+ *
+ * `range.selectNode(cell)`, not `range.selectNodeContents(cell)`: the latter collapses to nothing on
+ * an empty cell (start and end both land on `(cell, 0)`), where `selectNode` places its two
+ * boundaries around the cell itself in ITS PARENT's child list -- non-collapsed regardless of
+ * whether the cell holds any content. Only the rectangle's top-left corner, never the whole
+ * rectangle: a `Range` is inherently linear (one DOM position to another), so spanning corner to
+ * corner across more than one row would sweep in every cell IN BETWEEN in document order too,
+ * including ones outside the rectangle whenever the table has more columns than the range covers --
+ * a single cell's worth of native highlight is a small, honest visual footprint, layered under
+ * `data-table-selected`'s own ring/wash, rather than a second one that would read as wrong.
+ *
+ * Best-effort: wrapped in try/catch because this is a convenience for the real Ctrl+C path, not
+ * something the actual clipboard payload depends on, and this file's own happy-dom test environment
+ * does not reliably emulate `Selection`/`Range` either (see this file's #3238 describe block).
+ */
+function syncNativeTableSelectionToRange(table, rowIndex, colIndex) {
+  try {
+    const sel = window.getSelection?.()
+    const cell = tableSelectCells(tableSelectRows(table)[rowIndex])[colIndex]
+    if (!sel || !cell) {
+      return
+    }
+    const range = document.createRange()
+    range.selectNode(cell)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  } catch {
+    // -> See the function comment: best-effort only.
+  }
+}
+
+/** Ends the active selection, if there is one: clears its markers, its roving `tabindex`, and the
+ *  native `Selection` `syncNativeTableSelectionToRange` mirrored onto it (OpenProject #3240). */
+function clearTableSelection() {
+  if (!activeSelection) {
+    return
+  }
+  for (const cell of activeSelection.table.querySelectorAll('[data-table-selected]')) {
+    delete cell.dataset.tableSelected
+  }
+  activeSelection.focusedCell?.removeAttribute('tabindex')
+  activeSelection = null
+  try {
+    window.getSelection?.()?.removeAllRanges()
+  } catch {
+    // -> See syncNativeTableSelectionToRange's comment: best-effort only.
+  }
+}
+
+/**
+ * The active cell-range selection, for a caller outside this module (OpenProject #3240's copy
+ * handler) to read. `cells` is the selected rectangle as rows of DOM elements, in document order --
+ * the shape a `<table>`-HTML/TSV serializer wants, and already clipped to whichever corner is
+ * actually the top-left/bottom-right regardless of which way the reader dragged.
+ *
+ * @returns {{ table: Element, rowStart: number, rowEnd: number, colStart: number, colEnd: number,
+ *   cells: Element[][] } | null} null when nothing is currently selected.
+ */
+export function getActiveTableSelection() {
+  if (!activeSelection) {
+    return null
+  }
+  const { table, anchorRow, anchorCol, focusRow, focusCol } = activeSelection
+  const rowStart = Math.min(anchorRow, focusRow)
+  const rowEnd = Math.max(anchorRow, focusRow)
+  const colStart = Math.min(anchorCol, focusCol)
+  const colEnd = Math.max(anchorCol, focusCol)
+
+  const rows = tableSelectRows(table)
+  const cells = []
+  for (let r = rowStart; r <= rowEnd; r++) {
+    cells.push(tableSelectCells(rows[r]).slice(colStart, colEnd + 1))
+  }
+  return { table, rowStart, rowEnd, colStart, colEnd, cells }
+}
+
+/**
+ * Tracks the rest of one drag gesture that started on `table`: every `pointermove` landing on one of
+ * its own cells extends the focus corner there.
+ *
+ * Deliberately NOT `helpers/pointerDrag.js`'s `trackPointerDrag` -- that helper captures the pointer
+ * onto one bounded surface (`WColorPicker`'s field, `WRange`'s rail) precisely so every subsequent
+ * event keeps targeting it regardless of where the pointer physically is, which is exactly backwards
+ * for this: hit-testing WHICH cell the pointer is over is the entire point. Plain, uncaptured
+ * `pointermove` listeners get that hit-test for free from `event.target` -- a real browser resolves it
+ * the normal way, and a test can dispatch straight at a target cell with no layout engine required.
+ * The trade-off is that the gesture stops updating once the pointer leaves the table's own content
+ * (there is no capture keeping events aimed at it), an accepted limitation for a simpler, directly
+ * testable path.
+ */
+function beginTableSelectDrag(table) {
+  const onMove = (ev) => {
+    if (!activeSelection || activeSelection.table !== table) {
+      return
+    }
+    const cell = ev.target.closest?.(TABLE_SELECT_CELL_SELECTOR)
+    if (!cell || !table.contains(cell)) {
+      return
+    }
+    const addr = tableSelectAddress(table, cell)
+    if (!addr) {
+      return
+    }
+    activeSelection.focusRow = addr.row
+    activeSelection.focusCol = addr.col
+    renderTableSelectHighlight()
+  }
+  const onEnd = () => {
+    document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onEnd)
+    document.removeEventListener('pointercancel', onEnd)
+  }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onEnd, { once: true })
+  document.addEventListener('pointercancel', onEnd, { once: true })
+}
+
+/**
+ * Escape (ends the selection outright), or an arrow key moving the focus corner one cell at a time --
+ * shift held extends the range instead of dragging the anchor along with it. Arrow keys only act while
+ * the event's own target sits inside the active selection's table, so an arrow key typed anywhere else
+ * on the page (a form field, a different table entered and then tabbed away from) is left alone.
+ */
+function handleTableSelectKeyDown(ev) {
+  if (!activeSelection) {
+    return
+  }
+  if (ev.key === 'Escape') {
+    clearTableSelection()
+    ev.preventDefault()
+    return
+  }
+
+  const delta = {
+    ArrowUp: [-1, 0],
+    ArrowDown: [1, 0],
+    ArrowLeft: [0, -1],
+    ArrowRight: [0, 1]
+  }[ev.key]
+  if (!delta || !activeSelection.table.contains(ev.target)) {
+    return
+  }
+
+  const { table } = activeSelection
+  const rows = tableSelectRows(table)
+  const row = clampInt(activeSelection.focusRow + delta[0], 0, rows.length - 1)
+  const rowCells = tableSelectCells(rows[row])
+  const col = clampInt(activeSelection.focusCol + delta[1], 0, Math.max(rowCells.length - 1, 0))
+
+  activeSelection.focusRow = row
+  activeSelection.focusCol = col
+  if (!ev.shiftKey) {
+    activeSelection.anchorRow = row
+    activeSelection.anchorCol = col
+  }
+  renderTableSelectHighlight()
+  focusTableSelectCell(rowCells[col])
+  ev.preventDefault()
+}
+
+/**
+ * The click-away half of entry/exit: a `pointerdown` anywhere the active selection's own table does
+ * not contain ends it, regardless of whether that landed inside some OTHER enhanced root's content, a
+ * completely unrelated part of the page, or (via `handleTableSelectPointerDown` running first, in the
+ * same bubble phase, for a pointerdown that lands on a cell) has already been superseded by a brand
+ * new selection.
+ */
+function handleTableSelectClickAway(ev) {
+  if (activeSelection && !activeSelection.table.contains(ev.target)) {
+    clearTableSelection()
+  }
+}
+
+/**
+ * Wires the click-away/Escape listeners exactly once for the page's whole lifetime, not once per
+ * `root` -- there is only ever one selection active at a time regardless of how many roots have
+ * called `enableTableSelectMode`, so one shared pair of document-level listeners is enough, and
+ * wiring more would just mean redundant no-op checks on every keystroke/click elsewhere on the page.
+ */
+function ensureTableSelectDocumentListeners() {
+  if (tableSelectDocumentListenersWired) {
+    return
+  }
+  tableSelectDocumentListenersWired = true
+  document.addEventListener('pointerdown', handleTableSelectClickAway)
+  document.addEventListener('keydown', handleTableSelectKeyDown)
+}
+
+/**
+ * Click (or the first `pointerdown` of a drag) on a cell inside `root`: starts a new one-cell
+ * selection, extends the active one (shift held, same table), or switches to a different table
+ * entirely (clearing the old one's markers first, so nothing stale survives). Landing on content that
+ * is not a cell at all does nothing here -- `handleTableSelectClickAway`'s own document-level listener
+ * is what ends whatever was active in that case.
+ */
+function handleTableSelectPointerDown(root, ev) {
+  if (ev.button !== 0 || ev.target.closest?.(TABLE_SELECT_INERT_SELECTOR)) {
+    return
+  }
+  const cell = ev.target.closest?.(TABLE_SELECT_CELL_SELECTOR)
+  const table = cell?.closest('[role="table"]')
+  if (!cell || !table || !root.contains(table)) {
+    return
+  }
+  const addr = tableSelectAddress(table, cell)
+  if (!addr) {
+    return
+  }
+
+  ensureTableSelectDocumentListeners()
+
+  if (ev.shiftKey && activeSelection?.table === table) {
+    activeSelection.focusRow = addr.row
+    activeSelection.focusCol = addr.col
+    renderTableSelectHighlight()
+    focusTableSelectCell(cell)
+    ev.preventDefault()
+    return
+  }
+
+  if (activeSelection && activeSelection.table !== table) {
+    clearTableSelection()
+  }
+  activeSelection = {
+    table,
+    anchorRow: addr.row,
+    anchorCol: addr.col,
+    focusRow: addr.row,
+    focusCol: addr.col,
+    focusedCell: null
+  }
+  renderTableSelectHighlight()
+  focusTableSelectCell(cell)
+  beginTableSelectDrag(table)
+  ev.preventDefault()
+}
+
+/**
+ * Wires cell-range select mode onto every table under `root`, once -- delegated to `root` itself
+ * (idempotent via a dataset flag, the same convention every other pass in this file uses), so it
+ * survives `v-html` replacing the tables underneath it on every re-render without needing to be
+ * re-wired.
+ *
+ * @param {HTMLElement|null} root The element the render was written into.
+ */
+function enableTableSelectMode(root) {
+  if (!root || root.dataset.tableSelect !== undefined) {
+    return
+  }
+  root.dataset.tableSelect = ''
+  root.addEventListener('pointerdown', (ev) => handleTableSelectPointerDown(root, ev))
+}
+
+/**
+ * Test-only reset: clears whatever selection is currently active, without touching the
+ * once-ever-wired document listeners (harmless left attached, same as the rest of this module's
+ * idempotent wiring) or any root's own dataset flag. Mirrors `contentImageZoom.js`'s
+ * `_resetContentImageZoom` -- module state a `document.body.innerHTML = ''` between tests does not
+ * itself clear, since the selection lives at module scope precisely so #3240 can reach it.
+ */
+export function _resetTableSelectMode() {
+  activeSelection = null
 }
 
 /*

@@ -184,6 +184,16 @@
   --content-table-scrollbar-thumb-hover: var(--color-slate-faint);
   --content-table-scrollbar-thumb-active: var(--color-negative-fill);
 
+  /*
+    OpenProject #3239: the cell-range select mode's own highlight, drawn over a selected cell
+    regardless of the zebra/hover state under it. `color-mix` off `--color-primary` rather than a
+    fixed grey -- the same approach `--content-links-row-hover` above already takes -- so the accent
+    reads as the site's own colour and stays dark-invariant for the same reason that one is: mixing
+    against `transparent` keeps resolving correctly whatever ground it ends up composited over.
+  */
+  --content-table-select-bg: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  --content-table-select-ring: var(--color-primary);
+
   --content-mark: #fdf1a0;
 
   /*
@@ -2529,6 +2539,30 @@
     [role='row']:not(:has(> [role='columnheader'])):hover > [role='cell']:first-child {
       box-shadow: var(--content-table-hover-edge);
     }
+  }
+
+  /*
+    Cell-range select mode (OpenProject #3239). `enableTableSelectMode`
+    (`helpers/renderedContent.js`) stamps `data-table-selected` on exactly the cells inside the
+    active anchor<->focus rectangle; this rule is the entire rest of what draws it -- a wash plus an
+    inset ring, over EITHER a plain/banded row or the head strip alike. `box-shadow` is never
+    contested (nothing else in this section sets it outside the `:hover` media block below, which a
+    selected cell can still also be under), but `background-color` is -- the zebra rule reaches
+    specificity 3 for a plain row (`[role='row']` + `:not(:has(...))` + `[role='cell']`) and 5 once
+    banded (`:nth-child(even of S)` embeds that same `:not(:has(...))` again as `S`, the same count
+    `_page-contents.test.js`'s hover-tie-break test documents), both of which a bare two-attribute
+    `[role='cell'][data-table-selected]` (specificity 2) loses to outright. The `[data-table-
+    selected]` clause is repeated -- redundant but valid, the exact technique the hover rule below
+    already uses on its own `:not(:has(...))` clause for the identical reason -- purely to clear that
+    bar (specificity 6) with a safety margin, so the highlight wins regardless of banding or hover
+    state and with no dependence on cascade order. `box-shadow`, not a real border for the ring --
+    inset never nudges `--content-table-cell-padding` or the grid's own column tracks the way adding
+    a border would.
+  */
+  [role='columnheader'][data-table-selected][data-table-selected][data-table-selected][data-table-selected][data-table-selected],
+  [role='cell'][data-table-selected][data-table-selected][data-table-selected][data-table-selected][data-table-selected] {
+    background-color: var(--content-table-select-bg);
+    box-shadow: inset 0 0 0 1px var(--content-table-select-ring);
   }
 
   /*

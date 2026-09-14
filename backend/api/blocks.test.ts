@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
+import { activeBanMemo } from '../helpers/rateLimit.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import blocksRoutes from './blocks.ts'
@@ -71,6 +72,11 @@ customElements.define('block-widget', BlockWidget)
                 elementTag: `block-${definition.block}`
               }
             }
+          },
+          // -> The upload route now carries `limitUploads` as a preHandler (OpenProject #3234); this
+          //    suite is about the route's own logic, not the limiter's, so it always allows.
+          rateLimits: {
+            consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
           }
         }
       }
@@ -526,5 +532,122 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
 
     assert.equal(res.statusCode, 400)
     assert.match(res.json().message, /not a valid URL/)
+  })
+})
+
+/**
+ * UPLOAD CUSTOM BLOCK route: rate limit wiring (OpenProject #3234).
+ *
+ * `helpers/rateLimit.test.ts` covers `limitUploads` itself in isolation; this proves it is actually
+ * attached to this route as a `preHandler` too -- a burst of single-file uploads exceeding the
+ * configured limit is refused with 429 before `WIKI.models.blocks.createCustomBlock` is ever called,
+ * and a normal, one-at-a-time caller is unaffected. Registers the real `permissionPreHandler`
+ * (`permissions: true`) so the route's own `manage:sites` gate runs first, exactly as it does in
+ * production.
+ */
+describe('UPLOAD CUSTOM BLOCK route: rate limit (OpenProject #3234)', () => {
+  const SITE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+
+  const WELL_FORMED = `
+export class BlockWidget extends HTMLElement {
+  static definition = {
+    block: 'widget2',
+    name: 'Widget2',
+    description: 'A test widget.',
+    icon: 'mdi:cube'
+  }
+}
+customElements.define('block-widget2', BlockWidget)
+`
+
+  let createCustomBlockCalls: number
+  let consumeCalls: { key: string }[]
+  let allowed: boolean
+
+  let app: FastifyInstance
+
+  before(async () => {
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(blocksRoutes)
+    }
+
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      session: 'header',
+      permissions: true,
+      wiki: {
+        config: { security: { uploadMaxFileSize: 10485760 } },
+        sites: { [SITE_ID]: { id: SITE_ID, isEnabled: true } },
+        models: {
+          blocks: {
+            isTagTaken: async () => false,
+            createCustomBlock: async () => {
+              createCustomBlockCalls++
+              return { id: 'new-block-id', block: 'widget2', elementTag: 'block-widget2' }
+            }
+          },
+          // -> A minimal stand-in for the real counter: `allowed` flips once the test wants the next
+          //    request refused, rather than re-deriving `helpers/rateLimit.ts`'s own counting logic.
+          rateLimits: {
+            consume: async (key: string) => {
+              consumeCalls.push({ key })
+              return allowed
+                ? { allowed: true, hits: 1, retryAfter: 0 }
+                : { allowed: false, hits: 21, retryAfter: 45 }
+            }
+          }
+        }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  function sessionHeader() {
+    return {
+      'x-test-session': JSON.stringify({
+        authenticated: true,
+        user: { id: 'admin-1' },
+        permissions: ['manage:sites']
+      })
+    }
+  }
+
+  test('a burst exceeding the limit is rejected with 429 and Retry-After, without reaching createCustomBlock()', async () => {
+    createCustomBlockCalls = 0
+    consumeCalls = []
+    allowed = false
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/blocks`,
+      headers: { ...sessionHeader(), 'content-type': 'text/javascript' },
+      payload: Buffer.from(WELL_FORMED)
+    })
+    assert.equal(res.statusCode, 429)
+    assert.equal(res.headers['retry-after'], '45')
+    assert.equal(createCustomBlockCalls, 0)
+    assert.equal(consumeCalls.length, 1)
+    assert.equal(consumeCalls[0].key, 'upload:admin-1')
+  })
+
+  test('normal single-file usage (one upload at a time) is unaffected', async () => {
+    // -> The previous test's refusal is memoized in the shared `activeBanMemo` (TTL'd to its own
+    //    `retryAfter`) so that a banned key is refused without reaching `consume()` again -- clear it
+    //    here so this test's `allowed = true` genuinely reaches the stub above rather than being
+    //    short-circuited by the earlier ban.
+    activeBanMemo.clear()
+    createCustomBlockCalls = 0
+    consumeCalls = []
+    allowed = true
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/blocks`,
+      headers: { ...sessionHeader(), 'content-type': 'text/javascript' },
+      payload: Buffer.from(WELL_FORMED)
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(createCustomBlockCalls, 1)
+    assert.equal(consumeCalls.length, 1)
   })
 })

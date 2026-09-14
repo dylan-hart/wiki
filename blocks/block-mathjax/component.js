@@ -53,6 +53,7 @@ import { explainEmptySource, explainSourceFailure, figureStyles } from '../share
 import { renderError } from '../shared/render.js'
 import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
+import { DYNAMIC_CHUNKS } from './dynamicChunks.js'
 
 // -> Exported so component.test.js can pin it against the 2.5.x-reachable set audited for
 //    Feature 366 / Task 634 without duplicating the list.
@@ -95,6 +96,27 @@ export const PACKAGES = [
  */
 const adaptor = liteAdaptor()
 RegisterHTMLHandler(adaptor)
+
+/*
+  Some glyph ranges -- extpfeil's extensible arrows (\xtwoheadrightarrow &c.), \verb's monospace
+  glyphs, every non-Latin/accented Unicode range -- ship as files of their own rather than inside the
+  font's base bundle, and MathJax fetches one only the first time a formula actually needs it. Doing
+  that fetch is `mathjax.asyncLoad`'s job, and none of the hooks MathJax ships one for (see
+  `@mathjax/src/js/util/asyncLoad/{esm,node,system}.js`) apply here: the esm one assumes an import
+  map or a same-origin relative fetch that still names the range as a bare npm specifier, the node
+  one assumes `require`, and this block is a single bundled file running in a browser with neither --
+  which is exactly why `\xtwoheadrightarrow` failed before this (OpenProject #3190). `DYNAMIC_CHUNKS`
+  in `./dynamicChunks.js` is where the real fetch happens, one literal `import()` per range so Rollup
+  can chunk each one on its own; this hook only has to turn MathJax's runtime-computed filename back
+  into the matching map entry.
+*/
+mathjax.asyncLoad = (name) => {
+  const key = name.replace(/^.*\//, '').replace(/\.js$/, '')
+  const load = DYNAMIC_CHUNKS[key]
+  return load
+    ? load()
+    : Promise.reject(new Error(`block-mathjax: no dynamic glyph chunk registered for "${name}"`))
+}
 
 const output = new SVG({
   fontData: MathJaxNewcmFont,
@@ -213,10 +235,19 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
 
   /**
    * Typeset the source, or say why it could not be.
+   *
+   * `document_.convert()` throws MathJax's "retry" signal (`retryAfter()` in `@mathjax/src`'s
+   * `util/Retries.js`) the first time a formula needs a dynamic glyph chunk `mathjax.asyncLoad`
+   * hasn't fetched yet — a real `Error` whose `.retry` is the in-flight load's promise, not a
+   * typesetting failure to report. `mathjax.handleRetriesFor` is what turns that signal into an
+   * actual wait: it re-runs the conversion once the load resolves, and keeps doing so for however
+   * many chunks one formula ends up needing, so this only has to await it once.
    */
-  _typeset(source, fenced) {
+  async _typeset(source, fenced) {
     try {
-      const container = document_.convert(source, { display: true })
+      const container = await mathjax.handleRetriesFor(() =>
+        document_.convert(source, { display: true })
+      )
       const drawing = adaptor.firstChild(container)
       /*
         The formula named for a reader who cannot see it. MathJax's own answer to this is a MathML
@@ -240,7 +271,10 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
       this._error = explainEmptySource('formula', { source: 'TeX source' })
       return
     }
-    this._typeset(source, fenced)
+    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
+    //    that needs to block it. Kept on the instance so a test can await the typeset finishing --
+    //    see shared/diagram-image.js's identical `_ready` for the two diagram blocks.
+    this._ready = this._typeset(source, fenced)
   }
 
   render() {

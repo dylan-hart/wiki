@@ -20,7 +20,7 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
-import { FixedThreadPool } from 'poolifier'
+import { Piscina } from 'piscina'
 
 const backendDir = path.join(import.meta.dirname, '..')
 const schedulerTs = readFileSync(path.join(backendDir, 'core/scheduler.ts'), 'utf8')
@@ -28,10 +28,10 @@ const workerTs = readFileSync(path.join(backendDir, 'worker.ts'), 'utf8')
 const globalDts = readFileSync(path.join(backendDir, 'types/global.d.ts'), 'utf8')
 
 describe('worker thread capabilities', () => {
-  test("the pool's workerOptions carry WIKI.capabilities alongside parentInstanceId", () => {
+  test("the pool's workerData carries WIKI.capabilities alongside parentInstanceId", () => {
     assert.match(
       schedulerTs,
-      /workerOptions: \{\s*workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID, capabilities: WIKI\.capabilities \}/
+      /workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID, capabilities: WIKI\.capabilities \}/
     )
   })
 
@@ -59,21 +59,18 @@ describe('worker thread capabilities', () => {
     assert.match(globalDts, /workerData/)
   })
 
-  test("poolifier's workerData really does carry capabilities into the thread", async () => {
+  test("piscina's workerData really does carry capabilities into the thread", async () => {
     // -> The claim a source scan cannot make, mirroring
     //    `schedulerWorkerIdentity.test.ts`'s parentInstanceId proof.
     const capabilities = { semanticSearch: true }
-    const pool = new FixedThreadPool<unknown, unknown>(
-      1,
-      path.join(backendDir, 'test/fixtures/workerCapabilitiesWorker.ts'),
-      {
-        errorHandler: () => {},
-        exitHandler: () => {},
-        workerOptions: { workerData: { parentInstanceId: 'parent-instance', capabilities } }
-      }
-    )
+    const pool = new Piscina<unknown, unknown>({
+      filename: path.join(backendDir, 'test/fixtures/workerCapabilitiesWorker.ts'),
+      minThreads: 1,
+      maxThreads: 1,
+      workerData: { parentInstanceId: 'parent-instance', capabilities }
+    })
     try {
-      const received = await pool.execute({})
+      const received = await pool.run({})
       assert.deepEqual(received, capabilities)
     } finally {
       await pool.destroy()
@@ -81,17 +78,14 @@ describe('worker thread capabilities', () => {
   })
 
   test('an undefined capabilities value forwards as undefined, not a throw', async () => {
-    const pool = new FixedThreadPool<unknown, unknown>(
-      1,
-      path.join(backendDir, 'test/fixtures/workerCapabilitiesWorker.ts'),
-      {
-        errorHandler: () => {},
-        exitHandler: () => {},
-        workerOptions: { workerData: { parentInstanceId: 'parent-instance' } }
-      }
-    )
+    const pool = new Piscina<unknown, unknown>({
+      filename: path.join(backendDir, 'test/fixtures/workerCapabilitiesWorker.ts'),
+      minThreads: 1,
+      maxThreads: 1,
+      workerData: { parentInstanceId: 'parent-instance' }
+    })
     try {
-      const received = await pool.execute({})
+      const received = await pool.run({})
       assert.equal(received, undefined)
     } finally {
       await pool.destroy()

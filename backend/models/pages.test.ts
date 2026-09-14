@@ -2830,6 +2830,20 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       .where(eq(pageWatchEventsTable.pageId, pageId))
   }
 
+  /**
+   * Same as `pendingEventsFor`, but keyed on `pagePath` rather than `pageId` — the field to use once
+   * the page in question has been deleted, since `pageId` is a foreign key (OpenProject #3203) and is
+   * `set null` on the very delete that made the row worth looking up in the first place.
+   */
+  async function pendingEventsForPath(
+    pagePath: string
+  ): Promise<(typeof pageWatchEventsTable.$inferSelect)[]> {
+    return fixtures.db
+      .select()
+      .from(pageWatchEventsTable)
+      .where(eq(pageWatchEventsTable.pagePath, pagePath))
+  }
+
   test('createPage queues nothing: nobody can be watching a page before it exists', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -2915,13 +2929,44 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     await pagesModel.deletePage(fixtures.siteId, page.id, actor)
     await drainQueuedNotifications()
 
-    const events = await pendingEventsFor(page.id)
+    // -> pageId is a foreign key, `set null` on delete (OpenProject #3203, `db/schema.ts`), so the row
+    //    can no longer be found by pageId once the page it was about is gone -- look it up by the
+    //    watcher and the path/action it recorded instead, the same fields the event itself survives on.
+    const events = await pendingEventsForPath('watch/delete-me')
     assert.equal(events.length, 1)
     assert.equal(events[0]!.userId, watcherId)
     assert.equal(events[0]!.action, 'deleted')
+    assert.equal(events[0]!.pageId, null)
 
     // -> The watch row itself is gone with the page (FK cascade) -- only the pending event survives it
     assert.equal(await WIKI.models.pageWatching.isWatching(page.id, watcherId), false)
+  })
+
+  test('deletePage records the "deleted" pageWatchEvents row synchronously, before the async job ever runs', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/delete-synchronously' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+    // -> No `drainQueuedNotifications()` here on purpose (OpenProject #3203): the row already exists
+    //    the moment `deletePage` returns, because `notifyWatchers` records it itself -- while the
+    //    `pages` row this FK depends on still exists -- rather than leaving the INSERT to the deferred
+    //    job, which would by now be trying to insert against a page id that no longer exists.
+    const events = await pendingEventsForPath('watch/delete-synchronously')
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.action, 'deleted')
+
+    // -> Draining the queued job afterwards must not insert a second row for the same watcher.
+    await drainQueuedNotifications()
+    assert.equal((await pendingEventsForPath('watch/delete-synchronously')).length, 1)
   })
 
   test('an immediate-mode watcher gets mail sent right away and their event marked delivered', async () => {
