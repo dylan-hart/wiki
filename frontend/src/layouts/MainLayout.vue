@@ -607,7 +607,7 @@ function scrollSidebarToTop() {
   directions that matter here -- it stays true on a touch-primary 2-in-1 laptop merely because a
   trackpad is also present (so it would not actually catch the touchscreen case this guards against),
   and it goes false on a touch-only tablet that is plenty wide enough to fit the overlay, whose drag
-  library (`sortablejs-vue3`) handles touch input fine on its own. Width is what actually decides
+  library (`sortablejs`, via `w-sortable`) handles touch input fine on its own. Width is what actually decides
   whether the overlay fits, which is the more load-bearing of the two reasons above -- read this as a
   layout-room gate with a touch-UX rationale attached, not a literal pointer-capability check.
 
