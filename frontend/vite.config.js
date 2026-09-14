@@ -78,9 +78,37 @@ async function verifyTwemojiCoverage(svgDir) {
  *
  * `@twemoji/api` is the parser alone -- the artwork has never been published to npm, by Twitter or by
  * the fork that maintains it now, and the one package that did (`@twemoji/svg`) stopped at Unicode 15.
- * So `package.json` takes it from the upstream repository at a pinned tag, as a tarball dependency
- * (`twemoji-assets`). npm records its integrity hash in the lockfile like any other dependency, so it
+ * So `package.json` takes it from the upstream repository as a tarball dependency (`twemoji-assets`),
+ * pinned by **commit SHA**, not a tag -- a GitHub tag is not immutable and can be moved, while a
+ * commit SHA can't. npm records its integrity hash in the lockfile like any other dependency, so it
  * is fetched once at install time and the build itself needs no network.
+ *
+ * Four things worth knowing about this pin before touching it:
+ *
+ * - **It installs a second copy of `@twemoji/api`.** The tarball *is* the `@twemoji/api` package
+ *   (its own `package.json` name), just fetched under the alias `twemoji-assets` for the artwork
+ *   alone -- nothing here imports it as code, `import('@twemoji/api')` above always resolves the
+ *   real dependency. Splitting the artwork into its own non-npm-published package upstream would
+ *   remove the duplication, but that's a change to make in `jdecked/twemoji`, not here; tolerated
+ *   as the cost of there being no other source for the SVGs (see below).
+ * - **No update tool can bump it.** `npm-check-updates`/Dependabot only understand registry
+ *   versions and plain semver ranges, not a `codeload.github.com` tarball URL, so `twemoji-assets`
+ *   never appears as an available update. Bumping it is a manual edit: resolve the new tag's commit
+ *   SHA (`gh api repos/jdecked/twemoji/git/ref/tags/<tag>`, dereferencing an annotated tag's `object`
+ *   if its `type` isn't already `commit`), rewrite the URL, then `npm install` to regenerate the
+ *   lockfile.
+ * - **It moves in lockstep with `@twemoji/api`, by hand, gated by `verifyTwemojiCoverage` above.**
+ *   They're dependencies of the same upstream release and can drift apart with nothing to say so
+ *   except a build failure from that check -- see its own comment for why 17.0.3 itself is currently
+ *   held back from `@twemoji/api`.
+ * - **Regenerating the lockfile after a SHA bump changes the integrity hash even when the commit is
+ *   unchanged** -- `codeload.github.com` embeds the literal ref string from the request URL (a tag
+ *   name, or a commit SHA) as the tarball's top-level directory name, so a tag-ref request and a
+ *   SHA-ref request for the exact same commit are different bytes and therefore different hashes.
+ *   That means an unchanged hash is *not* the right check that a bump got the intended commit; diff
+ *   the resolved SHA against `gh api .../git/ref/tags/<tag>` instead. See
+ *   `docs/decisions/twemoji-assets-sha-pin-integrity-hash-change.md` for how this was verified the
+ *   one time it mattered (switching the existing pin from a tag to its SHA).
  */
 function twemojiAssets() {
   const svgDir = path.join(
