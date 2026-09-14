@@ -11,8 +11,8 @@
     "test": "vitest run",
     "test:flaky": "vitest run --config vitest.flaky.config.js",
     "locale-keys:check": "node scripts/check-locale-keys.mjs",
-    "ncu": "ncu -i",
-    "ncu-u": "ncu -u"
+    "ncu": "npx npm-check-updates@23 -i",
+    "ncu-u": "npx npm-check-updates@23 -u"
   },
   "dependencies": {
     "@mathjax/mathjax-mhchem-font-extension": "4.1.3",
@@ -33,7 +33,6 @@
     "@rollup/plugin-node-resolve": "16.0.3",
     "@rollup/plugin-terser": "1.0.0",
     "jsdom": "30.0.1",
-    "npm-check-updates": "23.0.2",
     "oxlint": "1.79.0",
     "rollup": "4.62.5",
     "temporal-polyfill": "1.0.4",

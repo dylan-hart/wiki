@@ -8,8 +8,8 @@
   "scripts": {
     "dev": "vite --force",
     "build": "node --max-old-space-size=8192 node_modules/vite/bin/vite.js build --mode production --emptyOutDir",
-    "ncu": "ncu -i",
-    "ncu-u": "ncu -u",
+    "ncu": "npx npm-check-updates@23 -i",
+    "ncu-u": "npx npm-check-updates@23 -u",
     "icons": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
     "test": "vitest run",
@@ -99,7 +99,6 @@
     "@vue/test-utils": "2.4.11",
     "happy-dom": "20.11.6",
     "js-yaml": "5.3.0",
-    "npm-check-updates": "23.0.2",
     "oxfmt": "0.64.0",
     "oxlint": "1.79.0",
     "playwright": "1.62.1",

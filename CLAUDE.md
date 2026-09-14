@@ -81,7 +81,8 @@ npm run build          # builds into ../assets — required before the backend c
 npm run build          # rollup → blocks/compiled/
 ```
 
-`npx ncu -i` (`npm run ncu`) for interactive dependency updates.
+`npm run ncu` (→ `npx npm-check-updates@23 -i`) for interactive dependency updates — no pinned
+devDependency; Dependabot covers routine updates.
 
 The API is browsable via Swagger UI at `http://localhost:3000/_api` in a running instance. Default
 admin login is `admin@example.com` / `12345678`.
