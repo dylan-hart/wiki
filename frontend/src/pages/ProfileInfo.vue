@@ -1,6 +1,5 @@
 <template>
   <w-page>
-    <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item v-if="!canEdit">
       <w-item-section>
         <w-card class="bg-negative rounded text-white">
@@ -16,6 +15,125 @@
         </w-card>
       </w-item-section>
     </w-item>
+    <h2 class="w-section-header">{{ t('profile.preferences') }}</h2>
+    <w-item>
+      <blueprint-icon icon="tabler:sun" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.appearance"
+          :options="appearances"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.appearance`)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
+      <blueprint-icon icon="tabler:layout-grid" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.aesthetic`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.aestheticHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.aesthetic"
+          :options="aesthetics"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.aesthetic`)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <!-- -> Feature #3051 / Task #3068: per-user override of the site's `contentWidth` admin setting. -->
+    <w-item>
+      <blueprint-icon icon="tabler:arrows-horizontal" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.contentWidth`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.contentWidthHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.contentWidth"
+          :options="contentWidths"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.contentWidth`)" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
+      <blueprint-icon icon="tabler:clock-hour-4" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.timezone`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.timezoneHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <!--
+          The virtual-scroll props the previous control took are gone: WSelect renders its options
+          directly. The timezone list is the longest in the app and the dropdown scrolls internally,
+          so this trades a few hundred DOM nodes for a much simpler component.
+        -->
+        <w-select
+          ref="timezoneField"
+          v-model="state.config.timezone"
+          :options="timezones"
+          options-dense
+          hide-bottom-space
+          :aria-label="t(`admin.general.defaultTimezone`)"
+          :readonly="!canEdit"
+          :rules="[timezoneRule]" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
+      <blueprint-icon icon="tabler:calendar" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.dateFormat`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.dateFormatHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-select
+          v-model="state.config.dateFormat"
+          emit-value
+          map-options
+          hide-bottom-space
+          :aria-label="t(`admin.general.defaultDateFormat`)"
+          :options="dateFormats"
+          :readonly="!canEdit" />
+      </w-item-section>
+    </w-item>
+    <w-separator inset />
+    <w-item>
+      <blueprint-icon icon="tabler:clock" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.timeFormat"
+          :options="timeFormats"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.timeFormat`)" />
+      </w-item-section>
+    </w-item>
+    <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
+    <w-item>
+      <blueprint-icon icon="tabler:eye" />
+      <w-item-section>
+        <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
+        <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
+      </w-item-section>
+      <w-item-section>
+        <w-btn-toggle
+          v-model="state.config.cvd"
+          :options="cvdChoices"
+          :disabled="!canEdit"
+          :aria-label="t(`profile.cvd`)" />
+      </w-item-section>
+    </w-item>
+    <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item>
       <blueprint-icon icon="tabler:user" />
       <w-item-section>
@@ -130,124 +248,6 @@
           hide-bottom-space
           :aria-label="t(`profile.pronouns`)"
           :readonly="!canEdit" />
-      </w-item-section>
-    </w-item>
-    <h2 class="w-section-header">{{ t('profile.preferences') }}</h2>
-    <w-item>
-      <blueprint-icon icon="tabler:clock-hour-4" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.timezone`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.timezoneHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <!--
-          The virtual-scroll props the previous control took are gone: WSelect renders its options
-          directly. The timezone list is the longest in the app and the dropdown scrolls internally,
-          so this trades a few hundred DOM nodes for a much simpler component.
-        -->
-        <w-select
-          ref="timezoneField"
-          v-model="state.config.timezone"
-          :options="timezones"
-          options-dense
-          hide-bottom-space
-          :aria-label="t(`admin.general.defaultTimezone`)"
-          :readonly="!canEdit"
-          :rules="[timezoneRule]" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:calendar" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.dateFormat`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.dateFormatHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-select
-          v-model="state.config.dateFormat"
-          emit-value
-          map-options
-          hide-bottom-space
-          :aria-label="t(`admin.general.defaultDateFormat`)"
-          :options="dateFormats"
-          :readonly="!canEdit" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:clock" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.timeFormat"
-          :options="timeFormats"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.timeFormat`)" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:layout-grid" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.aesthetic`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.aestheticHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.aesthetic"
-          :options="aesthetics"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.aesthetic`)" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:sun" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.appearance"
-          :options="appearances"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.appearance`)" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <!-- -> Feature #3051 / Task #3068: per-user override of the site's `contentWidth` admin setting. -->
-    <w-item>
-      <blueprint-icon icon="tabler:arrows-horizontal" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.contentWidth`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.contentWidthHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.contentWidth"
-          :options="contentWidths"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.contentWidth`)" />
-      </w-item-section>
-    </w-item>
-    <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
-    <w-item>
-      <blueprint-icon icon="tabler:eye" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.cvd"
-          :options="cvdChoices"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.cvd`)" />
       </w-item-section>
     </w-item>
   </w-page>
