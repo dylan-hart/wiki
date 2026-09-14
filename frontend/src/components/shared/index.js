@@ -53,6 +53,7 @@ import WSeparator from './WSeparator.vue'
 import WSettingsCard from './WSettingsCard.vue'
 import WSettingsRow from './WSettingsRow.vue'
 import WSignal from './WSignal.vue'
+import WSortable from './WSortable.vue'
 import WSpace from './WSpace.vue'
 import WSpinner from './WSpinner.vue'
 import WTab from './WTab.vue'
@@ -112,6 +113,7 @@ export const sharedComponents = {
   WSettingsCard,
   WSettingsRow,
   WSignal,
+  WSortable,
   WSpace,
   WSpinner,
   WTab,
