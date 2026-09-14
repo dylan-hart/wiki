@@ -161,7 +161,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
  * on the read side (`isHealthy()` compares against the `Date` drizzle hands back for the `jobLock`
  * row's `timestamp` column).
  *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it (same environment gap `core/scheduler.test.ts` and
  * `models/users.test.ts` work around, not a spec deviation).
  */

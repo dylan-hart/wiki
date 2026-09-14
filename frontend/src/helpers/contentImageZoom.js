@@ -13,7 +13,7 @@
  * `host.requestUpdate`/`host.updateComplete` -- which requires a Lit `ReactiveElement` host to
  * attach to. `frontend/` has no `lit` dependency (only `blocks/package.json` does), and content here
  * arrives as plain DOM written by `v-html`, not a Lit component: there is no host, and adding one
- * (or adding `lit` to `frontend/` at all) would cross the workspace boundary CLAUDE.md documents --
+ * (or adding `lit` to `frontend/` at all) would cross the workspace boundary of
  * four independently-installed workspaces, each with its own `package.json`/`node_modules`. #3048's
  * own scope note anticipated exactly this ("into `blocks/shared/` **or an equivalent frontend
  * helper**"), so this module is that equivalent: the same shell/behavior contract (full-viewport

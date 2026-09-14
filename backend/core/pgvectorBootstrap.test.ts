@@ -15,8 +15,7 @@ import type { WikiDb } from './db.ts'
  * runs after migrations. DB-backed (real Postgres, real roles/privileges) rather than mocked, since
  * the thing under test in the negative case is a genuine permission denial from the server -- a
  * mocked `db.execute` would only assert that the code calls `catch`, not that it survives whatever
- * shape a real `CREATE EXTENSION`/`CREATE TABLE` failure actually takes. Gated on `hasTestDatabase()`
- * per CLAUDE.md.
+ * shape a real `CREATE EXTENSION`/`CREATE TABLE` failure actually takes. Gated on `hasTestDatabase()`.
  */
 describe('bootstrapPgvector() -- optional pgvector capability (task 3095)', () => {
   const skip = hasTestDatabase() ? false : 'requires DATABASE_URL'

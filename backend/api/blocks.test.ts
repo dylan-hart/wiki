@@ -251,7 +251,7 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
    * `manage:sites` alone. Both routes now also accept the site-scoped `site:blocks` permission from
    * task #682 (`checkSiteAccess()`), checked in-handler via `checkSiteAdminAccess` since
    * `config.permissions`
-   * cannot express a per-site check (same reasoning as page permissions — see CLAUDE.md).
+   * cannot express a per-site check (same reasoning as page permissions).
    *
    * OpenProject #2128 settled the question this raised for `docs/security/custom-block-upload.md`:
    * `BLOCK_ID` below is deliberately `isCustom: true` in `siteBlocks` (as opposed to

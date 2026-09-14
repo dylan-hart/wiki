@@ -9,8 +9,8 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
 /**
  * OpenProject #834 ("RTL regression pass: linklist rendering + zoom/toolbar mirroring").
  *
- * `ul.links-list` (added by commit aa279332, after Feature 413's RTL audit landed -- see
- * `docs/variances.md`'s "Feature 413" entry -- so it never went through that pass) rendered its
+ * `ul.links-list` (added by commit aa279332, after Feature 413's RTL audit (task 721) landed, so
+ * it never went through that pass) rendered its
  * accent bar and description rule with physical `border-left`/`padding-left`/`margin-left`. Content
  * rendered from markdown reads whatever direction the active locale sets
  * (`composables/direction.js`), same as any other reader-facing content -- there is no separate
@@ -68,9 +68,9 @@ describe('_page-contents.scss ul.links-list', () => {
 /**
  * OpenProject #1694 ("Convert `_page-contents.scss` to logical properties so rendered wiki content
  * works in RTL"), filed from the 2026-08-24 audit (`docs/audit-2026-08-24/accessibility-i18n.md`
- * §9) -- the same defect the `ul.links-list` suite above pins down for one construct
- * (`docs/variances.md`'s "Feature 413" entry explains why that one slipped through the original RTL
- * pass), applied here to the rest of the file: blockquotes, the five admonition severities, the
+ * §9) -- the same defect the `ul.links-list` suite above pins down for one construct (task 721's
+ * RTL audit covered only specific named components, and this file wasn't one of them), applied here
+ * to the rest of the file: blockquotes, the five admonition severities, the
  * code line-number gutter, and multi-line tables, none of which went through that pass either.
  *
  * `.page-contents` styles RAW RENDERED MARKDOWN -- the one surface that always renders in the

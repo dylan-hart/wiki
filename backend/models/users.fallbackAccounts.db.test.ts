@@ -5,7 +5,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 
 /**
  * `getFallbackAccounts()` is SQL orchestration over a dynamically-keyed JSONB path (the `auth`
- * column, keyed by strategy id) — exactly the `models/pages.test.ts`-style case CLAUDE.md calls out
+ * column, keyed by strategy id) — exactly the `models/pages.test.ts`-style case that calls
  * for a real database rather than a query builder mock, since a mock of the JSONB `->`/`->>`
  * operators would mostly just be re-describing the SQL under test rather than verifying it.
  */

@@ -18,8 +18,8 @@ import { listSourceFiles } from '../../test/sourceFiles.js'
  * the same rationale `_page-contents.test.js` gives for asserting against source rather than
  * computed styles.
  *
- * `--q-*` custom properties are deliberately exempt (see CLAUDE.md's `blocks/` section): that prefix
- * is historical but load-bearing for runtime per-site theming, and neither pattern below can match
+ * `--q-*` custom properties are deliberately exempt: that prefix is historical but load-bearing for
+ * runtime per-site theming, and neither pattern below can match
  * it -- `\.q-` requires a literal dot immediately before `q-`, which `--q-header` does not have, and
  * the class-token scan only looks inside `class`/`:class` attribute values in `.vue` templates,
  * which never contain a custom-property reference at all.

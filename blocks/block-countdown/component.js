@@ -228,7 +228,8 @@ export class BlockCountdownElement extends LitElement {
     //    every test below 100% reproducibly fail on real Node 26 while passing on this sandbox's
     //    Node 25.9 (where `Temporal` is the `temporal-polyfill` package) -- an
     //    environment-specific bug, not a flake (OpenProject #2739). `Date.prototype
-    //    .toTemporalInstant()` (CLAUDE.md's documented bridge elsewhere in this repo) isn't an
+    //    .toTemporalInstant()` (the documented Date-to-Temporal bridge used elsewhere in this
+    //    repo) isn't an
     //    option here -- `temporal-polyfill` doesn't implement it, only `@js-temporal/polyfill`
     //    does -- so this goes through `Temporal.Instant.fromEpochMilliseconds`, core spec API
     //    every implementation provides, fed by the one thing every implementation and `vi

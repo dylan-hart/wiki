@@ -1,7 +1,7 @@
 /**
  * Structural check on the quarantine lane's CI wiring — OpenProject #2692 (Feature #2603,
- * Epic #2600). The lane's rules live in `docs/decisions/flaky-test-quarantine.md`; this file
- * guards the half of it that lives in YAML, which nothing else can.
+ * Epic #2600). This file guards the half of the lane's rules that lives in YAML, which nothing
+ * else can.
  *
  * The defect being guarded against is specific, and it is the one #2692's own spec names: a
  * report-only step is a step that cannot fail, and a step that cannot fail is a step nobody reads.
@@ -13,7 +13,7 @@
  * This is a structural/self-consistency scan against repo-root CI config with no backend-workspace
  * file to sit next to, which is why it lives in `backend/test/` rather than co-located — the same
  * category, and the same reasoning, as `test/e2e-workflow.test.ts` and
- * `test/release-workflow.test.ts` beside it (CLAUDE.md, "Testing (backend)").
+ * `test/release-workflow.test.ts` beside it.
  *
  * What it deliberately does NOT assert: that a GitHub Actions run actually renders the annotation
  * or the summary. That needs a real runner. What is asserted here is that the script is invoked,
@@ -30,7 +30,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const LANE_SCRIPT_REL = 'scripts/ci-quarantine-lane.sh'
 const LANE_SCRIPT = path.join(REPO_ROOT, LANE_SCRIPT_REL)
 
-/** The four workspaces, in the order `docs/decisions/flaky-test-quarantine.md` tabulates them. */
+/** The four workspaces with a `test:flaky` script (Task #2691). */
 const WORKSPACES = ['backend', 'frontend', 'blocks', 'e2e'] as const
 
 interface Step {
@@ -213,37 +213,9 @@ describe('quarantine lane CI wiring (#2692)', () => {
     )
   })
 
-  test('the decision record and the CI wiring agree on the lane command', () => {
-    const record = fs.readFileSync(
-      path.join(REPO_ROOT, 'docs/decisions/flaky-test-quarantine.md'),
-      'utf8'
-    )
-    assert.match(
-      record,
-      /Task #2692/,
-      'the decision record names #2692 as owning the CI side; keep that pointer alive'
-    )
-    // The step invokes `npm run test:flaky` per workspace via the script, never a hand-written
-    // glob — that indirection is what lets the record stay the single statement of each lane's
-    // command.
+  test('the lane script invokes test:flaky, never a hand-written glob', () => {
+    // The step invokes `npm run test:flaky` per workspace via the script — that indirection is
+    // what lets a workspace's own package.json stay the single statement of its lane's command.
     assert.match(fs.readFileSync(LANE_SCRIPT, 'utf8'), /npm run --silent test:flaky/)
-
-    // The record's "Where the lane runs" table is a claim about these three workflows. Assert each
-    // row against the real wiring, so the table cannot quietly become a lie — the same failure the
-    // record itself exists to replace ("prose does not stop a run going red").
-    for (const [file, lanes] of [
-      ['quality.yml', qualityLanes],
-      ['build.yml', buildLanes],
-      ['release.yml', releaseLanes]
-    ] as const) {
-      const row = record.split('\n').find((line) => line.startsWith('| `' + file + '`'))
-      assert.ok(row, `expected the record's lane table to carry a row for ${file}`)
-      const claimed = row.split('|')[3].trim().replaceAll('`', '')
-      assert.equal(
-        claimed,
-        lanes.flatMap(({ workspaces }) => workspaces).join(' '),
-        `the record's table says ${file} runs "${claimed}", which is not what the workflow does`
-      )
-    }
   })
 })

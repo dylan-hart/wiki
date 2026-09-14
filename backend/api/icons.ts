@@ -32,7 +32,7 @@ function mayUseIconPicker(req: FastifyRequest): boolean {
   if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  // -> `null`, not a site id: icon sets are instance-wide (see CLAUDE.md's Icons section), and this
+  // -> `null`, not a site id: icon sets are instance-wide, and this
   //    route carries no `siteId` to narrow by -- genuinely the same site-blind case
   //    `mayHoldPermissionSomewhere()`'s own doc comment carves out, not an oversight (OpenProject
   //    #2146/#2162).

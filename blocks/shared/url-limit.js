@@ -2,8 +2,7 @@
  * The GET-URL size guard shared by `block-kroki` and `block-plantuml`.
  *
  * Both blocks pack diagram source straight into the request URL -- deflate, then a URL-safe base64
- * alphabet -- with no POST fallback (see `docs/variances.md`'s "Kroki/PlantUML GET-URL transport"
- * entry for why). That transport has no ceiling of its own; a reverse proxy or server in front of the
+ * alphabet -- with no POST fallback. That transport has no ceiling of its own; a reverse proxy or server in front of the
  * diagram server does. 8,000 characters is comfortably under the most common defaults an author is
  * likely to sit behind (nginx's `large_client_header_buffers` leaves headroom past 8k by default;
  * most CDNs and IIS draw their own line in the same neighbourhood) while still generous for the

@@ -77,7 +77,7 @@ useMeta(() => ({
  * Each event carries the plate its settings row draws, written out as a literal `tabler:` reference
  * here rather than assembled from the event key: a name built by concatenation is invisible to
  * `scripts/generate-icons.mjs`'s scanner and would resolve at runtime through `/_icons` instead of
- * being inlined at build time (CLAUDE.md, "Icons").
+ * being inlined at build time.
  */
 const eventGroups = computed(() => [
   {

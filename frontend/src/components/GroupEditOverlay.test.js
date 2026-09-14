@@ -18,8 +18,7 @@ vi.mock('browser-fs-access', () => ({
 /**
  * Task #684: `GroupEditOverlay.vue`'s rule editor is extended to offer the eight `site:*` site-admin
  * permissions (see `backend/helpers/siteRules.ts`'s `SITE_PERMISSIONS`) as selectable `roles` entries
- * in the SAME picker page permissions already use, rather than a second UI -- per the decision record
- * at `docs/decisions/delegated-per-site-administration.md`.
+ * in the SAME picker page permissions already use, rather than a second UI.
  *
  * Mounted at the `rules` section for a non-guest group whose one rule already holds all eight
  * `site:*` permissions in `roles` -- exactly the shape a saved group would come back as. The

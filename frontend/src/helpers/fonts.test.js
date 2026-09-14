@@ -170,7 +170,7 @@ describe('vendored font assets', () => {
     }
   })
 
-  it('tajawal has no latin-ext subset upstream (documented variance, not a bug)', () => {
+  it('tajawal has no latin-ext subset upstream (a documented gap, not a bug)', () => {
     const content = readFileSync(path.join(FONTS_DIR, 'tajawal', 'tajawal.css'), 'utf-8')
     // The subset-composition token in each face's header comment (mirroring roboto.css's own
     // "vietnamese_latin-ext_latin_..." convention) must be exactly "arabic_latin" - not
@@ -183,7 +183,7 @@ describe('vendored font assets', () => {
     for (const token of subsetTokens) {
       expect(token).toBe('arabic_latin')
     }
-    expect(content).toMatch(/docs\/variances\.md/)
+    expect(content).toMatch(/No latin-ext instance exists upstream/)
   })
 })
 

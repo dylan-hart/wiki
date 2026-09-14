@@ -3,8 +3,7 @@ import { fileURLToPath } from 'node:url'
 import baseConfig, { FLAKY_GLOB } from './playwright.config.js'
 
 /**
- * The quarantine lane -- `npm run test:flaky`. See `docs/decisions/flaky-test-quarantine.md` for
- * what belongs in it, what does not, and why every file in it carries a dated expiry.
+ * The quarantine lane -- `npm run test:flaky`. Every file in it carries a dated expiry.
  *
  * A separate config rather than a command-line flag, because Playwright's CLI has no
  * `--test-match`: a positional filter would still be filtered a second time by the base config's

@@ -4,7 +4,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { comments as commentsTable } from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 
-// Node 26 (this repo's target runtime, per CLAUDE.md) provides `Temporal` as a native global. This
+// Node 26 (this repo's target runtime) provides `Temporal` as a native global. This
 // dev environment runs an older Node without it, so shim just enough of `Temporal.Now.instant()` for
 // `comments.update()` and `comments.purgeGuestPii()` — which genuinely call the real global,
 // unmodified — to run here too. `subtract()` only needs to understand `{ hours }`, the one duration

@@ -108,9 +108,8 @@ async function activateTestLocales(page, testLocales) {
  * Switches the READER'S interface language via `AdminLayout.vue`'s own switcher -- the only place
  * `commonStore.locale` is ever set. `LocaleSelectorMenu.vue`'s reading-view switcher (used below,
  * and by `activateTestLocales`'s own caller) deliberately does NOT touch it: its own header comment
- * calls that "a separate concern this menu does not touch", and
- * `docs/decisions/lang-dir-contract.md` §6 records why -- it navigates the CONTENT locale instead
- * (OpenProject #2596).
+ * calls that "a separate concern this menu does not touch" -- it navigates the CONTENT locale
+ * instead (OpenProject #2596).
  *
  * Two things depend on the INTERFACE locale specifically, and neither is covered by #2596's
  * URL-based `dir`/`lang` resolution: a `/_`-prefixed route (the admin area, the markdown/wysiwyg
@@ -196,23 +195,18 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
       page.getByRole('button', { name: RTL_TEST_LOCALE.strings['editor.markup.bold'] })
     ).toBeVisible()
 
-    // -> WYSIWYG editor: NOT checked beyond `dir` surviving the navigation. `pages/Index.vue`'s own
-    //    `editorComponents` map has the `wysiwyg` entry commented out (only `markdown` and
-    //    `redirect` are registered) -- discovered live, during this task's own walk, rather than
-    //    assumed from the file existing: `/_create/wysiwyg` never mounts `EditorWysiwyg.vue` at all
-    //    right now, under any locale or direction, with no console error to say so. That is a
-    //    pre-existing gap this task did not introduce and has no business fixing on its way through
-    //    (wiring up a whole editor mode is not an RTL change) -- recorded in `docs/variances.md`
-    //    instead. What IS still genuine here is that the app shell around the (empty) editor slot
-    //    keeps `dir="rtl"`, which is what this asserts.
+    // -> WYSIWYG editor: NOT checked beyond `dir` surviving the navigation, matching the depth of the
+    //    markdown/code editor checks above rather than any remaining gap -- `pages/Index.vue`'s
+    //    `editorComponents` map registers `wysiwyg` (`EditorWysiwyg.vue`) same as every other editor
+    //    mode, so there is nothing editor-specific left to special-case here.
     await page.goto(`/_create/wysiwyg?path=e2e-rtl-wys-${uniqueSlug()}`)
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
 
-    // -> Admin area: this fork's decision (documented in `docs/variances.md`, given no 2.5.x source
-    //    was available in this sandbox to confirm against) is that the admin chrome mirrors along
-    //    with the rest of the app rather than staying forced LTR -- it is, after all, the same
-    //    single-locale SPA document, and the admin header carries its own locale switcher
-    //    (`AdminLayout.vue`) that lets an operator pick this very locale directly from within it.
+    // -> Admin area: this fork's decision (given no 2.5.x source was available in this sandbox to
+    //    confirm against) is that the admin chrome mirrors along with the rest of the app rather
+    //    than staying forced LTR -- it is, after all, the same single-locale SPA document, and the
+    //    admin header carries its own locale switcher (`AdminLayout.vue`) that lets an operator
+    //    pick this very locale directly from within it.
     await page.goto('/_admin/dashboard')
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await expect(page.getByText(RTL_TEST_LOCALE.strings['admin.adminArea'])).toBeVisible()

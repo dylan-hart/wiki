@@ -23,8 +23,8 @@ without hand-editing `config.yml`:
 2.5.x's flag was `config.yml`-only, which broke exactly this: a containerized deployment where nobody
 hand-edits a file baked into the image. This closes that gap without adding a second flag or a
 migration — it is the same `offline` key, just reachable from more places. (The 2.x-era Helm chart
-that used to wire this same env var into a values override was deleted — see `docs/variances.md` —
-since this branch has no 3.x release yet for it to deploy; a future Helm chart written against an
+that used to wire this same env var into a values override was deleted, since this branch has no
+3.x release yet for it to deploy; a future Helm chart written against an
 actual 3.x release should re-add the equivalent `values.yaml` stanza.)
 
 ## What `offline: true` gates
@@ -60,8 +60,8 @@ was nothing to gate:
 - **Fonts.** `frontend/src/css/_base.scss` uses `@font-face` against bundled font files. No
   `fonts.googleapis.com` reference exists anywhere in `frontend/src` or `blocks/`.
 - **Icons drawn from the interface itself** (nav, buttons, admin UI). Every Iconify reference written
-  literally in this repo's source is inlined at build time into `src/assets/icons.generated.js` — see
-  CLAUDE.md's "Icons" section. Only a reference a _user_ picks at runtime touches `models/icons.ts`'s
+  literally in this repo's source is inlined at build time into `src/assets/icons.generated.js`. Only
+  a reference a _user_ picks at runtime touches `models/icons.ts`'s
   four-tier resolution above.
 
 **Not gated, and cannot be from the backend** — `block-plantuml` and `block-kroki` (`blocks/`) draw by
@@ -133,8 +133,8 @@ skipped }` — `skipped` names any file that failed JSON parsing or is missing a
 **Helm**: the 2.x-era chart used to offer a `sideload.enabled`/`sideload.repoURL` stanza that ran a
 git-clone `initContainer` populating `/wiki/data/locales/` from a git repo of locale-pack JSON files
 before the app container started, for a cluster where "the data volume" means "whatever the init
-container populated," not a person with `kubectl cp` access. That chart was deleted (see
-`docs/variances.md` — no 3.x release exists yet for it to deploy); a future 3.x Helm chart should
+container populated," not a person with `kubectl cp` access. That chart was deleted (no 3.x release
+exists yet for it to deploy); a future 3.x Helm chart should
 re-add the equivalent init-container stanza, sharing the chart's `volumeMounts`/`volumes` values with
 the main container so a volume is actually mounted there for the clone to survive past the init
 container exiting.

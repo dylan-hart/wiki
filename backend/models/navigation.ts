@@ -362,7 +362,7 @@ class Navigation {
    *              switched to `auto`/`mixed` sees the title, path and icon of every published,
    *              browsable page in the tree — including ones a path, tag or classification DENY
    *              keeps them out of. An anonymous request is the guests actor, never an absence of
-   *              one — see CLAUDE.md's Permissions section.
+   *              one.
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
    * @param unfiltered Return every item regardless of visibility, which is what editing one needs —

@@ -128,7 +128,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/tags/:tag',
     {
       // -> No route-level permissions: manage:pages is a page rule permission, checked per affected
-      //    page below rather than declared here — see CLAUDE.md's Permissions section.
+      //    page below rather than declared here.
       schema: {
         summary: 'Rename a tag across every page that carries it',
         description:
@@ -176,7 +176,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/tags/:tag',
     {
       // -> No route-level permissions: manage:pages is a page rule permission, checked per affected
-      //    page below rather than declared here — see CLAUDE.md's Permissions section.
+      //    page below rather than declared here.
       schema: {
         summary: 'Remove a tag from every page that carries it',
         description:

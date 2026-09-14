@@ -5,9 +5,9 @@ import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
- * `block-kroki` encodes diagram source straight into a GET URL with no POST fallback (see
- * `docs/variances.md`). A diagram large enough to push that URL past what a reverse proxy will
- * accept used to fail silently as a generic broken-image message via `_explain()`, once the browser
+ * `block-kroki` encodes diagram source straight into a GET URL with no POST fallback. A diagram
+ * large enough to push that URL past what a reverse proxy will accept used to fail silently as a
+ * generic broken-image message via `_explain()`, once the browser
  * actually tried to load it. This locks down the pre-flight guard instead: `firstUpdated()` checks
  * the encoded URL's length itself and reports a clear, actionable `.error` before any request is
  * made.

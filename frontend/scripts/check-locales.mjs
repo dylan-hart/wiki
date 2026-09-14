@@ -29,7 +29,7 @@ const ANY_LITERAL = /(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g
 
 /*
  * Matches a call to the i18n `t(...)` function -- `useI18n()`'s composable result, destructured as
- * `t` almost everywhere in this codebase (see CLAUDE.md's Frontend patterns), or called as `i18n.t(`
+ * `t` almost everywhere in this codebase, or called as `i18n.t(`
  * off the rare `useI18n({ useScope: 'global' })` instance itself (`App.vue`) -- whose first argument
  * is a string or template literal. The negative lookbehind on the bare form is what keeps it from
  * also matching `API_CLIENT.get(...)`/`.post(...)`/`.put(...)`/`.delete(...)`: every one of those

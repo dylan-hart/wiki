@@ -6,7 +6,7 @@ import Client from 'ssh2-sftp-client'
  *
  * This is deliberately a sibling of `storage.ts` rather than `storage.ts` itself: `models/storage.ts`'s
  * `hasImplementation()` gates the admin area's "Export All" action purely on whether a `storage.ts`
- * file exists next to this module's `definition.yml` (see CLAUDE.md's note on extension-sensitive
+ * file exists next to this module's `definition.yml` (one of this repo's extension-sensitive
  * dynamic paths). The connection layer is real and usable on its own, but `exportAll` itself — the
  * handler that action actually calls — is built by later tasks under this Feature; putting the
  * connection logic here keeps the action hidden until there is something behind it to run.

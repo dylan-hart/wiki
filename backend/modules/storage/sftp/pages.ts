@@ -112,8 +112,8 @@ export function resolveLocaleInfo(
  * locale, else plain `<path>.<ext>`. Extension comes from `contentType` via
  * `extensionForContentType` (Task 521's shared helper).
  *
- * Implements sftp's primary-bare serialization convention — see
- * `docs/decisions/locale-architecture.md` §5.3.
+ * Implements sftp's primary-bare serialization convention, per the locale-architecture decision's
+ * §5.3.
  */
 export function remotePathForPage(
   page: Pick<PageExportRow, 'locale' | 'path' | 'contentType'>,

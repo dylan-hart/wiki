@@ -22,7 +22,7 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
  *    they do with the definitions they had (most reset to `[]`, authentication/analytics keep
  *    whatever a failed `readdir` left behind) — encoding all of that as options would be longer than
  *    the four lines it would save each caller.
- *  - **The dynamic `import()` specifier.** Per CLAUDE.md it is extension-sensitive and invisible to
+ *  - **The dynamic `import()` specifier.** It is extension-sensitive and invisible to
  *    the type checker, so it stays literal at its call site; `loadModule` takes an importer closure.
  *  - **The definition ordering.** `db`-first, title-first and "leave it as read" are all in play.
  */
@@ -223,8 +223,8 @@ export async function moduleHasFile(...segments: string[]): Promise<boolean> {
 /**
  * Ensure a module's implementation is loaded, memoising it into `cache`.
  *
- * @param importer The dynamic `import()`, as a closure: the specifier is extension-sensitive (see
- *   CLAUDE.md) and stays literal at the call site.
+ * @param importer The dynamic `import()`, as a closure: the specifier is extension-sensitive
+ *   and stays literal at the call site.
  * @param label The module kind, for the log lines.
  * @param isAvailable Consulted only on a cache miss, before the import — whether this module has an
  *   implementation to load at all.

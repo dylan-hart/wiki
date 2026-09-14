@@ -21,8 +21,8 @@ const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
  *
  * The result is about 1.4 characters per character of source, so a very large diagram can outgrow what
  * a server will accept in a URL. That is a limit of this transport this fork has decided to live with
- * rather than add a server-side POST proxy for -- see `docs/variances.md` -- so `firstUpdated()` below
- * measures the result and refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
+ * rather than add a server-side POST proxy for -- so `firstUpdated()` below measures the result and
+ * refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
  */
 async function encodeForUrl(source) {
   const bytes = await compress(new TextEncoder().encode(source), 'deflate-raw')

@@ -35,8 +35,7 @@ import { computed } from 'vue'
  *
  * `icon` is an ordinary Iconify reference (`tabler:key`), not an asset name assembled here: a name
  * built by concatenation is invisible to `scripts/generate-icons.mjs`'s scanner, so it would resolve
- * at runtime through `/_icons` instead of being inlined at build time -- see CLAUDE.md's note under
- * Icons, and `WIcon`'s own header.
+ * at runtime through `/_icons` instead of being inlined at build time -- see `WIcon`'s own header.
  */
 const props = defineProps({
   /** An Iconify reference, e.g. `tabler:key`. */

@@ -176,7 +176,7 @@ async function writeUnderPath(destPath: string, data: string | Buffer): Promise<
  * `listSiteEntries` returning an empty list.
  *
  * Implements disk's always-prefixed serialization convention (every locale, including the primary,
- * gets its own directory) — see `docs/decisions/locale-architecture.md` §5.3.
+ * gets its own directory), per the locale-architecture decision's §5.3.
  *
  * @throws With a message naming the entry and the underlying fs error, the moment any single write
  *         fails (e.g. the path became unwritable mid-run) — entries already written before that point

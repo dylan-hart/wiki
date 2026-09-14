@@ -45,7 +45,7 @@ export function covers(target: StorageTarget, bucket: string): boolean {
  * the site's primary locale is written bare, any other locale gets its own folder — so a single-locale
  * wiki (the common case) never sees a locale segment in its repo at all.
  *
- * Implements git's primary-bare serialization convention — see `docs/decisions/locale-architecture.md`
+ * Implements git's primary-bare serialization convention, per the locale-architecture decision's
  * §5.3.
  */
 function localeNamespace(siteId: string, locale: string): string {

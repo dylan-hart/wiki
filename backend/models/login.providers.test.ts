@@ -563,8 +563,8 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * `loginWithProvider()` used to hard-skip 2FA for every provider login (see WP 2101 /
- * `docs/decisions/provider-login-2fa.md`): a TOTP secret enrolled under the local strategy is a
+ * `loginWithProvider()` used to hard-skip 2FA for every provider login (see WP 2101): a TOTP
+ * secret enrolled under the local strategy is a
  * signal the account's owner wants a second factor regardless of which door is used to sign in, so
  * `afterLoginChecks()` now falls back to the local strategy's own secret when the strategy actually
  * used to log in (the provider) has none of its own. `findOrCreateProviderUser()` is stubbed so

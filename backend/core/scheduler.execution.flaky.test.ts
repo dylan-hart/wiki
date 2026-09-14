@@ -1,7 +1,6 @@
 /**
  * QUARANTINED — this file is in the `*.flaky.*` lane and does NOT run under `npm run test`. It runs
- * under `npm run test:flaky`, which CI reports on but does not gate on. See
- * `docs/decisions/flaky-test-quarantine.md` for the lane's rules.
+ * under `npm run test:flaky`, which CI reports on but does not gate on.
  *
  * **Expires 2026-12-10.** By then this test is either fixed or deleted.
  *
@@ -16,7 +15,7 @@
  * that run's backend suite taking ~693s end to end — not that `executeOnWorker` is wrong. Whether a
  * real poolifier worker thread crashes, gets scheduled, and is reaped inside any fixed wall-clock
  * budget is a fact about the whole run's resource contention, not about the code under test, which is
- * exactly `docs/decisions/flaky-test-quarantine.md`'s "event-loop/wall-clock timing margin" category.
+ * exactly the "event-loop/wall-clock timing margin" category of flake the quarantine lane exists for.
  *
  * Its sibling in `core/scheduler.execution.test.ts` ("a hung-but-alive task is aborted at the
  * taskTimeout ceiling") asserts the OTHER ceiling on the same harness and stayed in the default lane:
@@ -25,8 +24,8 @@
  *
  * **The fix that retires it.** There is no way to make a real worker-thread crash-and-reap race
  * deterministic without replacing the real `FixedThreadPool` this test exists to exercise (see the
- * task 704 (a) comment on its sibling) with a mock of one — which is the coverage gap
- * `docs/decisions/testing-strategy.md` wrote this suite to close in the first place. Retiring this
+ * task 704 (a) comment on its sibling) with a mock of one — which is the coverage gap this suite was
+ * written to close in the first place. Retiring this
  * quarantine means either accepting a materially looser bound (so an event-loop stall inside CI's own
  * per-test ceiling no longer trips it) or giving `executeOnWorker` an injectable "worker exited"
  * signal a unit test can drive directly, with the real-pool version kept as a slower, non-gating

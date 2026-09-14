@@ -67,7 +67,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level permissions, and genuinely public -- a term's name and definition are not
-        gated content, the same way an Iconify icon isn't (see CLAUDE.md's Icons section). This is
+        gated content, the same way an Iconify icon isn't. This is
         the cached, resolved list the rendering pipeline matches against (see
         `renderers/modules/markdown-it-glossary.js`), fetched by the editor itself so its live preview
         and the render it saves stay in step with what a reader will eventually see. Each term's

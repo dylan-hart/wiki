@@ -201,8 +201,8 @@ const ORIGIN_PATTERN = new RegExp(ORIGIN_PATTERN_SOURCE)
 /**
  * Whether `value` is syntactically a valid `allowedOrigins` entry -- the same origin+prefix shape
  * {@link originMatchesAllowlist} actually matches against. Used by both the block-credential route
- * schema and (mirrored, since `frontend/` cannot import from `backend/` -- see root `CLAUDE.md`'s
- * workspace layout) `frontend/src/helpers/originPattern.js`'s copy for `BlockCredentialDialog.vue`'s
+ * schema and (mirrored, since `frontend/` cannot import from `backend/`)
+ * `frontend/src/helpers/originPattern.js`'s copy for `BlockCredentialDialog.vue`'s
  * inline validation.
  *
  * Deliberately narrower than what `new URL()` itself would accept: no userinfo (`user:pass@host`),

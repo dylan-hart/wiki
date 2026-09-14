@@ -217,8 +217,7 @@ describe('AdminAuditLog', () => {
   })
 
   /**
-   * The Cardinal settings pattern, as it reaches a VIEWER page —
-   * `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+   * The Cardinal settings pattern, as it reaches a VIEWER page.
    *
    * The retention setting is a fixed, design-time named setting with one control at the trailing
    * edge, so it takes the settings row. The log table above it is a data-driven collection and
@@ -245,8 +244,7 @@ describe('AdminAuditLog', () => {
     expect(retention.find('.w-settings-row__hint').text()).toBe(
       'Entries older than this are trimmed automatically.'
     )
-    // -> Both controls stay in the one trailing slot, and the card-local Save stays card-local
-    //    (`docs/decisions/embedded-setting-save-affordance.md`).
+    // -> Both controls stay in the one trailing slot, and the card-local Save stays card-local.
     const control = retention.find('.w-settings-row__control')
     expect(control.find('input[type="number"]').exists()).toBe(true)
     expect(control.text()).toContain('Save')

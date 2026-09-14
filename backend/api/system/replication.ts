@@ -8,9 +8,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 const importUploadLimit = 500 * 1024 * 1024
 
 /**
- * Target-side bulk-import API surface for Feature #2437's scheduled replication
- * (`docs/decisions/bulk-replication-wire-format.md`): accept a whole-instance snapshot archive and
- * wipe-and-replace this instance's data with it.
+ * Target-side bulk-import API surface for Feature #2437's scheduled replication: accept a
+ * whole-instance snapshot archive and wipe-and-replace this instance's data with it.
  *
  * Mirrors `system/transfer.ts`'s single-site `POST /import` in shape — a raw gzip body rather than a
  * multipart form, queued as a background job, polled for completion — scoped to the whole instance
@@ -43,7 +42,7 @@ async function routes(app: FastifyInstance) {
         summary: 'Wipe this instance and replace it with a replication snapshot',
         description:
           `The body is the raw archive a source instance's bulk-export produced, not a multipart form — send the file itself with its \`Content-Type\`. At most ${importUploadLimit / 1024 / 1024} MB. Queues a background job: reading a whole-instance archive back apart and restoring it inside a transaction is not something a request thread should be blocked on — poll the returned job id for completion.\n\n` +
-          "**This wipes and replaces the whole instance, not one site.** Every site, page, page history entry, tree entry, asset, navigation menu, user, group, group membership, classification level, comment and setting on this instance is deleted before the archive's own rows are restored, in one transaction — a failure partway through leaves the instance exactly as it was, never half-replaced. Ids are preserved exactly as the archive carries them (no remapping): this instance becomes an identical copy of the source, including — since `settings` is part of the snapshot — its session-signing secret, which ends every session on this instance the moment the restore completes. See `docs/decisions/bulk-replication-wire-format.md` for the full contract. An archive whose format version this instance does not recognize is refused outright before anything is touched.",
+          "**This wipes and replaces the whole instance, not one site.** Every site, page, page history entry, tree entry, asset, navigation menu, user, group, group membership, classification level, comment and setting on this instance is deleted before the archive's own rows are restored, in one transaction — a failure partway through leaves the instance exactly as it was, never half-replaced. Ids are preserved exactly as the archive carries them (no remapping): this instance becomes an identical copy of the source, including — since `settings` is part of the snapshot — its session-signing secret, which ends every session on this instance the moment the restore completes. An archive whose format version this instance does not recognize is refused outright before anything is touched.",
         tags: ['System'],
         consumes: ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
         response: {

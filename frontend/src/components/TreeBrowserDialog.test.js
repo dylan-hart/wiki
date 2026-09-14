@@ -410,9 +410,9 @@ describe('TreeBrowserDialog path bar', () => {
 
 /**
  * The contract `e2e/helpers/admin.js#savePage` drives, and which `page-publish.spec.js`,
- * `multi-site.spec.js` and `assets.spec.js` all run through. CLAUDE.md records it as a live
- * behaviour of this component: the path field auto-slugs from the title on every keystroke until the
- * field itself is focused, so the helper has to fill it explicitly, by label.
+ * `multi-site.spec.js` and `assets.spec.js` all run through: the path field auto-slugs from the
+ * title on every keystroke until the field itself is focused, so the helper has to fill it
+ * explicitly, by label.
  *
  * A restyle that moved the label, changed `pathDirty`'s trigger or renamed the Save button would
  * surface three aisles away as an e2e failure. These assertions make it fail here instead.

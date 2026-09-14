@@ -17,7 +17,7 @@ or who are debugging a regression these tests don't reproduce.
 
 ## 1. Shared Postgres
 
-A throwaway container, per CLAUDE.md's convention (pick a port that isn't in use):
+A throwaway container (pick a port that isn't in use):
 
 ```sh
 docker run --rm -d --name wiki-multi-verify-db -p 56070:5432 \

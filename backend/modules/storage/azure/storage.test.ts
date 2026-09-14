@@ -18,8 +18,8 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * / `BlockBlobClient` instance this module constructs is a real instance of those classes, so patching
  * the prototype catches every call. `generateSasUrl` is exercised for real (unmocked): it's pure local
  * signing against the `StorageSharedKeyCredential`, no network call — see `storage.ts`'s doc comment.
- * `WIKI.logger`/`WIKI.models.assets` are the only `WIKI` members `storage.ts` touches — see "Testing
- * (backend)" in CLAUDE.md for the pure-unit-test convention this follows.
+ * `WIKI.logger`/`WIKI.models.assets` are the only `WIKI` members `storage.ts` touches — matching the
+ * pure-unit-test convention this repo's backend testing follows.
  */
 
 installTestWiki({

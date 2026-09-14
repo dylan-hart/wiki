@@ -17,7 +17,7 @@ import { inflateRaw } from 'pako'
  * (straight or via explicit waypoints) with classic arrowheads. It does not attempt the hundreds of
  * named stencils the shape libraries carry (AWS/Azure/GCP icons, UML-specific glyphs, network gear,
  * …) — seeing correct geometry for a shape it does not know how to draw would be strictly worse than
- * `docs/variances.md`'s explanation, so see that entry rather than assume every visual is pixel-exact.
+ * the plainer-but-complete fallback below, so don't assume every visual is pixel-exact.
  *
  * The one rule every path here is written to uphold is the one the upstream bug report
  * (requarks/wiki#6881) was actually about: a complex, multi-layer diagram must not lose elements on

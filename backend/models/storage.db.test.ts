@@ -28,7 +28,7 @@ describe(
       fixtures = await setupTestDb()
       // -> `test/db.ts` computes `SERVERPATH` as `path.join(process.cwd(), 'backend')`, which is
       //    correct when the process is launched from the repo root but not from `backend/` itself —
-      //    this repo's convention (CLAUDE.md: "Run backend commands from backend/") is the latter.
+      //    this repo's convention (run backend commands from backend/) is the latter.
       //    Repointed here rather than in the shared fixture, which is owned by a different feature.
       WIKI.SERVERPATH = path.join(import.meta.dirname, '..')
       await storage.refreshFromDisk()
@@ -45,8 +45,8 @@ describe(
       assert.equal(storage.getDefinition('gcs')?.hasImplementation, true)
       // -> Tasks 521/522/523 gave sftp a real storage.ts too (connection.ts + pages.ts + assets.ts,
       //    orchestrated by exportAll) -- it is no longer the config-only contrast case it once was.
-      //    Every module under modules/storage now ships a real storage.ts (see CLAUDE.md's
-      //    `modules/` section), so there is no remaining config-only module to assert `false`
+      //    Every module under modules/storage now ships a real storage.ts, so there is no
+      //    remaining config-only module to assert `false`
       //    against here.
       assert.equal(storage.getDefinition('sftp')?.hasImplementation, true)
     })

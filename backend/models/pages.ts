@@ -286,8 +286,8 @@ export interface TranslationStatusRow {
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
- * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones (see
- * CLAUDE.md's Permissions section), so deciding them takes more than the flat `permissions` list:
+ * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones,
+ * so deciding them takes more than the flat `permissions` list:
  * `groupIds` is what `WIKI.models.groups.checkAccess()` resolves a page rule against. See
  * `hasPermission()`.
  *
@@ -1185,7 +1185,7 @@ class Pages {
     }
     // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
     //    checked one layer up, in `api/pages/write.ts` -- the same layering every other page-rule
-    //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
+    //    permission follows. This is the structural check: a
     //    page's classification, whichever direction it moves, may never end up below its immediate
     //    parent's floor.
     // -> Compared against the row as it stands, not merely `!== undefined`: the editor can send a
@@ -1411,9 +1411,9 @@ class Pages {
 
   /**
    * Other pages in this site sharing a path with `path`, excluding `excludeId` -- the translation
-   * link this data model uses (same `(siteId, path)`, other locales; see
-   * docs/decisions/locale-translation-linking.md). Used by `movePage`'s `includeTranslations`
-   * cascade to find the twins a rename has to carry along, and by the move/rename UI to offer it.
+   * link this data model uses (same `(siteId, path)`, other locales). Used by `movePage`'s
+   * `includeTranslations` cascade to find the twins a rename has to carry along, and by the
+   * move/rename UI to offer it.
    */
   async getTranslations(siteId: string, path: string, excludeId: string): Promise<Page[]> {
     const rows = await WIKI.db
@@ -1428,9 +1428,9 @@ class Pages {
 
   /**
    * Staleness/missing status of every active, non-primary locale's translation against its
-   * primary-locale twin, via the same `(siteId, path)` join `getTranslations` uses (see
-   * `docs/decisions/locale-translation-linking.md`) -- shared by the locale-switcher badge (pass a
-   * single-element `paths`) and the admin pages-view staleness column (omit `paths` for the whole
+   * primary-locale twin, via the same `(siteId, path)` join `getTranslations` uses -- shared by the
+   * locale-switcher badge (pass a single-element `paths`) and the admin pages-view staleness column
+   * (omit `paths` for the whole
    * site). One `SELECT` plus an in-memory comparison (`helpers/translationStaleness.ts`), never a
    * per-page/per-locale round trip. A site with one or no active locale short-circuits to `[]`
    * without querying at all -- there is nothing to compare.
@@ -1760,7 +1760,7 @@ class Pages {
    * path) it used to occupy is freed. Absent, the page stays in the locale it is already in.
    *
    * `includeTranslations` cascades a path change to every other locale's page sharing this page's
-   * CURRENT path (see `getTranslations` and docs/decisions/locale-translation-linking.md) -- the
+   * CURRENT path (see `getTranslations`) -- the
    * translation link this data model uses is the shared path itself, so a rename that moves only one
    * locale's page silently strands its twins at the old one. All-or-nothing: every twin goes through
    * the same reserved-segment and collision checks as the page being moved, and a 409 on any one of
@@ -2314,8 +2314,8 @@ class Pages {
    * Every translation row -- across every locale -- for a set of paths within one site: the join
    * half of translation staleness/missing detection (`helpers/translationStatus.ts` is the compare
    * half). Backs the admin pages view's per-locale status column (OpenProject #2476) and is written
-   * to be reused by whatever else needs the same shared-path join per
-   * `docs/decisions/locale-translation-linking.md` (the locale-switcher badge, OpenProject #2475).
+   * to be reused by whatever else needs the same shared-path join (the locale-switcher badge,
+   * OpenProject #2475).
    *
    * Unfiltered by page-rule access on purpose: the caller already knows about every path it is
    * asking for (typically an already permission-filtered search result), and all that is reported

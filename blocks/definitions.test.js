@@ -115,8 +115,8 @@ const ICONIFY_REF = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*$/
 /**
  * Every consumer of `definition.icon` — `AdminBlocks.vue`, `BlockPickerOverlay.vue` and
  * `BlockParamsDialog.vue` — hands the value straight to `WIcon`, which resolves an Iconify
- * reference and draws NOTHING for anything else (CLAUDE.md, under Icons: an unprefixed name "falls
- * through to `kind: 'none'` and draws nothing"). All 26 blocks shipped bare, unprefixed names —
+ * reference and draws NOTHING for anything else (an unprefixed name "falls through to
+ * `kind: 'none'` and draws nothing"). All 26 blocks shipped bare, unprefixed names —
  * `run-command`, `todo-list`, `visualy-impaired` (sic) — left behind by the Tabler migration, which
  * scans `frontend/src` only and so never saw them, and every one of those surfaces rendered an
  * empty slot (OpenProject #2634).

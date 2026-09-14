@@ -2,7 +2,7 @@
  * Shared `Temporal` polyfill installer for backend test files.
  *
  * This sandbox's Node (v25.9.0) lacks the native `Temporal` global that Node 26 (this repo's engine
- * floor, per the root CLAUDE.md) provides. `ensureTemporal()` installs `@js-temporal/polyfill`'s real
+ * floor) provides. `ensureTemporal()` installs `@js-temporal/polyfill`'s real
  * implementation, feature-detected so it is a no-op on a real Node 26 runtime -- exactly the pattern
  * `models/export.test.ts` used inline before this helper existed, including the
  * `Date.prototype.toTemporalInstant` patch (the polyfill package installs the `Temporal` global itself
@@ -13,7 +13,7 @@
  * `n * 365 * 86_400_000` milliseconds (wrong across a leap year, and silently accepts `Instant.add()`
  * calendar units that the real `Temporal.Instant` throws on), or implementing `Instant.compare` as a
  * numeric comparison on `epochMilliseconds` (passes a test even where the code under test wrongly wrote
- * `a < b`, which throws against a real `Temporal.Instant` per CLAUDE.md's "Backend patterns" section).
+ * `a < b`, which throws against a real `Temporal.Instant`).
  * Installing the real polyfill means both failure modes surface in tests exactly as they would in
  * production under Node 26. See `docs/audit-2026-08-24/testing.md` §7.
  *

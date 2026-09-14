@@ -48,7 +48,7 @@ function warnText(record: WarnRecord): string {
  * Minimal stand-in for the subset of `Temporal` `checkRateLimit` and this file's own fixtures use
  * (`Now.instant()`, `Instant.compare()`, `.add()`/`.subtract()`).
  *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it — the same environment gap `core/scheduler.test.ts` works around,
  * not a spec deviation. `Instant.compare` implements the real (a, b) => sign(a - b) semantics, so
  * `checkRateLimit`'s actual comparison logic is exercised, not a re-implementation of it.

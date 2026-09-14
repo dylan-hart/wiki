@@ -11,8 +11,8 @@ vi.mock('@/helpers/clipboard', () => ({
 
 /**
  * Regression test for the `popularTags` computed (not part of the backend `FIXME:` list this branch's
- * test infra otherwise regression-tests — see CLAUDE.md's "Testing (backend)" section — this is the
- * fifth, frontend bug the epic separately tracks). It must sort by usage count DESCENDING, most-used
+ * test infra otherwise regression-tests — this is the fifth, frontend bug the epic separately
+ * tracks). It must sort by usage count DESCENDING, most-used
  * first: `orderBy(siteStore.popularTags, ['usageCount', 'desc'], ['asc', 'asc'])` passed the string
  * `'desc'` as a second sort KEY (es-toolkit's `orderBy(collection, iteratees[], orders[])` has no such
  * property on a tag) rather than as the ORDER for `usageCount`, so every tag sorted ascending by

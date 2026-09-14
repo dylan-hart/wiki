@@ -44,7 +44,7 @@ after(async () => {
 
 /**
  * `reassignContent` is SQL orchestration over two tables inside one transaction — exactly the
- * `models/pages.test.ts`-style case CLAUDE.md calls out for a real database rather than a query
+ * `models/pages.test.ts`-style case that calls for a real database rather than a query
  * builder mock. Pages and assets are seeded with raw inserts (bypassing `pages.createPage()`/the
  * asset upload path entirely) since only the `authorId`/`creatorId`/`ownerId` columns this method
  * touches matter here.

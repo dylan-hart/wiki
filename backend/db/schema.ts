@@ -1270,7 +1270,7 @@ export const pageWatching = pgTable(
  * `pages.id` to exist at INSERT time no matter what `onDelete` says, so every deletion notification for
  * a watched page would fail to record. Fixing that for real would mean recording these rows
  * synchronously before the page delete instead of in the deferred job — a larger change than #1689's
- * scope; see `docs/variances.md`.
+ * scope; tracked as OpenProject #3203.
  *
  * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
  * looked up when a notification is finally sent, for the same reason `pageId` isn't a foreign key:

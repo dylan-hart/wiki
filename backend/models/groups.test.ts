@@ -251,8 +251,8 @@ describe('groups.guestActor', () => {
 })
 
 /**
- * `groups.checkAccess` is the one place a page permission is decided (see the "Permissions" section
- * of CLAUDE.md) — it pools a set of groups' rules and hands them to `helpers/pageRules.ts`, which
+ * `groups.checkAccess` is the one place a page permission is decided — it pools a set of groups'
+ * rules and hands them to `helpers/pageRules.ts`, which
  * Task 753 already covers rule-matching logic for in isolation. What is genuinely `models/groups.ts`'s
  * own to cover is the wiring around that: rules are stored as a `jsonb` column and reloaded from it
  * into an in-memory cache (`reloadCache`), and `checkAccess` reads that cache rather than the database

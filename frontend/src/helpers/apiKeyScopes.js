@@ -1,9 +1,8 @@
 /**
  * The closed permission vocabulary an API key / personal access token scope entry may name -- mirrors
  * `ALL_PERMISSIONS` (`backend/helpers/permissions.ts`), which is what the API actually validates a
- * scope against. Duplicated rather than fetched: it is a fixed, closed list (see CLAUDE.md's
- * "Permissions" section), the same way `GroupEditOverlay.vue`'s own `permissions` / `rules` arrays
- * are.
+ * scope against. Duplicated rather than fetched: it is a fixed, closed list, the same way
+ * `GroupEditOverlay.vue`'s own `permissions` / `rules` arrays are.
  *
  * The single shared source for both `ApiKeyCreateDialog.vue` (admin-issued keys) and
  * `ProfileApiKeyCreateDialog.vue` (personal tokens) -- previously each hand-maintained its own copy,

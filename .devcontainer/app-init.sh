@@ -38,7 +38,7 @@ npm run build
 # e2e/ is the fourth workspace and is installed here too, because the Playwright leg is meant to run
 # inside this container rather than on a developer's host (Feature #2601). Its browser is already in
 # the image -- see the Dockerfile's PLAYWRIGHT_BROWSERS_PATH block -- so neither this workspace nor
-# frontend/ needs the per-machine `npm run install-browsers` step CLAUDE.md used to require.
+# frontend/ needs the per-machine `npm run install-browsers` step each used to require separately.
 echo "Installing e2e dependencies..."
 cd /workspace/e2e
 npm ci

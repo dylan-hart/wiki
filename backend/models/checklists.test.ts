@@ -11,7 +11,7 @@ import { users as usersTable } from '../db/schema.ts'
 import { checklists } from './checklists.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
-// This dev environment's Node predates 26 (per CLAUDE.md), so `Temporal` is not a native global here.
+// This dev environment's Node predates 26, so `Temporal` is not a native global here.
 // Shim just enough of `Temporal.Now.instant()` for `checkItem()`'s completion timestamp, unmodified.
 if (typeof (globalThis as any).Temporal === 'undefined') {
   ;(globalThis as any).Temporal = {

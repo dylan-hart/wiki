@@ -12,8 +12,8 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * field-forwarding, not the model itself (DB-backed coverage lives in `models/glossary.test.ts`).
  * Mirrors `hooks.test.ts`'s own recording-fake pattern.
  *
- * Trimmed by OpenProject #2690 (`docs/testing-audit/backend.md`'s `api/glossary.test.ts` row, and
- * `docs/decisions/testing-strategy.md`'s worked example of the same file): most of the original
+ * Trimmed by OpenProject #2690 (the settled testing-strategy policy's worked example of this same
+ * file): most of the original
  * twenty-four tests were the shape "the route forwards these fields to the model unchanged," and the
  * unknown-site 404 repeated on every route came free from `siteEnabledPreHandler`, already covered
  * once, structurally, by `api/index.test.ts`. Body-shape validation is enforced by the JSON Schema

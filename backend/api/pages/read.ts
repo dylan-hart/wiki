@@ -337,7 +337,7 @@ async function routes(app: FastifyInstance) {
     /*
       No route-level permissions: visibility is enforced per row via `filterVisible`, inherited
       through `WIKI.models.semanticSearch.search()` (Feature #3092) — same convention as `pages/search`
-      above. See CLAUDE.md's Permissions section.
+      above.
     */
     {
       schema: {
@@ -728,7 +728,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a page's translations",
         description:
-          "Other locales' pages sharing this page's path -- the translation link this data model uses (see docs/decisions/locale-translation-linking.md). What the move/rename dialog queries to offer `includeTranslations`, and what that option cascades a path change to.\n\nNeeds `manage:pages` on this page, the same permission moving it needs.",
+          "Other locales' pages sharing this page's path -- the translation link this data model uses. What the move/rename dialog queries to offer `includeTranslations`, and what that option cascades a path change to.\n\nNeeds `manage:pages` on this page, the same permission moving it needs.",
         tags: ['Pages'],
         params: { $ref: 'SitePageParams#' },
         response: {
@@ -790,7 +790,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a page's per-locale translation staleness/missing status",
         description:
-          "For every locale the site has active, whether a translation exists at this page's path and whether it predates the primary-locale page there (`translation.updatedAt < primary.updatedAt` on the shared `(siteId, path)` join -- see docs/decisions/locale-translation-linking.md). What `LocaleSelectorMenu.vue` reads to badge a stale or missing translation before the reader switches to it.\n\nReadable without a session, same as reading the page itself -- but each candidate translation row is dropped unless the caller may `read:pages` on it, and unpublished/scheduled translations are invisible to an anonymous caller entirely, so this never reveals a translation the caller could not otherwise discover by trying to read it directly.",
+          "For every locale the site has active, whether a translation exists at this page's path and whether it predates the primary-locale page there (`translation.updatedAt < primary.updatedAt` on the shared `(siteId, path)` join). What `LocaleSelectorMenu.vue` reads to badge a stale or missing translation before the reader switches to it.\n\nReadable without a session, same as reading the page itself -- but each candidate translation row is dropped unless the caller may `read:pages` on it, and unpublished/scheduled translations are invisible to an anonymous caller entirely, so this never reveals a translation the caller could not otherwise discover by trying to read it directly.",
         tags: ['Pages'],
         params: { $ref: 'SitePageParams#' },
         response: {

@@ -400,7 +400,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     //    entirely -- leaving `meta.description` (what the file manager reads) and `updatedAt` (what
     //    an `updatedAt`-ordered listing sorts by) stale on a description-only edit.
     //
-    // -> `Temporal` is a Node 26 global needing no import (CLAUDE.md), but this sandbox's `node` is
+    // -> `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
     //    older and doesn't expose it (same environment gap `api/pages.test.ts`'s own
     //    `installFakeTemporal` documents). Installed only when genuinely missing, so a real Node 26
     //    run exercises the native API.
@@ -2571,7 +2571,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
    * `helpers/translationStaleness.test.ts` covers the comparison logic itself as a pure function;
    * this proves `getTranslationStaleness` wires it to a real `(siteId, path)` join off the actual
    * `pages` table -- `test/db.ts#setupTestDb()` already seeds this site's locale config with
-   * `active: ['en', 'fr']`, matching `docs/decisions/locale-translation-linking.md`'s convention.
+   * `active: ['en', 'fr']`, matching the locale-translation-linking decision's convention.
    */
   describe('getTranslationStaleness (OpenProject #2477)', () => {
     test('flags a translation older than the primary page as stale', async () => {

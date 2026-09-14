@@ -20,9 +20,8 @@ import { computed, reactive, ref } from 'vue'
  * pre-hydration shell and the post-hydration document agree on a locale-prefixed URL rather than
  * flashing between them. `i18n.locale.value` is the separate axis that keeps following
  * `commonStore.locale`; `LocaleSelectorMenu.vue`'s header comment documents that same split from the
- * content-switcher's side, and `docs/decisions/lang-dir-contract.md` records the contract. This
- * composable itself is agnostic to which locale feeds it -- it just mirrors whatever `dir`
- * `applyDocumentLocale()` last set.
+ * content-switcher's side. This composable itself is agnostic to which locale feeds it -- it just
+ * mirrors whatever `dir` `applyDocumentLocale()` last set.
  *
  * Most of what "goes RTL" is plain CSS -- logical properties resolve against `dir` on their own, no
  * Vue involved. This exists for the minority that is NOT CSS: a `WMenu`/`WTooltip` `anchor`/`self`

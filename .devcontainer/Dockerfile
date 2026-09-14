@@ -26,7 +26,7 @@
 # itself resolves against (actions/node-versions' versions-manifest.json); nodejs.org/dist agrees
 # (26.8.1, released 2026-08-26). It is deliberately an exact patch and not `26` or `26.x`: a floating
 # major lets this image and CI resolve different patches on different days, which is this Feature's
-# own problem reintroduced one level down, and CLAUDE.md's Currency rule already forbids it.
+# own problem reintroduced one level down, which floating-tag pinning exists specifically to avoid.
 #
 # Bumping it is a three-file change, not a one-line edit: this ARG, NODE_IMAGE_DIGEST below, and
 # every `node-version:` in .github/workflows/*.yml -- together, in one commit. The RUN assertion
@@ -178,8 +178,8 @@ RUN set -eu; \
 # This writes /etc/gitconfig, the system config of the distro git installed above. It is also why
 # devcontainer.json no longer enables the `devcontainers/features/git` feature: that feature builds
 # git from source under /usr/local, whose system config is /usr/local/etc/gitconfig -- so every
-# setting below would still be on disk and silently no longer read. See docs/variances.md for the
-# resulting git-version divergence from ubuntu-latest, which is accepted rather than hidden.
+# setting below would still be on disk and silently no longer read. The resulting git-version
+# divergence from ubuntu-latest is accepted rather than hidden.
 # ---------------------------------------------------------------------------------------------
 RUN git config --system init.defaultBranch master \
     && git config --system user.name 'Wiki.js Dev Container' \

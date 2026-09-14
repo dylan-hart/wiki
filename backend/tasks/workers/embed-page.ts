@@ -25,8 +25,8 @@ import { embedText } from '../../helpers/embeddings.ts'
  * contract) is skipped rather than aborting the whole page: a page ends up with fewer, partially
  * stale chunks rather than none at all just because one passage's inference failed.
  *
- * `pageEmbeddingChunks` is deliberately not part of `db/schema.ts` (Task #3095's own decision --
- * see `docs/variances.md`), so every statement here is raw SQL via Drizzle's `sql` template rather
+ * `pageEmbeddingChunks` is deliberately not part of `db/schema.ts` (Task #3095's own decision), so
+ * every statement here is raw SQL via Drizzle's `sql` template rather
  * than the query builder.
  */
 export async function embedPage(pageId: string): Promise<void> {
@@ -74,7 +74,7 @@ export async function embedPage(pageId: string): Promise<void> {
 
 /**
  * Worker-thread entry point, dynamically imported by `worker.ts` as `tasks/workers/embed-page.ts`
- * for the `embedPage` job (see CLAUDE.md's "Five dynamic paths are extension-sensitive").
+ * for the `embedPage` job (one of this repo's extension-sensitive dynamic paths).
  *
  * Enqueued once per page save (`models/pages.ts`) via `WIKI.scheduler.addJob({ task: 'embedPage',
  * payload: { pageId } })` -- never once per chunk, since chunking happens inside `embedPage()`

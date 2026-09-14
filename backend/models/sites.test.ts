@@ -52,7 +52,7 @@ describe('sites.DEFAULT_THEME_COLORS', () => {
 /**
  * Regression coverage for Task 588: `createSite()`'s default config used to carry a dead
  * `logoUrl: ''` field that `init()`'s default site config never had (confirmed by diffing the two
- * blocks — see CLAUDE.md's note on not writing fallbacks for cases that cannot occur). Logo is
+ * blocks — this codebase never writes fallbacks for cases that cannot occur). Logo is
  * fully handled by the `assets.logo` binary upload flow served at `/_site/:siteId/logo`; `logoUrl`
  * was never read anywhere in `frontend/`, nor accepted by the `PUT /_api/sites/:siteId` body. This
  * suite asserts the stored config a fresh site gets from `createSite()` no longer contains it, and
@@ -300,7 +300,7 @@ describe('seed_theme_aesthetic migration (DB-backed)', { skip: !hasTestDatabase(
 
 /**
  * `setAsset`/`getAsset` coordinate an insert-or-update plus `updateSite`'s own
- * read-merge-update-and-reload-cache, so — per CLAUDE.md's DB-backed guidance — this runs the real
+ * read-merge-update-and-reload-cache, so — per this repo's DB-backed testing guidance — this runs the real
  * methods against a migrated database rather than re-describing that SQL with a query-builder mock.
  *
  * What's being verified is the no-Sharp fallback path: `helpers/images.ts#normalizeImage` returns

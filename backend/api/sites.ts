@@ -43,7 +43,7 @@ const SITE_CONFIG_KEYS = [
 
 /**
  * Which `site:*` permission (see `helpers/siteRules.ts`) governs each key `PUT /:siteId` can
- * touch, per the per-surface mapping in §3 of `docs/decisions/delegated-per-site-administration.md`.
+ * touch, per the per-surface mapping in §3 of the delegated-per-site-administration decision.
  *
  * `general`, `theme`, `login`, `locale` and `editors` all write through this one route, so — unlike
  * `blocks.ts`, `navigation.ts` and `approvals.ts`, which each have a dedicated route per permission —
@@ -522,8 +522,8 @@ async function routes(app: FastifyInstance) {
       /*
         No route-level `permissions`: five different `site:*` permissions gate different keys of the
         same body (see `SITE_FIELD_PERMISSIONS`), which `config.permissions` cannot express any more
-        than it can express a page permission — see CLAUDE.md's "A page permission cannot be enforced
-        by `config.permissions`" note, which applies identically to a site-scoped one. Checked in the
+        than it can express a page permission, since that hook only ever reads the group-wide session
+        list — the same reason applies identically to a site-scoped permission. Checked in the
         handler below instead.
       */
       schema: {
@@ -999,8 +999,8 @@ async function routes(app: FastifyInstance) {
       /*
         Deliberately still a route-level, global-only gate: deleting a site is one of
         `AdminSites.vue`'s own site-management actions (alongside create and enable/disable), not one
-        of the eight delegable `site:*` settings surfaces in
-        `docs/decisions/delegated-per-site-administration.md` §3, so there is no site-scoped
+        of the eight delegable `site:*` settings surfaces the delegated-per-site-administration
+        decision's §3 lists, so there is no site-scoped
         permission for `config.permissions` to be unable to express here — `manage:sites` says the
         whole of it, same as before.
       */

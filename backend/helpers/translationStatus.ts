@@ -1,8 +1,8 @@
 /**
  * Per-locale translation staleness/missing status against a primary-locale page (Feature #2439's
  * "translation staleness is queryable but never surfaced to users"), joined on the shared
- * `(siteId, path)` identity `pages_siteId_locale_path_idx` makes real -- see
- * `docs/decisions/locale-translation-linking.md`. Staleness is always
+ * `(siteId, path)` identity `pages_siteId_locale_path_idx` makes real, per the
+ * locale-translation-linking decision. Staleness is always
  * `translation.updatedAt < primary.updatedAt`; nothing here needs a translation-group id, since same
  * path within a site already IS the translation link.
  *

@@ -56,7 +56,7 @@ export interface PageFrontMatterInput {
 /**
  * An instant, formatted the way a front-matter header reads it back: second precision is plenty for
  * a human-authored file, and matches the `smallestUnit` this codebase already truncates to when a
- * `Temporal.Instant` is turned into a string (see the `Temporal` note in CLAUDE.md).
+ * `Temporal.Instant` is turned into a string.
  */
 function formatDate(date: Date): string {
   return date.toTemporalInstant().toString({ smallestUnit: 'second' })

@@ -6,8 +6,8 @@ import { hasPermission } from './pages.ts'
  * Regression test for task 548: `hasPermission()` in `models/pages.ts` used to check
  * `actor.permissions.includes(permission)` — the group-WIDE permission list built by `actorFrom()`
  * in `helpers/pageAccess.ts` — but `write:scripts`/`write:styles` are page-rule-scoped permissions (same
- * `PAGE_PERMISSIONS` list `mayBypassPassword()` misused before task 547; see CLAUDE.md's Permissions
- * section). A page-rule grant of either was therefore silently ignored at all three call sites that
+ * `PAGE_PERMISSIONS` list `mayBypassPassword()` misused before task 547). A page-rule grant of
+ * either was therefore silently ignored at all three call sites that
  * gate `postProcess()` — `write:scripts`/`write:styles` decide whether an author's raw `<script>`/
  * `<style>` HTML survives sanitization, not merely a global toggle: `createPage`, `updatePage`, and
  * `queueRerender`.
@@ -31,7 +31,7 @@ before(() => {
       groups: {
         // -> Stands in for a real page rule: `write:scripts` is granted to `rule-group` only under
         //    `docs/allowed`, and to nobody else -- the actor's `permissions` list plays no part,
-        //    matching how a page rule actually works (see CLAUDE.md's Permissions section).
+        //    matching how a page rule actually works.
         checkAccess: (
           actor: { groupIds: string[]; permissions: string[] },
           permission: string,

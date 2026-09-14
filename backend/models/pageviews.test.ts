@@ -190,7 +190,7 @@ test('countsForGraph returns an empty map and never touches the database while p
 /**
  * `record()`/`purgeExpired()` are genuine SQL orchestration -- the admin opt-out's no-op guarantee and
  * the retention purge's timestamp comparison are exactly the kind of thing a mock of the query builder
- * would mostly just re-describe rather than verify, per CLAUDE.md's testing guidance. Real Postgres it
+ * would mostly just re-describe rather than verify. Real Postgres it
  * is, gated the same way every other DB-backed suite in this repo is.
  */
 describe('pageviews model', { skip: !hasTestDatabase() }, () => {

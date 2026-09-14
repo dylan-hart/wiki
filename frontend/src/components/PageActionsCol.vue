@@ -268,7 +268,7 @@
             </w-item>
             <!--
               Duplicate, rename/move and delete live HERE rather than as three more buttons down the
-              rail (Cardinal, `ui-redesign/CLAUDE.md`). Six icon-only buttons whose labels exist only
+              rail. Six icon-only buttons whose labels exist only
               in a tooltip is five too many for a column 56px wide, and the three that were cut are
               the three a reader never wants: they act on the page as a FILE, not on its contents,
               which is what a more menu is for.

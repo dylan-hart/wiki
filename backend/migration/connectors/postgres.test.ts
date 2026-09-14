@@ -11,8 +11,8 @@ import { LEGACY_SCHEMA_DDL } from '../../test/migrationFixtures.ts'
  * read — see the generator smoke test at the bottom.
  *
  * Connection parameters come from `DATABASE_URL` when set — the same single-source-of-truth every
- * `setupTestDb()` suite already keys off via `hasTestDatabase()` (see `test/db.ts` and "Testing
- * (backend)" in CLAUDE.md), which is what lets this file run for real in CI (`quality.yml` exports
+ * `setupTestDb()` suite already keys off via `hasTestDatabase()` (see `test/db.ts`), which is what
+ * lets this file run for real in CI (`quality.yml` exports
  * `DATABASE_URL` for its `postgres:18` service, but no `MIGRATION_TEST_PG_*` var). Absent that, it
  * falls back to the standalone `MIGRATION_TEST_PG_*` vars, for a developer running just this file
  * against its own throwaway container: `docker run --rm -d --name wiki-test-db-712 -p 56071:5432 -e

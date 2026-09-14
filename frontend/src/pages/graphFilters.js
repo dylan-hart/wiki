@@ -61,8 +61,8 @@ export function deriveMaxFolderDepth(nodes) {
 /**
  * The composite node id every function below keys nodes and edges by: `${locale}:${path}`
  * (OpenProject #1629/#1632). A bare `path` alone is not unique -- two locales' translations of the
- * same page share it by design (`docs/decisions/locale-translation-linking.md`,
- * "Same-path-by-convention") -- so filtering, d3-force's `nodeById` map, or hierarchy-building on
+ * same page share it by design ("same-path-by-convention") -- so filtering, d3-force's `nodeById`
+ * map, or hierarchy-building on
  * `path` alone would collapse them onto whichever the map kept last, with no error: N duplicate
  * dots on top of each other, all edges attached to just one of them. A real node (one carrying a
  * `locale`) is therefore keyed on `${locale}:${path}`, matching what the graph API already emits

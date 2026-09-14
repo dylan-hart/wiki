@@ -97,7 +97,7 @@ OPTIONS
   --no-flaky     Skip the quarantine lane (see below).
   -h, --help     This text.
 
-THE QUARANTINE LANE (docs/decisions/flaky-test-quarantine.md)
+THE QUARANTINE LANE
 
   After the gate passes, `npm run test:flaky` runs in all four workspaces REPORT-ONLY: its result is
   printed and NEVER changes this command's exit code. That mirrors the report-only lane step in
@@ -323,7 +323,7 @@ if [ "$RUN_SMOKE_BOOT" = '1' ]; then
     cat "$smoke_log"
 
     if grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)' "$smoke_log"; then
-      warn 'A devDependency has leaked onto the real boot path -- see docs/variances.md.'
+      warn 'A devDependency has leaked onto the real boot path.'
       smoke_status=1
     elif ! grep -q 'connection failed, retrying' "$smoke_log"; then
       warn 'Boot never reached the database-connect stage, so this asserted nothing useful.'
@@ -344,8 +344,7 @@ if [ "$RUN_SMOKE_BOOT" = '1' ]; then
 fi
 
 # --------------------------------------------------------------------------------------------
-# The quarantine lane -- REPORT-ONLY. Never touches the exit code. See --help and
-# docs/decisions/flaky-test-quarantine.md.
+# The quarantine lane -- REPORT-ONLY. Never touches the exit code. See --help.
 # --------------------------------------------------------------------------------------------
 if [ "$RUN_FLAKY" = '1' ]; then
   for workspace in backend frontend blocks e2e; do

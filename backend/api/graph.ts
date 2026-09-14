@@ -17,7 +17,7 @@ export type { GraphPageRow }
 /** One node in the knowledge graph (OpenProject #872) — a page the requester may read. */
 export interface GraphNode {
   /** Composite `${locale}:${path}` id (OpenProject #1621/#1626) -- translations share a `path` by
-   *  design (`docs/decisions/locale-translation-linking.md`, "Same-path-by-convention"), so `path`
+   *  design (the locale-translation-linking decision's "Same-path-by-convention"), so `path`
    *  alone cannot uniquely identify a node once a site has more than one locale. Edges are keyed on
    *  this, not on `path`. */
   id: string
@@ -90,7 +90,7 @@ export function folderOf(path: string): string {
  *
  * A plain function taking a predicate rather than a request, so OpenProject #884 can exercise the
  * node/edge assembly + permission-filter logic against a fixture page list with no `WIKI` global
- * and no database (CLAUDE.md's "Testing (backend)" pure-unit convention). This stub is enough to
+ * and no database (the pure-unit testing convention this backend follows). This stub is enough to
  * wire the route end to end first — Task 5 (#884) fills in the real body.
  *
  * `classificationName` resolves a classification id to its display name (OpenProject #1217) —
@@ -129,7 +129,7 @@ export function assembleGraph(
 ): Graph {
   const visible = rows.filter(canRead)
   // -> A relation/link target is a bare path, resolved within the target's own locale (translations
-  //    share a path by design -- `docs/decisions/locale-translation-linking.md`), so it must be
+  //    share a path by design, per the locale-translation-linking decision), so it must be
   //    paired with the *source* row's locale, not looked up as a path on its own, or an `en` page's
   //    link would count as visible when only a `fr`-locale page occupies that path (OpenProject
   //    #1621/#1626).
@@ -215,8 +215,8 @@ const graphQuerystring = {
 /**
  * The graph bundle for a site -- from the cache when warm, or rebuilt (and cached) on a cold one.
  *
- * A cold rebuild is refused with `null` for a caller with no session (OpenProject #2269), matching
- * the reasoning `docs/variances.md:709` applies to `POST /_api/diagrams/render`: the three underlying
+ * A cold rebuild is refused with `null` for a caller with no session (OpenProject #2269), the same
+ * reasoning `POST /_api/diagrams/render` applies for the same cost shape: the three underlying
  * queries scale with the whole site's page/history/pageview row counts, so an anonymous caller must
  * not be able to force that cost on demand by simply outracing the TTL or hitting a just-invalidated
  * cache. A signed-in caller needs no specific permission to trigger it -- the same "logged in is

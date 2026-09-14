@@ -128,7 +128,7 @@ describe('AuthLoginPanel recovery code toggle', () => {
 
 /**
  * `register()` used to be a dead `APOLLO_CLIENT.mutate(...)` call (there is no GraphQL server left --
- * see CLAUDE.md's "GraphQL was removed") that also never sent `strategyId`, which the REST route
+ * it was removed) that also never sent `strategyId`, which the REST route
  * requires. This covers the two shapes `POST sites/:siteId/auth/register` answers with: `nextAction:
  * 'verify'` (email validation on -- show the check-your-email screen rather than auto-logging in) and
  * any other `nextAction` (email validation off -- falls straight through to the same
@@ -421,7 +421,7 @@ describe('AuthLoginPanel forgot password', () => {
    * The route always answers 200 for a normal request (see above), but `limitAuthAttempts`
    * (`backend/helpers/rateLimit.ts`) can still refuse it with a 429 carrying a specific, actionable
    * `{ message }` -- `reply.tooManyRequests('Too many attempts. Try again in N minute(s).')`, shaped
-   * by the global error handler into `{ ok, error, statusCode, message }` per CLAUDE.md. Every other
+   * by the global error handler into `{ ok, error, statusCode, message }`. Every other
    * catch block in this file reports a failure via `localizeError(apiErrorMessage(err), t)`, which
    * reads that `err.data.message` first (see `helpers/apiError.js`'s doc comment on why: ky's own
    * `err.message` for a non-2xx is a content-free "Request failed with status code 429"). This one

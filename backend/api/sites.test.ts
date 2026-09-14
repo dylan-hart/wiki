@@ -584,7 +584,7 @@ test('a successful update records a site.settingsUpdated audit log entry', async
 /**
  * Task #683: `PUT /:siteId` now also accepts the per-surface `site:*` permissions from task #682,
  * checked key by key against `SITE_FIELD_PERMISSIONS` since five surfaces (general/theme/login/
- * locale/editors) share this one route (`docs/decisions/delegated-per-site-administration.md` §3).
+ * locale/editors) share this one route (the delegated-per-site-administration decision's §3).
  */
 
 test('site:general on this site may save general-surface fields', async () => {

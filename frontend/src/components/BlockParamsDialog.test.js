@@ -11,8 +11,8 @@ import { createTestI18n } from '../../test/i18n.js'
  * the 26 in-repo declarations would have blanked its title band with nothing failing to say so.
  *
  * It draws the reference as-is rather than assembling an `img:/_assets/icons/ultraviolet-<name>.svg`
- * path out of it, which is what CLAUDE.md means under Icons by "a name assembled by concatenation is
- * therefore a bug: make it a literal": `scripts/generate-icons.mjs` cannot see a name built at
+ * path out of it -- a name assembled by concatenation is therefore a bug; make it a literal:
+ * `scripts/generate-icons.mjs` cannot see a name built at
  * runtime, and `WIcon` draws nothing at all for a reference carrying no Iconify prefix.
  *
  * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the

@@ -9,7 +9,7 @@
  * `ensureTemporal()` -- so every real boot of the app had no `Temporal` at all, and any code path
  * that reached `Temporal.*` or `date.toTemporalInstant()` (locales refresh, SEO sitemap, page
  * serialization/export, search indexing, storage sync tick checks, API key expiration, pageviews
- * summary, ...) crashed. See `docs/decisions/` for more if this gets written up further.
+ * summary, ...) crashed.
  *
  * Feature-detected so this becomes a no-op the moment a future Node release ships it natively.
  */

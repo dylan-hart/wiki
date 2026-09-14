@@ -4,8 +4,8 @@
  * Two separate claims, and the second is the one that actually bites:
  *
  * 1. All four workspaces name themselves `cardinal-<workspace directory>`. Nothing resolves a
- *    workspace by name — there is no root package and no monorepo tooling (see the repo's
- *    CLAUDE.md), and every one of the four is `private: true` and never published — so this is
+ *    workspace by name — there is no root package and no monorepo tooling — and every one of the
+ *    four is `private: true` and never published — so this is
  *    branding, and the point of asserting it is that the scheme stays a scheme instead of drifting
  *    back into the ad-hoc set it replaced (`wiki-backend` / `wiki-ux` / `blocks` / `wiki-e2e`,
  *    where `wiki-ux` had additionally outlived the `ux/` directory it was named for).

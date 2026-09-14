@@ -7,8 +7,7 @@
  *
  * This is a structural/self-consistency check against `.github/workflows/*.yml`, which has no
  * backend-workspace file of its own to sit next to -- same category as `verifyCi.test.ts` and
- * `release-workflow.test.ts`, which already parse these same four files (see CLAUDE.md's "Testing
- * (backend)" for the rule this follows).
+ * `release-workflow.test.ts`, which already parse these same four files.
  *
  * What this deliberately does NOT assert: that any particular number is "the right" timeout. A
  * wedged-runner floor is a judgment call sized with headroom over an observed/estimated baseline,

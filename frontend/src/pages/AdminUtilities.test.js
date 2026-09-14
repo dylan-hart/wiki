@@ -348,8 +348,7 @@ describe('AdminUtilities scanPageProblems', () => {
 })
 
 /**
- * The Cardinal settings pattern, as it reaches a TOOL page —
- * `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+ * The Cardinal settings pattern, as it reaches a TOOL page.
  *
  * Each of these ten utilities is a fixed, design-time named action: a plate, a label over a
  * sentence, and one control at the trailing edge. That is the settings row's own shape, so the page

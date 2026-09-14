@@ -252,7 +252,7 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
  * Unlike `refreshFromDisk()`/`hasImplementation()`, the dynamic import inside `ensureModule()` is a
  * fixed relative specifier (`../modules/search/${key}/search.ts`, resolved from `models/search.ts`'s
  * own location) rather than something built off `WIKI.SERVERPATH` — that's exactly what makes it the
- * "extension-sensitive dynamic path" CLAUDE.md tracks. So this writes real, throwaway fixture modules
+ * "extension-sensitive dynamic path" this codebase tracks by hand. So this writes real, throwaway fixture modules
  * under the actual `backend/modules/search/` directory (cleaned up in `after`) instead of a tmp dir,
  * and points `WIKI.SERVERPATH` at the real backend root so `hasImplementation()`'s gate agrees with it.
  */

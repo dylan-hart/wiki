@@ -60,8 +60,8 @@ export interface SourceAssetFile {
    * `models/assets.ts#upload()` already applies to any upload with no declared type. */
   mimeType?: string
   /** Source `createdAt`/`updatedAt`, when available (Postgres-direct only). Absent means the
-   * destination row gets today's date — a documented, accepted gap (see
-   * `docs/variances.md`'s asset-import-timestamps entry, Task 17). */
+   * destination row gets today's date — a documented, accepted gap, Task 17 (tracked for a real fix
+   * as OpenProject #3204). */
   createdAt?: Date
   updatedAt?: Date
 }

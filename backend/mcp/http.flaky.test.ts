@@ -4,8 +4,7 @@ import { createMcpSessionHarness } from '../test/mcpSessionHarness.ts'
 
 /**
  * QUARANTINED — this file is in the `*.flaky.*` lane and does NOT run under `npm run test`. It runs
- * under `npm run test:flaky`, which CI reports on but does not gate on. See
- * `docs/decisions/flaky-test-quarantine.md` for the lane's rules.
+ * under `npm run test:flaky`, which CI reports on but does not gate on.
  *
  * **Expires 2026-12-06.** By then this test is either fixed or deleted.
  *

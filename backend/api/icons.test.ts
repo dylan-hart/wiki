@@ -8,7 +8,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * OpenProject #931: `GET /sets`, `GET /search`, `GET /sets/:prefix/icons` and `POST /materialize`
  * used to declare route-level `config.permissions: PICKER_PERMISSIONS`, a list that mixed
  * `write:pages`/`manage:pages` (page-rule permissions) in with `manage:sites`/`manage:system`
- * (group-wide ones). Per CLAUDE.md's Permissions section, `config.permissions` is enforced by a
+ * (group-wide ones). `config.permissions` is enforced by a
  * hook that only ever reads the group-wide session list — it silently reduced the check to
  * `manage:sites`/`manage:system` alone, refusing every ordinary author write access had been
  * granted to through a page rule. `mayUseIconPicker()` now checks in-handler instead, the same

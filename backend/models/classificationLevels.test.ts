@@ -6,7 +6,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
  * DB-backed: `classificationLevels` is a small admin-configurable list, same shape as `groups`, and
  * every method here reads/writes through `WIKI.db` plus the in-memory `levelsCache` `reloadCache()`
  * fills -- there is no meaningful pure-function slice to peel off the way `helpers/pageRules.ts` has
- * (see CLAUDE.md's "Testing (backend)" on when a real Postgres instance earns its keep over a mock).
+ * (a real Postgres instance earns its keep here over a mock).
  */
 describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures

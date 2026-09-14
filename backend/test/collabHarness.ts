@@ -50,7 +50,7 @@ export class FakeSocket extends EventEmitter {
  * envelope straight to the other clone's `receiveRelay` — toggling the module-global `WIKI.INSTANCE_ID`
  * around each hop exactly as two real processes would each carry their own id. This is relay/room
  * bookkeeping with no SQL in it, so a real two-process harness (as built for task 704's scheduler work)
- * would mostly be re-proving the same logic slower and flakier, per CLAUDE.md's guidance to prefer a
+ * would mostly be re-proving the same logic slower and flakier, per this repo's guidance to prefer a
  * unit test wherever a mock would not just be re-describing SQL.
  */
 

@@ -14,8 +14,8 @@
   A block/prop that does not declare one of these fields mints no key for it -- BlockPropsForm.vue
   already falls back to `field.name` for a label and skips the hint entirely, so there is nothing to
   translate. The raw string stays in `component.js` as the render-time fallback for when the
-  `en.json` dictionary is not loaded (`docs/variances.md:959-964`) -- this script does not remove it,
-  only requires a matching key to exist alongside it.
+  `en.json` dictionary is not loaded -- this script does not remove it, only requires a matching key
+  to exist alongside it.
 
   Definitions are read the same way the real build does -- AST-parsed out of the raw source text via
   `rollup/parseAst`, the same parser Rollup's own plugin API exposes as `this.parse()` -- rather than

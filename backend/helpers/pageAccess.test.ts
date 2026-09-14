@@ -148,7 +148,7 @@ const SITE_ID = '11111111-1111-4111-8111-111111111111'
  * Regression test for task 547: `mayBypassPassword()` used to scan
  * `req.session?.permissions` / `req.apiKey?.permissions` for `write:pages` / `manage:pages` /
  * `manage:system` — the group-WIDE permission list — which meant a page-rule grant (the only way
- * `write:pages` is actually handed out; see CLAUDE.md's Permissions section) never bypassed a page's
+ * `write:pages` is actually handed out) never bypassed a page's
  * password, and a requester with those strings in their global list bypassed it on every page
  * regardless of whether any rule actually reached that path.
  *
@@ -171,7 +171,7 @@ describe('mayBypassPassword / unlockedFor', () => {
           }),
           // -> Stands in for a real page rule: `write:pages` is granted to `rule-group` only under
           //    `docs/allowed`, and to nobody else -- session-wide permissions play no part, matching how
-          //    a page rule actually works (see CLAUDE.md's Permissions section).
+          //    a page rule actually works.
           checkAccess: (
             actor: { groupIds: string[]; permissions: string[] },
             permission: string,

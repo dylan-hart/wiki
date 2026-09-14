@@ -30,8 +30,7 @@
         The settings row, not a hand-written `WItem` stack: each of these is a fixed, design-time
         named action -- a label, a sentence, and one control at the trailing edge -- which is the
         same shape a settings row draws and the same material the design says a menu row is made of.
-        No header strip on the card: the page header above already names it. See
-        `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+        No header strip on the card: the page header above already names it.
       -->
       <w-card>
         <w-settings-row

@@ -1,6 +1,6 @@
 /**
  * The closed vocabulary of permission strings, in the two flavors the rest of the codebase
- * distinguishes (see CLAUDE.md's "Permissions" section). Kept in one place so that anything
+ * distinguishes. Kept in one place so that anything
  * validating a permission string — API key scopes chief among them — checks against the same list
  * the group editor and the page-rules engine use, rather than drifting out of sync with it.
  */

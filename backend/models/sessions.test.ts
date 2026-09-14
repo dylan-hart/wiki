@@ -23,7 +23,7 @@ import { sessionStoreAdapter } from './sessions.ts'
  * window is otherwise never revisited on its own.
  *
  * This is the SQL orchestration itself (deletes, one filtered by a membership lookup, one by an age
- * predicate) -- exactly the DB-backed case CLAUDE.md's Testing section carves out from the pure-unit
+ * predicate) -- exactly the DB-backed case this repo's testing convention carves out from the pure-unit
  * default.
  */
 describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {

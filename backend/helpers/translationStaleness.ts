@@ -1,6 +1,6 @@
 /**
- * Translation staleness/missing status via the shared `(siteId, path)` join
- * `docs/decisions/locale-translation-linking.md` already frames as trivial: a translation is
+ * Translation staleness/missing status via the shared `(siteId, path)` join, which the
+ * locale-translation-linking decision already frames as trivial: a translation is
  * `'stale'` when its `updatedAt` predates the primary-locale page's, `'missing'` when the active
  * locale has no row at all for that path, and `'current'` otherwise. This is the one computation
  * behind two surfaces (OpenProject #2439/#2477) -- a locale-switcher badge for a single page, and

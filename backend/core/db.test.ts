@@ -48,7 +48,7 @@ import { installTestWiki } from '../test/mocks.ts'
  *
  * A fake `Pool`/`PoolClient` pair stands in for postgres, matching `helpers/pubsub.test.ts`'s
  * fixtures — this is event-bus wiring and delivery-loss semantics, not SQL, so a mock is the right
- * tool per CLAUDE.md's testing guidance rather than a real two-`node backend` harness (also not
+ * tool rather than a real two-`node backend` harness (also not
  * available in this environment; see `dev/multi-instance-verify/README.md` §8 for what that would
  * look like and why it is not needed to settle this question).
  *
@@ -734,7 +734,7 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
  * These exercise real `pg` `Pool`/Postgres behavior against the config values `db.ts#init()` now
  * passes through — a mock of `pg-pool`'s internal checkout queue or Postgres's own timeout enforcement
  * would mostly just restate what's under test rather than verify it, so this is the DB-backed
- * exception CLAUDE.md's testing guidance carves out. Gated on `DATABASE_URL` like every other
+ * exception the pure-unit-vs-DB-backed testing split carves out. Gated on `DATABASE_URL` like every other
  * DB-backed suite in this file — `npm run test` reports these as skipped without one.
  */
 describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
@@ -996,7 +996,7 @@ describe('shutdown() — OpenProject #2023', () => {
  *
  * DB-backed (real Postgres, real migrations) rather than mocked: the thing under test is genuine
  * cross-connection serialization, which a fake `Pool` would only re-describe, not verify — same
- * reasoning as `helpers/advisoryLock.test.ts`. Gated on `hasTestDatabase()` per CLAUDE.md.
+ * reasoning as `helpers/advisoryLock.test.ts`. Gated on `hasTestDatabase()`.
  *
  * This describe nests its own `beforeEach`/`afterEach` rather than relying on a one-time `before()`:
  * the file-level `beforeEach`/`afterEach` above (for the mock-`Pool` NOTIFY tests) unconditionally

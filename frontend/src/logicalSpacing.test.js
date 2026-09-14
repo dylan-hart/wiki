@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest'
  * This is #1601's consolidation of those three into ONE recursive, repo-wide scan -- paths
  * relative to `frontend/src`, matching `physicalPositioning.test.js`'s own shape -- AND its
  * widening to the audit's full declared population
- * (`docs/audit-2026-08-24/accessibility-i18n.md` §15, `docs/variances.md`'s Feature 413 entry):
+ * (`docs/audit-2026-08-24/accessibility-i18n.md` §15):
  * "223 physical `margin`/`padding`/`border-left|right`, bare `left:`/`right:`, and
  * `text-align: left|right` declarations". The three tranche scans covered only the first of those
  * four property groups (spacing); `border-left`/`border-right`, bare `left:`/`right:` positioning,

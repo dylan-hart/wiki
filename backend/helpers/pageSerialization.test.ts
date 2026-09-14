@@ -10,7 +10,7 @@ import { ensureTemporal } from '../test/temporal.ts'
 /**
  * `injectFrontMatter` converts a page's `createdAt`/`updatedAt` via `Date#toTemporalInstant()`.
  *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it — the same environment gap `core/scheduler.test.ts` works around.
  */
 before(() => ensureTemporal())

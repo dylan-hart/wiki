@@ -286,9 +286,9 @@ import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
  * notification summarizing how many landed versus were skipped/not found/errored.
  *
  * OpenProject #2476 adds the Translations column: `includeLocaleStatus=true` on the same search
- * call asks for each row's per-active-locale staleness/missing status
- * (`docs/decisions/locale-translation-linking.md`'s `translation.updatedAt < primary.updatedAt`
- * join), rendered as one badge per locale. Opt-in on the request so this view's own query is the
+ * call asks for each row's per-active-locale staleness/missing status (the shared
+ * `translation.updatedAt < primary.updatedAt` join), rendered as one badge per locale. Opt-in on
+ * the request so this view's own query is the
  * only one that pays for the extra join -- `Search.vue`/`HeaderSearch.vue`/the link picker never do.
  */
 

@@ -96,9 +96,9 @@ function moduleWithFakeClient() {
 
 /**
  * OpenProject #830 (upstream #865, open): the v2 line's Elasticsearch module used to pin its API
- * version to 6.6, an Elasticsearch major that reached end of life in 2019. Task #552 (see
- * `docs/variances.md`) already dropped the whole `apiVersion` selector in favor of targeting a single,
- * current `@elastic/elasticsearch` major -- this pins that as a regression test, so a future dependency
+ * version to 6.6, an Elasticsearch major that reached end of life in 2019. Task #552 already dropped
+ * the whole `apiVersion` selector in favor of targeting a single, current `@elastic/elasticsearch`
+ * major -- this pins that as a regression test, so a future dependency
  * bump that drags the pin back down to an old major fails a test instead of silently shipping.
  * `dev/docker-compose.search-test.yml` keeps the smoke-tested server image in step with this same
  * major.

@@ -123,8 +123,8 @@ import { useSiteStore } from '@/stores/site'
 /**
  * Source formats this dialog offers, matching `SUPPORTED_IMPORT_FORMATS` in
  * `backend/models/import.ts`. Not imported from there: `backend/` and `frontend/` are separate,
- * independently-installed workspaces with no shared module between them (see CLAUDE.md's `Layout`
- * section), so the two lists are kept in step by hand. `markdown` is listed first as the native
+ * independently-installed workspaces with no shared module between them, so the two lists are kept
+ * in step by hand. `markdown` is listed first as the native
  * format needing no Pandoc extension — every other entry still does.
  */
 const FORMATS = [

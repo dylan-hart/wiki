@@ -112,8 +112,8 @@ build fails if the first two disagree, and `backend/test/devcontainerCiParity.te
 The `app` container's `DATABASE_URL` (set in `.devcontainer/docker-compose.yml`) points at the same
 `db` container the app itself connects to, using `config.sample.yml`'s own db defaults. This means:
 
-- `npm run test` in `backend/` runs the DB-backed suites (see this repo's `CLAUDE.md`, "Testing
-  (backend)" section) in addition to the pure-unit ones, instead of silently skipping them.
+- `npm run test` in `backend/` runs the DB-backed suites in addition to the pure-unit ones, instead
+  of silently skipping them.
 - `npm run dev` / `npm run start` are unaffected, as long as `config.yml`'s `db:` block is left at
   its default values.
 
@@ -188,11 +188,20 @@ pinned patch to run this locally; a newer 26.x is fine.
    - Email: `admin@example.com`
    - Password: `12345678`
 
+> **Plain HTTP gotcha:** the session cookie's `secure` flag defaults to on
+> (`security.cookieSecure`), so a login over plain HTTP (no TLS) will return
+> `{"ok":true,"authenticated":true}` but send **no `Set-Cookie` header at all** — every request
+> after that is silently anonymous. This is a database-owned setting (`config.yml`'s value only
+> applies at first boot), so fix it by updating the row directly once the server has booted once:
+> `update wiki.settings set value = value || '{"cookieSecure": false}'::jsonb where key='security'`,
+> then restart. Only needed for a non-HTTPS local/dev setup — leave it on for anything reachable
+> over the network.
+
 > **DO NOT** report bugs. This build is **VERY** buggy and **VERY** incomplete. Absolutely **NO** support is provided either.
 
 There is also an `e2e/` workspace holding the Playwright end-to-end suite, which drives a full build
-of the stack and requires its own `DATABASE_URL` — see [`CLAUDE.md`](CLAUDE.md#testing-e2e) for how
-to point it at a database.
+of the stack and requires its own `DATABASE_URL` — see [`e2e/CLAUDE.md`](e2e/CLAUDE.md) for
+how to point it at a database.
 
 ## First-Run Admin Account
 
@@ -212,12 +221,15 @@ to reset a lost admin password on a running instance.
 
 ## Repository Documentation
 
-Beyond this file, the repo-checked-in documentation lives in two places:
+Beyond this file, the repo-checked-in documentation lives under:
 
-- **[`CLAUDE.md`](CLAUDE.md)** — the repo's own layout, conventions and workspace-by-workspace
-  developer guide (routing, permissions model, testing setup per workspace, TypeScript rules, etc.).
+- **[`CLAUDE.md`](CLAUDE.md)** — the repo's cross-cutting conventions (layout, permissions model,
+  product naming, the verify-ci gate). Each workspace also carries its own nested `CLAUDE.md`
+  (`backend/`, `frontend/`, `blocks/`, `e2e/`) with that workspace's own deeper developer guide.
 - **[`docs/`](docs)** — deeper reference material, including
   **[`docs/operations.md`](docs/operations.md)** (backup scope, restore order, upgrading a running
   instance, and troubleshooting), **[`docs/offline-deployment.md`](docs/offline-deployment.md)**
-  (air-gapped setup), and **[`docs/migration/migration-runbook.md`](docs/migration/migration-runbook.md)**
+  (air-gapped setup), **[`docs/tooling-incidents.md`](docs/tooling-incidents.md)** (background on
+  some of CLAUDE.md's style and tooling rules), and
+  **[`docs/migration/migration-runbook.md`](docs/migration/migration-runbook.md)**
   (the one-time 2.5.x → 3.0 cutover).

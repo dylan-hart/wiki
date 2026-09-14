@@ -8,8 +8,8 @@ import type { FastifyInstance } from 'fastify'
  * page's or a rule's classification — which is not a fixed permission set. CRUD is `manage:system`
  * only, the same gate `api/icons.ts` uses for its own admin-only set management, since there is no
  * existing global permission that fits ("an admin-configurable list an ordinary editor never touches")
- * and inventing a new one is not warranted for a single small admin screen — see CLAUDE.md's
- * Permissions section on the closed global-permission list.
+ * and inventing a new one is not warranted for a single small admin screen — the
+ * global-permission list is closed.
  */
 async function routes(app: FastifyInstance) {
   /**

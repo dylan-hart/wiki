@@ -526,8 +526,8 @@ function assertNoFailures(found: string[], remedy: string): void {
  * (`isLoggerReceiver`) -- a bare status word passed straight to `console.<level>()` is invisible to
  * all of them, which is exactly how `core/config.ts`'s pre-logger boot window
  * (`console.info(styleText(['green', 'bold'], 'OK'))`) survived every gate this file polices. A
- * `console.*` call before `WIKI.logger` exists is a documented sink exception (CLAUDE.md's Logging
- * section, `core/config.ts` named explicitly) -- that exception covers *where* the line goes, not
+ * `console.*` call before `WIKI.logger` exists is a documented sink exception (`core/config.ts`
+ * named explicitly) -- that exception covers *where* the line goes, not
  * the 2.x-style tag, which the conventions ban regardless of sink.
  *
  * Deliberately narrower than `messageShapeFailure`'s full battery: a `console.*` call is often
@@ -783,7 +783,7 @@ describe('logging conventions (OpenProject #2668)', () => {
     assert.deepEqual(
       found.map((call) => `${call.file}:${call.line}`),
       [],
-      'A console call before WIKI.logger exists is a documented sink exception (CLAUDE.md), not an exemption from the tag-free convention -- write the fact into the message instead of a bare OK/FAILED/SKIPPED/COMPLETED.'
+      'A console call before WIKI.logger exists is a documented sink exception, not an exemption from the tag-free convention -- write the fact into the message instead of a bare OK/FAILED/SKIPPED/COMPLETED.'
     )
   })
 

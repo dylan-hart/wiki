@@ -8,8 +8,8 @@ import type { FastifyInstance } from 'fastify'
  * content — distinct from page edit history and from the Approvals publish workflow, neither of which
  * this touches.
  *
- * Both `read:pages` and `write:pages` here are the existing page-rule permissions (see CLAUDE.md's
- * Permissions section) — nothing new is invented. Every GET below is gated on `read:pages` alone,
+ * Both `read:pages` and `write:pages` here are the existing page-rule permissions —
+ * nothing new is invented. Every GET below is gated on `read:pages` alone,
  * already enforced by `requireReadablePage()` itself (`helpers/pageAccess.ts` — it 404s unless the
  * caller holds it) — unlike `api/comments.ts`, which layers a SECOND, different permission
  * (`read:comments`) on top, there is no separate "may view this run log" permission to check here, so
