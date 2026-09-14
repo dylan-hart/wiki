@@ -939,6 +939,7 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   border: 1px solid var(--color-hairline);
   color: var(--color-slate-soft);
   font-size: 17px;
+  cursor: pointer;
   transition:
     background-color 0.2s var(--ease-standard),
     color 0.2s var(--ease-standard);
