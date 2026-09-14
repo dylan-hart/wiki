@@ -1938,7 +1938,9 @@ class Pages {
       via: actor.via
     })
     // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
-    //    has to be read while it still exists
+    //    has to be read while it still exists -- and, since OpenProject #3203, this is also where the
+    //    `pageWatchEvents` rows for this deletion get written, because `pageId` is a foreign key and
+    //    the INSERT needs this row to still exist too (see `notifyWatchers`'s own doc comment)
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
       path: page.path,
@@ -2529,6 +2531,16 @@ class Pages {
    * into a restricted branch, an edited group rule) would otherwise still be queued a notification
    * carrying the page's title and a working link.
    *
+   * For a `deleted` action (OpenProject #3203), the `pageWatchEvents` rows are recorded HERE,
+   * synchronously, rather than left to the queued job: `pageWatchEvents.pageId` is a foreign key, so
+   * the INSERT has to run while the `pages` row this call is about still exists — both `deletePage`
+   * and `deleteOrphaned` call this before they delete it, same as they already did for
+   * `pageWatching.listWatchers()`'s own read above (deleting the row cascades that list away first).
+   * The already-recorded rows are then handed to the job as `recordedEvents`, so it does the
+   * immediate-send loop against them rather than inserting a second time — see that task's own doc
+   * comment. Every other action keeps deferring the insert into the job: the page row those actions
+   * are about stays put, so there is no timing hazard forcing the write off the request path.
+   *
    * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record` —
    *   `['path']`/`['title']` for a move, whichever page fields for an edit. Always empty for a delete.
    */
@@ -2551,6 +2563,23 @@ class Pages {
       if (watchers.length < 1) {
         return
       }
+      const recordedEvents =
+        action === 'deleted'
+          ? await WIKI.models.pageWatchEvents.recordMany(
+              watchers.map((watcher) => ({
+                siteId,
+                pageId,
+                pageTitle: page.title,
+                pagePath: page.path,
+                pageLocale: page.locale,
+                userId: watcher.userId,
+                action,
+                actorId,
+                changedFields,
+                notifyMode: watcher.notifyMode
+              }))
+            )
+          : undefined
       await WIKI.scheduler.addJob({
         task: 'notifyPageWatchers',
         payload: {
@@ -2562,7 +2591,8 @@ class Pages {
           action,
           changedFields,
           actorId,
-          watchers
+          watchers,
+          recordedEvents
         }
       })
     } catch (err: any) {
