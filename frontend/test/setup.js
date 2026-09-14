@@ -79,7 +79,20 @@ config.global.components.StatusLight = StatusLight
 beforeEach(() => {
   globalThis.API_CLIENT = createApiClientStub()
   globalThis.EVENT_BUS = mitt()
-  globalThis.localStorage = createLocalStorageStub()
+  // Plain assignment (`globalThis.localStorage = ...`) throws under Vitest 5 --
+  // `TypeError: Cannot set property localStorage of #<GlobalWindow> which has only a getter`.
+  // happy-dom's `Window.prototype.localStorage` has always been a getter-only accessor, matching a
+  // real browser's `window.localStorage` (also unassignable there); Vitest 4 ran test code against a
+  // plain object with happy-dom's properties copied on as writable data properties, so the accessor
+  // was never in the assignment's path. Vitest 5 runs test code against happy-dom's own Window
+  // object directly, so the real accessor is now what `globalThis` resolves to. `defineProperty`
+  // redefines the property outright rather than invoking its (absent) setter, which works
+  // regardless of which of the two global shapes is in play.
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: createLocalStorageStub(),
+    writable: true,
+    configurable: true
+  })
   // Ignores `contextId` and always returns the 2D stub below, including for a `'webgl'` request --
   // harmless today since `Graph.vue` is the only component under test that touches a canvas at all.
   HTMLCanvasElement.prototype.getContext = createCanvasContext2dStub

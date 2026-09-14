@@ -39,7 +39,7 @@
     "rollup": "4.62.5",
     "rollup-plugin-summary": "3.0.1",
     "temporal-polyfill": "1.0.4",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "scarfSettings": {
     "enabled": false
