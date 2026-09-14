@@ -346,6 +346,50 @@ describe('devcontainer CI parity: the tools the gate needs (#2684)', () => {
   })
 })
 
+describe('devcontainer CI parity: a pinned, newer git built from source (#3215)', () => {
+  test('GIT_VERSION is an exact release, not a range or a bare major', () => {
+    assert.match(
+      dockerArg('GIT_VERSION'),
+      /^\d+\.\d+\.\d+$/,
+      'the same reasoning as NODE_VERSION applies: a range lets the image resolve a different git ' +
+        'on different days'
+    )
+  })
+
+  test('the source tarball is checksummed', () => {
+    assert.match(dockerArg('GIT_SHA256'), /^[0-9a-f]{64}$/)
+    assert.match(
+      DOCKERFILE,
+      /sha256sum -c -/,
+      'GIT_SHA256 is only worth pinning if the build actually verifies the download against it'
+    )
+  })
+
+  test('git is built with make prefix=/usr, not the default /usr/local', () => {
+    // The whole point of building from source ourselves rather than using
+    // devcontainers/features/git: installing to /usr instead of /usr/local keeps the system config
+    // at /etc/gitconfig, which the git-configuration RUN below this one depends on.
+    assert.match(DOCKERFILE, /make prefix=\/usr NO_RUST=1 -j"\$\(nproc\)" all/)
+    assert.match(DOCKERFILE, /make prefix=\/usr NO_RUST=1 install/)
+  })
+
+  test('the build asserts at image-build time that the installed git matches GIT_VERSION', () => {
+    // Same drift-cannot-ship-quietly reasoning as the Node pin assertion above.
+    assert.match(DOCKERFILE, /actual="\$\(git --version \| awk '\{print \$3\}'\)"/)
+    assert.match(DOCKERFILE, /if \[ "\$actual" != "\$\{GIT_VERSION\}" \]; then/)
+  })
+
+  test('the git feature is still not enabled, which would install a different (and un-pinned) git', () => {
+    assert.doesNotMatch(
+      withoutComments(DEVCONTAINER_JSON),
+      /"ghcr\.io\/devcontainers\/features\/git:/,
+      'devcontainers/features/git builds its own git under /usr/local; this Dockerfile pins and ' +
+        'builds its own instead, at /usr, so both the version and the gitconfig path stay under this ' +
+        'project’s control'
+    )
+  })
+})
+
 describe('devcontainer CI parity: git is configured, not inherited (#2684, Bug #2586)', () => {
   test('init.defaultBranch is stated explicitly', () => {
     // #2586: a fixture ran `git init` with no --initial-branch and pushed `main`. The developer's
