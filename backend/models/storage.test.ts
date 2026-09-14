@@ -153,6 +153,25 @@ test('validateTarget accepts clearing a scheduleOverride', async () => {
   assert.equal(invalid, null)
 })
 
+test('validateTarget accepts a cron-expression scheduleOverride', async () => {
+  const target = makeTarget('git')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    // -> a pinned time of day + day-of-week restriction -- a shape no ISO-8601 duration can express
+    sync: { scheduleOverride: '30 9 * * 1' }
+  })
+  assert.equal(invalid, null)
+})
+
+test('validateTarget rejects a scheduleOverride that is neither a duration nor a valid cron expression', async () => {
+  const target = makeTarget('git')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    sync: { scheduleOverride: 'not-a-duration' }
+  })
+  assert.match(invalid ?? '', /not a valid ISO-8601 duration or cron expression/)
+})
+
 // ---------------------------------------------------------------------------------------------
 // validateTarget() -- disk module's deep `validateConfig` hook (see `StorageModule.validateConfig`)
 // ---------------------------------------------------------------------------------------------
@@ -649,6 +668,66 @@ test('tickScheduledSyncs re-queues a target on schedule regardless of how many p
 test('tickScheduledSyncs logs and skips a target with an unparseable schedule override, without throwing', async () => {
   const { jobs } = fakeTickDeps([
     makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'not-a-duration' })
+  ])
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+// ---------------------------------------------------------------------------------------------
+// tickScheduledSyncs() -- cron-expression scheduleOverride (Issue #3197)
+// ---------------------------------------------------------------------------------------------
+
+test('tickScheduledSyncs queues a target that has never ticked with a cron scheduleOverride, same as a duration', async () => {
+  const { jobs } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: '30 9 * * 1' })
+  ])
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 1)
+  assert.equal(jobs.length, 1)
+})
+
+test('tickScheduledSyncs skips a cron-override target whose next occurrence has not arrived yet', async () => {
+  // -> "every day at 09:30" -- pin `now` to 09:00 the same day, an hour after a midnight tick, so
+  //    the next 09:30 occurrence is still 30 minutes out.
+  const now = Temporal.Instant.from('2026-09-14T09:00:00Z')
+  const lastTickAt = new Date(Temporal.Instant.from('2026-09-14T00:00:00Z').epochMilliseconds)
+  const { jobs } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: '30 9 * * *', lastTickAt })
+  ])
+  const queued = await storage.tickScheduledSyncs(now)
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('tickScheduledSyncs queues a cron-override target once its next occurrence has passed', async () => {
+  const now = Temporal.Instant.from('2026-09-14T09:31:00Z')
+  const lastTickAt = new Date(Temporal.Instant.from('2026-09-14T00:00:00Z').epochMilliseconds)
+  const { jobs, updates } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: '30 9 * * *', lastTickAt })
+  ])
+  const queued = await storage.tickScheduledSyncs(now)
+  assert.equal(queued, 1)
+  assert.equal(jobs.length, 1)
+  assert.ok(updates[0].values.lastTickAt instanceof Date)
+})
+
+test('tickScheduledSyncs does not re-queue a cron-override target exactly at its own last-ticked occurrence', async () => {
+  // -> lastTickAt is itself the 09:30 occurrence -- there is no *further* occurrence yet at the
+  //    same instant, matching the duration branch's exclusive-of-the-tick-that-just-happened math.
+  const occurrence = Temporal.Instant.from('2026-09-14T09:30:00Z')
+  const lastTickAt = new Date(occurrence.epochMilliseconds)
+  const { jobs } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: '30 9 * * *', lastTickAt })
+  ])
+  const queued = await storage.tickScheduledSyncs(occurrence)
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('tickScheduledSyncs logs and skips a target with a cron scheduleOverride that is invalid', async () => {
+  const { jobs } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'not a cron either' })
   ])
   const queued = await storage.tickScheduledSyncs()
   assert.equal(queued, 0)

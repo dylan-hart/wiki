@@ -1,4 +1,4 @@
-import { inflateRaw } from 'pako'
+import { decompressRaw } from '../shared/compress.js'
 
 /**
  * mxGraph/draw.io XML -> inline SVG.
@@ -44,8 +44,11 @@ const PADDING = 20
  * XML directly, or that XML deflated and base64'd. Only the first `<diagram>` is drawn: multi-page
  * files exist, but a block is one diagram, the same limit `block-kroki`/`block-plantuml` accept for
  * their own single-diagram formats.
+ *
+ * Async because a compressed `<diagram>` body's decode goes through `decompressRaw()`'s
+ * `DecompressionStream`, which is stream/async-only -- see `decompress()` below.
  */
-export function extractModelXml(raw) {
+export async function extractModelXml(raw) {
   const source = raw.trim()
   if (!source) {
     throw new Error('This diagram is empty.')
@@ -74,13 +77,13 @@ export function extractModelXml(raw) {
 /**
  * draw.io's compression for an embedded `<diagram>` body: deflate (raw, no zlib header) a
  * `encodeURIComponent`'d copy of the XML, then base64 it. Reversed here the same way `mxUtils.
- * decompress` is documented to work upstream.
+ * decompress` is documented to work upstream, via `shared/compress.js`'s native `decompressRaw`.
  */
-function decompress(base64) {
+async function decompress(base64) {
   try {
     const binary = atob(base64)
     const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0))
-    const inflated = inflateRaw(bytes, { toText: true })
+    const inflated = await decompressRaw(bytes)
     return decodeURIComponent(inflated)
   } catch (err) {
     throw new Error(
@@ -633,11 +636,14 @@ function arrowheadFill(polygon, color) {
  * The full pipeline: block body text -> inline SVG markup, or a thrown `Error` whose `message` is
  * meant to be shown to the page's author as-is.
  *
+ * Async because `extractModelXml()` is (a compressed `<diagram>` body decodes through a
+ * `DecompressionStream`); every caller awaits it.
+ *
  * @param {string} source The block's raw body text.
- * @returns {{ svg: string, cellCount: number }}
+ * @returns {Promise<{ svg: string, cellCount: number }>}
  */
-export function drawioToSvg(source) {
-  const modelXml = extractModelXml(source)
+export async function drawioToSvg(source) {
+  const modelXml = await extractModelXml(source)
   const cells = parseCells(modelXml)
   const { shapes, edges, bounds } = layout(cells)
   const body = [...shapes.map(renderVertex), ...edges.map(renderEdge)].join('')

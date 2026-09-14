@@ -423,9 +423,11 @@ class Passkeys {
       WIKI.models.flags.authDebug(
         `Passkey login for user ${userId} failed to verify: ${err.message}`
       )
+      await this.recordFailedAssertion(user, ip, pending.siteId, err.message)
       throw new Error('ERR_LOGIN_FAILED')
     }
     if (!verification.verified) {
+      await this.recordFailedAssertion(user, ip, pending.siteId, 'assertion not verified')
       throw new Error('ERR_LOGIN_FAILED')
     }
 
@@ -452,6 +454,37 @@ class Passkeys {
       { skipTFA: true, skipChangePwd: true },
       req
     )
+  }
+
+  /**
+   * OpenProject #3200: the one place a failed passkey assertion reaches the audit log.
+   *
+   * By this point the credential ID has already resolved to a specific user and a specific stored
+   * authenticator -- unlike an OAuth callback's `login.failed`, this one can name the account
+   * directly, the same as `loginTFA()`'s own credential-rejection audit entries do. Not called for
+   * `verifyLogin()`'s earlier pre-checks (no outstanding challenge, no/unparseable user handle, no
+   * such user, no such credential for that user) -- those are refused before an assertion was ever
+   * actually verified, the same distinction every other `login.failed` call site in this codebase
+   * draws.
+   *
+   * Attributed to the local strategy, matching the successful case a few lines below: a passkey is one
+   * of an account's own credentials, not a third-party provider's.
+   */
+  private async recordFailedAssertion(
+    user: { id: string; name: string; email: string },
+    ip: string | undefined,
+    siteId: string,
+    reason: string
+  ): Promise<void> {
+    await WIKI.models.auditLog.record({
+      event: 'login.failed',
+      actor: { id: user.id, name: user.name, ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId: WIKI.data.systemIds.localAuthId, reason },
+      siteId
+    })
   }
 
   /**

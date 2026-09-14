@@ -588,4 +588,47 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     const count = await pageWatchEventsModel.unreadCount(userId, siteId)
     assert.equal(count, 2)
   })
+
+  /**
+   * OpenProject #3203: `pageId` is now a real foreign key, `set null` on delete (`db/schema.ts`'s own
+   * comment on this table). Deleting the page a recorded row points at must not delete the row itself
+   * — only unlink it — and `listForUser`'s read-time re-check must keep working off the row's own
+   * captured `pagePath`/`pageLocale` once `pageId` goes null, the same fallback it already used for a
+   * page it merely couldn't find a live row for.
+   */
+  test('a row survives its page being deleted, with pageId nulled and pagePath still driving the read:pages re-check', async () => {
+    const userId = await makeUser('inbox-page-deleted@example.com')
+    const deletablePage = await pagesModel.createPage(
+      siteId,
+      {
+        path: 'inbox-fixture-deletable',
+        title: 'Deletable',
+        editor: 'markdown',
+        content: '# Bye'
+      } as PageInput,
+      actor
+    )
+    const [row] = await pageWatchEventsModel.recordMany([
+      {
+        siteId,
+        pageId: deletablePage.id,
+        pageTitle: 'Deletable',
+        pagePath: 'inbox-fixture-deletable',
+        pageLocale: 'en',
+        userId,
+        action: 'deleted',
+        actorId: actor.id,
+        changedFields: [],
+        notifyMode: 'digest'
+      }
+    ])
+
+    await pagesModel.deletePage(siteId, deletablePage.id, actor)
+
+    const rows = await pageWatchEventsModel.listForUser(userId, siteId)
+    const found = rows.find((r) => r.id === row!.id)
+    assert.ok(found, 'the row must still exist and still be readable after its page was deleted')
+    assert.equal(found!.pageId, null)
+    assert.equal(found!.pagePath, 'inbox-fixture-deletable')
+  })
 })

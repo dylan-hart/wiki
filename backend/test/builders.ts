@@ -195,9 +195,9 @@ export function stubPageStreamDb(pages: SearchIndexablePage[]) {
  * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
  * the full set in the batches it should have, rather than only checking the final tally.
  *
- * The shape `azure-search` and `aws-cloudsearch` rebuild through (see `modules/search/shared.ts`'s
- * `RebuildPageSource` doc for why those two take an injected source at all rather than reading
- * `WIKI.db` the way `stubPageStreamDb` above stands in for).
+ * The shape `azure-search` rebuilds through (see `modules/search/shared.ts`'s `RebuildPageSource` doc
+ * for why it takes an injected source at all rather than reading `WIKI.db` the way `stubPageStreamDb`
+ * above stands in for).
  */
 export function makeRebuildPageSource(
   pagesByLocale: Record<string, SearchIndexablePage[]>

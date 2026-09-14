@@ -262,7 +262,9 @@ class Assets {
     fileName,
     mimeType,
     data,
-    authorId
+    authorId,
+    createdAt,
+    updatedAt
   }: {
     siteId: string
     locale: string
@@ -271,6 +273,17 @@ class Assets {
     mimeType?: string | null
     data: Buffer
     authorId: string
+    /**
+     * Backdates the new asset's `createdAt` column instead of stamping the moment `upload()` runs.
+     * There is no UI for this and an ordinary upload never sets it, so a live upload keeps the
+     * column's `now()` default; only the migration importer
+     * (`backend/migration/importers/asset-import.ts`) supplies it, to carry a 2.x asset's real
+     * creation date across rather than replacing it with import time — same reasoning as
+     * `models/pages.ts#createPage()`'s `createdAt`/`updatedAt` (OpenProject #3204).
+     */
+    createdAt?: string
+    /** Same reasoning as {@link createdAt}, for `updatedAt`. */
+    updatedAt?: string
   }): Promise<Asset> {
     const safeName = sanitizeFileName(fileName)
     if (!safeName) {
@@ -320,6 +333,11 @@ class Assets {
           409
         )
       }
+      // -> `createdAt`/`updatedAt` are deliberately not threaded into `replace()` — an occupant
+      //    already existing here means this isn't the asset's first write, so overwriting its
+      //    `createdAt` would misrepresent an edit as a creation. The migration importer creates each
+      //    2.x asset exactly once at a name nothing in the destination tree has claimed yet, so this
+      //    branch is not the one it runs through for the override to matter.
       return this.replace({
         id: occupant.id,
         siteId,
@@ -364,7 +382,9 @@ class Assets {
         data: fileData,
         preview,
         authorId,
-        siteId
+        siteId,
+        ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
+        ...(updatedAt ? { updatedAt: new Date(updatedAt) } : {})
       })
     } catch (err) {
       // -> Nothing points at the tree row now, and leaving it would show a file the site cannot serve
@@ -412,8 +432,12 @@ class Assets {
       folderPath,
       title: entry.title,
       hasPreview: Boolean(preview),
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
+      // -> The tree row (`entry`) never receives the override — only the `assets` row itself does,
+      //    matching what every real read (the `Assets` projection above) selects `createdAt`/
+      //    `updatedAt` from. Returning the override value here rather than `entry.createdAt` keeps
+      //    this response consistent with what a follow-up read of the same asset would show.
+      createdAt: createdAt ? new Date(createdAt) : entry.createdAt,
+      updatedAt: updatedAt ? new Date(updatedAt) : entry.updatedAt,
       locale
     }
   }

@@ -13,6 +13,18 @@
         </div>
       </div>
       <div class="flex flex-none flex-wrap items-center">
+        <!-- -> Gated on `siteStore.pdfExportAvailable`, the same Puppeteer-availability signal
+                `PageActionsCol.vue`'s per-page Rerender item uses -- no button that would just 503
+                (OpenProject #3181). -->
+        <w-btn
+          v-if="siteStore.pdfExportAvailable"
+          class="acrylic-btn me-2"
+          icon="tabler:wand"
+          flat
+          color="indigo"
+          @click="rerenderAllPages">
+          <w-tooltip labels>{{ t('admin.glossary.rerenderAllPagesHint') }}</w-tooltip>
+        </w-btn>
         <w-btn
           class="acrylic-btn me-2"
           icon="tabler:history"
@@ -137,6 +149,7 @@ import { notify } from '@/composables/notify'
 import { confirm, dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
+import { useSiteStore } from '@/stores/site'
 
 import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
@@ -170,6 +183,7 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
+const siteStore = useSiteStore()
 
 // I18N
 
@@ -295,6 +309,39 @@ async function saveGlossary() {
     })
   }
   state.saving = false
+}
+
+/**
+ * "Rerender All Pages" (OpenProject #3181) -- queues every markdown page on this site through the
+ * same render queue the per-page Rerender action and every ordinary save already use, so a glossary
+ * term change (or any other render-time content) applies site-wide right away rather than waiting on
+ * each page's own next save. Confirmed first: this queues EVERY page, not just ones that mention any
+ * particular term, and can take a while on a large site.
+ */
+function rerenderAllPages() {
+  confirm({
+    title: t('admin.glossary.rerenderAllPagesTitle'),
+    message: t('admin.glossary.rerenderAllPagesConfirm'),
+    cancel: true,
+    persistent: true,
+    okLabel: t('admin.glossary.rerenderAllPages')
+  }).onOk(async () => {
+    try {
+      const result = await API_CLIENT.post(
+        `sites/${adminStore.currentSiteId}/glossary/rerender-all-pages`
+      ).json()
+      notify({
+        type: 'positive',
+        message: t('admin.glossary.rerenderAllPagesQueued', { count: result.queued })
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.glossary.rerenderAllPagesFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  })
 }
 
 function openVersionHistory() {

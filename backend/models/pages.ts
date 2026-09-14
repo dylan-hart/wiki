@@ -1938,7 +1938,9 @@ class Pages {
       via: actor.via
     })
     // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
-    //    has to be read while it still exists
+    //    has to be read while it still exists -- and, since OpenProject #3203, this is also where the
+    //    `pageWatchEvents` rows for this deletion get written, because `pageId` is a foreign key and
+    //    the INSERT needs this row to still exist too (see `notifyWatchers`'s own doc comment)
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
       path: page.path,
@@ -2142,10 +2144,16 @@ class Pages {
    * factored out so `createPage()`/`updatePage()` can call it directly after their own up-front
    * `ensureCanRender()` guard (OpenProject #1716), rather than going back through `queueRerender()`
    * and paying for that same consult a second time for the write that just landed.
+   *
+   * `page` only needs to carry what `hasPermission()`'s `RulePageRef` match needs -- `id` to queue,
+   * `path`/`locale`/`tags`/`classification` to resolve the write:scripts/write:styles grant against
+   * -- narrower than the full `Page` every existing caller happens to already have on hand, which is
+   * what lets `queueRerenderAllPages()` (below) pass a lightweight per-page row straight through
+   * without a `getPage()`-shaped select per page (OpenProject #3181).
    */
   private async enqueueRerender(
     siteId: string,
-    page: Page,
+    page: Pick<Page, 'id' | 'path' | 'locale' | 'tags' | 'classification'>,
     actor: PageActor,
     renderPermissions?: RenderPermissions
   ): Promise<void> {
@@ -2158,6 +2166,48 @@ class Pages {
       },
       requestedById: actor.id
     })
+  }
+
+  /**
+   * Queue every markdown page of a site for rerender (OpenProject #3181).
+   *
+   * The manual "apply it everywhere, right now" counterpart to the glossary's render-time term
+   * matching: a stored page's render only picks up a term change on its own next render (a save, or
+   * an explicit rerender), never retroactively the moment a term is added or edited -- rewriting
+   * every stored page's render on every term save would mean a full-site headless-browser re-render
+   * per edit, which is not this feature's job. An admin who does not want to wait for each page's own
+   * next save, or for the per-page Rerender action one page at a time, queues every page through the
+   * very same `renderQueue.queuePage()`/scheduler-drain path those already use -- a bulk CALLER of
+   * it, in a loop, not a new rendering mechanism.
+   *
+   * Only markdown-editor pages are queued: every other editor has no server-side renderer at all
+   * (`ensureCanRender()` refuses everything but `markdown`), and queuing one anyway would just make
+   * the drain log a warning and skip it for every such page on the site, for no benefit.
+   *
+   * Deliberately scoped to "every page", not "only pages that mention this term" -- see this
+   * method's caller (`api/glossary.ts`) and OpenProject #3181's own scope note for why a
+   * term-backlink index is out of scope here.
+   *
+   * @returns How many markdown pages were queued.
+   * @throws `renderPuppeteerMissing` when nothing here could drain the queue -- checked once, up
+   *   front, rather than once per page.
+   */
+  async queueRerenderAllPages(siteId: string, actor: PageActor): Promise<number> {
+    await WIKI.models.renderQueue.ensureCanRender('markdown')
+    const rows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.editor, 'markdown')))
+    for (const row of rows) {
+      await this.enqueueRerender(siteId, row, actor)
+    }
+    return rows.length
   }
 
   /**
@@ -2481,6 +2531,16 @@ class Pages {
    * into a restricted branch, an edited group rule) would otherwise still be queued a notification
    * carrying the page's title and a working link.
    *
+   * For a `deleted` action (OpenProject #3203), the `pageWatchEvents` rows are recorded HERE,
+   * synchronously, rather than left to the queued job: `pageWatchEvents.pageId` is a foreign key, so
+   * the INSERT has to run while the `pages` row this call is about still exists — both `deletePage`
+   * and `deleteOrphaned` call this before they delete it, same as they already did for
+   * `pageWatching.listWatchers()`'s own read above (deleting the row cascades that list away first).
+   * The already-recorded rows are then handed to the job as `recordedEvents`, so it does the
+   * immediate-send loop against them rather than inserting a second time — see that task's own doc
+   * comment. Every other action keeps deferring the insert into the job: the page row those actions
+   * are about stays put, so there is no timing hazard forcing the write off the request path.
+   *
    * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record` —
    *   `['path']`/`['title']` for a move, whichever page fields for an edit. Always empty for a delete.
    */
@@ -2503,6 +2563,23 @@ class Pages {
       if (watchers.length < 1) {
         return
       }
+      const recordedEvents =
+        action === 'deleted'
+          ? await WIKI.models.pageWatchEvents.recordMany(
+              watchers.map((watcher) => ({
+                siteId,
+                pageId,
+                pageTitle: page.title,
+                pagePath: page.path,
+                pageLocale: page.locale,
+                userId: watcher.userId,
+                action,
+                actorId,
+                changedFields,
+                notifyMode: watcher.notifyMode
+              }))
+            )
+          : undefined
       await WIKI.scheduler.addJob({
         task: 'notifyPageWatchers',
         payload: {
@@ -2514,7 +2591,8 @@ class Pages {
           action,
           changedFields,
           actorId,
-          watchers
+          watchers,
+          recordedEvents
         }
       })
     } catch (err: any) {

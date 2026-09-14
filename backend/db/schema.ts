@@ -1258,27 +1258,39 @@ export const pageWatching = pgTable(
  * than a boolean column, so a wiki that never delivers a batch simply accumulates rows instead of
  * losing track of which watcher was owed what.
  *
- * `pageId` is not a foreign key, for the same reason `pageHistory.pageId` isn't: the job that writes
- * this row runs after the request that queued it, and for a delete that request has by then already
- * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
- * row was resolved from. The row has to be able to outlive both.
+ * `pageId` IS a foreign key (OpenProject #3203; `siteId`/`userId`/`actorId` already had one) — `set
+ * null` on delete, the same choice and the same reasoning as `glossaryTerms.pageId`: the row has to be
+ * able to outlive the page it's about, and unlinking rather than deleting or blocking is what makes
+ * that possible without also losing the notification.
  *
- * OpenProject #1689 considered adding this FK back (`siteId`/`userId`/`actorId` all have one). Ruled
- * out for the reason above: `models/pages.ts#deletePage` queues `notifyPageWatchers` as an async
- * scheduler job *before* deleting the `pages` row, but that job's `recordMany()` INSERT — the only
- * writer of this table — runs later, after the row is already gone. A hard FK requires the referenced
- * `pages.id` to exist at INSERT time no matter what `onDelete` says, so every deletion notification for
- * a watched page would fail to record. Fixing that for real would mean recording these rows
- * synchronously before the page delete instead of in the deferred job — a larger change than #1689's
- * scope; tracked as OpenProject #3203.
+ * OpenProject #1689 first asked for this FK and it was turned down: at the time, `models/pages.ts`
+ * queued `notifyPageWatchers` as an async scheduler job *before* deleting the `pages` row, but that
+ * job's `recordMany()` INSERT — the only writer of this table — ran later, after the row was already
+ * gone. A hard FK requires the referenced `pages.id` to exist at INSERT time no matter what `onDelete`
+ * says, so every deletion notification for a watched page would have failed to record. #3203 is what
+ * fixed that for real: `models/pages.ts#notifyWatchers` now records a `deleted` event's rows itself,
+ * synchronously, before `deletePage`/`deleteOrphaned` ever touch the `pages` row — the async job just
+ * receives the already-recorded rows for its immediate-send loop, rather than calling `recordMany()`
+ * a second time (see that task's own doc comment).
+ *
+ * That still leaves the moment the `pages` row is actually deleted, instants later, with the row this
+ * very write just inserted (and any of the page's older, still-undelivered/unread rows) pointing at
+ * it — which is exactly why `onDelete` can be neither the default (`DELETE FROM pages` would then
+ * fail outright, for any page with any notification history at all) nor `cascade` (the deletion
+ * notification would vanish before the async job or the in-app inbox ever got to it, defeating the
+ * whole point of recording it synchronously). `set null` is what lets the row keep existing with
+ * `pageId` unlinked: nothing about `filterReadable`/`listForUser`'s read-time access re-check below
+ * changes, since both already fall back to this row's own captured `pagePath`/`pageLocale` the moment
+ * a live page isn't found — the same fallback a null `pageId` now takes too, not merely a page id with
+ * no matching row.
  *
  * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
- * looked up when a notification is finally sent, for the same reason `pageId` isn't a foreign key:
- * the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can already be
- * gone by the time delivery happens, whether that's this task's immediate send or the digest job's
- * later one — and unlike `actorId`/`changedFields`, `pageTitle`/`pagePath` have nowhere else to be
- * re-read from at all once that happens, since a deleted page's row is gone, not merely unreachable
- * through a broken foreign key. `actorId` is nullable and `set null` on account deletion, matching
+ * looked up when a notification is finally sent, for the same reason `pageId` is nullable rather than
+ * required: the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can
+ * already be gone by the time delivery happens, whether that's this task's immediate send or the
+ * digest job's later one — and unlike `actorId`/`changedFields`, `pageTitle`/`pagePath` have nowhere
+ * else to be re-read from at all once that happens, since a deleted page's row is gone, not merely
+ * unlinked through a nulled foreign key. `actorId` is nullable and `set null` on account deletion, matching
  * `pageHistory.authorId` — a notification about who changed a page should not be the reason that
  * account can never be deleted.
  *
@@ -1314,7 +1326,8 @@ export const pageWatchEvents = pgTable(
     deliveredAt: timestamp({ withTimezone: true }),
     /** When the recipient saw this in the in-app inbox — null until then. See this table's own comment. */
     readAt: timestamp({ withTimezone: true }),
-    pageId: uuid().notNull(),
+    // -> Nullable, `set null` on delete — see this table's own doc comment above for why.
+    pageId: uuid().references(() => pages.id, { onDelete: 'set null' }),
     /** The page's title as of this change — see this table's own doc comment for why it's captured here. */
     pageTitle: text().notNull(),
     /** The page's path as of this change, for the same reason `pageTitle` is captured here. */
@@ -1371,7 +1384,8 @@ export const pageWatchEvents = pgTable(
  * both preimages (`sessions.id`, an API key's UUID) live unsecret in this same database, so without
  * that key the column would be trivially reversible by anyone with read access, not merely pseudonymous.
  *
- * `pageId` IS a foreign key here, unlike `pageHistory.pageId`/`pageWatchEvents.pageId`: those exist to
+ * `pageId` is a foreign key here too, but `cascade` rather than `pageWatchEvents.pageId`'s `set null`
+ * (OpenProject #3203) or `pageHistory.pageId`'s absence of one altogether: both of those exist to
  * outlive the page they describe (recovering or notifying about one that's gone), but a view count for
  * a page that no longer exists has nothing left to size in the graph -- so it cascades away with the
  * page, the same way `pageWatching.pageId` and `pageRenderQueue.pageId` do.
@@ -1770,6 +1784,13 @@ export const users = pgTable(
     passkeys: jsonb().notNull().default({}),
     prefs: jsonb().notNull().default({}),
     hasAvatar: boolean().notNull().default(false),
+    // -> The provider-reported avatar URL cached by `models/users.ts#syncAvatarFromProvider`, the
+    //    one shared write path every provider integration (OAuth/OIDC, LDAP, SAML) syncs an avatar
+    //    through. Applied ONLY while `hasAvatar` is false -- a manually-uploaded avatar always wins
+    //    and is never silently overwritten by a provider sync. Deliberately independent of
+    //    `hasAvatar`/`userAvatars` (the manual-upload blob): nothing in this column's write path
+    //    touches either, so `hasAvatar` keeps meaning exactly "this user uploaded one themselves".
+    avatarProviderUrl: text(),
     isActive: boolean().notNull().default(false),
     isSystem: boolean().notNull().default(false),
     isVerified: boolean().notNull().default(false),

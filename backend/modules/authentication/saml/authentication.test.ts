@@ -88,7 +88,8 @@ function buildResponseXml({
   groups = ['editors', 'admins'],
   inResponseTo = REQUEST_ID,
   givenName = 'Alice',
-  surname = 'Example'
+  surname = 'Example',
+  picture = 'https://idp.example.com/avatar.png'
 }: {
   notBefore: string
   notOnOrAfter: string
@@ -105,6 +106,8 @@ function buildResponseXml({
    */
   givenName?: string | null
   surname?: string | null
+  /** A `picture` claim, present on every fixture -- `mappingPicture` is what makes a test read it or not. */
+  picture?: string | null
 }): string {
   const groupValues = groups.map((g) => `<saml:AttributeValue>${g}</saml:AttributeValue>`).join('')
   const inResponseToAttr = inResponseTo ? ` InResponseTo="${inResponseTo}"` : ''
@@ -132,6 +135,7 @@ function buildResponseXml({
 <saml:Attribute Name="email"><saml:AttributeValue>${nameId}</saml:AttributeValue></saml:Attribute>
 <saml:Attribute Name="name"><saml:AttributeValue>Alice Example</saml:AttributeValue></saml:Attribute>
 <saml:Attribute Name="groups">${groupValues}</saml:Attribute>
+${nameAttribute('picture', picture)}
 ${nameAttribute(GIVEN_NAME_CLAIM, givenName)}
 ${nameAttribute(SURNAME_CLAIM, surname)}
 </saml:AttributeStatement>
@@ -327,6 +331,45 @@ test('profile: validates a genuinely signed assertion and extracts the mapped cl
   assert.equal(profile.email, 'alice@example.com')
   assert.equal(profile.name, 'Alice Example')
   assert.deepEqual(profile.groups, ['editors', 'admins'])
+  // -> BASE_CONF configures no mappingPicture, so this stays absent even though the fixture
+  //    assertion itself carries a `picture` claim -- "didn't say" is what an unmapped claim means.
+  assert.equal(profile.picture, undefined)
+})
+
+/*
+  OpenProject #3237. `mappingPicture` mirrors `mappingUID`/`mappingEmail`/`mappingDisplayName`: an
+  optional claim mapping, absent unless configured, with no `NameID`-style fallback since nothing on
+  the assertion itself is ever a picture URL.
+*/
+test('profile: reads a mapped picture claim into profile.picture', async () => {
+  const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, mappingPicture: 'picture' })
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body: {
+      SAMLResponse: validResponseBase64({ picture: 'https://idp.example.com/alice.png' }),
+      RelayState: 's'
+    }
+  })
+  assert.equal(profile.picture, 'https://idp.example.com/alice.png')
+})
+
+test('profile: leaves profile.picture absent when the identity provider reports no value for the mapped claim', async () => {
+  const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, mappingPicture: 'picture' })
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body: { SAMLResponse: validResponseBase64({ picture: null }), RelayState: 's' }
+  })
+  assert.equal(profile.picture, undefined)
 })
 
 /*

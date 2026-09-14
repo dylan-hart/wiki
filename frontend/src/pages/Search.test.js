@@ -1072,3 +1072,67 @@ describe('Search.vue hop-2 "related via" indicator (OpenProject #3106)', () => {
     expect(wrapper.find('.search-result-hop-badge').exists()).toBe(false)
   })
 })
+
+/**
+ * OpenProject #3223: the semantic-mode similarity match badge.
+ * `SearchResultSimilarityBadge.test.js` owns the badge's own draw/no-draw and rounding rules across
+ * every `distance` value; this only confirms `Search.vue` threads a result's `distance` field through
+ * to the row that renders it, with no re-derivation of its own.
+ */
+function createSearchI18nWithSimilarity() {
+  return createTestI18n({
+    search: {
+      results: 'Search Results',
+      emptyQuery: 'Enter a query in the search field above and press Enter.',
+      totalResults: 'No result | {0} result | {0} results',
+      totalResultsApprox: 'No result | At least {0} result | At least {0} results',
+      loadMore: 'Load More',
+      similarityMatch: '{percent}% match'
+    }
+  })
+}
+
+async function mountSearchWithSimilarityResponse(searchResponse) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(searchResponse) })
+
+  const router = await createSearchRouter('/_search?q=onboarding')
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createSearchI18nWithSimilarity()],
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper }
+}
+
+describe('Search.vue similarity match badge (OpenProject #3223)', () => {
+  it('shows a rounded percentage badge for a semantic-mode result carrying distance', async () => {
+    const { wrapper } = await mountSearchWithSimilarityResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, distance: 0.13, hop: 1 }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const badge = wrapper.find('.search-result-similarity-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('87% match')
+  })
+
+  it('shows no badge at all for a keyword-mode result, which carries no distance field', async () => {
+    const { wrapper } = await mountSearchWithSimilarityResponse({
+      results: [FIXTURE_RICH_RESULT],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.search-result-similarity-badge').exists()).toBe(false)
+  })
+})

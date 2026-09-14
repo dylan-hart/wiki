@@ -127,14 +127,27 @@ describe('mapStorageRow: mode/syncInterval mapping', () => {
     assert.deepEqual(result.droppedFields, { mode: 'sync' })
   })
 
-  test('a cron shape with no duration equivalent (a pinned time of day) is dropped and reported, not written', async () => {
+  test('a cron shape with no duration equivalent (a pinned time of day) passes through verbatim as a cron scheduleOverride, not dropped (Issue #3197)', async () => {
     const result = mapStorageRow(baseRow({ key: 'git', syncInterval: '30 9 * * 1' }), {
       resolver: await resolver(),
       siteId: SITE_A
     })
     assert.equal(result.status, 'updated')
+    assert.equal(result.update!.values.scheduleOverride, '30 9 * * 1')
+    assert.equal(result.droppedFields, undefined)
+  })
+
+  test('a syncInterval that is neither a duration nor a valid cron expression is still dropped and reported', async () => {
+    const result = mapStorageRow(
+      baseRow({ key: 'git', syncInterval: 'not a cron or a duration' }),
+      {
+        resolver: await resolver(),
+        siteId: SITE_A
+      }
+    )
+    assert.equal(result.status, 'updated')
     assert.ok(!('scheduleOverride' in result.update!.values))
-    assert.deepEqual(result.droppedFields, { syncInterval: '30 9 * * 1' })
+    assert.deepEqual(result.droppedFields, { syncInterval: 'not a cron or a duration' })
   })
 
   test('a null/absent mode and syncInterval map to nothing, and are not reported as dropped', async () => {

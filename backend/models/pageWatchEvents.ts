@@ -46,7 +46,10 @@ export interface RecordedWatchEvent {
 export interface PendingDigestEvent {
   id: string
   userId: string
-  pageId: string
+  /** Null once the page this event was about has since been deleted — see `db/schema.ts`'s own
+   *  comment on this table's `pageId` column. `pageTitle`/`pagePath`/`pageLocale` below are what
+   *  survives that, and are what a caller displays/links from regardless. */
+  pageId: string | null
   pageTitle: string
   pagePath: string
   pageLocale: string
@@ -59,7 +62,8 @@ export interface PendingDigestEvent {
 /** One unread notification, as the in-app inbox (task 535) lists it. */
 export interface InboxNotification {
   id: string
-  pageId: string
+  /** Null once the page this event was about has since been deleted — see `PendingDigestEvent.pageId`. */
+  pageId: string | null
   pageTitle: string
   pagePath: string
   pageLocale: string
@@ -85,13 +89,17 @@ export const DIGEST_PENDING_LIMIT = 1000
 /**
  * Page watch events model
  *
- * The delivery queue behind page watching: one row per watcher per change, written by the
- * `notifyPageWatchers` job and left with `deliveredAt` null until something sends it. An immediate
- * send (`tasks/simple/notify-page-watchers.ts`) marks its own row delivered right after a successful
- * send; anything left pending with `notifyMode: 'digest'` is what `tasks/simple/send-watch-digests.ts`
- * eventually works through. (A pending `immediate` row also exists — a failed send is left pending
- * rather than thrown, see that task's own doc comment — but it is not this model's job to tell the
- * two apart at read time beyond what `listPendingForDigest` already filters on.)
+ * The delivery queue behind page watching: one row per watcher per change, left with `deliveredAt`
+ * null until something sends it. Written by the `notifyPageWatchers` job for `updated`/`moved`/
+ * `suggestApproved`/`suggestDeclined` events — for a `deleted` event, `recordMany()` is instead called
+ * synchronously from `models/pages.ts#notifyWatchers`, before the page row goes, which is what makes
+ * `pageId`'s foreign key (OpenProject #3203) safe; the job just receives the already-recorded rows for
+ * that case (see its own doc comment). An immediate send (`tasks/simple/notify-page-watchers.ts`)
+ * marks its own row delivered right after a successful send; anything left pending with `notifyMode:
+ * 'digest'` is what `tasks/simple/send-watch-digests.ts` eventually works through. (A pending
+ * `immediate` row also exists — a failed send is left pending rather than thrown, see that task's own
+ * doc comment — but it is not this model's job to tell the two apart at read time beyond what
+ * `listPendingForDigest` already filters on.)
  *
  * It is also, since task 535, the in-app notification inbox: `listForUser`/`markRead`/`unreadCount`
  * read and write the separate `readAt` column (see `db/schema.ts#pageWatchEvents`'s own comment on why
@@ -103,8 +111,10 @@ class PageWatchEvents {
    * (`id`, `userId`) for an immediate-mode send to mark its own row delivered afterwards.
    *
    * A single bulk insert, not one call per watcher: this is the part of notifying watchers that scales
-   * with how many there are, which is exactly why `notifyPageWatchers` runs it in a queued job rather
-   * than inline in the save/move/delete request that triggered it. The `RETURNING` is read back keyed
+   * with how many there are, which is why `notifyPageWatchers` runs it in a queued job rather than
+   * inline in the save/move request that triggered it — except a `deleted` event, whose call into this
+   * method is made synchronously by `models/pages.ts#notifyWatchers` instead (OpenProject #3203), since
+   * the page row this method's FK depends on is about to be deleted. The `RETURNING` is read back keyed
    * by `userId` rather than assumed to preserve the input array's order — Postgres does not guarantee
    * that for a multi-row `INSERT ... VALUES`, and `userId` is unique within one call's batch (each
    * watcher appears at most once per page), so it is what the caller matches on.
@@ -254,7 +264,10 @@ class PageWatchEvents {
    * than once per event) — a page's rules can change in either direction after an event was recorded,
    * and the live row is the more correct answer either way — falling back to each event's own stored
    * `pagePath`/`pageLocale` snapshot, with no tags/classification to narrow against, for an event
-   * about a page that has since been deleted (most commonly the `deleted` event itself).
+   * about a page that has since been deleted (most commonly the `deleted` event itself). Since
+   * OpenProject #3203, a deleted page's `pageId` is null on affected rows (`db/schema.ts`'s `set null`
+   * FK) rather than merely absent from `pagesTable` — `livePages.get(null)` misses the same way a
+   * stale, still-populated id used to, so the fallback applies unchanged either way.
    *
    * Exported (not private) so `tasks/simple/send-watch-digests.ts` can apply the identical check
    * before actually sending a batched digest — the daily-scheduled send-time counterpart to this
@@ -262,12 +275,12 @@ class PageWatchEvents {
    * being recorded and being acted on.
    */
   async filterReadable<
-    T extends { pageId: string; pagePath: string; pageLocale: string; siteId: string }
+    T extends { pageId: string | null; pagePath: string; pageLocale: string; siteId: string }
   >(userId: string, events: T[]): Promise<T[]> {
     if (events.length < 1) {
       return []
     }
-    const pageIds = [...new Set(events.map((event) => event.pageId))]
+    const pageIds = [...new Set(events.map((event) => event.pageId).filter((id) => id !== null))]
     const liveRows = await WIKI.db
       .select({
         id: pagesTable.id,
@@ -282,7 +295,7 @@ class PageWatchEvents {
 
     const actor = await WIKI.models.groups.actorForUserId(userId)
     return events.filter((event) => {
-      const live = livePages.get(event.pageId)
+      const live = event.pageId === null ? undefined : livePages.get(event.pageId)
       return WIKI.models.groups.checkAccess(actor, 'read:pages', {
         path: live?.path ?? event.pagePath,
         siteId: event.siteId,

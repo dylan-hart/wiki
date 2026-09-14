@@ -103,6 +103,35 @@ describe('importAsset', () => {
     assert.equal(assetsModel.uploaded[0]!.fileName, 'diagram.png')
   })
 
+  test('file.createdAt/updatedAt are threaded through upload() as ISO strings (OpenProject #3204)', async () => {
+    const assetsModel = new FakeAssetsModel()
+    const treeModel = new FakeTreeModel()
+    const deps: AssetImportDeps = { assetsModel, treeModel }
+    const file = buildFile({
+      createdAt: new Date('2018-03-01T00:00:00.000Z'),
+      updatedAt: new Date('2018-03-02T00:00:00.000Z')
+    })
+
+    const outcome = await importAsset(file, deps, buildOptions())
+
+    assert.equal(outcome.result, 'success')
+    assert.equal(assetsModel.uploaded[0]!.createdAt, '2018-03-01T00:00:00.000Z')
+    assert.equal(assetsModel.uploaded[0]!.updatedAt, '2018-03-02T00:00:00.000Z')
+  })
+
+  test('a file with no createdAt/updatedAt (export-bundle connector) leaves both undefined', async () => {
+    const assetsModel = new FakeAssetsModel()
+    const treeModel = new FakeTreeModel()
+    const deps: AssetImportDeps = { assetsModel, treeModel }
+    const file = buildFile()
+
+    const outcome = await importAsset(file, deps, buildOptions())
+
+    assert.equal(outcome.result, 'success')
+    assert.equal(assetsModel.uploaded[0]!.createdAt, undefined)
+    assert.equal(assetsModel.uploaded[0]!.updatedAt, undefined)
+  })
+
   test('a stream that throws while being read becomes a read-error failure, not an unhandled rejection', async () => {
     const assetsModel = new FakeAssetsModel()
     const treeModel = new FakeTreeModel()

@@ -21,8 +21,10 @@ import { buildTestRouter } from '../../test/router.js'
  * OpenProject #790: `FileManager.vue` had no drag-and-drop upload on-ramp, only the file-picker's
  * `multiple` input (`uploadNewFiles`, unchanged). These tests cover the drop zone added to close
  * that gap: the drag-state bookkeeping that drives the overlay, and that a drop feeds the SAME
- * `uploadFiles` path (same `sites/:siteId/assets` calls, same progress state) the picker already
- * used -- not a second upload implementation. `handleDrop`/`handleDragEnter`/etc. are plain
+ * `uploadFiles` path (same `sites/:siteId/assets`/`sites/:siteId/assets/batch` calls, same progress
+ * state) the picker already used -- not a second upload implementation. A multi-file drop asserts
+ * against the batch endpoint rather than N single-file POSTs (OpenProject #3233).
+ * `handleDrop`/`handleDragEnter`/etc. are plain
  * `<script setup>` bindings, reachable on `wrapper.vm` because Vue's dev-mode compiler exposes them
  * for template refs/devtools; see `PageNewMenu.test.js` and others in this directory for the same
  * pattern already in use.
@@ -222,7 +224,41 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
     wrapper.unmount()
   })
 
-  it('uploads dropped files through the same sites/:siteId/assets path the picker uses', async () => {
+  it('uploads a single dropped file through the same sites/:siteId/assets path the picker uses', async () => {
+    const { wrapper, siteStore } = await mountFileManager()
+    const dropZone = wrapper.find('.fileman-droptarget')
+    const file = makeFile('photo.png', 'image/png')
+
+    await dropZone.trigger('dragenter', { dataTransfer: { types: ['Files'] } })
+    await dropZone.trigger('drop', {
+      dataTransfer: {
+        items: [fileItem(file)],
+        files: [file]
+      }
+    })
+
+    // -> The overlay closes immediately on drop, before the upload itself runs
+    expect(wrapper.find('.fileman-dropoverlay').exists()).toBe(false)
+
+    // -> `uploadFiles` defers behind `nextTick` + a 400ms `setTimeout` (see the component); real
+    //    timers here rather than faking them, since faking interacts with the `matchMedia`
+    //    listeners `useScreen`/`useMinWidth` register on mount
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      `sites/${siteStore.id}/assets`,
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ fileName: 'photo.png' }),
+        headers: { 'content-type': 'image/png' }
+      })
+    )
+
+    wrapper.unmount()
+  })
+
+  it('uploads a multi-file drop through ONE sites/:siteId/assets/batch request (OpenProject #3233)', async () => {
     const { wrapper, siteStore } = await mountFileManager()
     const dropZone = wrapper.find('.fileman-droptarget')
     const fileA = makeFile('photo.png', 'image/png')
@@ -236,30 +272,18 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
       }
     })
 
-    // -> The overlay closes immediately on drop, before the upload itself runs
     expect(wrapper.find('.fileman-dropoverlay').exists()).toBe(false)
 
-    // -> `uploadFiles` defers its loop behind `nextTick` + a 400ms `setTimeout` (see the component);
-    //    real timers here rather than faking them, since faking interacts with the `matchMedia`
-    //    listeners `useScreen`/`useMinWidth` register on mount
     await new Promise((resolve) => setTimeout(resolve, 500))
     await flushPromises()
 
-    expect(API_CLIENT.post).toHaveBeenCalledTimes(2)
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
     expect(API_CLIENT.post).toHaveBeenCalledWith(
-      `sites/${siteStore.id}/assets`,
-      expect.objectContaining({
-        searchParams: expect.objectContaining({ fileName: 'photo.png' }),
-        headers: { 'content-type': 'image/png' }
-      })
+      `sites/${siteStore.id}/assets/batch`,
+      expect.objectContaining({ body: expect.any(FormData) })
     )
-    expect(API_CLIENT.post).toHaveBeenCalledWith(
-      `sites/${siteStore.id}/assets`,
-      expect.objectContaining({
-        searchParams: expect.objectContaining({ fileName: 'notes.txt' }),
-        headers: { 'content-type': 'text/plain' }
-      })
-    )
+    const [, opts] = API_CLIENT.post.mock.calls[0]
+    expect(opts.body.getAll('files')).toEqual([fileA, fileB])
 
     wrapper.unmount()
   })

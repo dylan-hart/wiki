@@ -1,4 +1,4 @@
-import type { PageWatchNotifiableAction } from '../../models/pageWatchEvents.ts'
+import type { PageWatchNotifiableAction, RecordedWatchEvent } from '../../models/pageWatchEvents.ts'
 import type { WatchNotifyMode } from '../../models/pageWatching.ts'
 
 /** One watcher this event is queued for, with the delivery mode their preference resolved to. */
@@ -20,6 +20,13 @@ export interface NotifyPageWatchersPayload {
   changedFields: string[]
   actorId: string
   watchers: QueuedWatcher[]
+  /**
+   * For a `deleted` event only (OpenProject #3203): the rows `models/pages.ts#notifyWatchers` already
+   * recorded synchronously, before the page row it referenced was deleted — a `pageWatchEvents.pageId`
+   * FK insert has to happen while that row still exists, which this job, running later, can no longer
+   * guarantee. When present, `task()` uses these instead of calling `recordMany()` itself.
+   */
+  recordedEvents?: RecordedWatchEvent[]
 }
 
 /**
@@ -32,6 +39,12 @@ export interface NotifyPageWatchersPayload {
  * What is left for this job is the part that scales with how many people watch the page: one
  * `pageWatchEvents` row per watcher, and — for the `immediate` ones — the mail itself.
  *
+ * `payload.recordedEvents` (OpenProject #3203), when present, means `notifyWatchers` already recorded
+ * these rows itself, synchronously, before the page's row was deleted — always true for a `deleted`
+ * event, since `pageWatchEvents.pageId` is now a foreign key and this job, running later off a
+ * scheduler queue, can no longer promise the referenced page row still exists at INSERT time the way
+ * a request-time write can. `recordMany()` is skipped entirely in that case, not called a second time.
+ *
  * A `digest`-mode watcher's row is left exactly as recorded, `deliveredAt` still null: the digest job
  * (a later task) is what eventually sends it. An `immediate`-mode watcher's row is marked delivered
  * right after a successful send, so the digest job never re-sends what already went out.
@@ -42,7 +55,8 @@ export interface NotifyPageWatchersPayload {
  * — so a misconfigured or momentarily-down SMTP server must not turn into a failed job here. A failed
  * job would retry the whole payload, including the `recordMany` call already covered by the `try` below
  * — re-running that on a mail-only failure would insert duplicate pending rows for every watcher, not
- * just the one whose send failed.
+ * just the one whose send failed. (A `deleted` event's `recordedEvents` path skips `recordMany`
+ * altogether, so a retry there re-runs only the send loop, not any insert.)
  *
  * OpenProject #2173: `read:pages` is re-checked once more here, right before the immediate-send loop
  * — a scheduler backlog can put real time between `notifyWatchers`'s own synchronous check (at page-
@@ -66,25 +80,28 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
     action,
     changedFields,
     actorId,
-    watchers
+    watchers,
+    recordedEvents
   } = payload
 
-  let recorded: { id: string; userId: string }[]
+  let recorded: RecordedWatchEvent[]
   try {
-    recorded = await WIKI.models.pageWatchEvents.recordMany(
-      watchers.map((watcher) => ({
-        siteId,
-        pageId,
-        pageTitle,
-        pagePath,
-        pageLocale,
-        userId: watcher.userId,
-        action,
-        actorId,
-        changedFields,
-        notifyMode: watcher.notifyMode
-      }))
-    )
+    recorded = recordedEvents
+      ? recordedEvents
+      : await WIKI.models.pageWatchEvents.recordMany(
+          watchers.map((watcher) => ({
+            siteId,
+            pageId,
+            pageTitle,
+            pagePath,
+            pageLocale,
+            userId: watcher.userId,
+            action,
+            actorId,
+            changedFields,
+            notifyMode: watcher.notifyMode
+          }))
+        )
   } catch (err: any) {
     WIKI.logger.error('hooks', 'failed to record page watch notifications', {
       page: pageId,

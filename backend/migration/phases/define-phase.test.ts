@@ -144,6 +144,55 @@ describe('definePhase', () => {
     assert.deepEqual(result.notImplemented, ['settings'])
   })
 
+  test('an entity onComplete hook runs once, after its whole source stream is exhausted', async () => {
+    const order: string[] = []
+    const phase = definePhase({
+      id: 'assets',
+      label: 'a second pass over accumulated state',
+      dependsOn: [],
+      entities: () => ({
+        comments: {
+          source: () => recordsOf(3),
+          classify: async () => {
+            order.push('classify')
+          },
+          onComplete: async () => {
+            order.push('onComplete')
+          }
+        }
+      })
+    })
+
+    const result = await phase.run(contextWith())
+
+    assert.equal(result.status, 'ok')
+    assert.deepEqual(order, ['classify', 'classify', 'classify', 'onComplete'])
+  })
+
+  test('onComplete is not called when the entity is a NotYetImplementedError stub', async () => {
+    let onCompleteCalls = 0
+    const phase = definePhase({
+      id: 'users',
+      label: 'a stub entity',
+      dependsOn: [],
+      entities: () => ({
+        users: {
+          source: () => {
+            throw new NotYetImplementedError('users', 'a test stub')
+          },
+          onComplete: async () => {
+            onCompleteCalls++
+          }
+        }
+      })
+    })
+
+    const result = await phase.run(contextWith())
+
+    assert.equal(result.status, 'not_implemented')
+    assert.equal(onCompleteCalls, 0)
+  })
+
   test('any other error aborts the phase with an emptied report', async () => {
     const phase = definePhase({
       id: 'content',

@@ -23,6 +23,7 @@ export const SECURITY_FIELDS = [
   'hstsDuration',
   'trustProxy',
   'uploadMaxFileSize',
+  'uploadMaxFilesPerBatch',
   'uploadScanSVG'
 ] as const
 

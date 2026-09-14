@@ -238,9 +238,10 @@ describe('apiKeySitePinHook — global coverage, no per-route wiring required', 
  *
  * `WIKI.models.pages.getPage` / `WIKI.models.pages.deletePage` are stubbed to return `null`, so a
  * request that clears the site-pin gate falls through to the ordinary "page does not exist" 404 --
- * proof the gate was passed without needing a full `Page#`-shaped stand-in. The asset upload route
- * needs no equivalent stub: `actorFrom`'s session check is what stops it next, well before any model
- * call, since uploads require a logged-in session rather than an API key's own user.
+ * proof the gate was passed without needing a full `Page#`-shaped stand-in. The asset upload route's
+ * next stop is its own `limitUploads` rate-limit preHandler (OpenProject #3234, stubbed to always
+ * allow below) and then `actorFrom`'s session check, which is what actually stops it, well before
+ * any other model call, since uploads require a logged-in session rather than an API key's own user.
  */
 describe('apiKeySitePinHook — real page and asset routes', () => {
   let app: FastifyInstance
@@ -272,6 +273,12 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
             actorForRequest: () => ({ permissions: [] }),
             checkAccess: () => true,
             groupIdsForRequest: () => []
+          },
+          // -> The asset upload route's `limitUploads` preHandler (OpenProject #3234) reaches this on
+          //    every request; this suite is about the site-pin hook, not the rate limiter, so it
+          //    always allows.
+          rateLimits: {
+            consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
           }
         }
       }

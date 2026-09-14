@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
-import { FixedThreadPool } from 'poolifier'
+import { Piscina } from 'piscina'
 import { ensureTemporal } from '../test/temporal.ts'
 import { getJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -285,17 +285,21 @@ describe('runJob failure logging (fake WIKI)', () => {
 })
 
 /**
- * Task 704 (a): `executeOnWorker`'s abort-signal ceiling, verified against a REAL poolifier worker
+ * Task 704 (a): `executeOnWorker`'s abort-signal ceiling, verified against a REAL piscina worker
  * thread rather than a mock of one — see `test/fixtures/schedulerCrashWorker.ts` for why a worker
  * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.
  *
- * The sibling case — a worker that exits mid-task, caught only by the backup timer — lives in
- * `core/scheduler.execution.flaky.test.ts` (OpenProject #2992): same harness, quarantined because its
- * ceiling is a real wall-clock margin the whole CI run's scheduling can blow through, not this one's.
+ * The sibling case — a worker that exits mid-task — used to be quarantined in
+ * `core/scheduler.execution.flaky.test.ts` (OpenProject #2992): under poolifier the crash was caught
+ * ONLY by the backup timer (`taskTimeout + TASK_TIMEOUT_GRACE`), a real wall-clock margin the whole
+ * CI run's scheduling could blow through. Piscina's own pool rejects an in-flight task the moment it
+ * sees its worker exit (see `executeOnWorker`'s doc comment), so the crash case is now a fast,
+ * deterministic rejection with no wall-clock race to quarantine — folded in here as this describe's
+ * second test rather than kept apart.
  */
 describe('executeOnWorker (real worker pool)', () => {
   let wikiHandle: { restore(): void }
-  let pool: any
+  let pool: Piscina | null
 
   before(() => {
     wikiHandle = installTestWiki({
@@ -314,34 +318,32 @@ describe('executeOnWorker (real worker pool)', () => {
     await pool?.destroy()
     // -> OpenProject #2927: this file is the one that never finished in the CI run that hung for
     //    27 minutes and was killed at the job's 30-minute ceiling. A worker thread `destroy()` did
-    //    not actually reap is a live handle that keeps the test process alive after its last test,
-    //    and `node --test` waits on that forever with nothing left to report. poolifier removes a
-    //    node from `workerNodes` only on the thread's real `exit`, so a node still listed here IS a
-    //    thread still running. `--test-force-exit` (package.json) stops such a leak hanging CI; this
-    //    is what turns it into a named failure instead of a silent one.
+    //    not actually reap is a live handle that keeps the test process alive after its last test.
+    //    Piscina's own `destroy()` already awaits every worker's real `exit` event before resolving
+    //    (unlike poolifier's, which only reported one after the fact via `exitHandler`), so
+    //    `pool.threads` reflecting empty here is a stronger guarantee than before, kept as a
+    //    regression check rather than blind trust. `--test-force-exit` (package.json) stops such a
+    //    leak hanging CI; this is what turns it into a named failure instead of a silent one.
     assert.equal(
-      pool?.workerNodes.length ?? 0,
+      pool?.threads.length ?? 0,
       0,
-      'pool.destroy() returned with a worker node (a live thread) still registered'
+      'pool.destroy() returned with a worker thread still registered'
     )
     pool = null
   })
 
   /**
    * A fresh, single-worker pool per test — not shared across the two — so each task is dispatched to
-   * a worker that has not just been aborted/replaced by the other test. `FixedThreadPool`, matching
-   * the fix in `scheduler.ts#init()`: poolifier 5.x's `DynamicThreadPool` refuses a minimum equal to
-   * its maximum.
+   * a worker that has not just been aborted/replaced by the other test. `minThreads: 1, maxThreads:
+   * 1`, matching `scheduler.ts#init()`: piscina, unlike poolifier's `DynamicThreadPool`, tolerates a
+   * minimum equal to its maximum outright.
    */
-  function freshPool(): any {
-    pool = new FixedThreadPool(
-      1,
-      path.join(import.meta.dirname, '../test/fixtures/schedulerCrashWorker.ts'),
-      {
-        errorHandler: () => {},
-        exitHandler: () => {}
-      }
-    )
+  function freshPool(): Piscina {
+    pool = new Piscina({
+      filename: path.join(import.meta.dirname, '../test/fixtures/schedulerCrashWorker.ts'),
+      minThreads: 1,
+      maxThreads: 1
+    })
     scheduler.workerPool = pool
     return pool
   }
@@ -354,6 +356,20 @@ describe('executeOnWorker (real worker pool)', () => {
     // -> taskTimeout is 1s; the backup timer would not fire until 1s + 5s grace = 6s. Rejecting well
     //    before that means the abort signal — not the backup timer — is what ended it.
     assert.ok(elapsed < 4000, `expected the abort ceiling (~1s) to fire, took ${elapsed}ms`)
+  })
+
+  test('a worker that exits mid-task is caught by piscina itself, well before the backup timer', async () => {
+    freshPool()
+    const start = Date.now()
+    await assert.rejects(scheduler.executeOnWorker({ task: 'x', payload: { mode: 'crash' } }))
+    const elapsed = Date.now() - start
+    // -> taskTimeout is 1s; the backup timer would not fire until 1s + 5s grace = 6s. Rejecting well
+    //    before that means piscina's own worker-exit detection — not the backup timer — is what ended
+    //    it, unlike poolifier (see this describe's header comment).
+    assert.ok(
+      elapsed < 4000,
+      `expected piscina's exit detection to fire quickly, took ${elapsed}ms`
+    )
   })
 })
 

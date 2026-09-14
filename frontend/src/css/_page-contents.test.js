@@ -1879,6 +1879,105 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
 })
 
 /**
+ * OpenProject #3239. `helpers/renderedContent.js`'s cell-range select mode stamps
+ * `data-table-selected` on the active rectangle's cells; this file's only job is making that
+ * attribute actually paint something visible, over both a plain cell and a header cell, in both
+ * themes -- the JS side (which cells get the attribute, when) is `renderedContent.test.js`'s own
+ * coverage, exercised entirely through jsdom with no rendering engine involved.
+ */
+describe('_page-contents.scss cell-range select mode highlight (OpenProject #3239)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+
+  it('paints the selected-cell rule off the two dedicated select tokens, on both cell roles', () => {
+    expect(source).toMatch(
+      /\[role='columnheader'\](\[data-table-selected\]){5},\s*\n\s*\[role='cell'\](\[data-table-selected\]){5} \{/
+    )
+    expect(source).toMatch(
+      /--content-table-select-bg:\s*color-mix\(in srgb, var\(--color-primary\)/
+    )
+    expect(source).toMatch(/--content-table-select-ring:\s*var\(--color-primary\)/)
+  })
+
+  describe('real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+
+    const SAMPLE = `
+      <article class="page-contents">
+        <div class="table-wrap">
+          <div class="table-scroll">
+            <div role="table">
+              <div role="row">
+                <div role="columnheader" id="head-plain">Name</div>
+                <div role="columnheader" id="head-selected" data-table-selected>Count</div>
+              </div>
+              <div role="row">
+                <div role="cell" id="cell-plain">apples</div>
+                <div role="cell" id="cell-selected" data-table-selected>3</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>`
+
+    async function measure({ dark: darkMode = false } = {}) {
+      const [{ css: contentCss }, appCss] = await Promise.all([
+        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
+          loadPaths: [dir]
+        }),
+        buildAppCss()
+      ])
+      const page = await browser.newPage()
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+            `<body class="${darkMode ? 'body--dark' : ''}">${SAMPLE}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const styleOf = (id) => {
+            const style = getComputedStyle(document.getElementById(id))
+            return { background: style.backgroundColor, boxShadow: style.boxShadow }
+          }
+          return {
+            cellPlain: styleOf('cell-plain'),
+            cellSelected: styleOf('cell-selected'),
+            headPlain: styleOf('head-plain'),
+            headSelected: styleOf('head-selected')
+          }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    it('paints a visibly different background and an inset ring on a selected cell, over both a plain row and the head strip', async () => {
+      const m = await measure()
+
+      expect(m.cellSelected.background).not.toBe(m.cellPlain.background)
+      expect(m.cellSelected.boxShadow).not.toBe('none')
+
+      expect(m.headSelected.background).not.toBe(m.headPlain.background)
+      expect(m.headSelected.boxShadow).not.toBe('none')
+    })
+
+    it('still paints the highlight in dark mode', async () => {
+      const dark = await measure({ dark: true })
+
+      expect(dark.cellSelected.background).not.toBe(dark.cellPlain.background)
+      expect(dark.cellSelected.boxShadow).not.toBe('none')
+    })
+  })
+})
+
+/**
  * OpenProject #2997/#3014/#3015 ("Redesign rendered markdown tables as CSS Grid"). The two describes
  * above pin the token wiring and the head/band/hover rules from source -- what they CANNOT catch is
  * whether the CSS Subgrid technique those rules depend on actually does its one job: making a

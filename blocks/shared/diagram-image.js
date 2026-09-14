@@ -3,34 +3,45 @@ import { LitElement, css, html } from 'lit'
 import { readFencedSource } from './body.js'
 import { explainEmptySource } from './figure.js'
 import { renderError } from './render.js'
+import { getSiteId } from './site.js'
 import { captionStyles, errorBox } from './styles.js'
 import { DarkMode } from './theme.js'
-import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from './url-limit.js'
 
 /**
- * The skeleton of a block that draws a diagram by packing its source into a remote server's URL --
- * `block-kroki` and `block-plantuml`.
+ * The skeleton of a block that draws a diagram by POSTing its source to this site's Kroki/PlantUML
+ * proxy and turning the returned image bytes into a picture -- `block-kroki` and `block-plantuml`.
  *
- * The two are one block with two encoders: after normalising the product names, some 257 of their
- * lines were identical (BLK-F3 / INFRA-F4) -- the styles, the props, the body read, the URL-length
- * guard, the failure explanation and the frame. What differs is the encoding and the shape of the
- * address it goes into, which is what `_url()` is for.
+ * The two are one block with two engines: after normalising the product names, some 257 of their
+ * lines were identical (BLK-F3 / INFRA-F4) -- the styles, the props, the body read and the frame.
+ * What differs is which engine the proxy renders against and, for Kroki only, which of its languages
+ * the source is written in -- which is what `_engine()`/`_extraBody()` are for.
+ *
+ * Formerly a GET-URL transport: each block deflated its source into a remote server's URL and drew
+ * it with a bare `<img src>`, with an 8,000-character pre-flight guard
+ * (`blocks/shared/url-limit.js`, deleted) against the size that transport could reliably carry. That
+ * guard, the deflate/base64 encoders, and the "ask the same URL again to explain a failed `<img>`
+ * load" dance are gone, fully replaced (OpenProject task 3229, no fallback to the old path): this now
+ * POSTs the raw source to `POST /_api/sites/:siteId/diagrams/render` (OpenProject task 3228) and
+ * reads back either the image bytes or a JSON `{ message }` explaining why there are none, the same
+ * `body?.message || <status fallback>` convention `block-live-data/component.js#_poll` already uses
+ * for its own site-scoped POST.
  *
  * A subclass writes:
  *
- * - `_url(source)` -- the address the drawing is fetched from, async because encoding goes through
- *   `CompressionStream`. Build it off `_serverBase()` and `_imageFormat()` rather than reading the
- *   props directly.
- * - `_defaultServer()` -- the server drawn through when the prop is left empty. Also what the
- *   constructor starts `server` at.
+ * - `_engine()` -- which proxy engine draws this block's source: `'kroki'` or `'plantuml'`.
+ * - `_extraBody(source)` -- extra fields folded into the POST body alongside `engine`/`source`/
+ *   `format`. Kroki's `diagramType` (which of Kroki's languages `source` is written in) is the one
+ *   user today; PlantUML needs none, so the base implementation returns `{}`.
+ * - `_defaultServer()` -- the block's own `server` prop's default value, shown in the editor. Kept
+ *   for that prop's own sake only: which server the proxy actually renders against is resolved
+ *   server-side, from the site's own block config (`backend/models/diagramProxy.ts#resolveServer`),
+ *   never from a caller-supplied value -- an already-flagged gap (Epic 3183's own description) this
+ *   task does not close, only avoids widening.
  * - `_fenceName()` -- the fence language the block reads, for the empty-body message.
  * - `_alt()` -- what the drawing is called for a reader who cannot see it.
  *
  * and may override:
  *
- * - `_explainBody(response)` -- a provider-specific reason read off the second request's response
- *   (`block-plantuml`'s `X-PlantUML-Diagram-Error` header). Return `null` to fall through to the
- *   status.
  * - `_emptySourceMessage()` -- to add to the empty-body message; wrap `super`'s rather than retype
  *   it.
  *
@@ -108,18 +119,24 @@ export const diagramStyles = css`
   }
 `
 
+/** How many bytes are turned into base64 characters at a time in `_toDataUrl` -- spreading a whole
+ *  diagram into `String.fromCharCode` at once overflows the stack somewhere in the tens of thousands
+ *  of bytes, the same reason `block-kroki`'s old GET encoder chunked its own base64 pass. */
+const DATA_URL_CHUNK_SIZE = 0x8000
+
 export class DiagramImageElement extends LitElement {
   static styles = [errorBox, captionStyles, diagramStyles]
 
   static properties = {
     /**
-     * Server to draw with
+     * Server to draw with. No longer read by `_draw()` itself -- see the class comment's
+     * `_defaultServer()` entry.
      * @type {string}
      */
     server: { type: String },
 
     /**
-     * Image format to ask the server for, `svg` or `png`
+     * Image format to ask the proxy for, `svg` or `png`
      * @type {string}
      */
     format: { type: String },
@@ -156,7 +173,7 @@ export class DiagramImageElement extends LitElement {
   }
 
   /**
-   * The server drawn through when the prop is left empty.
+   * The block's own `server` prop's default value, shown in the editor.
    *
    * @abstract
    */
@@ -164,12 +181,7 @@ export class DiagramImageElement extends LitElement {
     return ''
   }
 
-  /** The server to draw through: what was asked for, trimmed, without its trailing slashes. */
-  _serverBase() {
-    return (this.server?.trim() || this._defaultServer()).replace(/\/+$/, '')
-  }
-
-  /** The format to ask the server for -- `png` only when it was asked for by name. */
+  /** The format to ask the proxy for -- `png` only when it was asked for by name. */
   _imageFormat() {
     return this.format === 'png' ? 'png' : 'svg'
   }
@@ -194,23 +206,20 @@ export class DiagramImageElement extends LitElement {
   }
 
   /**
-   * The address the drawing is fetched from.
+   * Which proxy engine renders this block's source: `'kroki'` or `'plantuml'`.
    *
    * @abstract
    */
-  async _url() {
+  _engine() {
     return ''
   }
 
   /**
-   * A reason for the failure read off the response itself, or null for a server that gives none.
-   *
-   * `_explain()` calls this with the second request's `Response`; the base implementation gives no
-   * reason and so declares no parameter, while an overriding subclass takes it as its one argument
-   * (`block-plantuml` reads the `X-PlantUML-Diagram-Error` header off it).
+   * Extra fields folded into the POST body alongside `engine`/`source`/`format`. Kroki's own
+   * `diagramType` is the one user today; PlantUML needs none.
    */
-  _explainBody() {
-    return null
+  _extraBody() {
+    return {}
   }
 
   /**
@@ -231,40 +240,6 @@ export class DiagramImageElement extends LitElement {
     }
   }
 
-  /**
-   * Say what went wrong, having been told only that the image did not load.
-   *
-   * Not the case of a diagram the server cannot read: asked for an image, these servers answer with
-   * an image saying so, and a browser draws it whatever status came with it — so a mistake in the
-   * source shows up as the tool's own message where the diagram would have been, which is the best
-   * place for it. (Asked for anything else, as a `fetch` is by default, the same server answers `400`
-   * and a line of text. The `Accept` header is the difference, and it is another reason these blocks
-   * draw through an `img`.)
-   *
-   * What is left is a server that did not answer, or answered with something that is not an image: a
-   * wrong address, a host that cannot be reached from where the reader is, a login page. The request
-   * is made a second time to tell those apart, and to give `_explainBody` a response to read. Best
-   * effort — kroki.io sends no CORS headers at all, so that second request is refused there and the
-   * message below stands as it is. Nothing about drawing a diagram depends on any of it.
-   */
-  async _explain(url) {
-    // -> Resolved against the page, since a server may perfectly well be a path on this wiki
-    const absolute = new URL(url, window.location.href)
-    this._error = `The diagram could not be drawn by ${absolute.origin}.`
-    try {
-      const response = await fetch(absolute)
-      const reason = this._explainBody(response)
-      if (reason) {
-        this._error = reason
-      } else if (!response.ok) {
-        this._error = `The server answered ${response.status} ${response.statusText} for this diagram.`
-      }
-    } catch {
-      // -> Unreachable, blocked, or simply not the server it was taken for; the message says as much
-      this._error += ' Check the server address, and that the page may reach it.'
-    }
-  }
-
   firstUpdated() {
     const { source } = readFencedSource(this)
     if (!source) {
@@ -277,24 +252,59 @@ export class DiagramImageElement extends LitElement {
   }
 
   /**
-   * Encodes the source and, if the result fits, draws it -- the async continuation of
-   * `firstUpdated()`, split out because encoding goes through the async `CompressionStream`.
+   * POSTs the source to this site's diagram proxy (`POST /_api/sites/:siteId/diagrams/render`,
+   * OpenProject task 3228) and, on success, turns the returned image bytes into a `data:` URL the
+   * `<img>` below draws with no request of its own -- the async continuation of `firstUpdated()`.
+   *
+   * On failure, reads the proxy's own JSON `{ message }` (`helpers/errorHandler.ts#apiErrorHandler`)
+   * directly rather than re-deriving an explanation from the status line, falling back to one only
+   * when the body carries no usable message -- the same convention
+   * `block-live-data/component.js#_poll` uses for its own site-scoped POST.
    */
   async _draw(source) {
-    const url = await this._url(source)
-    /*
-      A pre-flight guard, not a reaction to the request that would otherwise follow: without it, a
-      diagram whose encoded URL outgrows what a server or reverse proxy accepts fails only once the
-      browser tries to load the `img` below, surfacing as `_explain()`'s generic "could not be
-      drawn" message with no hint that size is the actual problem. Checking the string's own length
-      here catches it before any request is made, with an explanation the vague network failure
-      never gave.
-    */
-    if (url.length > MAX_DIAGRAM_URL_LENGTH) {
-      this._error = explainUrlTooLarge(url.length)
-      return
+    try {
+      const siteId = await getSiteId()
+      if (!siteId) {
+        throw new Error('Could not determine the current site.')
+      }
+      const resp = await fetch(`/_api/sites/${siteId}/diagrams/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          engine: this._engine(),
+          source,
+          format: this._imageFormat(),
+          ...this._extraBody()
+        })
+      })
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null)
+        throw new Error(
+          body?.message || `The server answered ${resp.status} ${resp.statusText} for this diagram.`
+        )
+      }
+      this._src = await this._toDataUrl(resp)
+    } catch (err) {
+      this._error = err.message || 'This diagram could not be drawn.'
     }
-    this._src = url
+  }
+
+  /**
+   * The rendered image, as a `data:` URL -- not `URL.createObjectURL`, which jsdom (this workspace's
+   * test environment) does not implement (mirrors `shared/compress.js`'s identical note about
+   * `Blob.prototype.stream`), and which would need an explicit revoke on disconnect that a `data:`
+   * URL needs none of.
+   */
+  async _toDataUrl(response) {
+    const contentType =
+      response.headers.get('content-type') ||
+      (this._imageFormat() === 'png' ? 'image/png' : 'image/svg+xml')
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += DATA_URL_CHUNK_SIZE) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + DATA_URL_CHUNK_SIZE))
+    }
+    return `data:${contentType};base64,${btoa(binary)}`
   }
 
   render() {
@@ -319,7 +329,9 @@ export class DiagramImageElement extends LitElement {
             src="${this._src}"
             alt="${this._alt()}"
             @load="${(e) => this._measure(e.target)}"
-            @error="${() => this._explain(this._src)}" />
+            @error="${() => {
+              this._error = 'This diagram could not be drawn.'
+            }}" />
         </div>
         ${this.caption ? html`<div class="caption">${this.caption}</div>` : null}
       </div>

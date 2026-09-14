@@ -210,6 +210,20 @@ after a live `users` phase it is queryable directly: `GET /_api/users/fallback-a
 affected users. The account drops off this list on its own once it relinks via SSO
 (`models/login.ts#clearMigratedFallbackLocalAuth`).
 
+### Not migrated at all
+
+Two 2.5.x record classes are dropped by design — no phase reads either one, so neither shows up in
+the report above at all (not even as `unmappable`), and the CLI prints a static
+"Post-migration notices" paragraph after the report table saying so (`backend/migration/report.ts`'s
+`POST_MIGRATION_NOTICES`, Issue #3192):
+
+- **API tokens.** 2.5.x's `apiToken` table is short-lived, GraphQL-scoped JWTs with no field-for-field
+  mapping onto this fork's group-bound REST `apiKeys`. After cutover, issue new API keys directly
+  against the migrated groups: **Admin > API Access**, scoped to the group(s) each integration needs.
+- **Slack/Discord notification config.** This was never a first-party 2.5.x feature — only community
+  polling scripts read the 2.5.x database for it — so there is nothing in the source schema to carry
+  forward. Reconfigure any such integration from scratch against the migrated 3.0 instance.
+
 Do not proceed past this step until you've reviewed every `conflicts` and `unmappable` entry in the
 report and are comfortable with what each one means for your users.
 
@@ -285,6 +299,21 @@ sufficient — they cannot tell you a page _reads right_, only that its hash mat
   confirm their identity, group membership, and permissions look right. For anyone on a non-`local`
   provider, confirm they were correctly flagged for a password reset (see step 3's provider-fallback
   note) rather than silently left with an unusable random password nobody told them about.
+- If any migrated user had 2FA enabled on 2.5.x, their TOTP secret was carried over verbatim (Task
+  3218, resolving Issue #3193 — see [`2.5x-to-3.0-mapping.md`](2.5x-to-3.0-mapping.md#users)'s
+  `tfaIsActive`/`tfaSecret` rows) and their existing authenticator app entry keeps working with no
+  re-enrollment. Confirm this with at least one such user. Two things worth knowing going in:
+  - 2.5.x has no recovery-code concept, so a migrated account starts with **zero** 2FA recovery
+    codes — unlike an account that set 2FA up on 3.0 itself. If such a user's authenticator app is
+    unavailable (lost phone, etc.) before they've generated new ones from their profile, an
+    administrator resets their 2FA (`UserCredentials#adminInvalidateTfa`, the admin user page's
+    "Reset 2FA" action) the same way as for any other locked-out account.
+  - A handful of source rows can't be carried over even when `tfaIsActive` was `true` on 2.x — a
+    missing or non-base32 `tfaSecret` (malformed source data). Those accounts import with 2FA off
+    instead, and each one is called out by email address in the dry-run/live run's console/log
+    output (`migrate` scope — the run is a `created`-with-note record, not silent) — re-enabling
+    2FA for them is that account owner's own post-migration action item, not something this
+    migration can do on their behalf.
 - Open a handful of pages spanning different content types/ages (including at least one with page
   history) and confirm they render correctly, with the right author/timestamps.
 - Open a handful of assets (images, attachments) referenced from those pages and confirm they

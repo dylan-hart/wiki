@@ -90,15 +90,18 @@ to the backend on **3000**, so the backend must be running too.
   card-local save control instead (`AdminSearch.vue:105`, `AdminAuditLog.vue:174-180`).
 - **An admin settings page's load/save skeleton is `composables/adminSettings.js`, not
   hand-written.** `useAdminSettings({ i18nPrefix, keys, siteScoped, overlay, defaults, extraState,
-  fetch, pick, onLoaded, commit, onSaved, onSavedCurrentSite })` returns `{ state, load, save,
-  refresh }` and owns the `state.loading` gauge, the full-screen overlay raised and lowered inside
+fetch, pick, onLoaded, commit, onSaved, onSavedCurrentSite })` returns `{ state, load, save,
+refresh }` and owns the `state.loading` gauge, the full-screen overlay raised and lowered inside
   `load()` (never by the caller's watcher), the
   `<prefix>.loadFailed`/`.saveSuccess`/`.saveFailed`/`.refreshSuccess` toasts, the failed-save
   caption (`t('<prefix>.' + err.data?.error, apiErrorMessage(err, …))` — the page's own wording for
   the server's error code, falling back to the server's message), the `adminStore.currentSiteId`
-  watcher and its mounted load, the "no `currentSiteId`, don't fetch" guard, and the "am I editing
-  the site I am browsing" gate in front of `onSavedCurrentSite`. A page keeps only what is its own —
-  `defaultConfig()`, the requests, the payload mapping, and any action beyond loading and saving;
+  watcher and its mounted load, the "no `currentSiteId`, don't fetch" guard, the "am I editing
+  the site I am browsing" gate in front of `onSavedCurrentSite`, and (Task #3195) `load()` dropping
+  a response rather than applying it once it is stale — superseded by a newer `load()` call, or
+  landing after the reader has already edited `state.config`/`extraState` since this fetch started.
+  A page keeps only what is its own — `defaultConfig()`, the requests, the payload mapping, and any
+  action beyond loading and saving;
   page-specific reactive fields go in `extraState` so the template keeps reading `state.x`. `save()`
   answers `true`/`false` so a page can act only on a stored change, and `refresh()` is the
   composable's, not a per-page `await load(); notify(...)` wrapper. Twenty pages use it;
@@ -176,7 +179,7 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   `vitest.config.js`'s `include` also covers `test/**/*.test.js`, so the harness has its own named
   coverage and a break in it fails as itself rather than as a hundred unrelated component failures.
   - **The suites split by concern, so a filename names what it covers**: `stores/page.{save,load,
-    lifecycle,derived}`, `pages/Graph.{rendering,sizing,tooltip,i18n,layout,fallback}`,
+lifecycle,derived}`, `pages/Graph.{rendering,sizing,tooltip,i18n,layout,fallback}`,
     `components/EditorMarkdown.{content,preview,resize,assets,lifecycle}`, and so on.
   - **A cross-component assertion is a `describe.each`, not a copy** —
     `components/editorMarkupShared.test.js` and `components/apiKeyScopeTree.test.js` hold what is
@@ -195,8 +198,8 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
     routes; does the `push` + `isReady()` coda by hand-written sites used to repeat) and the
     synchronous `buildTestRouter(routes)`.
   - `test/mount.js` — `mountWithApp(Component, { props, messages, routes|router, initialPath,
-    stores, stubs, components, attachTo, …mountOptions })` → `{ wrapper, router, i18n, siteStore,
-    userStore, pageStore, adminStore, editorStore, flagsStore }`. Fresh pinia per call. It writes to
+stores, stubs, components, attachTo, …mountOptions })` → `{ wrapper, router, i18n, siteStore,
+userStore, pageStore, adminStore, editorStore, flagsStore }`. Fresh pinia per call. It writes to
     a store only when `stores` names it, so a suite asserting against an untouched store still can.
   - `test/fixtures.js` — `seedSite`/`seedUser`/`seedPage`/`seedAdmin(overrides)` and `stubRouter`.
   - `test/mocks.js` — `createApiClientStub()` plus `stubApi(routes, { method, fallback })`, a
@@ -244,16 +247,16 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   binary — run `npm run install-browsers` (mirrors `e2e/`'s own script) once per machine to fetch
   it. `test/realGridLayout.js` probes for a real Chromium at module top level and exports
   `hasChromium()`; both suites pass `{ skip: !hasChromium() }` to their `describe()` so a `npm run
-  test` with no Chromium installed reports them skipped and exits zero instead of failing on an
+test` with no Chromium installed reports them skipped and exits zero instead of failing on an
   environment precondition.
 - **Any visual/aesthetic change (CSS, theming, layout) gets rendered and looked at, not reasoned
   about from the stylesheet.** Neither `jsdom` nor `happy-dom` runs a layout engine (above), and CSS
   reasoning alone has been directly, repeatedly wrong on this codebase — including a token declared
   only in one theme block that read as correct in the diff and drew ink on ink on screen. The loop:
   a throwaway `postgres:18` container → `npm run build` in `frontend/` → `CONFIG_FILE=…
-  DATABASE_URL=… node backend` from the repo root → Playwright's bundled Chromium (already in
+DATABASE_URL=… node backend` from the repo root → Playwright's bundled Chromium (already in
   `frontend/node_modules` once `install-browsers` has run) to log in, set the theme via `PUT
-  /_api/sites/:id`, and screenshot. Seed content through the REST API with an `origin` header (the
+/_api/sites/:id`, and screenshot. Seed content through the REST API with an `origin` header (the
   write routes refuse cross-origin). Screenshot before starting (to see what's actually wrong, not
   what the task description assumes), after each change, and in every relevant mode — light/dark at
   minimum. Fall back to `getComputedStyle` when a screenshot is ambiguous; a downsampled PNG can hide

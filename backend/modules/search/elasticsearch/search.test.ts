@@ -425,8 +425,8 @@ describe('ElasticsearchSearchModule', () => {
      * every page of a large site into memory up front (or prefetched the next page of rows while an
      * earlier batch's `client.bulk` call was still in flight) would hold postgres connections open for
      * the whole, potentially slow, duration of talking to Elasticsearch -- exactly the failure mode
-     * this fork's Azure/AWS CloudSearch `rebuild()` implementations were already built to avoid (see
-     * their own `pageBatch`/`uploadBatch` doc comments). This module's keyset-paginated loop reads one
+     * this fork's Azure Search `rebuild()` implementation was already built to avoid (see its own
+     * `pageBatch`/`uploadBatch` doc comments). This module's keyset-paginated loop reads one
      * `PAGE_SIZE` page, awaits its `client.bulk` call to finish, and only then reads the next page --
      * this pins that ordering: the second `select` must not start until the first `bulk` has settled,
      * across a large enough page count (501 rows, two iterations of `PAGE_SIZE=500`) to actually

@@ -155,6 +155,34 @@ function logLoginRefused(reason: LoginRefusalReason, context: LoginRefusalContex
 }
 
 /**
+ * OpenProject #3200: the one place `loginTFA()`'s two credential-rejection branches (a wrong code, or
+ * every recovery code already spent) reach the audit log. The continuation token already proved the
+ * password, so unlike a fresh login's `bad-credentials` refusal this can name the account directly --
+ * the same reasoning `afterLoginChecks()`'s own refusals use. Not called from `loginTFA()`'s earlier
+ * pre-checks (an unresolvable continuation token, a mismatched strategy, the rate limiter) -- those
+ * are refused before anything is actually verified, the same distinction `login()`'s own
+ * `no-password`/`unknown-strategy`/`account-rate-limited` refusals make against its `bad-credentials`
+ * one.
+ */
+async function recordTfaFailure(
+  user: { id: string; name: string; email: string },
+  strategyId: string,
+  siteId: string,
+  ip: string | undefined,
+  reason: LoginRefusalReason
+): Promise<void> {
+  await WIKI.models.auditLog.record({
+    event: 'login.failed',
+    actor: { id: user.id, name: user.name, ip },
+    targetType: 'user',
+    targetId: user.id,
+    targetLabel: user.email,
+    detail: { strategyId, reason },
+    siteId
+  })
+}
+
+/**
  * Login model
  *
  * The flows that turn a credential into a session: password and provider login, registration, the
@@ -462,6 +490,13 @@ class Login {
     //    provider since the last login has to show up here too.
     if (strategy.config?.mapGroups && profile.groups) {
       await this.syncProviderGroups(user, strategy, profile.groups)
+    }
+
+    // -> No-op on a blank/undefined URL and on a user with a manually-uploaded avatar already in
+    //    place -- see `models/users.ts#syncAvatarFromProvider`'s own doc comment for the precedence
+    //    rule. Every login, not only account creation, same as group sync above.
+    if (profile.picture) {
+      await WIKI.models.users.syncAvatarFromProvider(user.id, profile.picture)
     }
 
     return user
@@ -1237,6 +1272,7 @@ class Login {
           ip,
           user: user.id
         })
+        await recordTfaFailure(user, strategyId, siteId, ip, 'tfa-recovery-codes-exhausted')
         throw new Error('ERR_TFA_RECOVERY_CODES_EXHAUSTED')
       }
       verified = await WIKI.models.userCredentials.verifyAndConsumeRecoveryCode(
@@ -1254,6 +1290,7 @@ class Login {
         ip,
         user: user.id
       })
+      await recordTfaFailure(user, strategyId, siteId, ip, 'tfa-incorrect-code')
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
 

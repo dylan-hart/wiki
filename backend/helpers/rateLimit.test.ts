@@ -12,7 +12,8 @@ import {
   limitApiRequests,
   limitGuestComments,
   limitPublicRequests,
-  limitRenders
+  limitRenders,
+  limitUploads
 } from './rateLimit.ts'
 import { resetCoalesce } from './logCoalesce.ts'
 import { makeReplyStub, makeRequestStub } from '../test/fastify.ts'
@@ -932,6 +933,96 @@ describe('limitRenders', () => {
     const [, message, fields] = warn.mock.calls[3].arguments
     assert.equal(message, 'rate limit refused 20 times in 300s')
     assert.deepEqual(fields, { ip: '203.0.113.9', count: 20 })
+    mock.timers.reset()
+  })
+})
+
+/**
+ * Unit tests for `limitUploads` (OpenProject #3234): the fixed, non-configurable limit shared by the
+ * two single-file upload routes (`POST .../assets`, `POST .../blocks`). `api/assets.test.ts` and
+ * `api/blocks.test.ts` cover the route wiring (the preHandler is actually attached, and a burst
+ * against either route is actually refused); this file covers only the hook's own job — what key it
+ * builds, the `manage:system` exemption, and how it turns a refused verdict into a 429 with
+ * `Retry-After`, the same shape as {@link limitRenders} above.
+ */
+describe('limitUploads', () => {
+  const makeReply = (): FastifyReply => makeReplyStub().reply
+
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub({
+      method: 'POST',
+      url: '/sites/site-1/assets',
+      ip: '203.0.113.11',
+      ...overrides
+    })
+
+  let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
+    activeBanMemo.clear()
+    resetCoalesce()
+    wikiHandle = installTestWiki({
+      models: { rateLimits: { consume } },
+      logger: { warn, debug: mock.fn() }
+    })
+  })
+
+  afterEach(() => {
+    resetCoalesce()
+    wikiHandle.restore()
+  })
+
+  test('keys by session user id when authenticated, falling back to ip otherwise', async () => {
+    await limitUploads(makeReq(), makeReply())
+    assert.equal(consume.mock.calls[0].arguments[0], 'upload:203.0.113.11')
+
+    const req = makeReq({
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] } as any
+    })
+    await limitUploads(req, makeReply())
+    assert.equal(consume.mock.calls[1].arguments[0], 'upload:user-1')
+  })
+
+  test('exempts a session carrying manage:system', async () => {
+    const req = makeReq({
+      session: {
+        authenticated: true,
+        user: { id: 'admin-1' },
+        permissions: ['manage:system']
+      } as any
+    })
+    await limitUploads(req, makeReply())
+    assert.equal(consume.mock.calls.length, 0)
+  })
+
+  test('refuses with a 429 and Retry-After once the policy is exceeded', async () => {
+    consume.mock.mockImplementationOnce(async () => ({ allowed: false, hits: 21, retryAfter: 45 }))
+    const reply = makeReply()
+    await limitUploads(makeReq(), reply)
+    assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '45'])
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  /** Same coalescing shape `limitRenders`'s own test above proves (OpenProject #2731). */
+  test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    consume.mock.mockImplementation(async () => ({ allowed: false, hits: 21, retryAfter: 45 }))
+
+    for (let i = 0; i < 20; i += 1) {
+      activeBanMemo.clear()
+      await limitUploads(makeReq(), makeReply())
+    }
+    assert.equal(warn.mock.calls.length, 3, 'twenty refusals, three individual lines')
+
+    // -> The upload limiter's windowSeconds is a fixed 300s, not admin-configurable.
+    mock.timers.tick(300_000)
+    assert.equal(warn.mock.calls.length, 4)
+    const [, message, fields] = warn.mock.calls[3].arguments
+    assert.equal(message, 'rate limit refused an upload 20 times in 300s')
+    assert.deepEqual(fields, { key: '203.0.113.11', count: 20 })
     mock.timers.reset()
   })
 })

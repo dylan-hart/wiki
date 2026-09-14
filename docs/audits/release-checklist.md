@@ -260,19 +260,66 @@ runner will ever have native arm64 silicon to run it on. The first half (manifes
 coverage) is a strong candidate for a future CI gate now that #2486/#2487 have landed; until such a
 gate exists both halves are performed together as one manual step.
 
+### 7. Sandboxed Puppeteer verified inside the built production image
+
+**Owner: OpenProject #3214 ("Verify sandboxed Puppeteer works inside the built production Docker
+image")**, under Epic #2244.
+
+**Known result, as of this writing: FAIL under a plain `docker run` — this is expected, not a
+release blocker on its own.** #3214 confirmed that the shipped default
+(`security.allowPuppeteerNoSandbox: false`) does not work with no extra `docker run` flags: Chromium's
+sandbox cannot initialize under Docker's own default seccomp profile, and this image carries no
+setuid sandbox helper as a fallback. See
+[`docs/decisions/sandboxed-puppeteer-requires-runtime-flags.md`](../decisions/sandboxed-puppeteer-requires-runtime-flags.md)
+for the full root cause and the decision to keep that default anyway (it still matters for an
+operator whose runtime _does_ grant the needed capability) rather than treat this as a code defect to
+patch away in `dev/build/Dockerfile`.
+
+What this item actually gates, every release, is that the failure mode has not silently changed —
+a still-sandboxed image failing for the same, already-understood reason is not a regression; a
+different error, or a PDF export that succeeds without the sandbox genuinely being active, is:
+
+1. **Build the release image** exactly as `build.yml` does (`docker build -f dev/build/Dockerfile`
+   against a `frontend`/`blocks` build of the same commit).
+2. **Run the verification script** against it:
+
+   ```sh
+   ./dev/build/verify-sandboxed-puppeteer.sh
+   ```
+
+   This builds the frontend/blocks prerequisites' presence, boots the image next to a throwaway
+   `postgres:18` with the shipped default left untouched, logs in as the seeded admin, creates a
+   page, and requests its PDF export — PASS only on a genuine `%PDF-` response with no
+   `--no-sandbox` fallback engaged.
+
+3. **A named human confirms the FAIL, if any, is the known one** — the same `Failed to launch the
+browser process… No usable sandbox!` message the decision doc quotes — and records the script's
+   PASS/FAIL and the date in the release PR description, the same place the rest of this filled-in
+   checklist gets pasted. A PASS here (meaning a future Dockerfile change actually fixed the
+   underlying constraint) or any FAIL whose message differs from the known one is a stop-and-investigate,
+   not a rubber stamp either way.
+
+This item stays manual permanently for the same reason Item 6 does: confirming what genuinely
+happens inside a real, freshly built container is not something a unit or component test can stand
+in for, and — unlike Item 6 — there is no hardware precondition blocking a future CI job from running
+this exact script; it is a strong candidate to fold into `quality.yml` or `build.yml` directly once
+someone owns deciding what a "known, acceptable FAIL" should mean to an automated gate (today that
+judgment is still a human's).
+
 ## Status of automation
 
 A snapshot of what's real today versus what this document anticipates, so nobody mistakes the
 future-tense sections above for present-tense fact:
 
-| Item                     | Owner                     | Exists on `scarlett` today?                                                                                                                                                                                                                                                                                                                        |
-| ------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. CI quality gates      | Feature #423 / task #777  | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again                                                                                                                                                                                    |
-| 2. Test suites           | Feature #424 / task #1943 | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job. `release.yml` additionally gates on a successful `build.yml` run existing for the tagged commit (task #1943); the actual per-suite pass/fail read for that run is still manual |
-| 3. `docs/variances.md`   | Feature #425              | Yes — file exists; scoped to public-standard divergences only (currently none), with implementation decisions living in `docs/decisions/` instead; #425 formalizes ongoing discipline around it                                                                                                                                                  |
-| 4. Bundle drift guards   | Feature #423 / task #777  | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                                                                                                                                                                                                             |
-| 5. Migration dry-run     | Epic #341 / task #421     | No — no migration code exists                                                                                                                                                                                                                                                                                                                      |
-| 6. ARM host verification | Epic #2435 / WP #2488     | Partially — WP #2486/#2487 (add linux/arm64 to build.yml/release.yml) have landed, so the next tagged release will publish an arm64-including image; the manual manifest-check + real-hardware smoke test in this item has not been performed against a real release yet                                                                           |
+| Item                                | Owner                     | Exists on `scarlett` today?                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. CI quality gates                 | Feature #423 / task #777  | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again                                                                                                                                                                                    |
+| 2. Test suites                      | Feature #424 / task #1943 | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job. `release.yml` additionally gates on a successful `build.yml` run existing for the tagged commit (task #1943); the actual per-suite pass/fail read for that run is still manual |
+| 3. `docs/variances.md`              | Feature #425              | Yes — file exists; scoped to public-standard divergences only (currently none), with implementation decisions living in `docs/decisions/` instead; #425 formalizes ongoing discipline around it                                                                                                                                                    |
+| 4. Bundle drift guards              | Feature #423 / task #777  | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                                                                                                                                                                                                             |
+| 5. Migration dry-run                | Epic #341 / task #421     | No — no migration code exists                                                                                                                                                                                                                                                                                                                      |
+| 6. ARM host verification            | Epic #2435 / WP #2488     | Partially — WP #2486/#2487 (add linux/arm64 to build.yml/release.yml) have landed, so the next tagged release will publish an arm64-including image; the manual manifest-check + real-hardware smoke test in this item has not been performed against a real release yet                                                                           |
+| 7. Sandboxed Puppeteer verification | WP #3214                  | Script exists (`dev/build/verify-sandboxed-puppeteer.sh`) and has been run for real against a locally built image — result: known, documented FAIL (see `docs/decisions/sandboxed-puppeteer-requires-runtime-flags.md`); not yet wired into any CI workflow, so the manual step above is still required every release                              |
 
 Nothing in this table is a criticism of those Features — they are each independently in progress
 under the same parent Feature (#426) as this document, at the time it was written. This table

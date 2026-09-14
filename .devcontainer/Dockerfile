@@ -78,12 +78,17 @@ RUN apt-get update && apt-get install -qy \
     jq \
     less \
     git \
+    gettext \
     gnupg2 \
+    libcurl4-openssl-dev \
+    libexpat1-dev \
+    libssl-dev \
     nano \
     netcat-openbsd \
     pandoc \
     unzip \
-    wget
+    wget \
+    zlib1g-dev
 
 # Chromium, for the Puppeteer extension. Rendering a page on the server means driving a headless
 # browser, and this is the copy Puppeteer is pointed at rather than one it downloads for itself:
@@ -123,6 +128,57 @@ RUN set -eu; \
     curl -sSLf "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-${target}.tar.gz" \
       | tar xz --strip-components=1 -C /usr/local/bin "git-cliff-${GIT_CLIFF_VERSION}/git-cliff"; \
     git-cliff --version
+
+# ---------------------------------------------------------------------------------------------
+# git itself, built from source and pinned newer than whatever bookworm's apt archive ships
+# (OpenProject #3215, closing the divergence #2684/Bug #2586 left behind -- see the git
+# configuration section below for that history).
+#
+# The standard `ghcr.io/devcontainers/features/git` devcontainer feature would get us a newer git
+# too, but it builds under /usr/local, whose system config path is /usr/local/etc/gitconfig --
+# silently orphaning the `git config --system` settings below, written to /etc/gitconfig. Building
+# it ourselves with `make prefix=/usr install` gets the same newer git while installing to
+# /usr/bin/git (overwriting the apt-installed binary at that exact path) with a system config that
+# stays /etc/gitconfig, so nothing below has to change.
+#
+# GIT_VERSION is pinned the same way NODE_VERSION is: an exact release, never a floating tag, and
+# GIT_SHA256 pins the upstream source tarball's checksum the same way NODE_IMAGE_DIGEST pins the
+# base image -- a corrupted or tampered download fails the build loudly instead of silently
+# compiling something else. The build-time assertion below mirrors the Node one for the same
+# reason: a pin is only worth having if a drift between the ARG and what actually got built cannot
+# ship quietly.
+#
+# NO_RUST=1: as of 2.55.0, git's own Makefile unconditionally links an optional Rust component
+# (`cargo build` producing `libgitcore.a`) into a plain `make install` unless this is set --
+# confirmed by hand, not assumed: a build with no NO_RUST failed with `cargo: not found` against
+# this exact base image. Nothing in this codebase (or this image) needs git's Rust-backed
+# subsystems, and adding a whole second toolchain (rustc/cargo) to this image just to satisfy an
+# optional feature is not what this WP asked for -- NO_RUST=1 keeps the build to the classic C
+# toolchain already installed above.
+#
+# No architecture branch is needed here, unlike git-cliff's binary download above: this compiles
+# from source, so the same steps produce a working binary on both amd64 and arm64.
+# ---------------------------------------------------------------------------------------------
+ARG GIT_VERSION=2.55.0
+ARG GIT_SHA256=457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357
+RUN set -eu; \
+    curl -sSLf -o /tmp/git.tar.xz "https://mirrors.edge.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz"; \
+    echo "${GIT_SHA256}  /tmp/git.tar.xz" | sha256sum -c -; \
+    mkdir -p /usr/src/git; \
+    tar -xJf /tmp/git.tar.xz --strip-components=1 -C /usr/src/git; \
+    rm /tmp/git.tar.xz; \
+    cd /usr/src/git; \
+    make prefix=/usr NO_RUST=1 -j"$(nproc)" all; \
+    make prefix=/usr NO_RUST=1 install; \
+    cd /; \
+    rm -rf /usr/src/git; \
+    actual="$(git --version | awk '{print $3}')"; \
+    if [ "$actual" != "${GIT_VERSION}" ]; then \
+      echo "FATAL: GIT_VERSION says ${GIT_VERSION} but the built binary reports ${actual}." >&2; \
+      echo "       GIT_VERSION and GIT_SHA256 in this Dockerfile have drifted apart." >&2; \
+      exit 1; \
+    fi; \
+    echo "git pin verified: ${actual}"
 
 # ---------------------------------------------------------------------------------------------
 # Playwright's Chromium, at the revision the `playwright` package expects.
@@ -175,11 +231,13 @@ RUN set -eu; \
 # because the bind-mounted repo is owned by the host's uid, which need not match the container user's
 # on a Linux host, and because git worktrees under the repo are their own top-level directories.
 #
-# This writes /etc/gitconfig, the system config of the distro git installed above. It is also why
-# devcontainer.json no longer enables the `devcontainers/features/git` feature: that feature builds
-# git from source under /usr/local, whose system config is /usr/local/etc/gitconfig -- so every
-# setting below would still be on disk and silently no longer read. The resulting git-version
-# divergence from ubuntu-latest is accepted rather than hidden.
+# This writes /etc/gitconfig, the system config of the git built from source above (ARG
+# GIT_VERSION), which installs to /usr/bin/git via `make prefix=/usr install` for exactly this
+# reason -- see that section's comment. It is also why devcontainer.json still does not enable the
+# `devcontainers/features/git` feature: that feature builds git under /usr/local, whose system
+# config is /usr/local/etc/gitconfig, which would silently orphan every setting below. Building our
+# own pinned git at --prefix=/usr gets a newer git AND keeps these settings live -- the git-version
+# divergence from ubuntu-latest this section used to accept (OpenProject #3215) no longer exists.
 # ---------------------------------------------------------------------------------------------
 RUN git config --system init.defaultBranch master \
     && git config --system user.name 'Wiki.js Dev Container' \

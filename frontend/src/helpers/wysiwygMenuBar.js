@@ -4,8 +4,16 @@
  *
  * ~500 lines of static definition that closed over `EditorWysiwyg.vue`'s own bindings, which is the
  * only reason it lived there. Everything it needs now comes in: the editor itself, the two colour
- * palettes (which stay with the component, where the reasoning about legibility belongs), and the
- * two actions that are not editor commands at all.
+ * palettes (which stay with the component, where the reasoning about legibility belongs), the two
+ * actions that are not editor commands at all, and `t` (OpenProject #3206) -- every `title` below is
+ * both the visible label and, via `EditorWysiwyg.vue`'s `:aria-label="menuItem.title"` /
+ * `:aria-label="child.title"`, the accessible name, so it has to resolve through the real translation
+ * table rather than being a literal English string. Keys live under `editor.wysiwyg.*` in
+ * `backend/locales/en.json`, the same namespacing convention `EditorMarkdown.vue`'s `editor.markup.*`
+ * already establishes. `EditorWysiwyg.vue` calls this from inside a `computed()`, not a one-time
+ * `const`, specifically so a live locale switch rebuilds the whole array (and therefore every
+ * translated title) rather than leaving stale English labels behind from whatever locale was active
+ * when the component mounted.
  *
  * @param {() => {value: object}|null} getEditorRef Reads the component's live TipTap editor ref.
  *   A getter rather than the ref itself, because that binding is still `null` when the toolbar is
@@ -15,10 +23,12 @@
  * @param {Record<string, string>} opts.HIGHLIGHT_COLORS
  * @param {() => void} opts.insertLink Opens the shared link picker and applies the answer.
  * @param {(opts: object) => void} opts.openFileManager Opens the file manager in insert mode.
+ * @param {(key: string, params?: object) => string} opts.t `useI18n()`'s `t`, from the caller --
+ *   translates every menu item's `title` against `editor.wysiwyg.*`.
  */
 export function buildMenuBar(
   getEditorRef,
-  { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager }
+  { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager, t }
 ) {
   /*
     A live view of the component's own `editor` binding rather than a captured copy: it is assigned
@@ -35,48 +45,48 @@ export function buildMenuBar(
     {
       key: 'bold',
       icon: 'tabler:bold',
-      title: 'Bold',
+      title: t('editor.wysiwyg.bold'),
       action: () => editor.value.chain().focus().toggleBold().run(),
       isActive: () => editor.value.isActive('bold')
     },
     {
       key: 'italic',
       icon: 'tabler:italic',
-      title: 'Italic',
+      title: t('editor.wysiwyg.italic'),
       action: () => editor.value.chain().focus().toggleItalic().run(),
       isActive: () => editor.value.isActive('italic')
     },
     {
       key: 'strikethrough',
       icon: 'tabler:strikethrough',
-      title: 'Strike',
+      title: t('editor.wysiwyg.strike'),
       action: () => editor.value.chain().focus().toggleStrike().run(),
       isActive: () => editor.value.isActive('strike')
     },
     {
       key: 'code',
       icon: 'tabler:code',
-      title: 'Code',
+      title: t('editor.wysiwyg.code'),
       action: () => editor.value.chain().focus().toggleCode().run(),
       isActive: () => editor.value.isActive('code')
     },
     {
       key: 'fontfamily',
       icon: 'tabler:typography',
-      title: 'Font Family',
+      title: t('editor.wysiwyg.fontFamily'),
       type: 'dropdown',
       isActive: () => Boolean(editor.value.getAttributes('textStyle').fontFamily),
       children: [
         {
           key: 'fontunset',
           icon: 'tabler:typography',
-          title: 'Sans-Serif',
+          title: t('editor.wysiwyg.sansSerif'),
           action: () => editor.value.chain().focus().unsetFontFamily().run()
         },
         {
           key: 'monospace',
           icon: 'tabler:typography',
-          title: 'Monospace',
+          title: t('editor.wysiwyg.monospace'),
           action: () => editor.value.chain().focus().setFontFamily('monospace').run()
         }
       ]
@@ -84,14 +94,14 @@ export function buildMenuBar(
     {
       key: 'color',
       icon: 'tabler:palette',
-      title: 'Text Color',
+      title: t('editor.wysiwyg.textColor'),
       type: 'dropdown',
       isActive: () => Boolean(editor.value.getAttributes('textStyle').color),
       children: [
         {
           key: 'color-blue',
           icon: 'tabler:palette',
-          title: 'Blue',
+          title: t('editor.wysiwyg.colorBlue'),
           color: 'blue',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.blue }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.blue).run()
@@ -99,7 +109,7 @@ export function buildMenuBar(
         {
           key: 'color-brown',
           icon: 'tabler:palette',
-          title: 'Brown',
+          title: t('editor.wysiwyg.colorBrown'),
           color: 'brown',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.brown }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.brown).run()
@@ -107,7 +117,7 @@ export function buildMenuBar(
         {
           key: 'color-green',
           icon: 'tabler:palette',
-          title: 'Green',
+          title: t('editor.wysiwyg.colorGreen'),
           color: 'green',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.green }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.green).run()
@@ -115,7 +125,7 @@ export function buildMenuBar(
         {
           key: 'color-orange',
           icon: 'tabler:palette',
-          title: 'Orange',
+          title: t('editor.wysiwyg.colorOrange'),
           color: 'orange',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.orange }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.orange).run()
@@ -123,7 +133,7 @@ export function buildMenuBar(
         {
           key: 'color-pink',
           icon: 'tabler:palette',
-          title: 'Pink',
+          title: t('editor.wysiwyg.colorPink'),
           color: 'pink',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.pink }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.pink).run()
@@ -131,7 +141,7 @@ export function buildMenuBar(
         {
           key: 'color-purple',
           icon: 'tabler:palette',
-          title: 'Purple',
+          title: t('editor.wysiwyg.colorPurple'),
           color: 'purple',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.purple }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.purple).run()
@@ -139,7 +149,7 @@ export function buildMenuBar(
         {
           key: 'color-red',
           icon: 'tabler:palette',
-          title: 'Red',
+          title: t('editor.wysiwyg.colorRed'),
           color: 'red',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.red }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.red).run()
@@ -147,7 +157,7 @@ export function buildMenuBar(
         {
           key: 'color-teal',
           icon: 'tabler:palette',
-          title: 'Teal',
+          title: t('editor.wysiwyg.colorTeal'),
           color: 'teal',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.teal }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.teal).run()
@@ -155,7 +165,7 @@ export function buildMenuBar(
         {
           key: 'color-yellow',
           icon: 'tabler:palette',
-          title: 'Yellow',
+          title: t('editor.wysiwyg.colorYellow'),
           color: 'yellow',
           isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.yellow }),
           action: () => editor.value.chain().focus().setColor(TEXT_COLORS.yellow).run()
@@ -166,7 +176,7 @@ export function buildMenuBar(
         {
           key: 'color-remove',
           icon: 'tabler:palette',
-          title: 'Default',
+          title: t('editor.wysiwyg.colorDefault'),
           color: 'grey',
           action: () => editor.value.chain().focus().unsetColor().run()
         }
@@ -175,14 +185,14 @@ export function buildMenuBar(
     {
       key: 'highlight',
       icon: 'tabler:highlight',
-      title: 'Highlight',
+      title: t('editor.wysiwyg.highlight'),
       type: 'dropdown',
       isActive: () => editor.value.isActive('highlight'),
       children: [
         {
           key: 'highlight-yellow',
           icon: 'tabler:highlight',
-          title: 'Yellow',
+          title: t('editor.wysiwyg.colorYellow'),
           color: 'yellow',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.yellow }),
           action: () =>
@@ -191,7 +201,7 @@ export function buildMenuBar(
         {
           key: 'highlight-blue',
           icon: 'tabler:highlight',
-          title: 'Blue',
+          title: t('editor.wysiwyg.colorBlue'),
           color: 'blue',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.blue }),
           action: () =>
@@ -200,7 +210,7 @@ export function buildMenuBar(
         {
           key: 'highlight-pink',
           icon: 'tabler:highlight',
-          title: 'Pink',
+          title: t('editor.wysiwyg.colorPink'),
           color: 'pink',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.pink }),
           action: () =>
@@ -209,7 +219,7 @@ export function buildMenuBar(
         {
           key: 'highlight-green',
           icon: 'tabler:highlight',
-          title: 'Green',
+          title: t('editor.wysiwyg.colorGreen'),
           color: 'green',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.green }),
           action: () =>
@@ -218,7 +228,7 @@ export function buildMenuBar(
         {
           key: 'highlight-orange',
           icon: 'tabler:highlight',
-          title: 'Orange',
+          title: t('editor.wysiwyg.colorOrange'),
           color: 'orange',
           isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.orange }),
           action: () =>
@@ -230,7 +240,7 @@ export function buildMenuBar(
         {
           key: 'highlight-remove',
           icon: 'tabler:highlight-off',
-          title: 'Remove',
+          title: t('editor.wysiwyg.highlightRemove'),
           color: 'grey',
           action: () => editor.value.chain().focus().unsetHighlight().run()
         }
@@ -242,49 +252,49 @@ export function buildMenuBar(
     {
       key: 'header',
       icon: 'tabler:heading',
-      title: 'Header',
+      title: t('editor.wysiwyg.header'),
       type: 'dropdown',
       isActive: () => editor.value.isActive('heading'),
       children: [
         {
           key: 'h1',
           icon: 'tabler:h-1',
-          title: 'Header 1',
+          title: t('editor.wysiwyg.headerLevel', { level: 1 }),
           action: () => editor.value.chain().focus().toggleHeading({ level: 1 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 1 })
         },
         {
           key: 'h2',
           icon: 'tabler:h-2',
-          title: 'Header 2',
+          title: t('editor.wysiwyg.headerLevel', { level: 2 }),
           action: () => editor.value.chain().focus().toggleHeading({ level: 2 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 2 })
         },
         {
           key: 'h3',
           icon: 'tabler:h-3',
-          title: 'Header 3',
+          title: t('editor.wysiwyg.headerLevel', { level: 3 }),
           action: () => editor.value.chain().focus().toggleHeading({ level: 3 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 3 })
         },
         {
           key: 'h4',
           icon: 'tabler:h-4',
-          title: 'Header 4',
+          title: t('editor.wysiwyg.headerLevel', { level: 4 }),
           action: () => editor.value.chain().focus().toggleHeading({ level: 4 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 4 })
         },
         {
           key: 'h5',
           icon: 'tabler:h-5',
-          title: 'Header 5',
+          title: t('editor.wysiwyg.headerLevel', { level: 5 }),
           action: () => editor.value.chain().focus().toggleHeading({ level: 5 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 5 })
         },
         {
           key: 'h6',
           icon: 'tabler:h-6',
-          title: 'Header 6',
+          title: t('editor.wysiwyg.headerLevel', { level: 6 }),
           action: () => editor.value.chain().focus().toggleHeading({ level: 6 }).run(),
           isActive: () => editor.value.isActive('heading', { level: 6 })
         }
@@ -293,7 +303,7 @@ export function buildMenuBar(
     {
       key: 'paragraph',
       icon: 'tabler:pilcrow',
-      title: 'Paragraph',
+      title: t('editor.wysiwyg.paragraph'),
       action: () => editor.value.chain().focus().setParagraph().run(),
       isActive: () => editor.value.isActive('paragraph')
     },
@@ -307,28 +317,28 @@ export function buildMenuBar(
         {
           key: 'align-left',
           icon: 'tabler:align-left',
-          title: 'Left Align',
+          title: t('editor.wysiwyg.alignLeft'),
           action: () => editor.value.chain().focus().setTextAlign('left').run(),
           isActive: () => editor.value.isActive({ textAlign: 'left' })
         },
         {
           key: 'align-center',
           icon: 'tabler:align-center',
-          title: 'Center Align',
+          title: t('editor.wysiwyg.alignCenter'),
           action: () => editor.value.chain().focus().setTextAlign('center').run(),
           isActive: () => editor.value.isActive({ textAlign: 'center' })
         },
         {
           key: 'align-right',
           icon: 'tabler:align-right',
-          title: 'Right Align',
+          title: t('editor.wysiwyg.alignRight'),
           action: () => editor.value.chain().focus().setTextAlign('right').run(),
           isActive: () => editor.value.isActive({ textAlign: 'right' })
         },
         {
           key: 'align-justify',
           icon: 'tabler:align-justified',
-          title: 'Justify Align',
+          title: t('editor.wysiwyg.alignJustify'),
           action: () => editor.value.chain().focus().setTextAlign('justify').run(),
           isActive: () => editor.value.isActive({ textAlign: 'justify' })
         }
@@ -340,21 +350,21 @@ export function buildMenuBar(
     {
       key: 'bulletlist',
       icon: 'tabler:list',
-      title: 'Bullet List',
+      title: t('editor.wysiwyg.bulletList'),
       action: () => editor.value.chain().focus().toggleBulletList().run(),
       isActive: () => editor.value.isActive('bulletList')
     },
     {
       key: 'orderedlist',
       icon: 'tabler:list-numbers',
-      title: 'Ordered List',
+      title: t('editor.wysiwyg.orderedList'),
       action: () => editor.value.chain().focus().toggleOrderedList().run(),
       isActive: () => editor.value.isActive('orderedList')
     },
     {
       key: 'tasklist',
       icon: 'tabler:list-check',
-      title: 'Task List',
+      title: t('editor.wysiwyg.taskList'),
       action: () => editor.value.chain().focus().toggleTaskList().run(),
       isActive: () => editor.value.isActive('taskList')
     },
@@ -364,34 +374,34 @@ export function buildMenuBar(
     {
       key: 'codeblock',
       icon: 'tabler:json',
-      title: 'Code Block',
+      title: t('editor.wysiwyg.codeBlock'),
       action: () => editor.value.chain().focus().toggleCodeBlock().run(),
       isActive: () => editor.value.isActive('codeBlock')
     },
     {
       key: 'blockquote',
       icon: 'tabler:blockquote',
-      title: 'Blockquote',
+      title: t('editor.wysiwyg.blockquote'),
       action: () => editor.value.chain().focus().toggleBlockquote().run(),
       isActive: () => editor.value.isActive('blockquote')
     },
     {
       key: 'rule',
       icon: 'tabler:minus',
-      title: 'Horizontal Rule',
+      title: t('editor.wysiwyg.horizontalRule'),
       action: () => editor.value.chain().focus().setHorizontalRule().run()
     },
     {
       key: 'link',
       icon: 'tabler:link',
-      title: 'Link',
+      title: t('editor.wysiwyg.link'),
       action: () => insertLink(),
       isActive: () => editor.value.isActive('link')
     },
     {
       key: 'image',
       icon: 'tabler:photo-plus',
-      title: 'Image',
+      title: t('editor.wysiwyg.image'),
       action: () => {
         openFileManager({ insertMode: true })
       }
@@ -399,14 +409,14 @@ export function buildMenuBar(
     {
       key: 'table',
       icon: 'tabler:table',
-      title: 'Table',
+      title: t('editor.wysiwyg.table'),
       type: 'dropdown',
       isActive: () => editor.value.isActive('table'),
       children: [
         {
           key: 'table-insert',
           icon: 'tabler:table-plus',
-          title: 'Insert Table',
+          title: t('editor.wysiwyg.tableInsert'),
           action: () =>
             editor.value
               .chain()
@@ -420,21 +430,21 @@ export function buildMenuBar(
         {
           key: 'table-addcolumnbefore',
           icon: 'tabler:column-insert-left',
-          title: 'Add Column Before',
+          title: t('editor.wysiwyg.tableAddColumnBefore'),
           action: () => editor.value.chain().focus().addColumnBefore().run(),
           disabled: () => !editor.value.can().addColumnBefore()
         },
         {
           key: 'table-addcolumnafter',
           icon: 'tabler:column-insert-right',
-          title: 'Add Column After',
+          title: t('editor.wysiwyg.tableAddColumnAfter'),
           action: () => editor.value.chain().focus().addColumnAfter().run(),
           disabled: () => !editor.value.can().addColumnAfter()
         },
         {
           key: 'table-deletecolumn',
           icon: 'tabler:column-remove',
-          title: 'Remove Column',
+          title: t('editor.wysiwyg.tableRemoveColumn'),
           action: () => editor.value.chain().focus().deleteColumn().run(),
           disabled: () => !editor.value.can().deleteColumn()
         },
@@ -444,21 +454,21 @@ export function buildMenuBar(
         {
           key: 'table-addrowbefore',
           icon: 'tabler:row-insert-top',
-          title: 'Add Row Before',
+          title: t('editor.wysiwyg.tableAddRowBefore'),
           action: () => editor.value.chain().focus().addRowBefore().run(),
           disabled: () => !editor.value.can().addRowBefore()
         },
         {
           key: 'table-addrowafter',
           icon: 'tabler:row-insert-bottom',
-          title: 'Add Row After',
+          title: t('editor.wysiwyg.tableAddRowAfter'),
           action: () => editor.value.chain().focus().addRowAfter().run(),
           disabled: () => !editor.value.can().addRowAfter()
         },
         {
           key: 'table-deleterow',
           icon: 'tabler:row-remove',
-          title: 'Remove Row',
+          title: t('editor.wysiwyg.tableRemoveRow'),
           action: () => editor.value.chain().focus().deleteRow().run(),
           disabled: () => !editor.value.can().deleteRow()
         },
@@ -468,14 +478,14 @@ export function buildMenuBar(
         {
           key: 'table-merge',
           icon: 'tabler:layout-board',
-          title: 'Merge Cells',
+          title: t('editor.wysiwyg.tableMergeCells'),
           action: () => editor.value.chain().focus().mergeCells().run(),
           disabled: () => !editor.value.can().mergeCells()
         },
         {
           key: 'table-split',
           icon: 'tabler:layout-columns',
-          title: 'Split Cell',
+          title: t('editor.wysiwyg.tableSplitCell'),
           action: () => editor.value.chain().focus().splitCell().run(),
           disabled: () => !editor.value.can().splitCell()
         },
@@ -485,21 +495,21 @@ export function buildMenuBar(
         {
           key: 'table-toggleHeaderColumn',
           icon: 'tabler:table-column',
-          title: 'Toggle Header Column',
+          title: t('editor.wysiwyg.tableToggleHeaderColumn'),
           action: () => editor.value.chain().focus().toggleHeaderColumn().run(),
           disabled: () => !editor.value.can().toggleHeaderColumn()
         },
         {
           key: 'table-toggleHeaderRow',
           icon: 'tabler:table-row',
-          title: 'Toggle Header Row',
+          title: t('editor.wysiwyg.tableToggleHeaderRow'),
           action: () => editor.value.chain().focus().toggleHeaderRow().run(),
           disabled: () => !editor.value.can().toggleHeaderRow()
         },
         {
           key: 'table-toggleHeaderCell',
           icon: 'tabler:square',
-          title: 'Toggle Header Cell',
+          title: t('editor.wysiwyg.tableToggleHeaderCell'),
           action: () => editor.value.chain().focus().toggleHeaderCell().run(),
           disabled: () => !editor.value.can().toggleHeaderCell()
         },
@@ -509,14 +519,14 @@ export function buildMenuBar(
         {
           key: 'table-fix',
           icon: 'tabler:table-heart',
-          title: 'Fix Table',
+          title: t('editor.wysiwyg.tableFix'),
           action: () => editor.value.chain().focus().fixTables().run(),
           disabled: () => !editor.value.can().fixTables()
         },
         {
           key: 'table-remove',
           icon: 'tabler:table-minus',
-          title: 'Delete Table',
+          title: t('editor.wysiwyg.tableDelete'),
           action: () => editor.value.chain().focus().deleteTable().run(),
           disabled: () => !editor.value.can().deleteTable()
         }
@@ -528,13 +538,13 @@ export function buildMenuBar(
     {
       key: 'pagebreak',
       icon: 'tabler:page-break',
-      title: 'Hard Break',
+      title: t('editor.wysiwyg.hardBreak'),
       action: () => editor.value.chain().focus().setHardBreak().run()
     },
     {
       key: 'clearformat',
       icon: 'tabler:clear-formatting',
-      title: 'Clear Format',
+      title: t('editor.wysiwyg.clearFormat'),
       action: () => editor.value.chain().focus().clearNodes().unsetAllMarks().run()
     },
     {
@@ -543,14 +553,14 @@ export function buildMenuBar(
     {
       key: 'undo',
       icon: 'tabler:arrow-back-up',
-      title: 'Undo',
+      title: t('editor.wysiwyg.undo'),
       action: () => editor.value.chain().focus().undo().run(),
       disabled: () => !editor.value.can().undo()
     },
     {
       key: 'redo',
       icon: 'tabler:arrow-forward-up',
-      title: 'Redo',
+      title: t('editor.wysiwyg.redo'),
       action: () => editor.value.chain().focus().redo().run(),
       disabled: () => !editor.value.can().redo()
     }

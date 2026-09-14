@@ -85,12 +85,21 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
   }
 
   /**
-   * Upload one batch of files through `sites/:siteId/assets`, one POST per file with an aggregate
-   * `uploadPercentage` and mid-batch cancel support.
+   * Upload one selection of files, through `sites/:siteId/assets` (one file) or
+   * `sites/:siteId/assets/batch` (more than one) -- OpenProject #3233.
    *
    * The one path both on-ramps feed: the file-picker's `multiple` input (`uploadNewFiles`, above) and
    * the drop zone (`handleDrop`, below) both just gather a plain array of `File`s and hand it here,
    * rather than each driving its own upload loop and its own progress UI.
+   *
+   * A single file keeps hitting the single-file route unchanged: per Feature #3211's own triage,
+   * that route stays real single-upload traffic going forward (and OpenProject #3234 gives it its
+   * own tighter rate limit on that assumption) rather than becoming dead code. A multi-file
+   * selection fires ONE multipart POST instead of the old sequential per-file loop -- `files` is
+   * repeated once per file, the same convention `ImportBatchPageDialog.vue`'s own batch upload
+   * already uses. Either way there is no longer a "between files" boundary a cancel can land on
+   * once the request is sent (the old loop's per-file `await` gave the single-file case none of
+   * that either), so a cancel here only takes effect before the request goes out.
    */
   async function uploadFiles(filesToUpload) {
     if (!filesToUpload?.length) {
@@ -106,38 +115,69 @@ export function useFileUpload({ state, fileIpt, reloadCurrentFolder }) {
     nextTick(() => {
       setTimeout(async () => {
         try {
-          const totalFiles = filesToUpload.length
-          let idx = 0
-          for (const fileToUpload of filesToUpload) {
-            // -> A cancel can only take effect between files: a request already in flight is left to
-            //    finish, since the server has the bytes either way
-            if (state.shouldCancelUpload) {
-              break
+          if (filesToUpload.length === 1) {
+            const [fileToUpload] = filesToUpload
+            if (!state.shouldCancelUpload) {
+              state.uploadPercentage = 90
+              // -> The body is the file itself rather than a multipart form. The locale is the one
+              //    currently being browsed, so an upload lands in the same locale as the folder it
+              //    was dropped into rather than always the site's primary.
+              await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
+                searchParams: {
+                  fileName: fileToUpload.name,
+                  locale: state.locale,
+                  ...(state.currentFolderId ? { folderId: state.currentFolderId } : {})
+                },
+                headers: {
+                  'content-type': fileToUpload.type || 'application/octet-stream'
+                },
+                body: fileToUpload
+              }).json()
             }
-            idx++
-            state.uploadPercentage = totalFiles > 1 ? Math.round((idx / totalFiles) * 100) : 90
-            // -> The body is the file itself rather than a multipart form. The locale is the one
-            //    currently being browsed, so an upload lands in the same locale as the folder it was
-            //    dropped into rather than always the site's primary.
-            await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
-              searchParams: {
-                fileName: fileToUpload.name,
-                locale: state.locale,
-                ...(state.currentFolderId ? { folderId: state.currentFolderId } : {})
-              },
-              headers: {
-                'content-type': fileToUpload.type || 'application/octet-stream'
-              },
-              body: fileToUpload
-            }).json()
-          }
-          state.uploadPercentage = 100
-          reloadCurrentFolder()
-          if (!state.shouldCancelUpload) {
-            notify({
-              type: 'positive',
-              message: t('fileman.uploadSuccess')
-            })
+            state.uploadPercentage = 100
+            reloadCurrentFolder()
+            if (!state.shouldCancelUpload) {
+              notify({
+                type: 'positive',
+                message: t('fileman.uploadSuccess')
+              })
+            }
+          } else {
+            let results = []
+            if (!state.shouldCancelUpload) {
+              state.uploadPercentage = 50
+              const form = new FormData()
+              for (const fileToUpload of filesToUpload) {
+                form.append('files', fileToUpload, fileToUpload.name)
+              }
+              const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets/batch`, {
+                searchParams: {
+                  locale: state.locale,
+                  ...(state.currentFolderId ? { folderId: state.currentFolderId } : {})
+                },
+                body: form
+              }).json()
+              results = resp?.results ?? []
+            }
+            state.uploadPercentage = 100
+            reloadCurrentFolder()
+            if (!state.shouldCancelUpload) {
+              const failed = results.filter((result) => !result.ok)
+              if (failed.length > 0) {
+                notify({
+                  type: 'negative',
+                  message: t('fileman.uploadFailed'),
+                  caption: failed
+                    .map((result) => `${result.fileName}: ${result.message}`)
+                    .join('; ')
+                })
+              } else {
+                notify({
+                  type: 'positive',
+                  message: t('fileman.uploadSuccess')
+                })
+              }
+            }
           }
         } catch (err) {
           notify({

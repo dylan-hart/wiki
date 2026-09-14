@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { _resetContentImageZoom } from './contentImageZoom'
-import { enhanceRenderedContent, routableHref, sameDocumentHash } from './renderedContent'
+import {
+  _resetTableSelectMode,
+  enhanceRenderedContent,
+  getActiveTableSelection,
+  routableHref,
+  sameDocumentHash
+} from './renderedContent'
 import { queue as notifyQueue } from '@/composables/notify'
 
 /**
@@ -63,6 +69,50 @@ function headingWithId(id) {
   heading.textContent = 'A section'
   document.body.appendChild(heading)
   return heading
+}
+
+/**
+ * A `[role="cell"]`/`[role="columnheader"]` grid, `rows` deep and `cols` wide, the first row a
+ * header -- built the same way `contentImageZoom.test.js`'s own `pointerEvent` helper stands in for
+ * a real pointer, since jsdom has no layout engine to derive one from real coordinates.
+ */
+function selectTable(rows, cols) {
+  let html = row(
+    Array.from({ length: cols }, (_c, col) => `H${col}`),
+    { header: true }
+  )
+  for (let r = 0; r < rows - 1; r++) {
+    html += row(Array.from({ length: cols }, (_c, col) => `r${r}c${col}`))
+  }
+  const wrap = tableWrap(html)
+  return {
+    wrap,
+    table: wrap.querySelector('[role="table"]'),
+    cell(r, c) {
+      return wrap
+        .querySelectorAll('[role="row"]')
+        [r].querySelectorAll('[role="cell"], [role="columnheader"]')[c]
+    }
+  }
+}
+
+function pointerEvent(type, props) {
+  return new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    pointerId: 1,
+    button: 0,
+    ...props
+  })
+}
+
+/** Dispatches a `copy` event on `root` carrying a fake `clipboardData`, returning it and the event. */
+function dispatchCopy(root) {
+  const clipboardData = { setData: vi.fn() }
+  const event = new Event('copy', { bubbles: true, cancelable: true })
+  event.clipboardData = clipboardData
+  const prevented = !root.dispatchEvent(event)
+  return { clipboardData, prevented }
 }
 
 describe('renderedContent clipboard localization', () => {
@@ -296,6 +346,144 @@ describe('renderedContent table copy-to-CSV button (#2972)', () => {
  * `contentImageZoom.test.js` for the lightbox's own full behavior (zoom, pan, the linked-image
  * exclusion, ...); this is only proof the two are actually connected.
  */
+/**
+ * OpenProject #3143/#3238: whole-table copy synthesizes a real `<table>` HTML string (plus a TSV
+ * plain-text fallback) onto the clipboard, rather than letting the browser copy the rendered
+ * `role="table"` div grid verbatim.
+ *
+ * happy-dom's own `Selection`/`ClipboardEvent` support isn't reliable enough to drive this
+ * end-to-end (real selection-and-copy coverage is `markdown.test.js`'s real-Chromium describe
+ * instead), so `window.getSelection` is stubbed to return a minimal fake -- just enough shape
+ * (`isCollapsed`, `rangeCount`, `getRangeAt`) for `tableForSelection` to read -- and the `copy`
+ * event is dispatched with a hand-built `clipboardData` stand-in, the same way a real browser's
+ * `ClipboardEvent` would carry one.
+ */
+describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** Stubs `window.getSelection()` to report a non-collapsed selection anchored at `node`. */
+  function stubSelectionOn(node) {
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: node })
+    })
+  }
+
+  it('sets a real <table> HTML string and a TSV plain-text fallback, and prevents the default copy', () => {
+    const wrap = tableWrap(row(['Name', 'Count'], { header: true }) + row(['apples', '3']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="cell"]'))
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(true)
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><th>Name</th><th>Count</th></tr><tr><td>apples</td><td>3</td></tr></table>'
+    )
+    expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', 'Name\tCount\napples\t3')
+  })
+
+  it('translates aria-colspan/aria-rowspan back to real colspan/rowspan', () => {
+    const wrap = tableWrap(
+      '<div role="row"><div role="columnheader" aria-colspan="2">A</div></div>' + row(['B', 'C'])
+    )
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><th colspan="2">A</th></tr><tr><td>B</td><td>C</td></tr></table>'
+    )
+  })
+
+  it("keeps a cell's inner markup (e.g. a link) rather than flattening it to plain text", () => {
+    const wrap = tableWrap('<div role="row"><div role="cell"><a href="/x">link</a></div></div>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="cell"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><td><a href="/x">link</a></td></tr></table>'
+    )
+  })
+
+  it('carries a .table-caption child over as a real <caption>', () => {
+    const wrap = tableWrap('<div class="table-caption">Cap</div>' + row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><caption>Cap</caption><tr><td>A</td></tr></table>'
+    )
+  })
+
+  it('collapses an embedded tab/newline in a cell to a single space in the TSV fallback', () => {
+    const wrap = tableWrap(row([`line one${'\n'}line two`, 'a\tb']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', 'line one line two\ta b')
+  })
+
+  it('falls through to the normal browser copy when the selection reaches outside the table', () => {
+    const wrap = tableWrap(row(['A']))
+    const outside = document.createElement('p')
+    wrap.parentNode.appendChild(outside)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    // -> A common ancestor above the table (the shared parent), standing in for a selection that
+    //    spans both the table and this sibling paragraph
+    stubSelectionOn(wrap.parentNode)
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(false)
+    expect(clipboardData.setData).not.toHaveBeenCalled()
+  })
+
+  it('falls through when nothing is selected (collapsed selection)', () => {
+    const wrap = tableWrap(row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    vi.spyOn(window, 'getSelection').mockReturnValue({ isCollapsed: true, rangeCount: 0 })
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(false)
+    expect(clipboardData.setData).not.toHaveBeenCalled()
+  })
+
+  it('is wired once -- re-running enhanceRenderedContent over the same root does not double-fire the handler', () => {
+    const wrap = tableWrap(row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    stubSelectionOn(wrap.querySelector('[role="table"]'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    // -> Exactly one text/html call, not two -- a second listener would have called setData twice
+    expect(clipboardData.setData.mock.calls.filter(([kind]) => kind === 'text/html')).toHaveLength(
+      1
+    )
+  })
+})
+
 describe('renderedContent content-image click-to-zoom wiring (#3066)', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -319,6 +507,352 @@ describe('renderedContent content-image click-to-zoom wiring (#3066)', () => {
     expect(box).not.toBeNull()
     expect(box.open).toBe(true)
     expect(box.querySelector('img').src).toBe('https://example.com/diagram.png')
+  })
+})
+
+/**
+ * OpenProject #3239: an explicit, script-driven rectangular cell selection for a rendered table,
+ * independent of the browser's own (linear, not two-dimensional) text selection. Its state is read
+ * back through `getActiveTableSelection()` -- the same surface OpenProject #3240 (wiring this into
+ * the copy handler) will use -- rather than by poking at private module internals.
+ */
+describe('renderedContent cell-range select mode (#3239)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    _resetTableSelectMode()
+  })
+
+  it('starts a one-cell selection on click, highlighting and focusing that cell', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const target = cell(1, 1)
+    target.dispatchEvent(pointerEvent('pointerdown'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(1)
+    expect(selection.rowEnd).toBe(1)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(1)
+    expect(selection.cells).toEqual([[target]])
+    expect(target.dataset.tableSelected).toBe('')
+    expect(document.activeElement).toBe(target)
+    expect(target.getAttribute('tabindex')).toBe('0')
+    // -> Nothing else in the table picked up the marker
+    expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(1)
+  })
+
+  it('extends the range to the rectangle between anchor and focus while dragging', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 1).dispatchEvent(pointerEvent('pointerdown'))
+    cell(1, 1).dispatchEvent(pointerEvent('pointermove'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointermove'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+    expect(selection.rowEnd).toBe(2)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(2)
+    // -> The rectangle, not just its two corners
+    expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(6)
+    expect(cell(0, 0).dataset.tableSelected).toBeUndefined()
+    expect(cell(1, 2).dataset.tableSelected).toBe('')
+  })
+
+  it('stops updating once pointerup ends the drag', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(1, 1).dispatchEvent(pointerEvent('pointermove'))
+    document.dispatchEvent(pointerEvent('pointerup'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointermove'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowEnd).toBe(1)
+    expect(selection.colEnd).toBe(1)
+  })
+
+  it('extends the same table’s active selection on a shift-click, without a drag', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointerdown', { shiftKey: true }))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+    expect(selection.rowEnd).toBe(2)
+    expect(selection.colStart).toBe(0)
+    expect(selection.colEnd).toBe(2)
+  })
+
+  it('a plain click (no shift) on a new cell resets to a single-cell selection, anchor included', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointerdown', { shiftKey: true }))
+    cell(1, 1).dispatchEvent(pointerEvent('pointerdown'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(1)
+    expect(selection.rowEnd).toBe(1)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(1)
+  })
+
+  it('Escape clears the selection and its roving tabindex', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const target = cell(0, 0)
+    target.dispatchEvent(pointerEvent('pointerdown'))
+    expect(getActiveTableSelection()).not.toBeNull()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    expect(getActiveTableSelection()).toBeNull()
+    expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(0)
+    expect(target.hasAttribute('tabindex')).toBe(false)
+  })
+
+  it('a pointerdown outside the active table clears the selection (click-away)', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    const elsewhere = document.createElement('p')
+    document.body.appendChild(elsewhere)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    expect(getActiveTableSelection()).not.toBeNull()
+
+    elsewhere.dispatchEvent(pointerEvent('pointerdown'))
+
+    expect(getActiveTableSelection()).toBeNull()
+  })
+
+  it('clicking into a second table clears the first table’s selection before starting the new one', () => {
+    const first = selectTable(2, 2)
+    const second = selectTable(2, 2)
+    enhanceRenderedContent(document.body, t)
+
+    first.cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    second.cell(1, 1).dispatchEvent(pointerEvent('pointerdown'))
+
+    expect(first.wrap.querySelectorAll('[data-table-selected]')).toHaveLength(0)
+    expect(getActiveTableSelection().table).toBe(second.table)
+  })
+
+  it('does not steal a click on the per-table copy button (#3238’s control)', () => {
+    const { wrap } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('.table-copy').dispatchEvent(pointerEvent('pointerdown'))
+
+    expect(getActiveTableSelection()).toBeNull()
+  })
+
+  it('arrow keys move the focus cell, and shift extends the range instead of moving the anchor', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(1, 1).dispatchEvent(pointerEvent('pointerdown'))
+
+    cell(1, 1).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    let selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(2)
+    expect(selection.rowEnd).toBe(2)
+    expect(document.activeElement).toBe(cell(2, 1))
+
+    cell(2, 1).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true })
+    )
+    selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(2)
+    expect(selection.rowEnd).toBe(2)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(2)
+  })
+
+  it('clamps arrow-key navigation at the grid edge rather than moving off it', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(0, 0).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    cell(0, 0).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+    expect(selection.colStart).toBe(0)
+  })
+
+  it('leaves an arrow key typed outside the active table alone', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+  })
+
+  it('is idempotent -- re-running enhanceRenderedContent over the same root wires no second pointerdown listener', () => {
+    // -> A fresh, never-enhanced root, not `document.body` -- every other test in this describe
+    //    shares `document.body` (via `tableWrap`), which some earlier test in this file has
+    //    already wired, so a listener count taken against it would not prove anything here.
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const addSpy = vi.spyOn(container, 'addEventListener')
+
+    enhanceRenderedContent(container, t)
+    enhanceRenderedContent(container, t)
+
+    expect(addSpy.mock.calls.filter(([type]) => type === 'pointerdown')).toHaveLength(1)
+    addSpy.mockRestore()
+  })
+
+  it('returns null with nothing selected', () => {
+    expect(getActiveTableSelection()).toBeNull()
+  })
+})
+
+/**
+ * OpenProject #3240: wires the active select-mode range (#3239) into the same `copy` interception
+ * #3238 wired onto `root` -- an active range always wins over whatever the browser's own selection
+ * would otherwise resolve to, and serializes only its own rectangle rather than the whole table.
+ */
+describe('renderedContent cell-range copy (#3240)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    _resetTableSelectMode()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('copies only the active rectangle as <table> HTML + TSV, not the whole table', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    // -> Rectangle: rows 0-1, cols 1-2 -- a proper subset of the 3x3 grid
+    cell(0, 1).dispatchEvent(pointerEvent('pointerdown'))
+    cell(1, 2).dispatchEvent(pointerEvent('pointerdown', { shiftKey: true }))
+
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(true)
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table>' +
+        `<tr><th>${cell(0, 1).textContent}</th><th>${cell(0, 2).textContent}</th></tr>` +
+        `<tr><td>${cell(1, 1).textContent}</td><td>${cell(1, 2).textContent}</td></tr>` +
+        '</table>'
+    )
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/plain',
+      `${cell(0, 1).textContent}\t${cell(0, 2).textContent}\n${cell(1, 1).textContent}\t${cell(1, 2).textContent}`
+    )
+    // -> Column 0 never appears anywhere in either payload
+    expect(clipboardData.setData.mock.calls.flatMap(([, value]) => value).join('\n')).not.toContain(
+      cell(0, 0).textContent
+    )
+  })
+
+  it('translates aria-colspan/aria-rowspan the same way the whole-table path does', () => {
+    const wrap = tableWrap(
+      '<div role="row"><div role="columnheader" aria-colspan="2">A</div></div>' + row(['B', 'C'])
+    )
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const header = wrap.querySelector('[role="columnheader"]')
+    header.dispatchEvent(pointerEvent('pointerdown'))
+
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><th colspan="2">A</th></tr></table>'
+    )
+  })
+
+  it("keeps a selected cell's inner markup (e.g. a link) rather than flattening it to plain text", () => {
+    const wrap = tableWrap('<div role="row"><div role="cell"><a href="/x">link</a></div></div>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><td><a href="/x">link</a></td></tr></table>'
+    )
+  })
+
+  it('collapses an embedded tab/newline in a selected cell to a single space in the TSV fallback', () => {
+    const wrap = tableWrap(row([`line one${'\n'}line two`]))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', 'line one line two')
+  })
+
+  it('never carries a .table-caption into a range copy, unlike the whole-table path', () => {
+    const wrap = tableWrap('<div class="table-caption">Cap</div>' + row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><td>A</td></tr></table>'
+    )
+  })
+
+  it('falls back to whole-table copy when no select-mode range is active', () => {
+    const { wrap } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+    expect(getActiveTableSelection()).toBeNull()
+
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: wrap.querySelector('[role="table"]') })
+    })
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    // -> All four cells (2x2), not just one -- proof this went through the whole-table path
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      expect.stringContaining('</tr><tr>')
+    )
+  })
+
+  it('never reads the browser selection at all once a select-mode range is active', () => {
+    const { wrap } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+
+    // -> Spied only after the pointerdown settles, so `syncNativeTableSelectionToRange`'s own read
+    //    (setting up the range, unrelated to this assertion) isn't counted
+    const getSelectionSpy = vi.spyOn(window, 'getSelection')
+    dispatchCopy(wrap.parentNode)
+
+    expect(getSelectionSpy).not.toHaveBeenCalled()
   })
 })
 

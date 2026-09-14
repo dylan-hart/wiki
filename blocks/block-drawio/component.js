@@ -128,11 +128,11 @@ export class BlockDrawioElement extends LitElement {
   }
 
   /**
-   * Read the source out of the block's body and draw it. Synchronous, unlike `block-diagram`'s
-   * mermaid draw: nothing here is a shared library with global config to serialize behind a queue,
-   * so there is nothing to await.
+   * Read the source out of the block's body and draw it. Async: a compressed `<mxfile>`/`<diagram>`
+   * body decodes through `mxgraph.js`'s `decompressRaw()`, a native `DecompressionStream` and so
+   * stream/async-only, the same reason `shared/diagram-image.js`'s own `_draw` is async.
    */
-  _draw() {
+  async _draw() {
     const { source, fenced } = readFencedSource(this)
     this._fenced = fenced
     if (!source) {
@@ -140,7 +140,7 @@ export class BlockDrawioElement extends LitElement {
       return
     }
     try {
-      const { svg } = drawioToSvg(source)
+      const { svg } = await drawioToSvg(source)
       this._svg = svg
       this._error = ''
     } catch (err) {
@@ -150,7 +150,10 @@ export class BlockDrawioElement extends LitElement {
   }
 
   firstUpdated() {
-    this._draw()
+    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
+    //    that needs to block it. Kept on the instance so a test can await the draw finishing --
+    //    mirrors `shared/diagram-image.js`'s `_ready` convention.
+    this._ready = this._draw()
   }
 
   render() {

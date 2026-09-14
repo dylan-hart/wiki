@@ -25,10 +25,37 @@ describe('htmlToMarkdown', () => {
   })
 
   it('converts a GFM table (from the gfm plugin)', () => {
+    // @joplin/turndown-plugin-gfm pads every cell to a minimum of 3 characters -- upstream's
+    // abandoned turndown-plugin-gfm did not, so this fixture's single-char cells ('A'/'B'/'1'/'2')
+    // are the direct proof of that behaviour change (WP 3163).
     const html = '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>'
     const { markdown: md } = htmlToMarkdown(html)
-    expect(md).toContain('| A | B |')
-    expect(md).toContain('| 1 | 2 |')
+    expect(md).toContain('| A   | B   |')
+    expect(md).toContain('| 1   | 2   |')
+  })
+
+  it('converts a headerless GFM table (behaviour change: @joplin/turndown-plugin-gfm converts it instead of leaving raw HTML)', () => {
+    // Upstream turndown-plugin-gfm's `tables` rule refused a table with no `<th>` row, leaving the
+    // whole `<table>` as literal HTML in the output. @joplin/turndown-plugin-gfm converts it,
+    // synthesising a blank header row so the result is still valid GFM (WP 3163 acceptance
+    // criteria: "Headerless tables now convert to Markdown instead of staying as HTML").
+    const html = '<table><tr><td>1</td><td>2</td></tr><tr><td>3</td><td>4</td></tr></table>'
+    const { markdown: md } = htmlToMarkdown(html)
+    expect(md).not.toContain('<table>')
+    expect(md).not.toContain('<td>')
+    expect(md).toContain('| --- | --- |')
+    expect(md).toContain('| 1   | 2   |')
+    expect(md).toContain('| 3   | 4   |')
+  })
+
+  it('converts a newline inside a table cell to <br> (behaviour change)', () => {
+    // WP 3163 acceptance criteria: "Newlines inside cells become <br>." -- a `<br>`, or any
+    // block-level split (e.g. two `<p>`s), inside a `<td>`/`<th>` collapses to `<br>` in the cell's
+    // markdown rather than breaking the table row across multiple lines.
+    const html = '<table><tr><th>A</th></tr><tr><td>line one<br>line two</td></tr></table>'
+    const { markdown: md } = htmlToMarkdown(html)
+    expect(md).toContain('line one  <br>line two')
+    expect(md.split('\n')).toHaveLength(3)
   })
 
   it('converts real <strong>/<em>/<del> tags via the gfm-provided strikethrough rule', () => {

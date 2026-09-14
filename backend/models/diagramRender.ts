@@ -42,16 +42,19 @@ const DEFAULT_PLANTUML_SERVER = 'https://www.plantuml.com/plantuml'
 const PLANTUML_FETCH_TIMEOUT_MS = 10000
 
 /**
- * PlantUML's own alphabet for the text it carries in a URL — mirrored from
- * `blocks/block-plantuml/component.js`'s `ALPHABET`. Base64 by shape but not by order, so the
- * standard encoders cannot be used.
+ * PlantUML's own alphabet for the text it carries in a URL — the same one `block-plantuml`'s own
+ * GET-URL encoder used before OpenProject task 3229 replaced it with the `models/diagramProxy.ts`
+ * POST proxy (a separate transport from this session-authenticated, unscoped route — see that
+ * model's class comment for why). Base64 by shape but not by order, so the standard encoders cannot
+ * be used.
  */
 const PLANTUML_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_'
 
 /**
- * The same ceiling `blocks/shared/url-limit.js#MAX_DIAGRAM_URL_LENGTH` enforces client-side, mirrored
- * here so a diagram too large to draw fails with an explanation instead of a confusing upstream error
- * from whatever sits in front of the PlantUML server.
+ * The same 8,000-character ceiling `block-plantuml`'s own GET-URL encoder used to enforce
+ * client-side, before OpenProject task 3229 replaced that transport (for the block, not for this
+ * route) with the POST proxy. Mirrored here so a diagram too large to draw fails with an explanation
+ * instead of a confusing upstream error from whatever sits in front of the PlantUML server.
  */
 const MAX_PLANTUML_URL_LENGTH = 8000
 

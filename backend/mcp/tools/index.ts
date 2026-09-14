@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from '@modelcontextprotocol/server'
 import type { McpAuthContextGetter } from '../auth.ts'
 import { registerListSitesTool } from './listSites.ts'
 import { registerSearchPagesTool } from './searchPages.ts'

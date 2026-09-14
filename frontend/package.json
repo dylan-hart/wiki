@@ -7,9 +7,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --force",
-    "build": "cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 vite build --emptyOutDir",
-    "ncu": "ncu -i",
-    "ncu-u": "ncu -u",
+    "build": "node --max-old-space-size=8192 node_modules/vite/bin/vite.js build --mode production --emptyOutDir",
+    "ncu": "npx npm-check-updates@23 -i",
+    "ncu-u": "npx npm-check-updates@23 -u",
     "icons": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
     "test": "vitest run",
@@ -23,6 +23,7 @@
     "notify-check": "node scripts/check-notify-err-message.mjs"
   },
   "dependencies": {
+    "@joplin/turndown-plugin-gfm": "1.0.68",
     "@simplewebauthn/browser": "13.3.0",
     "@tailwindcss/vite": "4.3.3",
     "@tiptap/extension-code-block-lowlight": "3.30.2",
@@ -53,13 +54,12 @@
     "@zxcvbn-ts/language-en": "4.1.1",
     "asciidoctor": "4.0.11",
     "browser-fs-access": "0.38.0",
-    "cron-parser": "5.10.0",
+    "croner": "10.0.1",
     "d3-force": "3.0.0",
     "d3-quadtree": "3.0.1",
     "d3-selection": "3.0.0",
     "d3-zoom": "3.0.0",
     "es-toolkit": "1.51.0",
-    "filesize": "11.0.22",
     "fuse.js": "7.5.0",
     "highlight.js": "11.12.0",
     "iconify-icon": "3.0.2",
@@ -70,30 +70,24 @@
     "markdown-it-abbr": "2.0.0",
     "markdown-it-attrs": "5.0.1",
     "markdown-it-emoji": "3.1.0",
-    "markdown-it-expand-tabs": "1.0.13",
     "markdown-it-footnote": "4.0.0",
     "markdown-it-mark": "4.0.0",
     "markdown-it-sub": "2.0.0",
     "markdown-it-sup": "2.0.0",
-    "markdown-it-task-lists": "2.1.1",
     "mitt": "3.0.1",
     "monaco-editor": "0.56.0",
     "pinia": "4.0.3",
     "semver": "7.8.5",
     "slugify": "1.6.9",
     "sortablejs": "1.15.7",
-    "sortablejs-vue3": "1.3.0",
     "tailwindcss": "4.3.3",
     "temporal-polyfill": "1.0.4",
-    "text-case": "1.2.11",
     "turndown": "7.2.4",
-    "turndown-plugin-gfm": "1.0.2",
-    "twemoji-assets": "https://codeload.github.com/jdecked/twemoji/tar.gz/refs/tags/v17.0.3",
+    "twemoji-assets": "https://codeload.github.com/jdecked/twemoji/tar.gz/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b",
     "uuid": "14.0.2",
     "vue": "3.5.41",
     "vue-i18n": "11.4.9",
     "vue-router": "5.2.0",
-    "vue3-otp-input": "0.5.40",
     "y-websocket": "3.1.0",
     "yjs": "13.6.32"
   },
@@ -103,10 +97,8 @@
     "@iconify-json/tabler": "1.2.38",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.11",
-    "cross-env": "10.1.0",
     "happy-dom": "20.11.6",
     "js-yaml": "5.3.0",
-    "npm-check-updates": "23.0.2",
     "oxfmt": "0.64.0",
     "oxlint": "1.79.0",
     "playwright": "1.62.1",
@@ -114,11 +106,14 @@
     "unicode-emoji-json": "0.9.0",
     "vite": "8.2.2",
     "vite-plugin-vue-devtools": "8.2.1",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "overrides": {
     "@twemoji/api": {
       "@twemoji/parser": "17.0.1"
+    },
+    "lowlight": {
+      "highlight.js": "$highlight.js"
     }
   },
   "engines": {
