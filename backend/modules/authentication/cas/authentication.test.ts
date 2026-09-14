@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { after, before, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { load } from 'js-yaml'
 import CasAuthentication from './authentication.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * CAS talks to a real server over HTTP, so — per the task's own "or a hand-rolled mock
@@ -278,4 +284,20 @@ test('CAS 3.0 is the default version when casVersion is left unset', async () =>
     ticket: 'ST-alice2'
   })
   assert.equal(profile.email, 'alice@example.com')
+})
+
+describe('cas/definition.yml', () => {
+  const def = load(readFileSync(path.join(__dirname, 'definition.yml'), 'utf-8')) as Record<
+    string,
+    any
+  >
+
+  test('does not declare a baseUrl prop (OpenProject #3187) — the callback URL is built per-request by callbackUrl() in api/auth/provider.ts, so no administrator-supplied base URL is read by this module', () => {
+    assert.equal(def.props.baseUrl, undefined, 'expected no baseUrl prop — it is dead config')
+  })
+
+  test('declares casUrl as the first-ordered prop now that baseUrl is gone', () => {
+    assert.ok(def.props.casUrl, 'expected a casUrl prop')
+    assert.equal(def.props.casUrl.order, 1)
+  })
 })

@@ -69,9 +69,8 @@ export default class CasAuthentication {
   /**
    * The `service` this module registers with CAS, and later re-presents to `serviceValidate` to redeem
    * a ticket against. `redirectUri` is the callback URL the framework already builds per-request (see
-   * `callbackUrl()` in `api/auth/provider.ts`) — not the strategy's own `baseUrl` config field, which
-   * exists only for parity with 2.5.x's field set and is not read by this module; nothing here needs an
-   * administrator-supplied base URL when the framework already computes an equivalent one dynamically.
+   * `callbackUrl()` in `api/auth/provider.ts`) — there is no separate administrator-supplied base URL
+   * config field here, since the framework already computes an equivalent one dynamically.
    */
   private serviceUrl(redirectUri: string, state: string): string {
     return `${redirectUri}?state=${state}`
