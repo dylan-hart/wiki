@@ -14,10 +14,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 /**
  * CAS talks to a real server over HTTP, so — per the task's own "or a hand-rolled mock
  * `serviceValidate` endpoint" allowance — this suite stands up a real `http` server implementing just
- * enough of both `serviceValidate` variants to exercise this module's actual `fetch` calls and XML/text
- * parsing, rather than mocking `fetch` itself. It also enforces genuine single-use ticket semantics
- * (each granted ticket is consumed on its first successful validation), so the replay-attack scenario is
- * exercising real "already consumed" rejection, not an assumption about it.
+ * enough of `p3/serviceValidate` to exercise this module's actual `fetch` calls and XML parsing, rather
+ * than mocking `fetch` itself. It also enforces genuine single-use ticket semantics (each granted ticket
+ * is consumed on its first successful validation), so the replay-attack scenario is exercising real
+ * "already consumed" rejection, not an assumption about it.
  */
 
 interface GrantedTicket {
@@ -43,8 +43,7 @@ const grantedTickets: Record<string, GrantedTicket> = {
     attrs: { uid: 'e999', mail: 'eve@example.com', displayName: 'Eve' }
   },
   'ST-frank-noname': { username: 'frank', attrs: { uid: 'f111', mail: 'frank@example.com' } },
-  'ST-replay-me': { username: 'carol', attrs: { mail: 'carol@example.com' } },
-  'ST-cas1-dave': { username: 'dave' }
+  'ST-replay-me': { username: 'carol', attrs: { mail: 'carol@example.com' } }
 }
 
 let wikiHandle: { restore(): void }
@@ -60,11 +59,6 @@ before(async () => {
     usedTickets.add(ticket)
     const ok = Boolean(granted) && !alreadyUsed
 
-    if (url.pathname === '/serviceValidate') {
-      res.writeHead(200, { 'content-type': 'text/plain' })
-      res.end(ok ? `yes\n${granted!.username}\n` : 'no\n\n')
-      return
-    }
     if (url.pathname === '/p3/serviceValidate') {
       res.writeHead(200, { 'content-type': 'application/xml' })
       if (!ok) {
@@ -100,7 +94,6 @@ const CAS3_CONF = () => ({
   emailAttribute: 'mail',
   displayNameAttribute: 'displayName'
 })
-const CAS1_CONF = () => ({ casUrl: baseUrl, casVersion: 'CAS1.0' })
 const REDIRECT = 'https://wiki.example.com/_api/auth/strategy1/callback'
 
 test('authorizationUrl() builds the CAS /login URL with the service (redirectUri + state) embedded', async () => {
@@ -237,38 +230,6 @@ test('CAS 3.0: a ticket cannot be replayed — the server refuses its second use
   await assert.rejects(() => cas.profile(flow), /ERR_CAS_LOGIN_FAILED/)
 })
 
-test('CAS 1.0: a valid ticket reports only the bare username, with no email attributes ever available', async () => {
-  const cas = new CasAuthentication('strategy1', CAS1_CONF())
-  await assert.rejects(
-    () =>
-      cas.profile({
-        redirectUri: REDIRECT,
-        state: 's5',
-        nonce: '',
-        codeVerifier: '',
-        currentUrl: 'x',
-        ticket: 'ST-cas1-dave'
-      }),
-    /ERR_NO_EMAIL_FROM_PROVIDER/
-  )
-})
-
-test('CAS 1.0: a failed ticket ("no") is refused', async () => {
-  const cas = new CasAuthentication('strategy1', CAS1_CONF())
-  await assert.rejects(
-    () =>
-      cas.profile({
-        redirectUri: REDIRECT,
-        state: 's6',
-        nonce: '',
-        codeVerifier: '',
-        currentUrl: 'x',
-        ticket: 'ST-never-issued-cas1'
-      }),
-    /ERR_CAS_LOGIN_FAILED/
-  )
-})
-
 test('CAS 3.0 is the default version when casVersion is left unset', async () => {
   const cas = new CasAuthentication('strategy1', {
     casUrl: baseUrl,
@@ -299,5 +260,10 @@ describe('cas/definition.yml', () => {
   test('declares casUrl as the first-ordered prop now that baseUrl is gone', () => {
     assert.ok(def.props.casUrl, 'expected a casUrl prop')
     assert.equal(def.props.casUrl.order, 1)
+  })
+
+  test('casVersion offers only CAS3.0 (OpenProject #3207) — CAS 1.0 reports no attributes at all and can never satisfy the email-keyed provisioning model', () => {
+    assert.deepEqual(def.props.casVersion.enum, ['CAS3.0|CAS 3.0'])
+    assert.equal(def.props.casVersion.default, 'CAS3.0')
   })
 })
