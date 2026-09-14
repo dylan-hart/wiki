@@ -8,9 +8,8 @@ import type {
 } from '../../models/search.ts'
 
 /**
- * What the four external search engine modules — `algolia`, `elasticsearch`, `azure-search`,
- * `aws-cloudsearch` — all do the same way, because it is decided by `SearchModule`'s contract rather
- * than by any vendor.
+ * What the three external search engine modules — `algolia`, `elasticsearch`, `azure-search` — all do
+ * the same way, because it is decided by `SearchModule`'s contract rather than by any vendor.
  *
  * `db` deliberately does not extend this: it implements the bare `SearchModule` interface directly.
  * Its `deleted` and `renamed` are genuinely different (a page's `ts` vector is a column on its own

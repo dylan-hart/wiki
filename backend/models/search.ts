@@ -60,9 +60,9 @@ export interface SearchConfig {
  * What a rebuild did, per locale, so the caller can report something concrete.
  *
  * `dictionary` is optional: it names the postgres text-search dictionary the `db` engine chose for
- * that locale, a concept with no equivalent in an external index. `azure-search` and `aws-cloudsearch`
- * (task #564) report `pages` per locale like every engine, but omit `dictionary` entirely rather than
- * inventing a value for a thing they don't have.
+ * that locale, a concept with no equivalent in an external index. `azure-search` (task #564) reports
+ * `pages` per locale like every engine, but omits `dictionary` entirely rather than inventing a value
+ * for a thing it doesn't have.
  *
  * `warnings` is optional too: a non-fatal problem worth an operator's attention that did not stop the
  * rebuild from finishing -- e.g. the Algolia module (OpenProject #830) skipping a page whose document
@@ -489,9 +489,9 @@ class Search {
    * than from the engine's bare defaults.
    *
    * Also provisions the engine (OpenProject #920): before this, nothing anywhere ever called a
-   * `SearchModule`'s `init()` — `azure-search` and `aws-cloudsearch` put all of their index/domain
-   * provisioning exclusively there (unlike `algolia`/`elasticsearch`, which additionally provision
-   * lazily on first use), so selecting either left an operator with an index that was never created.
+   * `SearchModule`'s `init()` — `azure-search` puts all of its index provisioning exclusively there
+   * (unlike `algolia`/`elasticsearch`, which additionally provision lazily on first use), so
+   * selecting it left an operator with an index that was never created.
    * Every implementation's `init()` is expected to be idempotent (each module's own doc comment says
    * so), so calling it here on every selection -- including reselecting the engine that was already
    * active -- is safe. Left uncaught on purpose: a provisioning failure (bad credentials, an
@@ -541,8 +541,25 @@ class Search {
   async initActiveEngines(): Promise<void> {
     await Promise.allSettled(
       Object.keys(WIKI.sites).map(async (siteId) => {
-        const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
-        const module = await this.ensureModule(key)
+        let key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+        let module = await this.ensureModule(key)
+        // -> The configured engine has no implementation on disk at all (removed from disk, or
+        //    never shipped one) -- as opposed to `init()` below throwing, which is a different,
+        //    already-logged failure. `getActiveEngine()`'s own dispatcher falls back to `db`
+        //    silently on every call since that path runs per-query and would spam; here, once per
+        //    site per boot, is exactly where a one-line warning belongs instead.
+        if (!module && key !== DB_MODULE) {
+          WIKI.logger.warn(
+            'search',
+            'configured engine has no implementation, falling back to db',
+            {
+              engine: key,
+              site: siteId
+            }
+          )
+          key = DB_MODULE
+          module = await this.ensureModule(DB_MODULE)
+        }
         if (!module) {
           return
         }

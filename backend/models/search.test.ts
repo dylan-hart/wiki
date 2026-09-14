@@ -996,6 +996,53 @@ describe('search.initActiveEngines()', () => {
     assert.deepEqual(customCalls, [`init:site-custom:${JSON.stringify({ apiKey: 'k' })}`])
   })
 
+  /**
+   * OpenProject #3162: a site whose stored engine is a retired module (`aws-cloudsearch`, once its
+   * directory is deleted) must degrade to `db` rather than silently doing nothing -- the gap this
+   * closes is that `ensureModule()` returning null for a missing implementation used to `return` here
+   * with no log and no fallback provisioning at all, unlike a module that loads but whose `init()`
+   * throws (already warned below).
+   */
+  test('a site whose engine has no implementation on disk falls back to db and logs once', async () => {
+    const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
+    const warnings: { message: string; fields?: Record<string, any> }[] = []
+    ;(globalThis as any).WIKI = {
+      sites: {
+        'site-retired': {
+          id: 'site-retired',
+          config: { search: { engine: 'aws-cloudsearch', engines: {} } }
+        }
+      },
+      logger: {
+        info: () => {},
+        error: () => {},
+        warn: (_scope: string, message: string, fields?: Record<string, any>) =>
+          warnings.push({ message, fields }),
+        debug: () => {}
+      }
+    }
+    // -> Deliberately not registered in `search.modules` and not present in `search.definitions`
+    //    (set to `[customDefinition]` in `before()` above) -- exactly the state after the module
+    //    directory is deleted from disk: `ensureModule('aws-cloudsearch')` cache-misses and its
+    //    `hasImplementation()` probe finds nothing.
+    search.modules.db = dbModule
+    delete search.modules['aws-cloudsearch']
+
+    await search.initActiveEngines()
+
+    assert.deepEqual(
+      dbCalls,
+      ['init:site-retired:{}'],
+      'db must still be provisioned as the fallback'
+    )
+    assert.equal(warnings.length, 1, 'exactly one warning, not one per query')
+    assert.equal(
+      warnings[0]!.message,
+      'configured engine has no implementation, falling back to db'
+    )
+    assert.deepEqual(warnings[0]!.fields, { engine: 'aws-cloudsearch', site: 'site-retired' })
+  })
+
   test('logs and continues past a site whose engine fails to initialize, rather than aborting the rest', async () => {
     const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
     const brokenModule: SearchModule = {

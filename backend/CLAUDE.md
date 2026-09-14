@@ -91,7 +91,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
     `blobStorageModule({ label, build, put, remove, copy, sign })`. The activation cache, the object
     key (`keyFor`), the `Failed to <action>: <message>` wrapping, `DIRECT_ACCESS_TTL_SECONDS` and
     all five lifecycle handlers live in `blobBase.ts` only. A fourth blob target is a driver.
-  - `modules/search/{shared,externalBase}.ts` — the five engines share their vocabulary
+  - `modules/search/{shared,externalBase}.ts` — the four engines share their vocabulary
     (`escapeHtml`, the highlight markers, the scan/indexing caps, `batchBySize`,
     `SearchDocument`/`buildSearchDocument`, `pageStream`, `filterVisible`, `toSearchPagesResult`)
     and the four page-lifecycle forwarders plus the never-throws wrapper (`ExternalSearchModule`). A

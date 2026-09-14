@@ -337,11 +337,11 @@ export async function* pageStream(
 /**
  * One locale's pages of one site, one batch at a time, through an injected `RebuildPageSource`.
  *
- * The shape `azure-search` and `aws-cloudsearch` both use: unlike `pageStream` above they rebuild
- * locale by locale (each reports its own `RebuildResult.locales` entry and its own progress line as
- * it goes), and they read through a `RebuildPageSource` rather than `WIKI.db` directly so a test can
- * exercise the pagination and per-locale counting with no real postgres — see that interface's own
- * doc comment.
+ * The shape `azure-search` uses (`aws-cloudsearch` did too, before it was retired): unlike
+ * `pageStream` above it rebuilds locale by locale (reporting its own `RebuildResult.locales` entry
+ * and its own progress line as it goes), and reads through a `RebuildPageSource` rather than
+ * `WIKI.db` directly so a test can exercise the pagination and per-locale counting with no real
+ * postgres — see that interface's own doc comment.
  *
  * A generator for the same reason `pageStream` is one: the next batch is only read once the caller
  * has finished uploading the previous one.
