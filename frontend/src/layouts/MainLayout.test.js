@@ -933,14 +933,24 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     expect(topBtn.classes()).toContain('icon-lg')
   })
 
-  it('insets the Top button into the same flat tile as Locale/Browse under Cobalt', async () => {
+  /**
+   * OpenProject #3224 ("Cobalt back-to-top button overflows its 40px cell, regression from #3133"):
+   * the Top button inherits `.icon-lg`'s margin the same way Locale/Browse do (#3133, above), but
+   * unlike them it is ALSO pinned to `width: 40px; height: 40px` inside an equally-40px cell (the
+   * "sizes the Top tile to fill its 40x40 cell" test above) -- Locale/Browse have no such fixed size
+   * and simply shrink to make room for the inset margin, but the Top button has nowhere left to give,
+   * so the same margin pushed it past its cell's edge instead of insetting it. This replaces what
+   * used to assert the Top button picked up that 4px inset too (the bug, previously encoded here as
+   * the expected behaviour) -- it must stay flush with its cell, not inset like Locale/Browse.
+   */
+  it("keeps the Top button flush with its cell under Cobalt, unlike Locale/Browse's inset margin", async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.marginTop).toBe('4px')
+    expect(style.marginTop).toBe('0px')
     expect(style.marginRight).toBe('0px')
-    expect(style.marginBottom).toBe('4px')
-    expect(style.marginLeft).toBe('4px')
+    expect(style.marginBottom).toBe('0px')
+    expect(style.marginLeft).toBe('0px')
   })
 
   it("colours the Top icon from the sidebar-icon token under Cobalt, not #3109's bespoke pink", async () => {
