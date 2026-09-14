@@ -24,9 +24,8 @@ import type { SearchIndexablePage, SearchModule, SearchPagesParams } from '../mo
  * What stays in each engine's own `search.test.ts` is everything that is genuinely about a vendor:
  * its query translation (`buildFilters` / `buildEsQuery` / `buildFilter` / `buildStructuredQuery`),
  * its document shape, its index provisioning, its batching limits, its client caching, and whatever
- * it does that no other engine does — Azure's protected-content split query, CloudSearch's
- * per-document size ceiling, Elasticsearch's sequential-streaming rebuild, Algolia's oversized-page
- * diversion.
+ * it does that no other engine does — Azure's protected-content split query, Elasticsearch's
+ * sequential-streaming rebuild, Algolia's oversized-page diversion.
  *
  * The `db` engine is deliberately NOT run through this. It implements the bare `SearchModule`
  * interface rather than extending `ExternalSearchModule` (see that class's own doc comment): it has
@@ -44,8 +43,8 @@ export const CONTRACT_SITE_ID = 'site-1'
  * One row of a search response, in the only vocabulary every engine has in common.
  *
  * Each harness turns these into whatever its vendor actually returns — an Algolia hit's flat fields,
- * an Elasticsearch hit's `_source`, an Azure row's `document`, a CloudSearch hit's array-valued
- * `fields` — which is the same reason `shared.ts#filterVisible` takes a mapper rather than a row type.
+ * an Elasticsearch hit's `_source`, an Azure row's `document` — which is the same reason
+ * `shared.ts#filterVisible` takes a mapper rather than a row type.
  */
 export interface SearchContractHit {
   id: string
@@ -68,8 +67,8 @@ export interface SearchContractHarness {
   mod: SearchModule
   /**
    * Params every `query()` in the contract carries, for an engine whose defaults would otherwise
-   * take a different code path — `azure-search` and `aws-cloudsearch` both default
-   * `hideProtectedContent` to `true`, whose split-query path each covers in its own file.
+   * take a different code path — `azure-search` defaults `hideProtectedContent` to `true`, whose
+   * split-query path it covers in its own file.
    */
   baseQuery?: Partial<SearchPagesParams>
   /** Replace this module's client with one that rejects, so `neverThrows` can be observed. */

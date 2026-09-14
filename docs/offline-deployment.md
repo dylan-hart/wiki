@@ -46,7 +46,7 @@ self-contradictory configuration this instance cannot detect for you:
 - Authentication strategies that call out (Discord, GitHub, generic OAuth2, CAS) — admin-configured
   per strategy in Admin → Login.
 - Search engines other than the built-in `db` (Postgres full-text, always available, never disabled)
-  — Algolia, AWS CloudSearch, Azure Search, Elasticsearch.
+  — Algolia, Azure Search, Elasticsearch.
 - Storage targets — git, S3, Azure, GCS, SFTP.
 - Installing the Puppeteer or Sharp extensions (`POST /_api/extensions/:key/install`) — an explicit
   admin action that fetches an npm package. See "Server-side diagram/PDF rendering" below for what
