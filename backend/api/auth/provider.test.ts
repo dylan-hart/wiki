@@ -391,10 +391,7 @@ describe('GET /auth/:strategyId/authorize — redirect query validation', () => 
   let session: Record<string, any>
 
   before(async () => {
-    if (typeof Temporal === 'undefined') {
-      const polyfill = await import('@js-temporal/polyfill')
-      ;(globalThis as any).Temporal = polyfill.Temporal
-    }
+    await ensureTemporal()
     wikiHandle = installTestWiki({
       config: { security: { disallowOpenRedirect: true, authRateLimitEnabled: false } },
       sitesMappings: {},
@@ -503,10 +500,7 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
   }
 
   before(async () => {
-    if (typeof Temporal === 'undefined') {
-      const polyfill = await import('@js-temporal/polyfill')
-      ;(globalThis as any).Temporal = polyfill.Temporal
-    }
+    await ensureTemporal()
     wikiHandle = installTestWiki({
       config: { security: { disallowOpenRedirect: true, authRateLimitEnabled: false } },
       models: {

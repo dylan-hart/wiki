@@ -22,11 +22,13 @@ import type { KeyExpiration } from './apiKeys.ts'
  * `JSON`/`Reflect` namespaces -- its own methods are non-enumerable. `{ ...Temporal.Now }` silently
  * drops every method except one explicitly re-listed in the same object literal, `instant` included
  * -- exactly what `helpers/jwt.ts#epochSeconds()`'s default argument calls on every `createKey()`.
- * The `@js-temporal/polyfill` this sandbox runs under (pre-Temporal Node) happens to declare its
- * methods as ordinary enumerable properties, so the spread accidentally worked here while failing on
- * CI's real Node 26 (OpenProject #2585). `Object.getOwnPropertyNames` sees non-enumerable properties
- * too, and `.bind()`-ing each function to the real object it came from keeps native `this`
- * expectations intact regardless of how the method is later invoked.
+ * `temporal-polyfill` (this sandbox's polyfill, via `ensureTemporal()`) matches that non-enumerable
+ * shape too -- verified directly (`Object.getOwnPropertyDescriptor(Temporal.Now, 'instant').enumerable`
+ * is `false`) -- unlike the retired `@js-temporal/polyfill`, whose methods were ordinary enumerable
+ * properties and so let the spread bug pass silently here while still failing on CI's real Node 26
+ * (OpenProject #2585). `Object.getOwnPropertyNames` sees non-enumerable properties too, and
+ * `.bind()`-ing each function to the real object it came from keeps native `this` expectations intact
+ * regardless of how the method is later invoked.
  */
 function withFixedNow(
   realTemporal: typeof Temporal,
@@ -51,9 +53,9 @@ function withFixedNow(
 
 /**
  * `withFixedNow` exists specifically to survive a `Temporal.Now` whose methods are non-enumerable
- * (real native Node 26 behavior, OpenProject #2585) -- something this sandbox's polyfill-backed
- * `Temporal` never exhibits (its methods happen to be enumerable), so this suite builds that shape
- * by hand rather than relying on the ambient global to demonstrate the bug it fixes.
+ * (real native Node 26 behavior, OpenProject #2585, and this sandbox's `temporal-polyfill` matches it
+ * -- see above). This suite still builds that shape by hand rather than relying on the ambient global,
+ * so the fixture stays self-contained and does not depend on which polyfill happens to be installed.
  */
 describe('apiKeys.test.ts withFixedNow', () => {
   function makeNonEnumerableNow(instant: () => { tag: string }): any {
