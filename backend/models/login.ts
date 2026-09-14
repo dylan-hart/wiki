@@ -492,6 +492,10 @@ class Login {
       await this.syncProviderGroups(user, strategy, profile.groups)
     }
 
+    if (profile.picture) {
+      await WIKI.models.users.syncAvatarFromProvider(user.id, profile.picture)
+    }
+
     return user
   }
 

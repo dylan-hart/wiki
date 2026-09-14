@@ -277,6 +277,56 @@ describe('mapOidcProfile', () => {
     assert.equal('firstName' in profile, false)
     assert.equal('lastName' in profile, false)
   })
+
+  /*
+    Feature #3208. Every OIDC preset inherits this too, the same way it inherits the group-claim and
+    name-halves mapping above.
+  */
+  test('reads the standard picture claim into the profile', () => {
+    const profile = mapOidcProfile(conf, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person',
+      picture: 'https://provider.example/avatar.jpg'
+    })
+    assert.equal(profile.picture, 'https://provider.example/avatar.jpg')
+  })
+
+  test('honors a configured non-standard pictureClaim name', () => {
+    const profile = mapOidcProfile({ ...conf, pictureClaim: 'photoUrl' }, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person',
+      photoUrl: 'https://provider.example/avatar.jpg',
+      // -> Present, but not what this strategy was told to read.
+      picture: 'https://provider.example/wrong.jpg'
+    })
+    assert.equal(profile.picture, 'https://provider.example/avatar.jpg')
+  })
+
+  test('a provider issuing no picture claim leaves the key off the profile entirely', () => {
+    const profile = mapOidcProfile(conf, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person'
+    })
+    assert.equal('picture' in profile, false)
+  })
+
+  test('a blank picture claim is treated as unanswered, not as an empty URL', () => {
+    const profile = mapOidcProfile(conf, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person',
+      picture: '   '
+    })
+    assert.equal('picture' in profile, false)
+  })
+
+  test('a non-string picture claim value is ignored rather than coerced into a URL', () => {
+    const profile = mapOidcProfile(conf, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person',
+      picture: { url: 'https://provider.example/avatar.jpg' }
+    })
+    assert.equal('picture' in profile, false)
+  })
 })
 
 describe('oidc/definition.yml', () => {
@@ -301,6 +351,10 @@ describe('oidc/definition.yml', () => {
   test('declares firstNameClaim/lastNameClaim, defaulted to the OIDC standard claims (Feature #2608)', () => {
     assert.equal(def.props.firstNameClaim?.default, 'given_name')
     assert.equal(def.props.lastNameClaim?.default, 'family_name')
+  })
+
+  test('declares pictureClaim, defaulted to the OIDC standard claim (Feature #3208)', () => {
+    assert.equal(def.props.pictureClaim?.default, 'picture')
   })
 
   test('every prop still has a distinct order, after the two name claims were inserted mid-list', () => {

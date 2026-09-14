@@ -141,7 +141,13 @@ export default class GitHubAuthentication {
       id: String(account.id),
       email,
       name,
-      ...splitDisplayName(name)
+      ...splitDisplayName(name),
+      // -> GitHub's `avatar_url` is always present on a real account (it defaults to an
+      //    identicon there is nothing wrong with syncing), but the check stays defensive rather
+      //    than assumed — absent means "did not say", never a fabricated URL.
+      ...(typeof account.avatar_url === 'string' && account.avatar_url.trim()
+        ? { picture: account.avatar_url }
+        : {})
     }
   }
 }
