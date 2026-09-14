@@ -326,15 +326,22 @@ helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEv
   purpose — it is the only tree lookup taking no `siteId`, and a caller outside the model that needs
   a tree row by id goes through a `siteId`-scoped method instead.
 - **Dates use the `Temporal` API**, not luxon (no longer a backend dependency), and it is typed by the
-  TS 7 lib so it needs no type import. **It is not, however, a native global** — verified directly
-  against a real Node 26.7.0 binary: `typeof Temporal` is `undefined`, `Date.prototype.toTemporalInstant`
-  doesn't exist, and neither `--harmony-temporal` nor `--experimental-temporal` change that. `index.ts`
-  and `worker.ts` used to carry a comment claiming otherwise; both were wrong, and both call
-  `core/temporal.ts`'s `ensureTemporal()` (installing `@js-temporal/polyfill`, a real `dependencies`
-  entry, not just a test-only devDependency) as their first async step, before anything touches
-  `Temporal`. A new backend entry point (a script run outside `index.ts`/`worker.ts`, e.g. under
-  `scripts/` or `tasks/`) must call `ensureTemporal()` itself before using `Temporal` — it is not
-  ambiently available. Five things to know about the API itself:
+  TS 7 lib so it needs no type import. **It ships natively on every official Node 26 build this
+  project targets** — verified directly against `node:26.8.1-slim` and `node:26.7.0-bookworm`
+  (production's own image): `typeof Temporal` is `object`, `Date.prototype.toTemporalInstant` exists.
+  It is absent only on a build V8 was compiled without Temporal support for
+  (`v8_enable_temporal_support=0`) — a prior version of this section claimed Node 26.7.0 itself lacked
+  it, verified only against a Homebrew Node 26.8.1 on macOS, which is exactly such a build; official
+  binaries (CI's setup-node, the devcontainer's `node:26.8.1`, and production's own image) are
+  unaffected. `index.ts` and `worker.ts` both call `core/temporal.ts`'s `ensureTemporal()` as their
+  first async step, before anything touches `Temporal`, feature-detected so it is a no-op on every
+  official build and only actually installs anything on a Temporal-less build like Homebrew's — the
+  fallback is `temporal-polyfill/global` (a real `dependencies` entry, not just a test-only
+  devDependency), the same polyfill package `frontend/` and `blocks/` already use for pre-Temporal
+  Safari, so there is one polyfill across every workspace rather than a backend-only second one. A new
+  backend entry point (a script run outside `index.ts`/`worker.ts`, e.g. under `scripts/` or `tasks/`)
+  must call `ensureTemporal()` itself before using `Temporal` — it is not ambiently available on a
+  Temporal-less build. Five things to know about the API itself:
   - `Temporal.Instant` accepts **exact time units only** — `add({ days: 1 })` throws. Since these are
     all UTC instants, use `{ hours: 24 }`.
   - Temporal types have no `valueOf`, so `a < b` **throws**. Compare with

@@ -1,24 +1,22 @@
 /**
  * Installs the real `Temporal` global at boot, for every backend entry point (`index.ts`, `worker.ts`).
  *
- * Contrary to this repo's prior assumption, Node does not ship `Temporal` as an unflagged native
- * global on Node 26 -- verified directly against a real `node` 26.7.0 binary: `typeof Temporal` is
- * `undefined`, `Date.prototype.toTemporalInstant` does not exist, and neither `--harmony-temporal`
- * nor `--experimental-temporal` change that (the former isn't even a recognized flag on that build).
- * `@js-temporal/polyfill` was a devDependency only, reachable from `test/temporal.ts`'s test-only
- * `ensureTemporal()` -- so every real boot of the app had no `Temporal` at all, and any code path
- * that reached `Temporal.*` or `date.toTemporalInstant()` (locales refresh, SEO sitemap, page
- * serialization/export, search indexing, storage sync tick checks, API key expiration, pageviews
- * summary, ...) crashed.
+ * `Temporal` is native on every **official** Node 26 build this project targets (`node:26.8.1-slim`,
+ * `node:26.7.0-bookworm` -- production's own image, and setup-node's official binaries in CI --
+ * verified directly: `typeof Temporal` is `object` and `Date.prototype.toTemporalInstant` exists on
+ * each). It is absent only on a build V8 was compiled without Temporal support for
+ * (`v8_enable_temporal_support=0`) -- this repo's own prior claim that Node 26.7.0 lacked it natively
+ * came from exactly that: a Homebrew Node 26.8.1 on macOS, not Node 26 itself.
  *
- * Feature-detected so this becomes a no-op the moment a future Node release ships it natively.
+ * Feature-detected, so this is a no-op on every official build (CI, the devcontainer, production) and
+ * only actually installs anything on a Temporal-less build like Homebrew's. `temporal-polyfill/global`
+ * is the same polyfill package `frontend/` and `blocks/` already use for pre-Temporal Safari -- one
+ * polyfill across every workspace -- and its `/global` entry point installs `globalThis.Temporal`,
+ * `Date.prototype.toTemporalInstant` and the `Intl.DateTimeFormat` Temporal overloads itself as an
+ * import side effect, so there is nothing further to wire up here.
  */
 export async function ensureTemporal(): Promise<void> {
   if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return polyfill.toTemporalInstant.call(this)
-    }
+    await import('temporal-polyfill/global')
   }
 }

@@ -1,12 +1,16 @@
 /**
  * Shared `Temporal` polyfill installer for backend test files.
  *
- * This sandbox's Node (v25.9.0) lacks the native `Temporal` global that Node 26 (this repo's engine
- * floor) provides. `ensureTemporal()` installs `@js-temporal/polyfill`'s real
- * implementation, feature-detected so it is a no-op on a real Node 26 runtime -- exactly the pattern
- * `models/export.test.ts` used inline before this helper existed, including the
- * `Date.prototype.toTemporalInstant` patch (the polyfill package installs the `Temporal` global itself
- * but, unlike Node 26, does not also patch that conversion method).
+ * This sandbox's Node (v25.9.0) lacks the native `Temporal` global -- unlike an official Node 26
+ * build (this repo's engine floor), which does ship it natively (verified: `typeof Temporal` is
+ * `object` on `node:26.8.1-slim` and `node:26.7.0-bookworm`, production's own image). `ensureTemporal()`
+ * installs `temporal-polyfill/global`'s real implementation, feature-detected so it is a no-op on a
+ * runtime that already has it -- exactly the pattern `models/export.test.ts` used inline before this
+ * helper existed. `temporal-polyfill` is the same package `frontend/` and `blocks/` already use, so
+ * this is the same polyfill running under test as `core/temporal.ts` installs at boot on a
+ * Temporal-less build (Homebrew's, for instance) -- its `/global` entry point installs
+ * `globalThis.Temporal` and patches `Date.prototype.toTemporalInstant` as an import side effect, so
+ * there is nothing further to wire up here.
  *
  * Use this instead of a hand-rolled fake. A hand-rolled `Temporal.Now.instant()`/`Instant.compare()`
  * stand-in tends to be looser than the real API -- e.g. reducing `{ years: n }` to flat
@@ -25,10 +29,6 @@
  */
 export async function ensureTemporal(): Promise<void> {
   if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return polyfill.toTemporalInstant.call(this)
-    }
+    await import('temporal-polyfill/global')
   }
 }

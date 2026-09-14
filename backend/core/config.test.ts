@@ -22,17 +22,15 @@ import {
   createSilentLogger,
   installTestWiki
 } from '../test/mocks.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import type { WikiDb } from './db.ts'
 
-// `models/jobs.ts#init()` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal` as a
-// global from v26 -- but not every environment running this test has that landed yet, and
-// `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is a faithful ponyfill, so
-// install it as the global only when it is genuinely missing, exactly as `models/security.test.ts`
-// does for the same reason.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `models/jobs.ts#init()` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal`
+// natively on every official Node 26 build (verified against `node:26.8.1-slim`/`node:26.7.0-bookworm`
+// -- see `core/temporal.ts`), but not every environment running this test has that, so install the
+// polyfill only when it is genuinely missing, exactly as `models/security.test.ts` does for the same
+// reason.
+await ensureTemporal()
 
 /**
  * Regression test for `config.init()`'s DB_PASS_FILE (Docker secret) handling: `.trim()` was called
