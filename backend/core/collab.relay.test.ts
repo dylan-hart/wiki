@@ -307,7 +307,7 @@ describe('buildSeed', () => {
 describe('RELAY_CHUNK_SIZE', () => {
   test('the worst-case relay envelope stays under the 8000-byte NOTIFY cap (task 478)', () => {
     // -> Every optional field populated, each at its real worst-case length: `i`/`to` are a 10-char
-    //    `nanoid` (see `WIKI.INSTANCE_ID` in `index.ts`), `r` a full 36-char page uuid, `t` the longest
+    //    random hex id (see `WIKI.INSTANCE_ID` in `index.ts`), `r` a full 36-char page uuid, `t` the longest
     //    of the five message types, and `m`/`c`/`n` generously long numbers — this is what `relay()`
     //    actually sends for a chunk of a large `update`/`state` message, not a hypothetical worse case.
     const worstCase = {

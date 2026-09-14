@@ -1,5 +1,4 @@
 import bcrypt from 'bcryptjs'
-import { nanoid } from 'nanoid'
 import crypto from 'node:crypto'
 import type { WikiDb } from '../../core/db.ts'
 import {
@@ -8,6 +7,7 @@ import {
   users as usersTable
 } from '../../db/schema.ts'
 import { BCRYPT_ROUNDS } from '../../helpers/common.ts'
+import { randomToken } from '../../helpers/randomToken.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import { coerceSourceBoolean } from '../source-coercion.ts'
@@ -451,8 +451,8 @@ export interface ProviderFallbackConverterOptions {
  *
  * For a source user whose `providerKey` needs `needsProviderFallback()`, this creates the account
  * through the local strategy with the same "provider-authenticated, no usable local password" shape
- * `loginWithProvider()` already establishes for a brand-new provider account (`models/users.ts`,
- * `password: nanoid(32)`) — except `mustChangePwd` is forced `true`, since (unlike a fresh
+ * `loginWithProvider()` already establishes for a brand-new provider account (`models/login.ts`,
+ * `password: randomToken(24)`) — except `mustChangePwd` is forced `true`, since (unlike a fresh
  * provider-authenticated signup) this account has no working sign-in path on this install at all
  * until an administrator resets it. Every account this converter actually creates also gets one
  * `ProviderFallbackFlag` entry (source email, source provider, reason) on the outcome, which
@@ -511,7 +511,7 @@ export function createProviderFallbackUserConverter(
           //    establishes for a brand-new provider account, except mustChangePwd is forced true: this
           //    account cannot sign in through its source provider on this install (see
           //    needsProviderFallback above), so it must go through a password reset before use.
-          password: await bcrypt.hash(nanoid(32), BCRYPT_ROUNDS),
+          password: await bcrypt.hash(randomToken(24), BCRYPT_ROUNDS),
           mustChangePwd: true,
           restrictLogin: false,
           tfaIsActive: tfa.tfaIsActive,

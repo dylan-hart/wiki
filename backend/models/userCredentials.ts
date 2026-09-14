@@ -7,8 +7,8 @@ import {
 } from '../db/schema.ts'
 import { eq, lt, sql } from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
-import { nanoid } from 'nanoid'
 import { BCRYPT_ROUNDS } from '../helpers/common.ts'
+import { randomToken } from '../helpers/randomToken.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import { generateRecoveryCodes, normalizeRecoveryCode } from '../helpers/recoveryCodes.ts'
@@ -776,7 +776,9 @@ class UserCredentials {
     meta?: Record<string, any>
   }): Promise<string> {
     WIKI.logger.debug('auth', 'generating a token', { kind, user: userId })
-    const token = await nanoid()
+    // -> 16 bytes = 128 bits, at or above what this field was given before. `randomToken` is
+    //    synchronous — no `await` needed.
+    const token = randomToken()
     await WIKI.db.insert(userKeys).values({
       kind,
       token,

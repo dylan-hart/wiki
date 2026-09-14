@@ -6,7 +6,6 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import semver from 'semver'
-import { customAlphabet } from 'nanoid'
 
 import fastifyFormBody from '@fastify/formbody'
 import Emittery from 'emittery'
@@ -32,8 +31,7 @@ import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/pr
 import scheduler from './core/scheduler.ts'
 import { ensureTemporal } from './core/temporal.ts'
 import { readyFields } from './helpers/bootSummary.ts'
-
-const nanoid = customAlphabet('1234567890abcdef', 10)
+import { randomHexToken } from './helpers/randomToken.ts'
 
 if (!semver.satisfies(process.version, '>=26')) {
   // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
@@ -57,7 +55,7 @@ await ensureTemporal()
 const WIKI = {
   IS_DEBUG: process.env.NODE_ENV === 'development',
   ROOTPATH: process.cwd(),
-  INSTANCE_ID: nanoid(10),
+  INSTANCE_ID: randomHexToken(),
   SERVERPATH: path.join(process.cwd(), 'backend'),
   auth: {
     groups: {},
