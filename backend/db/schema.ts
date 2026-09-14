@@ -1770,6 +1770,13 @@ export const users = pgTable(
     passkeys: jsonb().notNull().default({}),
     prefs: jsonb().notNull().default({}),
     hasAvatar: boolean().notNull().default(false),
+    // -> The provider-reported avatar URL cached by `models/users.ts#syncAvatarFromProvider`, the
+    //    one shared write path every provider integration (OAuth/OIDC, LDAP, SAML) syncs an avatar
+    //    through. Applied ONLY while `hasAvatar` is false -- a manually-uploaded avatar always wins
+    //    and is never silently overwritten by a provider sync. Deliberately independent of
+    //    `hasAvatar`/`userAvatars` (the manual-upload blob): nothing in this column's write path
+    //    touches either, so `hasAvatar` keeps meaning exactly "this user uploaded one themselves".
+    avatarProviderUrl: text(),
     isActive: boolean().notNull().default(false),
     isSystem: boolean().notNull().default(false),
     isVerified: boolean().notNull().default(false),

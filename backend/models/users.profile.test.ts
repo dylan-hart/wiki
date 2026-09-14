@@ -404,6 +404,87 @@ describe('users.setAvatar / getAvatarHash (DB-backed)', { skip: !hasTestDatabase
 })
 
 /**
+ * `syncAvatarFromProvider` (Task #3235) is the one shared write path every provider integration
+ * calls into. DB-backed for the same reason `setAvatar` above is -- the manual-avatar precedence
+ * check reads `hasAvatar` back off the real row, so this round-trips the actual write path rather
+ * than re-describing it. Each test starts from a clean slate (`clearAvatar` + a direct reset of
+ * `avatarProviderUrl`) since this describe shares the file's one schema/user with the others.
+ */
+describe('users.syncAvatarFromProvider (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  beforeEach(async () => {
+    await usersModel.clearAvatar(fixtures.userId)
+    await fixtures.db
+      .update(usersTable)
+      .set({ avatarProviderUrl: null })
+      .where(eq(usersTable.id, fixtures.userId))
+  })
+
+  async function readAvatarProviderUrl(): Promise<string | null> {
+    const rows = await fixtures.db
+      .select({ avatarProviderUrl: usersTable.avatarProviderUrl })
+      .from(usersTable)
+      .where(eq(usersTable.id, fixtures.userId))
+      .limit(1)
+    return rows[0]?.avatarProviderUrl ?? null
+  }
+
+  test('applies when the user has no manually-uploaded avatar', async () => {
+    const applied = await usersModel.syncAvatarFromProvider(
+      fixtures.userId,
+      'https://provider.example/photo.jpg'
+    )
+
+    assert.equal(applied, true)
+    assert.equal(await readAvatarProviderUrl(), 'https://provider.example/photo.jpg')
+  })
+
+  test('is a no-op when a manual avatar already exists, and never overwrites it', async () => {
+    await usersModel.setAvatar(fixtures.userId, Buffer.from('manual-avatar-bytes'))
+
+    const applied = await usersModel.syncAvatarFromProvider(
+      fixtures.userId,
+      'https://provider.example/should-not-land.jpg'
+    )
+
+    assert.equal(applied, false)
+    assert.equal(await readAvatarProviderUrl(), null)
+  })
+
+  test('a later manual upload does not retroactively clear an already-cached provider URL', async () => {
+    // -> Documents current scope: `setAvatar` only ever governs `hasAvatar`/the blob it owns, and
+    //    leaves `avatarProviderUrl` alone. `hasAvatar` is what makes the manual avatar win in
+    //    practice (any future renderer must check it first), not a cleared `avatarProviderUrl`.
+    await usersModel.syncAvatarFromProvider(fixtures.userId, 'https://provider.example/photo.jpg')
+    await usersModel.setAvatar(fixtures.userId, Buffer.from('manual-avatar-bytes'))
+
+    assert.equal(await readAvatarProviderUrl(), 'https://provider.example/photo.jpg')
+  })
+
+  test('is a no-op for an empty or whitespace-only URL', async () => {
+    assert.equal(await usersModel.syncAvatarFromProvider(fixtures.userId, ''), false)
+    assert.equal(await usersModel.syncAvatarFromProvider(fixtures.userId, '   '), false)
+    assert.equal(await usersModel.syncAvatarFromProvider(fixtures.userId, null), false)
+    assert.equal(await usersModel.syncAvatarFromProvider(fixtures.userId, undefined), false)
+    assert.equal(await readAvatarProviderUrl(), null)
+  })
+
+  test('returns false for an unknown user id, rather than throwing', async () => {
+    const applied = await usersModel.syncAvatarFromProvider(
+      '00000000-0000-0000-0000-000000000000',
+      'https://provider.example/photo.jpg'
+    )
+
+    assert.equal(applied, false)
+  })
+})
+
+/**
  * `userAvatars.id` carries an `onDelete: 'cascade'` foreign key to `users.id` (see `db/schema.ts`) —
  * an avatar dies with its user at the database layer, not merely through `deleteUser()` remembering
  * to clean it up. Deleting the `users` row directly, bypassing `deleteUser()` entirely, is what

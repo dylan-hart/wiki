@@ -1259,6 +1259,48 @@ class Users {
   }
 
   /**
+   * Sync a provider-reported avatar onto the user row.
+   *
+   * The one shared write path every provider integration -- OAuth/OIDC (Google, GitHub, Microsoft,
+   * generic OIDC) and LDAP/SAML's `mappingPicture` -- calls into to record an avatar picked up at
+   * login, so none of them implement their own caching or precedence logic (Feature #3208). A
+   * caller hands this whatever URL it resolved: the provider's own picture URL, or one pointing at a
+   * locally re-hosted copy it made itself -- this method does no fetching of its own, it only caches
+   * the URL it is given onto `users.avatarProviderUrl`.
+   *
+   * A manually-uploaded avatar always wins: this is a no-op whenever the user already has one
+   * (`hasAvatar`, set exclusively by `setAvatar()`/`clearAvatar()`, the manual-upload route), so a
+   * provider login can never silently replace what the user chose to upload themselves. It is also a
+   * no-op for a blank/whitespace-only URL, which is how a caller says its provider reported none.
+   *
+   * @returns Whether the sync was applied (`false` for a manual-avatar no-op, a missing user, or an
+   *   empty `pictureUrl`)
+   */
+  async syncAvatarFromProvider(
+    userId: string,
+    pictureUrl: string | null | undefined
+  ): Promise<boolean> {
+    const url = pictureUrl?.trim()
+    if (!url) {
+      return false
+    }
+    const rows = await WIKI.db
+      .select({ hasAvatar: usersTable.hasAvatar })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1)
+    if (!rows[0] || rows[0].hasAvatar) {
+      // -> Missing user, or a manually-uploaded avatar already in place -- never overwritten.
+      return false
+    }
+    await WIKI.db
+      .update(usersTable)
+      .set({ avatarProviderUrl: url, updatedAt: sql`now()` })
+      .where(eq(usersTable.id, userId))
+    return true
+  }
+
+  /**
    * The groups a user belongs to, by name. Only the identity of each group — never its permissions or
    * page rules, which a user has no business reading about itself.
    */
