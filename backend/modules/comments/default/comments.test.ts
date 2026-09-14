@@ -410,6 +410,17 @@ describe('modules/comments/default', () => {
       assert.match(result.render, /&lt;b&gt;x&lt;\/b&gt;/)
     })
 
+    it('falls back to escaped, unhighlighted code for a real grammar outside highlight.js/lib/common', async () => {
+      // -> `fortran` is a real highlight.js grammar, but not one of the ~36 languages `lib/common`
+      //    registers (confirmed against `highlight.js/lib/common#listLanguages()`) -- this is what
+      //    proves the backend renderer's import actually shrank, not merely that a typo'd language
+      //    still falls back the way it always has.
+      const result = await commentsDefaultModule.render('```fortran\n<b>x</b>\n```')
+      assert.match(result.render, /<pre><code class="language-fortran">/)
+      assert.ok(!result.render.includes('<b>x</b>'))
+      assert.match(result.render, /&lt;b&gt;x&lt;\/b&gt;/)
+    })
+
     it('renders an emoji shortcode', async () => {
       const result = await commentsDefaultModule.render('nice :smile:')
       assert.ok(!result.render.includes(':smile:'))
