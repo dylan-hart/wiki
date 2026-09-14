@@ -24,7 +24,7 @@ no root package or monorepo tooling):
 Requires Node.js **26+** and PostgreSQL **16+**. All four workspaces are ESM (`"type": "module"`).
 
 The backend is **TypeScript 7**; `frontend/`, `blocks/` and `e2e/` are JavaScript. See
-[TypeScript (backend)](#typescript-backend).
+`backend/CLAUDE.md`'s TypeScript section.
 
 ## Layout
 
@@ -347,8 +347,8 @@ on the preceding line works (oxfmt honors Prettier's marker; there is no `oxfmt-
 These apply to **every workspace**, `frontend/` included — not just the backend.
 
 - **Use `es-toolkit`, not `lodash-es`.** Installed in both `backend/` and `frontend/`.
-- **Use the native `Temporal` API, not luxon.** See [Backend patterns](#backend-patterns) for the
-  Temporal gotchas worth knowing; they apply on the frontend too.
+- **Use the native `Temporal` API, not luxon.** See `backend/CLAUDE.md`'s Backend patterns section
+  for the Temporal gotchas worth knowing; they apply on the frontend too.
 - **luxon and lodash-es have been removed entirely** — zero imports and zero manifest entries left in
   either `backend/` or `frontend/`. Do not reintroduce either: use `es-toolkit`/`Temporal` in any new
   code, including a file that once imported one of them.
@@ -832,8 +832,8 @@ gate.
   Its steps: backend typecheck, then per-workspace lint (`oxlint --deny-warnings`) and the frontend's
   icon/emoji drift checks, then a `Backend/Frontend/Blocks Tests` step per workspace, then one
   repo-wide `oxfmt --check`. A `postgres:18` service container backs the backend's DB-backed model
-  suites (skipped without one — see [Testing (backend)](#testing-backend)); frontend and blocks never
-  touch it.
+  suites (skipped without one — see `backend/CLAUDE.md`'s Testing (backend) section); frontend and
+  blocks never touch it.
 - **`build.yml`'s `build` job** stamps the alpha version, builds `frontend/`'s assets and
   `blocks/compiled`, runs the Playwright e2e suite against that build, then builds/pushes the Docker
   image — each step gating the next, so a failure never reaches the Docker push.

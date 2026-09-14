@@ -37,7 +37,8 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
 - `controllers/` — non-API HTTP routes: `site.ts` serves per-site resources (logo, favicon, login
   background) under `/_site`; `icons.ts` serves icons under `/_icons`, implementing the part of the
   Iconify API protocol the frontend speaks (`/_icons/<prefix>.json?icons=a,b` and
-  `/_icons/<prefix>/<name>.svg`), public and cached hard — see [Icons](#icons); `blocks.ts` serves a
+  `/_icons/<prefix>/<name>.svg`), public and cached hard — see root CLAUDE.md's Icons section;
+  `blocks.ts` serves a
   custom block's compiled JS under `/_blocks/custom/:siteId/:blockId.js`; `files.ts` serves stored
   assets; `render.ts` serves a rendered page; `thumb.ts` serves page/asset thumbnails; `collab.ts` is
   the Yjs collaborative-editing WebSocket upgrade; `metrics.ts` exposes Prometheus metrics;
@@ -234,7 +235,7 @@ Conventions established during the conversion, worth following in new code:
   (`permissions: ['read:sites', ['manage:users', 'manage:groups']]`). `manage:system` bypasses every
   check. `@fastify/swagger`'s `transform` (`helpers/openapi.ts#swaggerTransform`) folds these into
   the OpenAPI description automatically — so declaring them is also how they get documented. Only
-  **global** permissions belong here; see [Permissions](#permissions) for the other kinds.
+  **global** permissions belong here; see root CLAUDE.md's Permissions section for the other kinds.
 - **An unknown `:siteId` answers `404 'This site does not exist.'` from one place**, not from each
   handler: `helpers/siteResolution.ts#siteEnabledPreHandler`, the `preHandler` `api/index.ts`
   registers on its guarded `contentApp` scope. **A route under that scope may assume its `:siteId`
