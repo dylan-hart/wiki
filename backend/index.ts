@@ -315,8 +315,9 @@ async function initHTTPServer() {
     //    balancer route live traffic onto an instance that 302s every page to
     //    `/_error/unknownsite` and fails every login. The instance is only marked ready once
     //    `postBoot()` has actually populated those caches, at the bottom of this file. `/_live`
-    //    (bound by `gracefulServer` above, independent of that readiness flag) answers from here
-    //    onward regardless, so liveness probes still see the process as up throughout.
+    //    (registered by `core/http/shutdown.ts#registerProbes`, independent of that readiness flag)
+    //    answers from here onward regardless, so liveness probes still see the process as up
+    //    throughout.
   } catch (err: any) {
     WIKI.logger.error('boot', 'http server failed to bind', {
       host: WIKI.config.bindIP,

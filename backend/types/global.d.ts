@@ -8,9 +8,9 @@
  */
 
 import type { FastifyInstance } from 'fastify'
-import type gracefulServer from '@gquittet/graceful-server'
 import type Emittery from 'emittery'
 import type { LRUCache } from 'lru-cache'
+import type { ShutdownController } from '../core/http/shutdown.ts'
 
 declare global {
   interface WikiGlobal {
@@ -24,7 +24,7 @@ declare global {
     devMode: boolean
 
     app: FastifyInstance
-    server: ReturnType<typeof gracefulServer>
+    server: ShutdownController
     cache: LRUCache<string, any>
     /**
      * HA propagation buses. Event names are dynamic (they travel over postgres NOTIFY), so the
