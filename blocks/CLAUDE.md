@@ -122,7 +122,7 @@ at all" rules apply to it unchanged — a block's suite sits at the component la
   different DOM emulator.
 - **File convention: co-located `*.test.js`**, matching the `*.test.ts` / `*.test.js` convention in
   `backend/` and `frontend/` — `block-gallery/component.js` → `block-gallery/component.test.js`, and
-  the same rule covers `shared/`, where every module but `compress.js` has a co-located suite.
+  the same rule covers `shared/`, where every module has a co-located suite.
   `vitest.config.js`'s `include` is `**/*.test.js`, so a helper file under `blocks/test/` **must
   not** end in `.test.js` — the glob would run it as a suite.
 - **Mounting goes through `blocks/test/mount.js`.** `mountBlock(tag, { pre, text, html, props,
