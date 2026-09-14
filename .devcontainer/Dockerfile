@@ -9,6 +9,7 @@
 #   | ----------------------------------------- | ---------------------------------- | ------------- |
 #   | Node (setup-node `node-version:`)         | all four workflows                 | NODE_VERSION  |
 #   | postgres:18                               | quality.yml / build.yml / e2e.yml  | docker-compose|
+#   | MinIO, pinned (S3 emulation, #3153)       | quality.yml                        | docker-compose|
 #   | pandoc                                    | quality.yml                        | apt, below    |
 #   | git-cliff, pinned                         | quality.yml                        | GIT_CLIFF_... |
 #   | Playwright's chromium (`--with-deps`)     | quality.yml / build.yml / e2e.yml  | PLAYWRIGHT_...|

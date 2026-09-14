@@ -38,6 +38,14 @@ function currentWidthVar(wrapper) {
   return wrapper.element.style.getPropertyValue('--sidebar-current-width')
 }
 
+function insetStartVar(wrapper) {
+  return wrapper.element.style.getPropertyValue('--sidebar-inset-inline-start')
+}
+
+function insetEndVar(wrapper) {
+  return wrapper.element.style.getPropertyValue('--sidebar-inset-inline-end')
+}
+
 function headerNav(wrapper) {
   return wrapper.findComponent({ name: 'HeaderNav' })
 }
@@ -102,5 +110,52 @@ describe('MainLayout --sidebar-current-width (OpenProject #3032)', () => {
     //    whether the footer actually reads this value below the sidebar's 1200px breakpoint, not
     //    this computed -- see that file's `.w-footer` rule.
     expect(currentWidthVar(wrapper)).toBe('255px')
+  })
+})
+
+/**
+ * OpenProject #3142: `MainLayout.vue` additionally splits `sidebarCurrentWidth` across two
+ * directional custom properties, `--sidebar-inset-inline-start`/`--sidebar-inset-inline-end`, so
+ * `Index.vue`'s footer rule can inset from whichever edge the sidebar actually renders on without
+ * itself branching on `sidebarPosition`. Real-browser geometry (which edge the bar visually meets)
+ * is `MainLayout.footerClearance.test.js`'s job; this is the pure reactive-value coverage for the
+ * split itself.
+ */
+describe('MainLayout --sidebar-inset-inline-* (OpenProject #3142)', () => {
+  afterEach(() => {
+    useMinWidth(1200).value = true
+    useMinWidth(600).value = true
+  })
+
+  it('puts the width on the START property for the default left-positioned sidebar', async () => {
+    useMinWidth(1200).value = true
+
+    const { wrapper } = await mountLayout('/')
+
+    expect(insetStartVar(wrapper)).toBe('255px')
+    expect(insetEndVar(wrapper)).toBe('0px')
+  })
+
+  it('puts the width on the END property when sidebarPosition is "right"', async () => {
+    useMinWidth(1200).value = true
+
+    const { wrapper, siteStore } = await mountLayout('/')
+    siteStore.theme.sidebarPosition = 'right'
+    await wrapper.vm.$nextTick()
+
+    expect(insetEndVar(wrapper)).toBe('255px')
+    expect(insetStartVar(wrapper)).toBe('0px')
+  })
+
+  it('is 0px on both properties when the site has no sidebar at all, even with sidebarPosition "right"', async () => {
+    useMinWidth(1200).value = true
+
+    const { wrapper, siteStore } = await mountLayout('/')
+    siteStore.theme.sidebarPosition = 'right'
+    siteStore.showSideNav = false
+    await wrapper.vm.$nextTick()
+
+    expect(insetStartVar(wrapper)).toBe('0px')
+    expect(insetEndVar(wrapper)).toBe('0px')
   })
 })

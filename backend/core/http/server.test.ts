@@ -5,7 +5,6 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { after, before, describe, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import gracefulServer from '@gquittet/graceful-server'
 import {
   createHttpApp,
   pinoStreamToWikiLogger,
@@ -14,6 +13,7 @@ import {
   ROOT_FAVICON_PATH
 } from './server.ts'
 import { registerErrorHandler } from './errors.ts'
+import { SHUTDOWN, SHUTTING_DOWN } from './shutdown.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 
 /**
@@ -54,6 +54,15 @@ function installWikiStub({
     }
   })
   return () => {
+    // -> `createHttpApp()` (called by every describe below) installs `close-with-grace`'s real
+    //    SIGINT/SIGTERM/SIGHUP/uncaughtException listeners on the real `process` via
+    //    `createGracefulShutdown()`. This test file calls `createHttpApp()` many times over, and
+    //    with nothing removing them, each fresh call's listeners would outlive its own describe
+    //    block and accumulate for the rest of the file — eventually past Node's default
+    //    `MaxListeners` of 10. `uninstall()` is exactly what `close-with-grace` exists to make
+    //    possible here (the replaced `@gquittet/graceful-server` had no equivalent), so it is called
+    //    unconditionally on restore, before `WIKI` itself is swapped back.
+    ;(globalThis as any).WIKI?.server?.uninstall?.()
     ;(globalThis as any).WIKI = previous
   }
 }
@@ -578,18 +587,19 @@ describe('ROOT_FAVICON_PATH — the backend owns its own favicon.ico', () => {
 
 describe('registerShutdownLogging', () => {
   /**
-   * Drives the real event names against a bare `EventEmitter` — `IGracefulServer.on` is
+   * Drives the real event names against a bare `EventEmitter` — `ShutdownController.on` is
    * `(name, callback) => EventEmitter`, so an emitter satisfies the parameter structurally and the
-   * handlers run exactly as the library calls them, with no process signalling involved.
+   * handlers run exactly as `createGracefulShutdown` calls them, with no process signalling
+   * involved.
    *
-   * Both events, in the order graceful-server emits them: `SHUTTING_DOWN` with the reason at the top
-   * of `stop()`, then `SHUTDOWN` once the pre-close delay, the `closePromises` and the socket close
-   * are all done. `emitShuttingDownOnly` covers the first half alone.
+   * Both events, in the order `runShutdownSequence` emits them: `SHUTTING_DOWN` with the reason at
+   * the top of the teardown, then `SHUTDOWN` once the pre-close delay, the close tasks and the
+   * socket close are all done. `emitShuttingDownOnly` covers the first half alone.
    */
   function emitShutdown(reason?: Error) {
     const { info, warn, server, restore } = startShutdown(reason)
     try {
-      server.emit(gracefulServer.SHUTDOWN, reason)
+      server.emit(SHUTDOWN, reason)
       return { info, warn }
     } finally {
       restore()
@@ -602,7 +612,7 @@ describe('registerShutdownLogging', () => {
     const wiki = installTestWiki({ logger: { ...createSilentLogger(), info, warn } })
     const server = new EventEmitter()
     registerShutdownLogging(server)
-    server.emit(gracefulServer.SHUTTING_DOWN, reason)
+    server.emit(SHUTTING_DOWN, reason)
     return { info, warn, server, restore: () => wiki.restore() }
   }
 
@@ -629,15 +639,15 @@ describe('registerShutdownLogging', () => {
   })
 
   test('stopping is emitted when the teardown starts, not when it ends', () => {
-    // -> The whole point of the split: graceful-server runs its pre-close delay, `closePromises`
-    //    (scheduler drain, collab close, db pool end) and the socket close BETWEEN the two events,
-    //    so a `stopping` line on SHUTDOWN would appear only after all of that had already happened
-    //    and `ms` would be measured against nothing.
+    // -> The whole point of the split: `runShutdownSequence` runs its pre-close delay, the close
+    //    tasks (scheduler drain, collab close, db pool end) and the socket close BETWEEN the two
+    //    events, so a `stopping` line on SHUTDOWN would appear only after all of that had already
+    //    happened and `ms` would be measured against nothing.
     const { info, server, restore } = startShutdown(new Error('SIGTERM'))
     try {
       assert.equal(info.mock.callCount(), 1)
       assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: 'SIGTERM' }])
-      server.emit(gracefulServer.SHUTDOWN, new Error('SIGTERM'))
+      server.emit(SHUTDOWN, new Error('SIGTERM'))
       assert.equal(info.mock.callCount(), 2)
       assert.equal(info.mock.calls[1].arguments[1], 'stopped')
     } finally {
@@ -656,15 +666,16 @@ describe('registerShutdownLogging', () => {
   })
 
   test('a message merely containing a signal name is not exempted', () => {
-    // -> The reason is matched exactly, not by prefix or substring: graceful-server sets
+    // -> The reason is matched exactly, not by prefix or substring: `runShutdownSequence` sets
     //    `new Error(<signal>)`, so a longer message is a real fault rather than a clean exit.
     const { warn } = emitShutdown(new Error('SIGTERM handler failed'))
     assert.equal(warn.mock.callCount(), 1)
   })
 
   test('a programmatic stop, which carries no Error at all, is reported but not warned about', () => {
-    // -> `WIKI.server.stop()` passes graceful-server neither a `type` nor a `body`, so it emits
-    //    both events with `undefined`. That is a deliberate shutdown, not an unexpected signal.
+    // -> A manual `close()` (`close-with-grace`'s own, with neither a `signal` nor an `err`) makes
+    //    `runShutdownSequence` emit both events with `undefined`. That is a deliberate shutdown, not
+    //    an unexpected signal.
     const { info, warn } = emitShutdown(undefined)
     assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: 'programmatic' }])
     assert.equal(warn.mock.callCount(), 0)

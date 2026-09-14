@@ -82,7 +82,7 @@ const NOTIFY_CHANNEL = 'wiki_collab'
  * envelope around the chunk fits comfortably in the slack this leaves.
  *
  * Checked against the worst case (task 478's load test): every optional field populated (`to`, `m`,
- * `c`, `n`), `i`/`to` at their real length (a 10-character `nanoid`, see `WIKI.INSTANCE_ID` in
+ * `c`, `n`), `i`/`to` at their real length (a 10-character random hex id, see `WIKI.INSTANCE_ID` in
  * `index.ts`), `r` a full 36-character page uuid, and `t` at its longest value (`'awareness'`, 9
  * characters) — `JSON.stringify` on that envelope costs ~140 bytes before `p` is even added, so a
  * 5000-character `p` lands the whole envelope at ~5140 bytes: **~2860 bytes of slack (36%) under the

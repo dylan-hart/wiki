@@ -61,16 +61,21 @@ already-migrated database, just joins.
 Two terminals, both from the repo root. Each process gets its own `INSTANCE_ID` (a fresh nanoid,
 `index.ts`) on every boot — nothing else to configure:
 
+Whichever terminal boots first performs the first-run seed against the shared, still-empty database
+(see README.md's "First-Run Admin Account" section) — set `ADMIN_PASS` on that first `node backend`
+so you have a known password to log in with, rather than having to go find the one-time generated
+password in whichever terminal's own log output happened to seed it:
+
 ```sh
 # terminal 1
-CONFIG_FILE=dev/multi-instance-verify/config.a.yml node backend
+CONFIG_FILE=dev/multi-instance-verify/config.a.yml ADMIN_PASS=multi-instance-verify node backend
 
 # terminal 2
 CONFIG_FILE=dev/multi-instance-verify/config.b.yml node backend
 ```
 
 Confirm both are visible to each other: log in to either (`http://localhost:3000` or `:3010`,
-`admin@example.com` / `12345678` after the first boot seeds it) as an admin and open
+`admin@example.com` / `multi-instance-verify`) as an admin and open
 **Admin → System → Cluster** (`AdminCluster.vue`, backed by `GET /_api/system/cluster`),
 or query directly:
 

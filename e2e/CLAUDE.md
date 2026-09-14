@@ -37,11 +37,14 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
 - **The seed IS the app's own first-run path**, not a fixture this suite maintains separately: an
   empty database has no `settings` row, so `core/config.ts`'s `initDbValues()` runs exactly as it
   would for a real fresh install — a default (catch-all `*`) site, the standard groups, and the
-  admin account (`ADMIN_EMAIL`/`ADMIN_PASS`, defaulted to `admin@example.com` / `12345678` — the
-  same default the root `CLAUDE.md` documents). `playwright.config.js` sets `ADMIN_PASS`
-  explicitly (exported as `ADMIN_PASSWORD` alongside `ADMIN_EMAIL`, for specs to import rather than
-  re-hardcode) specifically so `mustChangePwd` seeds `false` — left unset, `models/users.ts`'s
-  `init()` seeds it `true`, and flow 1's login would land on the change-password screen instead of
+  admin account (`ADMIN_EMAIL`/`ADMIN_PASS`, defaulted to `admin@example.com` if `ADMIN_EMAIL` is
+  unset). Left with no `ADMIN_PASS` at all, `models/users.ts`'s `init()` generates a random
+  password and logs it once — useless to a spec with no way to read the server's own log output, so
+  `playwright.config.js` sets `ADMIN_PASS` explicitly (exported as `ADMIN_PASSWORD` alongside
+  `ADMIN_EMAIL`, for specs to import rather than re-hardcode, and defaulting to the fixed
+  `E2E_ADMIN_PASSWORD || '12345678'` purely as this harness's own known test credential — not a
+  product default) specifically so `mustChangePwd` seeds `false` — left unset, `init()` seeds it
+  `true`, and flow 1's login would land on the change-password screen instead of
   the authenticated shell it exists to prove renders.
 - **Port defaults to `:3000`**, matching the task's literal "backend on :3000" boot shape and what a
   clean CI environment has free. `E2E_PORT` overrides it (both the backend's `WIKI_PORT` and the

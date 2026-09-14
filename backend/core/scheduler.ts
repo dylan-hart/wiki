@@ -767,7 +767,7 @@ export default {
    * that dies mid-job — or a worker that takes its answer with it — leaves a row saying a job started
    * that nothing is going to finish. Nothing else notices those: they are no longer in the queue.
    *
-   * Age is the only usable signal. `INSTANCE_ID` is a fresh nanoid on every boot, so an instance
+   * Age is the only usable signal. `INSTANCE_ID` is a fresh random hex id on every boot, so an instance
    * cannot pick out the rows of its own previous life, and another instance's `active` row may well
    * be a job that is running perfectly happily. `staleJobTimeout` is therefore a "nobody could still
    * be working on this" threshold rather than a deadline — generous on purpose, because the cost of
@@ -1004,8 +1004,8 @@ export default {
    * drain existed: `workerPool.destroy()` tears it down, and its `jobHistory` row is picked up by
    * `reapStaleJobs()` once `staleJobTimeout` elapses.
    *
-   * Returns the same awaitable promise `backend/index.ts`'s `gracefulServer(...)` `closePromises`
-   * holds (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
+   * Returns the same awaitable promise `core/http/server.ts`'s `createGracefulShutdown(...)` close
+   * tasks hold (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
    */
   async stop(): Promise<void> {
     clearInterval(this.scheduledRef!)

@@ -11,7 +11,7 @@ import {
 
 import { installTestWiki } from '../test/mocks.ts'
 
-/** A stub extractor shaped like `@xenova/transformers`'s pipeline output, with no real inference. */
+/** A stub extractor shaped like `@huggingface/transformers`'s pipeline output, with no real inference. */
 function makeExtractor(overrides: { data?: ArrayLike<number>; fail?: Error } = {}) {
   return mock.fn(async (_text: string, _options: { pooling: 'mean'; normalize: boolean }) => {
     if (overrides.fail) {
@@ -62,11 +62,11 @@ describe('isEmbeddingAvailable', () => {
 })
 
 /**
- * `embedText` consults `@xenova/transformers` (via a lazy dynamic `import()`) before ever building a
- * pipeline, so this covers the "unusable on this platform" path the same way `helpers/images.test.ts`
- * covers Sharp being reported installed but failing to import: by renaming `node_modules` out of the
- * way for the duration of one test and restoring it in `finally`, rather than needing
- * `--experimental-test-module-mocks` to intercept the import directly.
+ * `embedText` consults `@huggingface/transformers` (via a lazy dynamic `import()`) before ever
+ * building a pipeline, so this covers the "unusable on this platform" path the same way
+ * `helpers/images.test.ts` covers Sharp being reported installed but failing to import: by renaming
+ * `node_modules` out of the way for the duration of one test and restoring it in `finally`, rather
+ * than needing `--experimental-test-module-mocks` to intercept the import directly.
  */
 describe('embedText — model unavailable', () => {
   let wikiHandle: { restore(): void }
@@ -75,7 +75,7 @@ describe('embedText — model unavailable', () => {
   })
 
   test('returns null and records a load failure when the runtime cannot be imported', async () => {
-    const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules', '@xenova')
+    const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules', '@huggingface')
     const packageDir = path.join(nodeModulesDir, 'transformers')
     const disabledDir = path.join(nodeModulesDir, '.transformers-disabled-for-test')
 
@@ -103,7 +103,7 @@ describe('embedText — model unavailable', () => {
 
       assert.equal(result, null)
       assert.equal(noteLoadFailure.mock.calls.length, 1)
-      assert.equal(noteLoadFailure.mock.calls[0].arguments[0], '@xenova/transformers')
+      assert.equal(noteLoadFailure.mock.calls[0].arguments[0], '@huggingface/transformers')
       assert.equal(warn.mock.calls.length, 1)
       assert.equal(warn.mock.calls[0].arguments[0], 'search')
       // -> The failure is now cached for the rest of this process, same as a real failed load would be

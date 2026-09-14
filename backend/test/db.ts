@@ -37,6 +37,7 @@ import {
   tree as treeTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { SiteRow } from '../db/schema.ts'
 import { encodeTreePath } from '../helpers/common.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { NavigationMode } from '../models/navigation.ts'
@@ -120,7 +121,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
       isEnabled: true,
       config: { locales: { primary: 'en', active: ['en', 'fr'] } }
     })
-    .returning({ id: sitesTable.id })
+    .returning()
 
   const [user] = await db
     .insert(usersTable)
@@ -165,10 +166,10 @@ export async function setupTestDb(): Promise<TestFixtures> {
   //    would see an empty level list and fail `defaultLevel()`'s guard.
   await models.classificationLevels.reloadCache()
 
-  WIKI.sites[site!.id] = {
-    id: site!.id,
-    config: { locales: { primary: 'en', active: ['en', 'fr'] } }
-  }
+  // -> `config` reads back as `unknown` (no `$type<>` pin on the jsonb column -- see `SiteRow`'s own
+  //    comment in `db/schema.ts`); the cast matches the one `models/sites.ts#reloadCache()` applies
+  //    to the same shape in production.
+  WIKI.sites[site!.id] = site! as SiteRow
 
   return {
     db,

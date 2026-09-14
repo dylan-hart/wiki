@@ -8,6 +8,7 @@ import { Pool } from 'pg'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
+import type { SiteRow } from '../db/schema.ts'
 import {
   HOP2_DISTANCE_PENALTY,
   HOP2_SEED_COUNT,
@@ -361,10 +362,10 @@ describe('semanticSearch: merge/rank/paginate', () => {
   describe('search', () => {
     test('degrades to an empty, non-approximate result set when the local embedding model is unavailable', async () => {
       // -> Forces `embedText`'s real "unusable on this platform" path the same way
-      //    `helpers/embeddings.test.ts` does — renaming `@xenova/transformers` out of the way for the
-      //    duration of this test — rather than actually attempting the real model's ~90MB download,
-      //    so this exercises `search()`'s own degradation path fast and offline.
-      const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules', '@xenova')
+      //    `helpers/embeddings.test.ts` does — renaming `@huggingface/transformers` out of the way
+      //    for the duration of this test — rather than actually attempting the real model's ~90MB
+      //    download, so this exercises `search()`'s own degradation path fast and offline.
+      const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules', '@huggingface')
       const packageDir = path.join(nodeModulesDir, 'transformers')
       const disabledDir = path.join(nodeModulesDir, '.transformers-disabled-for-test')
 
@@ -654,11 +655,8 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
           isEnabled: true,
           config: { locales: { primary: 'en', active: ['en'] } }
         })
-        .returning({ id: sitesTable.id })
-      WIKI.sites[otherSite!.id] = {
-        id: otherSite!.id,
-        config: { locales: { primary: 'en', active: ['en'] } }
-      }
+        .returning()
+      WIKI.sites[otherSite!.id] = otherSite! as SiteRow
 
       const homePage = await pagesModel.createPage(
         fixtures.siteId,

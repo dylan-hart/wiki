@@ -123,6 +123,13 @@ jobs:
 
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      # `backend/modules/storage/s3/storage.emulated.test.ts` self-contains its root credentials in
+      # this URL, the same shape DATABASE_URL uses -- see that file's header comment. The container
+      # itself is started by the "Start MinIO" step below: a bare `services:` entry can't be used
+      # here because GitHub Actions' services block has no `command:` field and MinIO's image ships
+      # no default CMD (`server /data` must be supplied explicitly, or the image just prints help
+      # and exits).
+      S3_TEST_ENDPOINT: http://minioadmin:minioadmin@localhost:9000
 
     steps:
       # fetch-depth: 0 (full history) -- backend/test/changelog.test.ts runs `git-cliff --unreleased`
@@ -187,6 +194,20 @@ jobs:
       # thing in the unit suites that needs the actual binary -- everything else mocks `runPandoc`.
       - name: Install pandoc
         run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      # OpenProject #3153: `s3rver` (archived, a permanent `npm audit` high finding through
+      # busboy/dicer) was replaced with a real, container-backed MinIO instance for
+      # `storage.emulated.test.ts`. MinIO's Docker Hub repo no longer exists -- the image lives at
+      # quay.io/minio/minio only -- and there is no floating LTS-major tag the way postgres:18 has,
+      # so this pins to a concrete RELEASE tag per this project's Currency standard.
+      - name: Start MinIO (S3 emulation for backend/modules/storage/s3)
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+
+      - name: Wait for MinIO
+        run: timeout 30s bash -c 'until curl -sf http://localhost:9000/minio/health/ready > /dev/null; do sleep 1; done'
 
       - name: Backend Tests
         working-directory: backend

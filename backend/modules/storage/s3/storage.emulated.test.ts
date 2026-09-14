@@ -1,56 +1,71 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
-import S3rver from 's3rver'
-import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import crypto from 'node:crypto'
+import {
+  CreateBucketCommand,
+  DeleteBucketCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  S3Client
+} from '@aws-sdk/client-s3'
 import storageModule from './storage.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
+ * Whether this suite may run at all, and — if so — the credentials to run it with. Mirrors
+ * `test/db.ts#hasTestDatabase()`'s `DATABASE_URL` convention: a single `http://user:pass@host:port`
+ * URL self-containing the target's root credentials, so there is exactly one thing to set to turn
+ * this suite on.
+ */
+function s3TestConfig(): { endpoint: string; accessKeyId: string; secretAccessKey: string } | null {
+  const raw = process.env.S3_TEST_ENDPOINT
+  if (!raw) return null
+  const url = new URL(raw)
+  return {
+    endpoint: `${url.protocol}//${url.host}`,
+    accessKeyId: decodeURIComponent(url.username),
+    secretAccessKey: decodeURIComponent(url.password)
+  }
+}
+
+const s3Test = s3TestConfig()
+
+/**
  * `storage.test.ts` mocks `S3Client.prototype.send` via `aws-sdk-client-mock`, which proves *which*
  * SDK commands this module issues with *which* parameters, but never actually serializes a request,
  * signs it, sends it over a socket, or parses a response — a typo in a parameter name or a wrong
  * signing region would type-check and pass that suite unchanged. This file instead runs the module's
- * real handlers against `s3rver`, an in-process server that speaks the actual S3 REST API (bucket
- * creation, PUT/GET/HEAD/COPY/DELETE object, real request signing), started fresh per test file and
- * torn down after. It exists to satisfy task 545's requirement to prove the SDK wiring is functional,
- * not just type-correct, against at least one of the three cloud targets — chosen here because s3rver
- * is a pure-npm devDependency with no Docker/daemon dependency, unlike LocalStack or Azurite.
+ * real handlers against a real, container-backed MinIO instance (a genuine S3-compatible server:
+ * bucket creation, PUT/GET/HEAD/COPY/DELETE object, real request signing) to prove the SDK wiring is
+ * functional, not just type-correct — task 545's original requirement, now against a maintained
+ * S3-compatible target instead of the archived, permanently audit-flagged `s3rver` (task 3153).
  *
- * `allowMismatchedSignatures: true` is set so these tests exercise the object lifecycle rather than
- * s3rver's own signature-verification edge cases — SigV4 signing still runs on every request (the SDK
- * always signs), this only tells s3rver not to reject a signature it can't independently recompute.
+ * Gated `{ skip: !s3Test }`, the same shape `hasTestDatabase()`-gated suites use: with
+ * `S3_TEST_ENDPOINT` unset this `describe` reports skipped rather than failing — there is no
+ * in-process fallback. `.github/workflows/quality.yml` (a `docker run` MinIO) and
+ * `.devcontainer/docker-compose.yml` (a long-running `minio` service) both set it.
+ *
+ * The bucket name carries a random suffix per run and is torn down in `after()`, so repeated local
+ * runs against the same long-lived devcontainer MinIO instance never collide — the same reasoning
+ * `setupTestDb()` gives for a randomly-named schema per run.
  */
-describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
-  let server: InstanceType<typeof S3rver>
-  let dataDir: string
-  let endpoint: string
+describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s3Test }, () => {
+  const bucket = `wiki-emulated-test-${crypto.randomBytes(4).toString('hex')}`
   let verifyClient: S3Client
   let wikiHandle: { restore(): void }
-  const bucket = 'wiki-emulated-test'
 
   before(async () => {
-    dataDir = await mkdtemp(path.join(os.tmpdir(), 's3rver-'))
-    server = new S3rver({
-      address: '127.0.0.1',
-      port: 0,
-      silent: true,
-      directory: dataDir,
-      resetOnClose: true,
-      allowMismatchedSignatures: true
-    })
-    const address = await server.run()
-    endpoint = `http://127.0.0.1:${address.port}`
     verifyClient = new S3Client({
       region: 'us-east-1',
-      endpoint,
+      endpoint: s3Test!.endpoint,
       forcePathStyle: true,
-      credentials: { accessKeyId: 'S3RVER', secretAccessKey: 'S3RVER' }
+      credentials: { accessKeyId: s3Test!.accessKeyId, secretAccessKey: s3Test!.secretAccessKey }
     })
+    await verifyClient.send(new CreateBucketCommand({ Bucket: bucket }))
 
     wikiHandle = installTestWiki({
       models: {
@@ -63,24 +78,28 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
   })
 
   after(async () => {
-    await server.close()
-    await rm(dataDir, { recursive: true, force: true })
+    const listed = await verifyClient.send(new ListObjectsV2Command({ Bucket: bucket }))
+    for (const obj of listed.Contents ?? []) {
+      if (obj.Key)
+        await verifyClient.send(new DeleteObjectCommand({ Bucket: bucket, Key: obj.Key }))
+    }
+    await verifyClient.send(new DeleteBucketCommand({ Bucket: bucket }))
     wikiHandle.restore()
   })
 
-  /** A fresh target per test: a real (never-yet-activated) client per id, pointed at the emulator. */
+  /** A fresh target per test: a real (never-yet-activated) client per id, pointed at MinIO. */
   function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
     return makeStorageTarget('s3', {
       title: 'Emulated S3',
       config: {
         mode: 'custom',
-        endpoint,
-        sslEnabled: false,
+        endpoint: s3Test?.endpoint,
+        sslEnabled: s3Test?.endpoint.startsWith('https:') ?? false,
         s3ForcePathStyle: true,
         s3BucketEndpoint: false,
         bucket,
-        accessKeyId: 'S3RVER',
-        secretAccessKey: 'S3RVER',
+        accessKeyId: s3Test?.accessKeyId,
+        secretAccessKey: s3Test?.secretAccessKey,
         storageTier: 'STANDARD',
         ...configOverrides
       }
@@ -195,7 +214,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
       () => storageModule.assetUploaded!(target, { id: 'a1', folderPath: '', fileName: 'x.txt' }),
       (err: any) => {
         assert.ok(err instanceof Error)
-        assert.match(err.message, /Could not reach the "wiki-emulated-test" bucket/)
+        assert.match(err.message, new RegExp(`Could not reach the "${bucket}" bucket`))
         return true
       }
     )
@@ -204,7 +223,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
   test('an invalid bucket name surfaces as a readable Error, not a raw SDK exception', async () => {
     // -> An empty Bucket fails the SDK's own client-side parameter validation before any request is
     //    sent — the "wrong bucket" half of task 545's broken-config requirement, deterministic and
-    //    independent of s3rver's own bucket-naming rules.
+    //    independent of MinIO's own bucket-naming rules.
     const target = makeTarget({ bucket: '' })
 
     await assert.rejects(

@@ -732,8 +732,8 @@ export default {
    * no reason.
    *
    * `pool` can be `null` if `init()` was never called (e.g. worker mode never creates one for some
-   * call paths, or a test harness) — guarded rather than assumed non-null. `backend/index.ts`'s
-   * `gracefulServer(...)` `closePromises` holds this call (OpenProject #2028).
+   * call paths, or a test harness) — guarded rather than assumed non-null. `core/http/server.ts`'s
+   * `createGracefulShutdown(...)` close tasks hold this call (OpenProject #2028).
    */
   async shutdown(): Promise<void> {
     await this.unsubscribeFromNotifications()

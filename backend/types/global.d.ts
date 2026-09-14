@@ -8,9 +8,9 @@
  */
 
 import type { FastifyInstance } from 'fastify'
-import type gracefulServer from '@gquittet/graceful-server'
 import type Emittery from 'emittery'
 import type { LRUCache } from 'lru-cache'
+import type { ShutdownController } from '../core/http/shutdown.ts'
 
 declare global {
   interface WikiGlobal {
@@ -24,7 +24,7 @@ declare global {
     devMode: boolean
 
     app: FastifyInstance
-    server: ReturnType<typeof gracefulServer>
+    server: ShutdownController
     cache: LRUCache<string, any>
     /**
      * HA propagation buses. Event names are dynamic (they travel over postgres NOTIFY), so the
@@ -83,9 +83,14 @@ declare global {
     scheduler: typeof import('../core/scheduler.ts').default
     models: typeof import('../models/index.ts').default
 
-    // TODO: type this against `sites`' Drizzle row type (backend/db/schema.ts) instead of `any` --
-    // the table has been a real Drizzle table for a while now, this just hasn't been tightened up
-    sites: Record<string, any>
+    /**
+     * Cached site configs, keyed by site id (OpenProject #3144). Loaded and kept current by
+     * `models/sites.ts`'s `reloadCache()` (a `ClusterReloaded` subclass, so every instance in a
+     * cluster reloads together). `SiteRow` is `sites`' real Drizzle row type -- see its own comment
+     * in `db/schema.ts` for why its `config` field stays `Record<string, any>` rather than a fully
+     * pinned shape.
+     */
+    sites: Record<string, import('../db/schema.ts').SiteRow>
     sitesMappings: Record<string, string>
 
     /** Only present in worker threads (see worker.ts) */
