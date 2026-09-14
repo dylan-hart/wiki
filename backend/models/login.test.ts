@@ -265,7 +265,11 @@ describe('login.loginTFA', () => {
         rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
         // -> The real singleton, so the `userCredentials.*` mocks each test installs are the ones
         //    `loginTFA` actually reaches through `WIKI.models.userCredentials`.
-        userCredentials
+        userCredentials,
+        // -> A no-op default so the two credential-rejection branches' new `login.failed` audit call
+        //    (OpenProject #3200) doesn't throw here — its own shape is asserted in the "login outcome
+        //    logging" describe below, where the log lines it sits beside are already covered.
+        auditLog: { record: async () => {} }
       }
     })
   })
@@ -815,6 +819,7 @@ describe('login outcome logging', () => {
 
   let warn: ReturnType<typeof mock.fn>
   let info: ReturnType<typeof mock.fn>
+  let auditLogRecord: ReturnType<typeof mock.fn>
   let wiki: { restore(): void } | undefined
 
   /** Every `warn('auth', message, fields)` call, as `[message, fields]`. */
@@ -832,6 +837,7 @@ describe('login outcome logging', () => {
     wiki?.restore()
     warn = mock.fn()
     info = mock.fn()
+    auditLogRecord = mock.fn(async () => {})
     wiki = installTestWiki({
       logger: { warn, info, debug: mock.fn() },
       config: {
@@ -847,7 +853,7 @@ describe('login outcome logging', () => {
       models: {
         flags: { authDebug: () => {} },
         rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
-        auditLog: { record: async () => {} }
+        auditLog: { record: auditLogRecord }
       },
       ...overrides
     })
@@ -995,13 +1001,19 @@ describe('login outcome logging', () => {
     assert.equal(soleRefusal().fields.reason, 'unknown-strategy')
   })
 
-  test('refuses a wrong 2FA code as reason=tfa-incorrect-code', async (t) => {
+  test('refuses a wrong 2FA code as reason=tfa-incorrect-code, and records a login.failed audit entry', async (t) => {
+    // -> A local mock rather than the shared `auditLogRecord` spy: this test's own `models` override
+    //    (needed for `userCredentials`) replaces `installWiki()`'s default `models` object wholesale,
+    //    so binding to `auditLogRecord` here would capture its value from before this very call
+    //    reassigns it, and end up asserting against a spy the code under test never calls.
+    const auditRecord = mock.fn(async () => {})
     installWiki({
       auth: { strategies: { strat: { module: 'local' } } },
       models: {
         flags: { authDebug: () => {} },
         rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
-        userCredentials
+        userCredentials,
+        auditLog: { record: auditRecord }
       },
       // -> `countTfaFailure` is a module function rather than a method on `userCredentials`, so it
       //    cannot be mocked out; it is let run against a `select()` chain answering no rows, which
@@ -1010,7 +1022,12 @@ describe('login outcome logging', () => {
         select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) })
       }
     })
-    const user = { id: 'user-7', email: 'ada@example.com', auth: { strat: {} } }
+    const user = {
+      id: 'user-7',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      auth: { strat: {} }
+    }
     t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId: 'strat' }))
     t.mock.method(userCredentials, 'verifyTfaCode', async () => false)
 
@@ -1026,6 +1043,65 @@ describe('login outcome logging', () => {
     assert.equal(fields.reason, 'tfa-incorrect-code')
     assert.equal(fields.user, 'user-7')
     assert.ok(!JSON.stringify(fields).includes('@'))
+
+    // -> Unlike the warn line above, the audit row IS allowed to carry the account's identity: the
+    //    continuation token already proved the password, so this is naming an already-resolved
+    //    account, not an unauthenticated caller's claim.
+    assert.equal(auditRecord.mock.callCount(), 1)
+    const entry = (auditRecord.mock.calls[0].arguments as any)[0]
+    assert.equal(entry.event, 'login.failed')
+    assert.deepEqual(entry.actor, { id: 'user-7', name: 'Ada Lovelace', ip })
+    assert.equal(entry.targetType, 'user')
+    assert.equal(entry.targetId, 'user-7')
+    assert.equal(entry.targetLabel, 'ada@example.com')
+    assert.deepEqual(entry.detail, { strategyId: 'strat', reason: 'tfa-incorrect-code' })
+    assert.equal(entry.siteId, siteId)
+  })
+
+  test('refuses an exhausted recovery code as reason=tfa-recovery-codes-exhausted, and records a login.failed audit entry', async (t) => {
+    const auditRecord = mock.fn(async () => {})
+    installWiki({
+      auth: { strategies: { strat: { module: 'local' } } },
+      models: {
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
+        userCredentials,
+        auditLog: { record: auditRecord }
+      }
+    })
+    const user = {
+      id: 'user-8',
+      name: 'Ada Lovelace',
+      email: 'ada@example.com',
+      auth: { strat: { recoveryCodes: [{ hash: 'x', usedAt: '2024-01-01T00:00:00.000Z' }] } }
+    }
+    t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId: 'strat' }))
+
+    await assert.rejects(
+      login.loginTFA(
+        {
+          strategyId: 'strat',
+          siteId,
+          securityCode: 'AAAA-BBBB-CCCC-DDDD',
+          continuationToken: 'tok',
+          ip
+        },
+        {}
+      ),
+      /ERR_TFA_RECOVERY_CODES_EXHAUSTED/
+    )
+
+    assert.equal(soleRefusal().fields.reason, 'tfa-recovery-codes-exhausted')
+
+    assert.equal(auditRecord.mock.callCount(), 1)
+    const entry = (auditRecord.mock.calls[0].arguments as any)[0]
+    assert.equal(entry.event, 'login.failed')
+    assert.deepEqual(entry.actor, { id: 'user-8', name: 'Ada Lovelace', ip })
+    assert.equal(entry.targetType, 'user')
+    assert.equal(entry.targetId, 'user-8')
+    assert.equal(entry.targetLabel, 'ada@example.com')
+    assert.deepEqual(entry.detail, { strategyId: 'strat', reason: 'tfa-recovery-codes-exhausted' })
+    assert.equal(entry.siteId, siteId)
   })
 
   test('logs one info auth login when a session is actually created', async () => {
