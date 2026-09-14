@@ -87,7 +87,7 @@
     "emittery": "2.0.0",
     "es-toolkit": "1.51.0",
     "fast-xml-parser": "5.11.0",
-    "fastify": "5.12.1",
+    "fastify": "5.12.4",
     "filesize": "11.0.22",
     "highlight.js": "11.12.0",
     "js-yaml": "5.3.0",
@@ -95,11 +95,11 @@
     "ldapts": "9.0.0",
     "lib0": "0.2.117",
     "lru-cache": "11.5.2",
-    "markdown-it": "15.0.0",
+    "markdown-it": "15.0.2",
     "markdown-it-emoji": "3.1.0",
     "mime": "4.1.0",
     "nanoid": "6.0.1",
-    "nodemailer": "9.0.5",
+    "nodemailer": "10.0.9",
     "openid-client": "6.8.7",
     "pg": "8.23.0",
     "pg-cursor": "2.22.0",
@@ -110,7 +110,7 @@
     "simple-git": "3.36.0",
     "ssh2-sftp-client": "12.1.1",
     "tar": "7.5.22",
-    "undici": "8.10.0",
+    "undici": "8.10.2",
     "y-protocols": "1.0.7",
     "yjs": "13.6.32",
     "zod": "4.4.3"
@@ -120,7 +120,6 @@
     "@types/js-yaml": "4.0.9",
     "@types/markdown-it-emoji": "3.0.1",
     "@types/node": "26.2.0",
-    "@types/nodemailer": "8.0.1",
     "@types/pg": "8.23.1",
     "@types/pg-cursor": "2.7.2",
     "@types/qrcode": "1.5.6",
@@ -142,7 +141,7 @@
   },
   "optionalDependencies": {
     "puppeteer": "25.4.0",
-    "sharp": "0.35.3"
+    "sharp": "0.35.4"
   },
   "engines": {
     "node": ">=26.0"
