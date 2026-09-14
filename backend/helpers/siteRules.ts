@@ -10,8 +10,8 @@ import type { GroupRule } from '../models/groups.ts'
  * ---------------------------------------------------------------------------------------------
  *
  * A group grants site-admin permissions through the same rule rows page permissions use
- * (`GroupRule.roles` is one shared vocabulary space — see the decision record at
- * `docs/decisions/delegated-per-site-administration.md`), just read a different way: instead of
+ * (`GroupRule.roles` is one shared vocabulary space, per the delegated-per-site-administration
+ * decision), just read a different way: instead of
  * `path`/`match`/`locales`, a site-admin rule is addressed by `sites` alone. An empty `sites` array
  * means every site; a populated one means only those site ids.
  *

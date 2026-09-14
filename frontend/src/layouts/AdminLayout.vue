@@ -635,8 +635,8 @@ const showSidebarBtn = computed(() => !isWideViewport.value && !narrowSidebarOpe
   Task #684: each site-scoped surface's own gate, mirroring the exact permission combo its
   `Admin*.vue` page and backend route require (see `composables/siteAdminAccess.js`'s
   `GLOBAL_FALLBACKS` for why these differ from one blanket `manage:sites` check). Storage stays
-  `manage:system`-only, matching `api/storage.ts` -- see
-  `docs/decisions/delegated-per-site-administration.md` §4 for why it is not delegable.
+  `manage:system`-only, matching `api/storage.ts`, which has always required it and is deliberately
+  not delegable.
 */
 const maySeeGeneral = computed(() =>
   maySeeSiteSurface(userStore, 'site:general', adminStore.currentSiteId)

@@ -43,8 +43,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description: 'Permissions granted or denied by this rule.',
         items: {
           type: 'string',
-          // -> `GroupRule.roles` is one shared vocabulary space across both kinds it may name -- see
-          //    docs/decisions/delegated-per-site-administration.md.
+          // -> `GroupRule.roles` is one shared vocabulary space across both kinds it may name, per
+          //    the delegated-per-site-administration decision.
           enum: [...PAGE_PERMISSIONS, ...SITE_PERMISSIONS]
         }
       },

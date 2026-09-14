@@ -41,10 +41,10 @@ export const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@example.com'
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || '12345678'
 
 /**
- * The quarantine lane's marker, per `docs/decisions/flaky-test-quarantine.md`: a
- * `*.flaky.spec.js` under `tests/` is out of the default run below and into
- * `npm run test:flaky` (`playwright.flaky.config.js`), which CI runs as its own report-only step.
- * Exported so that config selects the same files this one ignores, from one string.
+ * The quarantine lane's marker: a `*.flaky.spec.js` under `tests/` is out of the default run below
+ * and into `npm run test:flaky` (`playwright.flaky.config.js`), which CI runs as its own
+ * report-only step. Exported so that config selects the same files this one ignores, from one
+ * string.
  */
 export const FLAKY_GLOB = '**/*.flaky.spec.js'
 

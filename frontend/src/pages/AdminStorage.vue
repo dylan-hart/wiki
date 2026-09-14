@@ -573,10 +573,9 @@ const route = useRoute()
 // ACCESS
 
 /*
-  Task #684: storage credentials are deliberately NOT delegable (see
-  `docs/decisions/delegated-per-site-administration.md` §4) -- `api/storage.ts` has always required
-  `manage:system` alone, not `manage:sites`, so this matches the backend exactly rather than the
-  looser `manage:sites` the sidebar link used to gate on. `userStore.permissions` is already loaded
+  Task #684: storage credentials are deliberately NOT delegable -- `api/storage.ts` has always
+  required `manage:system` alone, not `manage:sites`, so this matches the backend exactly rather
+  than the looser `manage:sites` the sidebar link used to gate on. `userStore.permissions` is already loaded
   by the time this mounts (same reasoning as `AdminLayout.vue`'s own `access:admin` watcher), so
   there is no fetch to await here.
 */

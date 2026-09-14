@@ -130,7 +130,7 @@ function stripExt(relPath: string): string {
  * stored in `active` (`pt-BR`, never a lowercased `pt-br` twin). A path with no active-locale
  * prefix is the site's primary locale, exactly as `created()` writes it.
  *
- * Exported for `sync.test.ts` — see `docs/decisions/locale-architecture.md` §5.3 for why this
+ * Exported for `sync.test.ts` — per the locale-architecture decision's §5.3, this
  * parser validates against `locales.active` instead of guessing from shape.
  */
 export function parseLocaleAndPath(

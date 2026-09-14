@@ -40,8 +40,7 @@ jobs:
     # dev/build/Dockerfile and the release tarball step in build.yml's `Prepare build archive` both
     # actually ship. Task 1994/1999/2007: nothing before this job ever exercised that install shape,
     # which is how a devDependency-only import on the real boot path (`@js-temporal/polyfill`, until
-    # #1999) went unnoticed by CI entirely -- see docs/decisions/dependency-audit-exceptions.md's
-    # `@js-temporal/polyfill` section for the concrete case that prompted this job.
+    # #1999) went unnoticed by CI entirely -- this job exists to catch that class of defect directly.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -80,7 +79,7 @@ jobs:
           echo "--------------------"
 
           if grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)' boot.log; then
-            echo "::error::Production install (npm ci --omit=dev) cannot resolve a module the boot path imports -- a devDependency has leaked onto the real boot path. See docs/decisions/dependency-audit-exceptions.md's @js-temporal/polyfill section for the shape of defect this catches."
+            echo "::error::Production install (npm ci --omit=dev) cannot resolve a module the boot path imports -- a devDependency has leaked onto the real boot path (the shape of defect this job exists to catch, as @js-temporal/polyfill once did)."
             exit 1
           fi
 
@@ -307,9 +306,8 @@ jobs:
 
       # --- Quarantine lane (report-only) ------------------------------------------------------
       # OpenProject #2692 (Feature #2603, Epic #2600). The `*.flaky.*` lane is every test that
-      # depends on real external state no care inside the test makes deterministic -- see
-      # docs/decisions/flaky-test-quarantine.md, which is the authority on what belongs in it. It
-      # runs here as its own step so a fragile test is visible without being a trunk-red generator.
+      # depends on real external state no care inside the test makes deterministic. It runs here as
+      # its own step so a fragile test is visible without being a trunk-red generator.
       #
       # `continue-on-error: true` is what makes it report-only, and it is deliberate rather than
       # incidental: every other step in this workflow relies on GitHub Actions' `false` default, so

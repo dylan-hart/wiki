@@ -172,7 +172,7 @@ generation, icon generation, and notify-error-message checks. Tests for the tool
 code, on top of tests for the code, on top of tests for whether the docs describing the code are
 still true.
 
-And your own `docs/decisions/testing-strategy.md` already confessed the natural result of that
+And your own project history already confesses the natural result of that
 posture: a prior internal audit found **~2,900 lines of pure restatement** in frontend tests and
 **~4,600 lines / ~350 assertions in the backend that are pure prose-linting** — your own words, "not
 one of them can fail on a product defect." That's not a hypothetical risk I'm raising. That's

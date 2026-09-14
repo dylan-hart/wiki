@@ -1,4 +1,4 @@
-/* tajawal-300 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/decisions/tajawal-font-latin-ext-gap.md */
+/* tajawal-300 - arabic_latin. No latin-ext instance exists upstream for this family */
 @font-face {
   font-family: 'Tajawal';
   font-style: normal;
@@ -6,7 +6,7 @@
   src: local(''),
        url('/_assets/fonts/tajawal/tajawal-all-300.woff2') format('woff2')
 }
-/* tajawal-regular - arabic_latin. No latin-ext instance exists upstream for this family - see docs/decisions/tajawal-font-latin-ext-gap.md */
+/* tajawal-regular - arabic_latin. No latin-ext instance exists upstream for this family */
 @font-face {
   font-family: 'Tajawal';
   font-style: normal;
@@ -14,7 +14,7 @@
   src: local(''),
        url('/_assets/fonts/tajawal/tajawal-all-regular.woff2') format('woff2')
 }
-/* tajawal-500 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/decisions/tajawal-font-latin-ext-gap.md */
+/* tajawal-500 - arabic_latin. No latin-ext instance exists upstream for this family */
 @font-face {
   font-family: 'Tajawal';
   font-style: normal;
@@ -22,7 +22,7 @@
   src: local(''),
        url('/_assets/fonts/tajawal/tajawal-all-500.woff2') format('woff2')
 }
-/* tajawal-700 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/decisions/tajawal-font-latin-ext-gap.md */
+/* tajawal-700 - arabic_latin. No latin-ext instance exists upstream for this family */
 @font-face {
   font-family: 'Tajawal';
   font-style: normal;
@@ -30,7 +30,7 @@
   src: local(''),
        url('/_assets/fonts/tajawal/tajawal-all-700.woff2') format('woff2')
 }
-/* tajawal-900 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/decisions/tajawal-font-latin-ext-gap.md */
+/* tajawal-900 - arabic_latin. No latin-ext instance exists upstream for this family */
 @font-face {
   font-family: 'Tajawal';
   font-style: normal;

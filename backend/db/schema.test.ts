@@ -178,7 +178,7 @@ describe('userAvatars table', () => {
 })
 
 /**
- * Guards `docs/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
+ * Guards `docs/audits/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
  * `siteId` column (the `sites` table itself aside) must be named somewhere in the audit doc. A
  * table added later without updating the doc — the scenario the audit exists to prevent for
  * "later epics adding comments/mail/extensions/storage-sync-target tables" — fails this test
@@ -186,7 +186,7 @@ describe('userAvatars table', () => {
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const AUDIT_DOC_PATH = path.join(HERE, '..', '..', 'docs', 'site-scoping-audit.md')
+const AUDIT_DOC_PATH = path.join(HERE, '..', '..', 'docs', 'audits', 'site-scoping-audit.md')
 
 function unscopedTableNames(): string[] {
   const names: string[] = []
@@ -329,7 +329,7 @@ describe('migration.sql NOT NULL columns require a DEFAULT', () => {
       assert.ok(
         offenders.has(folder),
         `${folder} is allow-listed but no longer has a NOT NULL column with no DEFAULT -- remove it ` +
-          `from the allow-list and its docs/decisions/ entry, if one was recorded`
+          `from the allow-list, and wherever the reasoning for it was recorded, if it still applies`
       )
     }
   })

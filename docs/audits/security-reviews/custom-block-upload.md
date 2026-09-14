@@ -40,11 +40,11 @@ validation of the one part of the file the system inspects (the static `definiti
 
 ## 2. Permission gate: `manage:sites`, plus a site-scoped exception for PUT/DELETE
 
-> **Updated 2026-08-26 (OpenProject #2128):** the delegated per-site administration Feature (#409,
-> `docs/decisions/delegated-per-site-administration.md`) landed after this review was originally written
+> **Updated 2026-08-26 (OpenProject #2128):** the delegated per-site administration Feature (#409)
+> landed after this review was originally written
 > and deliberately widened the PUT/DELETE gate below to also accept the site-scoped `site:blocks`
-> permission. That decision record's §3 table names `backend/api/blocks.ts`'s PUT/DELETE routes
-> explicitly as what `site:blocks` covers — this is not an oversight this document failed to catch, it is
+> permission. `backend/api/blocks.ts`'s PUT/DELETE routes are named explicitly as what `site:blocks`
+> covers — this is not an oversight this document failed to catch, it is
 > the intended shape, and this section is rewritten to say so plainly rather than continue asserting the
 > now-false "identically `manage:sites`, everywhere" claim the original review made.
 
@@ -116,7 +116,7 @@ custom block is exactly the act that starts its arbitrary script running for eve
 so for the narrow question this document exists to answer ("who can make arbitrary script run for
 readers of this site"), `site:blocks` is now practically equivalent to `manage:sites`, not a strictly
 smaller grant. This was a deliberate design choice made by Feature #409
-(`docs/decisions/delegated-per-site-administration.md` §3) at the time `site:blocks` was created — a group
+at the time `site:blocks` was created — a group
 trusted to decide which blocks a site runs, custom or built-in, was judged the same group that should
 decide which endpoints those blocks may authenticate to — not a gap this review is newly discovering.
 Accepted, not mitigated, for the same reason as above: there is no narrower permission name available to
@@ -224,7 +224,7 @@ and `backend/helpers/blockDefinition.test.ts`'s `on*`/glob-prop-name cases.
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Does a custom block run as full same-origin JS with no execution sandbox?                                                                                                   | Yes                                                                                               | Reading `loadBlocks()`/`blockImportUrl()` and `controllers/blocks.ts`; documented in §1                                                                                     |
 | Is `manage:sites` the correct gate for uploading NEW script?                                                                                                                | Yes, and it is the only one — upload does not accept `site:blocks`                                | Reading the POST route's `config.permissions` + `AdminLayout.vue`; CLAUDE.md's closed permission list                                                                       |
-| Do PUT/DELETE (and `blockCredentials.ts`) also accept `site:blocks`, and is that consistent with what's documented?                                                         | Yes to both — an intentional widening from Feature #409, now stated here rather than contradicted | Reading `mayManageBlocks()`/`mayManageCredentials()`; `docs/decisions/delegated-per-site-administration.md` §3; `backend/api/blocks.test.ts`'s site-scoped delegation suite |
+| Do PUT/DELETE (and `blockCredentials.ts`) also accept `site:blocks`, and is that consistent with what's documented?                                                         | Yes to both — an intentional widening from Feature #409, now stated here rather than contradicted | Reading `mayManageBlocks()`/`mayManageCredentials()`; `backend/api/blocks.test.ts`'s site-scoped delegation suite |
 | Does `security.cspDirectives` need a change?                                                                                                                                | No                                                                                                | Reading `index.ts` helmet registration, `parseCspDirectives()`, and `controllers/blocks.ts`'s headers                                                                       |
 | Is there a reasonable, enforced upload size cap?                                                                                                                            | Yes — `security.uploadMaxFileSize`, same key as `assets.ts`                                       | New test: oversized payload → `413`                                                                                                                                         |
 | Does the AST validator reject a missing definition, smuggled executable content, and an unsafe prop name?                                                                   | Yes                                                                                               | Existing unit tests, plus the `invalid-prop-name` cases added for #2132                                                                                                     |

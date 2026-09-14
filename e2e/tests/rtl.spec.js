@@ -108,9 +108,8 @@ async function activateTestLocales(page, testLocales) {
  * Switches the READER'S interface language via `AdminLayout.vue`'s own switcher -- the only place
  * `commonStore.locale` is ever set. `LocaleSelectorMenu.vue`'s reading-view switcher (used below,
  * and by `activateTestLocales`'s own caller) deliberately does NOT touch it: its own header comment
- * calls that "a separate concern this menu does not touch", and
- * `docs/decisions/lang-dir-contract.md` §6 records why -- it navigates the CONTENT locale instead
- * (OpenProject #2596).
+ * calls that "a separate concern this menu does not touch" -- it navigates the CONTENT locale
+ * instead (OpenProject #2596).
  *
  * Two things depend on the INTERFACE locale specifically, and neither is covered by #2596's
  * URL-based `dir`/`lang` resolution: a `/_`-prefixed route (the admin area, the markdown/wysiwyg
@@ -203,12 +202,11 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     await page.goto(`/_create/wysiwyg?path=e2e-rtl-wys-${uniqueSlug()}`)
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
 
-    // -> Admin area: this fork's decision (documented in
-    //    `docs/decisions/admin-chrome-direction.md`, given no 2.5.x source was available in this
-    //    sandbox to confirm against) is that the admin chrome mirrors along
-    //    with the rest of the app rather than staying forced LTR -- it is, after all, the same
-    //    single-locale SPA document, and the admin header carries its own locale switcher
-    //    (`AdminLayout.vue`) that lets an operator pick this very locale directly from within it.
+    // -> Admin area: this fork's decision (given no 2.5.x source was available in this sandbox to
+    //    confirm against) is that the admin chrome mirrors along with the rest of the app rather
+    //    than staying forced LTR -- it is, after all, the same single-locale SPA document, and the
+    //    admin header carries its own locale switcher (`AdminLayout.vue`) that lets an operator
+    //    pick this very locale directly from within it.
     await page.goto('/_admin/dashboard')
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await expect(page.getByText(RTL_TEST_LOCALE.strings['admin.adminArea'])).toBeVisible()

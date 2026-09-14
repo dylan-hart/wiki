@@ -339,8 +339,8 @@ const GUEST_ROLES = [
 
   Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
   `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
-  one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
-  `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
+  one without the other). Each governs exactly one settings surface behind `/_admin/:siteid/...`,
+  one surface per permission by design.
 
   Deliberately in the SAME catalog as the page permissions above, not a second list or a second
   UI: a rule already has a sites picker ("Applies to..." below), which for one of these means

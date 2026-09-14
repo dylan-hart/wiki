@@ -24,7 +24,7 @@ export const TEST_INCLUDE = [
   'index.test.js'
 ]
 
-// The quarantine lane, per `docs/decisions/flaky-test-quarantine.md`: a `*.flaky.test.js` file is
+// The quarantine lane: a `*.flaky.test.js` file is
 // excluded from the default run and picked up by `npm run test:flaky`
 // (`vitest.flaky.config.js`) instead, which CI runs as its own report-only step. Note that
 // `TEST_INCLUDE`'s own globs DO match a `.flaky.` filename, so `FLAKY_GLOB` in the `exclude` below
@@ -98,11 +98,9 @@ export default defineConfig({
     include: TEST_INCLUDE,
     // Vitest's `exclude` REPLACES its defaults rather than extending them, so `configDefaults`
     // has to be spread back in -- dropping it would put `node_modules` and `dist` back in scope.
-    // `FLAKY_GLOB` is the quarantine lane (`docs/decisions/flaky-test-quarantine.md`), run by
-    // `npm run test:flaky` instead.
+    // `FLAKY_GLOB` is the quarantine lane, run by `npm run test:flaky` instead.
     exclude: [...configDefaults.exclude, FLAKY_GLOB],
-    // Bounded rather than left to Vitest's own core-count-derived default -- see
-    // `docs/decisions/testing-strategy.md`'s "Bounded test concurrency" section. `4` matches a
+    // Bounded rather than left to Vitest's own core-count-derived default. `4` matches a
     // GitHub-hosted standard runner's actual vCPU count, so CI and a bounded local run see the
     // same real ceiling instead of a runner-dependent one.
     maxWorkers: 4,

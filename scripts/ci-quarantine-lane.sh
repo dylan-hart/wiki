@@ -18,8 +18,7 @@
 # Why one script rather than the same twenty lines pasted into three workflow files: three copies
 # of the summary/annotation logic is exactly the drift Epic #2600 exists to remove.
 #
-# See docs/decisions/flaky-test-quarantine.md -- the authority on what belongs in the lane, what
-# each workspace's lane command is, and why an empty lane exits 0.
+# An empty lane exits 0: passing nothing means nothing failed, not that nothing ran.
 #
 # Usage: scripts/ci-quarantine-lane.sh <workspace> [<workspace> ...]
 #   e.g. scripts/ci-quarantine-lane.sh backend frontend blocks
@@ -72,15 +71,15 @@ for workspace in "$@"; do
     # One annotation per failed lane, so the run page names the workspace without anyone opening a
     # log. `::error::` rather than `::warning::` deliberately: what makes the lane non-blocking is
     # the step's `continue-on-error`, not a claim that a red lane does not matter.
-    echo "::error title=Quarantine lane failed ($workspace)::A quarantined test in $workspace/ failed. This does NOT block the merge or the release -- the lane is report-only by design (docs/decisions/flaky-test-quarantine.md). It does mean the test is still fragile, or has started failing for a real reason. Every lane member carries a dated expiry; check it."
+    echo "::error title=Quarantine lane failed ($workspace)::A quarantined test in $workspace/ failed. This does NOT block the merge or the release -- the lane is report-only by design. It does mean the test is still fragile, or has started failing for a real reason. Every lane member carries a dated expiry; check it."
   fi
 done
 
 {
   echo "## Quarantine lane (report-only)"
   echo
-  echo "The \`*.flaky.*\` lane runs separately and gates nothing -- see"
-  echo "\`docs/decisions/flaky-test-quarantine.md\`. A red lane below is a signal, not a build failure."
+  echo "The \`*.flaky.*\` lane runs separately and gates nothing."
+  echo "A red lane below is a signal, not a build failure."
   echo
   echo "| Workspace | Result | Command |"
   echo "| --- | --- | --- |"

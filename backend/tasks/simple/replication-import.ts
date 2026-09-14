@@ -11,9 +11,8 @@ import type { TaskResult } from '../../core/scheduler.ts'
 /**
  * Restore a whole-instance snapshot tarball uploaded through `POST
  * /_api/system/replication/import` — the "wipe-and-replace" half of Feature #2437's scheduled
- * replication. See `docs/decisions/bulk-replication-wire-format.md` for the manifest shape and
- * `models/replicationImport.ts` for the restore itself; this task is only what runs once that
- * restore has actually succeeded, plus upload cleanup.
+ * replication. See `models/replicationImport.ts` for the manifest shape and the restore itself;
+ * this task is only what runs once that restore has actually succeeded, plus upload cleanup.
  *
  * `replicationImport.importSnapshot` writes every covered table directly against the database
  * (bypassing each domain model's own write paths, the same way `siteImport.ts#importSite` already

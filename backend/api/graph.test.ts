@@ -175,8 +175,8 @@ describe('assembleGraph', () => {
     )
   })
 
-  // -> OpenProject #1626: translations share a `path` by design
-  //    (`docs/decisions/locale-translation-linking.md`), so the composite `${locale}:${path}` id is
+  // -> OpenProject #1626: translations share a `path` by design (the locale-translation-linking
+  //    decision), so the composite `${locale}:${path}` id is
   //    what actually distinguishes an `en` page from its `fr` twin at the same path -- and what a
   //    link/relation target must resolve against, or an `en` page's link would count as visible
   //    when only a `fr`-locale page occupies that path.

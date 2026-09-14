@@ -4,9 +4,9 @@
  * Preload for `index.test.ts`'s real `node backend` boot (OpenProject #2339 merge fixup).
  *
  * `index.ts` calls `Temporal.Now.instant()` unconditionally while building the `WIKI` global --
- * correct for the real app, since `engines` requires Node >=26 and that release line ships `Temporal`
- * as a real, unflagged native global (see `docs/decisions/dependency-audit-exceptions.md`'s
- * `@js-temporal/polyfill` section). It
+ * correct for the real app, since `index.ts` calls `ensureTemporal()` first (see
+ * `core/temporal.ts`), which installs `@js-temporal/polyfill` as a real `dependencies` entry
+ * whenever `Temporal` is not already a native global. It
  * installs no polyfill of its own on that real boot path, by design.
  *
  * The spawned child process this preloads for is not that real boot path, though -- it is

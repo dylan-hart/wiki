@@ -2,8 +2,7 @@ import { configDefaults } from 'vitest/config'
 import baseConfig, { FLAKY_INCLUDE } from './vitest.config.js'
 
 /*
-  The quarantine lane -- `npm run test:flaky`. See `docs/decisions/flaky-test-quarantine.md` for
-  what belongs in it, what does not, and why every file in it carries a dated expiry.
+  The quarantine lane -- `npm run test:flaky`. Every file in it carries a dated expiry.
 
   A separate config rather than a command-line flag, because Vitest's CLI has no `--include` and its
   `--exclude` is ADDITIVE -- there is no way from the command line to cancel the base config's

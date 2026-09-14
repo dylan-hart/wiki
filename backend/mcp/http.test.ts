@@ -389,9 +389,8 @@ describe('mcp/http', () => {
  * `test/mcpSessionHarness.ts`, shared with `mcp/http.flaky.test.ts`.
  *
  * A third claim — that an ACTIVE session is not evicted while it is still being touched — lives in
- * `mcp/http.flaky.test.ts` instead, quarantined per
- * `docs/decisions/flaky-test-quarantine.md`: it is the one of the three whose result depends on the
- * whole run's scheduling rather than on the session map. The two below assert that eviction
+ * `mcp/http.flaky.test.ts` instead, quarantined because it is the one of the three whose result
+ * depends on the whole run's scheduling rather than on the session map. The two below assert that eviction
  * HAPPENS, which a slow run only makes more true, so they stay in the default lane.
  */
 describe('mcp/http session eviction (OpenProject #2207)', () => {

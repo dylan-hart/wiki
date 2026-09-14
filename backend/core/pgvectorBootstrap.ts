@@ -16,8 +16,7 @@ import type { WikiDb } from './db.ts'
  * Deliberately raw SQL rather than a `db/schema.ts` table plus a `drizzle-kit generate` migration:
  * `pageEmbeddingChunks`'s existence is conditional on an extension the operator may not be permitted
  * to install, and a Drizzle migration has no "skip this DDL if it fails" affordance -- a failed
- * migration leaves the migration ledger in a state every later boot refuses to run past. See
- * `docs/decisions/pgvector-raw-sql-table.md` for the full reasoning.
+ * migration leaves the migration ledger in a state every later boot refuses to run past.
  *
  * Every statement is `IF NOT EXISTS`, so a repeated call (this module's own DB-backed test calls it
  * more than once, and a clustered boot could race another instance running the same statements) is

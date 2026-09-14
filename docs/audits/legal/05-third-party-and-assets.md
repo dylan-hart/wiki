@@ -19,7 +19,7 @@ test tooling and ships nothing.
 | `@img/sharp-libvips-*` (10 platform builds), `@img/sharp-wasm32`, `@img/sharp-win32-*` | LGPL-3.0-or-later (libvips), some AND Apache-2.0/MIT | LGPL-3 is compatible with (A)GPL-3; sharp links libvips as a prebuilt shared library. No source obligation beyond libvips' own, which sharp's package satisfies. Inherited from upstream. |
 | `lightningcss` + 12 platform builds (two copies: direct and under `vite/`) | MPL-2.0 | File-level copyleft, explicitly GPL-compatible (MPL §3.3). Used at build time by Vite/Tailwind; ships nothing to the browser. Inherited. |
 | `dompurify` (frontend and blocks) | MPL-2.0 OR Apache-2.0 | Choose Apache-2.0; compatible. Inherited. |
-| `@twemoji/api`, `twemoji-assets` | MIT (code) AND **CC-BY-4.0** (graphics) | Compatible, but **CC-BY requires attribution** to Twitter/the Twemoji authors wherever the graphics are displayed or redistributed. Neither upstream nor the fork attributes them anywhere in the UI or docs (`docs/decisions/dependency-audit-exceptions.md` mentions Twemoji only for a version pin). Inherited gap. |
+| `@twemoji/api`, `twemoji-assets` | MIT (code) AND **CC-BY-4.0** (graphics) | Compatible, but **CC-BY requires attribution** to Twitter/the Twemoji authors wherever the graphics are displayed or redistributed. Neither upstream nor the fork attributes them anywhere in the UI or docs. Inherited gap. |
 | `khroma` (blocks, via mermaid) | No `license` field → reported UNKNOWN | Its shipped `license` file is MIT (Fabio Spampinato, Andrew Maney). Not a problem; noting so the next audit does not re-flag it. |
 | BlueOak-1.0.0, Python-2.0, PSF-2.0, Unlicense, 0BSD, CC0, Zlib, MIT-0 | permissive | Compatible. |
 

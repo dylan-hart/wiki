@@ -306,8 +306,8 @@ describe('AdminNavigation', () => {
   })
 
   /**
-   * WP #2577: the path-display case-style setting, embedded as its own card-local save (per
-   * `docs/decisions/embedded-setting-save-affordance.md`) rather than a page-header Apply.
+   * WP #2577: the path-display case-style setting, embedded as its own card-local save rather
+   * than a page-header Apply.
    */
   it("defaults the path display picker to 'off' when the site has no pathDisplayCase set yet", async () => {
     const { wrapper } = await mountPage()

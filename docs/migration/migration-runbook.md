@@ -289,8 +289,8 @@ sufficient — they cannot tell you a page _reads right_, only that its hash mat
   history) and confirm they render correctly, with the right author/timestamps.
 - Open a handful of assets (images, attachments) referenced from those pages and confirm they
   actually load, not just that a database row exists for them. Note that a migrated asset's
-  `createdAt`/`updatedAt` reflect the moment the import ran, not the 2.x source's real dates
-  (`docs/decisions/migration-asset-comment-timestamps.md`) — do not expect those dates to match 2.x.
+  `createdAt`/`updatedAt` reflect the moment the import ran, not the 2.x source's real dates —
+  do not expect those dates to match 2.x.
 - If comments were in use on 2.x, open a page that had a comment thread and confirm the comments
   themselves came across (they do — see [`2.5x-to-3.0-mapping.md`](2.5x-to-3.0-mapping.md#comments)),
   keeping in mind reply structure is flattened (every migrated comment lands top-level, per the same

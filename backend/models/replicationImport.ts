@@ -35,9 +35,8 @@ import { purgeFilesOlderThan } from '../helpers/fsPurge.ts'
 const IMPORT_TTL_SECONDS = 24 * 60 * 60
 
 /**
- * The manifest/tarball shape this model reads back — see
- * `docs/decisions/bulk-replication-wire-format.md` for the full contract (entry list, table
- * ordering, the settings-wipe caveat). Bumped only when that shape changes; an archive naming a
+ * The manifest/tarball shape this model reads back (entry list, table ordering, the settings-wipe
+ * caveat). Bumped only when that shape changes; an archive naming a
  * different version is refused outright rather than restored best-effort, same precedent as
  * `models/export.ts#EXPORT_FORMAT_VERSION`/`models/siteImport.ts`. Deliberately independent of
  * `EXPORT_FORMAT_VERSION` — that constant describes one site's content archive, an unrelated payload.
@@ -148,9 +147,9 @@ export function orderCommentsByReplyDepth(rows: ArchiveRow[]): ArchiveRow[] {
  * Restores a whole-instance snapshot tarball into this instance, wiping every table the snapshot
  * covers before inserting the archive's own rows — the "wipe-and-replace" half of Feature #2437's
  * scheduled replication (the other half, producing the archive, is sibling WP #2489/`models/
- * export.ts` territory, source side, not yet built). See
- * `docs/decisions/bulk-replication-wire-format.md` for the full manifest shape, table ordering and
- * the accepted settings-wipe consequence — this class implements exactly what that document decides.
+ * export.ts` territory, source side, not yet built). This class implements exactly the manifest
+ * shape, table ordering and accepted settings-wipe consequence `REPLICATION_FORMAT_VERSION` above
+ * fixes.
  *
  * Reuses `models/siteImport.ts#readArchive`/`#readJson` for the tar-reading mechanics (asset blobs
  * staged to disk, decompressed-size ceilings, JSON entries fully buffered) rather than re-deriving

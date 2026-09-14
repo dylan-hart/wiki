@@ -211,7 +211,7 @@ describe('scripts/verify-ci.sh covers the legs outside the quality gate', () => 
 describe('scripts/verify-ci.sh’s quarantine lane is report-only', () => {
   // The #2686 <-> #2692 contract: the lane runs on both sides and fails neither. Report-only on
   // both sides is what makes verify-ci and quality.yml agree on the pass/fail verdict regardless of
-  // which of the two landed first. See docs/decisions/flaky-test-quarantine.md.
+  // which of the two landed first.
   test('it runs npm run test:flaky in all four workspaces', () => {
     const lane = SCRIPT.slice(SCRIPT.indexOf('if [ "$RUN_FLAKY" = \'1\' ]'))
     assert.match(lane, /for workspace in backend frontend blocks e2e/)

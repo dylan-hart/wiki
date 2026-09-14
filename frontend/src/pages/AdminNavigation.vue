@@ -112,10 +112,9 @@
         </w-card>
       </div>
       <!--
-        Card-local save, not a page-header Apply, per `docs/decisions/embedded-setting-save-
-        affordance.md`: this page is a viewer (the overrides table above), not a settings form top
-        to bottom, so this embedded setting commits from its own card -- the same shape as
-        `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
+        Card-local save, not a page-header Apply: this page is a viewer (the overrides table
+        above), not a settings form top to bottom, so this embedded setting commits from its own
+        card -- the same shape as `AdminAuditLog.vue`'s retention card (OpenProject #2089/#2574).
       -->
       <div class="col-span-12">
         <!--

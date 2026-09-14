@@ -95,8 +95,8 @@
         v-if="selectedEngine">
         <!--
           The card-local apply button stays exactly where it is: this page is a picker plus a panel
-          rather than one settings form top to bottom, which is the case
-          `docs/decisions/embedded-setting-save-affordance.md` gives a card-local control to.
+          rather than one settings form top to bottom, which is the case a card-local control fits,
+          not a page-header Apply.
         -->
         <w-settings-card :title="t('admin.search.engineConfig')">
           <template #hint>{{ selectedEngine.description }}</template>
@@ -161,8 +161,7 @@
       Independent of the engine picker above -- semantic search is always backed directly by
       Postgres/pgvector regardless of which full-text engine is selected -- so it gets its own
       full-width card rather than living inside either half of the row above. Card-local save
-      control per `docs/decisions/embedded-setting-save-affordance.md`, the same pattern the engine
-      config panel above already uses on this page.
+      control, the same pattern the engine config panel above already uses on this page.
     -->
     <div class="p-4 pt-0">
       <w-settings-card :title="t('admin.search.semanticTitle')">

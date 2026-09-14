@@ -14,9 +14,8 @@
 //     system config is /usr/local/etc/gitconfig, which would silently orphan the explicit
 //     `git config --system` settings the Dockerfile writes to /etc/gitconfig. Those settings exist
 //     to close Bug #2586 (a suite that passed locally and failed in CI purely on an ambient
-//     `init.defaultBranch`), so they win over a newer git. The resulting git-version divergence from
-//     ubuntu-latest is recorded in docs/decisions/dev-container-git-version-divergence.md rather than
-//     left implicit.
+//     `init.defaultBranch`), so they win over a newer git -- at the deliberate cost of a git version
+//     that diverges from ubuntu-latest's.
 //
 // `common-utils` keeps `upgradePackages` OFF: an `apt upgrade` at container-create time resolves
 // against whatever the Debian archive holds that morning, which is unpinnable drift in an image

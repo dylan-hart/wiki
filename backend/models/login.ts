@@ -314,7 +314,7 @@ class Login {
       A password change is never asked for here: `mustChangePwd` lives on the local strategy's own
       auth entry and is about a stored password this login never touches, so it stays skipped.
 
-      2FA is deliberately NOT skipped, though (see docs/decisions/provider-login-2fa.md): a TOTP
+      2FA is deliberately NOT skipped, though: a TOTP
       secret enrolled under the local strategy is a signal the account's owner wanted a second
       factor regardless of which door they used to sign in, so `afterLoginChecks()` still stops a
       provider login at `provideTfa` when one is active there -- independently of whatever MFA the
@@ -972,7 +972,7 @@ class Login {
         the account's owner, made independently of which door they use to sign in next. Without
         this fallback, a provider login (whose own `auth[strategyId]` entry almost never has a
         secret of its own) would sail straight past a second factor the owner explicitly turned
-        on. See docs/decisions/provider-login-2fa.md.
+        on.
       */
       const localStrategyId = WIKI.data.systemIds.localAuthId
       const localAuthStr =

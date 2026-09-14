@@ -18,8 +18,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
    * The submission/review routes (`/sites/:siteId/approvals/submissions/...`,
    * `/sites/:siteId/pages/:pageId/suggestions/self`) are deliberately untouched by task #683 — they
    * are page-scoped review permissions (`review:pages`, decided per-page by `helpers/pageRules.ts`),
-   * not a site-admin surface, per `docs/decisions/delegated-per-site-administration.md` §3's mapping
-   * of `site:approvals` to the rules routes specifically. Covered separately below.
+   * not a site-admin surface, per the delegated-per-site-administration decision's §3 mapping of
+   * `site:approvals` to the rules routes specifically. Covered separately below.
    */
 
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'

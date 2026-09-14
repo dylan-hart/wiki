@@ -129,7 +129,7 @@ async function routes(app: FastifyInstance) {
 
         NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
         the narrower site-scoped `site:blocks` delegation (`checkSiteAdminAccess()`, backed by
-        `checkSiteAccess()` — see `docs/decisions/delegated-per-site-administration.md` §3, which lists
+        `checkSiteAccess()` — per the delegated-per-site-administration decision's §3, which lists
         `site:blocks` as covering exactly these two routes). That is a deliberate, accepted widening,
         not an inconsistency: introducing NEW arbitrary script is the more sensitive act, so upload
         stays gated on `manage:sites` alone one tier tighter than merely enabling, disabling or deleting

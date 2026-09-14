@@ -11,8 +11,8 @@
  * re-proven live below, since it is the one Node's own docs are quietest about.
  *
  * Co-located with `package.json` the way `base.test.ts` sits beside `base.yml`: the scripts are
- * the subject, and there is nothing in `test/` they belong next to instead. The reasoning is
- * `docs/decisions/testing-strategy.md`'s "Bounded test time".
+ * the subject, and there is nothing in `test/` they belong next to instead. This is the "Bounded
+ * test time" half of the settled testing policy (see also "Bounded test concurrency").
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'

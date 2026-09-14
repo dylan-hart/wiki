@@ -138,7 +138,7 @@ Tiered by how disqualifying each gap actually is, not by effort to fix.
 | **Legal/branding hygiene reads as an unlicensed rebrand** | README hotlinks the Wiki.js logo from Requarks' CDN; GitHub Sponsors/OpenCollective funding routes to Requarks; `SECURITY.md` sends vulnerability reports to `security@requarks.io`; no `NOTICE` file; no AGPL §5(a) fork-disclosure statement; no font/Twemoji attribution (`docs/legal/06-branding-and-trademark.md`, `07-recommended-actions.md`) | Any legal/procurement review at a company evaluating this would flag it immediately as either sloppy or bad-faith. This is cheap to fix and currently isn't fixed. |
 | **Zero public presence** | Private repo (`github.com/dylan-hart/wiki`), no announcement, no community, no public roadmap | You cannot lose a bake-off you were never invited to. Before any gap below matters, someone outside this repo has to know Cardinal.js exists. |
 | **SCIM provisioning does not exist** | Zero hits for SCIM anywhere in `backend/` | Automated user lifecycle/deprovisioning is a hard requirement for most enterprise security teams, independent of everything else on offer. |
-| **CAS auth is decorative** | `docs/decisions/cas-1.0-account-provisioning-gap.md` — CAS 1.0 only, **cannot provision or log in any account** | Worse than not offering CAS at all: it implies a capability that silently fails. An evaluator who tries it loses trust in every other claim in the docs. |
+| **CAS auth is decorative** | CAS 1.0 only, **cannot provision or log in any account** | Worse than not offering CAS at all: it implies a capability that silently fails. An evaluator who tries it loses trust in every other claim in the docs. |
 
 ### Tier 1 — Competitive table stakes missing (the 2026 market has normalized these; their absence is now noticed, not excused)
 
@@ -158,7 +158,7 @@ Tiered by how disqualifying each gap actually is, not by effort to fix.
 | **No SOC2/compliance certification story** | Only the AGPL legal review exists (`docs/legal/`); nothing shaped like an enterprise compliance certification. Disqualifying for regulated-industry procurement regardless of feature quality. |
 | **Accessibility posture is basic and undocumented as a strength** | A single 109-line `helpers/accessibility.js`; no dedicated audit trail beyond Epic 1368. Not clearly worse than most competitors, but nothing to point to either — a missed opportunity given how few competitors lead with this. |
 | **ARM64 support unverified on real hardware** | Manifest declares `linux/arm64` but no release has ever been tagged or tested on real silicon. Matters for the growing homelab/Raspberry Pi self-host demographic this project's own positioning (self-hosted, zero seat fees) should be courting. |
-| **Several auth presets never verified against live providers** | Auth0, Okta, Keycloak, GitLab, Twitch, Discord, Slack OIDC presets are unit-tested against mocks only (`docs/decisions/auth-preset-live-verification-gaps.md`) | A prospective evaluator's first login attempt is a bad place to discover a live-integration bug. |
+| **Several auth presets never verified against live providers** | Auth0, Okta, Keycloak, GitLab, Twitch, Discord, Slack OIDC presets are unit-tested against mocks only | A prospective evaluator's first login attempt is a bad place to discover a live-integration bug. |
 
 ### Tier 3 — Perception/marketing risk (not functional gaps, but they shape how everything above lands)
 

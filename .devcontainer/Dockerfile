@@ -178,9 +178,8 @@ RUN set -eu; \
 # This writes /etc/gitconfig, the system config of the distro git installed above. It is also why
 # devcontainer.json no longer enables the `devcontainers/features/git` feature: that feature builds
 # git from source under /usr/local, whose system config is /usr/local/etc/gitconfig -- so every
-# setting below would still be on disk and silently no longer read. See
-# docs/decisions/dev-container-git-version-divergence.md for the resulting git-version divergence
-# from ubuntu-latest, which is accepted rather than hidden.
+# setting below would still be on disk and silently no longer read. The resulting git-version
+# divergence from ubuntu-latest is accepted rather than hidden.
 # ---------------------------------------------------------------------------------------------
 RUN git config --system init.defaultBranch master \
     && git config --system user.name 'Wiki.js Dev Container' \

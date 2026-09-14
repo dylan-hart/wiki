@@ -1,9 +1,8 @@
 // Regression test for docs/migration/decision-source-scope.md. Lives here rather than next to the
 // doc because npm run test's '**/*.test.ts' glob only resolves inside this workspace.
 //
-// Trimmed by OpenProject #2690 (`docs/testing-audit/backend.md`'s
-// `test/migration-source-scope-decision` row, and named explicitly in
-// `docs/decisions/testing-strategy.md`'s six kept doc-scan assertions): the decision record's prose
+// Trimmed by OpenProject #2690, one of the settled testing policy's six kept doc-scan assertions:
+// the decision record's prose
 // (the stated rationale, the connection-field list, the cited minimum 2.x version) is deleted —
 // nothing gates a stale decision doc but the next reader. What survives is the one real,
 // nothing-else-covers-it dependency-drift check the decision's whole argument rests on: this branch

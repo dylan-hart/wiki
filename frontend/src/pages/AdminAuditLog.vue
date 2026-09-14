@@ -168,16 +168,15 @@
       <!--
         Card-local save, not a page-header Apply, by decision (OpenProject #2089): this page is a
         viewer (audit entries + filters) with settings embedded in it, not itself a settings form,
-        and its filter card above already commits locally the same way -- see
-        `docs/decisions/embedded-setting-save-affordance.md`.
+        and its filter card above already commits locally the same way.
 
         The setting itself is drawn as a settings row -- a plate, the name over its sentence, the
         control at the trailing edge -- rather than as the hand-written `text-subtitle1` + caption
         pair it was: it is a fixed, design-time named setting, which is exactly the case the row
         applies to, while the log table above it is not and keeps its own shape. No tint under it
         either; a settings row sits on paper, held by the card's hairline. Which of these pages'
-        surfaces take the pattern and which do not is
-        `docs/decisions/admin-list-viewer-tool-page-pattern.md`.
+        surfaces take the pattern and which do not follows a settled, deliberate split, not
+        per-page taste.
       -->
       <w-card>
         <w-settings-row

@@ -8,7 +8,7 @@ import { installTestWiki } from './mocks.ts'
  * TTL and hard cap), shared by `mcp/http.test.ts`'s eviction describe and `mcp/http.flaky.test.ts`.
  *
  * It lives here rather than in either test file because those two files are deliberately in
- * different lanes — one quarantined, one not (`docs/decisions/flaky-test-quarantine.md`) — and a
+ * different lanes — one quarantined, one not — and a
  * test file must never import another test file: `node --test` would then run the imported file's
  * suites twice, once under each name. A plain `.ts` harness under `test/` is the convention for
  * exactly this (`test/collabHarness.ts` is the existing example).

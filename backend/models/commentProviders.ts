@@ -145,9 +145,9 @@ class CommentProviders {
    * Whether a provider may be listed and selected.
    *
    * `hasImplementation` alone, matching `models/storage.ts`'s equivalent gate. Reversed from an
-   * earlier version that also treated `codeTemplate` as an independent grant — see
-   * `docs/decisions/comment-provider-selectability.md` for why: no page-view code renders a
-   * `codeTemplate` provider's embed, and building that render path turned out to be materially more
+   * earlier version that also treated `codeTemplate` as an independent grant: no page-view code
+   * renders a `codeTemplate` provider's embed, and building that render path turned out to be
+   * materially more
    * than the one-field flip it looked like (a new public, per-page-permission-gated API to expose
    * the active provider to anonymous readers, plus vendor-specific glue for three different
    * third-party SDKs), so the fork now marks Disqus/Commento/Artalk `isAvailable: false` instead —

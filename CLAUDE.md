@@ -302,9 +302,8 @@ A block that must _act_ on the change rather than restyle for it passes `onChang
 `globalThis.API_CLIENT` / `globalThis.WIKI_STATE`.** A block sitting in page content has no siteId
 of its own and no page store threaded down to it — those SPA globals
 (`frontend/src/boot/externals.js`) exist only inside the app shell, so a block reading them cannot
-run in a context that mounts blocks without it (the page-level pre-rendering
-`docs/decisions/diagram-server-side-prerendering.md` describes as a future task, concretely). The one
-convention every block uses instead (OpenProject #1969):
+run in a context that mounts blocks without it (page-level pre-rendering is a future task,
+concretely). The one convention every block uses instead (OpenProject #1969):
 
 - **Site id**: `getSiteId()`, plus plain `fetch` for the actual request. Both read off the same
   public, hostname-routed `GET /_api/sites/current` `getBlockConfig` (`shared/config.js`) already
@@ -384,7 +383,7 @@ Four things worth knowing before you rely on it:
   being mirrored. `--smoke-boot` likewise adds `quality.yml`'s separate production-install boot job,
   opt-in because it swaps `backend/node_modules` for the production tree.
 - **The flaky-test quarantine lane runs report-only** and never changes the exit code, matching the
-  report-only lane step in `quality.yml` — see `docs/decisions/flaky-test-quarantine.md`.
+  report-only lane step in `quality.yml`.
 - `release.yml` needs no separate command: its gate is a strict subset of `quality.yml`'s.
 
 `./scripts/verify-ci.sh --help` is the authority on the flags and on what each one does and does not
@@ -455,8 +454,7 @@ Conventions established during the conversion, worth following in new code:
   already-broken code outside its own scope, leave the behavior identical behind a narrow cast plus a
   `FIXME:` comment explaining the real fix, rather than silently changing runtime behavior as a
   drive-by. No `FIXME:` markers remain in `backend/` today — every one raised during the TypeScript
-  conversion has since been fixed. See `docs/decisions/typescript-conversion-fixmes.md` for that
-  history.
+  conversion has since been fixed.
 
 ## Conventions
 
@@ -520,8 +518,7 @@ the `typescript` plugin. oxlint does not type-check — run `npm run typecheck` 
 
 **Bumping oxlint or oxfmt's version is a dependency-bump checklist item, not a plain version-string
 edit.** A newer formatter release can change what it considers correctly formatted, silently
-invalidating files nobody touched — see `docs/decisions/oxfmt-version-bump-incident.md` for the
-incident that established this. Whenever either tool's version changes, run the reformat (not just
+invalidating files nobody touched. Whenever either tool's version changes, run the reformat (not just
 the check) across all three workspaces from the repo root in the **same commit** as the bump, and
 commit whatever it touches:
 
@@ -543,9 +540,8 @@ parenthesises two statements and the template fails to compile (`Error parsing J
 expression: Unexpected token`). Write a named handler instead — `@click="closeAndRefresh"` — as
 `EditorMarkdown.vue` and `PageRelationDialog.vue` do.
 
-Neither side of that is worth reconfiguring, so don't try — see
-`docs/decisions/vue-inline-handler-semicolons.md` for why neither the compiler nor the formatter can
-be fixed here. For a one-off where the inline form genuinely reads better, `<!-- prettier-ignore -->`
+Neither side of that is worth reconfiguring, so don't try — neither the compiler nor the formatter
+can be fixed here. For a one-off where the inline form genuinely reads better, `<!-- prettier-ignore -->`
 on the preceding line works (oxfmt honors Prettier's marker; there is no `oxfmt-ignore`).
 
 ### Utilities and dates
@@ -596,10 +592,9 @@ Ask `WIKI.models.groups.checkAccess(actor, permission, page)`, or
 `site:editors` (`SITE_PERMISSIONS` in `helpers/siteRules.ts`) — one per delegable admin settings
 surface, for handing a non-`manage:sites` user control of specific sites without making them a full
 site administrator. A group grants them through the **same rule rows** page permissions use
-(`GroupRule.roles` is one shared vocabulary space across both kinds — see
-`docs/decisions/delegated-per-site-administration.md`), just addressed by `sites` alone instead of
-`path`/`match`/`locales`: an empty `sites` array means every site, a populated one means only those
-ids. Nothing is granted by default; `helpers/siteRules.ts#resolveSiteRule` documents the ALLOW <
+(`GroupRule.roles` is one shared vocabulary space across both kinds), just addressed by `sites`
+alone instead of `path`/`match`/`locales`: an empty `sites` array means every site, a populated one
+means only those ids. Nothing is granted by default; `helpers/siteRules.ts#resolveSiteRule` documents the ALLOW <
 DENY < FORCEALLOW tie-break, the same ordering `helpers/pageRules.ts` uses. Ask
 `WIKI.models.groups.checkSiteAccess(actor, permission, siteId)`.
 
@@ -906,15 +901,12 @@ framework — this follows the same no-build-step, native-TS-stripping approach 
 `backend/`: `node --test` type-strips `.ts` test files exactly like `node backend` does, so a test
 file is written and run the same way as the code it tests, with no separate transpile or worker
 config. The three flags are decisions, not tuning: the concurrency bound and the two hang ceilings
-are `docs/decisions/testing-strategy.md`'s "Bounded test concurrency" and "Bounded test time", and
-`package.test.ts` guards the ceilings. Bare `node --test` has no per-test timeout and waits forever
-on a child kept alive by a leaked handle — which is how OpenProject #2927's 27-minute silent hang
-reached the job's 30-minute kill with no test named.
+are deliberately bounded, and `package.test.ts` guards the ceilings. Bare `node --test` has no
+per-test timeout and waits forever on a child kept alive by a leaked handle — which is how
+OpenProject #2927's 27-minute silent hang reached the job's 30-minute kill with no test named.
 
-**What earns a test, at which layer, and what deliberately gets none is
-`docs/decisions/testing-strategy.md`** — the settled policy, written from the #2687/#2688 test-value
-audits under `docs/testing-audit/`. This section is the mechanics; that document is the reasoning,
-and it governs where the two ever disagree.
+**What earns a test, at which layer, and what deliberately gets none** follows the settled policy
+below, written from the #2687/#2688 test-value audits.
 
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
@@ -926,7 +918,7 @@ and it governs where the two ever disagree.
   boundary and must not be read as one** — 81 suites open a real Postgres schema and only those
   eleven are so named. The real boundary is `hasTestDatabase()`, which every one of them carries;
   running the pure half alone is `DATABASE_URL` unset. The suffix is not required of a new DB-backed
-  file and carries no claim if used — see `docs/decisions/testing-strategy.md` for the full reasoning.
+  file and carries no claim if used.
   A DB-backed file opens **one** `setupTestDb()` for the whole file, shared by its describes, rather
   than one per describe. `test/` holds the shared harness and fixture code that is not itself a
   `*.test.ts` (`db.ts`, `mocks.ts`, …) — plus, since a harness module is a source file like any
@@ -1089,8 +1081,7 @@ and it governs where the two ever disagree.
   from a header `unelevated` primary `common.actions.apply` button (`AdminGeneral.vue`,
   `AdminTheme.vue`, and eleven more siblings). A setting embedded in a page whose primary content
   is something else — a list, a viewer, a picker-plus-panel like `AdminSearch.vue` — gets its own
-  card-local save control instead (`AdminSearch.vue:105`, `AdminAuditLog.vue:174-180`); see
-  `docs/decisions/embedded-setting-save-affordance.md` for the full reasoning.
+  card-local save control instead (`AdminSearch.vue:105`, `AdminAuditLog.vue:174-180`).
 - **An admin settings page's load/save skeleton is `composables/adminSettings.js`, not
   hand-written.** `useAdminSettings({ i18nPrefix, keys, siteScoped, overlay, defaults, extraState,
   fetch, pick, onLoaded, commit, onSaved, onSavedCurrentSite })` returns `{ state, load, save,
@@ -1140,10 +1131,10 @@ the `twemoji-assets` tarball dependency is resolvable) and `vite-plugin-vue-devt
 `../config.yml` at import time for the dev proxy port, none of which a unit test needs or wants
 paying the cost of on every run.
 
-**The policy for what earns a test and at which layer is `docs/decisions/testing-strategy.md`**,
-written from `docs/testing-audit/frontend.md`'s classification of every suite in this workspace. It
-is where the real-Chromium layer, the source-scanning gates and the `describe.each` convention are
-settled; the mechanics below stand unchanged.
+**The policy for what earns a test and at which layer** follows the same settled reasoning as the
+backend's testing section above, from a classification of every suite in this workspace — the
+real-Chromium layer, the source-scanning gates and the `describe.each` convention are settled by
+it; the mechanics below stand unchanged.
 
 What IS mirrored from `vite.config.js`, because component code has to resolve exactly the way it
 does in the real build, not because it was convenient to share:
@@ -1270,10 +1261,9 @@ a block has no build-time template compilation (`rollup.config.mjs` bundles plai
 transform it) and no app framework around it, so a test loads `component.js` exactly as the browser
 would.
 
-**`docs/decisions/testing-strategy.md` is the policy** for what earns a test here and at which
-layer. `blocks/` was not separately classified by the #2687/#2688 audits, but the layers and the
-"what gets no test at all" rules apply to it unchanged — a block's suite sits at the component
-layer.
+**The same settled testing policy governs what earns a test here and at which layer.** `blocks/`
+was not separately classified by the #2687/#2688 audits, but the layers and the "what gets no test
+at all" rules apply to it unchanged — a block's suite sits at the component layer.
 
 - **`environment: 'jsdom'`**, not `happy-dom` (frontend's choice). A block's whole surface under test
   _is_ its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
@@ -1322,10 +1312,10 @@ production-shaped stack (`node backend` from the repo root, serving `frontend/`'
 output out of `assets/`), which is a different thing from any one workspace's unit tests, not a
 superset of one of them.
 
-**`docs/decisions/testing-strategy.md` is the policy**, and it is deliberately restrictive about
-this layer: a flow earns an e2e spec when its failure mode is *the pieces not fitting together*.
-Permission matrices, error taxonomies and accessibility properties belong above it, in the unit and
-component suites, which is where they are.
+**The same settled testing policy is deliberately restrictive about this layer:** a flow earns an
+e2e spec when its failure mode is *the pieces not fitting together*. Permission matrices, error
+taxonomies and accessibility properties belong above it, in the unit and component suites, which is
+where they are.
 
 - **Boots the real thing, not a dev proxy.** `playwright.config.js`'s `webServer` runs `node
 backend` (`cwd: '..'` — `index.ts` refuses to boot from anywhere else) against `CONFIG_FILE:
@@ -1425,9 +1415,9 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
 Two workflow files split the work: `.github/workflows/quality.yml` (typecheck/lint/format +
 backend/frontend/blocks unit tests) and `.github/workflows/build.yml` (version stamping, asset/blocks
 building, the Playwright e2e suite, then the Docker publish). `quality.yml` is a `workflow_call:`
-target that `build.yml`'s `build` job `needs:` — see `docs/decisions/ci-workflow-split.md` for why the
-split is shaped this way (including why the e2e suite runs from `build.yml` rather than only from its
-own `e2e.yml`, and why `release.yml` runs its own copy of the gate).
+target that `build.yml`'s `build` job `needs:` — this is also why the e2e suite runs from
+`build.yml` rather than only from its own `e2e.yml`, and why `release.yml` runs its own copy of the
+gate.
 
 - **`quality.yml`** runs on every pull request directly, and on every `scarlett` push via `build.yml`.
   Its steps: backend typecheck, then per-workspace lint (`oxlint --deny-warnings`) and the frontend's

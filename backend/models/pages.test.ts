@@ -2571,7 +2571,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
    * `helpers/translationStaleness.test.ts` covers the comparison logic itself as a pure function;
    * this proves `getTranslationStaleness` wires it to a real `(siteId, path)` join off the actual
    * `pages` table -- `test/db.ts#setupTestDb()` already seeds this site's locale config with
-   * `active: ['en', 'fr']`, matching `docs/decisions/locale-translation-linking.md`'s convention.
+   * `active: ['en', 'fr']`, matching the locale-translation-linking decision's convention.
    */
   describe('getTranslationStaleness (OpenProject #2477)', () => {
     test('flags a translation older than the primary page as stale', async () => {
