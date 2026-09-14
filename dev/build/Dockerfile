@@ -45,13 +45,18 @@ ENV NODE_ENV=production
 
 # Chromium's own process sandbox (see backend/helpers/puppeteer.ts) needs either the setuid sandbox
 # helper or unprivileged user namespaces to start. This image relies on the *host's* kernel allowing
-# unprivileged user namespace creation (Linux's `kernel.unprivileged_userns_clone` /
-# `kernel.apparmor_restrict_unprivileged_userns` sysctls -- the default on most distributions, but
-# disabled by some hardened ones and by Docker's default seccomp profile on older engines) rather than
-# installing the setuid helper here, so no extra root-owned binary/capability is added to the image on
-# top of the existing `USER node`. An operator whose container runtime blocks unprivileged user
-# namespaces should instead opt into `security.allowPuppeteerNoSandbox` and record why explicitly,
-# rather than expect the sandbox to start here.
+# unprivileged user namespace creation rather than installing the setuid helper here (Debian bookworm's
+# `chromium` package ships no such helper to install anyway), so no extra root-owned binary/capability
+# is added to the image on top of the existing `USER node`.
+#
+# CONFIRMED (OpenProject #3214, docs/decisions/sandboxed-puppeteer-requires-runtime-flags.md): a plain
+# `docker run` of this image -- no extra flags -- does NOT get there. Docker's own default seccomp
+# profile blocks the unprivileged user-namespace creation Chromium's sandbox needs, so every
+# headless-browser feature (PDF export, page re-render, diagram render) fails outright until the
+# operator either sets `security.allowPuppeteerNoSandbox: true` or starts the container with a
+# `--security-opt seccomp=<profile allowing it>` / `--cap-add=SYS_ADMIN`. Run
+# `dev/build/verify-sandboxed-puppeteer.sh` against a freshly built image to reproduce or re-check
+# this.
 
 # The browser the Puppeteer extension drives, installed above rather than downloaded by Puppeteer: the
 # distro keeps it patched, it exists for arm64 as well as amd64, and the image does not carry two copies
