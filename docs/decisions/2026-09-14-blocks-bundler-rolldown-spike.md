@@ -50,7 +50,7 @@ same tree:
 
 1. **Rolldown's own CSS-bundling pipeline was removed** (rolldown/rolldown#4271) and hard-errors —
    `[UNSUPPORTED_FEATURE] Bundling CSS is no longer supported` — on any `.css`-extension module
-   *before* a plugin's `transform` hook runs, unlike Rollup, which has no built-in opinion about
+   _before_ a plugin's `transform` hook runs, unlike Rollup, which has no built-in opinion about
    `.css` and defers entirely to `cssAsString()`. The fix is one line,
    `moduleTypes: { '.css': 'js' }`, which tells Rolldown to hand the raw file straight to `transform`
    as plain text instead of routing it through the (now-absent) CSS pipeline. Worth knowing going in
@@ -68,7 +68,7 @@ same tree:
    module transformation across a Rust thread pool, so the order in which `blocksManifest()`'s
    `transform()` hook completes for each `component.js` — and therefore the order values land in its
    `Map` — is no longer tied to input file discovery order the way Rollup's build (effectively
-   single-threaded per this graph) keeps it today. The manifest's *content* is unaffected and nothing
+   single-threaded per this graph) keeps it today. The manifest's _content_ is unaffected and nothing
    downstream currently depends on its order, but this is a real, measurable loss of the deterministic
    build output the current setup has for free, and a real migration should add an explicit sort (by
    `block` name) to `generateBundle()` before serializing, to restore both stable diffs and a
