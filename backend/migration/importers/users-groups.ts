@@ -158,7 +158,9 @@ export type ConversionOutcome<TRow> =
       providerFallback?: ProviderFallbackFlag
       /** Optional note for an otherwise-successful conversion — e.g. `createGroupConverter()` uses
        * this to report permissions/rules that were dropped during conversion rather than silently
-       * discarding them. Never required: most converters that reach `created` have nothing to add. */
+       * discarding them, and both `UserConverter`s use it (via `convertTfa()`) when a 2.x account's
+       * 2FA could not be carried over. Never required: most converters that reach `created` have
+       * nothing to add. */
       message?: string
     }
   | { status: 'skipped' | 'conflicted' | 'flagged'; message: string }
@@ -381,6 +383,62 @@ export function readSourceDate(source: SourceRecord, column: string): Date | und
   return undefined
 }
 
+/** The RFC 4648 base32 alphabet a TOTP secret is encoded in — mirrors the acceptance criteria of
+ * `helpers/totp.ts#base32Decode` (case-insensitive, tolerant of whitespace/dashes and `=` padding) so
+ * a secret this function accepts is one that decoder will actually accept too. Duplicated rather than
+ * imported: this importer has no other dependency on `helpers/totp.ts`, and the two secrets 2.x/3.0
+ * share a format over (base32, RFC 6238) are a public standard, not an internal contract between the
+ * two files. Not a general-purpose base32 validator — only used by `convertTfa()` below to decide
+ * whether a 2.x secret is safe to carry over verbatim. */
+function isCarryableTotpSecret(secret: string): boolean {
+  const normalized = secret.toUpperCase().replaceAll(/[\s-]/g, '').replaceAll('=', '')
+  return normalized.length > 0 && /^[A-Z2-7]+$/.test(normalized)
+}
+
+/** What both `UserConverter`s write into a strategy's `tfaIsActive`/`tfaSecret`, given the 2.x
+ * source's own columns.
+ *
+ * 2.5.x's TOTP implementation (`node-2fa@1.1.2`, itself built on `notp` + `thirty-two` — confirmed
+ * against `docs/audits/security-reviews/2026-08-17-passkey-rpid-totp-drift.md`, which already
+ * compared the two against this codebase's `helpers/totp.ts` for the drift-window review) is the same
+ * RFC 6238 construction this install verifies against: HMAC-SHA1, a 30-second step, 6 digits, over a
+ * base32 secret. A 2.x secret is therefore byte-compatible and copied verbatim — no re-encoding, no
+ * shim — rather than the DROPPED handling `docs/migration/2.5x-to-3.0-mapping.md` used to document.
+ *
+ * 2.x has no recovery-code equivalent at all (no column, no table — see
+ * `docs/migration/2.5x-source-schema.md`'s `users` section), so a migrated account with 2FA carried
+ * over starts with none; `docs/migration/migration-runbook.md` calls this out, and an administrator
+ * can always fall back to `UserCredentials#adminInvalidateTfa` if such an account gets locked out.
+ *
+ * Two cases fall back to the prior DROPPED behavior (`tfaIsActive: false, tfaSecret: ''`) instead of
+ * carrying anything over, and both come back with a `note` for the caller to attach to the record's
+ * `created` outcome so the drop is visible in the dry-run report rather than silent: 2.x's own
+ * `tfaIsActive` is not `true` (nothing to carry, not an error), or it is `true` but the stored
+ * `tfaSecret` is missing/empty or does not decode as base32 (a genuinely malformed source row — rare,
+ * but importing an unusable secret as "active" would lock the account out with no recovery path,
+ * which is worse than the accepted gap this is replacing).
+ */
+function convertTfa(source: SourceRecord): {
+  tfaIsActive: boolean
+  tfaSecret: string
+  note?: string
+} {
+  if (readSourceBoolean(source, 'tfaIsActive') !== true) {
+    return { tfaIsActive: false, tfaSecret: '' }
+  }
+  const rawSecret = readSourceString(source, 'tfaSecret')
+  if (!rawSecret || !isCarryableTotpSecret(rawSecret)) {
+    return {
+      tfaIsActive: false,
+      tfaSecret: '',
+      note:
+        '2FA was enabled on the 2.x source but its stored secret is missing or not a valid TOTP ' +
+        'secret; imported with 2FA off — this account needs 2FA re-enabled'
+    }
+  }
+  return { tfaIsActive: true, tfaSecret: rawSecret }
+}
+
 export interface ProviderFallbackConverterOptions {
   /** Target UUID of this install's local authentication strategy. The engine deliberately has no
    * `WIKI` dependency (see the module doc's testability goal), so the caller — the CLI —
@@ -439,6 +497,10 @@ export function createProviderFallbackUserConverter(
       return { status: 'skipped', message: 'source user record has no email address' }
     }
     const name = readSourceString(source, 'name') ?? email
+    // -> 2.x's tfaIsActive/tfaSecret live on the user row itself, independent of providerKey, so a
+    //    fallback-routed account (created against this install's local strategy) carries its 2.x 2FA
+    //    state over exactly like createLocalUserConverter() below — see convertTfa()'s doc comment.
+    const tfa = convertTfa(source)
 
     const row: NewUserRow = {
       email,
@@ -452,9 +514,11 @@ export function createProviderFallbackUserConverter(
           password: await bcrypt.hash(nanoid(32), BCRYPT_ROUNDS),
           mustChangePwd: true,
           restrictLogin: false,
-          tfaIsActive: false,
+          tfaIsActive: tfa.tfaIsActive,
           tfaRequired: false,
-          tfaSecret: '',
+          tfaSecret: tfa.tfaSecret,
+          // -> 2.x has no recovery-code equivalent (see convertTfa()'s doc comment); left unset the
+          //    same way the pre-carry-over hardcoded entry always did.
           // -> Admin-visibility metadata only, not a resolvable strategy reference — see this
           //    function's doc comment above.
           migratedFallbackProvider: providerKey
@@ -494,7 +558,8 @@ export function createProviderFallbackUserConverter(
         email,
         sourceProvider: providerKey,
         reason: providerFallbackReason(providerKey)
-      }
+      },
+      message: tfa.note
     }
   }
 }
@@ -543,6 +608,7 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
       }
     }
     const name = typeof source.name === 'string' && source.name.length > 0 ? source.name : email
+    const tfa = convertTfa(source)
 
     const row: NewUserRow = {
       email,
@@ -552,9 +618,9 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
           password: passwordHash,
           mustChangePwd: coerceSourceBoolean(source.mustChangePwd) ?? false,
           restrictLogin: false,
-          tfaIsActive: false,
+          tfaIsActive: tfa.tfaIsActive,
           tfaRequired: false,
-          tfaSecret: ''
+          tfaSecret: tfa.tfaSecret
         }
       },
       isSystem: false,
@@ -584,7 +650,7 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
       lastLoginAt: readSourceDate(source, 'lastLoginAt')
     }
 
-    return { status: 'created', row }
+    return { status: 'created', row, message: tfa.note }
   }
 }
 
