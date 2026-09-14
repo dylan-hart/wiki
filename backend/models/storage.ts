@@ -88,8 +88,7 @@ export const SYNC_SHAPED_ACTIONS = ['sync', 'syncUntracked', 'importAll'] as con
  *
  * `asset:move` has deliberately no entry: no storage module relocates a blob-target's copy of a file
  * on a folder reparent yet — the same gap `renameFolder`'s bulk folder move already has for the
- * assets it drags along (`docs/variances.md`, "folder renames don't sync" item 3, OpenProject
- * #2817). `dispatch()` no-ops for an event missing here, so this is safe rather than a crash risk;
+ * assets it drags along (OpenProject #2817). `dispatch()` no-ops for an event missing here, so this is safe rather than a crash risk;
  * the webhook side (`HOOK_EVENTS`/`EMITTED_EVENTS`) still fires for `asset:move`, since that half has
  * nothing storage-shaped to get wrong.
  */

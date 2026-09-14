@@ -506,8 +506,8 @@ export interface CloudSearchFilterParams {
  * rather than the site they actually belong to. The value is not "nothing in this schema stores" either
  * — `init()` provisions `siteId` as a plain filterable literal field (`buildIndexFields()`) and
  * `toIndexDocument()` writes it on every document, the same as every other field this clause filters on.
- * `docs/variances.md`'s Task #552 entry carries the same reasoning for why a shared domain is treated as
- * realistic, not a can't-happen case.
+ * `elasticsearch/search.ts`'s own `rebuild()` (Task #552) carries the same reasoning for why a shared
+ * domain/index is treated as realistic, not a can't-happen case.
  *
  * `tags` becomes an `or` of one `term` clause per requested tag: a document matches if any of its tags
  * is in the requested set — the array-field equivalent of `p.tags @> ...` in postgres (any-of, not

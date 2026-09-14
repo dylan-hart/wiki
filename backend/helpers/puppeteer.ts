@@ -14,8 +14,9 @@ import { CustomError } from './common.ts'
  * components execute), and `diagramRender.renderMermaid` mounts `block-diagram` around a POST-body
  * Mermaid source. An operator
  * whose deployment environment cannot give Chromium its own sandbox (typically a container without
- * the setuid sandbox helper) opts into it via `security.allowPuppeteerNoSandbox` — see
- * `docs/variances.md` for the posture this default was chosen against.
+ * the setuid sandbox helper) opts into it via `security.allowPuppeteerNoSandbox` (OpenProject
+ * #2244/#2250/#2247). Whether the production image (`dev/build/Dockerfile`) actually runs sandboxed
+ * with this default is tracked separately — OpenProject #3201.
  */
 export function getPuppeteerLaunchArgs(): string[] {
   const args = ['--disable-dev-shm-usage']

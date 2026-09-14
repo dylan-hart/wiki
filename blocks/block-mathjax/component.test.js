@@ -23,7 +23,7 @@ describe('block-mathjax', () => {
     bussproofs, cancel, color, enclose, extpfeil, html, mhchem, newcommand, unicode, verb). `html` is
     the one deliberate exclusion (documented at component.js:10-23, unchanged by this task). Every
     other package 2.5.x could reach must stay in PACKAGES — this pins that finding so a future edit
-    to the list can't silently drop one of them. See docs/variances.md for the full audit.
+    to the list can't silently drop one of them.
   */
   it('is a superset of every TeX package 2.5.x content could reach', () => {
     const reachableIn25x = [
@@ -70,10 +70,10 @@ describe('block-mathjax', () => {
     `mathjax.asyncLoad` hook this block never configures — 2.5.x could reach it because it ran
     server-side in Node with filesystem `require` access; this block runs in the browser from a
     static bundle with nothing to fetch that chunk from. Declaring the package is therefore not
-    sufficient for every macro in it. Recorded in full in docs/variances.md; this test pins the
-    current (broken) behavior rather than silently accepting or silently "fixing" it per one line
-    short of a real fix (wiring asyncLoad is a bundling change, out of scope for this audit task) —
-    update it if a future task wires the dynamic chunks up.
+    sufficient for every macro in it. Tracked as OpenProject #3190; this test pins the current
+    (broken) behavior rather than silently accepting or silently "fixing" it per one line short of a
+    real fix (wiring asyncLoad is a bundling change) — update it once #3190 wires the dynamic chunks
+    up.
   */
   it('KNOWN GAP: extpfeil arrows fail — their glyphs need a font chunk this block never wires up', async () => {
     const el = await mountMathjax(String.raw`\xtwoheadrightarrow{f}`)

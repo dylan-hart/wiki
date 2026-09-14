@@ -13,7 +13,7 @@
  * `getSiteId()` plus plain `fetch`, never `globalThis.API_CLIENT` / `globalThis.WIKI_STATE`. Those
  * SPA globals exist only inside the app shell (`frontend/src/boot/externals.js`); a block that reads
  * them cannot run in a context that mounts blocks without it -- the page-level pre-rendering
- * `docs/variances.md` describes as a future task, concretely. `block-live-data` and `block-map`
+ * OpenProject #3191 describes, concretely. `block-live-data` and `block-map`
  * (via `../shared/config.js`) were the first to follow this; `block-index` and `block-include`
  * (OpenProject #1975) were converted to it, and so was `block-checklist` (#1978) for its site id,
  * page id and data fetching.

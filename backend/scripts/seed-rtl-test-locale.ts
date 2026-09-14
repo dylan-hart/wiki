@@ -60,7 +60,7 @@ export const RTL_TEST_LOCALE_CODE = 'ar'
  * `editor.markup.*` is the Markdown editor's toolbar (`EditorMarkdown.vue`) -- the WYSIWYG editor's
  * own toolbar (`EditorWysiwyg.vue`) has no i18n wiring at all (its `title:` labels are hardcoded
  * English strings passed straight to `aria-label`, not run through `t()`), so no amount of seeding
- * here changes what it renders; see `docs/variances.md`.
+ * here changes what it renders; tracked as OpenProject #3206.
  */
 export const RTL_TEST_LOCALE_STRINGS: Record<string, string> = {
   // -> common: sidebar / header / page chrome (reading view, NavSidebar, PageToc, PageHeader)

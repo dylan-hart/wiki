@@ -212,7 +212,7 @@ interface SiteClient {
  * `@elastic/elasticsearch` major (9.x). This branch's CLAUDE.md rules out legacy fallbacks and
  * deprecated aliases on principle, and three parallel client majors behind a switch is exactly that --
  * dead weight for versions of a self-hosted dependency an operator installing this feature today has
- * no reason to still be running. Recorded in `docs/variances.md`.
+ * no reason to still be running.
  *
  * State (`clients`) and lazy per-site resolution follow the Algolia module's `AlgoliaSearchModule`
  * exactly, for the same reason: `models/search.ts`'s `selectEngine()`/`initActiveEngines()` do call
@@ -394,7 +394,7 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
    * Scoped to `siteId` throughout -- a `delete_by_query` on the `siteId` filter rather than 2.5.x's
    * `indices.delete` + recreate, since (per `INDEX_MAPPINGS`'s doc comment) more than one site can
    * share an index here, and 2.5.x's version, with no such concept, could get away with dropping the
-   * whole index. Recorded in `docs/variances.md`.
+   * whole index.
    *
    * Streamed in pages of `PAGE_SIZE` rows via keyset pagination on `id` (`WIKI.db` queries, replacing
    * 2.5.x's `WIKI.models.knex(...).stream()`), each page immediately regrouped into size-limited

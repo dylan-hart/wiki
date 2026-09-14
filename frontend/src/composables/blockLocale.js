@@ -14,9 +14,10 @@ import { useI18n } from 'vue-i18n'
  * rather than to vue-i18n's own missing-key behaviour (rendering the dotted key path itself, e.g.
  * `blocks.openapi.description`) — `t()` alone cannot tell "this key legitimately isn't translated
  * yet" from "this key does not exist", so `te()` (translation-exists) is checked first. This also
- * covers the `fallbackLocale: 'en'` gap `docs/variances.md` records: a reader on a non-`en` locale
- * whose session never eager-loaded the `en` dictionary would otherwise see the raw key text instead
- * of the English original.
+ * covers the same gap `frontend/src/App.vue#applyLocale()`'s "Eager-load the `en` fallback
+ * dictionary" comment describes (a fire-and-forget fetch, not awaited): a reader on a non-`en`
+ * locale whose session hasn't yet finished loading the `en` dictionary would otherwise see the raw
+ * key text instead of the English original.
  */
 export function useBlockLocale() {
   const { t, te } = useI18n()

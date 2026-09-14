@@ -74,8 +74,7 @@ describe('block-katex', () => {
     therefore a strict, better-maintained replacement for what 2.5.x had — not a subset of it. The
     other four contrib modules KaTeX ships (auto-render, copy-tex, mathtex-script-type,
     render-a11y-string) are DOM/UX integrations, not TeX-syntax extensions, 2.5.x used none of them,
-    and none would add a construct this block currently rejects. See docs/variances.md for the full
-    audit and the resulting KaTeX/MathJax TeX-subset compatibility table.
+    and none would add a construct this block currently rejects.
   */
   it('typesets mhchem, the one extension 2.5.x also carried, from an unfenced body', async () => {
     const el = await mountKatexUnfenced(String.raw`\ce{CO2 + C -> 2 CO}`)
@@ -85,12 +84,11 @@ describe('block-katex', () => {
   })
 
   /*
-    \bbox is one of the constructs the docs/variances.md compatibility table records as
-    MathJax-only: KaTeX has no bbox extension (contrib or built-in) at the pinned katex version, so
-    the same source that typesets in block-mathjax reaches this block's error panel instead. Pinned
-    here as the concrete, runnable form of that table entry.
+    \bbox is MathJax-only: KaTeX has no bbox extension (contrib or built-in) at the pinned katex
+    version, so the same source that typesets in block-mathjax reaches this block's error panel
+    instead (Feature 366 / Task 634's KaTeX/MathJax TeX-subset compatibility audit).
   */
-  it('KNOWN ENGINE LIMIT: \\bbox is not a KaTeX construct — see docs/variances.md', async () => {
+  it('KNOWN ENGINE LIMIT: \\bbox is not a KaTeX construct', async () => {
     const el = await mountKatexUnfenced(String.raw`\bbox[red]{x+y}`)
 
     expect(el.shadowRoot.querySelector('.error')).not.toBeNull()

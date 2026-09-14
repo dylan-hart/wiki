@@ -55,7 +55,7 @@ import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 // -> Exported so component.test.js can pin it against the 2.5.x-reachable set audited for
-//    Feature 366 / Task 634 (see docs/variances.md) without duplicating the list.
+//    Feature 366 / Task 634 without duplicating the list.
 export const PACKAGES = [
   'base',
   'action',

@@ -4,8 +4,11 @@ import { MarkdownRenderer, gatedContentPlaceholder, sanitizeForPreview } from '.
 import { CHROMIUM_TIMEOUT, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
-  Runs under Vitest, not `node --test` -- see `docs/variances.md` for why, since this file's own
-  task brief assumed the opposite and the reasoning is worth not relitigating.
+  Runs under Vitest, not `node --test` -- this file's own task brief assumed the opposite (on the
+  stale premise that `frontend/` had no test tooling configured, which a project-wide Vitest harness
+  had already landed by the time the task ran), and the reasoning is worth not relitigating: a second,
+  parallel test runner for exactly this file would mean two ways to discover/run frontend tests and a
+  suite that can't share `test/setup.js`'s stubs or the Tailwind/SCSS/`@`-alias Vite pipeline.
 
   `MarkdownRenderer` has no DOM dependency (confirmed by `headless.js`, which runs this same class
   server-side under Puppeteer), so these tests instantiate and render directly with no mounting, no
@@ -399,7 +402,7 @@ describe(
       blank`/`data:` URLs have no stable origin to grant against -- so this fakes one via `page.
       route()` rather than `page.setContent()`.
     */
-    it('documents the copy/paste-to-spreadsheet regression: the copied HTML fragment no longer contains a real <table> the way the markup it replaced did (see docs/variances.md)', async () => {
+    it('documents the copy/paste-to-spreadsheet regression: the copied HTML fragment no longer contains a real <table> the way the markup it replaced did (fix tracked as OpenProject #3143)', async () => {
       const page = await browser.newPage()
       try {
         await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {

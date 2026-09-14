@@ -10,8 +10,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * `GET /sites/:siteId/pages/:pageId/export/pdf` (task 496) is deliberately not covered here: this
  * file originally also tested that route against `models/rendering.ts#renderPdf()`, but that PDF
  * path was retired at merge-review time in favor of `models/pdfExport.ts`'s richer, live-page-view
- * export (see `docs/variances.md`'s "PDF export: two competing implementations reconciled" entry) --
- * `api/pagesExportPdf.test.ts` is the winning route's own dedicated test file.
+ * export -- `api/pagesExportPdf.test.ts` is the winning route's own dedicated test file.
  *
  * The Markdown/HTML export route needs no Puppeteer stub — it just serves `content`/`render` off the
  * page already loaded — so its tests focus on the permission split the task calls for:

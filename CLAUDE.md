@@ -1,25 +1,15 @@
 # Cardinal.js 3.x
 
-Next-generation open source wiki. This is the **3.x development branch** — incomplete, unstable, and
-with no upgrade path from 2.x. AGPL-3.0.
+Next-generation open source wiki.  Cardinal.js is a fork of
+[Wiki.js](https://github.com/requarks/wiki), taken from its `scarlett`  branch. Wherever this file
+says "Wiki.js" it means **upstream**, not this project — the 2.5.x importer under `backend/migration/`
+and `docs/migration/`, an upstream issue reference, or a verbatim string this codebase still emits.
+Everything else is Cardinal.js.
 
-Cardinal.js is a fork of [Wiki.js](https://github.com/requarks/wiki), taken from its `scarlett`
-branch. Wherever this file says "Wiki.js" it means **upstream**, not this project — the 2.5.x
-importer under `backend/migration/` and `docs/migration/`, an upstream issue reference, or a
-verbatim string this codebase still emits. Everything else is Cardinal.js.
-
-**Nothing here has to stay compatible with an existing installation.** Nobody is expected to be
-running an earlier state of this branch, so do not write migration shims, legacy-value fallbacks,
-deprecated aliases or "old data may still contain X" handling. Change the shape, change the callers,
-and delete the old path — a fallback for a case that cannot occur is dead code that still has to be
-read, tested and reasoned about. This applies to db columns, API payloads, stored settings and
-config keys alike, and it applies to `backend/db/migrations/` too: while this branch is pre-release
-with no real installations to preserve, its migration history is periodically squashed back to a
-single fresh-install schema init rather than accumulating incremental ALTERs forever. Anyone holding
-an existing local or CI dev database from before a squash has to drop and recreate it (or otherwise
-reset Drizzle's own migration ledger) rather than expect it to reconcile against the new consolidated
-migration — Drizzle has no way to know a squashed history is equivalent to the one it already
-applied.
+Cardinal.js's own history begins at commit `8bb483244494c0314a2fefde9aebc1aaed250188` (2026-08-16) —
+the first commit not authored by upstream. Wiki.js's `scarlett` branch is real and independently
+maintained; a Wiki.js-authored commit dated after 2026-08-16 is genuine ongoing upstream work, not a
+fork artifact — don't infer otherwise from a recent-looking date alone.
 
 Four independently-installed workspaces (each has its own `package.json` / `node_modules`, there is
 no root package or monorepo tooling):
@@ -45,8 +35,7 @@ The backend is **TypeScript 7**; `frontend/`, `blocks/` and `e2e/` are JavaScrip
 - `assets/` — **build output** of the frontend (`vite build` writes here), plus static assets under
   `assets/_assets/`. Served by the backend. Don't hand-edit.
 - `dev/` — deployment/packaging artifacts: `dev/build/Dockerfile` (production image),
-  `dev/noto-emoji-build/`. The 2.x-era Helm chart and Packer image builder were deleted (see
-  `docs/variances.md`) — there is no 3.x release yet for either to deploy.
+  `dev/noto-emoji-build/`.
 - `.devcontainer/` — VS Code dev container (app + postgres + pgAdmin via docker-compose).
 - `localazy.json` — translation sync config; locale strings live in `backend/locales/`.
 
@@ -462,24 +451,12 @@ Conventions established during the conversion, worth following in new code:
 - **Per-route Fastify generics** for request shapes: `app.get<{ Params: { siteId: string } }>(...)`.
   The JSON Schema stays as-is for validation and OpenAPI; the generic is what types `req.params`,
   `req.body` and `req.query`.
-- **Pre-existing bugs are preserved, not fixed** was the rule during the initial TypeScript
-  conversion: where the type checker exposed already-broken code, it was left behaving identically
-  behind a narrow cast plus a `FIXME:` comment explaining the real fix, so the migration itself
-  wouldn't silently change runtime behavior. All four bugs that convention originally flagged
-  (`sites.ts`'s `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in
-  `scheduler.ts`'s `addScheduled()`/`addJob()`) have since been fixed, and their `FIXME:` comments
-  removed with them. A fifth `FIXME:`, unrelated to the TS conversion — `index.ts`'s note by the
-  session/cookie plugin registration, on `WIKI.config.auth.secret` being captured by value instead of
-  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) did not
-  actually stop a still-running instance from signing new cookies with the invalidated secret until
-  that instance restarted — has since been fixed too (OpenProject #2172): both `@fastify/cookie` and
-  `@fastify/session` are now handed `helpers/authSecretSigner.ts`, an object that reads
-  `WIKI.config.auth.secret` at call time instead of a value captured once at registration, so rotation
-  takes effect on every instance immediately, no restart needed. No `FIXME:` markers remain from the
-  TypeScript conversion, or from anywhere else in `backend/`. If a future migration or refactor turns
-  up another pre-existing bug outside its scope, follow the same
-  pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment explaining the real fix
-  rather than changing runtime behavior inline.
+- **Pre-existing bugs are preserved, not fixed inline.** Where a migration or refactor exposes
+  already-broken code outside its own scope, leave the behavior identical behind a narrow cast plus a
+  `FIXME:` comment explaining the real fix, rather than silently changing runtime behavior as a
+  drive-by. No `FIXME:` markers remain in `backend/` today — every one raised during the TypeScript
+  conversion has since been fixed. See `docs/decisions/typescript-conversion-fixmes.md` for that
+  history.
 
 ## Conventions
 
@@ -542,13 +519,11 @@ Both tools handle `.ts` with no extra configuration, and the backend's oxlint co
 the `typescript` plugin. oxlint does not type-check — run `npm run typecheck` for that.
 
 **Bumping oxlint or oxfmt's version is a dependency-bump checklist item, not a plain version-string
-edit.** A newer formatter release can change what it considers correctly formatted — task #1988
-found `oxfmt` `0.62.0` → `0.64.0` (`377915c6`) silently invalidating seven already-formatted
-`frontend/` SFCs (a single leading space before a `<script setup>` JSDoc opener that 0.64 no longer
-accepts), and that commit's own message claimed a full `oxfmt --check` run had confirmed otherwise —
-it hadn't been run against `frontend/`. Whenever either tool's version changes, run the reformat
-(not just the check) across all three workspaces from the repo root in the **same commit** as the
-bump, and commit whatever it touches:
+edit.** A newer formatter release can change what it considers correctly formatted, silently
+invalidating files nobody touched — see `docs/decisions/oxfmt-version-bump-incident.md` for the
+incident that established this. Whenever either tool's version changes, run the reformat (not just
+the check) across all three workspaces from the repo root in the **same commit** as the bump, and
+commit whatever it touches:
 
 ```sh
 npx --prefix backend oxfmt backend frontend blocks   # reformats — not --check
@@ -568,15 +543,10 @@ parenthesises two statements and the template fails to compile (`Error parsing J
 expression: Unexpected token`). Write a named handler instead — `@click="closeAndRefresh"` — as
 `EditorMarkdown.vue` and `PageRelationDialog.vue` do.
 
-Neither side of that is worth reconfiguring, so don't try: the `includes(';')` check has no compiler
-option behind it, and the parse error is raised by the built-in `transformExpression`, which
-`baseCompile` runs _before_ any `nodeTransforms` you could add — and Volar runs the same compiler,
-so a build-time workaround would still leave the editor showing errors. On the formatter side,
-`embeddedLanguageFormatting: "off"` does leave attribute expressions alone but also stops formatting
-every `<script>` and `<style>` block in every SFC. This is not an oxfmt quirk either: Prettier with
-`--no-semi` produces identical output. For a one-off where the inline form genuinely reads better,
-`<!-- prettier-ignore -->` on the preceding line works (oxfmt honors Prettier's marker; there is no
-`oxfmt-ignore`).
+Neither side of that is worth reconfiguring, so don't try — see
+`docs/decisions/vue-inline-handler-semicolons.md` for why neither the compiler nor the formatter can
+be fixed here. For a one-off where the inline form genuinely reads better, `<!-- prettier-ignore -->`
+on the preceding line works (oxfmt honors Prettier's marker; there is no `oxfmt-ignore`).
 
 ### Utilities and dates
 
@@ -954,34 +924,24 @@ and it governs where the two ever disagree.
   `models/users.profile.test.ts`. Eleven files carry a **`*.db.test.ts`** suffix
   (`core/scheduler.reaping.db.test.ts`, `models/storage.db.test.ts`, …), but **it is not the pure/DB
   boundary and must not be read as one** — 81 suites open a real Postgres schema and only those
-  eleven are so named. `docs/decisions/testing-strategy.md` retires the claim: the boundary is
-  `hasTestDatabase()`, which every one of them carries, running the pure half alone is
-  `DATABASE_URL` unset, and nothing is renamed in either direction. The suffix is not required of a
-  new DB-backed file and carries no claim if used. A DB-backed file opens **one**
-  `setupTestDb()` for the whole file, shared by its describes, rather than one per describe.
-  `test/` holds the shared harness and fixture code that is not itself a
+  eleven are so named. The real boundary is `hasTestDatabase()`, which every one of them carries;
+  running the pure half alone is `DATABASE_URL` unset. The suffix is not required of a new DB-backed
+  file and carries no claim if used — see `docs/decisions/testing-strategy.md` for the full reasoning.
+  A DB-backed file opens **one** `setupTestDb()` for the whole file, shared by its describes, rather
+  than one per describe. `test/` holds the shared harness and fixture code that is not itself a
   `*.test.ts` (`db.ts`, `mocks.ts`, …) — plus, since a harness module is a source file like any
   other, its own co-located coverage (`test/fastify.ts` → `test/fastify.test.ts`) — plus two narrow
-  categories of test that genuinely have no
-  single co-located home: a DB-backed round trip spanning more than one source file rather than
-  unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
-  `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
-  this one is the real round trip between them), and a structural/self-consistency check against a
-  repo-root doc or CI config with no backend-workspace file to sit next to at all — none of those
-  subjects live under `backend/`, and `npm run test`'s `'**/*.test.ts'` glob only runs from inside
-  this workspace, so a test guarding one has to live somewhere inside it regardless. This is the
-  rule to apply, not a fixed list of examples: a by-name enumeration here goes stale the moment a
-  new such test lands elsewhere, which is exactly what happened to the six `docs-*.test.ts` /
-  `localazy-config.test.ts` files that used to sit at the `backend/` root before being moved in here
-  under this same rule. `base.test.ts` is the one file in this category that stays at the `backend/`
-  root rather than moving into `test/`: it is co-located with `backend/base.yml`, resolving it as
+  categories of test that genuinely have no single co-located home: a DB-backed round trip spanning
+  more than one source file rather than unit-testing either in isolation (`blockUploadServing.test.ts`
+  — `api/blocks.ts`'s upload route and `controllers/blocks.ts`'s serve route each already have their
+  own unit-level `*.test.ts` sibling; this one is the real round trip between them), and a
+  structural/self-consistency check against a repo-root doc or CI config with no backend-workspace
+  file to sit next to at all. This is the rule to apply, not a fixed list of examples. `base.test.ts`
+  is the one file in this category that stays at the `backend/` root rather than moving into `test/`:
+  it is co-located with `backend/base.yml`, resolving it as
   `path.join(path.dirname(fileURLToPath(import.meta.url)), 'base.yml')`, so it belongs with the file
   it guards the same way any other co-located test does. A test file that genuinely does have one
-  specific co-located sibling belongs next to it, not here — three such near-namesake pairs
-  (`test/api/sites.test.ts` vs. `api/sites.test.ts`, `test/core/config.test.ts` vs.
-  `core/config.test.ts`, `test/core/scheduler.test.ts` vs. `core/scheduler.test.ts`) existed as
-  discovery hazards until this pass confirmed each co-located file already fully superseded its
-  `test/` namesake and deleted the redundant copy.
+  specific co-located sibling belongs next to it, not here.
 - **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
@@ -1289,6 +1249,18 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   `hasChromium()`; both suites pass `{ skip: !hasChromium() }` to their `describe()` so a `npm run
   test` with no Chromium installed reports them skipped and exits zero instead of failing on an
   environment precondition.
+- **Any visual/aesthetic change (CSS, theming, layout) gets rendered and looked at, not reasoned
+  about from the stylesheet.** Neither `jsdom` nor `happy-dom` runs a layout engine (above), and CSS
+  reasoning alone has been directly, repeatedly wrong on this codebase — including a token declared
+  only in one theme block that read as correct in the diff and drew ink on ink on screen. The loop:
+  a throwaway `postgres:18` container → `npm run build` in `frontend/` → `CONFIG_FILE=…
+  DATABASE_URL=… node backend` from the repo root → Playwright's bundled Chromium (already in
+  `frontend/node_modules` once `install-browsers` has run) to log in, set the theme via `PUT
+  /_api/sites/:id`, and screenshot. Seed content through the REST API with an `origin` header (the
+  write routes refuse cross-origin). Screenshot before starting (to see what's actually wrong, not
+  what the task description assumes), after each change, and in every relevant mode — light/dark at
+  minimum. Fall back to `getComputedStyle` when a screenshot is ambiguous; a downsampled PNG can hide
+  a small colour difference a token check would catch instantly.
 
 ### Testing (blocks)
 
@@ -1453,49 +1425,21 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
 Two workflow files split the work: `.github/workflows/quality.yml` (typecheck/lint/format +
 backend/frontend/blocks unit tests) and `.github/workflows/build.yml` (version stamping, asset/blocks
 building, the Playwright e2e suite, then the Docker publish). `quality.yml` is a `workflow_call:`
-target, not folded into `build.yml` directly: a plain `pull_request:` trigger added to `build.yml`
-itself would have no way to stop its expensive Docker build/push job from also queuing on every PR,
-where `needs:` only works between jobs in the _same_ workflow run. `quality.yml`'s own header
-comment carries the full reasoning.
+target that `build.yml`'s `build` job `needs:` — see `docs/decisions/ci-workflow-split.md` for why the
+split is shaped this way (including why the e2e suite runs from `build.yml` rather than only from its
+own `e2e.yml`, and why `release.yml` runs its own copy of the gate).
 
-- **`quality.yml` runs on every pull request directly, and on every `scarlett` push via
-  `build.yml`'s `quality` job (`uses: ./.github/workflows/quality.yml`).** Its steps: backend
-  typecheck, then per-workspace lint (`oxlint --deny-warnings`, so a warning fails the step the same
-  as an error — not just the `correctness`-category errors `oxlint` fails on by default) and the
-  frontend's icon/emoji drift checks, then a `Backend/Frontend/Blocks Tests` step per workspace
-  (`npm run test`), then one repo-wide `oxfmt --check`. A `postgres:18` service container backs the
-  backend's DB-backed model suites (skipped without one — see [Testing
-  (backend)](#testing-backend)); frontend and blocks never touch it. `setup-node`'s `cache: npm` is
-  set in every workflow, keyed on each workflow's own actual lockfiles, so a `scarlett` push's two
-  jobs (`quality` + `build`) don't each pay for a cold `npm ci`.
-- **`build.yml`'s `build` job `needs: quality`, and does not repeat its tests.** Re-running the same
-  three `npm run test` invocations in `build` on top of what `quality` already ran on the identical
-  commit would pay for them twice with no new coverage — the same "don't run the same suite twice per
-  commit" reasoning `e2e.yml`'s own removed push trigger (below) gives. Its own steps, after the
-  gate: stamp the alpha version, build `frontend/`'s assets and `blocks/compiled`, run the Playwright
-  e2e suite against that build, then log in to GHCR and build/push the Docker image — all **before**
-  the Docker steps, so a failing step (GitHub Actions' default `continue-on-error: false`) blocks the
-  image the same way a broken `npm run build` already did.
-- **The Playwright leg reuses the build that's already there, not a second one.** `e2e/`'s
-  `playwright.config.js` boots `node backend` against `frontend/`'s `assets/` output (see "Testing
-  (e2e)" above) — both already produced by earlier steps in the same job, so this leg is exactly
-  "against a build of the stack" with no extra `npm run build`. The Docker image itself is not built
-  at all until every step above — including this one — has already passed, so there is exactly one
-  `docker/build-push-action` invocation per run, not one for testing and a rebuild to push.
-- **`build`'s own `postgres:18` service container is for the Playwright leg's first-run seeding
-  only** — the backend's DB-backed model suites run in `quality`'s own separate service container
-  (above), not here.
-- **`e2e.yml`'s own `push: branches: [scarlett]` trigger was deleted**, not left in alongside
-  `build.yml`'s own Playwright step — that push event already runs the same suite from `build.yml`'s
-  `build` job, and gaining nothing back for a second install-browsers-and-run-the-suite pass on the
-  same commit contradicts the "CI runtime stays reasonable" bar this split was built against.
-  `e2e.yml` still runs standalone on `pull_request` and `workflow_dispatch`, which `build.yml`'s
-  push-only trigger doesn't cover.
-- **`release.yml`'s tag-push channel runs its own copy of the quality gates** (typecheck, lint,
-  drift checks, format — `--deny-warnings` there too) rather than depending on `build.yml`'s run for
-  the exact commit a release tag points at, so a release never publishes on a stale, skipped, or
-  not-yet-run gate. It does not repeat the unit or e2e suites, for the same already-covered-by-the-
-  `scarlett`-push reasoning as above — see its own header comment and `docs/release-checklist.md`.
+- **`quality.yml`** runs on every pull request directly, and on every `scarlett` push via `build.yml`.
+  Its steps: backend typecheck, then per-workspace lint (`oxlint --deny-warnings`) and the frontend's
+  icon/emoji drift checks, then a `Backend/Frontend/Blocks Tests` step per workspace, then one
+  repo-wide `oxfmt --check`. A `postgres:18` service container backs the backend's DB-backed model
+  suites (skipped without one — see [Testing (backend)](#testing-backend)); frontend and blocks never
+  touch it.
+- **`build.yml`'s `build` job** stamps the alpha version, builds `frontend/`'s assets and
+  `blocks/compiled`, runs the Playwright e2e suite against that build, then builds/pushes the Docker
+  image — each step gating the next, so a failure never reaches the Docker push.
+- **`build`'s own `postgres:18` service container** is for the Playwright leg's first-run seeding
+  only — the backend's DB-backed model suites run in `quality`'s own separate container.
 
 ### Icons
 
@@ -1546,22 +1490,3 @@ store; no SVG is ever written into content.
   already draws (a generic dialog/overlay confirm button, a "done"/"added" state), just not this one.
   Introducing a new call site for any of these three actions means matching the settled glyph, not
   picking whichever one a nearby file happens to use.
-
-### GraphQL was removed
-
-An earlier iteration of 3.x used GraphQL/Apollo; the removal is complete. There is no GraphQL server
-left in `backend/`, `APOLLO_CLIENT` is not defined as a global so any call through it would throw,
-`blocks/block-index/` no longer imports a `tree.graphql` (its tree comes from `sites/…/tree/pages`,
-plain REST), and every former consumer — `components/AuthLoginPanel.vue`'s `register()` call
-included, alongside the passkey login and 2FA paths that were REST from the start — has been ported
-to REST. `AdminPages.vue`, `AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue`, the
-last pages still calling `this.$apollo.mutate`/`this.$apollo.queries.*`, were deleted outright rather
-than ported; of that family `frontend/src/pages/` now holds `AdminPagesDeleted.vue` and a
-`AdminPages.vue` rewritten from scratch against REST, sharing nothing with the deleted one. A grep
-for `apollo|graphql` in `frontend/src` turns up only comments and test fixtures referring to the
-removal in the past tense — no live `$apollo` call site remains.
-
-If a future feature needs a REST endpoint that doesn't exist yet, add it under `backend/api/`
-following the schema + permissions conventions above — `sites/:siteId/images/:kind`, which replaced
-the logo and favicon upload mutations in `AdminGeneral.vue`, is a recent example of doing exactly
-that.

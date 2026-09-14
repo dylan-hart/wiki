@@ -14,8 +14,10 @@
  * `backend/api/locales.ts`), cached for the page the same way `./config.js`'s `getBlockConfig` and
  * `./site.js`'s `getSiteId` cache their own single fetch. English is a second, equally-cached fetch,
  * used only as the resolver's own fallback layer when the page's locale is missing a key -- covering
- * the `fallbackLocale: 'en'` gap `docs/variances.md` records for the app's own vue-i18n instance
- * (a non-`en` session that never eager-loaded `en` messages). Do not introduce a second dictionary:
+ * the same gap `frontend/src/App.vue#applyLocale()`'s "Eager-load the `en` fallback dictionary"
+ * comment describes for the app's own vue-i18n instance (there, it's a fire-and-forget fetch, not
+ * awaited; here, this file fetches and caches `en` outright as its own fallback layer). Do not
+ * introduce a second dictionary:
  * every string resolved here still lives in `backend/locales/en.json`, under `blocks.<tag>.errors.*`.
  *
  * Rejected alternative: having the renderer (`backend/controllers/render.ts`) pass resolved strings

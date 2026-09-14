@@ -121,7 +121,7 @@ async function bufferStream(stream: SourceAssetFile['stream']): Promise<Buffer> 
  *
  * Asset `createdAt`/`updatedAt` cannot be preserved — `upload()` has no parameter for it (unlike
  * `createPage()`) — so an imported asset's timestamps are always "now," not the source's real dates.
- * This is a documented, accepted gap (see `docs/variances.md`'s asset-import-timestamps entry).
+ * This is a documented, accepted gap, tracked for a real fix as OpenProject #3204.
  */
 export async function importAsset(
   file: SourceAssetFile,

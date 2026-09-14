@@ -1782,8 +1782,7 @@ $toc-overlay-max: 749.98px;
         `inset-inline-start`, a physical `left` in every shipped locale so far, matches the default
         sidebar `MainLayout.vue`'s `<w-drawer>` renders without a `sidebarPosition: 'right'`
         override -- a right-positioned sidebar insetting the wrong edge here is a known gap outside
-        this WP's own confirmed scope, not an oversight; see `docs/variances.md` for anything filed
-        against it.
+        this WP's own confirmed scope, not an oversight; tracked as OpenProject #3142.
       */
       @media (min-width: 1200px) {
         inset-inline-start: var(--sidebar-current-width, 0px);
