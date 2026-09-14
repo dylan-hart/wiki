@@ -7,9 +7,20 @@
 */
 import EditorWorker from 'monaco-editor/editor/common/services/editorWebWorkerMain.js?worker'
 import JsonWorker from 'monaco-editor/language/json/json.worker?worker'
-import CssWorker from 'monaco-editor/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker'
-import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker'
+
+/*
+  There is no `css.worker` or `ts.worker` import here (OpenProject #3171): no editor surface in this
+  codebase ever creates a Monaco model with `language: 'css'`/`'scss'`/`'less'` or
+  `'typescript'`/`'javascript'` -- every surface uses `markdown`, `html`, `json` or `plaintext` (the
+  full inventory is on the work package). `ts.worker` alone was 6.9 MB and `css.worker` 1.05 MB in
+  the built `assets/` output, purely from being statically imported here -- Vite bundles a `?worker`
+  import into the build regardless of whether its constructor is ever called at runtime, which is
+  what put both chunks on disk with nothing in the app ever able to trigger them. Those two labels
+  fall through to the default `EditorWorker` branch below instead, same as any other unrecognised
+  label -- if a future editor surface genuinely needs TypeScript or CSS language services, add the
+  import and a branch back, deliberately, rather than reaching for the fallback.
+*/
 
 /*
   This file was never imported by `main.js`, so none of this ever ran and `self.MonacoEnvironment`
@@ -34,14 +45,8 @@ self.MonacoEnvironment = {
     if (label === 'json') {
       return new JsonWorker()
     }
-    if (label === 'css' || label === 'scss' || label === 'less') {
-      return new CssWorker()
-    }
     if (label === 'html' || label === 'handlebars' || label === 'razor') {
       return new HtmlWorker()
-    }
-    if (label === 'typescript' || label === 'javascript') {
-      return new TsWorker()
     }
     return new EditorWorker()
   }
