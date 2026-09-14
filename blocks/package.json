@@ -23,8 +23,8 @@
     "katex": "0.18.4",
     "leaflet": "1.9.4",
     "lit": "3.3.3",
-    "mermaid": "11.17.0",
-    "pdfjs-dist": "6.2.108",
+    "mermaid": "11.17.2",
+    "pdfjs-dist": "6.3.289",
     "swagger-ui": "5.32.14",
     "uqr": "0.1.3"
   },
