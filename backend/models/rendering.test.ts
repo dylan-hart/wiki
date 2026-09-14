@@ -2,6 +2,7 @@ import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { rendering } from './rendering.ts'
 import { installTestWiki } from '../test/mocks.ts'
+import { makeSite } from '../test/builders.ts'
 import type { BlockDefinition } from './blocks.ts'
 
 /*
@@ -490,10 +491,10 @@ describe('rendering.postProcess: visible callout for a permission-gated tag (Ope
  */
 describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject #2459)', () => {
   test('a link using a site-configured custom scheme survives sanitization', async () => {
-    WIKI.sites['site-with-schemes'] = {
+    WIKI.sites['site-with-schemes'] = makeSite({
       id: 'site-with-schemes',
       config: { allowedUrlSchemes: ['discord'] }
-    }
+    })
 
     const result = await rendering.postProcess(
       'site-with-schemes',
@@ -505,7 +506,7 @@ describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject 
   })
 
   test('a site with no allowedUrlSchemes config still strips a non-default scheme, unchanged', async () => {
-    WIKI.sites['site-no-config'] = { id: 'site-no-config', config: {} }
+    WIKI.sites['site-no-config'] = makeSite({ id: 'site-no-config' })
 
     const result = await rendering.postProcess(
       'site-no-config',

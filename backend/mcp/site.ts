@@ -2,10 +2,11 @@ import { assertSiteInScope, McpToolError } from './auth.ts'
 import type { McpAuthContext } from './auth.ts'
 
 /**
- * A site as `WIKI.sites` caches it. Untyped upstream (`types/global.d.ts` has `sites: Record<string,
- * any>` with a standing TODO to tighten it against the Drizzle row type) — narrowed to the fields
- * `mcp/` actually reads, the same way callers elsewhere in `backend/` read off `WIKI.sites[id]`
- * without a shared type for the whole row.
+ * A site as `WIKI.sites` caches it, narrowed to the fields `mcp/` actually reads. `WIKI.sites[id]`
+ * itself is now the real Drizzle row type (`db/schema.ts`'s `SiteRow`, OpenProject #3144) rather than
+ * `any`, but that type's `config` stays `Record<string, any>` -- this interface keeps its own
+ * narrower `config` projection (the specific keys `mcp/` reads) rather than deriving `SiteRow`
+ * directly, since `SiteRow` would give up that narrowing.
  */
 export interface McpSite {
   id: string

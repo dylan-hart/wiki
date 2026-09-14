@@ -11,6 +11,7 @@ import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { SearchIndexablePage } from '../models/search.ts'
 import type { StorageTarget } from '../models/storage.ts'
 import type { RebuildPageSource } from '../modules/search/shared.ts'
+import type { SiteRow } from '../db/schema.ts'
 
 /** A group rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
 export function makeGroupRule(overrides: Partial<GroupRule> = {}): GroupRule {
@@ -50,11 +51,12 @@ export function makeActor(overrides: Record<string, any> = {}) {
 }
 
 /** A `WIKI.sites[id]` entry — the cached per-site config a route or model reads locales off. */
-export function makeSite(overrides: Record<string, any> = {}) {
+export function makeSite(overrides: Record<string, any> = {}): SiteRow {
   return {
     id: 'site-1',
     hostname: 'wiki.example.com',
     isEnabled: true,
+    createdAt: new Date(),
     ...overrides,
     config: {
       locales: { primary: 'en', active: ['en'] },

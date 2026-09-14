@@ -8,6 +8,7 @@ import { Pool } from 'pg'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
+import type { SiteRow } from '../db/schema.ts'
 import {
   HOP2_DISTANCE_PENALTY,
   HOP2_SEED_COUNT,
@@ -654,11 +655,8 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
           isEnabled: true,
           config: { locales: { primary: 'en', active: ['en'] } }
         })
-        .returning({ id: sitesTable.id })
-      WIKI.sites[otherSite!.id] = {
-        id: otherSite!.id,
-        config: { locales: { primary: 'en', active: ['en'] } }
-      }
+        .returning()
+      WIKI.sites[otherSite!.id] = otherSite! as SiteRow
 
       const homePage = await pagesModel.createPage(
         fixtures.siteId,
