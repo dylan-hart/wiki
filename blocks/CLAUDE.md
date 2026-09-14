@@ -52,7 +52,7 @@ holds through inheritance — a block extending a shared base still declares its
   (`url`/`width`/`height`/`autoplay`/`controls`/`fs`/`loop`), `_size()`, `_frameStyle()` and the
   lazily-loaded `<iframe>` `render()`; a subclass writes `_parse`, `_embedUrl` and `_providerName`,
   and may override `_source()`, the two message hooks, `_frameTitle()`, `_frameAllow()` and `static
-  styles` (spread `VideoEmbedElement.styles` first). It constructs **no** `DarkMode` controller —
+styles` (spread `VideoEmbedElement.styles` first). It constructs **no** `DarkMode` controller —
   there is nothing in an opaque provider iframe to restyle — so `block-youtube` and
   `block-m365-video` never take a `dark` attribute at all, while `block-vimeo` and
   `block-dailymotion` construct their own for the one border they draw.
@@ -126,7 +126,7 @@ at all" rules apply to it unchanged — a block's suite sits at the component la
   `vitest.config.js`'s `include` is `**/*.test.js`, so a helper file under `blocks/test/` **must
   not** end in `.test.js` — the glob would run it as a suite.
 - **Mounting goes through `blocks/test/mount.js`.** `mountBlock(tag, { pre, text, html, props,
-  attrs, parent, settle })` builds the three body shapes the markdown renderer actually produces —
+attrs, parent, settle })` builds the three body shapes the markdown renderer actually produces —
   `pre` for a fenced body, `text` for an unfenced one, `html` for markup a block reads structure out
   of — since a block reads its content from the _light_ DOM, not from props. `settle` is a number of
   macrotask turns for a block with an async `connectedCallback`, or a function for one that exposes
@@ -140,7 +140,7 @@ at all" rules apply to it unchanged — a block's suite sits at the component la
   IS the suite: call `describeDarkMode(() => mountX(...))` at the end of a block's `describe` rather
   than writing the toggle by hand. `inverted` is for a block mounted light and then turned dark
   (`block-live-data`); `attribute: false` for one whose controller is constructed with `{ attribute:
-  false }` and so has no `dark` attribute to read (`block-map` — the controller's own `isDark` is
+false }` and so has no `dark` attribute to read (`block-map` — the controller's own `isDark` is
   asserted instead). `block-diagram` keeps a bespoke describe, because dark mode there is a real
   second `_draw()` rather than a restyle. The controller reacts through a `MutationObserver`
   callback, which runs as a microtask in jsdom same as a real browser, so no fake timers or polling
