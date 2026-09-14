@@ -3508,8 +3508,6 @@
   "profile.pronounsHint": "Let people know which pronouns should they use when referring to you.",
   "profile.save.success": "Profile saved successfully.",
   "profile.saveFailed": "Failed to save profile changes.",
-  "profile.saveSuccess": "Profile saved successfully.",
-  "profile.saving": "Saving profile...",
   "profile.subtitle": "My personal info",
   "profile.tfaRecoveryCodes": "Recovery Codes",
   "profile.tfaRecoveryCodesCloseWarn": "You have not copied or downloaded these recovery codes. Once you close this, they cannot be shown again — are you sure you want to continue?",

@@ -24,10 +24,12 @@
       </w-item-section>
       <w-item-section>
         <w-input
+          ref="firstNameField"
           v-model="state.config.firstName"
           hide-bottom-space
           :aria-label="t(`profile.firstName`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          :rules="[firstNameRule]" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -39,10 +41,12 @@
       </w-item-section>
       <w-item-section>
         <w-input
+          ref="lastNameField"
           v-model="state.config.lastName"
           hide-bottom-space
           :aria-label="t(`profile.lastName`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          :rules="[lastNameRule]" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -60,10 +64,12 @@
       </w-item-section>
       <w-item-section>
         <w-input
+          ref="nameField"
           v-model="state.config.name"
           hide-bottom-space
           :aria-label="t(`profile.displayName`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          :rules="[nameRule]" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -140,12 +146,14 @@
           so this trades a few hundred DOM nodes for a much simpler component.
         -->
         <w-select
+          ref="timezoneField"
           v-model="state.config.timezone"
           :options="timezones"
           options-dense
           hide-bottom-space
           :aria-label="t(`admin.general.defaultTimezone`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          :rules="[timezoneRule]" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -242,26 +250,18 @@
           :aria-label="t(`profile.cvd`)" />
       </w-item-section>
     </w-item>
-    <div v-if="canEdit" class="actions-bar">
-      <w-btn
-        icon="tabler:check"
-        :label="t(`common.actions.saveChanges`)"
-        color="slate"
-        :disabled="state.loading > 0"
-        @click="save" />
-    </div>
   </w-page>
 </template>
 
 <script setup>
 import { useI18n } from 'vue-i18n'
+import { debounce } from 'es-toolkit/function'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useDerivedDisplayName } from '@/composables/displayName'
-import { computed, onMounted, reactive } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import { useCommonStore } from '@/stores/common'
 import { useSiteStore } from '@/stores/site'
@@ -302,8 +302,50 @@ const state = reactive({
     contentWidth: 'site',
     cvd: 'none'
   },
-  loading: 0
+  loading: 0,
+  /*
+    The only two server error codes (`userProfileInvalidName`, `userProfileInvalidTimezone`) that
+    name a specific field -- see `applyFieldErrors` below. Every other failure is reported only by
+    the toast in `save()`'s catch.
+  */
+  fieldErrors: {
+    name: null,
+    firstName: null,
+    lastName: null,
+    timezone: null
+  }
 })
+
+/*
+  Task #3220: auto-save is ambient, so its debounce has to run per keystroke rather than per
+  explicit click -- 800ms gives a reader a real pause to keep typing before a request goes out,
+  longer than the ~350-400ms this codebase uses for a typeahead search (there is nothing to react to
+  as fast as a dropdown of results here).
+*/
+const AUTO_SAVE_DEBOUNCE_MS = 800
+
+const firstNameField = ref(null)
+const lastNameField = ref(null)
+const nameField = ref(null)
+const timezoneField = ref(null)
+
+/*
+  `WInput`/`WSelect` only re-run their own `rules` on their own `modelValue` change or blur (see
+  `fieldFrame.js`/`WInput.vue`) -- neither fires just because `state.fieldErrors` changed out from
+  under them, so every place that mutates it also calls this to force the affected control to
+  re-read it immediately, rather than waiting for the reader to touch the field again.
+*/
+function revalidateFieldRefs() {
+  firstNameField.value?.validate()
+  lastNameField.value?.validate()
+  nameField.value?.validate()
+  timezoneField.value?.validate()
+}
+
+const firstNameRule = () => state.fieldErrors.firstName ?? true
+const lastNameRule = () => state.fieldErrors.lastName ?? true
+const nameRule = () => state.fieldErrors.name ?? true
+const timezoneRule = () => state.fieldErrors.timezone ?? true
 
 const dateFormats = [
   { value: '', label: t('profile.localeDefault') },
@@ -371,7 +413,17 @@ async function fetchProfile() {
   state.loading--
 }
 
+/*
+  Set for the duration of every programmatic rewrite of `state.config` -- the initial load below and
+  the post-save re-apply of the server's own echoed profile in `save()` -- and released only once
+  Vue has flushed the reactive effects those assignments scheduled (`nextTick`), which is also when
+  the auto-save watcher's own job for this same change would run. Without it, loading the profile
+  (or a successful save re-syncing it) would itself look like an edit and queue another save.
+*/
+let suppressAutoSave = true
+
 function applyProfile(profile) {
+  suppressAutoSave = true
   state.config.name = profile.name || ''
   state.config.firstName = profile.firstName || ''
   state.config.lastName = profile.lastName || ''
@@ -389,12 +441,40 @@ function applyProfile(profile) {
   state.config.cvd = profile.cvd || 'none'
   // -> After the whole record is in the fields, not per-field: the answer depends on all three.
   syncDisplayName()
+  nextTick(() => {
+    suppressAutoSave = false
+  })
+}
+
+/**
+ * Maps the one kind of failure the server can pin to a specific control onto `state.fieldErrors`,
+ * so the affected field carries its own inline error alongside the toast `save()`'s catch always
+ * raises. `userProfileInvalidName` covers all three name fields at once (the server validates them
+ * together); everything else -- including a validation failure with no dedicated error code -- is
+ * reported by the toast alone.
+ */
+function applyFieldErrors(err) {
+  const code = err?.data?.error
+  const message = apiErrorMessage(err, t('common.error.unexpected'))
+  if (code === 'userProfileInvalidName') {
+    state.fieldErrors.name = message
+    state.fieldErrors.firstName = message
+    state.fieldErrors.lastName = message
+  } else if (code === 'userProfileInvalidTimezone') {
+    state.fieldErrors.timezone = message
+  }
+  revalidateFieldRefs()
+}
+
+function clearFieldErrors() {
+  for (const key of Object.keys(state.fieldErrors)) {
+    state.fieldErrors[key] = null
+  }
+  revalidateFieldRefs()
 }
 
 async function save() {
-  loading.show({
-    message: t('profile.saving')
-  })
+  clearFieldErrors()
   try {
     // -> The email is displayed read-only and cannot be changed here, so it is left out entirely.
     //    `locale` has no field of its own on this screen -- it is whatever the app's own locale
@@ -439,23 +519,47 @@ async function save() {
       contentWidth: state.config.contentWidth,
       cvd: state.config.cvd
     })
-    notify({
-      type: 'positive',
-      message: t('profile.saveSuccess')
-    })
+    // -> Task #3220: ambient auto-save -- no success toast. The point is removing the need to
+    //    think about saving at all; a failure below still surfaces one, so nothing is silently lost.
   } catch (err) {
+    applyFieldErrors(err)
     notify({
       type: 'negative',
       message: t('profile.saveFailed'),
       caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
-  loading.hide()
 }
+
+const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)
+
+/*
+  Watches the whole config object rather than any one field, so this keeps working whichever fields
+  a later change adds or however they get reordered in the template -- see Task #3220/#3221's
+  coordination note. `applyProfile()` is the only other writer of `state.config`, and it guards
+  itself with `suppressAutoSave`.
+*/
+watch(
+  () => state.config,
+  () => {
+    if (suppressAutoSave || !canEdit.value) {
+      return
+    }
+    debouncedAutoSave()
+  },
+  { deep: true }
+)
 
 // MOUNTED
 
 onMounted(() => {
   fetchProfile()
+})
+
+// -> A pending debounced auto-save left uncancelled would otherwise fire ~800ms after the reader
+//    has already navigated away from this page, same reasoning `EditorMarkdown.vue` cancels its own
+//    debounced writes on unmount for (OpenProject #808).
+onUnmounted(() => {
+  debouncedAutoSave.cancel()
 })
 </script>

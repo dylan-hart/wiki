@@ -1,20 +1,15 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import ProfileInfo from './ProfileInfo.vue'
 import ProfileOverlay from '@/components/ProfileOverlay.vue'
+import { queue as notifyQueue } from '@/composables/notify'
 import { mountWithApp } from '../../test/mount.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
-/**
- * OpenProject #2074: `ProfileInfo.vue`'s "Save Changes" button used to draw a different check from the
- * one every `Admin*.vue` settings page draws for the identical "commit these settings" action
- * (`icon="tabler:check"` + `t('common.actions.apply')`). That action is settled on `tabler:check`, so
- * this page's Save button must not drift to a ringed variant -- `tabler:circle-check` is the one
- * sitting closest to it in the set.
- */
 function mountPage() {
-  // -> The Save button only renders once editing is allowed (`canEdit`, gated on this feature flag).
+  // -> Editing is only allowed once `canEdit` (gated on this feature flag) is true; every field is
+  //    readonly otherwise.
 
   return mountWithApp(ProfileInfo, {
     messages: {
@@ -31,18 +26,6 @@ function mountPage() {
     }
   }).wrapper
 }
-
-describe('ProfileInfo "Save Changes" icon (OpenProject #2074)', () => {
-  it('uses the settled tabler:check save/commit glyph, not tabler:circle-check', async () => {
-    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
-
-    const wrapper = mountPage()
-    await flushPromises()
-
-    expect(wrapper.find('[data-icon="tabler:check"]').exists()).toBe(true)
-    expect(wrapper.find('[data-icon="tabler:circle-check"]').exists()).toBe(false)
-  })
-})
 
 /**
  * OpenProject #2623: this screen compared against `ui-redesign/Cardinal Wiki - Profile 3x.dc.html`,
@@ -119,19 +102,14 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
 
     /*
       The design stacks band, rows, band, rows with nothing between them: the strip IS the seam. A
-      `mt-*` utility on a band -- or on the save bar -- is what put a 24px hole there instead.
+      `mt-*` utility on a band is what put a 24px hole there instead. There is no save bar any more
+      (Task #3220) for one to sit on.
     */
     const bands = wrapper.findAll('.w-section-header')
     expect(bands.length).toBe(3)
     for (const band of bands) {
       expect(band.classes().some((cls) => cls.startsWith('mt-'))).toBe(false)
     }
-    expect(
-      wrapper
-        .find('.actions-bar')
-        .classes()
-        .some((cls) => cls.startsWith('mt-'))
-    ).toBe(false)
   })
 
   it('leaves the content column its own padding to draw, and the separators unspaced', async () => {
@@ -680,5 +658,154 @@ describe('ProfileInfo first/last/display name (Feature #2608)', () => {
       firstName: 'Prince',
       lastName: ''
     })
+  })
+})
+
+/**
+ * Task #3220 (Epic #3219): the explicit Save button is gone -- a field change auto-applies,
+ * debounced, with no toast on success (ambient, the point is removing the need to think about
+ * saving at all) but a toast, plus inline error state where it can be pinned to a field, on failure.
+ */
+describe('ProfileInfo auto-save (Task #3220)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders no Save button at all', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    expect(wrapper.find('.actions-bar').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((btn) => btn.text().includes('Save Changes'))).toBe(false)
+  })
+
+  it('does not save merely from loading the initial profile', async () => {
+    mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('saves automatically, debounced, once a field is edited -- with no explicit trigger', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      firstName: 'Janet'
+    })
+  })
+
+  it('collapses several edits inside the debounce window into a single save', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Ja')
+    await vi.advanceTimersByTimeAsync(400)
+    await wrapper.find('input[aria-label="First Name"]').setValue('Jan')
+    await vi.advanceTimersByTimeAsync(400)
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      firstName: 'Janet'
+    })
+  })
+
+  it('raises no success toast once an auto-save completes', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+    notifyQueue.splice(0, notifyQueue.length)
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(false)
+  })
+
+  it('still raises a failure toast when an auto-save fails, so nothing is silently lost', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    const err = new Error('network')
+    globalThis.API_CLIENT.put.mockImplementation(() => {
+      throw err
+    })
+    notifyQueue.splice(0, notifyQueue.length)
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
+  })
+
+  it('puts an inline error on the timezone field for a server-rejected time zone', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    const err = new Error('Bad Request')
+    err.data = {
+      ok: false,
+      error: 'userProfileInvalidTimezone',
+      statusCode: 400,
+      message: 'Not a recognized IANA time zone.'
+    }
+    globalThis.API_CLIENT.put.mockImplementationOnce(() => {
+      throw err
+    })
+
+    await wrapper.vm.save()
+    await flushPromises()
+
+    const timezoneField = wrapper.find('[aria-label="admin.general.defaultTimezone"]')
+    expect(timezoneField.exists()).toBe(true)
+    expect(timezoneField.element.closest('.w-item').textContent).toContain(
+      'Not a recognized IANA time zone.'
+    )
+  })
+
+  it('clears a field-level error once a fresh save is attempted', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    const err = new Error('Bad Request')
+    err.data = {
+      ok: false,
+      error: 'userProfileInvalidTimezone',
+      statusCode: 400,
+      message: 'Not a recognized IANA time zone.'
+    }
+    globalThis.API_CLIENT.put.mockImplementationOnce(() => {
+      throw err
+    })
+    await wrapper.vm.save()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Not a recognized IANA time zone.')
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Not a recognized IANA time zone.')
   })
 })
