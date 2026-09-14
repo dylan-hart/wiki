@@ -59,28 +59,24 @@
             <w-icon name="tabler:x" />
           </button>
           <!--
-            The shortcut hint doubles as the focus affordance, so it gives way to whatever the field
-            has to say once it is in use.
+            Always shown, focused or not (OpenProject #3227) -- it used to give way on focus to either
+            nothing or a "Press Enter" hint, which shrank `.header-search-field` by the hint's own width
+            right as the field gained focus. That reflow shifted the mode-toggle and tags buttons docked
+            beside it, which was most visible clicking the mode-toggle button while the field already had
+            focus: the click's own `mousedown` blurs the field first (it carries no `mousedown.prevent`,
+            unlike the buttons that must stay clickable while the panel is open), the hint popped back in,
+            and the button the reader was aiming at moved out from under the pointer. A static hint keeps
+            `.header-search-field`'s width constant across every focus change instead.
 
             Never in `row` form: that is the phone field, opened by a button, and a keyboard shortcut is
-            not something the device it exists for can offer. The focus test moves onto the branch below,
-            which the chain used to get for free from this one.
+            not something the device it exists for can offer.
           -->
           <span
-            v-if="!row && !state.searchIsFocused"
+            v-if="!row"
             class="header-search-kbd"
             aria-hidden="true"
             @click="searchField.focus()">
             {{ searchShortcutHint }}
-          </span>
-          <span
-            v-else-if="
-              state.searchIsFocused &&
-              siteStore.search &&
-              siteStore.search !== siteStore.searchLastQuery
-            "
-            class="header-search-kbd">
-            Press Enter
           </span>
         </div>
 

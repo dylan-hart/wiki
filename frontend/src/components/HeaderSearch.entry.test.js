@@ -188,6 +188,56 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
 })
 
 /**
+ * OpenProject #3227: the hint used to disappear (`v-if` on `!state.searchIsFocused`) the moment the
+ * field gained focus, shrinking `.header-search-field` and shifting the mode-toggle/tags buttons
+ * docked beside it. It must now stay put across a focus/blur cycle, with or without a typed query
+ * (which used to swap it out for a separate "Press Enter" hint of a different width).
+ */
+describe('HeaderSearch shortcut hint stays put across focus changes (OpenProject #3227)', () => {
+  async function mountFocusable() {
+    const router = await createTestRouter(['/'])
+    const { wrapper } = mountWithApp(HeaderSearch, {
+      router,
+      stores: {
+        site: (store) => {
+          store.features.search = true
+        }
+      }
+    })
+    return wrapper
+  }
+
+  it('keeps the hint visible once the field is focused', async () => {
+    const wrapper = await mountFocusable()
+    expect(wrapper.find('.header-search-kbd').exists()).toBe(true)
+
+    await wrapper.find('.header-search-input').trigger('focus')
+
+    expect(wrapper.find('.header-search-kbd').exists()).toBe(true)
+  })
+
+  it('keeps the hint visible, and unchanged, once focused with a typed, unsubmitted query', async () => {
+    const wrapper = await mountFocusable()
+    await wrapper.find('.header-search-input').trigger('focus')
+    const focusedText = wrapper.find('.header-search-kbd').text()
+
+    await wrapper.find('.header-search-input').setValue('needle')
+
+    const hint = wrapper.find('.header-search-kbd')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe(focusedText)
+  })
+
+  it('renders no more than one shortcut hint at a time', async () => {
+    const wrapper = await mountFocusable()
+    await wrapper.find('.header-search-input').trigger('focus')
+    await wrapper.find('.header-search-input').setValue('needle')
+
+    expect(wrapper.findAll('.header-search-kbd')).toHaveLength(1)
+  })
+})
+
+/**
  * OpenProject #2718: `is-focused` used to live on `.header-search-field` alone, so the focus ring
  * could only darken the field's own edges -- the docked tags button, which supplies the shared
  * right edge (`.header-search-field--docked` drops the field's own `border-inline-end`), kept its
