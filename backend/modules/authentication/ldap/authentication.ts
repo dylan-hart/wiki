@@ -245,6 +245,9 @@ export default class LdapAuthentication {
         is a supported answer, not an error: nothing is derived from `givenName` to fill it in.
       */
       const [firstName, lastName] = [attrs.givenName?.[0], attrs.sn?.[0]]
+      // -> Absent (not '') when unmapped or the entry has no value -- see `ProviderProfile.picture`'s
+      //    own doc comment for why "didn't say" must never become a fabricated default.
+      const picture = this.conf.mappingPicture ? attrs[this.conf.mappingPicture]?.[0] : undefined
       if (!id || !email) {
         WIKI.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: entry for "${username}" has no value for its unique ID or email mapping`
@@ -261,7 +264,8 @@ export default class LdapAuthentication {
         email,
         name: name || email,
         ...providerNameHalves(firstName, lastName),
-        groups
+        groups,
+        picture
       })
     } finally {
       await unbindQuietly(adminClient)

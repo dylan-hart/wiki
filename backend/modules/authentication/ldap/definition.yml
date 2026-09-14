@@ -99,6 +99,13 @@ props:
     icon: person
     default: 'displayName'
     order: 22
+  mappingPicture:
+    type: String
+    title: Picture Field Mapping
+    hint: (optional) The attribute holding a URL to the user's avatar/picture. Leave empty to not sync an avatar from this directory. A manually-uploaded avatar is never overwritten.
+    icon: image
+    default: ''
+    order: 23
   mapGroups:
     type: Boolean
     title: Map Groups

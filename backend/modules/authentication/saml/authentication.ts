@@ -296,13 +296,21 @@ export default class SamlAuthentication {
       single value, unlike this framework's LDAP module), so no splitting convention is needed here.
     */
     const groups = this.conf.mapGroups ? asStringArray(claim(this.conf.mappingGroups)) : undefined
+    // -> Absent (not '') when unmapped or the assertion carries no value for it -- see
+    //    `ProviderProfile.picture`'s own doc comment for why "didn't say" must never become a
+    //    fabricated default. No `NameID` fallback, unlike `id`/`email` above: there is nothing on
+    //    the assertion itself that is ever a picture URL.
+    const picture = this.conf.mappingPicture
+      ? (firstOf(claim(this.conf.mappingPicture)) as string | undefined)
+      : undefined
 
     return {
       id: `${id}`,
       email: `${email}`,
       name: name ? `${name}` : `${email}`,
       ...providerNameHalves(firstOf(claim(GIVEN_NAME_CLAIM)), firstOf(claim(SURNAME_CLAIM))),
-      groups
+      groups,
+      picture: picture ? `${picture}` : undefined
     }
   }
 }
