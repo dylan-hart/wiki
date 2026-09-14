@@ -102,4 +102,23 @@ describe('mapGoogleProfile', () => {
     assert.equal('firstName' in profile, false)
     assert.equal(profile.name, 'Dr. Alice Example')
   })
+
+  /* Feature #3208 — Google issues the OIDC standard `picture` claim, read here with no config key. */
+  test('reads the picture claim into the profile', () => {
+    const profile = mapGoogleProfile(
+      {},
+      { ...claims, picture: 'https://lh3.googleusercontent.com/a/abc123' }
+    )
+    assert.equal(profile.picture, 'https://lh3.googleusercontent.com/a/abc123')
+  })
+
+  test('an account Google reports no picture for leaves the key off the profile', () => {
+    const profile = mapGoogleProfile({}, { ...claims, picture: undefined })
+    assert.equal('picture' in profile, false)
+  })
+
+  test('a blank picture claim is treated the same as absent', () => {
+    const profile = mapGoogleProfile({}, { ...claims, picture: '   ' })
+    assert.equal('picture' in profile, false)
+  })
 })

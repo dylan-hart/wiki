@@ -23,6 +23,7 @@ interface FakeAccount {
   id?: number | string
   login?: string
   name?: string | null
+  avatar_url?: string | null
 }
 
 describe('GitHubAuthentication', () => {
@@ -133,5 +134,23 @@ describe('GitHubAuthentication', () => {
   test('a strategy missing clientId/clientSecret refuses to build an authorization URL', async () => {
     const github = new GitHubAuthentication('strategy-1', {})
     await assert.rejects(github.authorizationUrl(flow), /ERR_STRATEGY_MISCONFIGURED/)
+  })
+
+  /* Feature #3208 — GitHub's `/user` reports `avatar_url`, read here with no config key of its own. */
+  test('maps avatar_url into the profile picture', async () => {
+    mockGitHub({
+      id: 1,
+      login: 'octocat',
+      name: 'Ada Lovelace',
+      avatar_url: 'https://avatars.githubusercontent.com/u/583231'
+    })
+    const profile = await strategy().profile({ ...flow, currentUrl: '', code: 'the-code' })
+    assert.equal(profile.picture, 'https://avatars.githubusercontent.com/u/583231')
+  })
+
+  test('an account with no avatar_url leaves the picture key off the profile', async () => {
+    mockGitHub({ id: 1, login: 'octocat', name: 'Ada Lovelace', avatar_url: null })
+    const profile = await strategy().profile({ ...flow, currentUrl: '', code: 'the-code' })
+    assert.equal('picture' in profile, false)
   })
 })

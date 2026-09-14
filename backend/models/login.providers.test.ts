@@ -433,6 +433,102 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
+   * Feature #3208 / OpenProject #3236: the shared call site this Task owns -- `profile.picture` reaches
+   * `WIKI.models.users.syncAvatarFromProvider()` on every login, not just account creation. The
+   * precedence rule (manual upload always wins) and the caching itself are `syncAvatarFromProvider`'s
+   * own concern (Task #3235, covered by `models/users.profile.test.ts`); this only proves the call site
+   * wires a profile's `picture` into it, and that no `picture` means no call at all.
+   */
+  describe('avatar sync from the provider profile', () => {
+    async function readAvatar(id: string) {
+      const [row] = await fixtures.db
+        .select({
+          avatarProviderUrl: usersTable.avatarProviderUrl,
+          hasAvatar: usersTable.hasAvatar
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1)
+      return row!
+    }
+
+    test('a profile carrying a picture syncs it onto a newly-created account', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'avatar-create-strategy' }), {
+        id: 'avatar-account-1',
+        email: 'avatar-new@example.com',
+        name: 'Avatar New',
+        picture: 'https://provider.example/avatar-1.jpg'
+      })
+
+      const row = await readAvatar(created.id)
+      assert.equal(row.avatarProviderUrl, 'https://provider.example/avatar-1.jpg')
+    })
+
+    test('a profile carrying a picture syncs it onto an existing, already-linked account', async () => {
+      const strategy = baseStrategy({ id: 'avatar-existing-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'avatar-existing@example.com',
+          name: 'Avatar Existing',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: { [strategy.id]: { id: 'avatar-account-2', email: 'avatar-existing@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'avatar-account-2',
+        email: 'avatar-existing@example.com',
+        name: 'Avatar Existing',
+        picture: 'https://provider.example/avatar-2.jpg'
+      })
+
+      const row = await readAvatar(created!.id)
+      assert.equal(row.avatarProviderUrl, 'https://provider.example/avatar-2.jpg')
+    })
+
+    test('a profile reporting no picture leaves the account untouched', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'avatar-none-strategy' }), {
+        id: 'avatar-account-3',
+        email: 'avatar-none@example.com',
+        name: 'Avatar None'
+      })
+
+      const row = await readAvatar(created.id)
+      assert.equal(row.avatarProviderUrl, null)
+    })
+
+    test('a manually-uploaded avatar is not overwritten by a provider-reported picture', async () => {
+      const strategy = baseStrategy({ id: 'avatar-manual-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'avatar-manual@example.com',
+          name: 'Avatar Manual',
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          hasAvatar: true,
+          auth: { [strategy.id]: { id: 'avatar-account-4', email: 'avatar-manual@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'avatar-account-4',
+        email: 'avatar-manual@example.com',
+        name: 'Avatar Manual',
+        picture: 'https://provider.example/avatar-4.jpg'
+      })
+
+      const row = await readAvatar(created!.id)
+      assert.equal(row.hasAvatar, true)
+      assert.equal(row.avatarProviderUrl, null)
+    })
+  })
+
+  /**
    * WP #2560: relinking a migrated fallback account via `trustEmailForLinking` clears the orphaned
    * local-strategy auth entry `createProviderFallbackUserConverter()` (Feature #2547's other sibling
    * Task) originally wrote for it -- but only when that entry actually carries the migration

@@ -32,6 +32,11 @@ function asStringArray(value: unknown): string[] {
  * #2608), not this module's. Deliberately NOT done here: splitting the display name when the
  * provider issues no halves at all — that fallback is per-module (Task #2641), and doing it in this
  * shared mapper would silently apply it to every OIDC preset.
+ *
+ * The avatar URL comes from OIDC's own standard `picture` claim, overridable by `pictureClaim` for a
+ * provider that puts it somewhere else. Absent (rather than a fabricated default) whenever the claim
+ * is missing or not a non-blank string — `models/users.ts#syncAvatarFromProvider` treats absence as
+ * "the provider did not say" and leaves any existing avatar alone (Feature #3208).
  */
 export function mapOidcProfile(
   conf: Record<string, any>,
@@ -46,6 +51,7 @@ export function mapOidcProfile(
   if (emailVerified === false && conf.allowUnverifiedEmail !== true) {
     throw new Error('ERR_EMAIL_NOT_VERIFIED')
   }
+  const picture = info[conf.pictureClaim || 'picture']
   return {
     id: subject,
     email,
@@ -57,7 +63,8 @@ export function mapOidcProfile(
     // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
     //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
     //    is only ever present when `mapGroups` is on, never set to `undefined`.
-    ...(conf.mapGroups ? { groups: asStringArray(info[conf.groupsClaim || 'groups']) } : {})
+    ...(conf.mapGroups ? { groups: asStringArray(info[conf.groupsClaim || 'groups']) } : {}),
+    ...(typeof picture === 'string' && picture.trim() ? { picture } : {})
   }
 }
 
