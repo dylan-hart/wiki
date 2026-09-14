@@ -2300,6 +2300,7 @@
   "common.notfound.gohome": "Home",
   "common.notfound.subtitle": "This page does not exist.",
   "common.notfound.title": "Not Found",
+  "common.otpInput.digitLabel": "Digit {n} of {total}",
   "common.outdatedBrowserWarning": "Your browser is outdated. Upgrade to a {modernBrowser}.",
   "common.page.bookmark": "Bookmark",
   "common.page.contents": "Contents",

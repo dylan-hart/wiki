@@ -3,14 +3,7 @@
     <template v-if="props.screen === `tfa`">
       <p class="auth-subtitle">{{ t('auth.tfa.subtitle') }}</p>
       <div v-if="!state.useRecoveryCode" class="auth-otp">
-        <v-otp-input
-          v-model:value="state.securityCode"
-          :num-inputs="6"
-          :should-auto-focus="true"
-          input-classes="otp-input"
-          input-type="number"
-          separator=""
-          @on-complete="verifyTFA" />
+        <w-otp-input v-model="state.securityCode" :length="6" autofocus @complete="verifyTFA" />
       </div>
       <!--
         The design draws no recovery-code field at all -- it covers the six-digit state only -- so
@@ -71,13 +64,7 @@
       </div>
       <p class="auth-subtitle mt-3">{{ t('auth.tfaSetupInstrSecond') }}</p>
       <div class="auth-otp auth-otp--sm">
-        <v-otp-input
-          v-model:value="state.securityCode"
-          :num-inputs="6"
-          :should-auto-focus="true"
-          input-classes="otp-input"
-          input-type="number"
-          separator="" />
+        <w-otp-input v-model="state.securityCode" :length="6" autofocus />
       </div>
       <!-- -> OpenProject #2779: see the `tfa` screen's Verify button above for the accent color note -->
       <w-btn
@@ -103,8 +90,6 @@ import { localizeError } from '@/helpers/localization'
 import { formatRecoveryCodeInput, isValidTfaCode } from '@/helpers/tfaCode'
 
 import { useSiteStore } from '@/stores/site'
-
-import VOtpInput from 'vue3-otp-input'
 
 /**
  * The two-factor screens of `AuthLoginPanel.vue`: entering a code to finish a sign-in (`tfa`, with
