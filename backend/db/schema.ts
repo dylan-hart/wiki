@@ -1572,6 +1572,18 @@ export const sites = pgTable('sites', {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
+/**
+ * A `sites` row as read back through Drizzle -- what `WIKI.sites[id]` holds (OpenProject #3144;
+ * `types/global.d.ts`'s `WikiGlobal.sites` is `Record<string, SiteRow>`). `config` is left
+ * `Record<string, any>` rather than `$type<>`-pinned to a concrete shape: unlike `glossaryTerms.aliases`
+ * above, this column's shape is a large, evolving admin-settings tree (locales, features, assets,
+ * search engine config, pathDisplayCase, ...) assembled the same way `WIKI.config` is -- see that
+ * member's own comment in `types/global.d.ts` -- so pinning it here would need re-deriving that whole
+ * tree as a type, which is out of this task's scope. The win this type captures is still real: `id`,
+ * `hostname`, `isEnabled` and `createdAt` are no longer silently `any`.
+ */
+export type SiteRow = Omit<typeof sites.$inferSelect, 'config'> & { config: Record<string, any> }
+
 // -> The images an administrator uploads for a site — its logo, favicon and login background — one row
 //    per kind. Held in the database rather than under `dataPath`, which is a cache: an instance that
 //    comes back with an empty data directory must still look like itself. Whether a kind has been

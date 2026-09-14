@@ -826,7 +826,7 @@ async function routes(app: FastifyInstance) {
         actor: actorFromRequest(req),
         targetType: 'site',
         targetId: req.params.siteId,
-        targetLabel: req.body.title ?? site.title,
+        targetLabel: req.body.title ?? site.config.title,
         detail: {
           changedFields: Object.keys(req.body)
         },

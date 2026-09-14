@@ -17,6 +17,7 @@ import {
   sites as sitesTable,
   tree as treeTable
 } from '../db/schema.ts'
+import type { SiteRow } from '../db/schema.ts'
 
 /** Stages a `{ name: Buffer }` map to real files under `dir`, then tars them into a fresh archive. */
 async function buildArchive(dir: string, entries: Record<string, Buffer>): Promise<string> {
@@ -210,9 +211,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
         isEnabled: true,
         config: { locales: { primary: 'en' } }
       })
-      .returning({ id: sitesTable.id })
+      .returning()
     targetSiteId = targetSite!.id
-    WIKI.sites[targetSiteId] = { id: targetSiteId, config: { locales: { primary: 'en' } } }
+    WIKI.sites[targetSiteId] = targetSite! as SiteRow
   })
 
   after(async () => {
@@ -724,9 +725,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
         isEnabled: true,
         config: { locales: { primary: 'en' } }
       })
-      .returning({ id: sitesTable.id })
+      .returning()
     const bulkSourceSiteId = bulkSourceSite!.id
-    WIKI.sites[bulkSourceSiteId] = { id: bulkSourceSiteId, config: { locales: { primary: 'en' } } }
+    WIKI.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
 
     // -> One real page, created through the model so its row has every column a genuine export would
     //    produce -- then exported and used as a template. `ROW_COUNT` synthetic pages/tree entries are
@@ -824,9 +825,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
         isEnabled: true,
         config: { locales: { primary: 'en' } }
       })
-      .returning({ id: sitesTable.id })
+      .returning()
     const failTargetSiteId = failTargetSite!.id
-    WIKI.sites[failTargetSiteId] = { id: failTargetSiteId, config: { locales: { primary: 'en' } } }
+    WIKI.sites[failTargetSiteId] = failTargetSite! as SiteRow
 
     const preExistingPage = await pagesModel.createPage(
       failTargetSiteId,
@@ -861,9 +862,9 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
         isEnabled: true,
         config: { locales: { primary: 'en' } }
       })
-      .returning({ id: sitesTable.id })
+      .returning()
     const bulkSourceSiteId = bulkSourceSite!.id
-    WIKI.sites[bulkSourceSiteId] = { id: bulkSourceSiteId, config: { locales: { primary: 'en' } } }
+    WIKI.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
 
     // -> One real page, created through the model so it auto-records one `pageHistory` row and (via
     //    `models/navigation.ts#ensureSiteNav`) the site's one default `navigation` row -- both used as

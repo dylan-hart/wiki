@@ -14,6 +14,7 @@ import {
   settings as settingsTable,
   sites as sitesTable
 } from '../db/schema.ts'
+import type { SiteRow } from '../db/schema.ts'
 
 /**
  * `buildSnapshot` is almost entirely SQL orchestration (every table in Feature #2437's full-parity
@@ -47,15 +48,12 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
         isEnabled: true,
         config: { locales: { primary: 'en', active: ['en'] } }
       })
-      .returning({ id: sitesTable.id })
+      .returning()
     secondSiteId = secondSite!.id
     // -> `pages.ts#createPage` checks the in-memory `WIKI.sites` cache, not the DB row directly --
     //    `setupTestDb()` already registers the fixture site there; this second one needs the same
     //    registration or `createPage(secondSiteId, ...)` below 404s as an unknown site.
-    WIKI.sites[secondSiteId] = {
-      id: secondSiteId,
-      config: { locales: { primary: 'en', active: ['en'] } }
-    }
+    WIKI.sites[secondSiteId] = secondSite! as SiteRow
   })
 
   after(async () => {

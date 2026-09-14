@@ -18,6 +18,7 @@ import {
   sites as sitesTable,
   storage as storageTable
 } from '../db/schema.ts'
+import type { SiteRow } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { CustomError } from '../helpers/common.ts'
@@ -168,7 +169,10 @@ class Sites extends ClusterReloaded {
 
   async reloadCache(): Promise<void> {
     const sites = await WIKI.db.select().from(sitesTable).orderBy(sitesTable.id)
-    WIKI.sites = keyBy(sites, (s) => s.id)
+    // -> `config` reads back from Drizzle as `unknown` (no `$type<>` pin -- see `SiteRow`'s own
+    //    comment in `db/schema.ts` for why); this cast is the one deliberate place that widens it to
+    //    the loose `Record<string, any>` every other `WIKI.sites[id].config` read already assumes.
+    WIKI.sites = keyBy(sites, (s) => s.id) as Record<string, SiteRow>
     WIKI.sitesMappings = {}
     for (const site of sites) {
       // -> Belt and braces: the write side is already lowercase by construction (site
