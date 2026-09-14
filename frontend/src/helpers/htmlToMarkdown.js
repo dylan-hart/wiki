@@ -1,5 +1,5 @@
 import TurndownService from 'turndown'
-import { tables, taskListItems } from 'turndown-plugin-gfm'
+import { tables, taskListItems } from '@joplin/turndown-plugin-gfm'
 
 /**
  * Converts a clipboard `text/html` payload into markdown for the markdown editor's paste path
@@ -20,11 +20,11 @@ import { tables, taskListItems } from 'turndown-plugin-gfm'
  *    (☐ U+2610 unchecked, ☑ U+2611 checked) as the item's own first character, not a semantic
  *    checkbox -- `convertCheckboxGlyphs` rewrites those lines to GFM task-list syntax afterwards.
  *    A real `<input type="checkbox">`, which other sources (and older OneNote captures) do send, is
- *    already handled by `turndown-plugin-gfm`'s own `taskListItems` rule and needs nothing extra
- *    here. Its `strikethrough` rule is deliberately NOT used, in favour of this file's own (below):
- *    it emits single-tilde `~text~`, which is Pandoc's strikethrough spelling, not GFM's -- and this
- *    app's renderer (`markdown-it`, whose own strikethrough support is a CommonMark/GFM `~~text~~`
- *    core rule) does not recognise it at all.
+ *    already handled by `@joplin/turndown-plugin-gfm`'s own `taskListItems` rule and needs nothing
+ *    extra here. Its `strikethrough` rule is deliberately NOT used, in favour of this file's own
+ *    (below): it emits single-tilde `~text~`, which is Pandoc's strikethrough spelling, not GFM's --
+ *    and this app's renderer (`markdown-it`, whose own strikethrough support is a CommonMark/GFM
+ *    `~~text~~` core rule) does not recognise it at all.
  *
  * Two more decisions worth calling out:
  *
@@ -134,7 +134,7 @@ function buildTurndownService() {
   })
   // -> GFM strikethrough (`~~text~~`), covering both the real tags AND the OneNote/Office
   //    presentational-style spelling in one rule -- see the module doc comment on why
-  //    `turndown-plugin-gfm`'s own `strikethrough` rule is not used here.
+  //    `@joplin/turndown-plugin-gfm`'s own `strikethrough` rule is not used here.
   service.addRule('strikethrough', {
     filter: (node) =>
       ['DEL', 'S', 'STRIKE'].includes(node.nodeName) || isPresentationalStrike(node),
