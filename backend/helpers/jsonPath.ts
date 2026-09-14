@@ -10,12 +10,22 @@ import { JSONPath } from 'jsonpath-plus'
  * unconditional — `wrap: false` unwraps a single scalar match on its own but keeps wrapping the rest,
  * which is a distinction this caller does not want to make twice.
  *
+ * `eval: false` is explicit rather than relied on as the library default (OpenProject #3157):
+ * `jsonpath-plus` has an RCE-class history in its script-evaluation feature (GHSA-pppg, GHSA-hw8r —
+ * see `docs/audits/2026-09-13-dependency-audit.md` §3), and its `"safe"` evaluator — the current
+ * default — is documented by the library itself as browser-sandbox-only, a no-op in Node. Passing
+ * `eval: false` is the only mode that actually disables `[?(...)]` filter/script evaluation here,
+ * so a path with one is refused before its expression body ever runs, rather than depending on the
+ * installed version's default staying safe. `block-live-data`'s documented JSONPath syntax (plain
+ * member/bracket/wildcard/recursive-descent paths) never uses filter/script syntax, so this changes
+ * no documented author-facing behavior.
+ *
  * @throws {Error} the library's own message, for a path that fails to parse at all (mismatched
- *   brackets, a dangling operator) — distinct from a path that parses but matches nothing, which is
- *   {@link JsonPathNoMatchError} below.
+ *   brackets, a dangling operator) or that uses `[?(...)]` filter/script syntax — distinct from a
+ *   path that parses but matches nothing, which is {@link JsonPathNoMatchError} below.
  */
 export function extractJsonPathValue(data: unknown, path: string): unknown {
-  const results = JSONPath({ path, json: data as any, wrap: true })
+  const results = JSONPath({ path, json: data as any, wrap: true, eval: false })
   if (!Array.isArray(results) || results.length < 1) {
     throw new JsonPathNoMatchError(path)
   }
