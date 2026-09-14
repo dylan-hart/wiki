@@ -399,3 +399,77 @@ describe('AdminSecurity uploads info banner (task 605)', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * OpenProject #3232: the Admin UI control for `security.uploadMaxFilesPerBatch`, the
+ * admin-configurable per-request file-count limit `POST /sites/:siteId/assets/batch` and
+ * `.../blocks/batch` enforce (#3232's sibling backend Task). Round-trips through the same
+ * `/_api/system/security` GET/PUT pair every other field on this page uses -- no separate endpoint --
+ * mirroring the existing `uploadMaxFileSize` control.
+ */
+describe('AdminSecurity uploadMaxFilesPerBatch control', () => {
+  it('loads the value from the GET response and renders it', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        uploadMaxFileSize: 10485760,
+        uploadMaxFilesPerBatch: 25
+      })
+    })
+
+    const wrapper = mountSecurity()
+    await flushPromises()
+
+    const input = wrapper.find('input[aria-label="admin.security.maxFilesPerBatch"]')
+    expect(input.exists()).toBe(true)
+    expect(input.element.value).toBe('25')
+  })
+
+  it('defaults to 10 when the server has not yet been configured', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ uploadMaxFileSize: 10485760 })
+    })
+
+    const wrapper = mountSecurity()
+    await flushPromises()
+
+    const input = wrapper.find('input[aria-label="admin.security.maxFilesPerBatch"]')
+    expect(input.element.value).toBe('10')
+
+    wrapper.unmount()
+  })
+
+  it('PUTs an edited value to system/security on save', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        uploadMaxFileSize: 10485760,
+        uploadMaxFilesPerBatch: 10
+      })
+    })
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ ok: true })
+    })
+    // -> The follow-up load() inside save() would otherwise reuse the default empty mock response
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        uploadMaxFileSize: 10485760,
+        uploadMaxFilesPerBatch: 50
+      })
+    })
+
+    const wrapper = mountSecurity()
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="admin.security.maxFilesPerBatch"]').setValue('50')
+
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      'system/security',
+      expect.objectContaining({
+        json: expect.objectContaining({ uploadMaxFilesPerBatch: 50 })
+      })
+    )
+
+    wrapper.unmount()
+  })
+})
