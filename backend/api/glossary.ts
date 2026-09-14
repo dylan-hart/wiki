@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import type { GlossaryAlias, GlossaryExport, GlossaryExportTermInput } from '../models/glossary.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
+import { actorFrom } from '../helpers/pageAccess.ts'
+import { limitRenders } from '../helpers/rateLimit.ts'
 
 interface GlossaryTermBody {
   term?: string
@@ -436,6 +438,62 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This glossary version does not exist.')
       }
       return version
+    }
+  )
+
+  /**
+   * QUEUE EVERY PAGE FOR RERENDER (OpenProject #3181)
+   *
+   * Glossary term matching runs at render time, not retroactively against every already-stored
+   * page's HTML the moment a term is added or edited -- so an admin who wants a term applied across
+   * the whole site right away has, until now, had to trigger the per-page Rerender action one page at
+   * a time. This is the bulk escape hatch: every markdown page of the site is queued through
+   * `WIKI.models.pages.queueRerenderAllPages()`, the very same render queue the single-page action
+   * and every ordinary save already use.
+   *
+   * Gated on `manage:glossary` rather than a per-page `write:pages` check, unlike
+   * `POST .../pages/bulk`'s own `render` action: this route is not scoped to an admin-picked
+   * selection of pages that caller may or may not be permitted to edit -- it is "rerender everything
+   * this glossary can affect", the same administrative reach every other glossary route already
+   * carries.
+   */
+  app.post<{ Params: { siteId: string } }>(
+    '/sites/:siteId/glossary/rerender-all-pages',
+    {
+      config: {
+        permissions: ['manage:glossary']
+      },
+      // -> Same throttle the single-page and bulk page-render routes use (`helpers/rateLimit.ts`) --
+      //    one call here can still queue a browser render for every page on the site.
+      preHandler: limitRenders,
+      schema: {
+        summary: 'Queue every page of a site to be rendered again from its source',
+        description:
+          'For applying a glossary change (or any other render-time content) across the whole site immediately, rather than waiting on each page\'s own next save. Queues every markdown-editor page through the same render queue `POST .../pages/:pageId/render` uses -- not a scoped "only pages that mention this term" operation, and not a new rendering mechanism. Answers 202: a browser is too heavy to hold a request open for, so pages join a queue drained one at a time. Needs the Puppeteer extension, and answers 503 without it.',
+        tags: ['Glossary'],
+        params: { $ref: 'SiteIdParams#' },
+        response: {
+          202: {
+            description: 'Every markdown page on the site queued for rendering',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              queued: { type: 'integer', description: 'How many pages were queued.' }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Rerendering pages requires a logged in user.')
+      }
+      const queued = await WIKI.models.pages.queueRerenderAllPages(req.params.siteId, actor)
+      return reply.code(202).send({ ok: true, queued })
     }
   )
 
