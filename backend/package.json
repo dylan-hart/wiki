@@ -81,7 +81,7 @@
     "bcryptjs": "3.0.3",
     "cheerio": "1.2.0",
     "commander": "15.0.0",
-    "cron-parser": "5.10.0",
+    "croner": "10.0.1",
     "diff": "9.0.0",
     "drizzle-orm": "1.0.0-rc.4",
     "emittery": "2.0.0",

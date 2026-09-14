@@ -25,16 +25,22 @@ before(async () => {
  * Regression test for two coupled pre-existing bugs in `addScheduled()`'s future-job-scheduling loop:
  *
  * 1. `plannedIterations.next()` was read with the old ES-iterator shape (`.value` / `.done`), but
- *    cron-parser v5's `next()` returns the `CronDate` directly — neither property exists on it.
- *    `next.value.getTime()` therefore throws the moment the `existingJobs.some(...)` callback actually
- *    runs (i.e. whenever at least one job is already scheduled for the task), and the throw is
- *    swallowed by the surrounding `catch { break }` — so the loop adds *zero* new jobs instead of the
- *    ones still due. `next.done` is likewise always `undefined` (falsy), so with an empty
- *    `existingJobs` the loop never terminates naturally and only ever stops at the 10-iteration cap.
+ *    cron-parser v5's `next()` returned the `CronDate` directly — neither property exists on it.
+ *    `next.value.getTime()` therefore threw the moment the `existingJobs.some(...)` callback actually
+ *    ran (i.e. whenever at least one job is already scheduled for the task), and the throw was
+ *    swallowed by the surrounding `catch { break }` — so the loop added *zero* new jobs instead of the
+ *    ones still due. `next.done` was likewise always `undefined` (falsy), so with an empty
+ *    `existingJobs` the loop never terminated naturally and only ever stopped at the 10-iteration cap.
  * 2. The adjacent `addJob({ ... })` call passed a `useWorker` property that isn't part of
  *    `AddJobOptions` (already re-derived internally by `addJob` from `this.tasks`), and handed
  *    `waitUntil` an ISO string where `AddJobOptions.waitUntil` — and the `timestamp()` column it is
  *    written to — expect a `Date`.
+ *
+ * OpenProject #3177 later replaced cron-parser with `croner` (dropping luxon, a transitive
+ * dependency of cron-parser), which has no ES-iterator at all — `nextRun(prev)` returns a plain
+ * `Date | null` directly, the shape this loop already assumed once fixed — so bug 1 as originally
+ * described cannot recur, but this suite still stands as the coverage for the loop's dedup, cap and
+ * termination behaviour against whichever cron library is underneath it.
  *
  * This drives the real `addScheduled()` against lightweight fakes for `WIKI.db`, rather than a live
  * Postgres connection or a re-implementation of the loop's logic, so it fails under the pre-fix code
