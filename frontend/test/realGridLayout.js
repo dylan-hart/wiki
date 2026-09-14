@@ -111,6 +111,55 @@ export function buildAppCss() {
 }
 
 /**
+ * Bundles `src/helpers/renderedContent.js` through Vite (`configFile: false`, so this bypasses the
+ * app's own `vite.config.js` -- its dev-only plugins and CSS pipeline are not wanted here) into a
+ * single, dependency-free script exposing the module's exports on `window.RenderedContent`. For a
+ * real-Chromium test that needs `enhanceRenderedContent`'s actual behavior (not a hand-rewritten
+ * mirror of it) running against a bare `page.setContent()`/`page.route()` document that has no
+ * bundler or app shell of its own -- `markdown.test.js`'s OpenProject #3238 whole-table-copy
+ * coverage is the first caller, injecting it via `page.addScriptTag({ content })`.
+ *
+ * `process.env.NODE_ENV` is defined explicitly because bypassing the project's own config also
+ * bypasses whatever normally defines it for a real build, and Vue's runtime reads it directly at
+ * import time -- left undefined, the bundle throws `process is not defined` the moment it runs in a
+ * page with no Node globals. Memoized the same way `buildAppCss()` is: the output is identical for
+ * every caller.
+ */
+let renderedContentScriptPromise = null
+
+export function buildRenderedContentScript() {
+  if (!renderedContentScriptPromise) {
+    renderedContentScriptPromise = (async () => {
+      const outDir = await mkdtemp(join(tmpdir(), 'wiki-rc-bundle-'))
+      try {
+        await build({
+          root: frontendRoot,
+          configFile: false,
+          publicDir: false,
+          logLevel: 'warn',
+          resolve: { alias: { '@': join(frontendRoot, 'src') } },
+          define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+          build: {
+            outDir,
+            emptyOutDir: true,
+            lib: {
+              entry: join(frontendRoot, 'src/helpers/renderedContent.js'),
+              formats: ['iife'],
+              name: 'RenderedContent',
+              fileName: () => 'bundle.js'
+            }
+          }
+        })
+        return await readFile(join(outDir, 'bundle.js'), 'utf8')
+      } finally {
+        await rm(outDir, { recursive: true, force: true })
+      }
+    })()
+  }
+  return renderedContentScriptPromise
+}
+
+/**
  * Renders `html` (real markup pulled from an actual `@vue/test-utils` mount, via `.html()`) inside a
  * plain container fixed to `containerWidth`, in a real headless Chromium page, and returns each
  * `.classification-grid > button` child's bounding rect. `browser` is caller-managed (open once per

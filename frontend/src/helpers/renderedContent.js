@@ -147,6 +147,161 @@ function csvOf(table) {
   return lines.join('\n')
 }
 
+/**
+ * `aria-colspan`/`aria-rowspan` -> real `colspan`/`rowspan`, the reverse of `renderers/markdown.js`'s
+ * `asGridCell` rename -- both are always digit-only strings the renderer itself set (from the
+ * multimd-table plugin's own parsed span counts), never free text off the page, so there is nothing
+ * here to escape.
+ */
+function spanAttrs(cell) {
+  let attrs = ''
+  const colspan = cell.getAttribute('aria-colspan')
+  const rowspan = cell.getAttribute('aria-rowspan')
+  if (colspan) {
+    attrs += ` colspan="${colspan}"`
+  }
+  if (rowspan) {
+    attrs += ` rowspan="${rowspan}"`
+  }
+  return attrs
+}
+
+/**
+ * A rendered table's rows -- and its caption, if it has one -- serialized as a real
+ * `<table>...</table>` HTML string: the clipboard's `text/html` counterpart to `csvOf`, and the
+ * reason `event.clipboardData` needs setting by hand at all (OpenProject #3143/#3238). Excel's and
+ * Google Sheets' HTML-paste importers key off literal `<table>`/`<tr>`/`<td>` markup (the CF_HTML
+ * clipboard convention), not ARIA roles -- see `renderers/markdown.js`'s own "TABLE GRID MARKUP"
+ * comment for why the rendered table is a CSS Grid of role-bearing `<div>`s rather than a `<table>`
+ * in the first place, and why reconstructing one is cheaper done on demand, at copy time, than by
+ * keeping a hidden shadow `<table>` twin of every table's DOM around just in case.
+ *
+ * Walks `table`'s own direct children -- rows and, if present, a `.table-caption` -- rather than
+ * `querySelectorAll`, so only THIS table's structure is read even if a cell somehow nests another
+ * table's markup inside it. A cell's `innerHTML` is copied verbatim rather than flattened to
+ * `textContent` the way `csvOf`/`tsvOf` do, so a link or bold run inside a cell survives the round
+ * trip. A `<caption>` is kept in its authored DOM position: `<table>`'s "in table" insertion mode
+ * accepts a `caption` start tag from any of its top-level children, not only the first, and
+ * `caption-side` (carried over via the same inline `style` the source div already carries) is what
+ * actually decides where it draws either way.
+ */
+function tableHtmlOf(table) {
+  let html = '<table>'
+  for (const child of table.children) {
+    if (child.getAttribute('role') === 'row') {
+      html += '<tr>'
+      for (const cell of child.children) {
+        const tag = cell.getAttribute('role') === 'columnheader' ? 'th' : 'td'
+        const style = cell.getAttribute('style')
+        html += `<${tag}${style ? ` style="${style}"` : ''}${spanAttrs(cell)}>${cell.innerHTML}</${tag}>`
+      }
+      html += '</tr>'
+    } else if (child.classList.contains('table-caption')) {
+      const style = child.getAttribute('style')
+      html += `<caption${style ? ` style="${style}"` : ''}>${child.innerHTML}</caption>`
+    }
+  }
+  html += '</table>'
+  return html
+}
+
+/**
+ * A rendered table's rows, serialized as tab-separated plain text -- the clipboard's `text/plain`
+ * fallback alongside `tableHtmlOf`'s `text/html`, read by a paste target that only looks at the
+ * plain-text slot. The `csvOf`/`csvField` counterpart for TSV: cell text is trimmed the same way,
+ * but TSV has no quoting convention to protect a delimiter character the way `csvField`'s RFC4180
+ * quoting does, so a literal tab or newline INSIDE a cell is collapsed to a single space instead of
+ * being escaped -- the alternative is that character silently being read back as a column or row
+ * break by whatever the TSV is pasted into.
+ */
+function tsvOf(table) {
+  const lines = []
+  for (const row of table.querySelectorAll('[role="row"]')) {
+    const cells = row.querySelectorAll('[role="columnheader"], [role="cell"]')
+    lines.push(
+      Array.from(cells, (cell) => cell.textContent.trim().replace(/[\t\r\n]+/g, ' ')).join('\t')
+    )
+  }
+  return lines.join('\n')
+}
+
+/**
+ * What a table copy puts on the clipboard, kept as its own step separate from finding the table and
+ * from the event handling around it -- so OpenProject #3240 (wiring a cell-range select-mode's
+ * active range into this same copy handler) can swap only this piece for one that serializes the
+ * active range's cell subset instead of always the routine table, rather than rewriting the listener.
+ */
+function serializeTableForClipboard(table) {
+  return { html: tableHtmlOf(table), text: tsvOf(table) }
+}
+
+/**
+ * The `[role="table"]` a copy's current window selection sits entirely inside, or null when it
+ * doesn't -- nothing selected, a collapsed caret, a selection that reaches outside any table, or one
+ * that spans two different tables. `handleTableCopy`'s pre-flight for whether to intercept the event
+ * at all: anything this returns null for falls through to the browser's own copy exactly as it did
+ * before this shipped, which is deliberate -- native browser text selection is linear (one start
+ * node/offset to one end node/offset), so it cannot express a two-dimensional cell-range selection
+ * anyway (see Epic #3143's own reasoning); this only ever recognizes "the whole table", the one
+ * shape a linear selection CAN reliably mean here, and leaves partial cell-range copying to the
+ * explicit select-mode UI (#3239/#3240) instead of trying to reconstruct "which cells" from a Range.
+ */
+function tableForSelection(selection) {
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return null
+  }
+  let table = null
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const container = selection.getRangeAt(i).commonAncestorContainer
+    const startElement =
+      container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement
+    const rangeTable = startElement?.closest('[role="table"]')
+    if (!rangeTable || (table && rangeTable !== table)) {
+      return null
+    }
+    table = rangeTable
+  }
+  return table
+}
+
+/** The `copy` handler `addTableCopyInterception` wires onto `root`. */
+function handleTableCopy(event) {
+  if (!event.clipboardData) {
+    return
+  }
+  const table = tableForSelection(window.getSelection())
+  if (!table) {
+    return
+  }
+  const { html, text } = serializeTableForClipboard(table)
+  event.clipboardData.setData('text/html', html)
+  event.clipboardData.setData('text/plain', text)
+  event.preventDefault()
+}
+
+/**
+ * Wires the whole-table copy interception onto `root` itself, once (OpenProject #3143/#3238).
+ *
+ * Every other pass in this file re-runs over freshly-rendered CHILDREN on every call, idempotent via
+ * a per-element dataset flag on each one it decorates -- that works because `v-html` only ever
+ * replaces `root`'s children, never `root` itself. A `copy` listener has no per-element home to sit
+ * on that way: it has to be on something that stays put across a re-render to keep working at all,
+ * which is `root`. So the guard flag lives on `root` directly instead, and the listener is attached
+ * exactly once for the element's lifetime rather than once per render pass.
+ *
+ * Delegated (attached to `root`, not to each table) rather than a per-table listener for the same
+ * reason the guard is root-level: a table rendered after this first runs would otherwise get no
+ * listener of its own until the next `enhanceRenderedContent` pass happened to re-decorate it, and
+ * `copy` bubbles, so one listener on `root` already sees every copy started anywhere under it.
+ */
+function addTableCopyInterception(root) {
+  if (root.dataset.tableCopyWired !== undefined) {
+    return
+  }
+  root.dataset.tableCopyWired = ''
+  root.addEventListener('copy', handleTableCopy)
+}
+
 function addCodeCopyButtons(root, t) {
   for (const pre of root.querySelectorAll('pre.codeblock:not([data-code-copy])')) {
     // -> Marks the block as done, and is what the stylesheet keys the button's position off
@@ -272,6 +427,7 @@ export function enhanceRenderedContent(root, t) {
   }
   addCodeCopyButtons(root, t)
   addTableCopyButtons(root, t)
+  addTableCopyInterception(root)
   addHeadingAnchors(root, t)
   enhanceContentImageZoom(root, t)
 }
