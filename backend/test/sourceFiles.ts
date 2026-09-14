@@ -1,10 +1,11 @@
 /**
  * The recursive source-file walker every structural scanner needs (TEST-F15).
  *
- * `test/docs-todo-fixme-drift.test.ts` and `test/docs-claude-md-fixme-bullet.test.ts` carried
- * identical copies of it, differing only in one skipped suffix — and a scanner that walks the tree
- * slightly differently from its neighbour is exactly how two "the same scan" tests end up disagreeing
- * about what the repo contains.
+ * Originally extracted because two now-deleted structural doc-drift tests carried identical copies
+ * of it, differing only in one skipped suffix — a scanner that walks the tree slightly differently
+ * from its neighbour is exactly how two "the same scan" tests end up disagreeing about what the repo
+ * contains. Kept for its current callers: `test/logging-conventions.test.ts` and
+ * `helpers/httpCache.test.ts`.
  */
 import { readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
