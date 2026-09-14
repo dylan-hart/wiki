@@ -60,11 +60,27 @@ const SIDEBAR_WIDTH = 300
  * `includeSidebar: false` reproduces a page/site with no sidebar at all (`isSidebarOpen` false,
  * `WDrawer.vue`'s `v-show` collapsing the column to zero width) -- the fixture then renders no
  * `.bg-sidebar` element, matching what `MainLayout.vue`'s template actually omits from paint.
+ *
+ * `sidebarPosition` (OpenProject #3142) reproduces `siteStore.theme.sidebarPosition`: `'right'`
+ * renders the drawer in the grid's LAST (reading-END) column, using `WDrawer.vue`'s own
+ * `w-drawer--right` class, and states `--sidebar-inset-inline-start`/`-end` the way
+ * `MainLayout.vue`'s real computed split would for that setting (the width on `-end`, `0px` on
+ * `-start`) -- the mirror image of the default `'left'` case.
  */
-function mainLayoutHtml({ isOverlay, includeSidebar = true, sidebarCurrentWidth = '0px' }) {
-  const overlayClasses = isOverlay ? 'w-drawer--overlay fixed inset-y-0 z-40 start-0' : ''
+function mainLayoutHtml({
+  isOverlay,
+  includeSidebar = true,
+  sidebarPosition = 'left',
+  sidebarCurrentWidth = '0px'
+}) {
+  const onEndSide = sidebarPosition === 'right'
+  const insetInlineStart = onEndSide ? '0px' : sidebarCurrentWidth
+  const insetInlineEnd = onEndSide ? sidebarCurrentWidth : '0px'
+  const overlayClasses = isOverlay
+    ? `w-drawer--overlay fixed inset-y-0 z-40 ${onEndSide ? 'end-0' : 'start-0'}`
+    : ''
   const sidebar = includeSidebar
-    ? `<aside class="w-drawer bg-sidebar w-drawer--left flex flex-col ${overlayClasses}" ` +
+    ? `<aside class="w-drawer bg-sidebar ${onEndSide ? 'w-drawer--right' : 'w-drawer--left'} flex flex-col ${overlayClasses}" ` +
       `style="--w-drawer-width: ${SIDEBAR_WIDTH}px">` +
       // -> `NavSidebar.vue`'s own `.sidebar-nav` wrapper (`flex: 1 1 0; min-height: 0;
       //    overflow-y: auto`), reproduced here rather than a bare filler div: without it a tall
@@ -78,7 +94,8 @@ function mainLayoutHtml({ isOverlay, includeSidebar = true, sidebarCurrentWidth 
       '</aside>'
     : ''
   return (
-    `<div class="w-layout w-layout--page" style="--sidebar-current-width: ${sidebarCurrentWidth}">` +
+    `<div class="w-layout w-layout--page" style="--sidebar-current-width: ${sidebarCurrentWidth}; ` +
+    `--sidebar-inset-inline-start: ${insetInlineStart}; --sidebar-inset-inline-end: ${insetInlineEnd}">` +
     '<header class="w-header"></header>' +
     sidebar +
     // -> `min-height: 0; overflow: auto` inline, standing in for `WLayout.vue`'s own
@@ -105,6 +122,7 @@ async function measureShell({
   css,
   isOverlay,
   includeSidebar,
+  sidebarPosition,
   sidebarCurrentWidth,
   bodyClasses,
   viewport
@@ -113,7 +131,7 @@ async function measureShell({
   try {
     await page.setContent(
       `<!doctype html><html><head><style>${css}</style></head>` +
-        `<body class="${bodyClasses}" style="margin:0">${mainLayoutHtml({ isOverlay, includeSidebar, sidebarCurrentWidth })}</body></html>`
+        `<body class="${bodyClasses}" style="margin:0">${mainLayoutHtml({ isOverlay, includeSidebar, sidebarPosition, sidebarCurrentWidth })}</body></html>`
     )
     return await page.evaluate(() => {
       const sidebar = document.querySelector('.bg-sidebar')
@@ -135,9 +153,11 @@ async function measureShell({
       return {
         sidebarTop: sidebarRect?.top ?? null,
         sidebarBottom: sidebarRect?.bottom ?? null,
+        sidebarLeft: sidebarRect?.left ?? null,
         sidebarRight: sidebarRect?.right ?? null,
         footerTop: footerRect.top,
         footerLeft: footerRect.left,
+        footerRight: footerRect.right,
         footerPosition: getComputedStyle(footer).position,
         footerBarHeight,
         sidebarIsAboveFooterAtCorner: Boolean(topElementAtCorner?.closest('.bg-sidebar'))
@@ -212,6 +232,29 @@ describe(
       //    making room for it rather than painting over it.
       expect(cobalt.footerLeft).toBeCloseTo(SIDEBAR_WIDTH, 0)
       expect(cobalt.footerLeft).toBeCloseTo(cobalt.sidebarRight, 0)
+    })
+
+    it('reaches the true bottom of the screen in Cobalt on a wide viewport with a RIGHT-positioned sidebar, insetting the opposite edge (OpenProject #3142)', async () => {
+      const cobalt = await measureShell({
+        browser,
+        css,
+        isOverlay: false,
+        sidebarPosition: 'right',
+        sidebarCurrentWidth: `${SIDEBAR_WIDTH}px`,
+        bodyClasses: 'body--light body--cobalt',
+        viewport: wideViewport
+      })
+
+      expect(cobalt.footerPosition).toBe('fixed')
+      expect(cobalt.footerBarHeight).toBeGreaterThan(0)
+      expect(cobalt.sidebarBottom).toBeCloseTo(wideViewport.height, 0)
+      // -> The bar's reading-END edge (physical right, under LTR) sits at the sidebar's
+      //    reading-START edge, and its reading-START edge stays flush with the viewport -- the
+      //    mirror image of the default left-positioned case above. Before the fix this bar painted
+      //    straight across behind the sidebar's own column instead.
+      expect(cobalt.footerRight).toBeCloseTo(wideViewport.width - SIDEBAR_WIDTH, 0)
+      expect(cobalt.footerRight).toBeCloseTo(cobalt.sidebarLeft, 0)
+      expect(cobalt.footerLeft).toBeCloseTo(0, 0)
     })
 
     it('keeps the Cobalt footer bar full width on a wide viewport when no sidebar column is occupied', async () => {

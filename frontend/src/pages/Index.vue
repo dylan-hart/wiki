@@ -1773,19 +1773,23 @@ $toc-overlay-max: 749.98px;
         a `position: fixed` overlay there, `WDrawer.vue`'s own -- so the bar stays exactly the
         `inset-inline: 0` full width set above; that breakpoint's `z-index: 46` override on the
         overlay drawer (`MainLayout.vue`) is what keeps the two from fighting over this corner while
-        it is open. At and above 1200px, `inset-inline-start` pulls this bar's reading-START edge in
-        by `--sidebar-current-width` -- the reactive width `MainLayout.vue` mirrors from its own
-        `sidebarWidth`, inherited down from that shared ancestor element, and `0px` whenever the
-        sidebar isn't actually occupying that column, so a page/site with no sidebar at all still
-        gets the full-width bar.
+        it is open. At and above 1200px, this bar insets in from whichever edge the sidebar actually
+        renders on, by that edge's reactive width -- `MainLayout.vue` mirrors it onto
+        `--sidebar-inset-inline-start`/`--sidebar-inset-inline-end` (OpenProject #3142; one is always
+        `--sidebar-current-width`, the other always `0px`, split there because plain CSS has no way to
+        pick which physical/logical inset property a rule uses based on a custom property's string
+        value), inherited down from that shared ancestor element. Both are `0px` whenever the sidebar
+        isn't actually occupying either column, so a page/site with no sidebar at all still gets the
+        full-width bar.
 
-        `inset-inline-start`, a physical `left` in every shipped locale so far, matches the default
-        sidebar `MainLayout.vue`'s `<w-drawer>` renders without a `sidebarPosition: 'right'`
-        override -- a right-positioned sidebar insetting the wrong edge here is a known gap outside
-        this WP's own confirmed scope, not an oversight; tracked as OpenProject #3142.
+        Setting both properties unconditionally (rather than branching on `sidebarPosition` here) is
+        what makes this correct for both the default LEFT-positioned sidebar (`--sidebar-current-width`
+        on `inset-inline-start`, `--sidebar-inset-inline-end` at `0px`) and a `sidebarPosition: 'right'`
+        one (the reverse) without this stylesheet needing to know which is in effect at all.
       */
       @media (min-width: 1200px) {
-        inset-inline-start: var(--sidebar-current-width, 0px);
+        inset-inline-start: var(--sidebar-inset-inline-start, 0px);
+        inset-inline-end: var(--sidebar-inset-inline-end, 0px);
       }
     }
   }
