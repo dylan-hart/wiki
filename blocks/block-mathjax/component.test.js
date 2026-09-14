@@ -8,9 +8,13 @@ import { mountBlock, resetBlockDom } from '../test/mount.js'
 /**
  * Appends a `<block-mathjax>` carrying `source` as its light-DOM body (the way the wiki's own
  * markdown renderer leaves it for an unfenced call — see block-gallery's component.test.js for the
- * precedent) and waits for Lit's first render.
+ * precedent) and waits for Lit's first render, then for typesetting itself to finish -- which, for a
+ * formula needing a dynamic glyph chunk, includes the `mathjax.asyncLoad` round trip. `el._ready` is
+ * the handle `firstUpdated()` keeps for exactly this, the same pattern `shared/diagram-image.js` uses
+ * for the two diagram blocks' own async draw.
  */
-const mountMathjax = (source) => mountBlock('block-mathjax', { text: source })
+const mountMathjax = (source) =>
+  mountBlock('block-mathjax', { text: source, settle: (el) => el._ready })
 
 describe('block-mathjax', () => {
   afterEach(resetBlockDom)
@@ -64,21 +68,55 @@ describe('block-mathjax', () => {
   })
 
   /*
-    A gap this audit found that PACKAGES membership does not capture: extpfeil is in PACKAGES (and
-    was reachable in 2.5.x), but its extensible arrows are drawn from a font chunk
-    (@mathjax/mathjax-newcm-font's "dynamic/arrows") that MathJax fetches through a
-    `mathjax.asyncLoad` hook this block never configures — 2.5.x could reach it because it ran
-    server-side in Node with filesystem `require` access; this block runs in the browser from a
-    static bundle with nothing to fetch that chunk from. Declaring the package is therefore not
-    sufficient for every macro in it. Tracked as OpenProject #3190; this test pins the current
-    (broken) behavior rather than silently accepting or silently "fixing" it per one line short of a
-    real fix (wiring asyncLoad is a bundling change) — update it once #3190 wires the dynamic chunks
-    up.
+    extpfeil is in PACKAGES (and was reachable in 2.5.x), but its extensible arrows are drawn from a
+    font chunk (@mathjax/mathjax-newcm-font's svg/dynamic/arrows) that MathJax fetches through a
+    `mathjax.asyncLoad` hook — declaring the package alone was never sufficient for these three
+    macros. OpenProject #3190 wired that hook up (component.js's `mathjax.asyncLoad` + the literal
+    `import()`s in dynamicChunks.js), so this now pins the fixed behavior instead of the previously
+    broken one.
   */
-  it('KNOWN GAP: extpfeil arrows fail — their glyphs need a font chunk this block never wires up', async () => {
-    const el = await mountMathjax(String.raw`\xtwoheadrightarrow{f}`)
+  it('typesets extpfeil, whose extensible arrows load a dynamic font chunk', async () => {
+    const rightarrow = await mountMathjax(String.raw`\xtwoheadrightarrow{f}`)
+    expect(rightarrow.shadowRoot.querySelector('.error')).toBeNull()
+    expect(rightarrow.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
 
-    expect(el.shadowRoot.querySelector('.error')).not.toBeNull()
+    const leftarrow = await mountMathjax(String.raw`\xtwoheadleftarrow{f}`)
+    expect(leftarrow.shadowRoot.querySelector('.error')).toBeNull()
+    expect(leftarrow.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
+
+    const mapsto = await mountMathjax(String.raw`\xmapsto{f}`)
+    expect(mapsto.shadowRoot.querySelector('.error')).toBeNull()
+    expect(mapsto.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
+  })
+
+  /*
+    \verb draws from the font's monospace dynamic chunk — a second, independent glyph range from
+    extpfeil's, and one 2.5.x's autoload map could also reach.
+  */
+  it('typesets \\verb, whose monospace glyphs load a dynamic font chunk', async () => {
+    const el = await mountMathjax(String.raw`\verb|x+y|`)
+
+    expect(el.shadowRoot.querySelector('.error')).toBeNull()
+    expect(el.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
+  })
+
+  /*
+    An accented Latin character and a non-Latin one, each drawn from their own dynamic chunk
+    (accents-b-i and cyrillic respectively) rather than the base bundle -- the third acceptance case
+    #3190 names alongside extpfeil and \verb.
+  */
+  it('typesets an accented Latin character from a dynamic font chunk', async () => {
+    const el = await mountMathjax(String.raw`\text{café}`)
+
+    expect(el.shadowRoot.querySelector('.error')).toBeNull()
+    expect(el.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
+  })
+
+  it('typesets a non-Latin Unicode character from a dynamic font chunk', async () => {
+    const el = await mountMathjax(String.raw`\text{Привет}`)
+
+    expect(el.shadowRoot.querySelector('.error')).toBeNull()
+    expect(el.shadowRoot.querySelector('.drawing svg')).not.toBeNull()
   })
 
   describeDarkMode(() => mountMathjax(String.raw`x = y`))
