@@ -433,6 +433,76 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
+   * OpenProject #3237/#3236. `findOrCreateProviderUser` calls `WIKI.models.users.syncAvatarFromProvider`
+   * once the user is resolved (§1(b) of the round-4 epic coordination note) -- the precedence rule
+   * (manual upload always wins) and the blank/undefined no-op both live in `syncAvatarFromProvider`
+   * itself (`models/users.profile.test.ts`) and are not re-asserted here; what this describe covers is
+   * only that `findOrCreateProviderUser` actually calls it, with the right arguments, on every login.
+   */
+  describe('avatar sync from the provider profile', () => {
+    async function readAvatar(id: string) {
+      const [row] = await fixtures.db
+        .select({
+          avatarProviderUrl: usersTable.avatarProviderUrl,
+          hasAvatar: usersTable.hasAvatar
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, id))
+        .limit(1)
+      return row!
+    }
+
+    test('a new account is synced with the picture the provider reported', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'avatar-create-strategy' }), {
+        id: 'avatar-account-1',
+        email: 'avatar-new@example.com',
+        name: 'Avatar New',
+        picture: 'https://provider.example.com/avatar-new.png'
+      })
+
+      const row = await readAvatar(created.id)
+      assert.equal(row.avatarProviderUrl, 'https://provider.example.com/avatar-new.png')
+    })
+
+    test('a profile reporting no picture leaves the account without a synced avatar', async () => {
+      const created = await findOrCreate(baseStrategy({ id: 'avatar-none-strategy' }), {
+        id: 'avatar-account-2',
+        email: 'avatar-none@example.com',
+        name: 'Avatar None'
+      })
+
+      const row = await readAvatar(created.id)
+      assert.equal(row.avatarProviderUrl, null)
+    })
+
+    test('a manually-uploaded avatar is never overwritten by a provider login', async () => {
+      const strategy = baseStrategy({ id: 'avatar-manual-strategy' })
+      const [created] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'avatar-manual@example.com',
+          name: 'Avatar Manual',
+          hasAvatar: true,
+          isSystem: false,
+          isActive: true,
+          isVerified: true,
+          auth: { [strategy.id]: { id: 'avatar-account-3', email: 'avatar-manual@example.com' } }
+        })
+        .returning({ id: usersTable.id })
+
+      await findOrCreate(strategy, {
+        id: 'avatar-account-3',
+        email: 'avatar-manual@example.com',
+        name: 'Avatar Manual',
+        picture: 'https://provider.example.com/should-not-be-stored.png'
+      })
+
+      const row = await readAvatar(created!.id)
+      assert.equal(row.avatarProviderUrl, null)
+    })
+  })
+
+  /**
    * WP #2560: relinking a migrated fallback account via `trustEmailForLinking` clears the orphaned
    * local-strategy auth entry `createProviderFallbackUserConverter()` (Feature #2547's other sibling
    * Task) originally wrote for it -- but only when that entry actually carries the migration

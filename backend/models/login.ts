@@ -464,6 +464,13 @@ class Login {
       await this.syncProviderGroups(user, strategy, profile.groups)
     }
 
+    // -> No-op on a blank/undefined URL and on a user with a manually-uploaded avatar already in
+    //    place -- see `models/users.ts#syncAvatarFromProvider`'s own doc comment for the precedence
+    //    rule. Every login, not only account creation, same as group sync above.
+    if (profile.picture) {
+      await WIKI.models.users.syncAvatarFromProvider(user.id, profile.picture)
+    }
+
     return user
   }
 
