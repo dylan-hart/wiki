@@ -210,6 +210,20 @@ after a live `users` phase it is queryable directly: `GET /_api/users/fallback-a
 affected users. The account drops off this list on its own once it relinks via SSO
 (`models/login.ts#clearMigratedFallbackLocalAuth`).
 
+### Not migrated at all
+
+Two 2.5.x record classes are dropped by design — no phase reads either one, so neither shows up in
+the report above at all (not even as `unmappable`), and the CLI prints a static
+"Post-migration notices" paragraph after the report table saying so (`backend/migration/report.ts`'s
+`POST_MIGRATION_NOTICES`, Issue #3192):
+
+- **API tokens.** 2.5.x's `apiToken` table is short-lived, GraphQL-scoped JWTs with no field-for-field
+  mapping onto this fork's group-bound REST `apiKeys`. After cutover, issue new API keys directly
+  against the migrated groups: **Admin > API Access**, scoped to the group(s) each integration needs.
+- **Slack/Discord notification config.** This was never a first-party 2.5.x feature — only community
+  polling scripts read the 2.5.x database for it — so there is nothing in the source schema to carry
+  forward. Reconfigure any such integration from scratch against the migrated 3.0 instance.
+
 Do not proceed past this step until you've reviewed every `conflicts` and `unmappable` entry in the
 report and are comfortable with what each one means for your users.
 

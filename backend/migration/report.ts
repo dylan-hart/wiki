@@ -235,3 +235,62 @@ export function formatReportTable(reports: PhaseReport[]): string {
 export function reportsToJson(reports: PhaseReport[]): string {
   return JSON.stringify(reports, null, 2)
 }
+
+// ---------------------------------------------------------------------------
+// Post-migration notices
+// ---------------------------------------------------------------------------
+
+/**
+ * A static, always-shown notice printed once after the phase report table — for something the
+ * operator needs to know that isn't a per-record `PhaseReport` finding, because no phase actually
+ * reads the source record class it's about (see `POST_MIGRATION_NOTICES` below). Deliberately a
+ * typed list plus one renderer, rather than a single hard-coded `console`/logger call in
+ * `tasks/migrate.ts`, so a second notice (Issue #3192, Feature 421 task 3217) extends this array
+ * instead of hand-writing a second print statement — check here for an existing entry covering your
+ * case before adding a new one.
+ */
+export interface PostMigrationNotice {
+  /** One-line statement of what didn't carry forward. */
+  summary: string
+  /** What the operator should do about it, including where to read more. */
+  action: string
+}
+
+/**
+ * 2.5.x record classes this migration deliberately never reads or maps, confirmed by grep that no
+ * phase under `backend/migration/phases/` scans either source table — so neither has anything
+ * feeding the per-record `UnmappableEntry` mechanism `formatReportTable` renders above; a static
+ * notice is the only place an operator learns about them at all.
+ *
+ * - **API tokens**: 2.5.x's `apiToken` table is short-lived, GraphQL-scoped JWTs with no
+ *   field-for-field mapping onto this fork's group-bound REST `apiKeys` (`db/schema.ts`) — there is
+ *   no source shape to translate.
+ * - **Slack/Discord notification config**: never a first-party 2.5.x feature (community polling
+ *   scripts only), so there is nothing in the 2.5.x schema to read in the first place.
+ */
+export const POST_MIGRATION_NOTICES: PostMigrationNotice[] = [
+  {
+    summary:
+      'API tokens and Slack/Discord notification config from your 2.5.x source were not migrated.',
+    action:
+      'Issue new API keys against the migrated groups (Admin > API Access) — see ' +
+      'docs/migration/migration-runbook.md\'s "Not migrated at all" section for details.'
+  }
+]
+
+/**
+ * Renders `notices` as plain text, one paragraph per notice — the console default, printed once
+ * after `formatReportTable`'s own output regardless of `--dry-run` (exactly as relevant to a live
+ * run as to a dry run). Returns `''` for an empty list so a caller can skip printing entirely rather
+ * than emit a bare header.
+ */
+export function formatPostMigrationNotices(notices: PostMigrationNotice[]): string {
+  if (notices.length === 0) {
+    return ''
+  }
+  const lines = ['Post-migration notices:']
+  for (const notice of notices) {
+    lines.push(`  - ${notice.summary} ${notice.action}`)
+  }
+  return lines.join('\n')
+}
