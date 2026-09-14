@@ -27,8 +27,9 @@ const DEFAULT_SERVERS: Record<DiagramProxyEngine, string> = {
 
 /**
  * A source past this length is refused before any outbound request is made. Generous relative to the
- * GET-URL transport's 8,000-character ceiling this proxy exists to escape (`blocks/shared/url-limit.js`
- * — about 1.4 characters of encoded URL per character of source, so 8,000 was already a source well
+ * GET-URL transport's 8,000-character ceiling this proxy exists to escape (`block-kroki`'s and
+ * `block-plantuml`'s own former client-side encoders, removed by OpenProject task 3229 — about 1.4
+ * characters of encoded URL per character of source, so 8,000 was already a source well
  * under 6,000 characters), while still bounded: Fastify's own body-size backstop
  * (`WIKI.config.bodyParserLimit`, 5 MB default — `core/http/server.ts`) exists for the request as a
  * whole, not a clear diagram-specific explanation, so this is a narrower, better-explained ceiling in
@@ -59,7 +60,8 @@ const FETCH_TIMEOUT_MS = 10000
  * A shared, site-scoped, POST proxy for Kroki and PlantUML: streams a diagram's fenced source to the
  * configured engine server and returns the rendered image bytes, so `block-kroki`/`block-plantuml`
  * (OpenProject task 3229) no longer have to pack the source into a GET URL with an 8,000-character
- * ceiling (`blocks/shared/url-limit.js`).
+ * ceiling (the two blocks' own former client-side encoders enforced this; both, and the ceiling
+ * itself, are gone now that the blocks POST here instead).
  *
  * Deliberately a clean-room model rather than an extension of `models/diagramRender.ts`, even though
  * that model already renders PlantUML: the two solve different problems for different callers.

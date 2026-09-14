@@ -1,4 +1,3 @@
-import { compress } from '../shared/compress.js'
 import { DiagramImageElement } from '../shared/diagram-image.js'
 
 /** The default server, which is the one Kroki runs for everybody. */
@@ -42,33 +41,6 @@ const TYPES = [
   'wavedrom',
   'wireviz'
 ]
-
-/** How many bytes are turned into characters at a time, below. */
-const CHUNK_SIZE = 0x8000
-
-/**
- * A diagram source as it goes into a Kroki URL: deflated, then written as base64url.
- *
- * Zlib deflate — with the two-byte header, unlike PlantUML's raw stream — and then plain base64 with
- * `-` and `_` for the two characters that mean something else in a URL. The padding is dropped: Kroki
- * decodes with or without it, and `=` at the end of a path segment is noise.
- *
- * `btoa` takes a string, and spreading a whole diagram into `String.fromCharCode` at once overflows
- * the stack somewhere in the tens of thousands of bytes — hence a chunk at a time.
- *
- * The result is about 1.4 characters per character of source, so a very large diagram can outgrow what
- * a server will accept in a URL. That is a limit of this transport this fork has decided to live with
- * rather than add a server-side POST proxy for -- so `firstUpdated()` below measures the result and
- * refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
- */
-async function encodeForUrl(source) {
-  const bytes = await compress(new TextEncoder().encode(source), 'deflate')
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE))
-  }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
-}
 
 /**
  * Block Kroki
@@ -208,16 +180,15 @@ digraph G {
     return this.caption || `${this.type} diagram`
   }
 
-  /**
-   * Where the drawing comes from.
-   *
-   * An `img` rather than markup fetched and inlined, because that is the one way of asking that needs
-   * nothing of the server beyond the picture: kroki.io sends no CORS headers at all, so a `fetch` for
-   * the same URL is refused. It also means the browser caches the drawing like any other image.
-   */
-  async _url(source) {
-    const type = TYPES.includes(this.type) ? this.type : 'graphviz'
-    return `${this._serverBase()}/${type}/${this._imageFormat()}/${await encodeForUrl(source)}`
+  _engine() {
+    return 'kroki'
+  }
+
+  /** Kroki needs to be told which of its languages `source` is written in — it cannot tell from the
+   *  text alone. Falls back to `graphviz` for an unrecognised `type`, the same fallback the old
+   *  GET-URL path used. */
+  _extraBody() {
+    return { diagramType: TYPES.includes(this.type) ? this.type : 'graphviz' }
   }
 }
 

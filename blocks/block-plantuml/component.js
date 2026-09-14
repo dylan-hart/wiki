@@ -1,43 +1,7 @@
-import { compress } from '../shared/compress.js'
 import { DiagramImageElement } from '../shared/diagram-image.js'
 
 /** The default server, which is the one PlantUML runs for everybody. */
 const DEFAULT_SERVER = 'https://www.plantuml.com/plantuml'
-
-/**
- * PlantUML's own alphabet for the text it carries in a URL.
- *
- * Base64 by shape but not by order — digits first, then the letters, and `-_` for the last two — so
- * the standard encoders cannot be used and this is done by hand below.
- */
-const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_'
-
-/**
- * A diagram source as it goes into a PlantUML URL: deflated, then written in that alphabet.
- *
- * Raw deflate with no zlib header, which is what the server's decoder expects. Three bytes at a time
- * become four characters; a group short of three is padded with zeros, and the server disregards what
- * the padding decodes to.
- *
- * The result is about 1.4 characters per character of source, so a very large diagram can outgrow what
- * a server will accept in a URL. That is a limit of this transport this fork has decided to live with
- * rather than add a server-side POST proxy for -- so `firstUpdated()` below measures the result and
- * refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
- */
-async function encodeForUrl(source) {
-  const bytes = await compress(new TextEncoder().encode(source), 'deflate-raw')
-  let encoded = ''
-  for (let i = 0; i < bytes.length; i += 3) {
-    const b1 = bytes[i]
-    const b2 = bytes[i + 1] ?? 0
-    const b3 = bytes[i + 2] ?? 0
-    encoded += ALPHABET[b1 >> 2]
-    encoded += ALPHABET[((b1 & 0x3) << 4) | (b2 >> 4)]
-    encoded += ALPHABET[((b2 & 0xf) << 2) | (b3 >> 6)]
-    encoded += ALPHABET[b3 & 0x3f]
-  }
-  return encoded
-}
 
 /**
  * Block PlantUML
@@ -134,28 +98,8 @@ Bob --> Alice : hi
     return this.caption || 'PlantUML diagram'
   }
 
-  /**
-   * Where the drawing comes from.
-   *
-   * An `img` rather than markup fetched and inlined, because that is the one way of asking that needs
-   * nothing of the server beyond the picture: no CORS headers, which a PlantUML behind somebody's own
-   * proxy may well not send. It also means the browser caches the drawing like any other image.
-   */
-  async _url(source) {
-    return `${this._serverBase()}/${this._imageFormat()}/${await encodeForUrl(source)}`
-  }
-
-  /**
-   * PlantUML's own reason for refusing a diagram, when the second request carries one.
-   *
-   * The block's `_explain()` otherwise has only "the image did not load" to go on. PlantUML answers
-   * a diagram it cannot read with a picture saying so — which is where a mistake in the source
-   * shows up, and the best place for it — but it also puts the reason in this header, which is worth
-   * repeating for the case where the picture itself never arrived.
-   */
-  _explainBody(response) {
-    const reason = response.headers.get('x-plantuml-diagram-error')
-    return reason ? `PlantUML could not read this diagram: ${reason}` : null
+  _engine() {
+    return 'plantuml'
   }
 
   _emptySourceMessage() {

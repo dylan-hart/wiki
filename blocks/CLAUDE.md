@@ -57,11 +57,13 @@ styles` (spread `VideoEmbedElement.styles` first). It constructs **no** `DarkMod
   `block-m365-video` never take a `dark` attribute at all, while `block-vimeo` and
   `block-dailymotion` construct their own for the one border they draw.
 - `diagram-image.js` — `DiagramImageElement`, behind `block-kroki` and `block-plantuml` (and
-  `diagramStyles`, which `block-drawio` adopts for the sheet alone). It owns
-  `server`/`format`/`caption`/`align`, a `DarkMode` controller, the body read, the
-  `MAX_DIAGRAM_URL_LENGTH` pre-flight guard, `_measure()`, `_explain()` and `render()`; a subclass
-  writes `_url`, `_defaultServer`, `_fenceName` and `_alt`, and may override
-  `_explainBody(response)` and `_emptySourceMessage()`.
+  `diagramStyles`, which `block-drawio` adopts for the sheet alone). POSTs to this site's Kroki/
+  PlantUML proxy (`POST /_api/sites/:siteId/diagrams/render`, OpenProject task 3228) rather than
+  building a GET URL — there is no client-side encoding and no URL-length ceiling any more
+  (`blocks/shared/url-limit.js` is gone, OpenProject task 3229). It owns
+  `server`/`format`/`caption`/`align`, a `DarkMode` controller, the body read, `_measure()` and
+  `render()`; a subclass writes `_engine`, `_defaultServer`, `_fenceName` and `_alt`, and may override
+  `_extraBody(source)` (Kroki's `diagramType`) and `_emptySourceMessage()`.
 
 **Dark mode goes through `blocks/shared/theme.js`, never `:host-context()`.** The app's source of
 truth is the `body--dark` class on `<body>`, which CSS in a shadow root cannot see; `:host-context()`
