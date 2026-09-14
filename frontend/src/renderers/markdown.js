@@ -1,7 +1,6 @@
 import MarkdownIt from 'markdown-it'
 import mdAttrs from 'markdown-it-attrs'
 import { full as mdEmoji } from 'markdown-it-emoji'
-import mdTaskLists from 'markdown-it-task-lists'
 import mdAbbr from 'markdown-it-abbr'
 import mdSup from 'markdown-it-sup'
 import mdSub from 'markdown-it-sub'
@@ -16,6 +15,7 @@ import mdGlossary from './modules/markdown-it-glossary'
 import mdBlocks from './modules/markdown-it-blocks'
 import mdIconShortcode from './modules/markdown-it-icon-shortcode'
 import mdTex from './modules/markdown-it-tex'
+import mdTaskLists from './modules/markdown-it-task-lists'
 import twemoji from '@twemoji/api'
 
 // -> `lib/common`, not the `highlight.js` root: the root registers every language the package ships
