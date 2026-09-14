@@ -1,6 +1,7 @@
 import fastifyMultipart from '@fastify/multipart'
 import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
 import { CustomError } from '../helpers/common.ts'
+import { limitUploads } from '../helpers/rateLimit.ts'
 import { maySiteAdmin } from '../helpers/siteRules.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
@@ -158,6 +159,12 @@ async function routes(app: FastifyInstance) {
       config: {
         permissions: ['manage:sites']
       },
+      // -> A tighter, upload-specific limit than the generic per-caller `/_api/*` ceiling -- once a
+      //    multi-file selection goes through the batch endpoint instead, a rapid burst of single-file
+      //    requests here is the signature of a caller working around that endpoint's own file-count
+      //    cap, not real single-upload usage. See `helpers/rateLimit.ts#limitUploads` (OpenProject
+      //    #3234).
+      preHandler: limitUploads,
       schema: {
         summary: 'Upload a custom block',
         description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,

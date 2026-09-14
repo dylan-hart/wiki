@@ -501,6 +501,75 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
 }
 
 /**
+ * The limit on single-file uploads through the two single-file upload routes (`POST
+ * /sites/:siteId/assets`, `POST /sites/:siteId/blocks`) — tighter than, and independent of,
+ * {@link API_DEFAULTS}'s generic per-caller ceiling on the whole `/_api/*` surface, which both
+ * routes also sit behind.
+ *
+ * Not admin-configurable, the same reasoning as {@link RENDER_LIMIT} and
+ * {@link COMMENT_GUEST_LIMIT}: this is a floor against one specific abuse shape, not a policy an
+ * operator has a reason to tune per-deployment. What it protects against (OpenProject #3234, part of
+ * the batch-upload Feature #3211): once legitimate multi-file UX moves to the batch upload endpoints
+ * (`POST .../assets/batch`, `POST .../blocks/batch`, #3231), the single-file route no longer needs to
+ * absorb real bulk traffic — a person uploading one file at a time does not re-click "upload" dozens
+ * of times a minute. A rapid burst of single-file requests at that point is specifically the
+ * signature of a script working around the batch endpoint's own per-request file-count cap, not a
+ * real usage pattern. Twenty in five minutes is comfortably more than someone adding a handful of
+ * images by hand while writing a page needs, and well short of what looping the single-file route to
+ * dodge the batch cap would attempt.
+ */
+const UPLOAD_LIMIT: RateLimitPolicy = {
+  max: 20,
+  windowSeconds: 300,
+  banSeconds: 300
+}
+
+/**
+ * Refuse a single-file upload once its caller has made too many.
+ *
+ * Written as a per-route `preHandler` hook — `{ preHandler: limitUploads, schema: … }` — wired onto
+ * `POST /sites/:siteId/assets` and `POST /sites/:siteId/blocks`, the only two single-file upload
+ * routes in the backend. Keyed the same way {@link limitRenders} is: by session user id when
+ * authenticated, falling back to `req.ip` otherwise. Deliberately runs ahead of either route's own
+ * authorization: the asset route only checks for a session inside its handler, and the block route's
+ * `manage:sites` permission is enforced by the global `preHandler` hook, which runs first in
+ * production (it sits on the root app) but not inside a route file's own unit test — so an
+ * unauthenticated or unauthorized caller still consumes a budget under this limiter rather than
+ * getting a free pass on it.
+ *
+ * `manage:system` is exempt, as it is everywhere: an operator scripting a legitimate bulk load has
+ * more direct ways to reach the server than working around its own rate limiter.
+ */
+export async function limitUploads(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (req.session?.permissions?.includes('manage:system')) {
+    return
+  }
+  const key = req.session?.user?.id ?? req.ip
+  const verdict = await consumeWithBanMemo(`upload:${key}`, UPLOAD_LIMIT)
+  if (verdict.allowed) {
+    return
+  }
+  logRefusal(
+    `upload:refused:${key}`,
+    UPLOAD_LIMIT.windowSeconds * 1000,
+    'rate limit refused an upload',
+    { key },
+    () => {
+      WIKI.logger.warn('auth', 'rate limit refused an upload', {
+        method: req.method,
+        url: req.url,
+        key,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many uploads. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}
+
+/**
  * The limit on every request an API key makes, summed across all `/_api/` endpoints it hits.
  *
  * Not configurable per key: `apiKeys` has no per-row policy storage (the `scope` column added
