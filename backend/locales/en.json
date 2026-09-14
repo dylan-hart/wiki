@@ -3614,6 +3614,7 @@
   "search.relatedResult": "Related",
   "search.relatedResultHint": "This result did not match your search directly -- it surfaced because it is closely related to another result that did.",
   "search.results": "Search Results",
+  "search.similarityMatch": "{percent}% match",
   "search.sortBy": "Sort By",
   "search.sortByLastUpdated": "Last Updated",
   "search.sortByRelevance": "Relevance",
