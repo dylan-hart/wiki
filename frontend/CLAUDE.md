@@ -137,10 +137,10 @@ the `twemoji-assets` tarball dependency is resolvable) and `vite-plugin-vue-devt
 `../config.yml` at import time for the dev proxy port, none of which a unit test needs or wants
 paying the cost of on every run.
 
-**The policy for what earns a test and at which layer** follows the same settled reasoning as the
-backend's testing section above, from a classification of every suite in this workspace — the
-real-Chromium layer, the source-scanning gates and the `describe.each` convention are settled by
-it; the mechanics below stand unchanged.
+**The policy for what earns a test and at which layer** follows the same settled reasoning as
+`backend/CLAUDE.md`'s Testing (backend) section, from a classification of every suite in this
+workspace — the real-Chromium layer, the source-scanning gates and the `describe.each` convention
+are settled by it; the mechanics below stand unchanged.
 
 What IS mirrored from `vite.config.js`, because component code has to resolve exactly the way it
 does in the real build, not because it was convenient to share:

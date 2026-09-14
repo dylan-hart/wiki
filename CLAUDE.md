@@ -159,7 +159,7 @@ npm run dev              # nodemon, restarts on any backend file change
 npm run start            # plain node
 npm run typecheck        # tsc — type check only, never emits
 npm run typecheck:watch
-npm run test             # node --test — see Testing (backend) below
+npm run test             # node --test — see backend/CLAUDE.md's Testing (backend) section
 npm run db-generate      # drizzle-kit generate — after editing db/schema.ts
 npm run db-up            # drizzle-kit up
 
