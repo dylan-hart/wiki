@@ -26,7 +26,7 @@
   "main": "index.ts",
   "scripts": {
     "start": "cd .. && node backend",
-    "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json",
+    "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json --signal SIGTERM",
     "migrate": "cd .. && node backend/tasks/migrate.ts",
     "verify-migration": "cd .. && node backend/tasks/verify-migration.ts",
     "promote-admin": "cd .. && node backend/tasks/promote-admin.ts",
