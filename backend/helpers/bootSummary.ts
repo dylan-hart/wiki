@@ -62,8 +62,8 @@ export function readyFields({ sites, bindIP, port, ms }: ReadyFieldsInput): Read
  * Both halves have to be known before the worker's logger is built, so neither can come from a job
  * payload — `worker.ts` used to boot as the literal `'worker'` and overwrite itself with the
  * parent's id on the first job, which filed every boot line it emitted under a different identity
- * than every job line that followed (audit N8). The parent id now arrives through poolifier's
- * `workerData` (`core/scheduler.ts`'s `poolOptions`) and the ordinal is the thread's own `threadId`,
+ * than every job line that followed (audit N8). The parent id now arrives through piscina's
+ * `workerData` (`core/scheduler.ts`'s pool construction) and the ordinal is the thread's own `threadId`,
  * since one `workerData` object is shared by every worker in the pool and so cannot carry a
  * per-worker index.
  *

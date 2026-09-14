@@ -3,8 +3,8 @@
  *
  * `worker.ts` used to boot as the literal `'worker'` and overwrite `WIKI.INSTANCE_ID` with the
  * parent's id on its first job, so its own boot lines and its job lines were filed under two
- * different identities. The parent id now travels on poolifier's `workerData` (`core/scheduler.ts`'s
- * `poolOptions`) and the id is settled before the worker's logger exists.
+ * different identities. The parent id now travels on piscina's `workerData` (`core/scheduler.ts`'s
+ * pool construction) and the id is settled before the worker's logger exists.
  *
  * Two halves, and both need proving: the derivation (`helpers/bootSummary.test.ts` — pure) and the
  * transport, which is what this file is. Its own file rather than a describe inside
@@ -16,26 +16,23 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
-import { FixedThreadPool } from 'poolifier'
+import { Piscina } from 'piscina'
 
 const backendDir = path.join(import.meta.dirname, '..')
 const schedulerTs = readFileSync(path.join(backendDir, 'core/scheduler.ts'), 'utf8')
 const workerTs = readFileSync(path.join(backendDir, 'worker.ts'), 'utf8')
 
 describe('worker thread identity', () => {
-  test("the pool's workerOptions carry this instance's id, which is how a worker learns its parent", () => {
+  test("the pool's workerData carries this instance's id, which is how a worker learns its parent", () => {
     // -> `workerData` also carries `capabilities` alongside `parentInstanceId` (OpenProject #3124,
     //    see `schedulerWorkerCapabilities.test.ts`) -- this assertion only cares that the id is still
     //    on the same object, not that it's the only key.
-    assert.match(
-      schedulerTs,
-      /workerOptions: \{\s*workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID,/
-    )
+    assert.match(schedulerTs, /workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID,/)
   })
 
   test('no job payload carries an INSTANCE_ID any more, in either direction', () => {
     // -> The two halves of the removed per-job overwrite: the sender in `executeOnWorker` and the
-    //    receiver at the top of `worker.ts`'s ThreadWorker callback.
+    //    receiver at the top of `worker.ts`'s exported handler.
     assert.doesNotMatch(schedulerTs, /INSTANCE_ID: `\$\{WIKI\.INSTANCE_ID\}:WKR`/)
     assert.doesNotMatch(workerTs, /WIKI\.INSTANCE_ID = job\.INSTANCE_ID/)
   })
@@ -48,21 +45,18 @@ describe('worker thread identity', () => {
     assert.match(workerTs, /workerData as \{ parentInstanceId\?: unknown \} \| null/)
   })
 
-  test("poolifier's workerData really does reach the thread, so the parent id arrives", async () => {
-    // -> The claim a source scan cannot make. A `FixedThreadPool` of one, built with exactly the
-    //    `workerOptions` shape `scheduler.init()` passes, against a fixture that derives its id the
+  test("piscina's workerData really does reach the thread, so the parent id arrives", async () => {
+    // -> The claim a source scan cannot make. A single-worker pool, built with exactly the
+    //    `workerData` shape `scheduler.init()` passes, against a fixture that derives its id the
     //    same way `worker.ts` does and answers with it.
-    const pool = new FixedThreadPool<unknown, string>(
-      1,
-      path.join(backendDir, 'test/fixtures/workerIdentityWorker.ts'),
-      {
-        errorHandler: () => {},
-        exitHandler: () => {},
-        workerOptions: { workerData: { parentInstanceId: 'parent-instance' } }
-      }
-    )
+    const pool = new Piscina<unknown, string>({
+      filename: path.join(backendDir, 'test/fixtures/workerIdentityWorker.ts'),
+      minThreads: 1,
+      maxThreads: 1,
+      workerData: { parentInstanceId: 'parent-instance' }
+    })
     try {
-      const id = await pool.execute({})
+      const id = await pool.run({})
       assert.match(id, /^parent-instance\/w\d+$/)
     } finally {
       await pool.destroy()

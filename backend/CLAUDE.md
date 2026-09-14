@@ -44,7 +44,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   the Yjs collaborative-editing WebSocket upgrade; `metrics.ts` exposes Prometheus metrics;
   `seo.ts` serves `robots.txt`/`sitemap.xml`; `terminal.ts` and `user.ts` round out the set.
 - `core/` — long-lived singletons: `config.ts` (yml + db-backed settings), `db.ts` (pg pool, Drizzle
-  instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (poolifier thread pool +
+  instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (piscina thread pool +
   postgres-backed job queue), `collab.ts` (the Yjs collaborative-editing sync/awareness protocol,
   driven by `controllers/collab.ts`'s WebSocket upgrade), `maintenance.ts` (the admin utilities view's
   cross-instance actions — clear cache, drop websockets — broadcast over the event bus so every
@@ -184,7 +184,7 @@ literal and assert it to `WikiGlobal`, since each populates the object progressi
 **Five dynamic paths are extension-sensitive** and invisible to the type checker — they must be
 updated by hand if the files they point at are ever renamed:
 
-- `core/scheduler.ts` → `path.join(WIKI.SERVERPATH, 'worker.ts')` (the poolifier pool entry)
+- `core/scheduler.ts` → `path.join(WIKI.SERVERPATH, 'worker.ts')` (the piscina pool entry)
 - `worker.ts` → `import('./tasks/workers/${kebabCase(job.task)}.ts')`
 - `models/authentication.ts` → `import('../modules/authentication/${stg.module}/authentication.ts')`
 - `models/storage.ts` → `import('../modules/storage/${key}/storage.ts')`, plus the `storage.ts`

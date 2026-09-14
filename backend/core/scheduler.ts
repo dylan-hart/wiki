@@ -1,4 +1,4 @@
-import { DynamicThreadPool, FixedThreadPool } from 'poolifier'
+import { Piscina } from 'piscina'
 import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -60,7 +60,7 @@ export type SimpleTask = (
  *
  * Anything that is not a plain object carrying a non-empty `summary` string is "no summary": a task
  * returning `undefined` (most of them), one that hands back a bare count, and every worker-thread job
- * — `worker.ts`'s `ThreadWorker` resolves `true` rather than the task's own value, so a worker job is
+ * — `worker.ts`'s handler resolves `true` rather than the task's own value, so a worker job is
  * always the `debug` case here.
  */
 function taskSummary(value: unknown): TaskResult | null {
@@ -76,6 +76,14 @@ const DEFAULT_TASK_TIMEOUT = 300
 
 /** Fallback for `scheduler.staleJobTimeout`, in seconds, when nothing is configured. */
 const DEFAULT_STALE_JOB_TIMEOUT = 3600
+
+/**
+ * How long, in ms, an idle worker thread above `minThreads` is kept warm before piscina tears it
+ * down. Not exposed as its own `scheduler.*` config key: it only trades a little idle memory against
+ * avoiding a cold worker-thread spin-up on the next burst of jobs, which is not a knob an operator
+ * has needed to reach for.
+ */
+const WORKER_IDLE_TIMEOUT_MS = 60_000
 
 /**
  * How long an `addJob({ promise: true })` deferred waits for a `jobCompleted` NOTIFY before giving up
@@ -189,7 +197,7 @@ function claimStrandedJobs(cutoff: Date, staleAfter: number) {
 }
 
 export default {
-  workerPool: null as DynamicThreadPool<any, boolean> | FixedThreadPool<any, boolean> | null,
+  workerPool: null as Piscina<any, boolean> | null,
   pubsubClient: null as PoolClient | null,
   listenerHandle: null as ListenerHandle | null,
   maxWorkers: 1,
@@ -209,34 +217,37 @@ export default {
       this.maxWorkers = 1
     }
     const workerFile = path.join(WIKI.SERVERPATH, 'worker.ts')
-    const poolOptions = {
-      errorHandler: (err: Error) => WIKI.logger.warn('worker', 'worker pool error', { error: err }),
-      exitHandler: () => WIKI.logger.debug('worker', 'worker offline'),
-      onlineHandler: () => WIKI.logger.debug('worker', 'worker online'),
-      // -> Forwarded verbatim to `new Worker(file, options)`, so this is what `worker.ts` reads out
-      //    of `node:worker_threads`' `workerData` to build its own `INSTANCE_ID` before its logger
-      //    exists. One object for the whole pool — the per-worker half of the id is the thread's own
-      //    `threadId`, not anything sent from here. `capabilities` rides along the same object for
-      //    the same reason: it's settled once, here, after the db boot phase that populates
-      //    `WIKI.capabilities`, and a worker thread never calls `syncSchemas()` itself to learn it
-      //    (OpenProject #3124) — without this a worker-thread task guarding on
-      //    `WIKI.capabilities?.semanticSearch` always reads `undefined` and silently no-ops.
-      workerOptions: {
-        workerData: { parentInstanceId: WIKI.INSTANCE_ID, capabilities: WIKI.capabilities }
-      }
-    }
     /*
-      `DynamicThreadPool` refuses a minimum equal to its maximum (poolifier 5.x: "Use a fixed pool
-      instead"). `maxWorkers` lands on exactly 1 whenever `scheduler.workers` is explicitly set to 1,
-      or 'auto' on a single-CPU host/container — both real deployment shapes, not edge cases — so
-      always going through `DynamicThreadPool(1, maxWorkers, ...)` crashed `init()` (and therefore
-      boot) on any of them. A single-worker instance has nothing to scale between anyway, so it gets a
-      `FixedThreadPool` of exactly one instead.
+      Unlike poolifier's separate `FixedThreadPool`/`DynamicThreadPool` classes -- the latter of
+      which refused a minimum equal to its maximum ("Use a fixed pool instead"), which crashed
+      `init()` (and therefore boot) whenever `maxWorkers` resolved to exactly 1 (`scheduler.workers:
+      1` explicitly configured, or 'auto' on a single-CPU host/container -- both real deployment
+      shapes, not edge cases) -- piscina is one class with a plain `minThreads`/`maxThreads` range
+      that tolerates `minThreads === maxThreads` outright, so no such branch is needed here.
     */
-    this.workerPool =
-      this.maxWorkers === 1
-        ? new FixedThreadPool(1, workerFile, poolOptions)
-        : new DynamicThreadPool(1, this.maxWorkers, workerFile, poolOptions)
+    this.workerPool = new Piscina({
+      filename: workerFile,
+      minThreads: 1,
+      maxThreads: this.maxWorkers,
+      idleTimeout: WORKER_IDLE_TIMEOUT_MS,
+      // -> Forwarded verbatim to each `new Worker(file, options)`, so this is what `worker.ts` reads
+      //    out of `node:worker_threads`' `workerData` to build its own `INSTANCE_ID` before its
+      //    logger exists. One object for the whole pool — the per-worker half of the id is the
+      //    thread's own `threadId`, not anything sent from here. `capabilities` rides along the same
+      //    object for the same reason: it's settled once, here, after the db boot phase that
+      //    populates `WIKI.capabilities`, and a worker thread never calls `syncSchemas()` itself to
+      //    learn it (OpenProject #3124) — without this a worker-thread task guarding on
+      //    `WIKI.capabilities?.semanticSearch` always reads `undefined` and silently no-ops.
+      workerData: { parentInstanceId: WIKI.INSTANCE_ID, capabilities: WIKI.capabilities }
+    })
+    // -> Piscina is an `EventEmitterAsyncResource`, not a constructor-option callback trio: the
+    //    `errorHandler`/`exitHandler`/`onlineHandler` poolifier took at construction time become
+    //    listeners on the pool instance itself.
+    this.workerPool.on('error', (err: Error) =>
+      WIKI.logger.warn('worker', 'worker pool error', { error: err })
+    )
+    this.workerPool.on('workerDestroy', () => WIKI.logger.debug('worker', 'worker offline'))
+    this.workerPool.on('workerCreate', () => WIKI.logger.debug('worker', 'worker online'))
     this.tasks = {}
     for (const f of await fs.readdir(path.join(WIKI.SERVERPATH, 'tasks/simple'))) {
       // -> `tasks/simple/` carries this repo's usual co-located `*.test.ts` files
@@ -250,8 +261,8 @@ export default {
         continue
       }
       const taskName = camelCase(f.replace(/\.[jt]s$/, ''))
-      // -> Unlike `workerFile` above (a plain OS path, which is what both poolifier's own
-      //    pre-flight `existsSync()` check and `new Worker()` itself expect), dynamic `import()`
+      // -> Unlike `workerFile` above (a plain OS path, which is what piscina's own `filename`
+      //    option and `new Worker()` itself expect), dynamic `import()`
       //    parses its argument as a module specifier -- a bare absolute Windows path like
       //    `C:\...` gets its drive letter read as a URL *scheme*, throwing
       //    ERR_UNSUPPORTED_ESM_URL_SCHEME ("Received protocol 'c:'"). A `file://` URL is what
@@ -422,15 +433,21 @@ export default {
    * Run a job in a worker thread, and stop waiting for it if it does not come back.
    *
    * A task promise that never settles is not a hypothetical: a worker thread that dies mid-task —
-   * `process.exit`, an OOM kill, a native crash — takes the answer with it. Poolifier reports the
-   * exit through its `exitHandler` but has nothing to attach it to, so the promise this awaits stays
-   * pending forever, and with it everything the caller is holding: the job stays claimed, its history
-   * row stays `active`, and the transaction around this never commits.
+   * `process.exit`, an OOM kill, a native crash — takes the answer with it. Piscina's own pool
+   * rejects any task still in flight on that worker the moment it sees the thread exit (its
+   * `onWorkerExit` handler), so a crash is typically caught quickly on its own — unlike poolifier,
+   * which only reported the exit through its `exitHandler` with nothing to attach it to, leaving the
+   * promise pending forever and making the backup timer below the *only* thing that ever settled it.
+   * The timer stays regardless: it is what makes the wait finite for the residual case piscina's own
+   * exit detection cannot cover either — a thread that is neither answering nor exiting at all (a
+   * genuine native-code deadlock ignoring the abort signal) — and with it everything the caller is
+   * holding: the job stays claimed, its history row stays `active`, and the transaction around this
+   * never commits.
    *
    * Two ceilings, because they cover different failures. The abort signal is for a task that is still
-   * running and merely slow — the pool aborts it and rejects, so the worker stops doing the work as
-   * well. The timer is for the case where there is no longer anybody to abort, and is what makes the
-   * wait finite no matter what happened to the thread.
+   * running and merely slow — the pool aborts it (tearing down the worker running it) and rejects, so
+   * the worker stops doing the work as well. The timer is for the case where there is no longer
+   * anybody to abort, and is what makes the wait finite no matter what happened to the thread.
    *
    * Either way the job ends up in the same place a thrown task does: recorded as failed, and retried
    * with the usual backoff.
@@ -439,9 +456,9 @@ export default {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     await withTimeout(
       // -> No `INSTANCE_ID` rider on the payload any more: a worker settles its own id from
-      //    `workerData` at boot (see `poolOptions` above), so sending one per job only ever
+      //    `workerData` at boot (see `init()` above), so sending one per job only ever
       //    overwrote a correct value with the same information a job later.
-      this.workerPool!.execute({ ...job }, undefined, AbortSignal.timeout(timeoutMs)),
+      this.workerPool!.run({ ...job }, { signal: AbortSignal.timeout(timeoutMs) }),
       timeoutMs + TASK_TIMEOUT_GRACE,
       () =>
         new Error(
