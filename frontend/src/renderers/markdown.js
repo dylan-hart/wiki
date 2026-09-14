@@ -218,7 +218,7 @@ export class MarkdownRenderer {
       html: config.allowHTML,
       breaks: config.lineBreaks,
       linkify: config.linkify,
-      typography: config.typographer,
+      typographer: config.typographer,
       quotes: quoteStyles[config.quotes] ?? quoteStyles.english,
       highlight(str, lang) {
         if (['drawio', 'kroki', 'mermaid', 'plantuml'].includes(lang)) {

@@ -649,6 +649,61 @@ describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () =>
 })
 
 /**
+ * `MarkdownRenderer` used to pass `typography: config.typographer` into the `MarkdownIt`
+ * constructor -- markdown-it's option is spelled `typographer`, and markdown-it silently ignores
+ * unknown keys, so the admin "Typographer" toggle and the `quotes` style setting had no effect at
+ * all (OpenProject #3150). The `quotes` option only applies when `typographer` is on, so both
+ * settings were dead together.
+ */
+describe('MarkdownRenderer - typographer setting (OpenProject #3150)', () => {
+  it('replaces straight quotes with curly quotes when typographer is enabled (default english quotes)', () => {
+    const renderer = new MarkdownRenderer({ typographer: true })
+    const html = renderer.render('She said "hello" to \'him\'.\n')
+
+    expect(html).toContain('“hello”')
+    expect(html).toContain('‘him’')
+    expect(html).not.toContain('"hello"')
+    expect(html).not.toContain("'him'")
+  })
+
+  it('replaces (c) with the copyright glyph when typographer is enabled', () => {
+    const renderer = new MarkdownRenderer({ typographer: true })
+    const html = renderer.render('Copyright (c) Example\n')
+
+    expect(html).toContain('©')
+    expect(html).not.toContain('(c)')
+  })
+
+  it('honors a non-default quote style (french guillemets, the array-shaped quoteStyles entry)', () => {
+    const renderer = new MarkdownRenderer({ typographer: true, quotes: 'french' })
+    const html = renderer.render('She said "hello" to him.\n')
+
+    expect(html).toContain('«\xA0hello\xA0»')
+    expect(html).not.toContain('"hello"')
+  })
+
+  it('leaves straight quotes and a literal "(c)" alone when typographer is disabled', () => {
+    const renderer = new MarkdownRenderer({ typographer: false })
+    const html = renderer.render('She said "hello" to \'him\'. Copyright (c) Example\n')
+
+    // -> markdown-it always HTML-escapes a literal `"` in text, whether or not typographer is on
+    expect(html).toContain('&quot;hello&quot;')
+    expect(html).toContain("'him'")
+    expect(html).toContain('(c)')
+    expect(html).not.toContain('“hello”')
+    expect(html).not.toContain('©')
+  })
+
+  it('leaves straight quotes alone when typographer is left unset (default off)', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('She said "hello" to \'him\'.\n')
+
+    expect(html).toContain('&quot;hello&quot;')
+    expect(html).not.toContain('“hello”')
+  })
+})
+
+/**
  * The `markdown-it-attrs` whitelist (OpenProject #1180): only `id`, `class` and `target` are ever
  * let through onto the rendered element -- everything else an author writes in a `{...}` block is
  * silently dropped, since arbitrary attributes from page content (`onclick`, `style`, ...) are an
