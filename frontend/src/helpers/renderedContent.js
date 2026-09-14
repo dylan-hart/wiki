@@ -237,6 +237,50 @@ function serializeTableForClipboard(table) {
 }
 
 /**
+ * `tableHtmlOf`'s counterpart for a select-mode cell-range (OpenProject #3240): the exact same
+ * role-to-tag mapping, `style` carry-over and `spanAttrs` call as `tableHtmlOf`, walking `cells` --
+ * `getActiveTableSelection()`'s rectangle, already clipped to it and corner-normalized -- instead of
+ * every row of the table. Never includes a `<caption>`: a caption describes the table as a whole,
+ * not one range cut out of it, and `cells` carries no caption element to begin with.
+ */
+function tableHtmlOfRange(cells) {
+  let html = '<table>'
+  for (const cellRow of cells) {
+    html += '<tr>'
+    for (const cell of cellRow) {
+      const tag = cell.getAttribute('role') === 'columnheader' ? 'th' : 'td'
+      const style = cell.getAttribute('style')
+      html += `<${tag}${style ? ` style="${style}"` : ''}${spanAttrs(cell)}>${cell.innerHTML}</${tag}>`
+    }
+    html += '</tr>'
+  }
+  html += '</table>'
+  return html
+}
+
+/**
+ * `tsvOf`'s counterpart for a select-mode cell-range (OpenProject #3240): same trim/tab-newline-
+ * collapse rule per cell, over `cells` -- `getActiveTableSelection()`'s rectangle -- instead of a
+ * walk of the table's own rows.
+ */
+function tsvOfRange(cells) {
+  return cells
+    .map((cellRow) =>
+      cellRow.map((cell) => cell.textContent.trim().replace(/[\t\r\n]+/g, ' ')).join('\t')
+    )
+    .join('\n')
+}
+
+/**
+ * `serializeTableForClipboard`'s counterpart for an active select-mode range (OpenProject #3240):
+ * what `handleTableCopy` puts on the clipboard instead of the whole table once a reader has entered
+ * select mode and named a rectangle.
+ */
+function serializeTableRangeForClipboard(range) {
+  return { html: tableHtmlOfRange(range.cells), text: tsvOfRange(range.cells) }
+}
+
+/**
  * The `[role="table"]` a copy's current window selection sits entirely inside, or null when it
  * doesn't -- nothing selected, a collapsed caret, a selection that reaches outside any table, or one
  * that spans two different tables. `handleTableCopy`'s pre-flight for whether to intercept the event
@@ -265,16 +309,28 @@ function tableForSelection(selection) {
   return table
 }
 
-/** The `copy` handler `addTableCopyInterception` wires onto `root`. */
+/**
+ * The `copy` handler `addTableCopyInterception` wires onto `root`.
+ *
+ * OpenProject #3240: an active select-mode range (`getActiveTableSelection()`) always wins over the
+ * browser's own selection -- select mode exists precisely to name a rectangle the browser's linear
+ * selection cannot express, so once a reader has entered it, a copy from that table means "this
+ * range", not whatever the browser's own selection (typically none at all; select mode's own
+ * pointerdown handler already claims the gesture with `preventDefault()`) happens to reach. With no
+ * active range, this falls through to the original whole-table behavior unchanged.
+ */
 function handleTableCopy(event) {
   if (!event.clipboardData) {
     return
   }
-  const table = tableForSelection(window.getSelection())
+  const activeRange = getActiveTableSelection()
+  const table = activeRange ? activeRange.table : tableForSelection(window.getSelection())
   if (!table) {
     return
   }
-  const { html, text } = serializeTableForClipboard(table)
+  const { html, text } = activeRange
+    ? serializeTableRangeForClipboard(activeRange)
+    : serializeTableForClipboard(table)
   event.clipboardData.setData('text/html', html)
   event.clipboardData.setData('text/plain', text)
   event.preventDefault()
@@ -450,7 +506,10 @@ export function enhanceRenderedContent(root, t) {
 
   State lives at module scope, not closed over anywhere unreachable from outside this file:
   `getActiveTableSelection()` is the read surface OpenProject #3240 (wiring this into the copy
-  handler) needs next round.
+  handler) uses. #3240 also added `syncNativeTableSelectionToRange` (called from
+  `renderTableSelectHighlight`, see its own comment): a real, non-collapsed `Selection` mirrored onto
+  the rectangle's top-left cell purely so Ctrl+C actually raises the `copy` event `handleTableCopy`
+  intercepts.
 */
 
 /** Matches a cell OR a header cell -- the two roles `renderers/markdown.js` gives a table's grid
@@ -541,9 +600,52 @@ function renderTableSelectHighlight() {
       }
     }
   }
+
+  syncNativeTableSelectionToRange(table, rowStart, colStart)
 }
 
-/** Ends the active selection, if there is one: clears its markers and its roving `tabindex`. */
+/**
+ * OpenProject #3240: mirrors a real, non-collapsed `Selection` onto the active rectangle's top-left
+ * cell, every time the rectangle changes. Without SOME `Selection` touching the page, most browsers
+ * never raise a `copy` event at all when the reader presses Ctrl+C -- the platform's own copy command
+ * is only enabled once something is selected, and select mode's own pointerdown handler already calls
+ * `preventDefault()` on every cell click specifically to stop the browser's OWN (linear, at most one
+ * corner to another) text selection from starting instead. This exists purely to make that event
+ * fire -- `handleTableCopy` never reads the `Selection` this places back for an active range, it
+ * reads `getActiveTableSelection()` instead.
+ *
+ * `range.selectNode(cell)`, not `range.selectNodeContents(cell)`: the latter collapses to nothing on
+ * an empty cell (start and end both land on `(cell, 0)`), where `selectNode` places its two
+ * boundaries around the cell itself in ITS PARENT's child list -- non-collapsed regardless of
+ * whether the cell holds any content. Only the rectangle's top-left corner, never the whole
+ * rectangle: a `Range` is inherently linear (one DOM position to another), so spanning corner to
+ * corner across more than one row would sweep in every cell IN BETWEEN in document order too,
+ * including ones outside the rectangle whenever the table has more columns than the range covers --
+ * a single cell's worth of native highlight is a small, honest visual footprint, layered under
+ * `data-table-selected`'s own ring/wash, rather than a second one that would read as wrong.
+ *
+ * Best-effort: wrapped in try/catch because this is a convenience for the real Ctrl+C path, not
+ * something the actual clipboard payload depends on, and this file's own happy-dom test environment
+ * does not reliably emulate `Selection`/`Range` either (see this file's #3238 describe block).
+ */
+function syncNativeTableSelectionToRange(table, rowIndex, colIndex) {
+  try {
+    const sel = window.getSelection?.()
+    const cell = tableSelectCells(tableSelectRows(table)[rowIndex])[colIndex]
+    if (!sel || !cell) {
+      return
+    }
+    const range = document.createRange()
+    range.selectNode(cell)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  } catch {
+    // -> See the function comment: best-effort only.
+  }
+}
+
+/** Ends the active selection, if there is one: clears its markers, its roving `tabindex`, and the
+ *  native `Selection` `syncNativeTableSelectionToRange` mirrored onto it (OpenProject #3240). */
 function clearTableSelection() {
   if (!activeSelection) {
     return
@@ -553,6 +655,11 @@ function clearTableSelection() {
   }
   activeSelection.focusedCell?.removeAttribute('tabindex')
   activeSelection = null
+  try {
+    window.getSelection?.()?.removeAllRanges()
+  } catch {
+    // -> See syncNativeTableSelectionToRange's comment: best-effort only.
+  }
 }
 
 /**
