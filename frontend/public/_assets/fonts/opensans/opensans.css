@@ -32,7 +32,7 @@
 }
 /* opensans-800 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic. Open Sans ships no 900
    static instance upstream (its variable axis tops out at 800), unlike the other four families here
-   which all go to 900 - see docs/variances.md. */
+   which all go to 900 - see docs/decisions/opensans-font-weight-gap.md. */
 @font-face {
   font-family: 'Open Sans';
   font-style: normal;

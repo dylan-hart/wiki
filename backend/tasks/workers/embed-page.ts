@@ -26,7 +26,8 @@ import { embedText } from '../../helpers/embeddings.ts'
  * stale chunks rather than none at all just because one passage's inference failed.
  *
  * `pageEmbeddingChunks` is deliberately not part of `db/schema.ts` (Task #3095's own decision --
- * see `docs/variances.md`), so every statement here is raw SQL via Drizzle's `sql` template rather
+ * see `docs/decisions/pgvector-raw-sql-table.md`), so every statement here is raw SQL via Drizzle's
+ * `sql` template rather
  * than the query builder.
  */
 export async function embedPage(pageId: string): Promise<void> {

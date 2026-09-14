@@ -145,8 +145,8 @@ class CommentProviders {
    * Whether a provider may be listed and selected.
    *
    * `hasImplementation` alone, matching `models/storage.ts`'s equivalent gate. Reversed from an
-   * earlier version that also treated `codeTemplate` as an independent grant — see the "Comment
-   * provider selectability" entry in `docs/variances.md` for why: no page-view code renders a
+   * earlier version that also treated `codeTemplate` as an independent grant — see
+   * `docs/decisions/comment-provider-selectability.md` for why: no page-view code renders a
    * `codeTemplate` provider's embed, and building that render path turned out to be materially more
    * than the one-field flip it looked like (a new public, per-page-permission-gated API to expose
    * the active provider to anonymous readers, plus vendor-specific glue for three different

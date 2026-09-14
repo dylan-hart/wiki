@@ -98,9 +98,10 @@ departmental reliance — that would justify real engineering ahead of it.
 - **This finding is posted back onto Feature #378's description** (OpenProject) as the traceable decision
   record, per the task's explicit requirement that the verdict not be an implicit omission.
 - **Task #537** ("Record the cut decision in docs/variances.md for whichever targets don't clear the bar")
-  is the correct place to formalize this as a `docs/variances.md` entry for all four targets — intentionally
-  left to that task rather than duplicated here, since `docs/variances.md` records only genuine, justified
-  deviations and this document is the evidence trail behind that entry, not the entry itself.
+  is the correct place to formalize this — as a `docs/decisions/` entry, not a `docs/variances.md` one:
+  cutting a storage target is an implementation decision, not a divergence from a recognized public
+  standard, which is the only thing `docs/variances.md` records. Intentionally left to that task rather
+  than duplicated here; this document is the evidence trail behind that entry, not the entry itself.
 - **Task #538** ("Scope and implement real integration for any target the audit confirms is still needed")
   has no work to do under this verdict: zero targets confirmed as needed. That task should be closed as
   moot once #537 lands, rather than implement speculative integrations for targets with no evidenced use.

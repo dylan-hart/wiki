@@ -256,8 +256,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
  * Artalk's `definition.yml`) as an independent grant, so a provider with no server-side
  * implementation could still be selected on the theory that a future page-view render path would
  * embed the vendor's own client-side script. No such render path was ever built, and the three
- * providers now declare `isAvailable: false` instead (see the "Comment provider selectability" entry
- * in `docs/variances.md` for the full reversal) -- `codeTemplate` remains a descriptive field on the
+ * providers now declare `isAvailable: false` instead (see
+ * `docs/decisions/comment-provider-selectability.md` for the full reversal) -- `codeTemplate` remains
+ * a descriptive field on the
  * definition (still read off disk below), it just no longer feeds `isSelectable()`.
  *
  * No `WIKI` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only

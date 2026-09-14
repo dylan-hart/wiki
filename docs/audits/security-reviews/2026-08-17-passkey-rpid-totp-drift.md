@@ -7,7 +7,8 @@ single-hostname-per-site model, and is the TOTP drift window in `backend/helpers
 
 **Verdict: no exploitable gap found.** One diagnosability fix shipped (`ERR_PK_ORIGIN_MISMATCH`,
 below). The TOTP drift window is a deliberate, justified tightening relative to Wiki.js 2.5.x's own
-default and is recorded in `docs/variances.md` rather than left as a silent behavior change.
+default and is recorded in `docs/decisions/totp-drift-window.md` rather than left as a silent
+behavior change.
 
 ## How the RP ID and origin actually get set
 
@@ -170,7 +171,7 @@ an admin silently widen the acceptance window (and therefore the replay surface)
 change on the authenticator side to justify it. If real-world support tickets ever show ±30s being too
 tight for a specific deployment, that's the trigger to revisit — not a hypothetical now.
 
-Recorded in `docs/variances.md` under "TOTP drift window intentionally tighter than 2.5.x baseline."
+Recorded in `docs/decisions/totp-drift-window.md`.
 
 ## Residual recommendations (not implemented here, out of scope for this task)
 

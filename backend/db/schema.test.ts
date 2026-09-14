@@ -329,7 +329,7 @@ describe('migration.sql NOT NULL columns require a DEFAULT', () => {
       assert.ok(
         offenders.has(folder),
         `${folder} is allow-listed but no longer has a NOT NULL column with no DEFAULT -- remove it ` +
-          `from the allow-list and docs/variances.md`
+          `from the allow-list and its docs/decisions/ entry, if one was recorded`
       )
     }
   })

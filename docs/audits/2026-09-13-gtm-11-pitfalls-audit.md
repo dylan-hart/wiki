@@ -166,7 +166,7 @@ Every "Evidence" cell was gathered from the repo on 2026-09-13 unless marked *ju
 
 ### B2 · Options that don't actually work — EXPOSED
 - **Evidence.**
-  - The CAS module can never log anyone in (`docs/variances.md`).
+  - The CAS module can never log anyone in (`docs/decisions/cas-1.0-account-provisioning-gap.md`).
   - Roughly ten SSO integrations were verified only against mocks.
   - History of the same pattern: a ratings feature and about 1,400 lines of a data-template admin panel shipped as dead UI before audits removed them.
 - **Why it's fatal early.** The first evaluator who picks a broken option from a dropdown stops trusting every other claim.

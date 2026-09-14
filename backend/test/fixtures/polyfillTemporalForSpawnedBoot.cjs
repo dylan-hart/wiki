@@ -5,7 +5,8 @@
  *
  * `index.ts` calls `Temporal.Now.instant()` unconditionally while building the `WIKI` global --
  * correct for the real app, since `engines` requires Node >=26 and that release line ships `Temporal`
- * as a real, unflagged native global (see `docs/variances.md`'s `@js-temporal/polyfill` entry). It
+ * as a real, unflagged native global (see `docs/decisions/dependency-audit-exceptions.md`'s
+ * `@js-temporal/polyfill` section). It
  * installs no polyfill of its own on that real boot path, by design.
  *
  * The spawned child process this preloads for is not that real boot path, though -- it is

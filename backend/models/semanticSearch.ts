@@ -35,8 +35,9 @@ import type { SearchPagesResult } from './search.ts'
  * (#3095) creates the extension and this table imperatively, in a try/catch, after the normal
  * migrations run, and records success as the `WIKI.capabilities.semanticSearch` boot-time flag. This
  * model reads the table through a raw `sql` template rather than the schema-DSL query builder for
- * exactly that reason — it isn't part of the generated schema. See `docs/variances.md` for the
- * recorded exception to the "all schema changes go through `db/schema.ts`" rule.
+ * exactly that reason — it isn't part of the generated schema. See
+ * `docs/decisions/pgvector-raw-sql-table.md` for the recorded exception to the "all schema changes go
+ * through `db/schema.ts`" rule.
  */
 
 /**

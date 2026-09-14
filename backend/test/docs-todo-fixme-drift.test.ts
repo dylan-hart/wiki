@@ -6,14 +6,16 @@ import assert from 'node:assert/strict'
 import { listSourceFiles } from './sourceFiles.ts'
 
 /**
- * Drift check for the "## TODO/FIXME audit" section of docs/variances.md (task #780, section added
- * by #959; made bidirectional, bounded, and closed over its marker vocabulary by #1951).
+ * Drift check for docs/todo-fixme-audit.md (task #780, section added by #959; made bidirectional,
+ * bounded, and closed over its marker vocabulary by #1951; the audit moved out of docs/variances.md
+ * into its own file once variances.md was rescoped to public-standard divergences only -- a TODO/
+ * FIXME marker isn't one of those).
  *
  * backend/test/docs-todo-fixme-audit.test.ts locks down one specific, durable outcome of the original
  * audit pass, but it hard-codes what it checks, so it cannot notice a marker the audit never looked
  * at in the first place. This test is the "re-run the grep before trusting this list" instruction
  * automated: it walks backend/ and frontend/src/ for TODO/FIXME markers and fails if any file
- * carrying one isn't named anywhere in the audit section -- and, the other direction, fails if a
+ * carrying one isn't named anywhere in the audit doc -- and, the other direction, fails if a
  * bullet names a file that no longer actually carries one (a stale entry is exactly as much drift as
  * a missing one).
  *
@@ -32,7 +34,7 @@ import { listSourceFiles } from './sourceFiles.ts'
  */
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const variancesPath = path.join(REPO_ROOT, 'docs', 'variances.md')
+const auditPath = path.join(REPO_ROOT, 'docs', 'todo-fixme-audit.md')
 
 const MARKER = /\b(TODO|FIXME)\b/
 
@@ -97,27 +99,12 @@ function findUnrecognizedDeferralMarkers(content: string): string[] {
   return [...new Set(matches)].filter((marker) => !KNOWN_DEFERRAL_MARKERS.includes(marker))
 }
 
-describe('docs/variances.md TODO/FIXME audit stays current', () => {
-  const variances = readFileSync(variancesPath, 'utf8')
-  const auditStart = variances.indexOf('## TODO/FIXME audit')
+describe('docs/todo-fixme-audit.md stays current', () => {
+  const auditSection = readFileSync(auditPath, 'utf8')
 
-  test('variances.md has a TODO/FIXME audit section', () => {
-    assert.notEqual(auditStart, -1, 'expected a "## TODO/FIXME audit" section')
+  test('docs/todo-fixme-audit.md exists and has content', () => {
+    assert.ok(auditSection.startsWith('# TODO/FIXME audit'), "expected the audit doc's own heading")
   })
-
-  // Bounded to the next "## " heading (or end of file, if this were the last section) -- otherwise
-  // every later section's own unrelated prose can satisfy a mention, defeating the whole check. This
-  // is exactly how a stale `frontend/src/layouts/AdminLayout.vue` bullet went unnoticed: that file
-  // stopped carrying a marker, but the file's name still appears in a later, unrelated RTL section
-  // (docs/variances.md's own "Feature 413" entry), which an unbounded `.slice(auditStart)` treated as
-  // satisfying the audit-section mention.
-  const auditEnd = auditStart === -1 ? -1 : variances.indexOf('\n## ', auditStart + 1)
-  const auditSection =
-    auditStart === -1
-      ? ''
-      : auditEnd === -1
-        ? variances.slice(auditStart)
-        : variances.slice(auditStart, auditEnd)
 
   test('every file with a TODO/FIXME marker under backend/ or frontend/src/ is named in the audit', () => {
     const markerFiles = findMarkerFiles()

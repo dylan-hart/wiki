@@ -42,7 +42,7 @@ acquired user from leaving.
 - **Export-bundle connector** (the only route for MySQL, MariaDB, MSSQL, SQLite): pages, history, tags and
   navigation only; users, groups, settings, comments and assets throw `NotYetImplementedError`.
 - One-shot semantics: no idempotent re-run; on failure, truncate the destination and restart.
-- Documented losses (`docs/variances.md`, `community-take.md`): 2FA enrolment, API tokens,
+- Documented losses (`docs/decisions/`, `community-take.md`): 2FA enrolment, API tokens,
   Slack/Discord notification config, comment reply threading; asset and comment timestamps rewritten to
   "now".
 

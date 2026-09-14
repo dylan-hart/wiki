@@ -445,9 +445,10 @@ unnamed volume that is not what you restored into.
   cutover, not an in-place upgrade
 - [`docs/versioning.md`](versioning.md) — what triggers a release and how versions are numbered
 - [`docs/release-checklist.md`](release-checklist.md) — the pre-release gate a release manager runs
-- [`docs/variances.md`](variances.md) — recorded, justified deviations from spec (the boot-migration
-  advisory-lock gap noted above is not yet one of these; it's flagged here as a known operational
-  caveat until it's either fixed or formally recorded there)
+- [`docs/variances.md`](variances.md) — recorded divergences from a recognized public standard
+  (protocol, format, published security baseline); implementation decisions live in `docs/decisions/`
+  instead (the boot-migration advisory-lock gap noted above is neither yet; it's flagged here as a
+  known operational caveat until it's either fixed or formally recorded)
 - [Disaster recovery: multi-site / multi-instance topology](#disaster-recovery-multi-site-multi-instance-topology) —
   true multi-site DR (two independently-runnable sites), not the shared-database HA/scaling model
   above

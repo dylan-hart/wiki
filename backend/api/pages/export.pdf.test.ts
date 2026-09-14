@@ -14,7 +14,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * exactly like the page re-render route above it in `api/pages/write.ts` and `POST /diagrams/render` beside
  * it (task 2262, reconciling this route against those two siblings, which both refuse anonymous the
  * same way for the same reason, regardless of whether the page itself is one an anonymous reader
- * could otherwise see -- see `docs/variances.md`'s "Task 785" entry for the shared reasoning),
+ * could otherwise see -- see `docs/decisions/diagram-server-side-prerendering.md` for the shared reasoning),
  * `read:pages` is checked in the handler (page rules, not `config.permissions`), a missing or
  * password-locked page is refused before the model is ever asked to open a browser, and the request
  * the model receives carries the caller's own hostname, this instance's port, the page's path, and

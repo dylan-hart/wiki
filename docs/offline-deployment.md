@@ -23,8 +23,8 @@ without hand-editing `config.yml`:
 2.5.x's flag was `config.yml`-only, which broke exactly this: a containerized deployment where nobody
 hand-edits a file baked into the image. This closes that gap without adding a second flag or a
 migration — it is the same `offline` key, just reachable from more places. (The 2.x-era Helm chart
-that used to wire this same env var into a values override was deleted — see `docs/variances.md` —
-since this branch has no 3.x release yet for it to deploy; a future Helm chart written against an
+that used to wire this same env var into a values override was deleted — see
+`docs/decisions/helm-packer-deletion.md` — since this branch has no 3.x release yet for it to deploy; a future Helm chart written against an
 actual 3.x release should re-add the equivalent `values.yaml` stanza.)
 
 ## What `offline: true` gates
@@ -134,7 +134,8 @@ skipped }` — `skipped` names any file that failed JSON parsing or is missing a
 git-clone `initContainer` populating `/wiki/data/locales/` from a git repo of locale-pack JSON files
 before the app container started, for a cluster where "the data volume" means "whatever the init
 container populated," not a person with `kubectl cp` access. That chart was deleted (see
-`docs/variances.md` — no 3.x release exists yet for it to deploy); a future 3.x Helm chart should
+`docs/decisions/helm-packer-deletion.md` — no 3.x release exists yet for it to deploy); a future 3.x
+Helm chart should
 re-add the equivalent init-container stanza, sharing the chart's `volumeMounts`/`volumes` values with
 the main container so a volume is actually mounted there for the clone to survive past the init
 container exiting.

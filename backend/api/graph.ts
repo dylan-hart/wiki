@@ -216,7 +216,7 @@ const graphQuerystring = {
  * The graph bundle for a site -- from the cache when warm, or rebuilt (and cached) on a cold one.
  *
  * A cold rebuild is refused with `null` for a caller with no session (OpenProject #2269), matching
- * the reasoning `docs/variances.md`'s "Task 785" entry applies to `POST /_api/diagrams/render`: the three underlying
+ * the reasoning `docs/decisions/diagram-server-side-prerendering.md` applies to `POST /_api/diagrams/render`: the three underlying
  * queries scale with the whole site's page/history/pageview row counts, so an anonymous caller must
  * not be able to force that cost on demand by simply outracing the TTL or hitting a just-invalidated
  * cache. A signed-in caller needs no specific permission to trigger it -- the same "logged in is

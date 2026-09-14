@@ -105,16 +105,18 @@ recorded per [How to use this checklist](#how-to-use-this-checklist) step 5, not
 from the list — that is a real, visible fact about that release, not an absence that should read as
 "nothing to see here."
 
-### 3. `docs/variances.md` reviewed and current
+### 3. `docs/variances.md` and `docs/decisions/` reviewed and current
 
 **Owner: Feature #425 ("variances.md discipline").**
 
-`docs/variances.md` is CLAUDE.md's home for genuine, justified deviations from spec — see the
-root `CLAUDE.md`, "variances.md Discipline": it records only real variances, never used to excuse
-a fixable lint or type error, and stale entries get deleted once resolved. **Enforceable today** —
-the file already exists and is populated (several already-merged Features have added entries to it
-ahead of Feature #425's own dedicated discipline pass landing), so this item is a manual read every
-release, no exceptions, starting now rather than once #425 specifically merges:
+`docs/variances.md` is the global CLAUDE.md's home for genuine divergences from a recognized public
+standard — a protocol, format, or published security baseline (SMTP, IMAP, HTTP, OWASP, an RFC, a
+W3C spec) — never used to excuse a fixable lint or type error, and stale entries get deleted once
+resolved. Implementation decisions, scope descopes, and accepted currency/warning exceptions live in
+`docs/decisions/` instead, one file per decision — they are not variances and are reviewed the same
+way (stale ones corrected or removed) but are not blocking release sign-off the way a live variance
+is. This item is a manual read every release, no exceptions, starting now rather than once #425
+specifically merges:
 
 - [ ] Open `docs/variances.md` and read every entry.
 - [ ] For each entry, confirm it is still true of the release commit — an entry describing a
@@ -267,7 +269,7 @@ future-tense sections above for present-tense fact:
 | ------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1. CI quality gates      | Feature #423 / task #777  | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again                                                                                                                                                                                    |
 | 2. Test suites           | Feature #424 / task #1943 | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job. `release.yml` additionally gates on a successful `build.yml` run existing for the tagged commit (task #1943); the actual per-suite pass/fail read for that run is still manual |
-| 3. `docs/variances.md`   | Feature #425              | Yes — file exists and is populated; #425 formalizes ongoing discipline around it                                                                                                                                                                                                                                                                   |
+| 3. `docs/variances.md`   | Feature #425              | Yes — file exists; scoped to public-standard divergences only (currently none), with implementation decisions living in `docs/decisions/` instead; #425 formalizes ongoing discipline around it                                                                                                                                                  |
 | 4. Bundle drift guards   | Feature #423 / task #777  | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                                                                                                                                                                                                             |
 | 5. Migration dry-run     | Epic #341 / task #421     | No — no migration code exists                                                                                                                                                                                                                                                                                                                      |
 | 6. ARM host verification | Epic #2435 / WP #2488     | Partially — WP #2486/#2487 (add linux/arm64 to build.yml/release.yml) have landed, so the next tagged release will publish an arm64-including image; the manual manifest-check + real-hardware smoke test in this item has not been performed against a real release yet                                                                           |

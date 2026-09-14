@@ -302,9 +302,9 @@ A block that must _act_ on the change rather than restyle for it passes `onChang
 `globalThis.API_CLIENT` / `globalThis.WIKI_STATE`.** A block sitting in page content has no siteId
 of its own and no page store threaded down to it — those SPA globals
 (`frontend/src/boot/externals.js`) exist only inside the app shell, so a block reading them cannot
-run in a context that mounts blocks without it (the page-level pre-rendering `docs/variances.md`
-describes as a future task, concretely). The one convention every block uses instead (OpenProject
-#1969):
+run in a context that mounts blocks without it (the page-level pre-rendering
+`docs/decisions/diagram-server-side-prerendering.md` describes as a future task, concretely). The one
+convention every block uses instead (OpenProject #1969):
 
 - **Site id**: `getSiteId()`, plus plain `fetch` for the actual request. Both read off the same
   public, hostname-routed `GET /_api/sites/current` `getBlockConfig` (`shared/config.js`) already

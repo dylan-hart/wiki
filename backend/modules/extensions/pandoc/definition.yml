@@ -1,6 +1,6 @@
 # Scope decided in OpenProject task 666 (Feature 402): multi-format page import is built as
-# described below (tasks 667/668). See docs/variances.md for the full per-capability decision
-# covering this file and puppeteer/definition.yml.
+# described below (tasks 667/668), alongside PDF/diagram export in puppeteer/definition.yml. See
+# docs/decisions/diagram-prerendering-scope.md for Feature 402's context and how its scope evolved.
 key: pandoc
 title: Pandoc
 description: >-

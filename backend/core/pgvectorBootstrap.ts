@@ -17,7 +17,7 @@ import type { WikiDb } from './db.ts'
  * `pageEmbeddingChunks`'s existence is conditional on an extension the operator may not be permitted
  * to install, and a Drizzle migration has no "skip this DDL if it fails" affordance -- a failed
  * migration leaves the migration ledger in a state every later boot refuses to run past. See
- * `docs/variances.md`'s entry for this task for the full reasoning.
+ * `docs/decisions/pgvector-raw-sql-table.md` for the full reasoning.
  *
  * Every statement is `IF NOT EXISTS`, so a repeated call (this module's own DB-backed test calls it
  * more than once, and a clustered boot could race another instance running the same statements) is

@@ -204,7 +204,7 @@ Doing §1 and §2 clears every backend critical and high except transitive strag
 - **Two `@twemoji/api`** (the direct pin plus `twemoji-assets`, which *is* the package) → document or pin by SHA.
 - **`js-yaml` 4 and 5** in blocks (through `swagger-ui` and `rollup-plugin-summary`).
 - **`highlight.js`:** the backend imports every grammar and the frontend imports `lib/common`. Align the backend to `lib/common`.
-- **KaTeX + MathJax:** justified. 2.5.x offered both, the TeX coverage differs (see `docs/variances.md`), and both are lazily loaded blocks.
+- **KaTeX + MathJax:** justified. 2.5.x offered both, the TeX coverage differs (see `docs/decisions/katex-mathjax-parity.md`), and both are lazily loaded blocks.
 
 ### 6.5 Found along the way (not dependency health)
 
@@ -1167,11 +1167,11 @@ npm downloads API (week 2026-09-05..11), GitHub release notes/CHANGELOGs, and gr
 - **Use:** only `blocks/block-mathjax/component.js`: TeX input to SVG output via liteAdaptor, plus ~30 TeX package imports. The compiled `block-mathjax.js` is 1.50 MB. Install footprint is 94 MB (newcm-font alone is 49 MB unpacked).
 - **Health:** 4.1.1, 4.1.2 and 4.1.3 were released Feb, May and Jul 2026. Repo pushed 2026-09-12, 100+ commits/yr, 34 open. Two long-time core devs (dpvc 3,658 commits, zorkow 1,814), org-backed. Apache-2.0, no advisories.
 - **Is shipping KaTeX and MathJax both justified?** Yes, and it's documented.
-  - `docs/variances.md` ("KaTeX/MathJax TeX feature-surface parity", Task 634) shows that 2.5.x offered both engines.
+  - `docs/decisions/katex-mathjax-parity.md` (Task 634) shows that 2.5.x offered both engines.
   - It also includes a verified construct-by-construct table showing MathJax covers TeX that KaTeX deliberately does not.
   - Both live in separate lazily loaded blocks: no page pays for MathJax unless it uses `::block-mathjax`. The markdown renderer uses only KaTeX, which is synchronous.
   - Dropping MathJax would break imported 2.5.x content that relies on the wider TeX surface.
-- **Known debt:** the same variances entry records that `mathjax.asyncLoad` is not wired, so newcm-font's dynamic glyph chunks fail to load. That's a functional gap, not a dependency-health issue.
+- **Known debt:** the same decision record notes that `mathjax.asyncLoad` is not wired, so newcm-font's dynamic glyph chunks fail to load. That's a functional gap, not a dependency-health issue.
 - **Verdict:** KEEP (all three). Fix the recorded `asyncLoad` follow-on rather than the dependency.
 
 ### mermaid

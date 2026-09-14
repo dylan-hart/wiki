@@ -40,8 +40,8 @@ jobs:
     # dev/build/Dockerfile and the release tarball step in build.yml's `Prepare build archive` both
     # actually ship. Task 1994/1999/2007: nothing before this job ever exercised that install shape,
     # which is how a devDependency-only import on the real boot path (`@js-temporal/polyfill`, until
-    # #1999) went unnoticed by CI entirely -- see docs/variances.md's `@js-temporal/polyfill` entry
-    # for the concrete case that prompted this job.
+    # #1999) went unnoticed by CI entirely -- see docs/decisions/dependency-audit-exceptions.md's
+    # `@js-temporal/polyfill` section for the concrete case that prompted this job.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -80,7 +80,7 @@ jobs:
           echo "--------------------"
 
           if grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)' boot.log; then
-            echo "::error::Production install (npm ci --omit=dev) cannot resolve a module the boot path imports -- a devDependency has leaked onto the real boot path. See docs/variances.md's @js-temporal/polyfill entry for the shape of defect this catches."
+            echo "::error::Production install (npm ci --omit=dev) cannot resolve a module the boot path imports -- a devDependency has leaked onto the real boot path. See docs/decisions/dependency-audit-exceptions.md's @js-temporal/polyfill section for the shape of defect this catches."
             exit 1
           fi
 
