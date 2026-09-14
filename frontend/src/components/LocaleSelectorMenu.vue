@@ -2,8 +2,8 @@
   <w-menu
     class="translucent-menu"
     auto-close
-    :anchor="props.anchor"
-    :self="props.self"
+    :anchor="effectiveAnchor.anchor"
+    :self="effectiveAnchor.self"
     :offset="props.offset"
     @show="loadTranslationStatus">
     <w-list padding style="min-width: 200px">
@@ -48,11 +48,14 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { localizedPagePath } from '@/helpers/pagePaths'
+
+import { useDirection } from '@/composables/direction'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -60,17 +63,45 @@ import { useSiteStore } from '@/stores/site'
 // PROPS
 
 const props = defineProps({
+  /**
+   * LTR-correct pair, mirrored for `dir="rtl"` via `effectiveAnchor` below when left unset -- never
+   * defaulted to a fixed physical string here, since `WMenu`/`WTooltip` place themselves in raw
+   * viewport pixels (`composables/anchoredPosition.js`) with no idea which way the reader's text
+   * flows (see `helpers/directionalAnchor.js`'s own doc comment). A caller that knows its own
+   * physical layout -- `MainLayout.vue`'s mini-sidebar rail, which always pops its popups away from
+   * whichever edge the drawer itself sits at -- still passes its own explicit override.
+   */
   anchor: {
     type: String,
-    default: 'bottom left'
+    default: null
   },
+  /** Paired with `anchor` above; same rationale. */
   self: {
     type: String,
-    default: 'top left'
+    default: null
   },
   offset: {
     type: Array,
     default: () => [0, 0]
+  }
+})
+
+// DIRECTION
+
+const direction = useDirection()
+
+/**
+ * This component is mounted once and stays put across navigations (the header/sidebar locale
+ * switcher, not a per-page control), so the default has to stay reactive to a mid-session direction
+ * change -- the same reasoning `AdminLayout.vue`'s own locale-switcher menu documents -- rather than
+ * reading `document.documentElement.dir` once at setup. Falls back to the LTR-correct default
+ * (`'bottom left'`/`'top left'`, mirrored for RTL) only when the caller left `anchor`/`self` unset.
+ */
+const effectiveAnchor = computed(() => {
+  const defaultPair = directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom left', 'top left')
+  return {
+    anchor: props.anchor ?? defaultPair.anchor,
+    self: props.self ?? defaultPair.self
   }
 })
 
