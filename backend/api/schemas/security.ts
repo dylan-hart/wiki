@@ -90,6 +90,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Bytes. Enforced as the request body size limit on `POST /sites/:siteId/assets`.'
       },
+      uploadMaxFilesPerBatch: {
+        type: 'integer',
+        minimum: 1,
+        description:
+          'How many files one request to `POST /sites/:siteId/assets/batch` or `POST /sites/:siteId/blocks/batch` may carry. Enforced by the multipart parser at parse time, before a file over the count is read into memory — per-request resource-exhaustion protection, not a user upload quota (the same total file count is already reachable by looping the single-file upload routes).'
+      },
       uploadScanSVG: {
         type: 'boolean',
         description:

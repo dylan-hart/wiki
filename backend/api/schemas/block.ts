@@ -124,4 +124,27 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   })
+
+  /**
+   * BLOCK BATCH UPLOAD ITEM - One file's result within a batch custom-block upload, same fields a
+   * single upload's response carries plus which file it was — the array has no other way to say
+   * that back.
+   */
+  app.addSchema({
+    $id: 'BlockBatchUploadItem',
+    type: 'object',
+    properties: {
+      fileName: {
+        type: 'string',
+        description: 'The uploaded file name this result belongs to, in the order it was sent.'
+      },
+      ok: {
+        type: 'boolean'
+      },
+      message: {
+        type: 'string'
+      },
+      block: { $ref: 'Block#' }
+    }
+  })
 }
