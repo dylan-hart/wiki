@@ -210,7 +210,7 @@ export function createCacheStub(): WikiGlobal['cache'] {
 }
 
 /**
- * `WIKI.scheduler` stand-in for this bootstrap: no poolifier pool, no registered task-function map,
+ * `WIKI.scheduler` stand-in for this bootstrap: no piscina pool, no registered task-function map,
  * so unlike the real `core/scheduler.ts` this cannot execute a job itself. `addJob()` is the one
  * method any model this bootstrap loads reaches for — `models/renderQueue.ts#queuePage()`, to kick a
  * headless-browser render for `--render-mode queue`/`auto`'s 'queue' path (`models/pages.ts#createPage()`'s

@@ -41,7 +41,7 @@ The backend is **TypeScript 7**; `frontend/`, `blocks/` and `e2e/` are JavaScrip
 
 ### `backend/`
 
-Fastify REST API server and job scheduler: Drizzle on PostgreSQL for data access, a poolifier
+Fastify REST API server and job scheduler: Drizzle on PostgreSQL for data access, a piscina
 thread pool for CPU-bound and scheduled work, and TypeScript 7 throughout with no build step (Node
 strips types at load time). `backend/CLAUDE.md` holds its full directory layout, TypeScript
 conventions, backend patterns and shared helpers, logging conventions, and testing conventions.

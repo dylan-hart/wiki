@@ -10,7 +10,7 @@ terminals.
 The automated regression suite (`backend/core/scheduler.test.ts`, run via `DATABASE_URL=... npm run
 test` from `backend/` — see that file's `reapStaleJobs / processJob claim-and-retry (DB-backed)` and
 `executeOnWorker (real worker pool)` `describe` blocks) already proves the same guarantees
-deterministically, against a real Postgres and a real poolifier worker thread, and is the faster and
+deterministically, against a real Postgres and a real piscina worker thread, and is the faster and
 more repeatable way to rerun this verification. This document is for engineers who want to watch it
 happen against two literal `node backend` processes and `pg_stat_activity` / `AdminCluster.vue`,
 or who are debugging a regression these tests don't reproduce.
@@ -116,10 +116,12 @@ INSERT INTO jobs (task, "useWorker", payload) VALUES ('verifyHang', true, '{"mod
 NOTIFY scheduler, '{"event":"newJob"}';
 ```
 
-Watch instance A's log: it claims the job, the worker exits, and — because nothing is left to
-abort — only the backup timer in `executeOnWorker` (`taskTimeout + 5s` grace, default `300s + 5s`)
-times it out, logs `Failed to complete job ... [ FAILED ]`, and reschedules it with backoff. Lower
-`scheduler.taskTimeout` in `config.a.yml` first if you don't want to wait 5 minutes.
+Watch instance A's log: it claims the job, the worker exits, and piscina's own pool (see
+`executeOnWorker`'s doc comment in `core/scheduler.ts`) rejects the in-flight task itself the moment
+it sees the exit — no need to wait for the `taskTimeout + 5s` backup timer, which under poolifier
+used to be the *only* thing that ever settled this case (see "Bugs found" below for the other
+poolifier-specific behavior this migration removed). Watch for the failure being logged and the job
+rescheduled with backoff within moments of the crash rather than after the full backup-timer window.
 
 ## 5. Scenario (b) — the whole instance is killed mid-job
 
@@ -303,9 +305,12 @@ Both are fixed in `backend/core/scheduler.ts`, with regression coverage in `sche
 
 1. **`init()` crashed the scheduler (and therefore boot) whenever `maxWorkers` resolved to exactly
    1** — `scheduler.workers: 1` explicitly configured, or `'auto'` on a single-CPU host/container.
-   poolifier 5.x's `DynamicThreadPool` throws `RangeError: Cannot instantiate a dynamic pool with a
-minimum pool size equal to the maximum pool size` in that case. Fixed by using a `FixedThreadPool`
-   of size 1 instead when `maxWorkers === 1`.
+   poolifier 5.x's `DynamicThreadPool` threw `RangeError: Cannot instantiate a dynamic pool with a
+minimum pool size equal to the maximum pool size` in that case. Fixed at the time by using a
+   `FixedThreadPool` of size 1 instead when `maxWorkers === 1`. **Historical note (OpenProject
+   #3161):** the scheduler moved from poolifier to piscina, whose single `Piscina` class tolerates
+   `minThreads === maxThreads` outright — this whole class of bug (and the branch that worked around
+   it) no longer exists.
 2. **`processJob()`'s claim step lost the `attempt` count on every reclaim.** The `INSERT ...
 ON CONFLICT DO UPDATE` into `jobHistory` only refreshed `state`/`executedBy`/`startedAt` on
    conflict, never `attempt` — so a job whose worker or process kept dying before `runJob()`'s own
