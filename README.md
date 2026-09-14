@@ -73,7 +73,9 @@ own [documentation](https://js.wiki/docs). Cardinal.js has no released build and
    npm run start
    ```
 1. Open your browser to `http://localhost:3000`
-1. Login using the default administrator user:
+1. Login using the administrator account the dev container seeds — its `ADMIN_EMAIL`/`ADMIN_PASS`
+   are set explicitly in `.devcontainer/docker-compose.yml` so this stays a known, repeatable login
+   rather than a random one you'd otherwise have to go read out of the container's startup logs:
    - Email: `admin@example.com`
    - Password: `12345678`
 
@@ -184,9 +186,19 @@ pinned patch to run this locally; a newer 26.x is fine.
    node backend
    ```
 1. In your browser, navigate to `http://localhost:3000` _(or the IP/hostname of the server and the PORT you defined earlier.)_
-1. Login using the default administrator user:
-   - Email: `admin@example.com`
-   - Password: `12345678`
+1. Login as the administrator: the email is `admin@example.com` unless you set `ADMIN_EMAIL`, and the
+   password is either what you set as `ADMIN_PASS` before this first boot, or — if you didn't — a
+   random one the server generated and printed once to its startup logs. See
+   [First-Run Admin Account](#first-run-admin-account) below.
+
+> **Plain HTTP gotcha:** the session cookie's `secure` flag defaults to on
+> (`security.cookieSecure`), so a login over plain HTTP (no TLS) will return
+> `{"ok":true,"authenticated":true}` but send **no `Set-Cookie` header at all** — every request
+> after that is silently anonymous. This is a database-owned setting (`config.yml`'s value only
+> applies at first boot), so fix it by updating the row directly once the server has booted once:
+> `update wiki.settings set value = value || '{"cookieSecure": false}'::jsonb where key='security'`,
+> then restart. Only needed for a non-HTTPS local/dev setup — leave it on for anything reachable
+> over the network.
 
 > **Plain HTTP gotcha:** the session cookie's `secure` flag defaults to on
 > (`security.cookieSecure`), so a login over plain HTTP (no TLS) will return
@@ -205,19 +217,30 @@ how to point it at a database.
 
 ## First-Run Admin Account
 
-The `admin@example.com` / `12345678` login shown above is only the _default_ — it's what gets seeded
-when nothing else is specified. On first boot against an **empty** (unseeded) database, the server
-reads two environment variables to seed the admin account instead:
+On first boot against an **empty** (unseeded) database, the server seeds one administrator account.
+There is no fixed default password — set one yourself before that first boot, or read the one the
+server generated for you off its own startup output:
 
-- `ADMIN_EMAIL` — the admin account's email, in place of `admin@example.com`.
-- `ADMIN_PASS` — the admin account's password, in place of `12345678`. Setting this also skips the
-  forced "you must change your password" flow that the default seed always triggers on first login,
-  so a Docker Compose deployment can set both and land straight in an authenticated, already-secured
-  instance.
+- `ADMIN_EMAIL` — the admin account's email. Defaults to `admin@example.com` if unset.
+- `ADMIN_PASS` — the admin account's password. **Recommended**: set this before first boot so you
+  choose the password yourself. Doing so also skips the forced "you must change your password" flow
+  that the generated-password path always triggers on first login, so a Docker Compose deployment can
+  set both env vars and land straight in an authenticated, already-secured instance.
 
-Both are read once, at first-run seeding time only — they have no effect on a database that already
-has a `settings` row (i.e. any instance that has already booted once), so there is no way to use them
-to reset a lost admin password on a running instance.
+If you leave `ADMIN_PASS` unset, the server generates a random, high-entropy password itself and
+prints it **once**, in the startup logs, alongside the admin email — look for the line under the
+`config` log scope. It is a one-time, first-login-only credential: the account is forced to change it
+on that first login, and the value is never written anywhere else and never shown again.
+
+Both env vars are read once, at first-run seeding time only — they have no effect on a database that
+already has a `settings` row (i.e. any instance that has already booted once), so there is no way to
+use them to reset a lost admin password on a running instance. If you missed the generated password
+in the logs, or are otherwise locked out with no working admin account, use the `promote-admin` CLI
+(OpenProject #2473) to grant an existing account admin rights instead:
+
+```sh
+node backend/tasks/promote-admin.ts <email>   # from the repository root
+```
 
 ## Repository Documentation
 

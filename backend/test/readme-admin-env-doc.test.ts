@@ -42,9 +42,15 @@ describe('README.md — First-Run Admin Account', () => {
     assert.match(section, /\bADMIN_PASS\b/)
   })
 
-  test('states the actual default admin credentials', () => {
+  test('states the default admin email, and points at the logs for the password', () => {
     assert.match(section, /admin@example\.com/)
-    assert.match(section, /12345678/)
+    assert.doesNotMatch(
+      section,
+      /12345678/,
+      'there is no fixed default admin password any more (OpenProject #3141) -- a fresh install ' +
+        'seeds a random one and logs it once'
+    )
+    assert.match(section, /log/i)
   })
 
   test('says the override only applies to first-run / an empty database', () => {

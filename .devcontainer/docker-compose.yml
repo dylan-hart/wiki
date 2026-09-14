@@ -35,6 +35,13 @@ services:
     # first -- core/db.ts prefers DATABASE_URL outright over WIKI.config.db.* whenever it's set.
     environment:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      # `models/users.ts#init()` seeds a random, unrecoverable one-time password when `ADMIN_PASS`
+      # is unset (OpenProject #3141) -- fine for a real install, but useless for a dev container
+      # whose whole point is a known, repeatable login every time `npm run start` seeds a fresh db.
+      # Set explicitly so README.md's documented `admin@example.com` / `12345678` dev-container
+      # login keeps working without an operator having to go read a container's startup log.
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASS: '12345678'
 
     # Overrides default command so things don't shut down after the process ends.
     command: sleep infinity

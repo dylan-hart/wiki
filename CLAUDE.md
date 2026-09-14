@@ -84,8 +84,11 @@ npm run build          # rollup → blocks/compiled/
 `npm run ncu` (→ `npx npm-check-updates@23 -i`) for interactive dependency updates — no pinned
 devDependency; Dependabot covers routine updates.
 
-The API is browsable via Swagger UI at `http://localhost:3000/_api` in a running instance. Default
-admin login is `admin@example.com` / `12345678`.
+The API is browsable via Swagger UI at `http://localhost:3000/_api` in a running instance. There is no
+fixed default admin password: the admin email defaults to `admin@example.com` (override with
+`ADMIN_EMAIL`), and the password is either `ADMIN_PASS` if set before first boot, or a random one
+`models/users.ts#init()` generates and prints once to the startup logs otherwise — see README.md's
+"First-Run Admin Account" section.
 
 ### What "verified" means
 

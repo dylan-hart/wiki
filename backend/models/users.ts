@@ -1550,18 +1550,51 @@ class Users {
   async init(ids: SystemIds): Promise<void> {
     WIKI.logger.debug('config', 'seeding the default users')
 
+    const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@example.com'
+    // -> `ADMIN_PASS` unset (or empty, matching the previous `||` fallback's own semantics) used to
+    //    mean "seed the fixed default password `12345678`" -- a credential every zero-config install
+    //    shared, and the one this OpenProject #3141 / `docs/audits/2026-09-13-gtm-11-pitfalls-audit.md`
+    //    §B4 exists to remove. A fresh instance now gets its own random, unguessable one instead,
+    //    generated once here and never derived from -- or reconstructable from -- anything else the
+    //    instance stores. 18 random bytes is 144 bits of entropy, comfortably past the local
+    //    strategy's own `minLength: 8` password floor (`api/users/admin.ts`, `api/users/profile.ts`),
+    //    and `base64url` has none of `+`/`/`/`=` to trip a naive copy-paste.
+    const generatedPassword = process.env.ADMIN_PASS
+      ? undefined
+      : crypto.randomBytes(18).toString('base64url')
+    const adminPassword = process.env.ADMIN_PASS || generatedPassword!
+
+    if (generatedPassword) {
+      // -> Must render no matter what `logLevel`/`logScopes` an operator has configured: this is the
+      //    ONLY place this password is ever shown, so a filtered-out line here seeds an account nobody
+      //    can log into. `error` is the one level `core/logger.ts#effectiveLevel` never gates out
+      //    (`LEVELS.indexOf('error') === 0`, so no configured threshold hides it) -- chosen over a raw
+      //    stderr write (the `index.ts` boot-refusal precedent) because `WIKI.logger` already exists
+      //    by the time `init()` runs here (`core/config.ts#loadFromDb` logs through it immediately
+      //    before calling this), so there is no pre-logger window to work around. Printing the
+      //    password itself is a deliberate exception to "identifiers, never identities" (root
+      //    CLAUDE.md's Logging section, which already carves out the seeded admin email for the same
+      //    reason) -- it is the one and only credential the operator has for this account at this
+      //    point.
+      WIKI.logger.error(
+        'config',
+        'seeded a one-time admin password -- copy it now, it will not be shown again',
+        { email: adminEmail, password: generatedPassword }
+      )
+    }
+
     await WIKI.db.insert(usersTable).values([
       localUserRow({
         id: ids.userAdminId,
         // -> `WIKI.data.systemIds` is not populated yet at seeding time, so the local strategy's id
         //    comes from the ids being seeded rather than from that global
         strategyId: ids.authModuleId,
-        email: process.env.ADMIN_EMAIL ?? 'admin@example.com',
+        email: adminEmail,
         // -> A mononym: `firstName` alone derives `name` to 'Administrator' and leaves the row
         //    unmarked, so an administrator who later fills in a real first and last name gets the
         //    display name re-derived rather than being stuck behind an "authored" marker.
         firstName: 'Administrator',
-        passwordHash: await bcrypt.hash(process.env.ADMIN_PASS || '12345678', BCRYPT_ROUNDS),
+        passwordHash: await bcrypt.hash(adminPassword, BCRYPT_ROUNDS),
         mustChangePassword: !process.env.ADMIN_PASS,
         isActive: true,
         isVerified: true
