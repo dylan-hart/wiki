@@ -213,7 +213,7 @@ Conventions established during the conversion, worth following in new code:
   drive-by. No `FIXME:` markers remain in `backend/` today — every one raised during the TypeScript
   conversion has since been fixed.
 
-### Backend patterns
+## Backend patterns
 
 - **The `WIKI` global.** Set up in `index.ts`, typed in `types/global.d.ts`, available everywhere
   without importing:
@@ -260,7 +260,7 @@ Conventions established during the conversion, worth following in new code:
   `index.ts` immediately after `logger.init()` with `exit: (code) => process.exit(code)`. Do not add
   a second: Node runs listeners in registration order and an exiting one silences everything after it.
 
-#### Shared backend helpers — one owner per question
+### Shared backend helpers — one owner per question
 
 Reach for these rather than re-deriving; each is the single implementation, and a second copy is the
 regression the split existed to prevent.
@@ -352,7 +352,7 @@ regression the split existed to prevent.
     "Testing (backend)" for the convention; that copy is intentionally separate from
     `core/temporal.ts`'s (test code should not import from the app's own boot path).
 
-### Logging
+## Logging
 
 Everything the backend writes to stdout goes through `WIKI.logger`, in one shape:
 
@@ -452,7 +452,7 @@ A line that genuinely needs an exception carries `// log-conventions: allow <rea
 preceding line. That is the escape hatch for a correct line a text heuristic refuses — not a way to
 opt out of the conventions, and the test caps how many may exist at once.
 
-### Testing (backend)
+## Testing (backend)
 
 `backend/`'s test runner is Node's built-in **`node:test`**, run via `npm run test` (→ `node --test
 --test-concurrency=4 --test-timeout=600000 --test-force-exit '**/!(*.flaky).test.ts'`). No extra

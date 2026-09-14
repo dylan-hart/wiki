@@ -1,9 +1,9 @@
-# Contributing to Cardinal.js
+# Tooling incidents
 
 Background and incident history behind some of the rules in `CLAUDE.md` and its nested files.
-This file is for a human contributor who wants the full story; the actionable rule itself always
-lives in the relevant `CLAUDE.md`, not here — this file adds no new *rules*, only the reasoning
-behind existing ones.
+This file is for anyone who wants the full story behind those rules; the actionable rule itself
+always lives in the relevant `CLAUDE.md`, not here — this file adds no new *rules*, only the
+reasoning behind existing ones. For contributor guidelines, see `.github/CONTRIBUTING.md`.
 
 ## Why oxlint/oxfmt version bumps get special care
 

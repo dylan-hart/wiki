@@ -49,7 +49,7 @@ Path alias `@` → `frontend/src` (defined in `vite.config.js`; `jsconfig.json` 
 Dev server runs on **3001** and proxies `/_api`, `/_blocks`, `/_icons`, `/_site`, `/_thumb`, `/_user`
 to the backend on **3000**, so the backend must be running too.
 
-### Frontend patterns
+## Frontend patterns
 
 - **Templates are plain HTML.** A handful of pre-3.x leftovers are still `<template lang="pug">` —
   check the file you're editing rather than assuming.
@@ -128,7 +128,7 @@ to the backend on **3000**, so the backend must be running too.
     It registers its own lifecycle hooks, so an adopting page drops its `checkOverlay()`, both
     watchers and its overlay-clearing unmount hook.
 
-### Testing (frontend)
+## Testing (frontend)
 
 `frontend/`'s test runner is **Vitest** + **`@vue/test-utils`**, run via `npm run test` (→ `vitest
 run`). Config is `vitest.config.js`, deliberately separate from `vite.config.js` — that file also

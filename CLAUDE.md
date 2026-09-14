@@ -56,8 +56,8 @@ layout, frontend patterns and the shared surfaces, and testing conventions.
 
 Self-contained Lit web components users embed into wiki pages, one per `blocks/block-<name>/`
 directory, compiled to `blocks/compiled/` and served under `/_blocks/`. See `blocks/CLAUDE.md` for
-the directory layout, the `blocks/shared/` primitive layer, dark mode, and the API/site-id
-convention.
+the directory layout, the `blocks/shared/` primitive layer, dark mode, the API/site-id convention,
+and testing conventions.
 
 ## Commands
 
@@ -194,11 +194,11 @@ npx oxlint                                            # from backend/, frontend/
 ```
 
 Then confirm `npx --prefix backend oxfmt --check backend frontend blocks` exits clean before
-pushing. See `CONTRIBUTING.md` for the incident that established this.
+pushing. See `docs/tooling-incidents.md` for the incident that established this.
 
 **Never put two statements in a Vue template attribute** (`@click="doOne(); doTwo()"`) — write a
 named handler instead, as `EditorMarkdown.vue` and `PageRelationDialog.vue` do. Neither the compiler
-nor the formatter can be reconfigured to make this safe; see `CONTRIBUTING.md` for why. For a
+nor the formatter can be reconfigured to make this safe; see `docs/tooling-incidents.md` for why. For a
 one-off where the inline form genuinely reads better, `<!-- prettier-ignore -->` on the preceding
 line works (oxfmt honors Prettier's marker; there is no `oxfmt-ignore`).
 
@@ -311,12 +311,6 @@ Consequences worth knowing:
   author's raw `<script>`/`<style>` HTML in page content survives sanitization
   (`helpers/htmlSanitizePolicy.ts`'s `RenderPermissions`, shared by `models/rendering.ts` and
   `models/renderQueue.ts`).
-
-### Testing (blocks)
-
-`blocks/`'s test runner is Vitest with a `jsdom` environment, mounted through `blocks/test/mount.js`.
-See `blocks/CLAUDE.md`'s Testing (blocks) section for the file convention, the mounting/dark-mode
-test helpers, and how it's linted.
 
 ### Testing (CI)
 

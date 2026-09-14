@@ -100,7 +100,7 @@ concretely). The one convention every block uses instead (OpenProject #1969):
 and `block-map` were the first two blocks onto the site id half, before the rest of this existed).
 No block reads `API_CLIENT` or `WIKI_STATE` any more; a new one that does is a regression.
 
-### Testing (blocks)
+## Testing (blocks)
 
 `blocks/`'s test runner is **Vitest**, run via `npm run test` (→ `vitest run`). Config is
 `blocks/vitest.config.js` — deliberately minimal, no plugin stack to mirror the way frontend's does:

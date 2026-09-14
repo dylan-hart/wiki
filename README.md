@@ -200,7 +200,7 @@ pinned patch to run this locally; a newer 26.x is fine.
 > **DO NOT** report bugs. This build is **VERY** buggy and **VERY** incomplete. Absolutely **NO** support is provided either.
 
 There is also an `e2e/` workspace holding the Playwright end-to-end suite, which drives a full build
-of the stack and requires its own `DATABASE_URL` — see the `e2e/` workspace's own testing docs for
+of the stack and requires its own `DATABASE_URL` — see [`e2e/CLAUDE.md`](e2e/CLAUDE.md) for
 how to point it at a database.
 
 ## First-Run Admin Account
@@ -229,5 +229,7 @@ Beyond this file, the repo-checked-in documentation lives under:
 - **[`docs/`](docs)** — deeper reference material, including
   **[`docs/operations.md`](docs/operations.md)** (backup scope, restore order, upgrading a running
   instance, and troubleshooting), **[`docs/offline-deployment.md`](docs/offline-deployment.md)**
-  (air-gapped setup), and **[`docs/migration/migration-runbook.md`](docs/migration/migration-runbook.md)**
+  (air-gapped setup), **[`docs/tooling-incidents.md`](docs/tooling-incidents.md)** (background on
+  some of CLAUDE.md's style and tooling rules), and
+  **[`docs/migration/migration-runbook.md`](docs/migration/migration-runbook.md)**
   (the one-time 2.5.x → 3.0 cutover).
