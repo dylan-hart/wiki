@@ -16,6 +16,14 @@ import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } 
 export interface PhaseEntity {
   source: () => AsyncIterable<unknown>
   classify?: (record: unknown, recorder: WriteRecorder) => void | Promise<void>
+  /**
+   * Runs once, after this entity's `source()` stream is fully exhausted — never for a
+   * `NotYetImplementedError` stub, since no records were actually read. For a phase whose entity
+   * needs a genuine second pass over what `classify` accumulated (a forward reference that cannot
+   * resolve until every record has a real destination id — see `comment-import.ts#resolveCommentReplies()`
+   * for the motivating case), rather than a synthetic extra entity that would pollute `PhaseResult.counts`.
+   */
+  onComplete?: () => void | Promise<void>
 }
 
 function identifierFor(record: unknown, fallback: number): string {
@@ -65,6 +73,9 @@ async function readEntity(
       return 'not_implemented'
     }
     throw err
+  }
+  if (entity.onComplete) {
+    await entity.onComplete()
   }
   return count
 }

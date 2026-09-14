@@ -155,6 +155,50 @@ test('upload stores an SVG untouched when security.uploadScanSVG is off', async 
 })
 
 // ---------------------------------------------------------------------------------------------
+// upload() — createdAt/updatedAt override (OpenProject #3204)
+// ---------------------------------------------------------------------------------------------
+
+test('upload with a createdAt/updatedAt override stores them on the assets row and returns them', async () => {
+  const { getInserted } = stubUploadPath(false)
+
+  const asset = await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'backdated.txt',
+    data: Buffer.from('hello'),
+    authorId: 'user-1',
+    createdAt: '2018-03-01T00:00:00.000Z',
+    updatedAt: '2018-03-02T00:00:00.000Z'
+  })
+
+  const inserted = getInserted()
+  assert.equal(inserted.createdAt?.toISOString(), '2018-03-01T00:00:00.000Z')
+  assert.equal(inserted.updatedAt?.toISOString(), '2018-03-02T00:00:00.000Z')
+  assert.equal(asset.createdAt.toISOString(), '2018-03-01T00:00:00.000Z')
+  assert.equal(asset.updatedAt.toISOString(), '2018-03-02T00:00:00.000Z')
+})
+
+test('upload with no createdAt/updatedAt override leaves the assets row insert without those keys, keeping the column default', async () => {
+  const { getInserted } = stubUploadPath(false)
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'ordinary.txt',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  const inserted = getInserted()
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(inserted, 'createdAt'),
+    false,
+    'no override -- must not fight the column default'
+  )
+  assert.equal(Object.prototype.hasOwnProperty.call(inserted, 'updatedAt'), false)
+})
+
+// ---------------------------------------------------------------------------------------------
 // upload() / renameAsset() / deleteAsset() — hooks.emit and storage.dispatch are awaited, not
 // detached (OpenProject #1697)
 // ---------------------------------------------------------------------------------------------

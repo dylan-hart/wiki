@@ -59,9 +59,11 @@ export interface SourceAssetFile {
    * as `authorId`). Absent means "derive it from the filename extension," the same fallback
    * `models/assets.ts#upload()` already applies to any upload with no declared type. */
   mimeType?: string
-  /** Source `createdAt`/`updatedAt`, when available (Postgres-direct only). Absent means the
-   * destination row gets today's date — a documented, accepted gap, Task 17 (tracked for a real fix
-   * as OpenProject #3204). */
+  /** Source `createdAt`/`updatedAt`, when available (Postgres-direct only) — threaded through to
+   * `models/assets.ts#upload()`'s own override params by `asset-import.ts#importAsset()`
+   * (OpenProject #3204), so the destination row carries the source's real date. Absent (the
+   * export-bundle connector, which carries no per-asset metadata sidecar at all) leaves the
+   * destination row on `upload()`'s ordinary `now()` default. */
   createdAt?: Date
   updatedAt?: Date
 }
