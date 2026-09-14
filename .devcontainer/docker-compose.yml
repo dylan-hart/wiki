@@ -108,7 +108,7 @@ services:
       - PGADMIN_CONFIG_LOGIN_BANNER="Login with dev@js.wiki / 123123"
     network_mode: service:db
     # volumes:
-      # - ./pgadmin-servers.json:/pgadmin4/servers.json
+    # - ./pgadmin-servers.json:/pgadmin4/servers.json
 
 volumes:
   postgres-data:
