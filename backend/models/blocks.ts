@@ -427,12 +427,13 @@ class Blocks {
   /**
    * The one config value this file actually revisits the "no per-field validation" note above for:
    * block-plantuml's `server` is fetched server-side by `DiagramRender#renderPlantuml`
-   * (`models/diagramRender.ts`, OpenProject task 2223), unlike every other block's config, which is
-   * only ever handed to that block's own client-side component. A bad value here is not a rendering
-   * inconvenience an author would notice and fix — left unchecked, it is exactly the SSRF this block's
-   * config field exists to close off (OpenProject epic 2216), so it is refused at the one point a
-   * caller can still be turned away: when an admin writes it, not when a reader's request later makes
-   * this model fetch whatever was stored.
+   * (`models/diagramRender.ts`, OpenProject task 2223) and, alongside block-kroki's own `server`, by
+   * `DiagramProxy#resolveServer` (`models/diagramProxy.ts`, OpenProject task 3228) — unlike every
+   * other block's config, which is only ever handed to that block's own client-side component. A bad
+   * value here is not a rendering inconvenience an author would notice and fix — left unchecked, it is
+   * exactly the SSRF this block's config field exists to close off (OpenProject epic 2216), so it is
+   * refused at the one point a caller can still be turned away: when an admin writes it, not when a
+   * reader's request later makes this model fetch whatever was stored.
    *
    * Empty is left alone (falls back to the public default); anything else must parse as a URL, be
    * `http:`/`https:`, and carry neither a query string nor a fragment — a query string is what let the
@@ -440,7 +441,7 @@ class Blocks {
    * on an otherwise-fine host (see `diagramRender.ts`'s `plantumlUrl()`).
    */
   private assertValidConfig(blockKey: string, config: Record<string, any>): void {
-    if (blockKey !== 'plantuml') {
+    if (blockKey !== 'plantuml' && blockKey !== 'kroki') {
       return
     }
     const value = config.server
@@ -456,14 +457,14 @@ class Blocks {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new CustomError(
         'blocksInvalidConfig',
-        `The PlantUML server must be an http:// or https:// URL, not "${parsed.protocol}".`,
+        `The ${blockKey === 'kroki' ? 'Kroki' : 'PlantUML'} server must be an http:// or https:// URL, not "${parsed.protocol}".`,
         400
       )
     }
     if (parsed.search || parsed.hash) {
       throw new CustomError(
         'blocksInvalidConfig',
-        'The PlantUML server URL may not contain a query string or fragment.',
+        `The ${blockKey === 'kroki' ? 'Kroki' : 'PlantUML'} server URL may not contain a query string or fragment.`,
         400
       )
     }

@@ -827,6 +827,63 @@ describe(
     test('does not validate an unrelated block\'s "server"-named config field', async () => {
       blocksModel.definitions = [
         {
+          block: 'live-data',
+          name: 'Live Data',
+          description: 'Fetches a value from a URL.',
+          icon: 'polyline',
+          config: [{ name: 'server', type: 'string' }]
+        }
+      ]
+      const [row] = await fixtures.db
+        .insert(blocksTable)
+        .values({
+          siteId: fixtures.siteId,
+          block: 'live-data',
+          name: 'Live Data',
+          description: 'Fetches a value from a URL.',
+          icon: 'polyline',
+          isEnabled: true,
+          isCustom: false,
+          config: {}
+        })
+        .returning({ id: blocksTable.id })
+
+      const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+        { id: row!.id, isEnabled: true, config: { server: 'not a url' } }
+      ])
+
+      assert.equal(updated, 1, "only block-plantuml/block-kroki's server field is validated")
+    })
+  }
+)
+
+/**
+ * block-kroki's own `server` config is validated the same way block-plantuml's is, and for the same
+ * reason (OpenProject task 3228): `DiagramProxy#resolveServer` (`models/diagramProxy.ts`) now fetches
+ * it server-side too, once the shared Kroki/PlantUML POST proxy resolves a site's configured engine
+ * server. See the describe block above for block-plantuml's identical coverage.
+ */
+describe(
+  "blocks.setBlocksState validates block-kroki's server config (DB-backed)",
+  {
+    skip: !hasTestDatabase()
+  },
+  () => {
+    let fixtures: TestFixtures
+    let blocksModel: typeof import('./blocks.ts').blocks
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ blocks: blocksModel } = await import('./blocks.ts'))
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    async function insertKrokiBlock(): Promise<string> {
+      blocksModel.definitions = [
+        {
           block: 'kroki',
           name: 'Kroki',
           description: 'Draws a diagram through a Kroki server.',
@@ -834,6 +891,10 @@ describe(
           config: [{ name: 'server', type: 'string' }]
         }
       ]
+      // -> Same reasoning as `insertPlantumlBlock()` above: one shared row, cleared per test.
+      await fixtures.db
+        .delete(blocksTable)
+        .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'kroki')))
       const [row] = await fixtures.db
         .insert(blocksTable)
         .values({
@@ -847,12 +908,66 @@ describe(
           config: {}
         })
         .returning({ id: blocksTable.id })
+      return row!.id
+    }
+
+    test('accepts a clean http(s) server URL with no query string or fragment', async () => {
+      const id = await insertKrokiBlock()
 
       const updated = await blocksModel.setBlocksState(fixtures.siteId, [
-        { id: row!.id, isEnabled: true, config: { server: 'not a url' } }
+        { id, isEnabled: true, config: { server: 'https://kroki.internal.example.com' } }
       ])
 
-      assert.equal(updated, 1, "only block-plantuml's server field is validated")
+      assert.equal(updated, 1)
+      const [siteBlock] = (await blocksModel.getSiteBlocks(fixtures.siteId)).filter(
+        (b) => b.id === id
+      )
+      assert.deepEqual(siteBlock!.config, { server: 'https://kroki.internal.example.com' })
+    })
+
+    test('refuses a server value that is not a valid URL at all', async () => {
+      const id = await insertKrokiBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'not a url' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+
+    test('refuses a non-http(s) server URL', async () => {
+      const id = await insertKrokiBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'file:///etc/passwd' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+
+    test('refuses a server URL carrying a query string or fragment', async () => {
+      const id = await insertKrokiBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'https://kroki.example.com?x=' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
     })
   }
 )

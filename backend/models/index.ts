@@ -14,6 +14,7 @@ import { classificationLevels } from './classificationLevels.ts'
 import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
+import { diagramProxy } from './diagramProxy.ts'
 import { diagramRender } from './diagramRender.ts'
 import { eventSubscriptions } from './eventSubscriptions.ts'
 import { exportModel } from './export.ts'
@@ -76,6 +77,7 @@ export default {
   commentProviders,
   comments,
   contentSync,
+  diagramProxy,
   diagramRender,
   eventSubscriptions,
   export: exportModel,
