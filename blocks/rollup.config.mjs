@@ -1,7 +1,7 @@
 import fs, { globSync } from 'node:fs'
 import path from 'node:path'
+import zlib from 'node:zlib'
 
-import summary from 'rollup-plugin-summary'
 import terser from '@rollup/plugin-terser'
 import resolve from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs'
@@ -266,6 +266,38 @@ function blockAssets() {
   }
 }
 
+/**
+ * Prints a raw/gzip/brotli size table for each emitted JS chunk after the build, replacing
+ * `rollup-plugin-summary` (single-maintainer, unmaintained for 12+ months, and whose *runtime*
+ * dependencies pulled in ~30 transitive packages — including a second `js-yaml` major — for what is
+ * purely a console printout nothing else consumes; see OpenProject #3174).
+ */
+function buildSummary() {
+  return {
+    name: 'build-summary',
+    generateBundle(_options, bundle) {
+      const rows = Object.values(bundle)
+        .filter((file) => file.type === 'chunk')
+        .map((chunk) => {
+          const code = Buffer.from(chunk.code, 'utf8')
+          return {
+            file: chunk.fileName,
+            'raw (B)': code.byteLength,
+            'gzip (B)': zlib.gzipSync(code).length,
+            'brotli (B)': zlib.brotliCompressSync(code).length
+          }
+        })
+        .sort((a, b) => b['raw (B)'] - a['raw (B)'])
+      // -> A build with no JS chunks emitted (shouldn't happen, but not this plugin's job to guard
+      //    against) would otherwise print an empty, headerless table -- skip it instead.
+      if (rows.length > 0) {
+        // oxlint-disable-next-line no-console -- build-time size report; this IS its output, same as scripts/**
+        console.table(rows)
+      }
+    }
+  }
+}
+
 export default {
   input: Object.fromEntries([
     /*
@@ -314,6 +346,6 @@ export default {
       ecma: 2019,
       module: true
     }),
-    summary()
+    buildSummary()
   ]
 }
