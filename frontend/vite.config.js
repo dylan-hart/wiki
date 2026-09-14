@@ -198,9 +198,30 @@ export default defineConfig(({ mode }) => {
       }
     },
     resolve: {
-      alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url))
-      }
+      alias: [
+        { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+        /*
+          A RegExp `find`, not a plain string: this Vite build resolves a string alias key as a
+          PREFIX match (confirmed directly -- a plain `'monaco-editor'` key here also rewrote every
+          deep specifier `boot/monaco.js` already imports, `monaco-editor/language/json/json.worker
+          ?worker` included, into a broken path underneath this alias's own target file), where a
+          `find` written as an anchored `/^monaco-editor$/` matches only the bare specifier. So this
+          redirects nothing but the exact `import ... from 'monaco-editor'` every editor surface
+          already writes; `boot/monaco.js`'s own deep worker imports keep resolving into the real
+          package untouched, as do this alias's own target file's deep imports of it.
+          `src/boot/monacoEditorEntry.js`'s own header comment has the full rationale (OpenProject
+          #3171): the real package's entry point pulls in the TypeScript and CSS language services
+          unconditionally, and each one's `workerManager.js` statically bundles a 6.9 MB / 1.05 MB
+          worker chunk into `assets/` whether or not this app ever creates a model in that language --
+          which it never does. Deliberately absent from `vitest.config.js`: every test file's own
+          `vi.mock('monaco-editor', ...)` keeps intercepting the bare specifier exactly as it always
+          has, since this alias only exists for a real build or the dev server.
+        */
+        {
+          find: /^monaco-editor$/,
+          replacement: fileURLToPath(new URL('./src/boot/monacoEditorEntry.js', import.meta.url))
+        }
+      ]
     },
     server: {
       // https: true
