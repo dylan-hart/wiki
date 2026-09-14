@@ -13,7 +13,7 @@
  * This is a structural/self-consistency scan against repo-root CI config with no backend-workspace
  * file to sit next to, which is why it lives in `backend/test/` rather than co-located — the same
  * category, and the same reasoning, as `test/e2e-workflow.test.ts` and
- * `test/release-workflow.test.ts` beside it (CLAUDE.md, "Testing (backend)").
+ * `test/release-workflow.test.ts` beside it.
  *
  * What it deliberately does NOT assert: that a GitHub Actions run actually renders the annotation
  * or the summary. That needs a real runner. What is asserted here is that the script is invoked,

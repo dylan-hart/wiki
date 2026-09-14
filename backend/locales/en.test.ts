@@ -19,7 +19,7 @@ describe('backend/locales/en.json', () => {
    * described an admin "Developer Tools" page with GraphiQL/Voyager panels that no longer exists;
    * `admin.utilities.graphEndpointSubtitle`/`admin.utilities.graphEndpointTitle` described the
    * now-removed GraphQL endpoint setting alongside it — GraphQL was removed from the live surface
-   * (see CLAUDE.md's "GraphQL was removed" section) and `grep -rni 'graphiql|voyager|graphendpoint'`
+   * and `grep -rni 'graphiql|voyager|graphendpoint'`
    * across `backend/`, `frontend/src` and `blocks/` returns nothing but these locale declarations.
    * `admin.logging.title` described a Logging admin page with no surviving route or component.
    * `admin.dev.flags.title` is deliberately excluded from this list — a real Flags admin page exists

@@ -78,7 +78,7 @@ describe('helpers/permissions', () => {
  * the same directory, neither ever reading this one. `GLOBAL_PERMISSIONS`/`PAGE_PERMISSIONS`/
  * `SITE_PERMISSIONS` above are the real source of truth; this suite reads the two frontend files
  * that are supposed to mirror them **as text** (a backend TS test cannot import frontend JS/Vue
- * across the workspace boundary, and vice versa -- see CLAUDE.md's "Permissions" section) and
+ * across the workspace boundary, and vice versa) and
  * extracts their permission string literals for comparison.
  *
  * Verify by adding a throwaway permission to `GLOBAL_PERMISSIONS` or `PAGE_PERMISSIONS` above: this

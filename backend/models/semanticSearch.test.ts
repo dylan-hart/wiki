@@ -27,7 +27,7 @@ import type { GroupRule } from './groups.ts'
 
 /**
  * `toVectorLiteral` is pure — no `WIKI`, no database — so it gets its own always-on describe rather
- * than living only inside the DB-backed section below (see "Testing (backend)" in CLAUDE.md).
+ * than living only inside the DB-backed section below.
  */
 describe('semanticSearch: toVectorLiteral', () => {
   test('serializes a vector into pgvector input format', () => {
@@ -144,7 +144,7 @@ describe('semanticSearch: selectHop2Seeds', () => {
 /**
  * `bestChunkPerPage`, `dedupeAndRank`, `mergeHopResults` and `search`'s degradation path are pure or
  * near-pure (no database; `search`'s only external dependency is `helpers/embeddings.ts#embedText`) —
- * see "Prefer pure unit tests..." in CLAUDE.md.
+ * see this repo's "prefer pure unit tests" testing convention.
  */
 describe('semanticSearch: merge/rank/paginate', () => {
   /**
@@ -403,8 +403,7 @@ describe('semanticSearch: merge/rank/paginate', () => {
 /**
  * `annSearch` and `runHop2` are real SQL orchestration — a vector-index `ORDER BY`/`LIMIT` joined to
  * `pages` and filtered through `filterVisible` — the kind of thing this codebase's testing policy
- * reaches for a real Postgres over mocking the query builder for (see "Prefer pure unit tests..." in
- * CLAUDE.md).
+ * reaches for a real Postgres over mocking the query builder for.
  *
  * `pageEmbeddingChunks` is not part of the generated schema (see `semanticSearch.ts`'s own doc
  * comment) — `core/db.ts`'s real boot-time bootstrap (#3095) is what creates it against a live
@@ -413,7 +412,7 @@ describe('semanticSearch: merge/rank/paginate', () => {
  * rather than depending on #3095 having merged.
  *
  * One `setupTestDb()`/`teardownTestDb()` pair for the whole DB-backed section, shared by both the
- * `annSearch` and `runHop2` describes below (see "Testing (backend)" in CLAUDE.md) — and one
+ * `annSearch` and `runHop2` describes below — and one
  * `vector(DIMS)` table both hop 1 and hop 2 read and write, at the real `EMBEDDING_DIMENSIONS`
  * (`helpers/embeddings.ts`) rather than an arbitrary small width, via the `basisVector`/`pad` helpers
  * above.

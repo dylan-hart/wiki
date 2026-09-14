@@ -1,7 +1,7 @@
 /**
  * Pure-unit coverage for the extraction/diff logic, plus one real-tree assertion that `en.json`'s
  * `blocks.*` namespace has not drifted from the actual `blocks/block-*` sources -- no `WIKI` global,
- * no database, per CLAUDE.md's "Testing (backend)".
+ * no database, matching this repo's pure-unit-test convention.
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'

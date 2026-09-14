@@ -44,7 +44,7 @@ describe('users name derivation (DB-backed)', { skip: !hasTestDatabase() }, () =
 
   /**
    * The read-back oracle, local to this file rather than a method on the model — a model method
-   * whose only caller is its own test is dead code (CLAUDE.md, Testing (backend)).
+   * whose only caller is its own test is dead code.
    */
   async function readNames(id: string) {
     const [row] = await fixtures.db

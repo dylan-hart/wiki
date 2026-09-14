@@ -26,7 +26,7 @@ if (!process.env.DATABASE_URL) {
       '    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18\n' +
       '  DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres npm test\n\n' +
       'In CI, a fresh `postgres:18` service container per run is what makes "seeded test ' +
-      'database" true on every invocation -- see CLAUDE.md\'s "Testing (e2e)" section.'
+      'database" true on every invocation.'
   )
 }
 

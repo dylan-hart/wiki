@@ -2,7 +2,7 @@
  * Confirms the repo-root `cliff.toml` (git-cliff config, see docs/versioning.md) actually produces
  * a sane, categorized changelog — not just that the file parses.
  *
- * git-cliff is a standalone binary (not an npm dependency of any workspace, per CLAUDE.md's
+ * git-cliff is a standalone binary (not an npm dependency of any workspace, per this repo's
  * currency/dependency stance for this task), so it is not guaranteed to be on PATH in every dev or
  * CI environment. Gated on its presence exactly like the DB-backed model suites gate on
  * `hasTestDatabase()` (see `./db.ts`) — skip the whole `describe` when the tool isn't installed

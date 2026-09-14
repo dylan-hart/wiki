@@ -36,7 +36,7 @@ import defaultAwsCloudSearchModule from './search.ts'
  * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
  * field.
  *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
  */
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')

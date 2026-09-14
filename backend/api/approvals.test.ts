@@ -275,8 +275,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
 describe('approve/reject submission routes — response schema covers reachable statuses (task 2355)', () => {
   /**
    * The approve/reject submission routes deliberately declare no route-level `config.permissions`
-   * (the actor check is in-handler instead, via `actorFrom`/`reviewerFor` — see the "No route-level
-   * permissions" convention in CLAUDE.md) so `responseErrors.test.ts`'s blanket 401/403 check, which
+   * (the actor check is in-handler instead, via `actorFrom`/`reviewerFor` — the "No route-level
+   * permissions" convention) so `responseErrors.test.ts`'s blanket 401/403 check, which
    * only scans routes with a non-empty `config.permissions`, can never catch a missing 401 on either
    * of them. OpenProject #2355: the reject route's response schema once omitted 401 even though its
    * handler can (defensively) return `reply.unauthorized()`, the same shape the approve route above

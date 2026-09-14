@@ -141,7 +141,7 @@ class Pageviews {
    *
    * Deliberately does not touch a single existing `pageviews` row. Breaking correlation with
    * pre-rotation rows is the entire point of a rotation, not a regression to migrate around -- per
-   * CLAUDE.md's no-legacy-fallback policy, old rows simply stop hashing the same way new ones do.
+   * this codebase's no-legacy-fallback policy, old rows simply stop hashing the same way new ones do.
    *
    * @returns true if the key was rotated and persisted, or false if the settings failed to save --
    *   in which case the previous key is restored so pageviews recorded around the failed attempt
@@ -197,7 +197,7 @@ class Pageviews {
         // -> A raw `sql` aggregate expression, not a plain column read -- the driver returns it as a
         //    postgres-format string (e.g. `2026-07-25 13:17:36.230177+00`), same as `db.execute()`,
         //    not as a `Date`. Parsed below with `Temporal.Instant.from()`, matching `api/system/info.ts`'s
-        //    `getClusterNodes()`, per CLAUDE.md's Temporal conversion convention.
+        //    `getClusterNodes()`, per this codebase's Temporal conversion convention.
         mostRecentAt: sql<string | null>`max(${pageviewsTable.viewedAt})`
       })
       .from(pageviewsTable)

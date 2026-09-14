@@ -74,7 +74,7 @@ Also bump **pdfjs-dist** 6.2.108 → 6.3.289. It isn't vulnerable (our pin is ex
 | @types/js-yaml | backend | **REMOVE.** js-yaml 5 ships its own types; `tsc --listFiles` never loads `@types/js-yaml`. | 1 line | E |
 | @types/markdown-it-emoji | backend | **Local `declare module` shim.** It drags in `@types/markdown-it@14` beside markdown-it 15's bundled types. *(Section E rated it KEEP and section D a shim. D's reason, two disagreeing MarkdownIt type trees, decides it.)* | 3 lines | D |
 | cross-env | frontend | **REMOVE.** Archived upstream, one call site. Use `node --max-old-space-size=8192 node_modules/vite/bin/vite.js build --mode production`, after confirming `NODE_ENV` handling. | 1 script | E |
-| npm-check-updates | backend, frontend, blocks | **REMOVE.** Dependabot already covers all four workspaces weekly. Use `npx npm-check-updates@<ver> -i` on demand, and update the `npx ncu -i` line in CLAUDE.md. | 3 scripts + doc | E |
+| npm-check-updates | backend, frontend, blocks | **REMOVE.** Dependabot already covers all four workspaces weekly. Use `npx npm-check-updates@<ver> -i` on demand, and update the docs that mention `npx ncu -i`. | 3 scripts + doc | E |
 
 ## 3. In-house candidates: shaky and small enough to own
 
@@ -1376,7 +1376,7 @@ install-time downloads.
 - **Alternatives:** Dependabot (already configured), built-in `npm outdated`, or on-demand `npx npm-check-updates@23 -i`, which
   needs no devDependency.
 - **Verdict:** REMOVE. It duplicates Dependabot, runs by hand only, and costs 3 pins to keep current. Change the `ncu` scripts to
-  `npx npm-check-updates@<ver> -i` and update the CLAUDE.md line that mentions it.
+  `npx npm-check-updates@<ver> -i` and update the docs that mention it.
 
 ### vite
 - **Use:** frontend dev server and `vite build` into `../assets`. It also comes in transitively through vitest in blocks (blocks has

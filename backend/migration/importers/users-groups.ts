@@ -176,7 +176,7 @@ export type UserConverter = (
 // split. See `docs/migration/2.5x-to-3.0-mapping.md`'s `groups` section.
 // ---------------------------------------------------------------------------
 
-/** The closed global-permission list documented in this repo's `CLAUDE.md` — the only strings 3.0's
+/** The closed global-permission list this repo maintains — the only strings 3.0's
  * `groups.permissions` column may hold. Everything else a 2.x source group's flat `permissions` array
  * might contain (`read:pages`, `write:pages`, …) only ever gated whether that group's page rules took
  * effect at all in 2.x — 3.0 has no equivalent global gate; the rules alone govern page access — so

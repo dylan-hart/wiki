@@ -1,4 +1,4 @@
-# Backend config for the Playwright e2e suite (see CLAUDE.md's "Testing (e2e)" section).
+# Backend config for the Playwright e2e suite.
 #
 # playwright.config.js points the backend at this file via CONFIG_FILE and starts it with
 # DATABASE_URL set, which overrides every db.* connection field base.yml would otherwise supply --

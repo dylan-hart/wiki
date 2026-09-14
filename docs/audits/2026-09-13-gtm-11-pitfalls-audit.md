@@ -23,7 +23,7 @@ Every "Evidence" cell was gathered from the repo on 2026-09-13 unless marked *ju
 | 2 | **Reverse disclosure** — publishing a flaw in inherited code exposes upstream's users (A2) | EXPOSED | The fastest route to villain status |
 | 3 | **Shared default admin password on first boot** (B4) | PARTIAL | Forced change and `ADMIN_PASS` exist, but an unset `ADMIN_PASS` still seeds the same known password on every install, so whoever logs in first owns the instance |
 | 4 | **Privacy-hostile defaults for a "governed" wiki** (B5) | EXPOSED | Diagram source sent to kroki.io / plantuml.com by default |
-| 5 | **Breaking-change policy that can't survive real users** (B6) | EXPOSED | CLAUDE.md mandates no compat shims and squashed migrations |
+| 5 | **Breaking-change policy that can't survive real users** (B6) | EXPOSED | Current project policy mandates no compat shims and squashed migrations |
 | 6 | **Scope too large for one maintainer** (B1) | EXPOSED | ~217k non-test LOC, 16 auth modules, 26 blocks, 167 production dependencies |
 | 7 | **Identity bleed** — Cardinal users routed to upstream (A3) | EXPOSED | In-app docs go to `beta.js.wiki`; update check polls `requarks/wiki` daily |
 | 8 | **More AI output than a human can review** (C1) | EXPOSED | 731 commits in 4 weeks; landings of 100+ work packages at once |
@@ -217,7 +217,7 @@ Every "Evidence" cell was gathered from the repo on 2026-09-13 unless marked *ju
   - That's correct for a pre-release branch. The day a coworker, design partner or stranger runs a tagged release, it becomes **data loss by policy**.
   - The agents follow CLAUDE.md, so the policy will be executed faithfully unless you change it.
 - **Mitigation.** On the commit that cuts the first public tag:
-  - rewrite those CLAUDE.md sections to "every tagged release upgrades in place from the previous one";
+  - rewrite those dev-doc sections to "every tagged release upgrades in place from the previous one";
   - DB migrations are append-only;
   - config and API changes get a deprecation window;
   - add an upgrade-from-previous-release e2e test as a release gate.
@@ -437,7 +437,7 @@ Hostile threads hurt less when the project isn't your livelihood or self-worth. 
 | N3 | When `ADMIN_PASS` is unset, seed a random password printed once to the logs (keep the forced change); put `ADMIN_PASS` in the compose file and docs | B4 | S |
 | N4 | Egress defaults: diagram renderers off or same-host by default; publish a "Network egress" page; tighten the CSP | B5 | M |
 | N5 | Blank `docsBase` (currently `beta.js.wiki/docs`) until Cardinal docs exist | A3 | S |
-| N6 | Flip CLAUDE.md's compat and squashed-migration policy on the first public tag; add an upgrade-from-previous e2e gate | B6 | M |
+| N6 | Flip the project's compat and squashed-migration policy on the first public tag; add an upgrade-from-previous e2e gate | B6 | M |
 | N7 | Module support tiers, shown in the admin UI | B1, B2 | M |
 | N8 | Claim only complete locales; open a Cardinal translation project | A7, B19 | S |
 | N9 | Human-sized architecture overview + short CONTRIBUTING | B7, C6 | M |

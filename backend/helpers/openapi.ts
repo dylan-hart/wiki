@@ -25,8 +25,7 @@ export const OPENAPI_SECURITY: Array<Record<string, string[]>> = [{ bearerAuth: 
 
 /**
  * `@fastify/swagger`'s `transform`: folds a route's `config.permissions` declaration into its
- * documented description, so declaring a permission is also how it gets documented (see CLAUDE.md's
- * Backend patterns).
+ * documented description, so declaring a permission is also how it gets documented.
  *
  * A pure `(schema, route) => schema` with no Fastify instance behind it, kept here beside the
  * security-scheme constants rather than inline in `core/http/openapi.ts`'s registration so it can be

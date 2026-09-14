@@ -400,7 +400,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     //    entirely -- leaving `meta.description` (what the file manager reads) and `updatedAt` (what
     //    an `updatedAt`-ordered listing sorts by) stale on a description-only edit.
     //
-    // -> `Temporal` is a Node 26 global needing no import (CLAUDE.md), but this sandbox's `node` is
+    // -> `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
     //    older and doesn't expose it (same environment gap `api/pages.test.ts`'s own
     //    `installFakeTemporal` documents). Installed only when genuinely missing, so a real Node 26
     //    run exercises the native API.

@@ -17,9 +17,9 @@
     <!--
       Distinguishes an invitation to write the first comment from a flat "there are none" -- the
       former would be misleading (and clutter a read-only visitor's screen with a call to action they
-      cannot act on) for anyone who does not hold `write:comments` at this path. Page-scoped, per
-      CLAUDE.md's permissions section: `can()` also ORs in the global list and treats `manage:system`
-      as a wildcard, which is what lets an administrator see the same invitation everywhere.
+      cannot act on) for anyone who does not hold `write:comments` at this path. Page-scoped:
+      `can()` also ORs in the global list and treats `manage:system` as a wildcard, which is what
+      lets an administrator see the same invitation everywhere.
     -->
     <div v-else-if="flatComments.length === 0" class="page-comments-empty py-4 text-grey-6">
       {{ canWrite ? t(`common.comments.beFirst`) : t(`common.comments.none`) }}

@@ -60,8 +60,8 @@ was nothing to gate:
 - **Fonts.** `frontend/src/css/_base.scss` uses `@font-face` against bundled font files. No
   `fonts.googleapis.com` reference exists anywhere in `frontend/src` or `blocks/`.
 - **Icons drawn from the interface itself** (nav, buttons, admin UI). Every Iconify reference written
-  literally in this repo's source is inlined at build time into `src/assets/icons.generated.js` — see
-  CLAUDE.md's "Icons" section. Only a reference a _user_ picks at runtime touches `models/icons.ts`'s
+  literally in this repo's source is inlined at build time into `src/assets/icons.generated.js`. Only
+  a reference a _user_ picks at runtime touches `models/icons.ts`'s
   four-tier resolution above.
 
 **Not gated, and cannot be from the backend** — `block-plantuml` and `block-kroki` (`blocks/`) draw by

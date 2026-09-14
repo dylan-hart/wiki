@@ -17,7 +17,7 @@
  * `modules/storage/<key>/storage.ts`. `checkSpam` does read the ambient `WIKI` global
  * (`WIKI.config.host`, `WIKI.logger`), same as `modules/authentication/local/authentication.ts`
  * reads it for `WIKI.models` — that global is available everywhere in the backend without importing
- * (see CLAUDE.md's "Backend patterns"); it's just never the database/Fastify/Drizzle layer this
+ * (a standing project convention); it's just never the database/Fastify/Drizzle layer this
  * module otherwise stays out of.
  */
 
@@ -422,7 +422,7 @@ async function checkSpam(
  * the window, it never decides who counts as one account or looks anything up itself. See
  * `CheckRateLimitParams` for the guest-pooling contract `lastCommentAt` must already satisfy.
  *
- * Follows CLAUDE.md's Temporal conventions exactly: instants are compared with
+ * Follows this codebase's Temporal conventions exactly: instants are compared with
  * `Temporal.Instant.compare()` (`<` throws on Temporal types), and the cutoff is built with
  * `{ seconds: minDelay }` — an exact-time unit valid on `Instant.add`, unlike anything calendar-based.
  *

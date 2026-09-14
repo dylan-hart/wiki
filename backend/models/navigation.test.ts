@@ -48,7 +48,7 @@ async function forceStaticMode(navId: string): Promise<void> {
  * OpenProject #2208 §3: pure unit coverage of the item-target validation `setNavItems`,
  * `updateNavigation` and `copyNav` all now call before writing — no `WIKI` global and no database
  * needed, per this repo's own preference for a pure test over a DB-backed one wherever the thing
- * under test is not itself SQL orchestration (see CLAUDE.md's "Testing (backend)" section). The
+ * under test is not itself SQL orchestration. The
  * DB-backed `setNavItems`/`copyNav` describe blocks further down in this file cover the write/copy
  * round trip itself; this covers the validation logic they both now run on the way in.
  */

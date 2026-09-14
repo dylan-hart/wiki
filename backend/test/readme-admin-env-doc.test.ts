@@ -4,7 +4,7 @@
  *
  * The capability itself has existed since `models/users.ts`'s `init()` was written -- reading
  * `ADMIN_EMAIL`/`ADMIN_PASS` from the environment when seeding the admin account on a fresh
- * database -- but it was only ever documented in `CLAUDE.md` and an internal audit report, never
+ * database -- but it was only ever documented in this project's own conventions and an internal audit report, never
  * anywhere a Docker Compose deployer would look. This test asserts the README both mentions the two
  * env vars and doesn't drift from what `init()` actually does, following the same
  * cross-checked-against-real-behavior style `readme-generic-setup-doc.test.ts` uses for its section.

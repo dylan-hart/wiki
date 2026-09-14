@@ -656,8 +656,8 @@ const previewInlineStyle = computed(() => {
  * of what this preview shows, so there is nothing to gain and a save/preview distinction to lose by
  * mutating the store value itself. This is only ever read by the `v-html` below, gated on the same
  * `write:scripts`/`write:styles` permissions the save is about to be sanitized against --
- * `userStore.pagePermissions`, since these are page-scoped permissions (see CLAUDE.md's Permissions
- * section), refreshed for the page under edit by `pageStore.pageLoad()`'s `applyViewerState()`.
+ * `userStore.pagePermissions`, since these are page-scoped permissions, refreshed for the page under
+ * edit by `pageStore.pageLoad()`'s `applyViewerState()`.
  */
 const previewHtml = computed(() =>
   sanitizeForPreview(pageStore.render, {

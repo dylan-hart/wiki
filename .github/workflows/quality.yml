@@ -58,7 +58,7 @@ jobs:
       - name: Use sample config
         run: cp config.sample.yml config.yml
 
-      # `node backend` must run from the repo root (index.ts refuses otherwise) -- see CLAUDE.md.
+      # `node backend` must run from the repo root -- index.ts refuses otherwise.
       # Bounded with `timeout` rather than left to core/db.ts's own 10-attempt/3s retry loop running
       # to completion (~30s+): the very first connection attempt against an unreachable database
       # fails immediately, so a couple of seconds is enough to see either the module-resolution
@@ -219,7 +219,7 @@ jobs:
       # packages (@iconify-json/mdi, @iconify-json/la, unicode-emoji-json, markdown-it-emoji) produce
       # right now -- read fs.readFileSync(node_modules/...) only, no fetch/http anywhere in either
       # script. That's a build-time literal-reference scan, not the runtime `models/icons.ts`
-      # resolution chain CLAUDE.md's Icons section describes (memory -> disk cache -> db -> live
+      # resolution chain the icons system uses at runtime (memory -> disk cache -> db -> live
       # Iconify API) for icons a *user* picks on a page -- this repo's own chrome icons are inlined at
       # build time specifically so nothing here ever depends on that service. So both steps are safe
       # to run on a cold CI runner with no prior icon cache: no network call, nothing to be flaky.
@@ -329,7 +329,7 @@ jobs:
 
       # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
       # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be
-      # at run time -- exactly the floating-tag drift CLAUDE.md's Currency section rules out. The
+      # at run time -- exactly the floating-tag drift this project pins against. The
       # root .oxfmtrc.json is picked up automatically since oxfmt searches upward from each target
       # path; its own `$schema` already points at backend/node_modules/oxfmt, confirming backend's
       # install is the one meant to be canonical for repo-root checks.

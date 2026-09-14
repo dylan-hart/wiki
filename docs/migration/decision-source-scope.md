@@ -31,7 +31,7 @@ migration to do.
 
 — no `mysql`/`mysql2`, no `tedious`/`mssql`, no `sqlite3`/`better-sqlite3`, no `knex` (2.x's own
 query builder, which is how 2.x itself stays engine-agnostic; 3.0 dropped it along with GraphQL in
-favor of Drizzle-on-Postgres only, per this repo's `CLAUDE.md`). `backend/core/db.ts` is written
+favor of Drizzle-on-Postgres only). `backend/core/db.ts` is written
 against `pg`'s `Pool` and Drizzle's `node-postgres` driver specifically — there is no
 engine-abstraction layer anywhere in 3.0's own persistence code that a connector could piggyback on.
 Adding four live drivers for a one-time migration tool would mean this repo carrying MySQL/MSSQL/

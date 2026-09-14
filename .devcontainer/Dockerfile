@@ -26,7 +26,7 @@
 # itself resolves against (actions/node-versions' versions-manifest.json); nodejs.org/dist agrees
 # (26.8.1, released 2026-08-26). It is deliberately an exact patch and not `26` or `26.x`: a floating
 # major lets this image and CI resolve different patches on different days, which is this Feature's
-# own problem reintroduced one level down, and CLAUDE.md's Currency rule already forbids it.
+# own problem reintroduced one level down, which floating-tag pinning exists specifically to avoid.
 #
 # Bumping it is a three-file change, not a one-line edit: this ARG, NODE_IMAGE_DIGEST below, and
 # every `node-version:` in .github/workflows/*.yml -- together, in one commit. The RUN assertion

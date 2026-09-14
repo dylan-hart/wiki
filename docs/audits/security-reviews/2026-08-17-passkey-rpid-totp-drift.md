@@ -162,7 +162,7 @@ This is a real, intentional behavior change from the 2.5.x baseline, not an over
   drift plus the time a user takes to type six digits.
 
 **Conclusion: ±30s is adequate, and deliberately tighter than 2.5.x's default is correct, not a
-regression.** Per `CLAUDE.md`, this branch owes 2.5.x no compatibility, so the change needs no shim —
+regression.** This branch owes 2.5.x no compatibility, so the change needs no shim —
 just a recorded reason, which is what this review is. Not making it admin-configurable is also
 deliberate: `totp.ts`'s stated design is that these are exactly what an `otpauth://` URI implies when
 it omits parameters, which every authenticator app already assumes; a per-instance override would let

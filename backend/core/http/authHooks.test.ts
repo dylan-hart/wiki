@@ -10,8 +10,9 @@ import { permissionPreHandler } from './authHooks.ts'
  * session — had no coverage anywhere (the six hand-rolled replicas in the API test suites all drop
  * it, which is exactly the drift TEST-F2 records).
  *
- * Only GLOBAL permissions are decided here; see CLAUDE.md's Permissions section for why a page-rule
- * or site-scoped name can never be enforced through `config.permissions`.
+ * Only GLOBAL permissions are decided here — a page-rule
+ * or site-scoped name can never be enforced through `config.permissions`, since that hook only ever
+ * reads the group-wide session list.
  */
 
 /** A stand-in for `FastifyReply` recording the two refusals this hook may send. */

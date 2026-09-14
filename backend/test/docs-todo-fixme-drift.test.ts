@@ -26,11 +26,11 @@ import { listSourceFiles } from './sourceFiles.ts'
  *
  * Was docs/todo-fixme-drift.test.mjs, unrun by anything (OpenProject #959) and failing (the audit
  * section didn't exist yet). Moved into backend/, logic unchanged, so `npm run test` actually runs
- * it -- this file is exactly the kind of drift-guard suite CLAUDE.md's own "TODO/FIXME audit" note
- * points at, so it belongs where the thing it guards against (a scoped, narrow-cast marker going
- * unreviewed) actually gets caught. Moved again, into backend/test/, by #1949, alongside its
- * `docs-*.test.ts` / `localazy-config.test.ts` siblings -- see CLAUDE.md's "Testing (backend)"
- * section for the co-located-test-fixture rule this falls under.
+ * it -- this file is exactly the kind of drift-guard suite this project's own "TODO/FIXME audit"
+ * convention points at, so it belongs where the thing it guards against (a scoped, narrow-cast
+ * marker going unreviewed) actually gets caught. Moved again, into backend/test/, by #1949, alongside
+ * its `docs-*.test.ts` / `localazy-config.test.ts` siblings -- following this repo's
+ * co-located-test-fixture convention.
  */
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')

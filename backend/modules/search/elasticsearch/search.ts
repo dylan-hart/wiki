@@ -209,7 +209,7 @@ interface SiteClient {
  * Ported from 2.5.x's `server/modules/search/elasticsearch/engine.js`, with one deliberate
  * simplification: 2.5.x's `apiVersion` selector (`6.x` / `7.x` / `8.x`, each loading a differently
  * pinned `elasticsearchN` package) is dropped entirely in favor of targeting the single current
- * `@elastic/elasticsearch` major (9.x). This branch's CLAUDE.md rules out legacy fallbacks and
+ * `@elastic/elasticsearch` major (9.x). This codebase rules out legacy fallbacks and
  * deprecated aliases on principle, and three parallel client majors behind a switch is exactly that --
  * dead weight for versions of a self-hosted dependency an operator installing this feature today has
  * no reason to still be running.

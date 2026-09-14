@@ -10,8 +10,8 @@
   did anything, it silently starts denying access it used to grant.
 
   This script finds every such rule ahead of time so a deploying admin can review the list — not a
-  compatibility shim, and not something this repo ships as a permanent feature. Per this repo's
-  CLAUDE.md, migration shims and legacy-data fallbacks are exactly what this codebase avoids; this
+  compatibility shim, and not something this repo ships as a permanent feature. Migration shims and
+  legacy-data fallbacks are exactly what this codebase avoids; this
   is the opposite of one, an audit that is read once and thrown away. Run it by hand, from the repo
   root, against each environment's real database, once before deploying the fix there:
 

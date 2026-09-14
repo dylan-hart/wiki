@@ -2145,8 +2145,8 @@ body.body--cobalt.body--dark {
 /*
   Cardinal draws square. Every framed thing in the language -- panels, cards, dialogs, fields,
   buttons, chips, the avatar plates -- is a hairline rectangle, and a radius anywhere reads as a
-  different design (`ui-redesign/CLAUDE.md`: "hairline borders, blueprint corner marks", and every
-  screen in `ui-redesign/` draws zero radius).
+  different design ("hairline borders, blueprint corner marks", and every screen in `ui-redesign/`
+  draws zero radius).
 
   Zeroed on the SCALE rather than chased through the markup: `rounded`, `rounded-lg` and friends are
   written in 138 places across the app, and squaring them one by one leaves the next `rounded-md`

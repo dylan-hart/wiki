@@ -170,8 +170,8 @@ export const contentPhase = definePhase({
         writeUnlessDryRun(
           ctx.dryRun,
           // -> Only `.id` is ever read off the result (page-import.ts's importOne()), so a minimal
-          //    object cast through `unknown` is safe here — narrow, deliberate, matching CLAUDE.md's
-          //    cast convention.
+          //    object cast through `unknown` is safe here — narrow, deliberate, matching this
+          //    codebase's cast convention.
           () => placeholderRow() as unknown as Page,
           () => WIKI.models.pages.createPage(siteId, input, actor)
         )

@@ -11,8 +11,7 @@ import { createTestI18n } from '../../test/i18n.js'
  * OpenProject #1668: 13 dialogs carried a dead `<w-input autofocus>` attribute (it lands on
  * `WInput.vue`'s non-focusable root `<div>`) and opened with nothing focused. Each now passes
  * `useDialogComponent({ autofocus: () => iptX.value })` instead -- this is the one representative
- * mount `CLAUDE.md`'s testing convention asks for, proving the wiring actually works rather than
- * re-verifying it by hand in all 13.
+ * mount that proves the wiring actually works rather than re-verifying it by hand in all 13.
  */
 async function mountDialog() {
   setActivePinia(createPinia())

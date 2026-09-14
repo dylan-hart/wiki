@@ -92,11 +92,11 @@ don't scale, and they're what popularity demands most.
 - **Security releases:** separate advisory, patched versions listed, severity, credit to reporter.
 - **Supported versions table:** latest minor only at first; add an LTS line only when a paying customer
   needs it (doc 08).
-- **Squashed migrations (CLAUDE.md policy) must end at v1.0.** Once real installations exist,
+- **Squashed migrations (current project policy) must end at v1.0.** Once real installations exist,
   "drop and recreate your database" is no longer acceptable. Make the policy change explicit in
-  `docs/versioning.md` and CLAUDE.md on the day you tag the first public release people will run.
-  This is the single most important engineering-policy change launch forces.
-- **"No compatibility shims" (CLAUDE.md) also ends for released artefacts:** config keys, API payloads
+  `docs/versioning.md` and the project's own dev docs on the day you tag the first public release
+  people will run. This is the single most important engineering-policy change launch forces.
+- **"No compatibility shims" (current project policy) also ends for released artefacts:** config keys, API payloads
   and stored settings need deprecation windows once users exist.
 
 ---

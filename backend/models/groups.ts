@@ -21,8 +21,8 @@ export const SYSTEM_PERMISSION = 'manage:system'
  * move/rename rather than the page's address -- see `classifications` on `GroupRule` and
  * `ruleMatchesPage` in `helpers/pageRules.ts`.
  *
- * A runtime `as const` array rather than a bare union (no `enum` -- erasable syntax only, see
- * CLAUDE.md's TypeScript section). Module-private: it exists purely to derive `GroupRuleMatch` below,
+ * A runtime `as const` array rather than a bare union (no `enum` -- erasable syntax only).
+ * Module-private: it exists purely to derive `GroupRuleMatch` below,
  * and nothing outside this file reads it. What `api/schemas/group.ts`'s `GroupRule#` JSON Schema
  * imports is `GROUP_RULE_MATCH_VALUES` further down, which ajv can consume as a literal array -- see
  * `GROUP_RULE_MATCH_MEMBERS`'s own doc comment for how that one is pinned to this union at compile
@@ -473,7 +473,7 @@ class Groups extends ClusterReloaded {
    * only `write:pages` rule was scoped to one site read as a writer for every other site it could
    * search at all, unlocking that other site's drafts and password-protected excerpts. Pass `null`
    * only when the caller genuinely has no site to ask about, the way the icon picker doesn't — icon
-   * sets are instance-wide, not per-site (see CLAUDE.md's Icons section) — which reproduces the old,
+   * sets are instance-wide, not per-site — which reproduces the old,
    * always-site-blind behaviour for that one caller rather than silently narrowing it to nothing.
    *
    * OpenProject #2121: unlike `checkAccess()` (#2119), the `manage:system` short-circuit below is NOT

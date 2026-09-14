@@ -90,7 +90,7 @@ export function folderOf(path: string): string {
  *
  * A plain function taking a predicate rather than a request, so OpenProject #884 can exercise the
  * node/edge assembly + permission-filter logic against a fixture page list with no `WIKI` global
- * and no database (CLAUDE.md's "Testing (backend)" pure-unit convention). This stub is enough to
+ * and no database (the pure-unit testing convention this backend follows). This stub is enough to
  * wire the route end to end first — Task 5 (#884) fills in the real body.
  *
  * `classificationName` resolves a classification id to its display name (OpenProject #1217) —

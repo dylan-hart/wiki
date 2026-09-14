@@ -17,7 +17,7 @@ function alias(value: string, isAcronym = false): GlossaryAlias {
 
 /**
  * OpenProject #2038: `invalidateCache()`'s cluster-broadcast half and `subscribeToEvents()`'s
- * inbound handler answering it are pure event-bus wiring, no SQL involved — so, per CLAUDE.md's
+ * inbound handler answering it are pure event-bus wiring, no SQL involved — so, per the
  * "prefer pure unit tests with no WIKI global and no database" guidance, this runs against
  * `test/mocks.ts` stubs rather than `test/db.ts`'s real, migrated database, the same way
  * `models/groups.test.ts` / `models/sites.test.ts` / `models/approvals.test.ts` cover their own
@@ -107,7 +107,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
 
   before(async () => {
     // -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via
-    //    `Date#toTemporalInstant()` + `Temporal.Instant.compare()`, per CLAUDE.md's "Backend patterns".
+    //    `Date#toTemporalInstant()` + `Temporal.Instant.compare()`.
     await ensureTemporal()
     fixtures = await setupTestDb()
     ;({ glossary: glossaryModel } = await import('./glossary.ts'))

@@ -18,8 +18,8 @@ export function generateGraph(targets, t) {
     Every node icon is an SVG under `/_assets/icons/`, the same form the `user` and `pages_wiki`
     nodes below already use. These four (and `pages`/`missingOrigin` further down) were Line Awesome
     webfont glyphs -- `icon: 'las'` plus a raw codepoint rendered into a `<text class="las">` -- and
-    no Line Awesome font is loaded anywhere in this app, so they drew as blank tofu boxes. See
-    CLAUDE.md's Icons section: a webfont-style class name has never resolved to anything here.
+    no Line Awesome font is loaded anywhere in this app, so they drew as blank tofu boxes.
+    A webfont-style class name has never resolved to anything here.
   */
   const types = [
     {

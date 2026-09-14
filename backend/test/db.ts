@@ -1,8 +1,8 @@
 /**
  * DB-backed test fixture: setup/teardown for model tests that need a real Postgres connection.
  *
- * Gated on `DATABASE_URL` exactly like the rare DB-backed `helpers/` test — see "Testing (backend)"
- * in CLAUDE.md. A suite that needs this calls `hasTestDatabase()` in its own gate (skip the whole
+ * Gated on `DATABASE_URL` exactly like the rare DB-backed `helpers/` test. A suite that needs this
+ * calls `hasTestDatabase()` in its own gate (skip the whole
  * `describe` when false) and `setupTestDb()` / `teardownTestDb()` in `before()`/`after()`.
  *
  * `setupTestDb()` creates a fresh, randomly-named schema and migrates into it, so a run never inherits

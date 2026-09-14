@@ -14,8 +14,7 @@
  * Neither `scripts/` nor `.github/` has a test workspace of its own to sit next to, so this lives
  * here as a structural/self-consistency check against repo-root files -- the same category
  * `devcontainerCiParity.test.ts`, `postgres-version-consistency.test.ts` and
- * `devcontainerDatabaseUrl.test.ts` already establish for this directory (see CLAUDE.md's
- * "Testing (backend)" for the rule).
+ * `devcontainerDatabaseUrl.test.ts` already establish for this directory.
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'

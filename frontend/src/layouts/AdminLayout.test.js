@@ -203,9 +203,9 @@ describe('AdminLayout Navigation nav-tree entry', () => {
  *
  * 3.0's TLS posture is termination at a reverse proxy/ingress (see the `trustProxy` setting in
  * `AdminSecurity.vue` and the Docker/Helm assets under `dev/`), not in-app certificate management --
- * so the page, its nav entry, and its locale strings were deleted outright rather than rebuilt, per
- * this repo's CLAUDE.md ("change the shape, change the callers, and delete the old path"). These
- * assertions exist to keep that dead surface from quietly growing back.
+ * so the page, its nav entry, and its locale strings were deleted outright rather than rebuilt --
+ * change the shape, change the callers, delete the old path. These assertions exist to keep that
+ * dead surface from quietly growing back.
  */
 describe('AdminLayout SSL dead-code removal', () => {
   const adminLayoutPath = join(import.meta.dirname, 'AdminLayout.vue')

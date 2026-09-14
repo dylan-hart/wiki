@@ -194,7 +194,7 @@ editorially selected devtools newsletter (current submission process [UNVERIFIED
 | CasaOS, Railway/Render templates, DigitalOcean Marketplace, Elestio, Artifact Hub (Helm) | Not researched live | [UNVERIFIED] |
 | Docker Hub vs GHCR | TrueNAS prefers GHCR (above). Docker Hub typosquatting is well documented (§B4), so publish under one canonical namespace and reserve the Docker Hub name even if you use GHCR | [V]/[S] |
 
-Note: Cardinal's `dev/build/Dockerfile` exists, but the Helm chart was deleted (per CLAUDE.md).
+Note: Cardinal's `dev/build/Dockerfile` exists, but the Helm chart was deleted from this repo.
 Artifact Hub is only relevant once a chart exists.
 
 ## A6. SEO and comparison pages
@@ -336,8 +336,8 @@ require a PoC.
   https://github.com/ossf/project-template/blob/main/SECURITY.md
 - Bad handling: Huntarr (§B1). Good handling: OpenTofu's evidence-based public response (§B2), a
   legal case but the same pattern.
-- Note: Cardinal's repo has `.github/SECURITY.md` inherited from upstream (per CLAUDE.md, carrying a
-  note). Before launch it must point at *Cardinal's* reporting channel, not Requarks'.
+- Note: Cardinal's repo has `.github/SECURITY.md` inherited from upstream, carrying a note about it.
+  Before launch it must point at *Cardinal's* reporting channel, not Requarks'.
 
 ## B4. Supply-chain attacks
 

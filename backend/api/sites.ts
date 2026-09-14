@@ -522,8 +522,8 @@ async function routes(app: FastifyInstance) {
       /*
         No route-level `permissions`: five different `site:*` permissions gate different keys of the
         same body (see `SITE_FIELD_PERMISSIONS`), which `config.permissions` cannot express any more
-        than it can express a page permission — see CLAUDE.md's "A page permission cannot be enforced
-        by `config.permissions`" note, which applies identically to a site-scoped one. Checked in the
+        than it can express a page permission, since that hook only ever reads the group-wide session
+        list — the same reason applies identically to a site-scoped permission. Checked in the
         handler below instead.
       */
       schema: {

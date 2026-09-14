@@ -48,7 +48,7 @@ export interface WatchPageArgs {
  * Start watching a page, gated exactly like `PUT /_api/sites/:siteId/pages/:pageId/watch`
  * (`api/watching.ts`): logged in, and `read:pages` on the page -- the same test as reading it, since
  * watching is "read this page, and tell me when it changes", nothing more. Watching is not itself a
- * page-rule permission (see CLAUDE.md's Permissions section), so this checks `ctx.userId` directly
+ * page-rule permission, so this checks `ctx.userId` directly
  * rather than going through `pageActorFor()` the way `create_page`/`update_page` do -- there is no
  * page-author attribution to build here, only an account to record the watch against.
  *

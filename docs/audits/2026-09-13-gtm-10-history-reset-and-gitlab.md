@@ -152,7 +152,7 @@ Option A, plus everything needed to answer the attribution attack. **If you choo
     - Delete or retag old GHCR images so nobody pulls `ghcr.io/dylan-hart/wiki` by accident.
 11. **Update** the openproject-mcp work-cycle tooling for GitLab (§4) before the next automated run.
 12. **Update this strategy's references**:
-    - CLAUDE.md "What verified means" and Testing (CI) sections;
+    - The dev docs' "What verified means" and Testing (CI) sections;
     - `docs/versioning.md` and `docs/release-checklist.md`;
     - `docs/legal/03`, `/04`, `/07`, which name GitHub URLs and the history.
 13. **Then** cut `v0.9.0` on GitLab (doc 04 C1). awesome-selfhosted's 4-month clock starts at that tag, not at the repo move.

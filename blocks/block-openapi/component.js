@@ -16,7 +16,7 @@ import { DarkMode } from '../shared/theme.js'
   `createApp()` tree and, per its own standalone build (`dist/standalone/lib/html-api.js`), injects
   its stylesheet as a single `<style id="scalar-style">` into `document.head` rather than into
   wherever it was mounted — there is nowhere to hand it a shadow root instead. Every other block here
-  styles itself off `:host` in its own shadow root (see the top of this file's CLAUDE.md); Scalar's
+  styles itself off `:host` in its own shadow root; Scalar's
   approach would mean either rendering this block into the light DOM against page-global CSS `@layer
   scalar-base` rules that could shift cascade order for the whole site, or mounting it inside a shadow
   root where its injected stylesheet then never reaches in and it draws unstyled. Its dependency graph

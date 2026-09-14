@@ -24,7 +24,7 @@ import {
 import { ensureTemporal } from '../test/temporal.ts'
 
 // -> `refreshFromDisk()` compares mtimes via the native `Temporal` API (`Date#toTemporalInstant()` +
-//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns".
+//    `Temporal.Instant.compare()`).
 await ensureTemporal()
 
 /**

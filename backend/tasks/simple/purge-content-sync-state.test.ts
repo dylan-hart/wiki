@@ -12,7 +12,7 @@ import { task } from './purge-content-sync-state.ts'
 /**
  * Exercises the real sweep end to end against Postgres -- the point of this task is a genuine
  * `DELETE ... WHERE NOT EXISTS (...)`, which a mock of the model would not actually verify. Gated
- * on `DATABASE_URL` per CLAUDE.md's DB-backed testing convention.
+ * on `DATABASE_URL` per this repo's DB-backed testing convention.
  */
 describe('purge-content-sync-state task', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures

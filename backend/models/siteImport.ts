@@ -271,7 +271,7 @@ export function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  *   exists in the archive, and left as the archive's own (now-dangling) id otherwise — exactly mirroring
  *   what it already pointed at on the source instance, since it was never a foreign key there either.
  * - **Groups are upserted by id, not replaced.** Unlike pages/tree/assets/history, groups are global
- *   rather than site-scoped (see CLAUDE.md's Permissions section) — wiping the whole table to restore
+ *   rather than site-scoped — wiping the whole table to restore
  *   one site's export would take every other site's access model with it. An imported group updates one
  *   already on this instance when its id matches (the ordinary case: restoring a backup onto the same
  *   instance that produced it) or is inserted as a new one when it does not (importing onto a different

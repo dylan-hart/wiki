@@ -311,8 +311,8 @@ const state = reactive({
 // COMPUTED
 
 // -> `POST icons/sideload` (backend/api/icons.ts) is `manage:system`-only -- icon sets are
-//    instance-wide (see CLAUDE.md's Icons section), so there is no site-scoped delegation to check
-//    alongside it the way AdminLocale.vue's `site:locale` gate does; the control is hidden rather
+//    instance-wide, so there is no site-scoped delegation to check alongside it the way
+//    AdminLocale.vue's `site:locale` gate does; the control is hidden rather
 //    than shown disabled for anyone lacking it.
 const canSideload = computed(() => userStore.can('manage:system'))
 

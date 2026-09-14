@@ -109,7 +109,7 @@ from the list — that is a real, visible fact about that release, not an absenc
 
 **Owner: Feature #425 ("variances.md discipline").**
 
-`docs/variances.md` is the global CLAUDE.md's home for genuine divergences from a recognized public
+`docs/variances.md` is this project's home for genuine divergences from a recognized public
 standard — a protocol, format, or published security baseline (SMTP, IMAP, HTTP, OWASP, an RFC, a
 W3C spec) — never used to excuse a fixable lint or type error, and stale entries get deleted once
 resolved. Implementation decisions, scope descopes, and accepted currency/warning exceptions live in

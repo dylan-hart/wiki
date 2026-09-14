@@ -286,8 +286,8 @@ export interface TranslationStatusRow {
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
- * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones (see
- * CLAUDE.md's Permissions section), so deciding them takes more than the flat `permissions` list:
+ * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones,
+ * so deciding them takes more than the flat `permissions` list:
  * `groupIds` is what `WIKI.models.groups.checkAccess()` resolves a page rule against. See
  * `hasPermission()`.
  *
@@ -1185,7 +1185,7 @@ class Pages {
     }
     // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
     //    checked one layer up, in `api/pages/write.ts` -- the same layering every other page-rule
-    //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
+    //    permission follows. This is the structural check: a
     //    page's classification, whichever direction it moves, may never end up below its immediate
     //    parent's floor.
     // -> Compared against the row as it stands, not merely `!== undefined`: the editor can send a

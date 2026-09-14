@@ -5,7 +5,7 @@ import type { FastifyRequest } from 'fastify'
 
 /**
  * Every event kind this table records, grouped by the subject it happened to. Closed, the same way
- * `PAGE_PERMISSIONS` and the two permission lists in CLAUDE.md are closed -- a caller passes one of
+ * `PAGE_PERMISSIONS` and the other permission lists this codebase uses are closed -- a caller passes one of
  * these strings, never an assembled one.
  */
 export const AUDIT_EVENTS = [

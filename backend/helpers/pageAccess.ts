@@ -7,7 +7,7 @@ import { PAGE_PERMISSIONS } from './permissions.ts'
  *
  * Every page-scoped route answers the same handful of questions before it does anything else: who is
  * asking, what a group's RULES let them do on THIS page (not what their group-wide permission list
- * says — see CLAUDE.md's Permissions section), whether a password still stands between them and the
+ * says), whether a password still stands between them and the
  * body, and what to reply when the answer is no. These used to live in `api/pages.ts`, `api/assets.ts`
  * and `api/tree.ts`, which meant `api/comments.ts`, `api/checklists.ts`, `api/watching.ts`,
  * `api/approvals.ts`, `api/tags.ts`, `api/notifications.ts`, `api/tree.ts` and `controllers/collab.ts`
@@ -35,7 +35,7 @@ export function splitList(value?: string): string[] {
  * to, so it still resolves to `null` here exactly as before — unchanged, not a regression: minting one
  * never granted page-saving either, since this returned `null` for every API key until personal
  * tokens existed to fill it with something real. `write:scripts`/`write:styles` are page-rule-scoped
- * (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is what
+ * (page-rule permissions are checked against a group's rules, not its global list), so `groupIds` travels along too — it is what
  * `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()` does
  * here. `siteId` travels along for the same reason (OpenProject #2189): a personal token pinned to
  * one site must not gain a `write:scripts`/`write:styles` grant on another's page through this path.

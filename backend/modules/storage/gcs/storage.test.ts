@@ -13,8 +13,8 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * stubbed directly on the class prototypes with `node:test`'s `mock.method` — every `Bucket` / `File`
  * instance this module constructs is a real instance of those classes, so patching the prototype
  * catches every call, exactly as `azure/storage.test.ts` does for `@azure/storage-blob`.
- * `WIKI.logger`/`WIKI.models.assets` are the only `WIKI` members `storage.ts` touches — see "Testing
- * (backend)" in CLAUDE.md for the pure-unit-test convention this follows.
+ * `WIKI.logger`/`WIKI.models.assets` are the only `WIKI` members `storage.ts` touches — matching the
+ * pure-unit-test convention this repo's backend testing follows.
  */
 
 installTestWiki({

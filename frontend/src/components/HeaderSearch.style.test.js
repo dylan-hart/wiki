@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest'
  * aesthetic class to appear as a DESCENDANT of `.is-focused`, backwards from the real DOM where
  * `body.body--*` is always the top-level ancestor, so the rule could never match.
  *
- * Vitest doesn't run a real SCSS compiler or a layout engine (see CLAUDE.md's "Testing (frontend)"),
- * so this asserts against the raw `<style lang="scss">` source text itself: the two flat, correctly
+ * Vitest doesn't run a real SCSS compiler or a layout engine, so this asserts against the raw
+ * `<style lang="scss">` source text itself: the two flat, correctly
  * scoped selectors must be present, and the backwards-nesting pattern that produced the bug must not
  * reappear.
  */

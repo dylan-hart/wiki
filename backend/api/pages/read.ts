@@ -337,7 +337,7 @@ async function routes(app: FastifyInstance) {
     /*
       No route-level permissions: visibility is enforced per row via `filterVisible`, inherited
       through `WIKI.models.semanticSearch.search()` (Feature #3092) — same convention as `pages/search`
-      above. See CLAUDE.md's Permissions section.
+      above.
     */
     {
       schema: {

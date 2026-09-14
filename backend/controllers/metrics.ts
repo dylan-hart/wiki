@@ -36,7 +36,7 @@ import type { FastifyInstance } from 'fastify'
  * here, calling the same `WIKI.models.apiKeys.verify(token)` that hook calls, and the same
  * `manage:system` global permission check the shared `preHandler` hook applies elsewhere — not the
  * `read:metrics` string the admin UI used to advertise, which named no permission this repo actually
- * grants (see "Permissions" in CLAUDE.md: the global list is closed).
+ * grants (the global permission list is closed).
  */
 async function routes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {

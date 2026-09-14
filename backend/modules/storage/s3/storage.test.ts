@@ -26,8 +26,8 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * Pure unit tests: no database, no real network. The S3 SDK's HTTP layer is stubbed via
  * `aws-sdk-client-mock`, which patches `S3Client.prototype.send` — every instance this module
  * constructs is caught by the one mock installed below. `WIKI.logger`/`WIKI.models.assets` are the
- * only `WIKI` members `storage.ts` touches, so that's all the global stub needs to carry — see
- * "Testing (backend)" in CLAUDE.md for the pure-unit-test convention this follows.
+ * only `WIKI` members `storage.ts` touches, so that's all the global stub needs to carry — matching
+ * the pure-unit-test convention this repo's backend testing follows.
  */
 
 const s3Mock = mockClient(S3Client)

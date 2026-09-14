@@ -3,9 +3,9 @@
  *
  * Mirrors `backend/helpers/network.ts`'s `isValidOriginPattern` (and, through it,
  * `originMatchesAllowlist`'s own matching rules) by hand rather than by import: `frontend/` and
- * `backend/` are independently-installed workspaces with no shared-code mechanism between them (see
- * root `CLAUDE.md`'s workspace layout), so this is the same "one canonical pattern, copied with a
- * pointer back to the source of truth" approach `siteValidation.js`'s `hostnamePattern` already uses
+ * `backend/` are independently-installed workspaces with no shared-code mechanism between them, so
+ * this is the same "one canonical pattern, copied with a pointer back to the source of truth"
+ * approach `siteValidation.js`'s `hostnamePattern` already uses
  * for the site-hostname schema. Keep the two definitions in sync by hand if either one changes
  * (OpenProject #2185/#2195, replacing the hostname-only `domainPattern.js` this superseded).
  *

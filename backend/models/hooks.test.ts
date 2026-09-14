@@ -525,7 +525,7 @@ describe('hooks per-site scoping (DB-backed)', { skip: !hasTestDatabase() }, () 
 /**
  * `getDeliveryHistory()` is a filtered, paginated read against the shared `jobHistory` table (a
  * `task = 'dispatchWebhook'` + `payload->>'hookId'` match, backed by a partial expression index) —
- * squarely the kind of SQL orchestration CLAUDE.md says to verify against a real database rather than
+ * squarely the kind of SQL orchestration worth verifying against a real database rather than
  * a mock of the query builder.
  */
 describe('hooks getDeliveryHistory (DB-backed)', { skip: !hasTestDatabase() }, () => {

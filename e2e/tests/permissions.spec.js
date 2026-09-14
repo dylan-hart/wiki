@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { createAndPublishPage, loginAsAdmin, submitLogin, uniqueSlug } from '../helpers/admin.js'
 
 /**
- * Page-rule permission enforcement (task 984): the flow the subsystem's own CLAUDE.md calls
+ * Page-rule permission enforcement (task 984): the flow this subsystem's own conventions call
  * highest-risk and REVIEW.md's manual checklist puts first, with no e2e coverage before this.
  *
  * The default first-run seed (`models/groups.ts`'s `init()`) gives the `Users` system group

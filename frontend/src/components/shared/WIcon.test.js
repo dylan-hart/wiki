@@ -17,7 +17,7 @@ describe('WIcon', () => {
     // -> Built by concatenation, not a literal: `scripts/generate-icons.mjs` scans quoted literals
     //    matching the ref shape and would otherwise try (and fail) to bundle this fake icon name.
     //    That's also exactly the case being tested here — a reference the static scan never sees,
-    //    same as an icon a user picks at runtime, per CLAUDE.md's Icons section.
+    //    same as an icon a user picks at runtime.
     const unbundledRef = 'mdi:' + 'some-icon-nobody-picked-yet'
     const wrapper = mount(WIcon, { props: { name: unbundledRef } })
 
@@ -52,7 +52,7 @@ describe('WIcon', () => {
   })
 
   it('renders nothing for a legacy webfont-style name', () => {
-    // -> Regression case for the CLAUDE.md/WIcon.vue discrepancy (task 470): CLAUDE.md used to claim
+    // -> Regression case for a doc/code discrepancy (task 470): project docs used to claim
     //    `las la-cog` / `mdi-check` webfont names were mapped onto Iconify equivalents. No such mapping
     //    ever existed in this component -- it only recognizes `img:` and the Iconify `prefix:name`
     //    shape -- and none is being added, since nothing in this fork (or the planned 2.5.x migration

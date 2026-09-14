@@ -329,7 +329,7 @@ export function compareFoldersFirst(
  *
  * Exported for `navigation.ts#resolveGeneratorRoot`, which needs the same split to look up the
  * tree id of the folder an `auto`/`mixed` menu's root path names (OpenProject #2442) -- one owner
- * for the question, per CLAUDE.md's "Cross-model reuse is an explicit export" rule.
+ * for the question, per this codebase's "cross-model reuse is an explicit export" rule.
  */
 export function splitPath(path: string): { folderPath: string; fileName: string } {
   const parts = path.split('.')

@@ -124,8 +124,8 @@ async function routes(app: FastifyInstance) {
         containment layer — a knowing, not incidental, trust decision: anyone holding `manage:sites`
         on a site can already inject markup into every page of it, and this route extends that to
         arbitrary script, wiki-wide, on the next page view of any block using it. `manage:sites` is
-        also the only correct gate available here: it is a closed, group-wide permission (CLAUDE.md's
-        Permissions section) and no new, narrower permission name may be invented for this route.
+        also the only correct gate available here: it is a closed, group-wide permission
+        and no new, narrower permission name may be invented for this route.
 
         NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
         the narrower site-scoped `site:blocks` delegation (`checkSiteAdminAccess()`, backed by

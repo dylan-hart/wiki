@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DarkMode, isDark, watchTheme } from './theme.js'
 
 /**
- * OpenProject #1968 / testing.md §6: `theme.js` is imported by 21 of the 26 blocks and is the module
- * CLAUDE.md makes mandatory (`:host-context()` silently never matches outside Chromium), yet before
+ * OpenProject #1968 / testing.md §6: `theme.js` is imported by 21 of the 26 blocks and is the
+ * mandated dark-mode module (`:host-context()` silently never matches outside Chromium), yet before
  * this it was exercised only as a side effect of the 11 block suites that happen to assert on dark
  * mode. This pins `watchTheme`'s shared-observer lifecycle and the `DarkMode` controller directly,
  * against a minimal stand-in for Lit's `ReactiveElement` rather than a real block.

@@ -382,7 +382,7 @@ oversight.
 
 Access requires a **Bearer API key** with the `manage:system` global permission — the same permission
 gate as every other system-level action in this document, not a separate `read:metrics` permission
-(no such permission exists — see "Permissions" in the project's `CLAUDE.md`). With the feature flag
+(no such permission exists in this project's closed permission list). With the feature flag
 off, the route behaves as if it does not exist (a plain 404) for any caller, authenticated or not.
 
 ## Container mounts

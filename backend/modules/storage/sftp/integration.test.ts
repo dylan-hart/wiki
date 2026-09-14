@@ -20,7 +20,7 @@ import { ensureTemporal } from '../../../test/temporal.ts'
  * `127.0.0.1` and reads back real files from a real (temporary) directory on disk; the only thing
  * replaced is the database query each of `exportPages`/`exportAssets` would otherwise run
  * (`fetchBatch`), following the same dependency-injection convention their own unit tests already use
- * — this is exactly the "not SQL orchestration" case CLAUDE.md's testing conventions say to stub
+ * — this is exactly the "not SQL orchestration" case this repo's testing conventions say to stub
  * rather than reaching for a live Postgres for.
  *
  * `injectFrontMatter` (via `exportPages`) converts a page's `createdAt`/`updatedAt` through

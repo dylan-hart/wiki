@@ -31,7 +31,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  *     creates or exports something scoped to one site (`api/hooks.ts`'s webhook create/update,
  *     `api/apiKeys.ts`'s admin-issued key create, `api/system/transfer.ts`'s `/export`) — deliberately left
  *     *uncalled*, not merely unenumerated: `manage:system` already bypasses every other authorization
- *     check in this codebase (see CLAUDE.md's Permissions section), so pinning would be enforced only
+ *     check in this codebase, so pinning would be enforced only
  *     on this one action a `manage:system` key can take and nowhere else it matters just as much — an
  *     inconsistent partial boundary rather than a real one. Each such route carries a comment pointing
  *     back here instead of a call.

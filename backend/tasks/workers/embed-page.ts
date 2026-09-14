@@ -74,7 +74,7 @@ export async function embedPage(pageId: string): Promise<void> {
 
 /**
  * Worker-thread entry point, dynamically imported by `worker.ts` as `tasks/workers/embed-page.ts`
- * for the `embedPage` job (see CLAUDE.md's "Five dynamic paths are extension-sensitive").
+ * for the `embedPage` job (one of this repo's extension-sensitive dynamic paths).
  *
  * Enqueued once per page save (`models/pages.ts`) via `WIKI.scheduler.addJob({ task: 'embedPage',
  * payload: { pageId } })` -- never once per chunk, since chunking happens inside `embedPage()`

@@ -61,7 +61,7 @@ Checked directly in `backend/api/blocks.ts` and `backend/api/blockCredentials.ts
 Only the **upload** route declares `config: { permissions: ['manage:sites'] }` and is enforced by the
 global permission hook — introducing NEW arbitrary script is gated one tier tighter than acting on script
 someone already uploaded. PUT, DELETE, and every `blockCredentials.ts` route instead check in-handler
-(`config.permissions` cannot express a per-site check at all — see CLAUDE.md's Permissions section), and
+(`config.permissions` cannot express a per-site check at all), and
 that handler-level check accepts either `manage:sites` or the narrower, site-scoped `site:blocks`
 delegation. There is no route-specific bypass beyond that — no alternate code path reaches
 `createCustomBlock`, `setBlocksState`, `deleteCustomBlock`, or any `blockCredentials` model method without
@@ -71,7 +71,7 @@ suggesters, not administrators — that route is read-only and cannot register, 
 so it is out of scope for this review's "who may execute arbitrary code" question.
 
 **`manage:sites` and `site:blocks` are now equivalent to each other for script execution on a given
-site.** CLAUDE.md's Permissions section lists the closed set of global permissions (`manage:sites` among
+site.** The project's closed set of global permissions (`manage:sites` among
 them) and the closed set of site-scoped delegation permissions (`site:blocks` among them); no new
 permission name may be invented for either tier. Within the scope of _this site's_ custom blocks, treat
 the two as interchangeable: `site:blocks` cannot introduce new uploaded code (upload stays `manage:sites`
@@ -102,7 +102,7 @@ class** for a `manage:sites` holder — they can already edit site theme/CSS, na
 upload — but it is a materially more direct and more durable path to the same outcome (no browser-quirk
 dependence the way SVG-script execution can have; runs as a real ES module on every relevant page view).
 Accepted, not mitigated: mitigating it further (e.g. a distinct `upload:blocks` permission) would require
-inventing a new permission name, which CLAUDE.md's closed permission list forbids, and would not change who
+inventing a new permission name, which this project's closed permission list forbids, and would not change who
 is being trusted in practice at this stage of the feature (there is no distinct "block author who is not
 also a site administrator" role in the current permission model to delegate to).
 
@@ -223,7 +223,7 @@ and `backend/helpers/blockDefinition.test.ts`'s `on*`/glob-prop-name cases.
 | Question                                                                                                                                                                    | Answer                                                                                            | Verified by                                                                                                                                                                 |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Does a custom block run as full same-origin JS with no execution sandbox?                                                                                                   | Yes                                                                                               | Reading `loadBlocks()`/`blockImportUrl()` and `controllers/blocks.ts`; documented in §1                                                                                     |
-| Is `manage:sites` the correct gate for uploading NEW script?                                                                                                                | Yes, and it is the only one — upload does not accept `site:blocks`                                | Reading the POST route's `config.permissions` + `AdminLayout.vue`; CLAUDE.md's closed permission list                                                                       |
+| Is `manage:sites` the correct gate for uploading NEW script?                                                                                                                | Yes, and it is the only one — upload does not accept `site:blocks`                                | Reading the POST route's `config.permissions` + `AdminLayout.vue`; the closed permission list                                                                       |
 | Do PUT/DELETE (and `blockCredentials.ts`) also accept `site:blocks`, and is that consistent with what's documented?                                                         | Yes to both — an intentional widening from Feature #409, now stated here rather than contradicted | Reading `mayManageBlocks()`/`mayManageCredentials()`; `backend/api/blocks.test.ts`'s site-scoped delegation suite |
 | Does `security.cspDirectives` need a change?                                                                                                                                | No                                                                                                | Reading `index.ts` helmet registration, `parseCspDirectives()`, and `controllers/blocks.ts`'s headers                                                                       |
 | Is there a reasonable, enforced upload size cap?                                                                                                                            | Yes — `security.uploadMaxFileSize`, same key as `assets.ts`                                       | New test: oversized payload → `413`                                                                                                                                         |

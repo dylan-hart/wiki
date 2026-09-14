@@ -91,7 +91,7 @@ export interface CommentProvider {
  * The `default` provider's comments are read through `models/comments.ts` calls a route makes, and
  * any such route checks `mayOnPage(req, 'read:comments', page)` (`helpers/pageAccess.ts`) before returning
  * anything — the same page-rule boundary every other page-scoped permission in this codebase goes
- * through (see CLAUDE.md's "Permissions" section: `read:comments` is a **page rule** permission,
+ * through (`read:comments` is a **page rule** permission,
  * bound to path/locale/tags via a group's rules, not a global one — it cannot be enforced by
  * Fastify's route-level `config.permissions` hook, only by an explicit `mayOnPage`/`checkAccess` call
  * in the handler).
@@ -105,7 +105,7 @@ export interface CommentProvider {
  * who lacks `read:comments` on that specific page, that is a leak the native provider's own
  * `mayOnPage` check exists precisely to prevent. So: **whatever future code renders a `codeTemplate`
  * provider's embed on a page view must call `mayOnPage(req, 'read:comments', page)` (or the
- * equivalent frontend-side `userStore.pagePermissions` check described in CLAUDE.md) and skip
+ * equivalent frontend-side `userStore.pagePermissions` check) and skip
  * emitting the embed script entirely when it is false** — not merely hide the resulting widget with
  * CSS, which would still have let the third-party script load and phone home first.
  *

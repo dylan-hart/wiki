@@ -98,7 +98,7 @@ class ExportModel {
         WIKI.db.select().from(assetsTable).where(eq(assetsTable.siteId, siteId)),
         WIKI.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
         WIKI.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
-        // -> Groups are global, not site-scoped (see CLAUDE.md's Permissions section) — a site's
+        // -> Groups are global, not site-scoped — a site's
         //    access model cannot be reconstructed from its own rows alone. `isSystem` rows
         //    (Administrators/Users/Guests, seeded by `models/groups.ts#init`) are excluded:
         //    `importSite` upserts groups by id, and the three behave differently on a *different*

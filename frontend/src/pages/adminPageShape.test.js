@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest'
  *
  * - a **settings page** is one whose whole content is a settings form. All but two of them share
  *   `composables/adminSettings.js` for their load/save skeleton, and the two that do not --
- *   `AdminComments` and `AdminStorage` -- are the hold-outs CLAUDE.md already documents, each doing
- *   more inside its own `save()` than the composable's options cover. They take `WSettingsCard` and
+ *   `AdminComments` and `AdminStorage` -- are the documented hold-outs, each doing more inside its
+ *   own `save()` than the composable's options cover. They take `WSettingsCard` and
  *   `WSettingsRow` (roll-out: #2700).
  * - a **list, viewer or tool page** is everything else except `AdminDashboard`, which is neither
  *   (it is the admin area's landing screen, designed in handoff 1).
