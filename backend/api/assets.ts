@@ -4,6 +4,7 @@ import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import { dispositionFor } from '../models/assets.ts'
 import { actorFrom, mayOnAsset } from '../helpers/pageAccess.ts'
+import { limitUploads } from '../helpers/rateLimit.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -52,6 +53,12 @@ async function routes(app: FastifyInstance) {
         No route-level `permissions`: that hook reads the group-wide list, and asset permissions come
         from a group's RULES, which address the folder the file is in. Checked below.
       */
+      // -> A tighter, upload-specific limit than the generic per-caller `/_api/*` ceiling -- once a
+      //    multi-file selection goes through the batch endpoint instead, a rapid burst of single-file
+      //    requests here is the signature of a caller working around that endpoint's own file-count
+      //    cap, not real single-upload usage. See `helpers/rateLimit.ts#limitUploads` (OpenProject
+      //    #3234).
+      preHandler: limitUploads,
       schema: {
         summary: 'Upload an asset',
         description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The file name is sanitized, so the stored name in the response may differ from the one sent; the type served back later comes from that name's extension rather than from the request. Images get a thumbnail when the Sharp extension is installed.\n\nA file already at that name in that folder is settled by the site's upload conflict behavior: \`overwrite\` (the default) replaces it in place and answers with its existing ID, \`reject\` answers 409, and \`new\` stores the arrival as the next free \`name-1.ext\`. So the name and ID in the response are what to link to — never the ones that were sent. A page or a folder holding the name is answered 409 whichever behavior is set.`,
