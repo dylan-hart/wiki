@@ -1,8 +1,8 @@
 import path from 'node:path'
 import os from 'node:os'
-import { filesize } from 'filesize'
 import { isNil } from 'es-toolkit/predicate'
 import { gte, sql } from 'drizzle-orm'
+import { formatByteSize } from '../../helpers/common.ts'
 import {
   groups as groupsTable,
   hooks as hooksTable,
@@ -225,7 +225,7 @@ async function routes(app: FastifyInstance) {
         operatingSystem: `${os.type()} (${os.platform()}) ${os.release()} ${os.arch()}`,
         pagesTotal: await WIKI.db.$count(pagesTable),
         platform: os.platform(),
-        ramTotal: filesize(os.totalmem()),
+        ramTotal: formatByteSize(os.totalmem()),
         upgradeCapable: !isNil(process.env.UPGRADE_COMPANION),
         usersTotal: await WIKI.db.$count(usersTable),
         webhooksTotal: await WIKI.db.$count(hooksTable),
