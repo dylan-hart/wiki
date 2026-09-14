@@ -1,5 +1,9 @@
 import { importAsset } from '../importers/asset-import.ts'
-import { importComment } from '../importers/comment-import.ts'
+import {
+  createCommentImportState,
+  importComment,
+  resolveCommentReplies
+} from '../importers/comment-import.ts'
 import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
 import { placeholderRow, writeUnlessDryRun } from './dry-run.ts'
@@ -41,12 +45,20 @@ function toRecordOutcome(
  *
  * This phase wires `importers/asset-import.ts` (`importAsset()`, driving
  * `models/tree.ts#getFolder({ createIfMissing: true })` then `models/assets.ts#upload()`) and
- * `importers/comment-import.ts` (`importComment()`, driving `models/comments.ts#create()`).
+ * `importers/comment-import.ts` (`importComment()`, driving `models/comments.ts#create()`, plus
+ * `resolveCommentReplies()`, driving `models/comments.ts#setReplyTo()`).
  *
  * `assets` and `comments` are independent entities (unlike `content`'s strictly-sequential `pages` then
  * `navigation`) — comments resolve `pageId` through `ctx.pageIdMap`, which is already fully populated
  * once this phase starts (the `content` phase this one `dependsOn` has already finished), not through
  * anything `assets` itself produces, so entity order between the two does not matter here.
+ *
+ * `comments` alone carries a second pass of its own: `commentState` below is a live
+ * `CommentImportState` `classify` populates as each comment is written, and the entity's
+ * `onComplete` hook (run once the whole `comments` stream is exhausted — see `define-phase.ts`)
+ * resolves every reply `classify` couldn't resolve inline, because it named a comment appearing
+ * later in the same stream (OpenProject #3204). `assets` has no equivalent need — an asset's folder
+ * placement never depends on another asset the way a reply depends on its parent comment.
  *
  * ## Dry run
  *
@@ -55,7 +67,8 @@ function toRecordOutcome(
  * touching the ambient `WIKI` global, minting a placeholder id instead — so a `dryRun: true` run's
  * `entities()` construction touches `WIKI` nowhere at all, and `importAsset()`/`importComment()`'s own
  * real classification logic (folder resolution, actor fallback, missing-page detection) still runs
- * identically in both modes.
+ * identically in both modes. `commentsModel.setReplyTo()` follows the same split, so a dry run's
+ * `onComplete` pass touches `WIKI` no more than its `create()` calls did.
  */
 export const assetsPhase = definePhase({
   id: 'assets',
@@ -101,7 +114,13 @@ export const assetsPhase = definePhase({
 
     const commentsModel: CommentsWriteModel = {
       create: (input) =>
-        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.comments.create(input))
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.comments.create(input)),
+      setReplyTo: (id, replyTo) =>
+        writeUnlessDryRun(
+          ctx.dryRun,
+          () => undefined,
+          () => WIKI.models.comments.setReplyTo(id, replyTo)
+        )
     }
     const commentDeps: CommentImportDeps = { commentsModel }
     const commentOptions: CommentImportOptions = {
@@ -109,6 +128,10 @@ export const assetsPhase = definePhase({
       pageIdMap,
       userIdMap
     }
+    // -> Live reference `importComment()` populates as each comment is written and
+    //    `resolveCommentReplies()` reads once the whole `comments` stream is exhausted — see
+    //    `CommentImportState`'s own doc comment for why reply threading needs this second pass.
+    const commentState = createCommentImportState()
 
     return {
       assets: {
@@ -133,13 +156,17 @@ export const assetsPhase = definePhase({
         classify: async (record, recorder) => {
           const source = record as SourceRecord
           const identifier = String(source.id ?? 'unknown')
-          const outcome = await importComment(source, commentDeps, commentOptions)
+          const outcome = await importComment(source, commentDeps, commentOptions, commentState)
           if (outcome.result === 'failure') {
             const failure: CommentImportFailure = outcome.failure
             ctx.log?.(`comment ${failure.oldId}: ${failure.reason} — ${failure.message}`)
           }
           await routeOutcome(recorder, identifier, toRecordOutcome(outcome))
-        }
+        },
+        // -> Runs once every comment in the stream has been written (`commentState.idMap` is as
+        //    complete as this run will ever make it), resolving deferred `replyTo`s a first pass
+        //    could not — see `CommentImportState`'s own doc comment.
+        onComplete: () => resolveCommentReplies(commentDeps, commentState, ctx.log)
       }
     }
   }

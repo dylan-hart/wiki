@@ -180,5 +180,64 @@ describe(
       const allComments = await fixtures.db.select().from(commentsTable)
       assert.equal(allComments.length, 1)
     })
+
+    test('carries real 2.x timestamps through and resolves a forward-referencing reply thread (OpenProject #3204)', async () => {
+      const threadedConnector = stubSourceConnector({
+        comments: () =>
+          iter<SourceRecord>([
+            {
+              // -> Old id 20's reply names old id 21, which has not been imported yet at this point
+              //    in the stream -- the exact forward-reference case the second pass exists for.
+              id: 20,
+              pageId: 1,
+              authorId: 555,
+              content: 'A reply to a comment further down the stream',
+              replyTo: 21,
+              createdAt: '2020-02-02T00:00:00.000Z',
+              updatedAt: '2020-02-02T00:00:00.000Z'
+            },
+            {
+              id: 21,
+              pageId: 1,
+              authorId: 555,
+              content: 'The original comment, imported second',
+              replyTo: 0, // -> 2.x's own top-level sentinel, not null
+              createdAt: '2020-01-01T00:00:00.000Z',
+              updatedAt: '2020-01-01T00:00:00.000Z'
+            }
+          ]),
+        assets: () => iter([])
+      })
+      const ctx: MigrationContext = {
+        db: fixtures.db,
+        source: threadedConnector,
+        siteId: fixtures.siteId,
+        dryRun: false,
+        localStrategyId: 'unused-local-strategy',
+        systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
+        operatorActorId: fixtures.userId,
+        userIdMap: new Map([[555, fixtures.userId]]),
+        pageIdMap: seededPageIdMap
+      }
+
+      const result = await assetsPhase.run(ctx)
+
+      assert.equal(result.status, 'ok')
+      assert.deepEqual(result.counts, { assets: 0, comments: 2 })
+
+      const threadRows = await fixtures.db
+        .select()
+        .from(commentsTable)
+        .where(eq(commentsTable.pageId, pageId))
+      const reply = threadRows.find((row) => row.content.startsWith('A reply'))!
+      const original = threadRows.find((row) => row.content.startsWith('The original'))!
+
+      assert.ok(reply, 'the reply comment was written')
+      assert.ok(original, 'the original comment was written')
+      assert.equal(reply.replyTo, original.id, 'the forward reference resolved to the real parent')
+      assert.equal(original.replyTo, null, 'the 0-sentinel top-level comment stayed top-level')
+      assert.equal(reply.createdAt.toISOString(), '2020-02-02T00:00:00.000Z')
+      assert.equal(original.createdAt.toISOString(), '2020-01-01T00:00:00.000Z')
+    })
   }
 )

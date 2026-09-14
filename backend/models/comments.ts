@@ -190,7 +190,9 @@ class Comments {
     content,
     guestName = null,
     guestEmail = null,
-    guestIp = null
+    guestIp = null,
+    createdAt,
+    updatedAt
   }: {
     siteId: string
     pageId: string
@@ -200,6 +202,19 @@ class Comments {
     guestName?: string | null
     guestEmail?: string | null
     guestIp?: string | null
+    /**
+     * Backdates the new comment's `createdAt` column instead of stamping the moment `create()` runs.
+     * There is no UI for this and a live comment post never sets it, so ordinary posting keeps the
+     * column's `now()` default; only the migration importer
+     * (`backend/migration/importers/comment-import.ts`) supplies it, to carry a 2.x comment's real
+     * post date across rather than replacing it with import time — same reasoning as
+     * `models/pages.ts#createPage()`'s `createdAt`/`updatedAt` (OpenProject #3204). This also fixes
+     * `listForPage()`'s ordering-by-`createdAt` for a migrated thread, which otherwise sorted by
+     * import order rather than real chronology.
+     */
+    createdAt?: string
+    /** Same reasoning as {@link createdAt}, for `updatedAt`. */
+    updatedAt?: string
   }): Promise<Comment> {
     const trimmed = content.trim()
     if (trimmed.length < MIN_CONTENT_LENGTH) {
@@ -219,12 +234,28 @@ class Comments {
         content: trimmed,
         guestName,
         guestEmail,
-        guestIp
+        guestIp,
+        ...(createdAt ? { createdAt: new Date(createdAt) } : {}),
+        ...(updatedAt ? { updatedAt: new Date(updatedAt) } : {})
       })
       .returning()
     const comment = rows[0]
     await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
     return comment
+  }
+
+  /**
+   * Sets `replyTo` on an existing comment directly, bypassing `create()` entirely.
+   *
+   * No live code path needs this: a live reply always knows its parent's real id up front, at
+   * `create()` time. This exists solely for the migration importer's reply-threading fix
+   * (`comment-import.ts`, OpenProject #3204) — a 2.x reply can name a comment that appears later in
+   * the same source stream and therefore has no destination id yet when it is written, so every
+   * imported comment is first created top-level, and only once every comment in the stream has a
+   * real id does a second pass resolve and patch each one's true `replyTo` in with this method.
+   */
+  async setReplyTo(id: string, replyTo: string): Promise<void> {
+    await WIKI.db.update(commentsTable).set({ replyTo }).where(eq(commentsTable.id, id))
   }
 
   /**

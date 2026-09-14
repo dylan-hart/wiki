@@ -24,6 +24,8 @@ export interface AssetsWriteModel {
     mimeType?: string | null
     data: Buffer
     authorId: string
+    createdAt?: string
+    updatedAt?: string
   }): Promise<UploadedAsset>
 }
 
@@ -119,9 +121,12 @@ async function bufferStream(stream: SourceAssetFile['stream']): Promise<Buffer> 
  * failure kind. A root-level asset passes `folderId: undefined` straight through, matching
  * `models/assets.ts#upload()`'s own "the site root when absent" contract.
  *
- * Asset `createdAt`/`updatedAt` cannot be preserved — `upload()` has no parameter for it (unlike
- * `createPage()`) — so an imported asset's timestamps are always "now," not the source's real dates.
- * This is a documented, accepted gap, tracked for a real fix as OpenProject #3204.
+ * `file.createdAt`/`file.updatedAt` (real `Date`s, Postgres-direct connector only — see
+ * `SourceAssetFile`'s own doc comment) are threaded through to `upload()`'s own override params as
+ * ISO strings, so an imported asset carries the 2.x source's real creation/modification date rather
+ * than import time (OpenProject #3204). Absent (export-bundle connector, which carries no per-asset
+ * metadata sidecar at all) leaves both unset, and the destination row keeps `upload()`'s ordinary
+ * `now()` default.
  */
 export async function importAsset(
   file: SourceAssetFile,
@@ -208,7 +213,9 @@ export async function importAsset(
       fileName,
       mimeType: file.mimeType,
       data,
-      authorId: actor.actorId
+      authorId: actor.actorId,
+      createdAt: file.createdAt?.toISOString(),
+      updatedAt: file.updatedAt?.toISOString()
     })
 
     return {
