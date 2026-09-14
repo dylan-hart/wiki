@@ -96,9 +96,12 @@ to the backend on **3000**, so the backend must be running too.
   `<prefix>.loadFailed`/`.saveSuccess`/`.saveFailed`/`.refreshSuccess` toasts, the failed-save
   caption (`t('<prefix>.' + err.data?.error, apiErrorMessage(err, …))` — the page's own wording for
   the server's error code, falling back to the server's message), the `adminStore.currentSiteId`
-  watcher and its mounted load, the "no `currentSiteId`, don't fetch" guard, and the "am I editing
-  the site I am browsing" gate in front of `onSavedCurrentSite`. A page keeps only what is its own —
-  `defaultConfig()`, the requests, the payload mapping, and any action beyond loading and saving;
+  watcher and its mounted load, the "no `currentSiteId`, don't fetch" guard, the "am I editing
+  the site I am browsing" gate in front of `onSavedCurrentSite`, and (Task #3195) `load()` dropping
+  a response rather than applying it once it is stale — superseded by a newer `load()` call, or
+  landing after the reader has already edited `state.config`/`extraState` since this fetch started.
+  A page keeps only what is its own — `defaultConfig()`, the requests, the payload mapping, and any
+  action beyond loading and saving;
   page-specific reactive fields go in `extraState` so the template keeps reading `state.x`. `save()`
   answers `true`/`false` so a page can act only on a stored change, and `refresh()` is the
   composable's, not a per-page `await load(); notify(...)` wrapper. Twenty pages use it;

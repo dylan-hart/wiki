@@ -25,6 +25,11 @@ import { useSiteStore } from '@/stores/site'
  * What a page keeps is what is genuinely its own: `defaultConfig()`, the requests, the payload
  * mapping and any action beyond loading and saving.
  *
+ * `load()` also owns not silently reverting a reader's own edit (Task #3195): a response is applied
+ * only if no newer `load()` call has since started and no tracked field (`state.config`, or each
+ * `extraState` key) changed while its fetch was in flight -- otherwise it is dropped rather than
+ * merged over whatever the reader has done since.
+ *
  * @param {object} opts
  * @param {string} opts.i18nPrefix The page's locale key stem -- `<prefix>.loadFailed`,
  *   `<prefix>.saveSuccess`, `<prefix>.saveFailed`, `<prefix>.refreshSuccess`, and the stem the
@@ -96,6 +101,27 @@ export function useAdminSettings({
     ...extraState
   })
 
+  // -> Task #3195: `load()` re-fires on the `currentSiteId` watcher below, and its own response can
+  //    land well after it was sent (the watcher itself commonly fires a redundant, unchanged-data
+  //    reload shortly after mount, once `currentSiteId` settles). Applying a response unconditionally
+  //    would silently revert whatever the reader has since done to `state.config`/`extraState` (e.g.
+  //    toggling a locale). `requestGeneration` drops a response whose `load()` call has since been
+  //    superseded by a newer one; `snapshotTracked()` drops a response whose tracked fields changed
+  //    under it while its fetch was in flight, superseded or not.
+  let requestGeneration = 0
+
+  function snapshotTracked() {
+    if (defaults) {
+      return JSON.stringify(state.config)
+    }
+    if (extraState) {
+      return JSON.stringify(
+        Object.fromEntries(Object.keys(extraState).map((key) => [key, state[key]]))
+      )
+    }
+    return null
+  }
+
   async function load() {
     // -> The guard the site-scoped pages spelled out in `onMounted` (and, in a few, at the top of
     //    `load()`): with no site chosen there is nothing to address a request to.
@@ -106,12 +132,19 @@ export function useAdminSettings({
     if (overlay) {
       loading.show()
     }
+    const generation = ++requestGeneration
+    const before = snapshotTracked()
     try {
       const resp = await fetch(adminStore.currentSiteId)
-      if (defaults) {
-        state.config = toMerged(defaults(), (pick ? pick(resp) : resp) ?? {})
+      // -> This response is stale -- either a newer `load()` has since started, or the reader edited
+      //    a tracked field while this fetch was in flight -- so applying it would silently overwrite
+      //    something more current. Drop it rather than merge.
+      if (generation === requestGeneration && snapshotTracked() === before) {
+        if (defaults) {
+          state.config = toMerged(defaults(), (pick ? pick(resp) : resp) ?? {})
+        }
+        onLoaded?.(resp)
       }
-      onLoaded?.(resp)
     } catch (err) {
       notify({
         type: 'negative',
