@@ -174,14 +174,25 @@ const ISO_DURATION_UNITS = ['years', 'months', 'weeks', 'days', 'hours', 'minute
  * How long an ISO-8601 duration is, in words.
  *
  * @param {string|false|null} value An ISO-8601 duration such as `PT5M`, or `false`/null for "no
- *   schedule" (a module that only ever acts on write).
- * @returns {string} e.g. `5 minutes`, `1 day, 12 hours`, or `---` for nothing at all.
+ *   schedule" (a module that only ever acts on write). Since Issue #3197, a storage target's
+ *   `scheduleOverride` may also be a raw cron expression (`backend/models/storage.ts` accepts one
+ *   directly, and a 2.5.x-migrated row's `syncInterval` can land as one verbatim — see
+ *   `docs/migration/2.5x-to-3.0-mapping.md`'s `syncInterval` row). This function only interprets an
+ *   ISO-8601 duration; a value that fails to parse as one is returned as-is rather than thrown on,
+ *   since a plain but unexplained string still tells the reader more than a crash would.
+ * @returns {string} e.g. `5 minutes`, `1 day, 12 hours`, `---` for nothing at all, or `value` itself
+ *   when it isn't an ISO-8601 duration (a cron expression such as `30 9 * * 1`).
  */
 export function humanizeIsoDuration(value) {
   if (!value) {
     return '---'
   }
-  const dur = Temporal.Duration.from(value)
+  let dur
+  try {
+    dur = Temporal.Duration.from(value)
+  } catch {
+    return value
+  }
   const parts = ISO_DURATION_UNITS.filter((unit) => dur[unit] > 0).map((unit) =>
     getFormatter(Intl.NumberFormat, `number-unit-long:${unit}`, {
       style: 'unit',

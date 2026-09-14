@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { CronExpressionParser } from 'cron-parser'
 import { and, eq } from 'drizzle-orm'
 import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
@@ -66,6 +67,72 @@ export const DB_MODULE = 'db'
 
 /** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
 const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+
+/**
+ * Whether `value` is a valid `scheduleOverride`: either the `ISO_DURATION_PATTERN` shape (`PT5M`,
+ * the original, still-simplest case -- "every N minutes/hours") or a full cron expression, parsed
+ * with the same `cron-parser` `core/scheduler.ts` already depends on for `jobSchedule` entries.
+ * Tried as a duration first since that needs no external parse; a string that isn't one is handed to
+ * `CronExpressionParser.parse()`, which throws on anything that is neither, so returning `false` on
+ * catch covers genuine garbage (`"not-a-duration"`) the same way the original bare regex check did.
+ */
+function isValidScheduleOverride(value: string): boolean {
+  if (ISO_DURATION_PATTERN.test(value)) {
+    return true
+  }
+  try {
+    CronExpressionParser.parse(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether `scheduleStr` (validated the same way `isValidScheduleOverride` does) is due to fire,
+ * given the last time this target ticked (`null` for "never ticked before") and the current instant.
+ *
+ * An ISO-8601 duration is due once `lastTick + duration <= now` -- unchanged from before cron support.
+ * A cron expression is due when it has an occurrence in `(lastTick, now]`: `cron-parser`'s own
+ * `next()`/`#findSchedule()` always steps at least one tick past `currentDate` even when `currentDate`
+ * itself matches (see its `startTimestamp === currentDate.getTime()` guard), so parsing with
+ * `currentDate: lastTick` already excludes the occurrence that produced `lastTick`, and `endDate` is
+ * validated inclusively (`#validateTimeSpan` only rejects strictly *past* it) -- together that is
+ * exactly the half-open `(lastTick, now]` window this needs, with no separate off-by-one adjustment.
+ *
+ * A target with no prior tick is always due immediately, matching the duration branch's `!lastTick`
+ * short-circuit -- there is no prior occurrence to measure a window from. The schedule string is still
+ * parsed in that case (via `isValidScheduleOverride`'s classification, then `CronExpressionParser`)
+ * so a genuinely invalid value throws here too, rather than sailing through as "due" on a target's
+ * very first tick.
+ *
+ * @throws When `scheduleStr` is neither a valid ISO-8601 duration nor a valid cron expression -- the
+ *   caller (`tickScheduledSyncs`) logs and skips the target rather than letting this escape.
+ */
+function isScheduleDue(
+  scheduleStr: string,
+  lastTick: Temporal.Instant | null,
+  now: Temporal.Instant
+): boolean {
+  if (ISO_DURATION_PATTERN.test(scheduleStr)) {
+    const intervalMs = Math.round(
+      Temporal.Duration.from(scheduleStr).total({ unit: 'milliseconds' })
+    )
+    return (
+      !lastTick || Temporal.Instant.compare(now, lastTick.add({ milliseconds: intervalMs })) >= 0
+    )
+  }
+  if (!lastTick) {
+    CronExpressionParser.parse(scheduleStr) // -> throws on a genuinely invalid schedule string
+    return true
+  }
+  const interval = CronExpressionParser.parse(scheduleStr, {
+    currentDate: lastTick.toString({ smallestUnit: 'millisecond' }),
+    endDate: now.toString({ smallestUnit: 'millisecond' }),
+    tz: 'UTC'
+  })
+  return interval.hasNext()
+}
 
 /**
  * The `/actions/:action` handlers that pull or push a whole target rather than completing
@@ -623,8 +690,8 @@ class Storage {
       if (definition.schedule === false) {
         return `${definition.title} does not sync on a schedule.`
       }
-      if (!ISO_DURATION_PATTERN.test(patch.sync.scheduleOverride)) {
-        return `"${patch.sync.scheduleOverride}" is not a valid ISO-8601 duration.`
+      if (!isValidScheduleOverride(patch.sync.scheduleOverride)) {
+        return `"${patch.sync.scheduleOverride}" is not a valid ISO-8601 duration or cron expression.`
       }
     }
     const configInvalid = this.validateConfig(target.module, patch.config)
@@ -822,14 +889,21 @@ class Storage {
    *    `push` mode too), a push-only target already gets everything it needs from the write-path
    *    hook, and ticking it again here would risk a spurious inbound sync.
    *
-   * For everything else, the effective interval is the target's own `scheduleOverride` when set, else
+   * For everything else, the effective schedule is the target's own `scheduleOverride` when set, else
    * the module's declared `schedule` -- the same precedence `validateTarget` enforces when accepting
-   * one. It is parsed with `Temporal.Duration.from()` and, since `Temporal.Instant.add()` only accepts
-   * exact time units (no calendar-relative days -- see `total()` below), converted to a millisecond
-   * count via `Duration.prototype.total()`, which -- with no `relativeTo` -- treats `days` as exactly
-   * 24 hours, the same UTC-exact convention this codebase already uses elsewhere. A schedule this
-   * can't parse (or that has a `years`/`months` component, which genuinely has no fixed length without
-   * a calendar) is logged and skipped rather than thrown, so one bad target cannot fail the whole tick.
+   * one, and the same `ISO_DURATION_PATTERN`-or-cron-expression shape `isValidScheduleOverride`
+   * validates. An ISO-8601 duration is parsed with `Temporal.Duration.from()` and, since
+   * `Temporal.Instant.add()` only accepts exact time units (no calendar-relative days -- see `total()`
+   * below), converted to a millisecond count via `Duration.prototype.total()`, which -- with no
+   * `relativeTo` -- treats `days` as exactly 24 hours, the same UTC-exact convention this codebase
+   * already uses elsewhere; a target is due once `lastTick + interval <= now`. A cron expression is
+   * handed to `CronExpressionParser` instead: due when it has an occurrence in `(lastTick, now]`,
+   * checked via `.hasNext()` on an expression parsed with `currentDate: lastTick, endDate: now, tz:
+   * 'UTC'` -- `cron-parser`'s own `next()` never returns `currentDate` itself (always strictly after)
+   * and treats `endDate` as inclusive, which is exactly that half-open window with no off-by-one. A
+   * schedule this can't parse as either shape (or a duration with a `years`/`months` component, which
+   * genuinely has no fixed length without a calendar) is logged and skipped rather than thrown, so one
+   * bad target cannot fail the whole tick.
    *
    * A due target's `lastTickAt` only advances once the sync job is actually queued -- a failure to
    * enqueue (e.g. a transient scheduler/db error) leaves it due again next tick. Whether the queued job
@@ -864,9 +938,10 @@ class Storage {
         continue
       }
       const scheduleStr = row.scheduleOverride ?? definition.schedule
-      let intervalMs: number
+      const lastTick = row.lastTickAt ? row.lastTickAt.toTemporalInstant() : null
+      let due: boolean
       try {
-        intervalMs = Math.round(Temporal.Duration.from(scheduleStr).total({ unit: 'milliseconds' }))
+        due = isScheduleDue(scheduleStr as string, lastTick, now)
       } catch (err: any) {
         WIKI.logger.warn('storage', 'unparseable sync schedule, skipping the target', {
           target: row.id,
@@ -875,9 +950,6 @@ class Storage {
         })
         continue
       }
-      const lastTick = row.lastTickAt ? row.lastTickAt.toTemporalInstant() : null
-      const due =
-        !lastTick || Temporal.Instant.compare(now, lastTick.add({ milliseconds: intervalMs })) >= 0
       if (!due) {
         continue
       }
