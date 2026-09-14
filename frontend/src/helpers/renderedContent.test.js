@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { _resetContentImageZoom } from './contentImageZoom'
-import { enhanceRenderedContent, routableHref, sameDocumentHash } from './renderedContent'
+import {
+  _resetTableSelectMode,
+  enhanceRenderedContent,
+  getActiveTableSelection,
+  routableHref,
+  sameDocumentHash
+} from './renderedContent'
 import { queue as notifyQueue } from '@/composables/notify'
 
 /**
@@ -63,6 +69,41 @@ function headingWithId(id) {
   heading.textContent = 'A section'
   document.body.appendChild(heading)
   return heading
+}
+
+/**
+ * A `[role="cell"]`/`[role="columnheader"]` grid, `rows` deep and `cols` wide, the first row a
+ * header -- built the same way `contentImageZoom.test.js`'s own `pointerEvent` helper stands in for
+ * a real pointer, since jsdom has no layout engine to derive one from real coordinates.
+ */
+function selectTable(rows, cols) {
+  let html = row(
+    Array.from({ length: cols }, (_c, col) => `H${col}`),
+    { header: true }
+  )
+  for (let r = 0; r < rows - 1; r++) {
+    html += row(Array.from({ length: cols }, (_c, col) => `r${r}c${col}`))
+  }
+  const wrap = tableWrap(html)
+  return {
+    wrap,
+    table: wrap.querySelector('[role="table"]'),
+    cell(r, c) {
+      return wrap
+        .querySelectorAll('[role="row"]')
+        [r].querySelectorAll('[role="cell"], [role="columnheader"]')[c]
+    }
+  }
+}
+
+function pointerEvent(type, props) {
+  return new PointerEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    pointerId: 1,
+    button: 0,
+    ...props
+  })
 }
 
 describe('renderedContent clipboard localization', () => {
@@ -466,6 +507,221 @@ describe('renderedContent content-image click-to-zoom wiring (#3066)', () => {
     expect(box).not.toBeNull()
     expect(box.open).toBe(true)
     expect(box.querySelector('img').src).toBe('https://example.com/diagram.png')
+  })
+})
+
+/**
+ * OpenProject #3239: an explicit, script-driven rectangular cell selection for a rendered table,
+ * independent of the browser's own (linear, not two-dimensional) text selection. Its state is read
+ * back through `getActiveTableSelection()` -- the same surface OpenProject #3240 (wiring this into
+ * the copy handler) will use -- rather than by poking at private module internals.
+ */
+describe('renderedContent cell-range select mode (#3239)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    _resetTableSelectMode()
+  })
+
+  it('starts a one-cell selection on click, highlighting and focusing that cell', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const target = cell(1, 1)
+    target.dispatchEvent(pointerEvent('pointerdown'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(1)
+    expect(selection.rowEnd).toBe(1)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(1)
+    expect(selection.cells).toEqual([[target]])
+    expect(target.dataset.tableSelected).toBe('')
+    expect(document.activeElement).toBe(target)
+    expect(target.getAttribute('tabindex')).toBe('0')
+    // -> Nothing else in the table picked up the marker
+    expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(1)
+  })
+
+  it('extends the range to the rectangle between anchor and focus while dragging', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 1).dispatchEvent(pointerEvent('pointerdown'))
+    cell(1, 1).dispatchEvent(pointerEvent('pointermove'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointermove'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+    expect(selection.rowEnd).toBe(2)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(2)
+    // -> The rectangle, not just its two corners
+    expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(6)
+    expect(cell(0, 0).dataset.tableSelected).toBeUndefined()
+    expect(cell(1, 2).dataset.tableSelected).toBe('')
+  })
+
+  it('stops updating once pointerup ends the drag', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(1, 1).dispatchEvent(pointerEvent('pointermove'))
+    document.dispatchEvent(pointerEvent('pointerup'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointermove'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowEnd).toBe(1)
+    expect(selection.colEnd).toBe(1)
+  })
+
+  it('extends the same table’s active selection on a shift-click, without a drag', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointerdown', { shiftKey: true }))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+    expect(selection.rowEnd).toBe(2)
+    expect(selection.colStart).toBe(0)
+    expect(selection.colEnd).toBe(2)
+  })
+
+  it('a plain click (no shift) on a new cell resets to a single-cell selection, anchor included', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(2, 2).dispatchEvent(pointerEvent('pointerdown', { shiftKey: true }))
+    cell(1, 1).dispatchEvent(pointerEvent('pointerdown'))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(1)
+    expect(selection.rowEnd).toBe(1)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(1)
+  })
+
+  it('Escape clears the selection and its roving tabindex', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const target = cell(0, 0)
+    target.dispatchEvent(pointerEvent('pointerdown'))
+    expect(getActiveTableSelection()).not.toBeNull()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    expect(getActiveTableSelection()).toBeNull()
+    expect(wrap.querySelectorAll('[data-table-selected]')).toHaveLength(0)
+    expect(target.hasAttribute('tabindex')).toBe(false)
+  })
+
+  it('a pointerdown outside the active table clears the selection (click-away)', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    const elsewhere = document.createElement('p')
+    document.body.appendChild(elsewhere)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    expect(getActiveTableSelection()).not.toBeNull()
+
+    elsewhere.dispatchEvent(pointerEvent('pointerdown'))
+
+    expect(getActiveTableSelection()).toBeNull()
+  })
+
+  it('clicking into a second table clears the first table’s selection before starting the new one', () => {
+    const first = selectTable(2, 2)
+    const second = selectTable(2, 2)
+    enhanceRenderedContent(document.body, t)
+
+    first.cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    second.cell(1, 1).dispatchEvent(pointerEvent('pointerdown'))
+
+    expect(first.wrap.querySelectorAll('[data-table-selected]')).toHaveLength(0)
+    expect(getActiveTableSelection().table).toBe(second.table)
+  })
+
+  it('does not steal a click on the per-table copy button (#3238’s control)', () => {
+    const { wrap } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('.table-copy').dispatchEvent(pointerEvent('pointerdown'))
+
+    expect(getActiveTableSelection()).toBeNull()
+  })
+
+  it('arrow keys move the focus cell, and shift extends the range instead of moving the anchor', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(1, 1).dispatchEvent(pointerEvent('pointerdown'))
+
+    cell(1, 1).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    let selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(2)
+    expect(selection.rowEnd).toBe(2)
+    expect(document.activeElement).toBe(cell(2, 1))
+
+    cell(2, 1).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true })
+    )
+    selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(2)
+    expect(selection.rowEnd).toBe(2)
+    expect(selection.colStart).toBe(1)
+    expect(selection.colEnd).toBe(2)
+  })
+
+  it('clamps arrow-key navigation at the grid edge rather than moving off it', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    cell(0, 0).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    cell(0, 0).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+    expect(selection.colStart).toBe(0)
+  })
+
+  it('leaves an arrow key typed outside the active table alone', () => {
+    const { wrap, cell } = selectTable(2, 2)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    cell(0, 0).dispatchEvent(pointerEvent('pointerdown'))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+
+    const selection = getActiveTableSelection()
+    expect(selection.rowStart).toBe(0)
+  })
+
+  it('is idempotent -- re-running enhanceRenderedContent over the same root wires no second pointerdown listener', () => {
+    // -> A fresh, never-enhanced root, not `document.body` -- every other test in this describe
+    //    shares `document.body` (via `tableWrap`), which some earlier test in this file has
+    //    already wired, so a listener count taken against it would not prove anything here.
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const addSpy = vi.spyOn(container, 'addEventListener')
+
+    enhanceRenderedContent(container, t)
+    enhanceRenderedContent(container, t)
+
+    expect(addSpy.mock.calls.filter(([type]) => type === 'pointerdown')).toHaveLength(1)
+    addSpy.mockRestore()
+  })
+
+  it('returns null with nothing selected', () => {
+    expect(getActiveTableSelection()).toBeNull()
   })
 })
 
