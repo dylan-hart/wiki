@@ -106,6 +106,15 @@ function pointerEvent(type, props) {
   })
 }
 
+/** Dispatches a `copy` event on `root` carrying a fake `clipboardData`, returning it and the event. */
+function dispatchCopy(root) {
+  const clipboardData = { setData: vi.fn() }
+  const event = new Event('copy', { bubbles: true, cancelable: true })
+  event.clipboardData = clipboardData
+  const prevented = !root.dispatchEvent(event)
+  return { clipboardData, prevented }
+}
+
 describe('renderedContent clipboard localization', () => {
   beforeEach(() => {
     notifyQueue.length = 0
@@ -366,15 +375,6 @@ describe('renderedContent whole-table copy as real <table> HTML (#3238)', () => 
       rangeCount: 1,
       getRangeAt: () => ({ commonAncestorContainer: node })
     })
-  }
-
-  /** Dispatches a `copy` event on `root` carrying a fake `clipboardData`, returning it and the event. */
-  function dispatchCopy(root) {
-    const clipboardData = { setData: vi.fn() }
-    const event = new Event('copy', { bubbles: true, cancelable: true })
-    event.clipboardData = clipboardData
-    const prevented = !root.dispatchEvent(event)
-    return { clipboardData, prevented }
   }
 
   it('sets a real <table> HTML string and a TSV plain-text fallback, and prevents the default copy', () => {
@@ -722,6 +722,137 @@ describe('renderedContent cell-range select mode (#3239)', () => {
 
   it('returns null with nothing selected', () => {
     expect(getActiveTableSelection()).toBeNull()
+  })
+})
+
+/**
+ * OpenProject #3240: wires the active select-mode range (#3239) into the same `copy` interception
+ * #3238 wired onto `root` -- an active range always wins over whatever the browser's own selection
+ * would otherwise resolve to, and serializes only its own rectangle rather than the whole table.
+ */
+describe('renderedContent cell-range copy (#3240)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    _resetTableSelectMode()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('copies only the active rectangle as <table> HTML + TSV, not the whole table', () => {
+    const { wrap, cell } = selectTable(3, 3)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    // -> Rectangle: rows 0-1, cols 1-2 -- a proper subset of the 3x3 grid
+    cell(0, 1).dispatchEvent(pointerEvent('pointerdown'))
+    cell(1, 2).dispatchEvent(pointerEvent('pointerdown', { shiftKey: true }))
+
+    const { clipboardData, prevented } = dispatchCopy(wrap.parentNode)
+
+    expect(prevented).toBe(true)
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table>' +
+        `<tr><th>${cell(0, 1).textContent}</th><th>${cell(0, 2).textContent}</th></tr>` +
+        `<tr><td>${cell(1, 1).textContent}</td><td>${cell(1, 2).textContent}</td></tr>` +
+        '</table>'
+    )
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/plain',
+      `${cell(0, 1).textContent}\t${cell(0, 2).textContent}\n${cell(1, 1).textContent}\t${cell(1, 2).textContent}`
+    )
+    // -> Column 0 never appears anywhere in either payload
+    expect(clipboardData.setData.mock.calls.flatMap(([, value]) => value).join('\n')).not.toContain(
+      cell(0, 0).textContent
+    )
+  })
+
+  it('translates aria-colspan/aria-rowspan the same way the whole-table path does', () => {
+    const wrap = tableWrap(
+      '<div role="row"><div role="columnheader" aria-colspan="2">A</div></div>' + row(['B', 'C'])
+    )
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    const header = wrap.querySelector('[role="columnheader"]')
+    header.dispatchEvent(pointerEvent('pointerdown'))
+
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><th colspan="2">A</th></tr></table>'
+    )
+  })
+
+  it("keeps a selected cell's inner markup (e.g. a link) rather than flattening it to plain text", () => {
+    const wrap = tableWrap('<div role="row"><div role="cell"><a href="/x">link</a></div></div>')
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><td><a href="/x">link</a></td></tr></table>'
+    )
+  })
+
+  it('collapses an embedded tab/newline in a selected cell to a single space in the TSV fallback', () => {
+    const wrap = tableWrap(row([`line one${'\n'}line two`]))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', 'line one line two')
+  })
+
+  it('never carries a .table-caption into a range copy, unlike the whole-table path', () => {
+    const wrap = tableWrap('<div class="table-caption">Cap</div>' + row(['A']))
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      '<table><tr><td>A</td></tr></table>'
+    )
+  })
+
+  it('falls back to whole-table copy when no select-mode range is active', () => {
+    const { wrap } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+    expect(getActiveTableSelection()).toBeNull()
+
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({ commonAncestorContainer: wrap.querySelector('[role="table"]') })
+    })
+    const { clipboardData } = dispatchCopy(wrap.parentNode)
+
+    // -> All four cells (2x2), not just one -- proof this went through the whole-table path
+    expect(clipboardData.setData).toHaveBeenCalledWith(
+      'text/html',
+      expect.stringContaining('</tr><tr>')
+    )
+  })
+
+  it('never reads the browser selection at all once a select-mode range is active', () => {
+    const { wrap } = selectTable(2, 2)
+    enhanceRenderedContent(wrap.parentNode, t)
+
+    wrap.querySelector('[role="cell"]').dispatchEvent(pointerEvent('pointerdown'))
+
+    // -> Spied only after the pointerdown settles, so `syncNativeTableSelectionToRange`'s own read
+    //    (setting up the range, unrelated to this assertion) isn't counted
+    const getSelectionSpy = vi.spyOn(window, 'getSelection')
+    dispatchCopy(wrap.parentNode)
+
+    expect(getSelectionSpy).not.toHaveBeenCalled()
   })
 })
 
