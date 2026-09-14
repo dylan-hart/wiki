@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { deflateRaw } from 'pako'
 
 import './component.js'
 import { BlockDrawioElement } from './component.js'
@@ -7,6 +6,7 @@ import { BlockDiagramElement } from '../block-diagram/component.js'
 import { BlockKrokiElement } from '../block-kroki/component.js'
 import { BlockPlantumlElement } from '../block-plantuml/component.js'
 import { drawioToSvg, extractModelXml, layout, parseCells, parseStyle } from './mxgraph.js'
+import { compress as deflate } from '../shared/compress.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
@@ -71,9 +71,13 @@ const MULTI_LAYER_SOURCE = `<mxGraphModel>
   </root>
 </mxGraphModel>`
 
-/** draw.io's own compression, reproduced for the `<mxfile>` fixture below: see `mxgraph.js`'s `decompress`. */
-function compress(xml) {
-  const bytes = deflateRaw(new TextEncoder().encode(encodeURIComponent(xml)))
+/**
+ * draw.io's own compression, reproduced for the `<mxfile>` fixture below: see `mxgraph.js`'s
+ * `decompress`. Built on the same native `compress()` (`shared/compress.js`) the block itself now
+ * decodes with (`decompressRaw`), rather than pako.
+ */
+async function compress(xml) {
+  const bytes = await deflate(new TextEncoder().encode(encodeURIComponent(xml)), 'deflate-raw')
   let binary = ''
   for (const byte of bytes) {
     binary += String.fromCharCode(byte)
@@ -81,7 +85,8 @@ function compress(xml) {
   return btoa(binary)
 }
 
-const mountDrawio = (body = '', props = {}) => mountBlock('block-drawio', { pre: body, props })
+const mountDrawio = (body = '', props = {}) =>
+  mountBlock('block-drawio', { pre: body, props, settle: (el) => el._ready })
 
 describe('static definition', () => {
   it("names the block for the format it draws, not a bare 'Diagram'", () => {
@@ -136,19 +141,33 @@ describe('block-drawio', () => {
 
   it('draws an <mxfile>-wrapped, compressed <diagram> the same as the raw model', async () => {
     const xml = BlockDrawioElement.definition.template.replace(/```drawio\n|```$/g, '')
-    const wrapped = `<mxfile><diagram name="Page-1">${compress(xml)}</diagram></mxfile>`
+    const wrapped = `<mxfile><diagram name="Page-1">${await compress(xml)}</diagram></mxfile>`
     const el = await mountDrawio(wrapped)
 
     expect(el.shadowRoot.querySelector('.error')).toBeNull()
     expect(el.shadowRoot.querySelector('svg')).not.toBeNull()
   })
 
+  it('shows a decompression error through the normal error rendering, not an unhandled rejection, for a corrupt compressed payload', async () => {
+    // -> Well-formed base64, but not a valid raw-deflate stream -- the same shape a hand-edited or
+    //    truncated `<diagram>` body would produce.
+    const wrapped = '<mxfile><diagram name="Page-1">bm90IGRlZmxhdGVk</diagram></mxfile>'
+    const el = await mountDrawio(wrapped)
+
+    const error = el.shadowRoot.querySelector('.error')
+    expect(error).not.toBeNull()
+    expect(error.textContent).toContain('could not be decompressed')
+    expect(el.shadowRoot.querySelector('svg')).toBeNull()
+  })
+
   it('shows an error, naming the fence, for a source markdown has already mangled', async () => {
-    // -> `settle: 1`: `_error` is set synchronously inside `firstUpdated()`, but the resulting
-    //    re-render is a second update cycle Lit schedules as a side effect — give it a turn before
-    //    reading the DOM, the same way `block-diagram/component.test.js` does for its own no-fence
-    //    case.
-    const el = await mountBlock('block-drawio', { text: 'not xml at all <<<', settle: 1 })
+    // -> `settle: (el) => el._ready`: `_draw()` is async (a compressed body decodes through
+    //    `DecompressionStream`), so `_error` lands only once the block's own `_ready` promise
+    //    settles -- see `mxgraph.js`/`component.js`.
+    const el = await mountBlock('block-drawio', {
+      text: 'not xml at all <<<',
+      settle: (el) => el._ready
+    })
 
     const error = el.shadowRoot.querySelector('.error')
     expect(error).not.toBeNull()
@@ -174,24 +193,29 @@ describe('block-drawio', () => {
 })
 
 describe('mxgraph.js', () => {
-  it('extracts a bare <mxGraphModel> unchanged', () => {
+  it('extracts a bare <mxGraphModel> unchanged', async () => {
     const xml = '<mxGraphModel><root><mxCell id="0" /></root></mxGraphModel>'
-    expect(extractModelXml(xml)).toBe(xml)
+    await expect(extractModelXml(xml)).resolves.toBe(xml)
   })
 
-  it('decompresses a compressed <mxfile><diagram> the same way draw.io compresses one', () => {
+  it('decompresses a compressed <mxfile><diagram> the same way draw.io compresses one', async () => {
     const xml =
       '<mxGraphModel><root><mxCell id="0" /><mxCell id="1" parent="0" /></root></mxGraphModel>'
-    const wrapped = `<mxfile><diagram>${compress(xml)}</diagram></mxfile>`
-    expect(extractModelXml(wrapped)).toBe(xml)
+    const wrapped = `<mxfile><diagram>${await compress(xml)}</diagram></mxfile>`
+    await expect(extractModelXml(wrapped)).resolves.toBe(xml)
   })
 
-  it('rejects empty input with a message about the fence, not a stack trace', () => {
-    expect(() => extractModelXml('   ')).toThrow('empty')
+  it('rejects empty input with a message about the fence, not a stack trace', async () => {
+    await expect(extractModelXml('   ')).rejects.toThrow('empty')
   })
 
-  it('rejects a document that is neither mxGraphModel nor mxfile', () => {
-    expect(() => extractModelXml('<svg></svg>')).toThrow('mxGraphModel')
+  it('rejects a document that is neither mxGraphModel nor mxfile', async () => {
+    await expect(extractModelXml('<svg></svg>')).rejects.toThrow('mxGraphModel')
+  })
+
+  it('surfaces a corrupt compressed payload as a friendly decompression error, not an unhandled rejection', async () => {
+    const wrapped = '<mxfile><diagram>bm90IGRlZmxhdGVk</diagram></mxfile>'
+    await expect(extractModelXml(wrapped)).rejects.toThrow('could not be decompressed')
   })
 
   it('parses a style string into its base shape and its key/value properties', () => {
@@ -251,8 +275,8 @@ describe('mxgraph.js', () => {
     expect(edges[0].end).toEqual({ x: 100, y: 100 })
   })
 
-  it('never drops a cell for having a style this renderer does not specifically know how to draw', () => {
-    const { svg, cellCount } = drawioToSvg(`<mxGraphModel><root>
+  it('never drops a cell for having a style this renderer does not specifically know how to draw', async () => {
+    const { svg, cellCount } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="x" value="AWS Lambda" style="shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
@@ -266,16 +290,16 @@ describe('mxgraph.js', () => {
     expect(svg).toContain('AWS Lambda')
   })
 
-  it('throws a friendly error for a diagram with nothing visible to draw', () => {
-    expect(() =>
+  it('throws a friendly error for a diagram with nothing visible to draw', async () => {
+    await expect(
       drawioToSvg(
         '<mxGraphModel><root><mxCell id="0" /><mxCell id="1" parent="0" /></root></mxGraphModel>'
       )
-    ).toThrow('nothing visible')
+    ).rejects.toThrow('nothing visible')
   })
 
-  it('strips embedded markup out of an html=1 label instead of rendering it', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('strips embedded markup out of an html=1 label instead of rendering it', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="x" value="&lt;img src=x onerror=alert(1)&gt;" style="rounded=0;html=1;" vertex="1" parent="1">
@@ -297,9 +321,9 @@ describe('mxgraph.js', () => {
     `strokeAttrs()` helper `paintAttrs()` itself now uses, so an attribute-breaking value can never
     reach the output at all rather than merely being escaped.
   */
-  it('neutralizes an attribute-breaking strokeWidth on cylinder and swimlane, the two shapes that draw a second stroke', () => {
+  it('neutralizes an attribute-breaking strokeWidth on cylinder and swimlane, the two shapes that draw a second stroke', async () => {
     const malicious = `1" onmouseover="alert(1)`
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="cyl" style="cylinder;strokeWidth=${malicious}" vertex="1" parent="1">
@@ -316,8 +340,8 @@ describe('mxgraph.js', () => {
     expect(svg).toContain('stroke-width="1"')
   })
 
-  it('still renders a legitimate numeric strokeWidth on cylinder and swimlane', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('still renders a legitimate numeric strokeWidth on cylinder and swimlane', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="cyl" style="cylinder;strokeWidth=4" vertex="1" parent="1">
@@ -330,8 +354,8 @@ describe('mxgraph.js', () => {
     expect(svg).toContain('stroke-width="4"')
   })
 
-  it('escapes ampersands and quotes in a plain-text label rather than interpolating them raw', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('escapes ampersands and quotes in a plain-text label rather than interpolating them raw', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="x" value="AT&amp;T &quot;Special&quot;" style="rounded=0;" vertex="1" parent="1">
@@ -347,8 +371,8 @@ describe('mxgraph.js', () => {
   //    the block's `<mxCell style="…">`; the DOM parser decodes it into a raw `"` + `<image onerror>`
   //    string before `parseStyle()` ever sees it, which is the same shape the audit finding
   //    reproduced under jsdom.
-  it('does not let a quote-breaking strokeWidth inject markup through the cylinder shape', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('does not let a quote-breaking strokeWidth inject markup through the cylinder shape', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="x" style="cylinder;strokeWidth=1&quot; /&gt;&lt;image href=&quot;x&quot; onerror=&quot;alert(1)&quot; /&gt;&lt;path d=&quot;" vertex="1" parent="1">
@@ -359,8 +383,8 @@ describe('mxgraph.js', () => {
     expect(svg).not.toContain('onerror')
   })
 
-  it('does not let a quote-breaking strokeWidth inject markup through the swimlane shape', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('does not let a quote-breaking strokeWidth inject markup through the swimlane shape', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="x" style="swimlane;strokeWidth=1&quot; /&gt;&lt;image href=&quot;x&quot; onerror=&quot;alert(1)&quot; /&gt;&lt;line a=&quot;" vertex="1" parent="1">
@@ -371,8 +395,8 @@ describe('mxgraph.js', () => {
     expect(svg).not.toContain('onerror')
   })
 
-  it('still renders a legitimate numeric strokeWidth on cylinder and swimlane shapes', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('still renders a legitimate numeric strokeWidth on cylinder and swimlane shapes', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="c" style="cylinder;strokeWidth=3;" vertex="1" parent="1">
@@ -389,8 +413,8 @@ describe('mxgraph.js', () => {
   //    meaning "no visible stroke") as falsy and silently overrides it to `1`, drawing a stroke the
   //    author explicitly asked to suppress. `strokeAttrs()` is shared by `paintAttrs()` (plain shapes)
   //    and the cylinder/swimlane second stroke, so both paths are covered here (OpenProject #2343).
-  it('preserves an explicit strokeWidth of 0 instead of coercing it to 1', () => {
-    const { svg } = drawioToSvg(`<mxGraphModel><root>
+  it('preserves an explicit strokeWidth of 0 instead of coercing it to 1', async () => {
+    const { svg } = await drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
       <mxCell id="1" parent="0" />
       <mxCell id="r" style="rounded=0;strokeWidth=0" vertex="1" parent="1">
