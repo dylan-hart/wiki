@@ -88,7 +88,7 @@
     "text-case": "1.2.11",
     "turndown": "7.2.4",
     "turndown-plugin-gfm": "1.0.2",
-    "twemoji-assets": "https://codeload.github.com/jdecked/twemoji/tar.gz/refs/tags/v17.0.3",
+    "twemoji-assets": "https://codeload.github.com/jdecked/twemoji/tar.gz/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b",
     "uuid": "14.0.2",
     "vue": "3.5.41",
     "vue-i18n": "11.4.9",
