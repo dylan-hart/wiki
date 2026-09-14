@@ -1,13 +1,3 @@
-import {
-  camelCase,
-  camelCaseTransform,
-  lowerCase,
-  pascalCase,
-  pascalCaseTransform,
-  titleCase,
-  upperCase
-} from 'text-case'
-
 /**
  * Case styles `humanizePathSegment` understands. Mirrors the 5 styles the parent Feature's admin
  * "path display" setting offers (site:general → #2577 owns the actual setting key/enum) — this
@@ -67,9 +57,39 @@ function acronymCasing(word, acronymMap) {
 }
 
 /**
+ * pascalCase's per-word transform: capitalize the first letter, lowercase the rest — except a word
+ * that starts with a digit and isn't the segment's first word, which is prefixed with `_` instead
+ * of capitalized (a bare digit has no case to change, and the `_` keeps it from visually fusing
+ * with the previous word once the hyphen delimiter is dropped, e.g. `release-2-notes` →
+ * `release_2Notes`, never `release2Notes`). In-house replacement for the removed `text-case`
+ * package's `text-pascal-case` — see OpenProject #3164 — chosen to be byte-identical to it rather
+ * than independently designed, since only this file's own tests need to keep passing unchanged.
+ */
+function pascalCaseTransform(word, index) {
+  const firstChar = word.charAt(0)
+  const rest = word.slice(1).toLowerCase()
+  if (index > 0 && firstChar >= '0' && firstChar <= '9') {
+    return `_${firstChar}${rest}`
+  }
+  return firstChar.toUpperCase() + rest
+}
+
+/**
+ * camelCase's per-word transform: the first word lowercase verbatim, every other word through
+ * `pascalCaseTransform`. In-house replacement for `text-case`'s `text-camel-case` — see above.
+ */
+function camelCaseTransform(word, index) {
+  if (index === 0) {
+    return word.toLowerCase()
+  }
+  return pascalCaseTransform(word, index)
+}
+
+/**
  * Title Case's per-word fallback for a non-acronym word: capitalized, except a minor word kept
  * lowercase unless it opens or closes the segment. Mirrors the standard English title-case
- * convention `text-case`'s own (unexported) default follows — see `TITLE_CASE_MINOR_WORDS` above.
+ * convention the removed `text-case` package's own (unexported) default followed — see
+ * `TITLE_CASE_MINOR_WORDS` above.
  */
 function titleCaseFallback(word, index, parts) {
   const lower = word.toLowerCase()
@@ -80,10 +100,10 @@ function titleCaseFallback(word, index, parts) {
 }
 
 /**
- * Build the `transform` callback a word-aware `text-case` function (`camelCase`/`pascalCase`/
- * `titleCase`) is given: an acronym match wins verbatim over the style's own casing, in any
- * position — first, middle or last word alike — exactly as the parent Feature's acronym-override
- * design calls for; a miss defers to that style's own default per-word rule.
+ * Build the per-word transform used by the `camelCase`/`pascalCase`/`titleCase` styles below: an
+ * acronym match wins verbatim over the style's own casing, in any position — first, middle or last
+ * word alike — exactly as the parent Feature's acronym-override design calls for; a miss defers to
+ * that style's own default per-word rule.
  */
 function acronymAwareTransform(acronymMap, fallback) {
   return (word, index, parts) => acronymCasing(word, acronymMap) ?? fallback(word, index, parts)
@@ -119,21 +139,15 @@ export function humanizePathSegment(segment, caseStyle, acronymMap) {
 
   switch (caseStyle) {
     case 'upper':
-      return words.map((word) => acronymCasing(word, acronymMap) ?? upperCase(word)).join('-')
+      return words.map((word) => acronymCasing(word, acronymMap) ?? word.toUpperCase()).join('-')
     case 'camelCase':
-      return camelCase(words.join('-'), {
-        transform: acronymAwareTransform(acronymMap, camelCaseTransform)
-      })
+      return words.map(acronymAwareTransform(acronymMap, camelCaseTransform)).join('')
     case 'pascalCase':
-      return pascalCase(words.join('-'), {
-        transform: acronymAwareTransform(acronymMap, pascalCaseTransform)
-      })
+      return words.map(acronymAwareTransform(acronymMap, pascalCaseTransform)).join('')
     case 'titleCase':
-      return titleCase(words.join('-'), {
-        transform: acronymAwareTransform(acronymMap, titleCaseFallback)
-      })
+      return words.map(acronymAwareTransform(acronymMap, titleCaseFallback)).join(' ')
     case 'lower':
     default:
-      return words.map((word) => acronymCasing(word, acronymMap) ?? lowerCase(word)).join('-')
+      return words.map((word) => acronymCasing(word, acronymMap) ?? word.toLowerCase()).join('-')
   }
 }

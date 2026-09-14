@@ -86,7 +86,6 @@
     "sortablejs-vue3": "1.3.0",
     "tailwindcss": "4.3.3",
     "temporal-polyfill": "1.0.4",
-    "text-case": "1.2.11",
     "turndown": "7.2.4",
     "twemoji-assets": "https://codeload.github.com/jdecked/twemoji/tar.gz/refs/tags/v17.0.3",
     "uuid": "14.0.2",
