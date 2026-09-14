@@ -41,8 +41,8 @@
     "block-locale-keys:check": "node scripts/blockLocaleKeys.ts --check",
     "vendor-icons": "node scripts/vendor-icon-sets.ts",
     "vendor-icons:check": "node scripts/vendor-icon-sets.ts --check",
-    "ncu": "ncu -i",
-    "ncu-u": "ncu -u",
+    "ncu": "npx npm-check-updates@23 -i",
+    "ncu-u": "npx npm-check-updates@23 -u",
     "db-generate": "drizzle-kit generate --dialect=postgresql --schema=./db/schema.ts --out=./db/migrations --name=main",
     "db-up": "drizzle-kit up --dialect=postgresql --out=./db/migrations"
   },
@@ -133,7 +133,6 @@
     "aws-sdk-client-mock": "4.1.0",
     "drizzle-kit": "1.0.0-rc.4",
     "nodemon": "3.1.14",
-    "npm-check-updates": "23.0.2",
     "oxfmt": "0.64.0",
     "oxlint": "1.79.0",
     "s3rver": "3.7.1",
