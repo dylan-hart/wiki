@@ -1,7 +1,7 @@
 # Cardinal.js 3.x
 
-Next-generation open source wiki.  Cardinal.js is a fork of
-[Wiki.js](https://github.com/requarks/wiki), taken from its `scarlett`  branch. Wherever this file
+Next-generation open source wiki. Cardinal.js is a fork of
+[Wiki.js](https://github.com/requarks/wiki), taken from its `scarlett` branch. Wherever this file
 says "Wiki.js" it means **upstream**, not this project — the 2.5.x importer under `backend/migration/`
 and `docs/migration/`, an upstream issue reference, or a verbatim string this codebase still emits.
 Everything else is Cardinal.js.
@@ -14,12 +14,12 @@ fork artifact — don't infer otherwise from a recent-looking date alone.
 Four independently-installed workspaces (each has its own `package.json` / `node_modules`, there is
 no root package or monorepo tooling):
 
-| Path        | What it is                                                                               |
-| ----------- | ---------------------------------------------------------------------------------------- |
-| `backend/`  | Fastify REST API server + job scheduler, Drizzle on PostgreSQL                           |
-| `frontend/` | Vue 3 / Vite SPA, Tailwind CSS + an in-repo component library                            |
-| `blocks/`   | Lit web components users embed into wiki pages                                           |
-| `e2e/`      | Playwright end-to-end suite, driving the built stack. See `e2e/CLAUDE.md`.               |
+| Path        | What it is                                                                 |
+| ----------- | -------------------------------------------------------------------------- |
+| `backend/`  | Fastify REST API server + job scheduler, Drizzle on PostgreSQL             |
+| `frontend/` | Vue 3 / Vite SPA, Tailwind CSS + an in-repo component library              |
+| `blocks/`   | Lit web components users embed into wiki pages                             |
+| `e2e/`      | Playwright end-to-end suite, driving the built stack. See `e2e/CLAUDE.md`. |
 
 Requires Node.js **26+** and PostgreSQL **16+**. All four workspaces are ESM (`"type": "module"`).
 
@@ -130,8 +130,8 @@ cover.
 ### Product name
 
 This product is **Cardinal.js**. Upstream, which it forked, is **Wiki.js**. The two are never
-interchangeable, and the test for any given occurrence is: *does this sentence remain true after the
-rename?* If it describes upstream, it stays "Wiki.js".
+interchangeable, and the test for any given occurrence is: _does this sentence remain true after the
+rename?_ If it describes upstream, it stays "Wiki.js".
 
 ```sh
 grep -rI "Wiki\.js\|wiki\.js\|wikijs" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=assets .
@@ -151,7 +151,7 @@ exclusion list somewhere would just fail the moment a legitimate new upstream re
    `requarks/wiki-locales`, `opencollective.com/wikijs`, `js.wiki`, and the inherited
    `.github/CONTRIBUTING.md` / `SECURITY.md` / `ISSUE_TEMPLATE*` / `FUNDING.yml`, each of which
    carries a note saying so at its head.
-4. **Comparative and historical writing** that is *about* upstream — `docs/legal/`,
+4. **Comparative and historical writing** that is _about_ upstream — `docs/legal/`,
    `docs/logging-reviews/`, `docs/variances.md`, `docs/auth-provider-audit.md`.
 5. **Verbatim runtime literals this codebase still emits**, quoted in docs so the doc matches what
    the reader will actually see: the `Wiki.js - <id>` `application_name` on pg connections, the
@@ -274,7 +274,7 @@ Consequences worth knowing:
   `api/sites.ts`'s site-scoped routes do.
 - **A page-scoped route's 404/403 preamble is `helpers/pageAccess.ts#requireReadablePage`, not
   hand-written**, and its check order is load-bearing: missing-or-unreadable → 404 `'This page does
-  not exist.'`, then the route's own second permission → 403 with its own message, then still-locked
+not exist.'`, then the route's own second permission → 403 with its own message, then still-locked
   → 403 `'This page is password protected.'`. A route needing a different order calls it without
   `permission` and checks afterwards (`api/checklists.ts`'s check-off route); one that deliberately
   tolerates a locked page passes `allowLocked: true` (`api/pages/read.ts`'s backlinks listing). It
@@ -367,7 +367,7 @@ store; no SVG is ever written into content.
     translation involved), and nothing in this fork — nor the planned 2.5.x migration importer
     (`Migration & Upgrade Path from 2.5.x` epic, "Importer Engine: Content" feature) — has ever
     produced or plans to carry forward that format into a `w-icon` name. `grep -rn "'las'"
-    frontend/src` turns up only `helpers/storageDeliveryGraph.js`'s own comment documenting this
+frontend/src` turns up only `helpers/storageDeliveryGraph.js`'s own comment documenting this
     rule — a new `las`/`mdi-`-style name used (not merely mentioned in a comment) anywhere in
     `frontend/src` is a regression, not merely discouraged.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
@@ -379,7 +379,7 @@ store; no SVG is ever written into content.
   as `AdminSites.vue`/`AdminGroups.vue`'s `la:plus` buttons, just drawn differently). A delete action
   always uses `la:trash`, never `la:trash-alt` or `mdi:trash-can-outline`. A settings-page "commit
   these settings" action (the `Admin*.vue` pattern: `icon="mdi:check"` + `t('common.actions.apply')`)
-  always uses `mdi:check`, not `la:check` — `la:check` remains correct for the many *other* things it
+  always uses `mdi:check`, not `la:check` — `la:check` remains correct for the many _other_ things it
   already draws (a generic dialog/overlay confirm button, a "done"/"added" state), just not this one.
   Introducing a new call site for any of these three actions means matching the settled glyph, not
   picking whichever one a nearby file happens to use.
