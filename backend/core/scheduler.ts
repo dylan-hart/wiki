@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { CronExpressionParser } from 'cron-parser'
+import { Cron } from 'croner'
 import crypto from 'node:crypto'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
 import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
@@ -918,21 +918,34 @@ export default {
               .from(jobsTable)
               .where(eq(jobsTable.isScheduled, true))
             for (const job of scheduledJobs) {
-              // -> Get next planned iterations
-              const plannedIterations = CronExpressionParser.parse(job.cron, {
-                startDate: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
-                // -> 24 hours rather than `{ days: 1 }`: Temporal.Instant only accepts exact time
-                //    units, and in UTC a calendar day is exactly 24 hours anyway.
-                endDate: Temporal.Now.instant()
-                  .add({ hours: 24, minutes: 5 })
-                  .toString({ smallestUnit: 'millisecond' }),
-                tz: 'UTC'
+              // -> Get next planned iterations. `croner` (OpenProject #3177 -- replaces cron-parser,
+              //    which dragged in luxon as a transitive dependency) has no `hasNext()`/`next()`
+              //    iterator of its own: `nextRun(prev)` returns the next occurrence strictly after
+              //    `prev` as a plain `Date`, or `null` once none remain before `stopAt`, which is what
+              //    the loop below polls instead.
+              const windowStart = Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+              // -> 24 hours rather than `{ days: 1 }`: Temporal.Instant only accepts exact time
+              //    units, and in UTC a calendar day is exactly 24 hours anyway.
+              const windowEnd = Temporal.Now.instant()
+                .add({ hours: 24, minutes: 5 })
+                .toString({ smallestUnit: 'millisecond' })
+              const plannedIterations = new Cron(job.cron, {
+                timezone: 'UTC',
+                paused: true,
+                startAt: windowStart,
+                stopAt: windowEnd
               })
               // -> Add a maximum of 10 future iterations for a single task
               let addedFutureJobs = 0
-              while (plannedIterations.hasNext()) {
+              let cursor: Date | string = windowStart
+              while (true) {
                 try {
-                  const next = plannedIterations.next()
+                  const next = plannedIterations.nextRun(cursor)
+                  // -> No more iterations for this period
+                  if (!next) {
+                    break
+                  }
+                  cursor = next
                   // -> Ensure this iteration isn't already scheduled. `j.waitUntil &&` guards against
                   //    a scheduled row with a null `waitUntil` — `reapStaleJobs` no longer produces
                   //    one (OpenProject #929), but a null here must never crash this loop (silently
@@ -963,8 +976,8 @@ export default {
                       totalAdded++
                     }
                   }
-                  // -> No more iterations for this period or max iterations count reached
-                  if (!plannedIterations.hasNext() || addedFutureJobs >= 10) {
+                  // -> Max iterations count reached
+                  if (addedFutureJobs >= 10) {
                     break
                   }
                 } catch {

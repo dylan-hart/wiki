@@ -1,4 +1,4 @@
-import { CronExpressionParser } from 'cron-parser'
+import { Cron } from 'croner'
 import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
@@ -23,7 +23,7 @@ const MIN_CRON_INTERVAL_MINUTES = 60
 
 /**
  * Validates a cron expression for the replication schedule: it must both parse as
- * `core/scheduler.ts`'s own `CronExpressionParser` would accept it -- reusing the identical
+ * `core/scheduler.ts`'s own `croner` (OpenProject #3177) would accept it -- reusing the identical
  * package/call is what keeps "accepted here" meaning "will actually run" once the scheduled job
  * itself is wired up (OpenProject #2492) -- and fire no more often than once every
  * `MIN_CRON_INTERVAL_MINUTES` minutes, checked as the gap between its first two computed fire times.
@@ -31,15 +31,18 @@ const MIN_CRON_INTERVAL_MINUTES = 60
  * @returns The reason it is invalid, or null when it is fine.
  */
 function validateCronSchedule(value: string): string | null {
-  let expression
+  let job
   try {
-    expression = CronExpressionParser.parse(value, { tz: 'UTC' })
+    job = new Cron(value, { timezone: 'UTC', paused: true })
   } catch {
     return 'The cron schedule is not a valid cron expression.'
   }
-  const firstFire = expression.next().toDate().getTime()
-  const secondFire = expression.next().toDate().getTime()
-  if (secondFire - firstFire < MIN_CRON_INTERVAL_MINUTES * 60 * 1000) {
+  const firstRun = job.nextRun()
+  const secondRun = firstRun ? job.nextRun(firstRun) : null
+  if (!firstRun || !secondRun) {
+    return 'The cron schedule is not a valid cron expression.'
+  }
+  if (secondRun.getTime() - firstRun.getTime() < MIN_CRON_INTERVAL_MINUTES * 60 * 1000) {
     return 'The cron schedule may not fire more often than once per hour.'
   }
   return null
