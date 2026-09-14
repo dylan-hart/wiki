@@ -23,7 +23,16 @@
 
 import MarkdownIt from 'markdown-it'
 import { full as markdownItEmoji } from 'markdown-it-emoji'
-import hljs from 'highlight.js'
+// -> `lib/common`, not the `highlight.js` root: the root registers every language the package ships
+//    (~190 grammars) regardless of whether any comment ever fences one of them, and a comment's
+//    fenced content is untrusted, author-submitted input — grammars are a classic ReDoS surface, so
+//    shrinking the set actually reachable here is a real risk reduction, not just a bundle-size
+//    saving (this runs server-side; there is no bundle to shrink). `lib/common` registers the same
+//    ~36-language set `frontend/src/renderers/markdown.js` and `EditorCodeBlockMenu.vue` already use,
+//    so a comment supports the same language set as the page renderer. A fence naming a language
+//    outside that set still renders — see the `getLanguage` guard below — just without highlighting,
+//    the same as it always has for a typo'd or unknown language.
+import hljs from 'highlight.js/lib/common'
 import sanitizeHtml from 'sanitize-html'
 import { escape } from 'es-toolkit/string'
 
