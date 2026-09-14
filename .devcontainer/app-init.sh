@@ -11,6 +11,9 @@ git config oh-my-zsh.hide-info 1
 echo "Waiting for DB container to come online..."
 /usr/local/bin/wait-for localhost:5432 -- echo "DB ready"
 
+echo "Waiting for MinIO container to come online..."
+/usr/local/bin/wait-for localhost:9000 -- echo "MinIO ready"
+
 # `npm ci` rather than `npm install`, in all four workspaces, for the same reason this whole image
 # exists: CI runs `npm ci`, so this environment runs `npm ci`. It installs exactly what the lockfile
 # says instead of whatever the ranges resolve to this morning, and it fails loudly on a lockfile that

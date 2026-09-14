@@ -1,12 +1,13 @@
 # The CI-parity development environment (OpenProject #2684, under Feature #2601).
 #
-# What `docker compose up` starts here is exactly what a CI job has: one Node container and one
-# postgres:18. Developer-only services -- currently just pgAdmin -- sit behind the `tools` profile
-# and are opted into explicitly, so the environment you work in by default is the environment that
-# gates, rather than a superset of it.
+# What `docker compose up` starts here is exactly what a CI job has: one Node container, one
+# postgres:18, and one MinIO (quality.yml's own `docker run` MinIO step, standing in for the
+# archived s3rver -- OpenProject #3153). Developer-only services -- currently just pgAdmin -- sit
+# behind the `tools` profile and are opted into explicitly, so the environment you work in by
+# default is the environment that gates, rather than a superset of it.
 #
-#   docker compose up                     # app + db      -- what CI has
-#   docker compose --profile tools up     # + pgAdmin     -- local convenience
+#   docker compose up                     # app + db + minio  -- what CI has
+#   docker compose --profile tools up     # + pgAdmin          -- local convenience
 
 services:
   app:
@@ -33,8 +34,13 @@ services:
     # `npm run test` in backend/ runs the DB-backed suites instead of silently skipping them.
     # If you edit config.yml's `db:` block to point somewhere else, unset this in your own shell
     # first -- core/db.ts prefers DATABASE_URL outright over WIKI.config.db.* whenever it's set.
+    # S3_TEST_ENDPOINT is the same convention as DATABASE_URL: self-contained root credentials,
+    # reachable at localhost:9000 for the same network_mode reason DATABASE_URL is at :5432. See
+    # backend/modules/storage/s3/storage.emulated.test.ts's header comment and the `minio` service
+    # below, which matches quality.yml's own `docker run` MinIO at the same image tag.
     environment:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      S3_TEST_ENDPOINT: http://minioadmin:minioadmin@localhost:9000
 
     # Overrides default command so things don't shut down after the process ends.
     command: sleep infinity
@@ -63,6 +69,23 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
 
+  minio:
+    # Same tag `.github/workflows/quality.yml`'s "Start MinIO" step pulls, and the same reason
+    # postgres above is a bare major rather than a digest: parity here means resolving the same
+    # image CI does. MinIO's Docker Hub repo no longer exists (moved to quay.io) and has no
+    # floating LTS-major tag, so a concrete RELEASE tag is the pin, per this project's Currency
+    # standard -- see backend/modules/storage/s3/storage.emulated.test.ts's header comment for what
+    # this backs.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server /data
+    volumes:
+      - minio-data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    network_mode: service:db
+
   pgadmin:
     # Developer convenience, not part of the gate: CI has no pgAdmin, so neither does the default
     # environment here. Start it with `docker compose --profile tools up` when you actually want it.
@@ -82,4 +105,5 @@ services:
 
 volumes:
   postgres-data:
+  minio-data:
   wiki-vscode-ext:

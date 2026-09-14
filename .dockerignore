@@ -2,7 +2,7 @@
 # so the whole repo working tree is the build context unless excluded here. Without this file,
 # dev/build/Dockerfile's `COPY --chown=node:node ./backend ./backend` copies backend/node_modules
 # exactly as CI's plain `npm ci` step left it on disk -- full devDependencies included (nodemon,
-# drizzle-kit, typescript, oxlint, s3rver, ssh2, esbuild's platform binary...) -- into an image
+# drizzle-kit, typescript, oxlint, ssh2, esbuild's platform binary...) -- into an image
 # layer. The Dockerfile's own later `RUN npm ci --omit=dev` reinstalls a production-only
 # node_modules in a subsequent layer, but layers are additive and pushed individually, so the
 # dev-dependency-laden layer stays extractable from the published image regardless. Excluding
