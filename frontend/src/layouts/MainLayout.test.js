@@ -7,9 +7,13 @@ import { mount } from '@vue/test-utils'
 
 import MainLayout from './MainLayout.vue'
 import FooterNav from '@/components/FooterNav.vue'
+import LocaleSelectorMenu from '@/components/LocaleSelectorMenu.vue'
+import NavBrowseMenu from '@/components/NavBrowseMenu.vue'
+import WMenu from '@/components/shared/WMenu.vue'
 import routes from '@/router/routes.js'
 import { useCommonStore } from '@/stores/common'
 import { useMinWidth } from '@/composables/screen'
+import { useDirection } from '@/composables/direction'
 
 import { createTestRouter } from '../../test/router.js'
 import { createTestI18n } from '../../test/i18n.js'
@@ -43,6 +47,127 @@ async function mountLayout(path, options = {}) {
 
   return mountWithApp(MainLayout, { router, stubs: LAYOUT_STUBS, ...options })
 }
+
+/**
+ * Regression coverage for OpenProject #3196: task 721's RTL mirroring audit named
+ * `NavSidebar.vue`/`PageToc.vue`/`PageHeader.vue`/the editor toolbars specifically but missed this
+ * layout's own sidebar chrome entirely. Four `w-menu` popups this layout passes explicit hardcoded
+ * physical `anchor`/`self` pairs to -- the mini rail's `locale-selector-menu` and `nav-browse-menu`
+ * overrides, and both `nav-edit-menu` `w-menu` wrappers (mini and full) -- are fixed the same
+ * mechanical way `AdminLayout.vue`'s locale-switcher menu was (task 727): routed through
+ * `helpers/directionalAnchor.js`, reactively off `composables/direction.js`.
+ *
+ * A SEPARATE, TOP-LEVEL describe placed FIRST in this file, before any other describe below mounts
+ * with `attachTo: document.body` and never calls `wrapper.unmount()` -- `MainLayout` now reacts to
+ * the SAME module-level `useDirection()` ref every one of those leaked instances would also close
+ * over, and flipping direction after any of them has run would re-trigger those now-parentless
+ * instances and crash on a null `insertBefore` (see `LocaleSelectorMenu.test.js`'s own equivalent
+ * describe for the full mechanics). Running first avoids that; each test below also unmounts its own
+ * wrapper regardless.
+ */
+describe('MainLayout sidebar w-menu anchors (RTL mirroring, OpenProject #3196)', () => {
+  async function mountMiniSidebar() {
+    const router = await createTestRouter(['/'])
+    return mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: (siteStore) => {
+          siteStore.features.browse = true
+        },
+        user: { authenticated: true, permissions: ['manage:navigation'] },
+        page: (store) => store.$patch({ navigationId: 1, navigationMode: 'hide' })
+      },
+      stubs: { HeaderNav: true, MainOverlayDialog: true, NavSidebar: true }
+    })
+  }
+
+  async function mountFullSidebar() {
+    const router = await createTestRouter(['/'])
+    return mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        user: { authenticated: true, permissions: ['manage:navigation'] }
+      },
+      stubs: { HeaderNav: true, MainOverlayDialog: true, NavSidebar: true }
+    })
+  }
+
+  afterEach(() => {
+    // -> `useDirection`'s backing ref is module-level state shared with every other test file that
+    //    imports it in this run; leaving it flipped would bleed into whichever test runs next
+    useDirection().set(false)
+  })
+
+  it("anchors the mini rail's locale/browse popups to the trailing (right) edge under ltr", async () => {
+    const { wrapper } = await mountMiniSidebar()
+
+    const localeMenu = wrapper.findComponent(LocaleSelectorMenu)
+    expect(localeMenu.props('anchor')).toBe('top right')
+    expect(localeMenu.props('self')).toBe('top left')
+
+    const browseMenu = wrapper.findComponent(NavBrowseMenu)
+    expect(browseMenu.props('anchor')).toBe('top right')
+    expect(browseMenu.props('self')).toBe('top left')
+
+    wrapper.unmount()
+  })
+
+  it("mirrors the mini rail's locale/browse popups to the trailing (left) edge under rtl", async () => {
+    useDirection().set(true)
+    const { wrapper } = await mountMiniSidebar()
+
+    const localeMenu = wrapper.findComponent(LocaleSelectorMenu)
+    expect(localeMenu.props('anchor')).toBe('top left')
+    expect(localeMenu.props('self')).toBe('top right')
+
+    const browseMenu = wrapper.findComponent(NavBrowseMenu)
+    expect(browseMenu.props('anchor')).toBe('top left')
+    expect(browseMenu.props('self')).toBe('top right')
+
+    wrapper.unmount()
+  })
+
+  it("anchors the mini rail's Edit Nav popup under ltr, and mirrors it under rtl", async () => {
+    const { wrapper } = await mountMiniSidebar()
+
+    const miniEditNavMenu = wrapper.get(`[aria-label="${messages.common.sidebar.editNav}"]`)
+    const ltrMenu = miniEditNavMenu.findComponent(WMenu)
+    expect(ltrMenu.props('anchor')).toBe('top right')
+    expect(ltrMenu.props('self')).toBe('bottom left')
+
+    wrapper.unmount()
+
+    useDirection().set(true)
+    const { wrapper: rtlWrapper } = await mountMiniSidebar()
+    const rtlMenu = rtlWrapper
+      .get(`[aria-label="${messages.common.sidebar.editNav}"]`)
+      .findComponent(WMenu)
+    expect(rtlMenu.props('anchor')).toBe('top left')
+    expect(rtlMenu.props('self')).toBe('bottom right')
+
+    rtlWrapper.unmount()
+  })
+
+  it("anchors the full sidebar footer's Edit Nav popup under ltr, and mirrors it under rtl", async () => {
+    const { wrapper } = await mountFullSidebar()
+
+    const ltrMenu = wrapper.get('.sidebar-footerbtns').findComponent(WMenu)
+    expect(ltrMenu.props('anchor')).toBe('top left')
+    expect(ltrMenu.props('self')).toBe('bottom left')
+
+    wrapper.unmount()
+
+    useDirection().set(true)
+    const { wrapper: rtlWrapper } = await mountFullSidebar()
+    const rtlMenu = rtlWrapper.get('.sidebar-footerbtns').findComponent(WMenu)
+    expect(rtlMenu.props('anchor')).toBe('top right')
+    expect(rtlMenu.props('self')).toBe('bottom right')
+
+    rtlWrapper.unmount()
+  })
+})
 
 describe('MainLayout sidebar-mini fallback (OpenProject #2512)', () => {
   it('stays mini on a content page route with no navigationId yet (fresh store / direct load)', async () => {

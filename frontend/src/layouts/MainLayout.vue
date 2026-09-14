@@ -47,7 +47,7 @@
           icon="tabler:language"
           color="slate"
           :aria-label="t('common.sidebar.switchLocale')">
-          <locale-selector-menu anchor="top right" self="top left" />
+          <locale-selector-menu :anchor="miniSideMenu.anchor" :self="miniSideMenu.self" />
           <w-tooltip anchor="center right" self="center left">{{
             t('common.sidebar.switchLocale')
           }}</w-tooltip>
@@ -59,7 +59,7 @@
           icon="tabler:sitemap"
           color="slate"
           :aria-label="t(`common.sidebar.browse`)">
-          <nav-browse-menu anchor="top right" self="top left" />
+          <nav-browse-menu :anchor="miniSideMenu.anchor" :self="miniSideMenu.self" />
           <w-tooltip anchor="center right" self="center left">
             {{ t('common.sidebar.browse') }}
           </w-tooltip>
@@ -73,7 +73,10 @@
           color="slate"
           :aria-label="t(`common.sidebar.editNav`)"
           size="sm">
-          <w-menu ref="navEditMenuMini" anchor="top right" self="bottom left">
+          <w-menu
+            ref="navEditMenuMini"
+            :anchor="miniEditNavMenu.anchor"
+            :self="miniEditNavMenu.self">
             <nav-edit-menu
               :menu-hide-handler="navEditMenuMini.hide"
               :update-position-handler="navEditMenuMini.updatePosition" />
@@ -163,7 +166,11 @@
                   own text line (`FooterNav.vue`) -- see the CSS comment below. -->
           <span class="sidebar-footerbtns-spacer" aria-hidden="true">&nbsp;</span>
           <w-btn class="flex-1" icon="tabler:list-tree" :label="t(`common.sidebar.editNav`)" flat>
-            <w-menu ref="navEditMenu" anchor="top left" self="bottom left" :offset="[0, 10]">
+            <w-menu
+              ref="navEditMenu"
+              :anchor="editNavMenu.anchor"
+              :self="editNavMenu.self"
+              :offset="[0, 10]">
               <nav-edit-menu
                 :menu-hide-handler="navEditMenu.hide"
                 :update-position-handler="navEditMenu.updatePosition" />
@@ -191,6 +198,8 @@ import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
 import { useMinWidth } from '@/composables/screen'
+import { useDirection } from '@/composables/direction'
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { useI18n } from 'vue-i18n'
 
 import { useCommonStore } from '@/stores/common'
@@ -256,6 +265,37 @@ const navEditMenuMini = ref(null)
  * sidebar is a column that is simply there.
  */
 const isNarrowSidebarOpen = ref(false)
+
+// DIRECTION
+
+const direction = useDirection()
+
+/**
+ * `WDrawer.vue`'s own `side` prop is already logical (reading-START/-END, not a raw physical side --
+ * see its doc comment), so this sidebar itself moves to the visual right under `dir="rtl"`. The four
+ * `w-menu` popups below all assumed a physical-left sidebar (`WMenu`/`WTooltip` place themselves in
+ * raw viewport pixels with no idea which way the reader's text flows --
+ * `helpers/directionalAnchor.js`'s own doc comment) and so need the same mirroring
+ * `AdminLayout.vue`'s locale-switcher menu got in task 727. Kept reactive, not read once at setup,
+ * because this layout -- like `AdminLayout.vue`'s header -- stays mounted across navigations, so a
+ * reader picking an RTL locale mid-session must see these flip on the next render.
+ *
+ * (`sidebarPosition`, the site setting for which CONTENT column the sidebar sits in, is a separate,
+ * orthogonal axis -- see `NavSidebar.vue`'s own `--flipped` variant -- and is untouched here.)
+ */
+const miniSideMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'top right', 'top left')
+)
+
+/** The mini-sidebar's own Edit Nav popup -- pairs with `miniSideMenu` above, different `self`. */
+const miniEditNavMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'top right', 'bottom left')
+)
+
+/** The full (non-mini) sidebar's Edit Nav popup, opening upward from its footer bar. */
+const editNavMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'top left', 'bottom left')
+)
 
 // COMPUTED
 
