@@ -73,7 +73,10 @@ PRECONDITIONS -- checked before anything runs
   * a Playwright browser directory exists (without it, frontend/'s two "real layout" describes
     silently skip -- see frontend/test/realGridLayout.js's hasChromium() probe);
   * DATABASE_URL is set (without it, backend/test/db.ts's hasTestDatabase() gate skips every
-    DB-backed suite -- roughly a fifth of the backend suite; see docs/testing-audit/backend.md).
+    DB-backed suite -- roughly a fifth of the backend suite; see docs/testing-audit/backend.md);
+  * S3_TEST_ENDPOINT is set, pointed at a real S3-compatible server such as MinIO (without it,
+    backend/modules/storage/s3/storage.emulated.test.ts silently skips -- see that file's header
+    comment). .devcontainer/docker-compose.yml's own `minio` service already provides one.
 
   Any of these missing is a hard refusal, because a run that skips a fifth of the suite and prints
   "green" is precisely the false verification this Epic exists to eliminate. VERIFY_CI_ALLOW_HOST=1
@@ -232,6 +235,8 @@ command -v git-cliff > /dev/null 2>&1 ||
   problems+=("no Playwright browser found; frontend/'s two real-layout describes would silently skip.")
 [ -n "${DATABASE_URL:-}" ] ||
   problems+=('DATABASE_URL is unset; every DB-backed backend suite would silently skip.')
+[ -n "${S3_TEST_ENDPOINT:-}" ] ||
+  problems+=('S3_TEST_ENDPOINT is unset; backend/modules/storage/s3/storage.emulated.test.ts would silently skip its real S3 test.')
 
 if [ ${#problems[@]} -gt 0 ]; then
   if [ "${VERIFY_CI_ALLOW_HOST:-}" = '1' ]; then

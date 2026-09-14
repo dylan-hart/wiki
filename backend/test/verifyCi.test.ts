@@ -107,7 +107,13 @@ const SCRIPT_COMMANDS = new Set(SCRIPT_STEPS.map((s) => s.command))
 const PROVISIONED_BY_THE_IMAGE: { matches: RegExp; precondition: RegExp }[] = [
   { matches: /git-cliff/, precondition: /command -v git-cliff/ },
   { matches: /apt-get .*\bpandoc\b/, precondition: /command -v pandoc/ },
-  { matches: /playwright install/, precondition: /PLAYWRIGHT_BROWSERS_PATH/ }
+  { matches: /playwright install/, precondition: /PLAYWRIGHT_BROWSERS_PATH/ },
+  // OpenProject #3153: the parity image's devcontainer compose file runs a long-lived `minio`
+  // service the same way it runs `db` (see .devcontainer/docker-compose.yml), so verify-ci.sh
+  // checks for S3_TEST_ENDPOINT instead of re-running quality.yml's `docker run`/health-check steps
+  // that stand MinIO up fresh on a CI runner.
+  { matches: /docker run .*minio/i, precondition: /S3_TEST_ENDPOINT is unset/ },
+  { matches: /minio\/health\/ready/, precondition: /S3_TEST_ENDPOINT is unset/ }
 ]
 
 describe('scripts/verify-ci.sh mirrors the CI quality gate', () => {

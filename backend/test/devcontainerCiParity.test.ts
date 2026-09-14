@@ -419,9 +419,12 @@ describe('devcontainer CI parity: git is configured, not inherited (#2684, Bug #
 })
 
 describe('devcontainer CI parity: only what CI has starts by default (#2684)', () => {
-  test('every service beyond app and db is behind a compose profile', () => {
+  test('every service beyond app, db and minio is behind a compose profile', () => {
+    // minio joined the CI-equivalent set alongside db in #3153: quality.yml's own MinIO container
+    // stands in for the archived s3rver, so the devcontainer's `minio` service must start by
+    // default too, the same way `db` does.
     for (const [name, service] of Object.entries<any>(compose.services)) {
-      if (name === 'app' || name === 'db') {
+      if (name === 'app' || name === 'db' || name === 'minio') {
         assert.equal(
           service.profiles,
           undefined,
