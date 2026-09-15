@@ -36,6 +36,7 @@ const MESSAGES = {
   profile: {
     title: 'Profile',
     identity: 'About Me',
+    preferences: 'Preferences',
     avatar: 'Avatar',
     auth: 'Login & Security',
     groups: 'Groups',
@@ -121,11 +122,41 @@ describe('ProfileOverlay section rail', () => {
         .attributes('data-icon')
 
     expect(iconFor('About Me')).toBe('tabler:id')
+    expect(iconFor('Preferences')).toBe('tabler:adjustments')
     expect(iconFor('Avatar')).toBe('tabler:photo')
     expect(iconFor('Login & Security')).toBe('tabler:key')
     expect(iconFor('Groups')).toBe('tabler:users')
     expect(iconFor('API Keys')).toBe('tabler:api')
     expect(iconFor('Notifications')).toBe('tabler:bell')
+  })
+
+  /**
+   * OpenProject #3315 (Feature #3314): the new Preferences entry must sit immediately after About
+   * Me, before Avatar -- not merely exist somewhere in the rail.
+   */
+  it('places the Preferences entry right after About Me, before Avatar', () => {
+    const { wrapper } = mountOverlay()
+
+    const labels = wrapper
+      .findAll('.layout-profile-sd .w-item')
+      .map((item) => item.find('.w-item-label').text())
+
+    const aboutMeIndex = labels.indexOf('About Me')
+    const preferencesIndex = labels.indexOf('Preferences')
+    const avatarIndex = labels.indexOf('Avatar')
+    expect(preferencesIndex).toBe(aboutMeIndex + 1)
+    expect(avatarIndex).toBe(preferencesIndex + 1)
+  })
+
+  it('switches to the preferences section when its rail item is clicked', async () => {
+    const { wrapper } = mountOverlay()
+
+    const preferencesItem = wrapper
+      .findAll('.layout-profile-sd .w-item')
+      .find((item) => item.text().includes('Preferences'))
+    await preferencesItem.trigger('click')
+
+    expect(wrapper.vm.state.section).toBe('preferences')
   })
 
   it('renders the Activity row disabled, and hides it unless flagsStore.experimental', () => {
