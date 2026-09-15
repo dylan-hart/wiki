@@ -74,7 +74,7 @@ describe('embedText — model unavailable', () => {
     wikiHandle?.restore()
   })
 
-  test('returns null and records a load failure when the runtime cannot be imported', async () => {
+  test('returns null instead of throwing when the runtime cannot be imported and CARDINAL.models has no extensions (OpenProject #3295)', async () => {
     const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules', '@huggingface')
     const packageDir = path.join(nodeModulesDir, 'transformers')
     const disabledDir = path.join(nodeModulesDir, '.transformers-disabled-for-test')
@@ -92,18 +92,19 @@ describe('embedText — model unavailable', () => {
     }
 
     try {
-      const noteLoadFailure = mock.fn()
-      const warn = mock.fn()
-      wikiHandle = installTestWiki({
-        models: { extensions: { noteLoadFailure } },
-        logger: { warn, debug: mock.fn() }
-      })
+      const warn = mock.fn((_scope: string, _message: string, _fields?: unknown) => {})
+      // -> `models` deliberately carries no `extensions` key -- `test/mocks.ts#createWikiStub`
+      //    defaults `models` to `{}`, so this reproduces `backend/worker.ts`'s exact pre-fix shape
+      //    (and would reproduce it again if a future edit there ever dropped `extensions`). Before the
+      //    fix, `getExtractor()`'s catch block called `CARDINAL.models.extensions.noteLoadFailure()`
+      //    unconditionally here and threw `Cannot read properties of undefined (reading
+      //    'noteLoadFailure')` before the warn log below ever ran, escaping `embedText()`'s "never
+      //    throws" contract as an unhandled job failure.
+      wikiHandle = installTestWiki({ logger: { warn, debug: mock.fn() } })
 
       const result = await embedText('irrelevant')
 
       assert.equal(result, null)
-      assert.equal(noteLoadFailure.mock.calls.length, 1)
-      assert.equal(noteLoadFailure.mock.calls[0].arguments[0], '@huggingface/transformers')
       assert.equal(warn.mock.calls.length, 1)
       assert.equal(warn.mock.calls[0].arguments[0], 'search')
       // -> The failure is now cached for the rest of this process, same as a real failed load would be
@@ -117,5 +118,31 @@ describe('embedText — model unavailable', () => {
         await fs.rename(disabledDir, packageDir)
       }
     }
+  })
+})
+
+/**
+ * The real import-failure trigger above can only fire once per process (`getExtractor()`'s own
+ * `if (loadFailed) return null` guard), so it is spent proving the extensions-absent regression is
+ * fixed. Whether `CARDINAL.models.extensions.noteLoadFailure()` is called *before or after* the warn
+ * log, when `extensions` IS present, is instead verified as a source-order fact rather than by forcing
+ * a second live failure — this is what actually guarantees a future failure in `noteLoadFailure`
+ * itself (or in whatever recording step replaces it) can never suppress the warn log again.
+ */
+describe('getExtractor catch block source order — OpenProject #3295', () => {
+  test('warns before calling CARDINAL.models.extensions?.noteLoadFailure()', async () => {
+    const embeddingsSource = await fs.readFile(
+      path.join(import.meta.dirname, 'embeddings.ts'),
+      'utf8'
+    )
+    const warnIdx = embeddingsSource.indexOf(
+      "CARDINAL.logger.warn('search', 'could not load the local embedding model'"
+    )
+    const noteIdx = embeddingsSource.indexOf(
+      'CARDINAL.models.extensions?.noteLoadFailure(specifier)'
+    )
+    assert.notEqual(warnIdx, -1, 'expected the warn log call to still exist verbatim')
+    assert.notEqual(noteIdx, -1, 'expected an optional-chained noteLoadFailure call to still exist')
+    assert.ok(warnIdx < noteIdx, 'the warn log must run before recording the load failure')
   })
 })

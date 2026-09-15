@@ -80,8 +80,13 @@ async function getExtractor(): Promise<FeatureExtractor | null> {
   } catch (err: any) {
     loadFailed = true
     extractorPromise = null
-    CARDINAL.models.extensions.noteLoadFailure(specifier)
+    // -> The warn log fires first and `noteLoadFailure` is optional-chained: this call runs on a
+    //    worker thread (`backend/worker.ts`), whose deliberately minimal `CARDINAL.models` can omit
+    //    `extensions` again in the future, and recording the failure must never be able to defeat
+    //    this function's own "never throws" contract by throwing before the real error is even
+    //    logged (OpenProject #3295).
     CARDINAL.logger.warn('search', 'could not load the local embedding model', { error: err })
+    CARDINAL.models.extensions?.noteLoadFailure(specifier)
     return null
   }
 }
