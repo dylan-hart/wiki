@@ -793,15 +793,25 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //    this suite's existing convention for setup that has no dedicated model method.
     await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
     await fixtures.db.insert(approvalRulesTable).values({ siteId })
+    // -> `pageWatchEvents.pageId` is a real FK to `pages.id` (OpenProject #3271) — a synthetic
+    //    `randomUUID()` here would violate it, so a real page is created and deleted again, leaving
+    //    the site with no live pages (as the test's own name promises) but a valid id to plant this
+    //    row against.
+    const watchEventPage = await pagesModel.createPage(
+      siteId,
+      { path: 'test', title: 'Test', editor: 'markdown', content: '# Test' },
+      actor
+    )
     await fixtures.db.insert(pageWatchEventsTable).values({
       siteId,
       action: 'edited',
-      pageId: randomUUID(),
+      pageId: watchEventPage.id,
       pageTitle: 'Test',
       pagePath: 'test',
       userId: fixtures.userId,
       notifyMode: 'immediate'
     })
+    await pagesModel.deletePage(siteId, watchEventPage.id, actor)
     await fixtures.db
       .insert(apiKeysTable)
       .values({ name: 'site key', keyShort: 'abcd1234', siteId })
@@ -983,22 +993,25 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       actor
     )
-    await pagesModel.deletePage(siteId, page.id, actor)
-
-    // -> `commentProviders` (seeded above by `createSite()`) and `pageHistory` (written above by
-    //    `deletePage()`) are populated through the real app flow; the other four have no such call
-    //    site under test, so they're seeded directly to prove the cleanup covers them too.
-    await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
-    await fixtures.db.insert(approvalRulesTable).values({ siteId })
+    // -> `pageWatchEvents.pageId` is a real FK to `pages.id` (OpenProject #3271), so this synthetic
+    //    row is planted against `page.id` (not a `randomUUID()`) while the page still exists, then
+    //    the page is deleted below — matching this test's own premise that the event outlives its page.
     await fixtures.db.insert(pageWatchEventsTable).values({
       action: 'updated',
-      pageId: randomUUID(),
+      pageId: page.id,
       pageTitle: 'Home',
       pagePath: 'home',
       siteId,
       userId: fixtures.userId,
       notifyMode: 'immediate'
     })
+    await pagesModel.deletePage(siteId, page.id, actor)
+
+    // -> `commentProviders` (seeded above by `createSite()`) and `pageHistory` (written above by
+    //    `deletePage()`) are populated through the real app flow; the other three have no such call
+    //    site under test, so they're seeded directly to prove the cleanup covers them too.
+    await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
+    await fixtures.db.insert(approvalRulesTable).values({ siteId })
 
     const deleted = await sites.deleteSite(siteId)
     assert.equal(deleted, true)
