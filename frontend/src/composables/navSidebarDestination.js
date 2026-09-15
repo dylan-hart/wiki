@@ -16,6 +16,15 @@ import { useSiteStore } from '@/stores/site'
 const SAFE_TARGET_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
 
 /**
+ * The knowledge graph's fixed route path (`router/routes.js`) -- no locale prefix, unlike an
+ * ordinary content page. `graphSidebarBranch()` below is the sidebar half of OpenProject #3313's
+ * branching; `components/HeaderNav.vue`'s Graph nav button owns the other half and carries the same
+ * literal, since the two are independent call sites rather than a shared import worth adding for one
+ * string.
+ */
+const GRAPH_ROUTE_PATH = '/_graph'
+
+/**
  * Where a nav item points, and whether it is the page being read -- used by `NavSidebarItem.vue`,
  * which renders itself once per nesting level (OpenProject #814). Kept as a composable rather than
  * methods on that component so every recursive instance calls the same implementation instead of
@@ -96,13 +105,45 @@ export function useNavSidebarDestination() {
     }
     const routable = routableHref({ href: url.href, target }, globalThis.location)
     if (routable) {
-      return { to: routable }
+      return graphSidebarBranch(item) ?? { to: routable }
     }
     // -> An ordinary external link (or mailto:/tel:), or nothing: `address` is author-supplied, and
     //    `javascript:` bound as a dynamic href is script this page would run on click -- mirrors
     //    `Index.vue#relationLink`'s check for the same reason, widened for the two extra protocols a
     //    nav item legitimately points at (OpenProject #1360/#2208, 2026-08-24 security audit §3).
     return SAFE_TARGET_PROTOCOLS.has(url.protocol) ? { href: address, target } : {}
+  }
+
+  /**
+   * OpenProject #3313: while `/_graph` is open, clicking a page item in the sidebar moves the
+   * graph's own root (`route.query.path` -- the Feature's shared query-param contract, #3311/#3312)
+   * instead of navigating away -- except the item that IS the currently active root, which falls
+   * through (returns `null`, so `destination()` uses its ordinary `{ to }`) and navigates normally,
+   * the same "exit the graph and go read that page" behavior clicking it from anywhere else already
+   * has.
+   *
+   * Reads `route.query.path` directly, in the same raw un-prefixed form `item.path` already carries
+   * (`backend/models/navigation.ts`'s own doc comment on `NavigationItem.path`), rather than
+   * anything `pages/Graph.vue` computes internally -- the epic plan's own cross-task file-ownership
+   * split keeps this composable off Graph.vue's locale-scoped node identity entirely.
+   *
+   * `router.replace`, not `router.push`: repeatedly re-rooting the graph from the sidebar must not
+   * spam the browser history with one entry per click.
+   *
+   * Only for a nav item that carries its own `path` -- a generated tree item, page or folder. A
+   * hand-authored `static` link (no `item.path`) may not correspond to a real page at all, so it
+   * keeps navigating normally even inside the graph.
+   *
+   * @returns {{ clickable: true, onClick: Function } | null}
+   */
+  function graphSidebarBranch(item) {
+    if (route.path !== GRAPH_ROUTE_PATH || !item.path || item.path === route.query.path) {
+      return null
+    }
+    return {
+      clickable: true,
+      onClick: () => router.replace({ path: GRAPH_ROUTE_PATH, query: { path: item.path } })
+    }
   }
 
   /**
