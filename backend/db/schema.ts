@@ -1703,6 +1703,35 @@ export const tree = pgTable(
   ]
 )
 
+// TFA KNOWN DEVICES -------------------
+// -> OpenProject #3302: what `models/login.ts#loginTFA()` reads/writes to tell a returning
+//    device/location from a new one, so it knows when to fire the new-device-login notice. There is
+//    no geoIP lookup anywhere in this codebase (see `docs/decisions/2026-09-15-tfa-new-device-login-
+//    fingerprint.md`), so "device" and "location" are not tracked separately: `fingerprint` is a
+//    hash of the client IP plus its User-Agent string, and a change in either one is a new
+//    fingerprint. `ip`/`userAgent` are kept alongside it in the clear (not just the hash) purely so
+//    a future admin-facing "known devices" view has something human-readable to show — nothing reads
+//    them back today.
+export const tfaKnownDevices = pgTable(
+  'tfaKnownDevices',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // -> sha1 hex of `${ip}|${userAgent}` -- see `models/login.ts#tfaDeviceFingerprint`, the one
+    //    place that computes it. Looked up by (userId, fingerprint) equality only, never parsed.
+    fingerprint: varchar({ length: 64 }).notNull(),
+    ip: varchar({ length: 255 }),
+    userAgent: text(),
+    firstSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('tfaKnownDevices_userId_fingerprint_idx').on(table.userId, table.fingerprint)
+  ]
+)
+
 // USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
   id: uuid()

@@ -34,6 +34,7 @@ export type MailKind =
   | 'tfaEnabled'
   | 'tfaDisabled'
   | 'tfaRecoveryCodesGenerated'
+  | 'tfaNewDeviceLogin'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -662,6 +663,40 @@ class MailModel {
       'tfaRecoveryCodesGenerated',
       { name, link },
       { kind: 'tfaRecoveryCodesGenerated', userId }
+    )
+  }
+
+  /**
+   * Notice sent when a 2FA-gated login completes from a device/IP address `models/login.ts`'s
+   * fingerprint check has not seen before for this account (OpenProject #3302). Fired from
+   * `loginTFA()` right after the code is verified, alongside recording the new fingerprint — never on
+   * a login from an already-known fingerprint.
+   *
+   * @param ip The client IP the login came from, shown so the recipient has something concrete to
+   *   judge the notice against. Passed through as-is (may be `undefined` behind a proxy that strips
+   *   it) rather than blocking the notice on having one.
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaNewDeviceLogin({
+    to,
+    name,
+    ip,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    ip?: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaNewDeviceLogin',
+      { name, ip: ip || '(unknown)', link },
+      { kind: 'tfaNewDeviceLogin', userId }
     )
   }
 

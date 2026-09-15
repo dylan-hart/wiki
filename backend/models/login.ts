@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
-import { eq, sql } from 'drizzle-orm'
-import { users as usersTable } from '../db/schema.ts'
-import { BCRYPT_ROUNDS } from '../helpers/common.ts'
+import { and, eq, sql } from 'drizzle-orm'
+import { tfaKnownDevices, users as usersTable } from '../db/schema.ts'
+import { BCRYPT_ROUNDS, generateHash, isUniqueViolation } from '../helpers/common.ts'
 import { randomToken } from '../helpers/randomToken.ts'
 import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { coalesce } from '../helpers/logCoalesce.ts'
@@ -180,6 +180,64 @@ async function recordTfaFailure(
     detail: { strategyId, reason },
     siteId
   })
+}
+
+/**
+ * The fingerprint `checkAndRecordTfaDevice` keys a `tfaKnownDevices` row by: a hash of the client IP
+ * plus its User-Agent string. See `docs/decisions/2026-09-15-tfa-new-device-login-fingerprint.md` for
+ * why the two collapse into one signal instead of being tracked separately — this codebase has no
+ * geoIP lookup that could tell a "new location" from merely "a new IP on an otherwise unchanged
+ * network" any more precisely than that.
+ */
+function tfaDeviceFingerprint(ip: string | undefined, userAgent: string | undefined): string {
+  return generateHash(`${ip ?? ''}|${userAgent ?? ''}`)
+}
+
+/**
+ * OpenProject #3302: records this 2FA login's device/location fingerprint against the account and
+ * reports whether it had never been recorded before — the signal `loginTFA()` fires
+ * `sendTfaNewDeviceLogin` on. Called once per successful code verification, `setup` completions
+ * included: an account's very first fingerprint is, correctly, a new one.
+ *
+ * Two logins racing to record the same never-seen-before fingerprint (two tabs finishing 2FA at
+ * once) resolve as "not new" for whichever request's insert loses the unique-index race — the
+ * fingerprint genuinely is known by then, regardless of which request got there first, so there is
+ * nothing for the loser to newly report.
+ */
+async function checkAndRecordTfaDevice(
+  userId: string,
+  ip: string | undefined,
+  userAgent: string | undefined
+): Promise<boolean> {
+  const fingerprint = tfaDeviceFingerprint(ip, userAgent)
+  const existing = await CARDINAL.db
+    .select({ id: tfaKnownDevices.id })
+    .from(tfaKnownDevices)
+    .where(and(eq(tfaKnownDevices.userId, userId), eq(tfaKnownDevices.fingerprint, fingerprint)))
+    .limit(1)
+
+  if (existing.length > 0) {
+    await CARDINAL.db
+      .update(tfaKnownDevices)
+      .set({ lastSeenAt: sql`now()`, ip: ip ?? null, userAgent: userAgent ?? null })
+      .where(eq(tfaKnownDevices.id, existing[0].id))
+    return false
+  }
+
+  try {
+    await CARDINAL.db.insert(tfaKnownDevices).values({
+      userId,
+      fingerprint,
+      ip: ip ?? null,
+      userAgent: userAgent ?? null
+    })
+    return true
+  } catch (err: any) {
+    if (isUniqueViolation(err)) {
+      return false
+    }
+    throw err
+  }
 }
 
 /**
@@ -1300,6 +1358,31 @@ class Login {
     }
 
     await CARDINAL.models.userCredentials.destroyToken({ token: continuationToken })
+
+    // -> OpenProject #3302: a failure recording the device fingerprint, or sending the resulting
+    //    notice, must not turn an otherwise-verified 2FA login into a rejected one — swallow and log,
+    //    the same pattern `resetPassword()`'s `sendPasswordResetConfirmed` call below uses.
+    try {
+      const uaHeader = req?.headers?.['user-agent']
+      const userAgent = Array.isArray(uaHeader) ? uaHeader[0] : uaHeader
+      const isNewDevice = await checkAndRecordTfaDevice(user.id, ip, userAgent)
+      if (isNewDevice) {
+        await CARDINAL.models.mail.sendTfaNewDeviceLogin({
+          to: user.email,
+          name: user.name,
+          ip,
+          userId: user.id,
+          locale: user.prefs?.locale
+        })
+      }
+    } catch (err: any) {
+      CARDINAL.logger.warn(
+        'auth',
+        'recording the 2FA login device or sending its new-device notice failed',
+        { user: user.id, strategy: strategyId, error: err }
+      )
+    }
+
     let recoveryCodes: string[] | undefined
     if (setup) {
       recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId)
