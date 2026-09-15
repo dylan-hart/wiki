@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProfileOverlay from './ProfileOverlay.vue'
 import { mountWithApp } from '../../test/mount.js'
+import { pendingProfileSaves } from '@/composables/profileSaving'
 
 /**
  * OpenProject #2532: Profile becomes a true `MainOverlayDialog` entry -- local `ref`/`reactive`
@@ -41,7 +42,8 @@ const MESSAGES = {
     api: { title: 'API Keys' },
     notifications: 'Notifications',
     activity: 'Activity',
-    viewPublicProfile: 'View public profile'
+    viewPublicProfile: 'View public profile',
+    closeDisabledLabel: 'Saving...'
   }
 }
 
@@ -154,12 +156,54 @@ describe('ProfileOverlay section rail', () => {
 })
 
 describe('ProfileOverlay close / logout', () => {
+  beforeEach(() => {
+    pendingProfileSaves.value = 0
+  })
+
   it('clears siteStore.overlay when the header Close button is clicked', async () => {
     const { wrapper, siteStore } = mountOverlay()
     siteStore.overlay = 'Profile'
 
     await wrapper.find('.layout-profile-hdr [aria-label="Close"]').trigger('click')
 
+    expect(siteStore.overlay).toBe('')
+  })
+
+  /**
+   * OpenProject #3282: the close button reads the shared `pendingProfileSaves` module singleton
+   * (the same one `MainOverlayDialog.vue`'s own dismiss guard reads) rather than any per-section
+   * state, disabling itself and swapping its label/aria-label to "Saving..." while a section save is
+   * in flight -- and a click while disabled must not clear `siteStore.overlay`.
+   */
+  it('disables the Close button and swaps its label while a save is pending', async () => {
+    const { wrapper, siteStore } = mountOverlay()
+    siteStore.overlay = 'Profile'
+    pendingProfileSaves.value = 1
+    await wrapper.vm.$nextTick()
+
+    const closeButton = wrapper.find('.layout-profile-hdr [aria-label="Saving..."]')
+    expect(closeButton.exists()).toBe(true)
+    expect(closeButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.layout-profile-hdr [aria-label="Close"]').exists()).toBe(false)
+
+    await closeButton.trigger('click')
+    expect(siteStore.overlay).toBe('Profile')
+  })
+
+  it('re-enables the Close button and restores its label once the pending count drops to zero', async () => {
+    const { wrapper, siteStore } = mountOverlay()
+    siteStore.overlay = 'Profile'
+    pendingProfileSaves.value = 1
+    await wrapper.vm.$nextTick()
+
+    pendingProfileSaves.value = 0
+    await wrapper.vm.$nextTick()
+
+    const closeButton = wrapper.find('.layout-profile-hdr [aria-label="Close"]')
+    expect(closeButton.exists()).toBe(true)
+    expect(closeButton.attributes('disabled')).toBeUndefined()
+
+    await closeButton.trigger('click')
     expect(siteStore.overlay).toBe('')
   })
 

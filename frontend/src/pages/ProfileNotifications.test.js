@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import ProfileNotifications from './ProfileNotifications.vue'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
+import { pendingProfileSaves } from '@/composables/profileSaving'
 
 /**
  * Feature #2425: the self-service Notifications settings page — one `w-toggle` per event type the
@@ -77,6 +78,40 @@ function mountPage() {
 }
 
 describe('ProfileNotifications', () => {
+  beforeEach(() => {
+    pendingProfileSaves.value = 0
+  })
+
+  /**
+   * OpenProject #3282: save() counts itself on the shared `pendingProfileSaves` module singleton
+   * (what gates the Profile dialog's close button/dismiss guard), not only on this page's own local
+   * `state.loading`. A manually-resolved promise stands in for the PUT so the in-flight count is
+   * observable before it settles.
+   */
+  it('counts save() on the shared pendingProfileSaves singleton while the PUT is in flight', async () => {
+    stubApi({ 'users/profile/notifications': { ...ALL_FALSE } })
+    let resolvePut
+    globalThis.API_CLIENT.put.mockReturnValue({
+      json: () =>
+        new Promise((resolve) => {
+          resolvePut = resolve
+        })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(0)
+
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Changes'))
+    saveButton.trigger('click')
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(1)
+
+    resolvePut({ ok: true, subscriptions: { ...ALL_FALSE } })
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+
   it('loads the subscription map from users/profile/notifications on mount', async () => {
     const { calls } = stubApi({
       'users/profile/notifications': { ...ALL_FALSE, 'comment:new': true }

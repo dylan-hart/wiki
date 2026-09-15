@@ -259,6 +259,7 @@ import { debounce } from 'es-toolkit/function'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { profileSaving } from '@/composables/profileSaving'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useDerivedDisplayName } from '@/composables/displayName'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
@@ -482,6 +483,10 @@ function clearFieldErrors() {
 
 async function save() {
   clearFieldErrors()
+  // -> OpenProject #3282: counted around the request so ProfileOverlay.vue's close button and
+  //    MainOverlayDialog.vue's dismiss guard both see this save while it's in flight, even if the
+  //    reader switches away from this section (which unmounts it) before it settles.
+  profileSaving.begin()
   try {
     // -> The email is displayed read-only and cannot be changed here, so it is left out entirely.
     //    `locale` has no field of its own on this screen -- it is whatever the app's own locale
@@ -536,6 +541,7 @@ async function save() {
       caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
+  profileSaving.end()
 }
 
 const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)

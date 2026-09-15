@@ -70,6 +70,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { profileSaving } from '@/composables/profileSaving'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { computed, reactive } from 'vue'
 
@@ -128,6 +129,9 @@ async function uploadImage() {
       return
     }
     state.loading++
+    // -> OpenProject #3282: see ProfileInfo.vue's save() for why this is counted separately from
+    //    state.loading above (which is local and would be lost if the reader switches sections).
+    profileSaving.begin()
     try {
       // -> The image is the request body itself: the endpoint takes the raw file, not a form
       await API_CLIENT.put('users/profile/avatar', {
@@ -152,6 +156,7 @@ async function uploadImage() {
       })
     }
     state.loading--
+    profileSaving.end()
   }
 
   input.click()
@@ -159,6 +164,7 @@ async function uploadImage() {
 
 async function clearImage() {
   state.loading++
+  profileSaving.begin()
   try {
     await API_CLIENT.delete('users/profile/avatar').json()
     notify({
@@ -177,6 +183,7 @@ async function clearImage() {
     })
   }
   state.loading--
+  profileSaving.end()
 }
 </script>
 

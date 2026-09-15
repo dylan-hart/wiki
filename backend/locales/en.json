@@ -3464,6 +3464,7 @@
   "profile.avatarUploadInvalidType": "Must be a PNG, JPEG, WebP or GIF image.",
   "profile.avatarUploadSuccess": "Profile picture uploaded successfully.",
   "profile.avatarUploadTitle": "Upload your user profile picture.",
+  "profile.closeDisabledLabel": "Saving...",
   "profile.contentWidth": "Content Width",
   "profile.contentWidthDefault": "Site Default",
   "profile.contentWidthFull": "Full Width",
