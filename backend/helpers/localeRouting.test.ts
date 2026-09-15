@@ -88,7 +88,7 @@ describe('matchLocaleCode', () => {
 /**
  * The single source `api/tree.ts`, `api/pages/read.ts` and `models/pages.ts` all delegate to now
  * (OpenProject #1024's consolidation), rather than each keeping its own copy of the same
- * `WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'` fallback.
+ * `CARDINAL.sites[siteId]?.config?.locales?.primary ?? 'en'` fallback.
  */
 describe('defaultLocale', () => {
   let wikiHandle: { restore(): void }

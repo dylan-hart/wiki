@@ -35,7 +35,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.classificationLevels.list()
+      return CARDINAL.models.classificationLevels.list()
     }
   )
 
@@ -63,7 +63,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.classificationLevels.create(req.body)
+      return CARDINAL.models.classificationLevels.create(req.body)
     }
   )
 
@@ -95,7 +95,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const updated = await WIKI.models.classificationLevels.update(req.params.id, req.body)
+      const updated = await CARDINAL.models.classificationLevels.update(req.params.id, req.body)
       if (!updated) {
         return reply.notFound('This classification level does not exist.')
       }
@@ -130,7 +130,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const current = WIKI.models.classificationLevels.list()
+      const current = CARDINAL.models.classificationLevels.list()
       const currentIds = new Set(current.map((level) => level.id))
       const submittedIds = new Set(req.body.ids)
       if (
@@ -140,8 +140,8 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.badRequest('ids must name every existing classification level exactly once.')
       }
-      await WIKI.models.classificationLevels.reorder(req.body.ids)
-      return WIKI.models.classificationLevels.list()
+      await CARDINAL.models.classificationLevels.reorder(req.body.ids)
+      return CARDINAL.models.classificationLevels.list()
     }
   )
 
@@ -182,7 +182,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const deleted = await WIKI.models.classificationLevels.delete(req.params.id)
+      const deleted = await CARDINAL.models.classificationLevels.delete(req.params.id)
       if (!deleted) {
         return reply.notFound('This classification level does not exist.')
       }

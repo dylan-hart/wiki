@@ -9,8 +9,10 @@ import fastifyCookie from '@fastify/cookie'
 import fastifySession from '@fastify/session'
 import { load } from 'js-yaml'
 import {
+  appendCspDirective,
   corsOrigin,
   corsOptions,
+  frameAncestorsDirective,
   inlineScriptHashSources,
   isSameOriginHeader,
   needsSvgCsp,
@@ -23,8 +25,8 @@ import {
 
 import { installTestWiki } from '../test/mocks.ts'
 
-// -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
-//    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
+// -> corsOrigin()'s REGEX branch logs through the CARDINAL global on an invalid pattern; stub just
+//    enough of it, the same way rateLimit.test.ts does for its own CARDINAL-touching helpers.
 //    `config.security` is here for `sessionCookieName()` -- most describes never touch it, but it has
 //    to exist so a bare read doesn't throw.
 installTestWiki({ logger: { warn: mock.fn() }, config: { security: {} } })
@@ -361,17 +363,17 @@ describe('SESSION_COOKIE_NAME', () => {
  */
 describe('sessionCookieName', () => {
   test('defaults to the hardened __Host- name when security.cookieSecure is unset', () => {
-    ;(globalThis as any).WIKI.config.security = {}
+    ;(globalThis as any).CARDINAL.config.security = {}
     assert.equal(sessionCookieName(), SESSION_COOKIE_NAME)
   })
 
   test('stays hardened when security.cookieSecure is explicitly true', () => {
-    ;(globalThis as any).WIKI.config.security = { cookieSecure: true }
+    ;(globalThis as any).CARDINAL.config.security = { cookieSecure: true }
     assert.equal(sessionCookieName(), SESSION_COOKIE_NAME)
   })
 
   test('drops the __Host- prefix when security.cookieSecure is false', () => {
-    ;(globalThis as any).WIKI.config.security = { cookieSecure: false }
+    ;(globalThis as any).CARDINAL.config.security = { cookieSecure: false }
     assert.equal(sessionCookieName(), SESSION_COOKIE_NAME_INSECURE)
   })
 })
@@ -559,5 +561,49 @@ describe('shouldBlockCrossOriginApiRequest', () => {
 
   test('never blocks a request carrying no session cookie at all', () => {
     assert.equal(shouldBlockCrossOriginApiRequest(req({ cookies: {} })), false)
+  })
+})
+
+/**
+ * OpenProject #3275: the per-request `frame-ancestors` directive built from a resolved site's
+ * `embedAllowedOrigins` allowlist.
+ */
+describe('frameAncestorsDirective', () => {
+  test('an empty allowlist (the default) produces no directive', () => {
+    assert.equal(frameAncestorsDirective([]), null)
+  })
+
+  test('always includes the self keyword alongside the configured origins', () => {
+    assert.equal(
+      frameAncestorsDirective(['https://tools.example.com']),
+      "frame-ancestors 'self' https://tools.example.com"
+    )
+  })
+
+  test('joins several origins with a single space', () => {
+    assert.equal(
+      frameAncestorsDirective(['https://a.example.com', 'https://b.example.com']),
+      "frame-ancestors 'self' https://a.example.com https://b.example.com"
+    )
+  })
+})
+
+describe('appendCspDirective', () => {
+  test('becomes the whole header value when nothing is set yet (CSP enforcement off instance-wide)', () => {
+    assert.equal(appendCspDirective(undefined, "frame-ancestors 'self'"), "frame-ancestors 'self'")
+  })
+
+  test('appends onto an existing string header without disturbing it', () => {
+    assert.equal(
+      appendCspDirective("default-src 'self'", "frame-ancestors 'self' https://tools.example.com"),
+      "default-src 'self'; frame-ancestors 'self' https://tools.example.com"
+    )
+  })
+
+  test('joins an array header value (multiple setHeader calls coalesced) before appending', () => {
+    assert.equal(
+      appendCspDirective(["default-src 'self'", "script-src 'self'"], "frame-ancestors 'self'"),
+      "default-src 'self'; script-src 'self'; frame-ancestors 'self'"
+    )
   })
 })

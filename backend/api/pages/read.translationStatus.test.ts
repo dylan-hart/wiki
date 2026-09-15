@@ -8,7 +8,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/translationStatus` (OpenProject #2475).
  *
  * Same lightweight fastify-`inject` harness as `read.backlinks.test.ts`: fake
- * `WIKI.models.pages`/`WIKI.models.groups` stand in for the real Drizzle-backed models, so this
+ * `CARDINAL.models.pages`/`CARDINAL.models.groups` stand in for the real Drizzle-backed models, so this
  * exercises the route's wiring -- target-page gating via `requireReadablePage`, the
  * publishState/`read:pages` narrowing per candidate row, and handing the survivors to
  * `computeTranslationStatus` -- without a database.

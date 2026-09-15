@@ -205,8 +205,8 @@ class Import {
    * Whether this instance can convert a file at all.
    */
   async isAvailable(): Promise<boolean> {
-    const definition = WIKI.models.extensions.getDefinition('pandoc')
-    return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+    const definition = CARDINAL.models.extensions.getDefinition('pandoc')
+    return Boolean(definition) && (await CARDINAL.models.extensions.isInstalled(definition!))
   }
 
   /**

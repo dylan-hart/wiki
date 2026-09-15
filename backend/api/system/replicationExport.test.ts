@@ -14,8 +14,8 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * Mirrors `transfer.test.ts`'s shape for the analogous per-site pair, but this route takes no
  * `siteId` at all — the whole point is instance-wide scope — so there is no site-pin/enforcement
  * concern to cover here, only the job lifecycle and the download's 404/409/200 states.
- * `WIKI.scheduler.addJob`, `WIKI.models.jobs.getHistoryEntry` and `WIKI.models.auditLog.record` are
- * mocked; `WIKI.models.replicationExport.deleteExport` runs for real against a throwaway file so the
+ * `CARDINAL.scheduler.addJob`, `CARDINAL.models.jobs.getHistoryEntry` and `CARDINAL.models.auditLog.record` are
+ * mocked; `CARDINAL.models.replicationExport.deleteExport` runs for real against a throwaway file so the
  * "downloaded once" delete-after-stream behavior is actually exercised.
  */
 describe('replication export routes', () => {

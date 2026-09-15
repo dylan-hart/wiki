@@ -49,6 +49,15 @@
                   width="32"
                   height="32" />
               </w-avatar>
+              <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+              <w-avatar v-else-if="usr.avatarProviderUrl" size="md">
+                <img
+                  :src="usr.avatarProviderUrl"
+                  :alt="usr.name"
+                  loading="lazy"
+                  width="32"
+                  height="32" />
+              </w-avatar>
               <w-avatar v-else size="md" color="primary" text-color="white" icon="tabler:user" />
             </w-item-section>
             <w-item-section>
@@ -255,13 +264,16 @@ function confirm() {
 onMounted(load)
 </script>
 
-<style lang="scss">
-.user-search-dialog {
-  &-list {
-    position: relative;
-    height: 360px;
-    max-height: 50vh;
-    overflow-y: auto;
-  }
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.user-search-dialog-list {
+  position: relative;
+  height: 360px;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 </style>

@@ -292,7 +292,7 @@ onMounted(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   The section headings, in the treatment the profile pages and the page properties panel use.
 

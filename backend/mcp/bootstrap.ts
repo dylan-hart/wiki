@@ -1,8 +1,8 @@
 /**
  * Minimal boot sequence for the MCP server process (`mcp/stdio.ts`).
  *
- * Modeled on `migration/bootstrap.ts` (itself modeled on `worker.ts`'s minimal `WIKI` global): no HTTP
- * server, no scheduler, no cache, no collab websockets, no rate limiter — just enough of `WIKI` for the
+ * Modeled on `migration/bootstrap.ts` (itself modeled on `worker.ts`'s minimal `CARDINAL` global): no HTTP
+ * server, no scheduler, no cache, no collab websockets, no rate limiter — just enough of `CARDINAL` for the
  * handful of models an MCP tool call actually reads through. A one-shot/long-lived side process pays
  * the import cost of everything it pulls in, and the full `models/index.ts` registry drags in cheerio,
  * sanitize-html, bcrypt and the rest of the HTTP-server-only models for a process that never serves a
@@ -32,8 +32,8 @@ import logger from '../core/logger.ts'
  *
  * `pageHistory` and `auditLog` (OpenProject #1118/#1119) are here for the same reason `pages` is,
  * not as a new exception to it: `models/pages.ts#createPage()`/`updatePage()` already call
- * `WIKI.models.pageHistory.record()` unconditionally on every write, and `mcp/stdio.ts` now calls
- * `WIKI.models.auditLog.record()` once at session start (mirrors `mcp/http.ts`'s own
+ * `CARDINAL.models.pageHistory.record()` unconditionally on every write, and `mcp/stdio.ts` now calls
+ * `CARDINAL.models.auditLog.record()` once at session start (mirrors `mcp/http.ts`'s own
  * `onsessioninitialized`) — omitting either from this trimmed set would throw
  * `Cannot read properties of undefined (reading 'record')` before either write ever reaches the
  * database, over stdio specifically (`mcp/http.ts` runs inside `index.ts`'s full model registry, so
@@ -41,7 +41,7 @@ import logger from '../core/logger.ts'
  * unlike several models `models/index.ts` pulls in), so adding them costs nothing the file-level
  * doc comment's "never import the full registry" is protecting against.
  */
-async function loadModels(): Promise<WikiGlobal['models']> {
+async function loadModels(): Promise<CardinalGlobal['models']> {
   const [
     { sites },
     { groups },
@@ -61,7 +61,7 @@ async function loadModels(): Promise<WikiGlobal['models']> {
     import('../models/pages.ts'),
     import('../models/pageHistory.ts'),
     import('../models/auditLog.ts'),
-    // -> `configSvc.loadFromDb()` below reads `WIKI.models.settings.getConfig()` directly
+    // -> `configSvc.loadFromDb()` below reads `CARDINAL.models.settings.getConfig()` directly
     import('../models/settings.ts')
   ])
   return {
@@ -74,47 +74,47 @@ async function loadModels(): Promise<WikiGlobal['models']> {
     pageHistory,
     auditLog,
     settings
-  } as WikiGlobal['models']
+  } as CardinalGlobal['models']
 }
 
 /**
- * Sets up the ambient `WIKI` global and connects it to the database, mirroring `index.ts`'s
+ * Sets up the ambient `CARDINAL` global and connects it to the database, mirroring `index.ts`'s
  * `preBoot()` for exactly the subset an MCP tool call needs: settings (for `auth.certs` and
- * `api.isEnabled`, which `apiKeys.verify()` reads), the sites cache (`WIKI.sites`, read by every
- * tool for site lookup/scoping) and the group page-rules cache (`WIKI.models.groups.checkAccess()`,
+ * `api.isEnabled`, which `apiKeys.verify()` reads), the sites cache (`CARDINAL.sites`, read by every
+ * tool for site lookup/scoping) and the group page-rules cache (`CARDINAL.models.groups.checkAccess()`,
  * the permission check every read tool applies to its results).
  *
  * `instanceId` distinguishes this process in logs (`mcp-stdio`) the same way `migrate-cli` /
  * `verify-migration-cli` do for the migration CLI.
  */
-export async function bootstrapMcpRuntime(instanceId: string): Promise<WikiGlobal> {
-  const WIKI = {
+export async function bootstrapMcpRuntime(instanceId: string): Promise<CardinalGlobal> {
+  const CARDINAL = {
     IS_DEBUG: process.env.NODE_ENV === 'development',
     ROOTPATH: process.cwd(),
     INSTANCE_ID: instanceId,
     SERVERPATH: path.join(process.cwd(), 'backend'),
     configSvc
-  } as unknown as WikiGlobal
-  global.WIKI = WIKI
+  } as unknown as CardinalGlobal
+  global.CARDINAL = CARDINAL
 
   // -> `silent: true` — the stdio transport (`mcp/stdio.ts`) needs stdout free for JSON-RPC frames
   //    only; `configSvc.init()`'s own error path still writes to stderr via `console.error`, which is
   //    safe regardless of transport
-  await WIKI.configSvc.init(true)
-  WIKI.logger = logger.init()
+  await CARDINAL.configSvc.init(true)
+  CARDINAL.logger = logger.init()
 
-  WIKI.dbManager = dbManager
-  WIKI.db = await dbManager.init()
-  WIKI.models = await loadModels()
+  CARDINAL.dbManager = dbManager
+  CARDINAL.db = await dbManager.init()
+  CARDINAL.models = await loadModels()
 
-  if (!(await WIKI.configSvc.loadFromDb())) {
+  if (!(await CARDINAL.configSvc.loadFromDb())) {
     throw new Error(
       'No settings found in the database. Run the main Cardinal.js server at least once before starting the MCP server.'
     )
   }
 
-  await WIKI.models.sites.reloadCache()
-  await WIKI.models.groups.reloadCache()
+  await CARDINAL.models.sites.reloadCache()
+  await CARDINAL.models.groups.reloadCache()
 
-  return WIKI
+  return CARDINAL
 }

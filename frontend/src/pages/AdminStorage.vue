@@ -918,7 +918,7 @@ onMounted(() => {
 })
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .admin-storage-logo {
 }
 </style>

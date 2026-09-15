@@ -145,7 +145,7 @@ class Approvals {
     if (req.session?.authenticated && req.session.user?.id) {
       return req.session.groups ?? []
     }
-    return [WIKI.data.systemIds.guestsGroupId]
+    return [CARDINAL.data.systemIds.guestsGroupId]
   }
 
   /**
@@ -181,13 +181,13 @@ class Approvals {
     if (groupIds.length < 1 || !page.allowContributions) {
       return null
     }
-    const rules = await WIKI.models.approvalRules.getRules(siteId)
+    const rules = await CARDINAL.models.approvalRules.getRules(siteId)
     return (
       rules.find(
         (rule) =>
           rule.isEnabled &&
           rule.submitterGroups.some((id) => groupIds.includes(id)) &&
-          WIKI.models.approvalRules.matchesPage(rule, page)
+          CARDINAL.models.approvalRules.matchesPage(rule, page)
       ) ?? null
     )
   }
@@ -208,12 +208,12 @@ class Approvals {
     if (!reviewsAll && groupIds.length < 1) {
       return false
     }
-    const rules = await WIKI.models.approvalRules.getRules(siteId)
+    const rules = await CARDINAL.models.approvalRules.getRules(siteId)
     return rules.some(
       (rule) =>
         rule.isEnabled &&
         (reviewsAll || rule.reviewerGroups.some((id) => groupIds.includes(id))) &&
-        WIKI.models.approvalRules.matchesPage(rule, page)
+        CARDINAL.models.approvalRules.matchesPage(rule, page)
     )
   }
 
@@ -264,12 +264,12 @@ class Approvals {
     if (!this.isReviewerSession(req)) {
       return { groupIds: [], reviewsAll: false }
     }
-    const actor = WIKI.models.groups.actorForRequest(req)
+    const actor = CARDINAL.models.groups.actorForRequest(req)
     return {
       groupIds: this.getActorGroupIds(req),
       reviewsAll:
         actor.permissions.includes('manage:system') ||
-        WIKI.models.groups.checkAccess(actor, 'review:pages', {
+        CARDINAL.models.groups.checkAccess(actor, 'review:pages', {
           // -> deliberately `locale: null` for the site-wide queue's `{ path: '' }` fallback: a
           //    reviewer whose only `review:pages` grant is locale-scoped no longer gets blanket
           //    `reviewsAll` for a ref with no real page to carry a locale, which is the safe direction
@@ -330,7 +330,7 @@ class Approvals {
       hasOpenSuggestion,
       canReview,
       pendingSubmissions: canReview
-        ? await this.getReviewableSubmissions(siteId, WIKI.models.groups.actorForRequest(req), {
+        ? await this.getReviewableSubmissions(siteId, CARDINAL.models.groups.actorForRequest(req), {
             ...reviewerScope,
             pageId: page.id
           })
@@ -352,7 +352,7 @@ class Approvals {
     if (!authorId) {
       return null
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: submissionsTable.id,
         content: submissionsTable.content,
@@ -388,7 +388,7 @@ class Approvals {
     if (!authorId) {
       return null
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         status: submissionsTable.status,
         resolvedReason: submissionsTable.resolvedReason,
@@ -469,7 +469,7 @@ class Approvals {
       : false
 
     const rows = authorId
-      ? await WIKI.db
+      ? await CARDINAL.db
           .insert(submissionsTable)
           .values(values)
           .onConflictDoUpdate({
@@ -485,20 +485,24 @@ class Approvals {
             }
           })
           .returning()
-      : await WIKI.db.insert(submissionsTable).values(values).returning()
+      : await CARDINAL.db.insert(submissionsTable).values(values).returning()
 
     const stored = rows[0]
-    WIKI.logger.debug('pages', 'stored an edit suggestion', {
+    CARDINAL.logger.debug('pages', 'stored an edit suggestion', {
       page: page.id,
       author: authorId ?? 'guest'
     })
 
     if (!hadOpenSubmission) {
-      await WIKI.models.approvalNotifications.notifyReviewersOfSubmission(siteId, page, stored.id)
+      await CARDINAL.models.approvalNotifications.notifyReviewersOfSubmission(
+        siteId,
+        page,
+        stored.id
+      )
       // -> Only for a genuinely NEW submission, same gate `notifyReviewersOfSubmission` uses just
       //    above: an author revising their own still-open suggestion (the `onConflictDoUpdate`
       //    branch) is not a new thing for a subscriber to hear about.
-      await WIKI.models.hooks.emit('approval:submitted', siteId, {
+      await CARDINAL.models.hooks.emit('approval:submitted', siteId, {
         id: stored.id,
         pageId: page.id,
         path: page.path,
@@ -532,10 +536,10 @@ class Approvals {
    * rule), but leaves nothing stuck requiring zero approvers if it ever does.
    */
   private async requiredApprovalsForPage(siteId: string, page: ApprovalPageMatch): Promise<number> {
-    const rules = await WIKI.models.approvalRules.getRules(siteId)
+    const rules = await CARDINAL.models.approvalRules.getRules(siteId)
     let required = 1
     for (const rule of rules) {
-      if (rule.isEnabled && WIKI.models.approvalRules.matchesPage(rule, page)) {
+      if (rule.isEnabled && CARDINAL.models.approvalRules.matchesPage(rule, page)) {
         required = Math.max(required, rule.minApprovals)
       }
     }
@@ -557,7 +561,7 @@ class Approvals {
     if (submissionIds.length < 1) {
       return counts
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         submissionId: submissionApprovalsTable.submissionId,
         reviewerId: submissionApprovalsTable.reviewerId
@@ -610,7 +614,7 @@ class Approvals {
     if (!reviewsAll && groupIds.length < 1) {
       return []
     }
-    const rules = (await WIKI.models.approvalRules.getRules(siteId)).filter(
+    const rules = (await CARDINAL.models.approvalRules.getRules(siteId)).filter(
       (rule) =>
         rule.isEnabled && (reviewsAll || rule.reviewerGroups.some((id) => groupIds.includes(id)))
     )
@@ -618,7 +622,7 @@ class Approvals {
       return []
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: submissionsTable.id,
         baseHash: submissionsTable.baseHash,
@@ -663,7 +667,7 @@ class Approvals {
           contributions -- otherwise turning the switch off would silently strand work somebody had
           submitted in good faith, with nobody able to accept or decline it.
         */
-        WIKI.models.approvalRules.matchesPage(rule, {
+        CARDINAL.models.approvalRules.matchesPage(rule, {
           path: row.pagePath,
           tags: row.pageTags ?? []
         })
@@ -675,7 +679,7 @@ class Approvals {
     //    `read:pages` on the path, or excluded by a CLASSIFICATION rule, and either must remove the
     //    row from the queue the same as it would from any other read of the page.
     const readableRows = matchedRows.filter((row: any) =>
-      WIKI.models.groups.checkAccess(actor, 'read:pages', {
+      CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
         path: row.pagePath,
         siteId,
         locale: row.pageLocale,
@@ -688,7 +692,7 @@ class Approvals {
     //    submission has to clear is the strictest rule covering the page, whoever it names as
     //    reviewers -- see `requiredApprovalsForPage`, whose logic is inlined here to share the one
     //    `getRules` read across every row instead of awaiting it per row.
-    const allRules = await WIKI.models.approvalRules.getRules(siteId)
+    const allRules = await CARDINAL.models.approvalRules.getRules(siteId)
     const approvalCounts = await this.approvalCountsFor(
       readableRows.map((row: any) => row.id),
       viewerId
@@ -698,7 +702,7 @@ class Approvals {
       const pageMatch = { path: row.pagePath, tags: row.pageTags ?? [] }
       let approvalsRequired = 1
       for (const rule of allRules) {
-        if (rule.isEnabled && WIKI.models.approvalRules.matchesPage(rule, pageMatch)) {
+        if (rule.isEnabled && CARDINAL.models.approvalRules.matchesPage(rule, pageMatch)) {
           approvalsRequired = Math.max(approvalsRequired, rule.minApprovals)
         }
       }
@@ -739,7 +743,7 @@ class Approvals {
       return null
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         content: submissionsTable.content,
         patch: submissionsTable.patch,
@@ -758,7 +762,7 @@ class Approvals {
       return null
     }
 
-    const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+    const maySeeSource = CARDINAL.models.groups.checkAccess(actor, 'read:source', {
       path: detail.pagePath,
       siteId,
       locale: detail.pageLocale,
@@ -822,7 +826,7 @@ class Approvals {
     render?: string
     actor: { id: string; permissions: string[]; groupIds: string[] }
   }): Promise<ApproveSubmissionResult> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: submissionsTable.id,
         pageId: submissionsTable.pageId,
@@ -848,7 +852,7 @@ class Approvals {
       return { ok: false, reason: 'not-found' }
     }
 
-    const page = await WIKI.models.pages.getPage({
+    const page = await CARDINAL.models.pages.getPage({
       siteId,
       id: submission.pageId,
       withContent: true
@@ -862,7 +866,7 @@ class Approvals {
     //    same thing as holding `write:pages` on the page a suggestion targets, and accepting one
     //    writes the page exactly like a direct save does.
     if (
-      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
+      !CARDINAL.models.groups.checkAccess(actor, 'write:pages', {
         path: page.path,
         siteId,
         locale: page.locale,
@@ -904,7 +908,7 @@ class Approvals {
       `write:pages` check itself runs before this transaction even starts (above), so a forbidden
       actor never reaches this claim in the first place.
     */
-    const decision = await WIKI.db.transaction(async (tx) => {
+    const decision = await CARDINAL.db.transaction(async (tx) => {
       const lockedRows = await tx
         .select({ id: submissionsTable.id, status: submissionsTable.status })
         .from(submissionsTable)
@@ -975,7 +979,7 @@ class Approvals {
     //    approval on a multi-approver rule sees each one, not only the last. Emitted outside the
     //    transaction above, same as `updatePage` below it: hook/webhook I/O must not run while
     //    holding the row lock.
-    await WIKI.models.hooks.emit('approval:approved', siteId, {
+    await CARDINAL.models.hooks.emit('approval:approved', siteId, {
       id: submissionId,
       pageId: page.id,
       path: page.path,
@@ -984,7 +988,7 @@ class Approvals {
     })
 
     if (!decision.finalized) {
-      WIKI.logger.debug('pages', 'recorded an approval, waiting on more reviewers', {
+      CARDINAL.logger.debug('pages', 'recorded an approval, waiting on more reviewers', {
         submission: submissionId,
         page: page.id,
         approvals: `${decision.approvalsCount}/${decision.approvalsRequired}`
@@ -1026,7 +1030,7 @@ class Approvals {
     //    `approveSubmission` call, exactly as if this attempt's votes were the only thing that
     //    happened) instead of a silent permanent success record for content that never landed.
     try {
-      await WIKI.models.pages.updatePage(
+      await CARDINAL.models.pages.updatePage(
         siteId,
         page.id,
         { content, ...(render && { render }) },
@@ -1035,14 +1039,14 @@ class Approvals {
       )
     } catch (err: any) {
       await this.revertFailedFinalization(submissionId)
-      WIKI.logger.warn(
+      CARDINAL.logger.warn(
         'pages',
         'writing the approved edit suggestion failed, reverted it back to open for retry',
         { submission: submissionId, page: page.id, error: err }
       )
       throw err
     }
-    WIKI.logger.debug('pages', 'approved an edit suggestion', {
+    CARDINAL.logger.debug('pages', 'approved an edit suggestion', {
       submission: submissionId,
       page: page.id
     })
@@ -1050,7 +1054,7 @@ class Approvals {
     // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
     //    "page updated by <reviewer>" notice to every watcher, this author included if they watch the
     //    page. Notifying them again here would be a double notice for the same event.
-    await WIKI.models.approvalNotifications.notifySubmissionAuthor(
+    await CARDINAL.models.approvalNotifications.notifySubmissionAuthor(
       siteId,
       { id: page.id, title: page.title, path: page.path, locale: page.locale },
       'suggestApproved',
@@ -1086,7 +1090,7 @@ class Approvals {
    * narrowing rather than a race this function itself needs to resolve.
    */
   private async revertFailedFinalization(submissionId: string): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .update(submissionsTable)
       .set({ status: 'open', resolvedBy: null, updatedAt: new Date() })
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.status, 'approved')))
@@ -1115,7 +1119,10 @@ class Approvals {
     }
     // -> Resolved fresh from the db, not from a session/API key -- the submitter has no request of
     //    their own for the reviewer's `approveSubmission` call to read one from.
-    const submitterActor = { id: authorId, ...(await WIKI.models.groups.actorForUserId(authorId)) }
+    const submitterActor = {
+      id: authorId,
+      ...(await CARDINAL.models.groups.actorForUserId(authorId))
+    }
     return {
       scripts: hasPermission(submitterActor, 'write:scripts', pageRef),
       styles: hasPermission(submitterActor, 'write:styles', pageRef)
@@ -1145,7 +1152,7 @@ class Approvals {
     //    same as it would have to be if this update were a delete. Also carries the fields
     //    `notifySubmissionAuthor` needs -- the submission's own author/guest columns, and the page's
     //    title/locale alongside the path `approval:rejected` already wanted.
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         pageId: pagesTable.id,
         pagePath: pagesTable.path,
@@ -1161,7 +1168,7 @@ class Approvals {
       .limit(1)
     const page = rows[0]
 
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(submissionsTable)
       .set({
         status: 'declined',
@@ -1182,7 +1189,7 @@ class Approvals {
     const declined = (result.rowCount ?? 0) > 0
 
     if (declined && page) {
-      await WIKI.models.hooks.emit('approval:rejected', siteId, {
+      await CARDINAL.models.hooks.emit('approval:rejected', siteId, {
         id: submissionId,
         pageId: page.pageId,
         path: page.pagePath,
@@ -1190,7 +1197,7 @@ class Approvals {
         authorId: resolvedBy
       })
 
-      await WIKI.models.approvalNotifications.notifySubmissionAuthor(
+      await CARDINAL.models.approvalNotifications.notifySubmissionAuthor(
         siteId,
         { id: page.pageId, title: page.pageTitle, path: page.pagePath, locale: page.pageLocale },
         'suggestDeclined',

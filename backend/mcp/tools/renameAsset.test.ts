@@ -144,7 +144,7 @@ test('handleRenameAsset: refused calls never reach the audit log', async () => {
 
 test('handleRenameAsset: throws when the rename itself reports the asset gone', async () => {
   const c = ctx({ access: ['manage:assets'] })
-  ;(globalThis as any).WIKI.models.assets.renameAsset = async () => null
+  ;(globalThis as any).CARDINAL.models.assets.renameAsset = async () => null
   await assert.rejects(
     () => handleRenameAsset(c, { assetId: ASSET_ID, fileName: 'new-name.png' }),
     McpToolError

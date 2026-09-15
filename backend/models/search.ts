@@ -47,7 +47,7 @@ const ENGINE_INIT_TIMEOUT_MS = 30_000
  * `semanticEnabled` (Task #3104) is unrelated to the engine-picker system entirely — semantic search
  * is always backed directly by Postgres/pgvector regardless of which full-text engine a site has
  * selected — but it lives in this same per-site bucket since it is, like `dictOverrides`, a plain
- * site-level search setting with no engine of its own to belong to. See `WIKI.capabilities
+ * site-level search setting with no engine of its own to belong to. See `CARDINAL.capabilities
  * .semanticSearch` (`types/global.d.ts`) for the separate, instance-wide availability flag this
  * setting is ANDed with before the feature is actually reachable.
  */
@@ -67,7 +67,7 @@ export interface SearchConfig {
  * `warnings` is optional too: a non-fatal problem worth an operator's attention that did not stop the
  * rebuild from finishing -- e.g. the Algolia module (OpenProject #830) skipping a page whose document
  * exceeds Algolia's per-object size limit rather than aborting the whole rebuild over it. Every engine
- * already writes the same information to `WIKI.logger.warn` as it happens (the admin-visible channel
+ * already writes the same information to `CARDINAL.logger.warn` as it happens (the admin-visible channel
  * every other per-page indexing failure in these modules uses, e.g. `indexPage`'s catch blocks); this
  * field additionally surfaces it on the structured result itself, which is what a test -- or a future
  * caller that actually reads a rebuild's return value instead of discarding it -- can assert against
@@ -290,7 +290,7 @@ export interface SearchModule {
  *
  * A thin dispatcher: it holds no indexing logic of its own. Every real implementation — starting with
  * postgres full-text search, `modules/search/db/search.ts` — is a `SearchModule`, resolved per site by
- * `WIKI.sites[siteId]?.config?.search?.engine` and loaded through `ensureModule()`. `query`, `rebuild`,
+ * `CARDINAL.sites[siteId]?.config?.search?.engine` and loaded through `ensureModule()`. `query`, `rebuild`,
  * `created`, `updated`, `deleted` and `renamed` below all just resolve the engine and call through.
  *
  * `getConfig()` is the one exception: `dictOverrides` is a per-site setting the admin area edits
@@ -323,7 +323,7 @@ class Search {
    * Load the search engine definitions from disk.
    */
   async refreshFromDisk(): Promise<void> {
-    const searchPath = path.join(WIKI.SERVERPATH, 'modules/search')
+    const searchPath = path.join(CARDINAL.SERVERPATH, 'modules/search')
     try {
       const definitions = await readModuleDefinitions<SearchEngineDefinition>(searchPath, {
         parseProps: true,
@@ -333,10 +333,12 @@ class Search {
       this.definitions = definitions.sort((a, b) =>
         a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
       )
-      WIKI.logger.debug('search', 'loaded engine definitions', { engines: this.definitions.length })
+      CARDINAL.logger.debug('search', 'loaded engine definitions', {
+        engines: this.definitions.length
+      })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.error('search', 'reading the engine definitions failed', {
+      CARDINAL.logger.error('search', 'reading the engine definitions failed', {
         path: searchPath,
         error: err
       })
@@ -347,7 +349,7 @@ class Search {
    * Whether the module has any code to run, as opposed to only a definition
    */
   async hasImplementation(key: string): Promise<boolean> {
-    return moduleHasFile(WIKI.SERVERPATH, 'modules/search', key, 'search.ts')
+    return moduleHasFile(CARDINAL.SERVERPATH, 'modules/search', key, 'search.ts')
   }
 
   /**
@@ -390,7 +392,7 @@ class Search {
     siteId: string,
     { mask = false }: { mask?: boolean } = {}
   ): Promise<SearchEngine[]> {
-    const selected = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+    const selected = CARDINAL.sites[siteId]?.config?.search?.engine ?? DB_MODULE
     const engines: SearchEngine[] = []
     for (const definition of this.definitions) {
       const config = this.getEngineConfig(siteId, definition.key)
@@ -415,14 +417,17 @@ class Search {
    * The stored config values for one engine on one site, completed with that engine's declared
    * defaults -- the single-engine version of what `getSiteEngines()` builds for every entry.
    *
-   * The `db` module calls this directly (rather than through `WIKI.models.search`, which it already
+   * The `db` module calls this directly (rather than through `CARDINAL.models.search`, which it already
    * bypasses by importing the `search` singleton) to read its own `termHighlighting`, so that the value
    * a `PUT .../search/engines/db` save writes is the exact same one a query reads back -- see the
    * `SearchEngine.dictOverrides`/`availableDictionaries` doc comment for why `dictOverrides` could not
    * follow the same path.
    */
   getEngineConfig(siteId: string, key: string): Record<string, any> {
-    const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
+    const stored = (CARDINAL.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<
+      string,
+      any
+    >
     return this.buildEngineConfig(key, {}, stored)
   }
 
@@ -506,9 +511,12 @@ class Search {
     key: string,
     incoming: Record<string, any> = {}
   ): Promise<boolean> {
-    const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
+    const stored = (CARDINAL.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<
+      string,
+      any
+    >
     const config = this.buildEngineConfig(key, incoming, stored)
-    const updated = await WIKI.models.sites.updateSite(siteId, {
+    const updated = await CARDINAL.models.sites.updateSite(siteId, {
       config: { search: { engine: key, engines: { [key]: config } } }
     })
     if (updated) {
@@ -540,8 +548,8 @@ class Search {
    */
   async initActiveEngines(): Promise<void> {
     await Promise.allSettled(
-      Object.keys(WIKI.sites).map(async (siteId) => {
-        let key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+      Object.keys(CARDINAL.sites).map(async (siteId) => {
+        let key = CARDINAL.sites[siteId]?.config?.search?.engine ?? DB_MODULE
         let module = await this.ensureModule(key)
         // -> The configured engine has no implementation on disk at all (removed from disk, or
         //    never shipped one) -- as opposed to `init()` below throwing, which is a different,
@@ -549,7 +557,7 @@ class Search {
         //    silently on every call since that path runs per-query and would spam; here, once per
         //    site per boot, is exactly where a one-line warning belongs instead.
         if (!module && key !== DB_MODULE) {
-          WIKI.logger.warn(
+          CARDINAL.logger.warn(
             'search',
             'configured engine has no implementation, falling back to db',
             {
@@ -573,7 +581,7 @@ class Search {
               )
           )
         } catch (err: any) {
-          WIKI.logger.warn('search', 'initializing the engine failed', {
+          CARDINAL.logger.warn('search', 'initializing the engine failed', {
             engine: key,
             site: siteId,
             error: err
@@ -586,13 +594,15 @@ class Search {
   /**
    * A site's dictionary override map, with the shape the API and the admin area expect.
    *
-   * Read off `WIKI.sites[siteId].config.search.config` -- a sibling of `search.engine`, seeded by
-   * `models/sites.ts`'s per-site defaults -- rather than `WIKI.config.search`: this setting applies to
+   * Read off `CARDINAL.sites[siteId].config.search.config` -- a sibling of `search.engine`, seeded by
+   * `models/sites.ts`'s per-site defaults -- rather than `CARDINAL.config.search`: this setting applies to
    * one site, not the instance, the same way `dictOverrides` (a locale mapping) only ever made sense
    * per site once more than one could each run their own engine.
    */
   getConfig(siteId: string): SearchConfig {
-    const config = WIKI.sites[siteId]?.config?.search?.config as Partial<SearchConfig> | undefined
+    const config = CARDINAL.sites[siteId]?.config?.search?.config as
+      | Partial<SearchConfig>
+      | undefined
     return {
       dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>,
       semanticEnabled: config?.semanticEnabled ?? false
@@ -630,12 +640,12 @@ class Search {
    * Internal to the dispatcher: `query`/`rebuild`/`created`/`updated`/`deleted`/`renamed` below all
    * resolve through this and forward straight to it, which is what keeps every caller
    * (`api/pages/read.ts`, `models/pages.ts`, `tasks/simple/rebuild-search-index.ts`) off any specific
-   * engine implementation — they only ever call `WIKI.models.search.*`. A `db`-only capability that
+   * engine implementation — they only ever call `CARDINAL.models.search.*`. A `db`-only capability that
    * genuinely has to reach past the dispatcher asks `ensureModule(DB_MODULE)` directly, the way
    * `getAvailableDictionaries()` above does.
    */
   private async getActiveEngine(siteId: string): Promise<SearchModule> {
-    const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+    const key = CARDINAL.sites[siteId]?.config?.search?.engine ?? DB_MODULE
     const module = (await this.ensureModule(key)) ?? (await this.ensureModule(DB_MODULE))
     if (!module) {
       throw new Error(

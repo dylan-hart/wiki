@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import * as sass from 'sass'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -29,10 +28,10 @@ import { chromium, hasChromium } from '../../test/realGridLayout.js'
  * there. So this drives a real headless Chromium page, the way `test/realGridLayout.js` documents.
  *
  * It does NOT go through `buildAppCss()`, though: the rule under test lives in `Index.vue`'s own
- * un-scoped `<style lang="scss">` block, not in Tailwind's output. The block is read out of the SFC
- * and compiled with the same `@use` injection `vitest.config.js`'s `css.preprocessorOptions.scss`
- * performs, so what the browser lays out is the file's real, compiled CSS -- a rule deleted or
- * renamed in `Index.vue` stops being applied here too, rather than silently passing against a copy.
+ * un-scoped `<style>` block, not in Tailwind's output. The block is read directly out of the SFC --
+ * already plain, valid CSS since OpenProject #3254 dropped the Sass pipeline it used to compile
+ * through -- so what the browser lays out is the file's real CSS: a rule deleted or renamed in
+ * `Index.vue` stops being applied here too, rather than silently passing against a copy.
  */
 
 const pagesDir = dirname(fileURLToPath(import.meta.url))
@@ -81,13 +80,9 @@ async function ledgerLayoutTokens() {
 
 async function indexPageCss() {
   const sfc = await readFile(join(pagesDir, 'Index.vue'), 'utf8')
-  const block = sfc.match(/<style lang="scss">([\s\S]*?)<\/style>/)
-  expect(block, 'Index.vue should still carry a `<style lang="scss">` block').not.toBeNull()
-  const compiled = await sass.compileStringAsync(
-    `@use 'css/_theme.scss' as *; @use 'css/_palette.scss' as *;\n` + block[1],
-    { loadPaths: [join(frontendRoot, 'src')] }
-  )
-  return (await ledgerLayoutTokens()) + compiled.css
+  const block = sfc.match(/<style>([\s\S]*?)<\/style>/)
+  expect(block, 'Index.vue should still carry a `<style>` block').not.toBeNull()
+  return (await ledgerLayoutTokens()) + block[1]
 }
 
 /*

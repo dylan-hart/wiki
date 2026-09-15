@@ -13,7 +13,7 @@ import { embedText } from '../../helpers/embeddings.ts'
  * to or partially updated.
  *
  * No-ops immediately (deleting nothing, embedding nothing) when the instance-wide semantic search
- * capability (`WIKI.capabilities.semanticSearch`, Task #3095) is off, or when the page has no
+ * capability (`CARDINAL.capabilities.semanticSearch`, Task #3095) is off, or when the page has no
  * rendered content yet to chunk -- a brand new page saved without a render, or one whose editor
  * cannot produce one, has nothing worth embedding until a real render lands.
  *
@@ -30,13 +30,13 @@ import { embedText } from '../../helpers/embeddings.ts'
  * than the query builder.
  */
 export async function embedPage(pageId: string): Promise<void> {
-  if (!WIKI.capabilities?.semanticSearch) {
+  if (!CARDINAL.capabilities?.semanticSearch) {
     return
   }
 
-  await WIKI.db.execute(sql`DELETE FROM "pageEmbeddingChunks" WHERE "pageId" = ${pageId}`)
+  await CARDINAL.db.execute(sql`DELETE FROM "pageEmbeddingChunks" WHERE "pageId" = ${pageId}`)
 
-  const rows = await WIKI.db
+  const rows = await CARDINAL.db
     .select({ searchContent: pagesTable.searchContent })
     .from(pagesTable)
     .where(eq(pagesTable.id, pageId))
@@ -58,14 +58,14 @@ export async function embedPage(pageId: string): Promise<void> {
       continue
     }
     const vectorLiteral = `[${embedding.join(',')}]`
-    await WIKI.db.execute(sql`
+    await CARDINAL.db.execute(sql`
       INSERT INTO "pageEmbeddingChunks" ("id", "pageId", "chunkIndex", "chunkText", "embedding", "updatedAt")
       VALUES (gen_random_uuid(), ${pageId}, ${chunk.index}, ${chunk.text}, ${vectorLiteral}::vector, now())
     `)
     embedded++
   }
 
-  WIKI.logger.debug('worker', 'embedded page chunks', {
+  CARDINAL.logger.debug('worker', 'embedded page chunks', {
     page: pageId,
     chunks: chunks.length,
     embedded
@@ -76,11 +76,11 @@ export async function embedPage(pageId: string): Promise<void> {
  * Worker-thread entry point, dynamically imported by `worker.ts` as `tasks/workers/embed-page.ts`
  * for the `embedPage` job (one of this repo's extension-sensitive dynamic paths).
  *
- * Enqueued once per page save (`models/pages.ts`) via `WIKI.scheduler.addJob({ task: 'embedPage',
+ * Enqueued once per page save (`models/pages.ts`) via `CARDINAL.scheduler.addJob({ task: 'embedPage',
  * payload: { pageId } })` -- never once per chunk, since chunking happens inside `embedPage()`
  * itself, after the job has already been claimed by a worker thread.
  */
 export async function task(job: { payload: { pageId: string } }): Promise<void> {
-  await WIKI.ensureDb!()
+  await CARDINAL.ensureDb!()
   await embedPage(job.payload.pageId)
 }

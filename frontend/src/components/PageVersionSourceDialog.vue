@@ -90,36 +90,38 @@ async function copy() {
 }
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.page-version-source-date {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
 .page-version-source {
-  &-date {
-    font-size: 0.8rem;
-    opacity: 0.7;
-  }
-
   /* -> Colour only: WCardActions already lays the bar out */
-  &-actions {
-    background-color: var(--color-dark-3);
-    background-image: radial-gradient(at top left, var(--color-dark-3), var(--color-dark-5));
-    border-top: 1px solid #000;
-    box-shadow: 0 -1px 0 0 rgba(#fff, 0.06);
-    color: #fff;
-  }
-
-  &-body {
-    padding: 0;
-    background-color: var(--color-dark-6);
-    color: #fff;
-
-    pre {
-      /* -> Tall enough to be worth opening, short enough to leave the dialog on screen */
-      max-height: 60vh;
-      overflow: auto;
-      padding: 1rem;
-      font-family: 'Roboto Mono', monospace;
-      font-size: 0.8rem;
-      line-height: 1.5;
-    }
-  }
+}
+.page-version-source-actions {
+  background-color: var(--color-dark-3);
+  background-image: radial-gradient(at top left, var(--color-dark-3), var(--color-dark-5));
+  border-top: 1px solid #000;
+  box-shadow: 0 -1px 0 0 rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.page-version-source-body {
+  padding: 0;
+  background-color: var(--color-dark-6);
+  color: #fff;
+}
+.page-version-source-body pre {
+  /* -> Tall enough to be worth opening, short enough to leave the dialog on screen */
+  max-height: 60vh;
+  overflow: auto;
+  padding: 1rem;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 </style>

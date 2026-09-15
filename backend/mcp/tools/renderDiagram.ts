@@ -44,7 +44,7 @@ function renderLimitKey(ctx: McpAuthContext): string {
 /**
  * Draw a Mermaid or PlantUML diagram to a static SVG/PNG, for an agent that wants the image rather
  * than the fenced source — mirrors `POST /_api/diagrams/render` (`api/diagrams.ts`) exactly, right
- * down to delegating to the same `WIKI.models.diagramRender.render()` and applying the same
+ * down to delegating to the same `CARDINAL.models.diagramRender.render()` and applying the same
  * {@link RENDER_LIMIT} the REST route's `limitRenders` preHandler enforces (see {@link renderLimitKey}
  * for how the two share it). `manage:system` is exempt, same as the REST route.
  *
@@ -58,7 +58,7 @@ export async function handleRenderDiagram(
   args: RenderDiagramArgs
 ): Promise<CallToolResult> {
   if (!ctx.permissions.includes('manage:system')) {
-    const verdict = await WIKI.models.rateLimits.consume(renderLimitKey(ctx), RENDER_LIMIT)
+    const verdict = await CARDINAL.models.rateLimits.consume(renderLimitKey(ctx), RENDER_LIMIT)
     if (!verdict.allowed) {
       throw new McpToolError(
         `Too many render requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
@@ -68,7 +68,7 @@ export async function handleRenderDiagram(
 
   let result
   try {
-    result = await WIKI.models.diagramRender.render({
+    result = await CARDINAL.models.diagramRender.render({
       type: args.type,
       source: args.source,
       theme: args.theme,

@@ -44,7 +44,7 @@ defineProps({
 defineEmits(['update:modelValue'])
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .graph-client-type-filter {
   display: flex;
   flex-direction: column;
@@ -58,10 +58,10 @@ defineEmits(['update:modelValue'])
     here. Without this, both fall back to browser-default black in both themes, illegible only in
     dark mode (OpenProject #2522). Matches `.graph-view-control-caption`'s values in Graph.vue.
   */
-  @at-root .body--light & {
+  .body--light & {
     color: rgba(0, 0, 0, 0.8);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: #fff;
   }
 }
@@ -79,10 +79,10 @@ defineEmits(['update:modelValue'])
   letter-spacing: 0.16em;
   text-transform: uppercase;
 
-  @at-root .body--light & {
+  .body--light & {
     color: var(--color-text-caption);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: var(--color-text-caption-dark);
   }
 }

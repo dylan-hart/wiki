@@ -251,7 +251,7 @@ class DiagramRender {
       await withTimeout(
         page.evaluate(
           importBlockScript,
-          `http://127.0.0.1:${WIKI.config.port}/_blocks/block-diagram.js`
+          `http://127.0.0.1:${CARDINAL.config.port}/_blocks/block-diagram.js`
         ),
         RENDER_SETUP_TIMEOUT,
         () =>
@@ -307,7 +307,7 @@ class DiagramRender {
     siteId: string | undefined,
     format: DiagramFormat
   ): Promise<DiagramRenderResult> {
-    if (WIKI.config.offline) {
+    if (CARDINAL.config.offline) {
       throw new CustomError(
         'diagramRenderOffline',
         'Cardinal.js is in offline mode and cannot reach a PlantUML server to render this diagram.',
@@ -375,7 +375,7 @@ class DiagramRender {
     if (!siteId) {
       return DEFAULT_PLANTUML_SERVER
     }
-    const siteBlocks = await WIKI.models.blocks.getSiteBlocks(siteId)
+    const siteBlocks = await CARDINAL.models.blocks.getSiteBlocks(siteId)
     const plantuml = siteBlocks.find((block) => block.block === 'plantuml')
     const configured =
       typeof plantuml?.config?.server === 'string' ? plantuml.config.server.trim() : ''

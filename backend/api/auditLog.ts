@@ -71,7 +71,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const { limit, offset } = req.query
-      const { total, entries } = await WIKI.models.auditLog.list({
+      const { total, entries } = await CARDINAL.models.auditLog.list({
         actorId: req.query.actorId,
         event: req.query.event,
         from: req.query.from ? new Date(req.query.from) : undefined,
@@ -114,7 +114,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.auditLog.listActors()
+      return CARDINAL.models.auditLog.listActors()
     }
   )
 
@@ -138,7 +138,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return { retentionDays: WIKI.models.auditLog.getRetentionDays() }
+      return { retentionDays: CARDINAL.models.auditLog.getRetentionDays() }
     }
   )
 
@@ -182,16 +182,16 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const from = WIKI.models.auditLog.getRetentionDays()
+      const from = CARDINAL.models.auditLog.getRetentionDays()
       const to = req.body.retentionDays
       // OpenProject #2237: write the record BEFORE the new retention takes effect, so a shortened
       // window cannot swallow the record of its own shortening.
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'auditLog.retentionChanged',
         actor: actorFromRequest(req),
         detail: { from, to }
       })
-      if (!(await WIKI.models.auditLog.setRetentionDays(to))) {
+      if (!(await CARDINAL.models.auditLog.setRetentionDays(to))) {
         return reply.internalServerError('Failed to save the audit log retention setting.')
       }
       return {

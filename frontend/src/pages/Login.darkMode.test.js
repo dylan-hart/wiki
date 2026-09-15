@@ -21,7 +21,7 @@ import { mountWithApp } from '../../test/mount.js'
  * `text-grey-7` / `dark:text-white` pair. The claim below is unchanged: whatever tone it takes, the
  * two themes must differ and neither may be the browser default.
  *
- * Mounts the real `Login.vue` page (its `<style lang="scss">` block is unscoped, so it applies
+ * Mounts the real `Login.vue` page (its `<style>` block is unscoped, so it applies
  * globally the same way it does in the app) attached to `document.body` -- required for the
  * `.body--dark <selector>` ancestor combinator to actually match -- and reads real, compiled
  * `getComputedStyle` results rather than asserting the source text contains the right-looking
@@ -32,9 +32,9 @@ import { mountWithApp } from '../../test/mount.js'
  * read of the same element after only the `body` ancestor's class changed, under this suite's real,
  * full-size app stylesheet).
  *
- * OpenProject #2779 moved `.auth`'s and `.auth-lead`'s colors off `_theme.scss`'s literal SCSS
- * variables onto the matching `var(--color-*)` custom property, so they now respond to
- * `body.body--cobalt`'s token overrides -- but those custom properties are declared in
+ * OpenProject #2779 moved `.auth`'s and `.auth-lead`'s colors off the old Sass `_theme.scss`'s
+ * literal `$`-prefixed variables onto the matching `var(--color-*)` custom property, so they now
+ * respond to `body.body--cobalt`'s token overrides -- but those custom properties are declared in
  * `css/tailwind.css`, which (per that file's own header comment, and `WBtn.test.js`'s identical
  * convention) is not loaded under Vitest. Seeding the four properties these two selectors reference
  * by hand, with a different value per theme, is what keeps this suite asserting the same claim it

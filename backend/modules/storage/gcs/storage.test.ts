@@ -13,7 +13,7 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * stubbed directly on the class prototypes with `node:test`'s `mock.method` — every `Bucket` / `File`
  * instance this module constructs is a real instance of those classes, so patching the prototype
  * catches every call, exactly as `azure/storage.test.ts` does for `@azure/storage-blob`.
- * `WIKI.logger`/`WIKI.models.assets` are the only `WIKI` members `storage.ts` touches — matching the
+ * `CARDINAL.logger`/`CARDINAL.models.assets` are the only `CARDINAL` members `storage.ts` touches — matching the
  * pure-unit-test convention this repo's backend testing follows.
  */
 
@@ -47,7 +47,7 @@ beforeEach(() => {
     'getSignedUrl',
     async () => ['https://storage.googleapis.com/signed'] as any
   )
-  ;(WIKI.models.assets.getContent as any).mock.resetCalls()
+  ;(CARDINAL.models.assets.getContent as any).mock.resetCalls()
 })
 
 afterEach(() => {
@@ -145,7 +145,7 @@ describe('gcs storage / exportAll', () => {
   test('an activation failure (missing bucket) surfaces as a thrown Error rather than an unhandled SDK exception', async () => {
     existsMock.mock.mockImplementationOnce(async () => [false] as any)
     const target = makeTarget({ bucket: 'nonexistent-bucket' })
-    WIKI.models.assets.streamAll = async function* () {} as any
+    CARDINAL.models.assets.streamAll = async function* () {} as any
 
     await assert.rejects(
       () => storageModule.exportAll(target),

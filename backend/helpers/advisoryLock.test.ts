@@ -21,8 +21,8 @@ import { installTestWiki } from '../test/mocks.ts'
  * convention. Migrations are not required: this only ever calls
  * `pg_try_advisory_lock`/`pg_advisory_unlock`, which need no schema.
  *
- * `withAdvisoryLock` builds its own dedicated pool lazily from `WIKI.dbManager.config` (see that
- * file's header doc for why — never `WIKI.db.$client`, the request-serving pool), so the global stub
+ * `withAdvisoryLock` builds its own dedicated pool lazily from `CARDINAL.dbManager.config` (see that
+ * file's header doc for why — never `CARDINAL.db.$client`, the request-serving pool), so the global stub
  * here only needs to supply that shape, plus `INSTANCE_ID` for the pool's `application_name`.
  * `_resetLockPoolForTests()` drops the cached pool in `after()` so the test process can exit; nothing
  * under `backend/` builds a second `Pool` directly against `DATABASE_URL` here.
@@ -184,7 +184,7 @@ test(
 /**
  * Unlike the suite above, this needs no real Postgres: the whole point is to control which of the
  * two queries rejects, which a real connection gives no way to steer deliberately. `getLockPool()`
- * builds its dedicated pool from `WIKI.dbManager.config` (never `WIKI.db.$client`, the
+ * builds its dedicated pool from `CARDINAL.dbManager.config` (never `CARDINAL.db.$client`, the
  * request-serving pool — see this file's own header doc for why), so this mocks `Pool.prototype.connect`
  * itself rather than reaching into a client shape `withAdvisoryLock` never touches.
  */

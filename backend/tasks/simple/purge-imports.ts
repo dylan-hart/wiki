@@ -7,7 +7,7 @@ import type { TaskResult } from '../../core/scheduler.ts'
  * ever finds one left behind by a crash mid-import — still cheap to run daily. Mirrors `purgeExports`.
  */
 export async function task(): Promise<TaskResult | void> {
-  const count = await WIKI.models.import.purgeExpired()
+  const count = await CARDINAL.models.import.purgeExpired()
   if (count > 0) {
     return { summary: 'purged abandoned content import uploads', purged: count }
   }

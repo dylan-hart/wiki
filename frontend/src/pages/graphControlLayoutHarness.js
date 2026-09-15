@@ -4,36 +4,35 @@
  * header comment), so whether the SIZE BY row's two `w-btn-toggle` groups actually wrap onto two
  * lines at the panel's real content width can only be answered by a real browser.
  *
- * The CSS handed to that browser is compiled straight from the real source rather than hand-copied:
+ * The CSS handed to that browser is read straight from the real source rather than hand-copied:
  * `buildAppCss()` (the app's actual `src/css/tailwind.css`, Preflight included) plus `Graph.vue`'s
- * own `<style lang="scss" scoped>` block and `WBtnToggle.vue`'s own `<style scoped>` block, both read
- * off disk and extracted verbatim. This is what keeps the harness from silently drifting out of sync
- * with the component it measures the way a re-typed CSS snippet could.
+ * own `<style scoped>` block and `WBtnToggle.vue`'s own `<style scoped>` block, both read off disk
+ * and extracted verbatim -- already plain, valid CSS, so no compile step is needed (OpenProject
+ * #3254 dropped the Sass pipeline this harness used to run the extracted text through). This is what
+ * keeps the harness from silently drifting out of sync with the component it measures the way a
+ * re-typed CSS snippet could.
  *
- * No Vue SFC compile happens here (that would mean bundling `Graph.vue`'s full import graph -- d3,
- * the canvas draw pipeline -- through a real `vite build` just to get its CSS out), so the extracted
- * SCSS is handed to `sass` directly rather than through `@vitejs/plugin-vue`'s scoped-style
- * transform. Two consequences of skipping that transform, both handled here:
+ * No Vue SFC compile happens here either (that would mean bundling `Graph.vue`'s full import graph --
+ * d3, the canvas draw pipeline -- through a real `vite build` just to get its CSS out), so skipping
+ * `@vitejs/plugin-vue`'s scoped-style transform has two consequences, both handled here:
  *  - No `data-v-*` scoping attribute is added anywhere. That's fine for a bounding-box measurement:
  *    the same plain class selectors the real component renders still match, since scoping only ever
  *    narrows a selector's reach, never changes what a matching class looks like.
  *  - A scoped `:deep(X)` rule is normally rewritten by that same Vue transform into a plain
  *    `[data-v-hash] X` descendant selector (the wrapping pseudo-class itself is stripped, not
  *    something a real browser understands on its own). `stripVueDeep()` below does the same
- *    mechanical rewrite -- `SELECTOR :deep(INNER)` -> `SELECTOR INNER` -- before the text reaches
- *    `sass`, so a `:deep()` rule in `Graph.vue`'s stylesheet behaves under this harness the same way
- *    it behaves once actually built.
+ *    mechanical rewrite -- `SELECTOR :deep(INNER)` -> `SELECTOR INNER` -- before the text reaches the
+ *    page, so a `:deep()` rule in `Graph.vue`'s stylesheet behaves under this harness the same way it
+ *    behaves once actually built.
  */
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import * as sass from 'sass'
 
 import { buildAppCss } from '../../test/realGridLayout.js'
 
 const selfDir = dirname(fileURLToPath(import.meta.url))
-const cssDir = join(selfDir, '..', 'css')
 const graphVuePath = join(selfDir, 'Graph.vue')
 const btnTogglePath = join(selfDir, '..', 'components', 'shared', 'WBtnToggle.vue')
 
@@ -52,27 +51,23 @@ function extractStyleBlock(filePath, openTag) {
 }
 
 /** See the header comment's `:deep()` paragraph above. */
-function stripVueDeep(scss) {
-  return scss.replace(/:deep\(([^)]*)\)/g, '$1')
+function stripVueDeep(css) {
+  return css.replace(/:deep\(([^)]*)\)/g, '$1')
 }
 
 let compiledCssPromise = null
 
 /**
  * The combined CSS the real `.graph-view-controls` markup renders with. Memoized per test process --
- * a `sass` compile plus the Tailwind build underneath it is not free, and every caller in a given run
- * wants the identical output.
+ * the Tailwind build underneath it is not free, and every caller in a given run wants the identical
+ * output.
  */
 export function buildGraphControlCss() {
   if (!compiledCssPromise) {
     compiledCssPromise = (async () => {
       const tailwindCss = await buildAppCss()
-      const graphScss = stripVueDeep(extractStyleBlock(graphVuePath, '<style lang="scss" scoped>'))
+      const graphCss = stripVueDeep(extractStyleBlock(graphVuePath, '<style scoped>'))
       const toggleCss = extractStyleBlock(btnTogglePath, '<style scoped>')
-      const { css: graphCss } = sass.compileString(
-        `@use "_theme" as *;\n@use "_palette" as *;\n${graphScss}`,
-        { loadPaths: [cssDir] }
-      )
       /*
         `.graph-view-right-rail` is `position: absolute` in production (it floats over the graph
         canvas) -- harmless there since its own `top`/`right` are relative to a positioned ancestor,

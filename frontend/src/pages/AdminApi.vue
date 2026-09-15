@@ -381,4 +381,4 @@ function revoke(key) {
 }
 </script>
 
-<style lang="scss"></style>
+<style></style>

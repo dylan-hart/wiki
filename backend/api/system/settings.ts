@@ -21,7 +21,7 @@ import type { FastifyInstance } from 'fastify'
 interface FlagToggleOptions {
   /** The path both halves answer on, e.g. `/api`. */
   path: string
-  /** The `WIKI.config` key this flag lives under -- also the one key handed to `saveToDb`. */
+  /** The `CARDINAL.config` key this flag lives under -- also the one key handed to `saveToDb`. */
   configKey: string
   /** The audit event the PUT records. */
   auditEvent: AuditEvent
@@ -73,7 +73,7 @@ function registerFlagToggle(app: FastifyInstance, opts: FlagToggleOptions): void
     },
     async () => {
       return {
-        isEnabled: WIKI.config[opts.configKey].isEnabled === true,
+        isEnabled: CARDINAL.config[opts.configKey].isEnabled === true,
         ...(opts.extraGet ? await opts.extraGet.value() : {})
       }
     }
@@ -121,15 +121,15 @@ function registerFlagToggle(app: FastifyInstance, opts: FlagToggleOptions): void
       }
     },
     async (req, reply) => {
-      const previousConfig = WIKI.config[opts.configKey]
-      WIKI.config[opts.configKey] = { ...previousConfig, isEnabled: req.body.isEnabled }
+      const previousConfig = CARDINAL.config[opts.configKey]
+      CARDINAL.config[opts.configKey] = { ...previousConfig, isEnabled: req.body.isEnabled }
 
-      if (!(await WIKI.configSvc.saveToDb([opts.configKey]))) {
-        WIKI.config[opts.configKey] = previousConfig
+      if (!(await CARDINAL.configSvc.saveToDb([opts.configKey]))) {
+        CARDINAL.config[opts.configKey] = previousConfig
         return reply.internalServerError(`Failed to save the ${opts.stateLabel}.`)
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: opts.auditEvent,
         actor: actorFromRequest(req),
         detail: { isEnabled: req.body.isEnabled }
@@ -172,7 +172,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.flags.getFlags()
+      return CARDINAL.models.flags.getFlags()
     }
   )
 
@@ -212,15 +212,15 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const patch = WIKI.models.flags.pickFlags(req.body)
+      const patch = CARDINAL.models.flags.pickFlags(req.body)
       if (Object.keys(patch).length < 1) {
         return reply.badRequest('No system flags provided to update.')
       }
-      if (!(await WIKI.models.flags.updateFlags(patch))) {
+      if (!(await CARDINAL.models.flags.updateFlags(patch))) {
         return reply.internalServerError('Failed to save the system flags.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.flagsUpdated',
         actor: actorFromRequest(req),
         detail: patch
@@ -256,8 +256,8 @@ async function routes(app: FastifyInstance) {
     },
     async () => {
       return {
-        ...WIKI.models.security.getConfig(),
-        insecureCookieRiskAt: WIKI.models.security.getInsecureCookieRiskAt()
+        ...CARDINAL.models.security.getConfig(),
+        insecureCookieRiskAt: CARDINAL.models.security.getInsecureCookieRiskAt()
       }
     }
   )
@@ -298,21 +298,21 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const patch = WIKI.models.security.pickFields(req.body)
+      const patch = CARDINAL.models.security.pickFields(req.body)
       if (Object.keys(patch).length < 1) {
         return reply.badRequest('No security settings provided to update.')
       }
 
-      const invalid = WIKI.models.security.validate(patch)
+      const invalid = CARDINAL.models.security.validate(patch)
       if (invalid) {
         return reply.badRequest(invalid)
       }
 
-      if (!(await WIKI.models.security.updateConfig(patch))) {
+      if (!(await CARDINAL.models.security.updateConfig(patch))) {
         return reply.internalServerError('Failed to save the security configuration.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.securityUpdated',
         actor: actorFromRequest(req),
         detail: patch
@@ -391,7 +391,7 @@ async function routes(app: FastifyInstance) {
           }
         }
       },
-      value: async () => ({ summary: await WIKI.models.pageviews.summary() })
+      value: async () => ({ summary: await CARDINAL.models.pageviews.summary() })
     }
   })
 
@@ -429,12 +429,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const rotated = await WIKI.models.pageviews.rotateHashKey()
+      const rotated = await CARDINAL.models.pageviews.rotateHashKey()
       if (!rotated) {
         return reply.internalServerError('Failed to save the new pageview hash key.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.pageviewsHashKeyRotated',
         actor: actorFromRequest(req)
       })

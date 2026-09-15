@@ -34,7 +34,7 @@ export interface ResolvedWatchNotifyPreference {
  *
  * `digest` rather than `immediate`: this is the one knob that is safe to get wrong in either
  * direction EXCEPT this one. An instance can go live, and watches can start accumulating, before
- * anybody has configured outbound mail (`WIKI.config.mail`) — see `models/mail.ts`. Defaulting to
+ * anybody has configured outbound mail (`CARDINAL.config.mail`) — see `models/mail.ts`. Defaulting to
  * `immediate` means the very first save on a watched page attempts a send against a transporter that
  * may not exist yet; defaulting to `digest` means it queues instead, harmlessly, until either mail
  * gets configured or the digest job (a later task) ships. Every change type notifies by default,
@@ -143,7 +143,7 @@ class PageWatching {
     if (!userId) {
       return false
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: watchingTable.id })
       .from(watchingTable)
       .where(and(eq(watchingTable.pageId, pageId), eq(watchingTable.userId, userId)))
@@ -171,7 +171,7 @@ class PageWatching {
     pageId: string
     userId: string
   } & WatchNotifyPreference): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .insert(watchingTable)
       .values({ siteId, pageId, userId, ...preference })
       .onConflictDoNothing({ target: [watchingTable.pageId, watchingTable.userId] })
@@ -197,7 +197,7 @@ class PageWatching {
     if (Object.keys(preference).length < 1) {
       return this.isWatching(pageId, userId)
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .update(watchingTable)
       .set(preference)
       .where(and(eq(watchingTable.pageId, pageId), eq(watchingTable.userId, userId)))
@@ -217,7 +217,7 @@ class PageWatching {
     pageId: string,
     userId: string
   ): Promise<ResolvedWatchNotifyPreference | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         notifyMode: watchingTable.notifyMode,
         notifyOnEdited: watchingTable.notifyOnEdited,
@@ -239,7 +239,7 @@ class PageWatching {
    * exists, and it does not.
    */
   async unwatch({ pageId, userId }: { pageId: string; userId: string }): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .delete(watchingTable)
       .where(and(eq(watchingTable.pageId, pageId), eq(watchingTable.userId, userId)))
   }
@@ -260,7 +260,7 @@ class PageWatching {
    * page must not fail the caller's whole list.
    */
   async listForUser(siteId: string, userId: string): Promise<WatchedPage[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         pageId: pagesTable.id,
         path: pagesTable.path,
@@ -284,10 +284,10 @@ class PageWatching {
     if (rows.length < 1) {
       return []
     }
-    const actor = await WIKI.models.groups.actorForUserId(userId)
+    const actor = await CARDINAL.models.groups.actorForUserId(userId)
     return rows
       .filter((row) =>
-        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
           path: row.path,
           siteId,
           locale: row.locale,
@@ -346,7 +346,7 @@ class PageWatching {
     excludeUserId: string,
     action: PageWatchNotifiableAction
   ): Promise<{ userId: string; notifyMode: WatchNotifyMode }[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         userId: watchingTable.userId,
         notifyMode: watchingTable.notifyMode,
@@ -379,9 +379,9 @@ class PageWatching {
     }
     const readable: { userId: string; notifyMode: WatchNotifyMode }[] = []
     for (const watcher of preferred) {
-      const actor = await WIKI.models.groups.actorForUserId(watcher.userId)
+      const actor = await CARDINAL.models.groups.actorForUserId(watcher.userId)
       if (
-        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
           path: watcher.path,
           siteId,
           locale: watcher.locale,
@@ -421,7 +421,7 @@ class PageWatching {
    * `listForUser` takes a `siteId` because an inbox genuinely spans sites and this does not.
    */
   async listForPage(pageId: string, { limit }: { limit: number }): Promise<PageWatchers> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         userId: watchingTable.userId,
         name: usersTable.name,
@@ -436,7 +436,7 @@ class PageWatching {
       Counted separately rather than inferred from `rows.length`, which only equals the total while the
       page has fewer watchers than the cap -- exactly the case the `+N` remainder does not exist for.
     */
-    const totals = await WIKI.db
+    const totals = await CARDINAL.db
       .select({ total: count() })
       .from(watchingTable)
       .where(eq(watchingTable.pageId, pageId))

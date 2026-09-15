@@ -77,9 +77,12 @@ const SIDE_DIALOG_TITLES = {
 const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDialogComponent]?.())
 </script>
 
-<style lang="scss">
-@use 'sass:color';
-
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   The rules that used to sit here hung off `.q-dialog__inner` and `.w-card__section`, neither of which
   this app renders any more -- so the inset, the radius and the panel's minimum width had all silently
@@ -94,52 +97,50 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     mid-transition and made a 32px slide look like a lurch. 560px is the width the content settles at
     anyway; measured, nothing inside asks for more, date picker included.
   */
-  .w-dialog-panel {
-    width: 560px;
-
-    /*
-      Cobalt dialog corner fringe (OpenProject #2865, `ui-iteration/README.md` Part 1.2): a dark
-      header clipped by a filled, `overflow:auto` panel's rounded corner leaves a light antialias
-      fringe at the top corners under Chromium -- worse here since the panel is *also* clipping a
-      scroll container to its padding box. Fixed the same way as `MainOverlayDialog` (OpenProject
-      #2864): the panel itself goes transparent and stops clipping, and the header/body bands round
-      and fill themselves instead -- side-specific radii (left corners only, matching this panel's
-      own left-edge float) rather than MainOverlayDialog's all-four-corner treatment.
-    */
-    @at-root .body--cobalt & {
-      background: transparent;
-      overflow: visible;
-    }
-  }
-
+}
+.floating-sidepanel .w-dialog-panel {
+  width: 560px;
+  /*
+    Cobalt dialog corner fringe (OpenProject #2865, `ui-iteration/README.md` Part 1.2): a dark
+    header clipped by a filled, `overflow:auto` panel's rounded corner leaves a light antialias
+    fringe at the top corners under Chromium -- worse here since the panel is *also* clipping a
+    scroll container to its padding box. Fixed the same way as `MainOverlayDialog` (OpenProject
+    #2864): the panel itself goes transparent and stops clipping, and the header/body bands round
+    and fill themselves instead -- side-specific radii (left corners only, matching this panel's
+    own left-edge float) rather than MainOverlayDialog's all-four-corner treatment.
+  */
+}
+.body--cobalt .floating-sidepanel .w-dialog-panel {
+  background: transparent;
+  overflow: visible;
+}
+.floating-sidepanel {
   /*
     The header band. Whichever child is mounted (`PageBacklinksDialog`, `PagePropertiesDialog`;
     see `sideDialogs` above), its heading is always a `<w-toolbar>` -- there is exactly one per
     dialog, so this stays a plain descendant selector rather than reaching into either child's own
     markup or class names.
   */
-  .w-toolbar {
-    @at-root .body--cobalt & {
-      border-radius: 12px 0 0 0;
-    }
-  }
-
+}
+.body--cobalt .floating-sidepanel .w-toolbar {
+  border-radius: 12px 0 0 0;
+}
+.floating-sidepanel {
   /*
     The body band -- the scroll area beneath the header, same one-per-dialog guarantee. Carries the
     surface fill the now-transparent panel no longer provides, matching `.w-card`'s own background
     (`tailwind.css`'s `.w-card` / `body.body--dark .w-card`) since that fill is what this replaces;
     `overflow: auto` is `WScrollArea`'s own base style already, unconditionally.
   */
-  .w-scroll-area {
-    @at-root .body--cobalt & {
-      border-radius: 0 0 0 12px;
-      background-color: var(--color-white);
-    }
-    @at-root .body--cobalt.body--dark & {
-      background-color: var(--color-dark-3);
-    }
-  }
-
+}
+.body--cobalt .floating-sidepanel .w-scroll-area {
+  border-radius: 0 0 0 12px;
+  background-color: var(--color-white);
+}
+.body--cobalt.body--dark .floating-sidepanel .w-scroll-area {
+  background-color: var(--color-dark-3);
+}
+.floating-sidepanel {
   /*
     The card itself (OpenProject #2895): both dialogs mounted here (`PagePropertiesDialog.vue`,
     `PageBacklinksDialog.vue`) wrap their content in one root `<w-card>` -- the panel's direct child,
@@ -159,32 +160,28 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     whole visible surface between them. Ledger keeps the card's real fill and edge -- `--radius-card`/
     `--radius-dialog` are both 0 there, so there is no radius to mismatch.
   */
-  .w-card {
-    @at-root .body--cobalt & {
-      background: transparent;
-      box-shadow: none;
-    }
-  }
-
-  .alt-card {
-    @at-root .body--light & {
-      background-color: $grey-2;
-      border-top: 1px solid $grey-4;
-      box-shadow:
-        inset 0 1px 0 0 #fff,
-        inset 0 -1px 0 0 #fff;
-      border-bottom: 1px solid $grey-4;
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-4);
-      border-top: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
-      box-shadow:
-        inset 0 1px 0 0 var(--color-dark-6),
-        inset 0 -1px 0 0 var(--color-dark-6);
-      border-bottom: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
-    }
-  }
-
+}
+.body--cobalt .floating-sidepanel .w-card {
+  background: transparent;
+  box-shadow: none;
+}
+.body--light .floating-sidepanel .alt-card {
+  background-color: var(--color-grey-2);
+  border-top: 1px solid var(--color-grey-4);
+  box-shadow:
+    inset 0 1px 0 0 #fff,
+    inset 0 -1px 0 0 #fff;
+  border-bottom: 1px solid var(--color-grey-4);
+}
+.body--dark .floating-sidepanel .alt-card {
+  background-color: var(--color-dark-4);
+  border-top: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
+  box-shadow:
+    inset 0 1px 0 0 var(--color-dark-6),
+    inset 0 -1px 0 0 var(--color-dark-6);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
+}
+.floating-sidepanel {
   /*
     The rail below hangs outside the panel, so the panel holding it must not clip.
 
@@ -198,10 +195,11 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     the panel is. Nothing is given up here -- `PagePropertiesDialog` rounds its own toolbar and scroll
     area, and that scroll area is what its body scrolls in.
   */
-  .w-dialog-panel:has(> .page-properties-dialog) {
-    overflow: visible;
-  }
-
+}
+.floating-sidepanel .w-dialog-panel:has(> .page-properties-dialog) {
+  overflow: visible;
+}
+.floating-sidepanel {
   /*
     The quick-jump rail, which sits outside the panel's leading edge.
 
@@ -217,17 +215,17 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     -> `inset-inline-end`, not `right` (OpenProject #1601): the rail is a leading-edge companion to
        the panel, not a screen-corner anchor, so it follows the panel to the other side under RTL.
   */
-  &-quickaccess {
-    position: absolute;
-    inset-inline-end: calc(100% + 12px);
-    top: 24px;
-    width: 40px;
-    display: flex;
-    flex-direction: column;
-    background-color: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(5px);
-    color: #fff;
-    box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.5);
-  }
+}
+.floating-sidepanel-quickaccess {
+  position: absolute;
+  inset-inline-end: calc(100% + 12px);
+  top: 24px;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(5px);
+  color: #fff;
+  box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.5);
 }
 </style>

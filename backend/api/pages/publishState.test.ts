@@ -13,7 +13,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * publish or unpublish a page. Unlike classification, `publishState` has no "direction" to spare a
  * raise from the extra check -- any actual change (draft<->published<->scheduled) needs it.
  *
- * Route-level only: a real Fastify instance with `WIKI.models.pages`/`WIKI.models.groups` stubbed to
+ * Route-level only: a real Fastify instance with `CARDINAL.models.pages`/`CARDINAL.models.groups` stubbed to
  * the smallest surface each test needs, rather than a database -- the same harness shape
  * `classification.test.ts` uses for the sibling guardrail in the same handler.
  */

@@ -119,7 +119,7 @@ async function routes(app: FastifyInstance) {
       }
       let page
       try {
-        page = await WIKI.models.pages.createPage(req.params.siteId, req.body, actor)
+        page = await CARDINAL.models.pages.createPage(req.params.siteId, req.body, actor)
       } catch (err: any) {
         const refusal = replyForRenderRefusal(err, reply)
         if (refusal) {
@@ -228,7 +228,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
       }
-      const target = await WIKI.models.pages.getPage({
+      const target = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         id: req.params.pageId,
         withContent: true
@@ -280,7 +280,7 @@ async function routes(app: FastifyInstance) {
       if (
         req.body.classification !== undefined &&
         req.body.classification !== target.classification &&
-        WIKI.models.classificationLevels.isLowerThan(
+        CARDINAL.models.classificationLevels.isLowerThan(
           req.body.classification,
           target.classification
         ) &&
@@ -330,7 +330,7 @@ async function routes(app: FastifyInstance) {
       }
       let page
       try {
-        page = await WIKI.models.pages.updatePage(
+        page = await CARDINAL.models.pages.updatePage(
           req.params.siteId,
           req.params.pageId,
           req.body,
@@ -351,7 +351,7 @@ async function routes(app: FastifyInstance) {
         editor should stop calling it unsaved. Told through the collaboration room rather than answered
         here, since they are on their own requests — and, quite possibly, on another instance.
       */
-      WIKI.collab.pageSaved(page.id, {
+      CARDINAL.collab.pageSaved(page.id, {
         versionDate: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' }),
         authorId: actor.id,
         authorName: page.authorName ?? ''
@@ -375,8 +375,11 @@ async function routes(app: FastifyInstance) {
       const classificationConflicts =
         req.body.classification !== undefined &&
         req.body.classification !== target.classification &&
-        WIKI.models.classificationLevels.isLowerThan(target.classification, req.body.classification)
-          ? await WIKI.models.pageClassification.descendantsBelowFloor(
+        CARDINAL.models.classificationLevels.isLowerThan(
+          target.classification,
+          req.body.classification
+        )
+          ? await CARDINAL.models.pageClassification.descendantsBelowFloor(
               req.params.siteId,
               page.locale,
               page.path,
@@ -463,7 +466,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Moving a page requires a logged in user.')
       }
-      const target = await WIKI.models.pages.getPage({
+      const target = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         id: req.params.pageId
       })
@@ -499,7 +502,7 @@ async function routes(app: FastifyInstance) {
       //    path, same as the primary; the shared destination needs `write:pages`, same reasoning as
       //    above.
       if (req.body.includeTranslations && destPath !== target.path) {
-        const translations = await WIKI.models.pages.getTranslations(
+        const translations = await CARDINAL.models.pages.getTranslations(
           req.params.siteId,
           target.path,
           target.id
@@ -521,7 +524,7 @@ async function routes(app: FastifyInstance) {
           }
         }
       }
-      const page = await WIKI.models.pages.movePage(
+      const page = await CARDINAL.models.pages.movePage(
         req.params.siteId,
         req.params.pageId,
         req.body,
@@ -590,7 +593,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Rendering a page requires a logged in user.')
       }
-      const target = await WIKI.models.pages.getPage({
+      const target = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         id: req.params.pageId
       })
@@ -601,7 +604,7 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
       }
-      const queued = await WIKI.models.pages.queueRerender(
+      const queued = await CARDINAL.models.pages.queueRerender(
         req.params.siteId,
         req.params.pageId,
         actor
@@ -738,7 +741,7 @@ async function routes(app: FastifyInstance) {
       // -> ONE batched select instead of a per-id `getPage` loop -- the same `getPagesByIds` the
       //    classification-conflicts-resolve route already uses, projecting only what `mayOnPage`
       //    (and, for `retag`, the page's own current tags) actually needs.
-      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const pageMap = await CARDINAL.models.pages.getPagesByIds(req.params.siteId, pageIds)
       const permission = action === 'delete' ? 'delete:pages' : 'write:pages'
       const results: {
         id: string
@@ -763,14 +766,18 @@ async function routes(app: FastifyInstance) {
         }
         try {
           if (action === 'delete') {
-            const deleted = await WIKI.models.pages.deletePage(req.params.siteId, pageId, actor)
+            const deleted = await CARDINAL.models.pages.deletePage(req.params.siteId, pageId, actor)
             results.push({
               id: pageId,
               path: target.path,
               status: deleted ? 'done' : 'notFound'
             })
           } else if (action === 'render') {
-            const queued = await WIKI.models.pages.queueRerender(req.params.siteId, pageId, actor)
+            const queued = await CARDINAL.models.pages.queueRerender(
+              req.params.siteId,
+              pageId,
+              actor
+            )
             results.push({
               id: pageId,
               path: target.path,
@@ -781,7 +788,7 @@ async function routes(app: FastifyInstance) {
             const nextTags = [
               ...new Set([...target.tags.filter((t) => !removeSet.has(t)), ...addTags])
             ]
-            const updated = await WIKI.models.pages.updatePage(
+            const updated = await CARDINAL.models.pages.updatePage(
               req.params.siteId,
               pageId,
               { tags: nextTags },
@@ -835,7 +842,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Deleting a page requires a logged in user.')
       }
-      const target = await WIKI.models.pages.getPage({
+      const target = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         id: req.params.pageId
       })
@@ -845,7 +852,7 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'delete:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to delete this page.')
       }
-      if (!(await WIKI.models.pages.deletePage(req.params.siteId, req.params.pageId, actor))) {
+      if (!(await CARDINAL.models.pages.deletePage(req.params.siteId, req.params.pageId, actor))) {
         return reply.notFound('This page does not exist.')
       }
       return reply.code(204).send()

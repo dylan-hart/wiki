@@ -115,7 +115,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('a password-protected page matches on title but withholds its highlight', async () => {
-    WIKI.sites[fixtures.siteId]!.config.search = {
+    CARDINAL.sites[fixtures.siteId]!.config.search = {
       engine: 'db',
       engines: { db: { termHighlighting: true } },
       config: { dictOverrides: {} }
@@ -304,7 +304,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
         ]
       })
       .returning({ id: groupsTable.id })
-    await WIKI.models.groups.reloadCache()
+    await CARDINAL.models.groups.reloadCache()
 
     const restrictedActor: PageActor = {
       id: fixtures.userId,
@@ -443,8 +443,8 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       ]
       /*
         Written directly rather than through `groups.updateGroup()`: that method's guest-role
-        clamping reads `WIKI.data.systemIds.guestsGroupId`, which the DB-backed test fixture's
-        minimal `WIKI` (`test/db.ts`) never populates -- out of scope for this module's own suite to
+        clamping reads `CARDINAL.data.systemIds.guestsGroupId`, which the DB-backed test fixture's
+        minimal `CARDINAL` (`test/db.ts`) never populates -- out of scope for this module's own suite to
         add. `reloadCache()` is the same in-memory refresh `updateGroup()` itself triggers, so
         `checkAccess()` sees these rules exactly as it would after a real admin edit.
       */
@@ -564,7 +564,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
 describe('db search module query() siteId threading (task 678)', () => {
   /**
    * Regression test for task 678: `query()`'s actor-scoped results filter runs each row through
-   * `WIKI.models.groups.checkAccess`, but the inline page ref it built never carried `siteId` — so a
+   * `CARDINAL.models.groups.checkAccess`, but the inline page ref it built never carried `siteId` — so a
    * rule scoped to one site (task 671) could not distinguish this site's results from another's.
    * `siteId` is already in `query()`'s enclosing scope; this only proves it reaches the
    * `checkAccess` call made over the filtered rows. Mock-based rather than DB-backed, since this is

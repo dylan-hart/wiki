@@ -11,7 +11,7 @@
  *    `App.vue`'s `applyCodeBlocksTheme()` nests a highlight.js theme under the same selector: a
  *    `<style>` element with `.page-contents { --font-content: … }` rather than a property set on
  *    the root, so a reader's chosen content font never leaks into surrounding chrome (the sidebar,
- *    the header, admin screens). `_page-contents.scss` reads it as
+ *    the header, admin screens). `_page-contents.css` reads it as
  *    `font-family: var(--font-content, var(--font-sans))`, so with nothing selected the content
  *    column falls back to the same font as the rest of the app, not to the browser default.
  *
@@ -94,7 +94,7 @@ function applyFontStylesheets(baseFont, contentFont) {
   /*
    * Only the BASE font's display companion, and under its own `<key>-display` name so a caller can
    * still address either sheet: a display face is chrome, and the content column never sets headings
-   * in it (`_page-contents.scss` reads `--font-content`, not `--font-display`).
+   * in it (`_page-contents.css` reads `--font-content`, not `--font-display`).
    */
   const baseDisplay = FONT_CATALOG[baseFont]?.display
   if (baseDisplay) {

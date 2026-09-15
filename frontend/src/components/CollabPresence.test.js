@@ -143,6 +143,74 @@ describe('CollabPresence avatar images', () => {
 })
 
 /**
+ * Task #3264: a participant's manually-uploaded avatar (`hasAvatar`) always wins; their
+ * provider-synced picture (`avatarProviderUrl`) is only a fallback, and initials are the last resort.
+ */
+describe('CollabPresence avatar fallback', () => {
+  it('renders the uploaded avatar when hasAvatar is set, ignoring avatarProviderUrl', async () => {
+    const { wrapper, collabStore } = mountPresence()
+
+    collabStore.participants = [
+      { id: 'me', name: 'Ada', color: '#111', isSelf: true, typing: false, hasAvatar: false },
+      {
+        id: 'grace',
+        name: 'Grace Hopper',
+        color: '#222',
+        isSelf: false,
+        typing: false,
+        hasAvatar: true,
+        avatarProviderUrl: 'https://provider.example/photo.jpg'
+      }
+    ]
+    await wrapper.vm.$nextTick()
+
+    const img = wrapper.find('.collab-presence-bubble img')
+    expect(img.attributes('src')).toBe('/_user/grace/avatar')
+  })
+
+  it('falls back to the provider avatar when the participant has no manual upload', async () => {
+    const { wrapper, collabStore } = mountPresence()
+
+    collabStore.participants = [
+      { id: 'me', name: 'Ada', color: '#111', isSelf: true, typing: false, hasAvatar: false },
+      {
+        id: 'grace',
+        name: 'Grace Hopper',
+        color: '#222',
+        isSelf: false,
+        typing: false,
+        hasAvatar: false,
+        avatarProviderUrl: 'https://provider.example/photo.jpg'
+      }
+    ]
+    await wrapper.vm.$nextTick()
+
+    const img = wrapper.find('.collab-presence-bubble img')
+    expect(img.attributes('src')).toBe('https://provider.example/photo.jpg')
+  })
+
+  it('falls back to initials when neither avatar exists', async () => {
+    const { wrapper, collabStore } = mountPresence()
+
+    collabStore.participants = [
+      { id: 'me', name: 'Ada', color: '#111', isSelf: true, typing: false, hasAvatar: false },
+      {
+        id: 'grace',
+        name: 'Grace Hopper',
+        color: '#222',
+        isSelf: false,
+        typing: false,
+        hasAvatar: false
+      }
+    ]
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.collab-presence-bubble img').exists()).toBe(false)
+    expect(wrapper.findAll('.collab-presence-bubble span').at(-1).text()).toBe('GH')
+  })
+})
+
+/**
  * OpenProject #2609: the rule itself is `helpers/initials.js`'s and is unit-tested there; this is the
  * wiring -- that a bubble with no uploaded avatar behind it draws the shared derivation rather than
  * this component's own former copy of it.

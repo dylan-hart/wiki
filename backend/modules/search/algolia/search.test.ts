@@ -379,11 +379,11 @@ describe('AlgoliaSearchModule', () => {
     let previousDb: any
 
     before(() => {
-      previousDb = (globalThis as any).WIKI.db
+      previousDb = (globalThis as any).CARDINAL.db
     })
 
     after(() => {
-      ;(globalThis as any).WIKI.db = previousDb
+      ;(globalThis as any).CARDINAL.db = previousDb
     })
 
     /**
@@ -394,7 +394,7 @@ describe('AlgoliaSearchModule', () => {
      */
     test('purges this site’s records with a scoped deleteBy, and sends addObject requests', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+      ;(globalThis as any).CARDINAL.db = stubPageStreamDb([
         fakePage({ id: 'p1', locale: 'en' }),
         fakePage({ id: 'p2', locale: 'en' }),
         fakePage({ id: 'p3', locale: 'fr' })
@@ -424,7 +424,7 @@ describe('AlgoliaSearchModule', () => {
      */
     test('an oversized page is skipped with a logged warning, the rest of the site still gets indexed', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+      ;(globalThis as any).CARDINAL.db = stubPageStreamDb([
         fakePage({ id: 'p1', path: 'docs/small-one', locale: 'en' }),
         fakePage({
           id: 'p-huge',
@@ -435,8 +435,8 @@ describe('AlgoliaSearchModule', () => {
         fakePage({ id: 'p2', path: 'docs/small-two', locale: 'fr' })
       ])
       const warnings: { scope: string; message: string; fields?: Record<string, any> }[] = []
-      const previousWarn = (globalThis as any).WIKI.logger.warn
-      ;(globalThis as any).WIKI.logger.warn = (
+      const previousWarn = (globalThis as any).CARDINAL.logger.warn
+      ;(globalThis as any).CARDINAL.logger.warn = (
         scope: string,
         message: string,
         fields?: Record<string, any>
@@ -446,7 +446,7 @@ describe('AlgoliaSearchModule', () => {
       try {
         result = await mod.rebuild(siteId)
       } finally {
-        ;(globalThis as any).WIKI.logger.warn = previousWarn
+        ;(globalThis as any).CARDINAL.logger.warn = previousWarn
       }
 
       // -> Both small pages made it into the one batch sent; the huge one did not abort anything.
@@ -476,7 +476,7 @@ describe('AlgoliaSearchModule', () => {
     /** That an empty site sends no batches is the contract's; that it still purges is Algolia's. */
     test('an empty site still purges its own records', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = stubPageStreamDb([])
+      ;(globalThis as any).CARDINAL.db = stubPageStreamDb([])
 
       const result = await mod.rebuild(siteId)
 
@@ -492,7 +492,7 @@ describe('AlgoliaSearchModule', () => {
      */
     test('does not touch another site’s records: rebuild scopes its purge to siteId', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = stubPageStreamDb([fakePage({ id: 'p1' })])
+      ;(globalThis as any).CARDINAL.db = stubPageStreamDb([fakePage({ id: 'p1' })])
 
       await mod.rebuild(siteId)
 
@@ -548,7 +548,7 @@ runSearchModuleContract('algolia', {
       lastIndexedPath: () => calls.saveObject!.at(-1)?.body.path,
       removedIds: () => calls.deleteObject!.map((call: any) => call.objectID),
       setPages(pages) {
-        ;(globalThis as any).WIKI.db = stubPageStreamDb(pages)
+        ;(globalThis as any).CARDINAL.db = stubPageStreamDb(pages)
       },
       rebuiltIds: () =>
         calls.batch!.flatMap((call: any) =>

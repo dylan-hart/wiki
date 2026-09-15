@@ -154,7 +154,7 @@ class Passkeys {
     registrationOptions: PublicKeyCredentialCreationOptionsJSON
     pending: PasskeyChallenge
   }> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
       throw new Error('ERR_INVALID_USER')
     }
@@ -163,7 +163,7 @@ class Passkeys {
     }
     const expectedOrigin = resolveOrigin(origin, hostname)
 
-    const site = await WIKI.models.sites.getSiteByHostname({ hostname })
+    const site = await CARDINAL.models.sites.getSiteByHostname({ hostname })
     const store = (user.passkeys ?? {}) as PasskeyStore
 
     const options = await generateRegistrationOptions({
@@ -216,7 +216,7 @@ class Passkeys {
     registrationResponse: RegistrationResponseJSON
     pending?: PasskeyChallenge
   }): Promise<PasskeyInfo> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
       throw new Error('ERR_INVALID_USER')
     }
@@ -241,7 +241,7 @@ class Passkeys {
         requireUserVerification: false
       })
     } catch (err: any) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Passkey registration for user ${user.id} failed verification: ${err.message}`
       )
       throw new Error('ERR_PK_VERIFICATION_FAILED')
@@ -269,7 +269,7 @@ class Passkeys {
 
     await this.saveStore(user.id, { authenticators: [...authenticators, passkey] })
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `User ${user.id} <${user.email}> registered passkey "${trimmedName}" on ${pending.rpId}`
     )
 
@@ -295,7 +295,7 @@ class Passkeys {
       return false
     }
     await this.saveStore(userId, { ...store, authenticators: remaining })
-    WIKI.models.flags.authDebug(`User ${userId} removed a passkey`)
+    CARDINAL.models.flags.authDebug(`User ${userId} removed a passkey`)
     return true
   }
 
@@ -330,7 +330,7 @@ class Passkeys {
         challenge: options.challenge,
         rpId: hostname,
         origin: expectedOrigin,
-        siteId: (await WIKI.models.sites.getSiteByHostname({ hostname }))?.id ?? ''
+        siteId: (await CARDINAL.models.sites.getSiteByHostname({ hostname }))?.id ?? ''
       }
     }
   }
@@ -362,7 +362,7 @@ class Passkeys {
     req: any
   ): Promise<AfterLoginResult> {
     if (!pending) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         'Passkey login rejected: no challenge outstanding on this session'
       )
       throw new Error('ERR_LOGIN_FAILED')
@@ -370,7 +370,7 @@ class Passkeys {
 
     const userHandle = authResponse.response?.userHandle
     if (!userHandle) {
-      WIKI.models.flags.authDebug('Passkey login rejected: the response carried no user handle')
+      CARDINAL.models.flags.authDebug('Passkey login rejected: the response carried no user handle')
       throw new Error('ERR_LOGIN_FAILED')
     }
 
@@ -384,19 +384,19 @@ class Passkeys {
       throw new Error('ERR_LOGIN_FAILED')
     }
     if (!isValidUuid(userId)) {
-      WIKI.models.flags.authDebug('Passkey login rejected: the user handle is not one of ours')
+      CARDINAL.models.flags.authDebug('Passkey login rejected: the user handle is not one of ours')
       throw new Error('ERR_LOGIN_FAILED')
     }
 
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
-      WIKI.models.flags.authDebug(`Passkey login rejected: no user ${userId}`)
+      CARDINAL.models.flags.authDebug(`Passkey login rejected: no user ${userId}`)
       throw new Error('ERR_LOGIN_FAILED')
     }
     const store = (user.passkeys ?? {}) as PasskeyStore
     const passkey = (store.authenticators ?? []).find((pk) => pk.id === authResponse.id)
     if (!passkey) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Passkey login rejected: credential ${authResponse.id} is not registered for user ${userId}`
       )
       throw new Error('ERR_LOGIN_FAILED')
@@ -420,7 +420,7 @@ class Passkeys {
         }
       })
     } catch (err: any) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Passkey login for user ${userId} failed to verify: ${err.message}`
       )
       await this.recordFailedAssertion(user, ip, pending.siteId, err.message)
@@ -441,15 +441,15 @@ class Passkeys {
     // -> `isActive`/`isVerified` are checked centrally by `models/users.ts#afterLoginChecks()`, called
     //    a few lines below -- every login path ends there, this one included, so a passkey login is no
     //    longer able to skip the check the password strategy would have made.
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `User ${user.id} <${user.email}> authenticated with passkey "${passkey.name}"`
     )
 
     // -> Attributed to the local strategy, which is where an account's own credentials belong. Neither
     //    a password change nor a 2FA code is asked for on top of a passkey.
-    return WIKI.models.login.afterLoginChecks(
+    return CARDINAL.models.login.afterLoginChecks(
       user,
-      WIKI.data.systemIds.localAuthId,
+      CARDINAL.data.systemIds.localAuthId,
       { ip, siteId: pending.siteId },
       { skipTFA: true, skipChangePwd: true },
       req
@@ -476,13 +476,13 @@ class Passkeys {
     siteId: string,
     reason: string
   ): Promise<void> {
-    await WIKI.models.auditLog.record({
+    await CARDINAL.models.auditLog.record({
       event: 'login.failed',
       actor: { id: user.id, name: user.name, ip },
       targetType: 'user',
       targetId: user.id,
       targetLabel: user.email,
-      detail: { strategyId: WIKI.data.systemIds.localAuthId, reason },
+      detail: { strategyId: CARDINAL.data.systemIds.localAuthId, reason },
       siteId
     })
   }
@@ -491,7 +491,7 @@ class Passkeys {
    * The stored blob for a user, or an empty one for a user who has never registered a passkey.
    */
   async getStore(userId: string): Promise<PasskeyStore> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     return (user?.passkeys ?? {}) as PasskeyStore
   }
 
@@ -499,7 +499,7 @@ class Passkeys {
    * Replace a user's stored passkey blob.
    */
   async saveStore(userId: string, store: PasskeyStore): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .update(usersTable)
       .set({ passkeys: { authenticators: store.authenticators ?? [] }, updatedAt: sql`now()` })
       .where(eq(usersTable.id, userId))

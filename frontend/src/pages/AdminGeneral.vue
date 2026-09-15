@@ -363,6 +363,20 @@
           </w-settings-row>
         </w-settings-card>
         <!-- ----------------------- -->
+        <!-- Embedding -->
+        <!-- ----------------------- -->
+        <w-settings-card class="mt-4" :title="t('admin.general.embedding')">
+          <w-settings-row
+            icon="tabler:frame"
+            :label="t(`admin.general.embedAllowedOrigins`)"
+            :hint="t(`admin.general.embedAllowedOriginsHint`)">
+            <w-input
+              v-model="state.config.security.embedAllowedOrigins"
+              dense
+              :aria-label="t(`admin.general.embedAllowedOrigins`)" />
+          </w-settings-row>
+        </w-settings-card>
+        <!-- ----------------------- -->
         <!-- Uploads -->
         <!-- ----------------------- -->
         <w-settings-card
@@ -527,6 +541,9 @@ function defaultConfig() {
       index: false,
       follow: false
     },
+    security: {
+      embedAllowedOrigins: ''
+    },
     sitemap: false
   }
 }
@@ -583,12 +600,15 @@ const {
     sharpMissing: false
   },
   fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
-  // -> The form holds page extensions (and allowed URL schemes) as a comma-separated string; the
-  //    API sends an array
+  // -> The form holds page extensions, allowed URL schemes and embed-allowed origins as a
+  //    comma-separated string each; the API sends each as an array
   pick: (site) => ({
     ...site,
     pageExtensions: site.pageExtensions.join(','),
-    allowedUrlSchemes: (site.allowedUrlSchemes ?? []).join(',')
+    allowedUrlSchemes: (site.allowedUrlSchemes ?? []).join(','),
+    security: {
+      embedAllowedOrigins: (site.security?.embedAllowedOrigins ?? []).join(',')
+    }
   }),
   onLoaded: (site) => {
     state.hasLogo = site?.assets?.logo ?? false
@@ -616,6 +636,9 @@ const {
         robots: {
           index: config.robots?.index ?? false,
           follow: config.robots?.follow ?? false
+        },
+        security: {
+          embedAllowedOrigins: parseEmbedAllowedOrigins(config.security?.embedAllowedOrigins)
         },
         features: {
           browse: config.features?.browse ?? false,
@@ -715,6 +738,22 @@ function parseAllowedUrlSchemes(value) {
 }
 
 /**
+ * Same shape as `parsePageExtensions`/`parseAllowedUrlSchemes` -- the form holds this as a
+ * comma-separated string, the API wants an array. Lowercased since the backend schema
+ * (`api/schemas/site.ts`) only accepts a lowercase origin -- Task #3275 reads these values directly
+ * as literal `frame-ancestors` CSP source-list tokens, so this stays a plain split/trim/lowercase/
+ * dedupe rather than a scheme-name pattern check, which the backend schema already enforces.
+ */
+function parseEmbedAllowedOrigins(value) {
+  const origins = Array.isArray(value) ? value : String(value ?? '').split(',')
+  return [
+    ...new Set(
+      origins.map((origin) => origin.trim().toLowerCase()).filter((origin) => origin.length > 0)
+    )
+  ]
+}
+
+/**
  * The hostname `save()` will diff the next one against only moves once the change is actually
  * stored -- a refused save leaves this screen still editing a rename away from `loadedHostname`.
  */
@@ -733,43 +772,40 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
-.admin-general {
-  &-favicontabs {
-    overflow: hidden;
-    display: flex;
-    padding: 5px 5px 0 12px;
-
-    @at-root .body--light & {
-      background-color: rgba(0, 0, 0, 0.1);
-    }
-
-    @at-root .body--dark & {
-      background-color: rgba(255, 255, 255, 0.1);
-    }
-
-    > div {
-      display: flex;
-      padding: 4px 12px;
-      position: relative;
-      align-items: center;
-
-      &:first-child {
-        border: 1px solid #fff;
-        border-bottom: none;
-        box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.2);
-
-        @at-root .body--light & {
-          background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0.75));
-          border-color: #fff;
-        }
-
-        @at-root .body--dark & {
-          background: linear-gradient(to top, var(--color-dark-6), var(--color-dark-5));
-          border-color: var(--color-dark-6);
-        }
-      }
-    }
-  }
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.admin-general-favicontabs {
+  overflow: hidden;
+  display: flex;
+  padding: 5px 5px 0 12px;
+}
+.body--light .admin-general-favicontabs {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+.body--dark .admin-general-favicontabs {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.admin-general-favicontabs > div {
+  display: flex;
+  padding: 4px 12px;
+  position: relative;
+  align-items: center;
+}
+.admin-general-favicontabs > div:first-child {
+  border: 1px solid #fff;
+  border-bottom: none;
+  box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.2);
+}
+.body--light .admin-general-favicontabs > div:first-child {
+  background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0.75));
+  border-color: #fff;
+}
+.body--dark .admin-general-favicontabs > div:first-child {
+  background: linear-gradient(to top, var(--color-dark-6), var(--color-dark-5));
+  border-color: var(--color-dark-6);
 }
 </style>

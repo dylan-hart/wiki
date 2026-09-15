@@ -307,7 +307,7 @@ export function readJson<T>(entries: Record<string, Buffer>, name: string): T {
 class ImportModel {
   /** `<dataPath>/imports` — created on first use, same as the export/icon/asset caches. */
   get importsPath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'imports')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'imports')
   }
 
   /**
@@ -411,7 +411,7 @@ class ImportModel {
    *   row's author/creator/owner columns are rewritten to this id, since accounts are not part of the
    *   archive.
    * @returns How many rows of each kind were restored, which the caller (`importContent`'s task)
-   *   records on the job's history row via `WIKI.models.jobs.setResult`.
+   *   records on the job's history row via `CARDINAL.models.jobs.setResult`.
    */
   async importSite(
     filePath: string,
@@ -443,7 +443,7 @@ class ImportModel {
       const groupRows = readJson<Record<string, any>[]>(entries, 'groups.json')
       const assetManifest = readJson<Record<string, any>[]>(entries, 'assets/manifest.json')
 
-      const targetSiteRows = await WIKI.db
+      const targetSiteRows = await CARDINAL.db
         .select({ id: sitesTable.id })
         .from(sitesTable)
         .where(eq(sitesTable.id, targetSiteId))
@@ -545,7 +545,7 @@ class ImportModel {
 
       // -> Every site id known to this instance, for flagging a group rule's `sites` entry that names
       //    neither the just-rewritten target nor anything else this instance actually has — see below.
-      const knownSiteRows = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+      const knownSiteRows = await CARDINAL.db.select({ id: sitesTable.id }).from(sitesTable)
       const knownSiteIds = new Set(knownSiteRows.map((row) => row.id))
 
       const unresolvedRuleSites: UnresolvedRuleSite[] = []
@@ -566,7 +566,7 @@ class ImportModel {
         return { ...group, rules: mappedRules }
       })
 
-      await WIKI.db.transaction(async (tx) => {
+      await CARDINAL.db.transaction(async (tx) => {
         // -> Site content is replaced outright — see the class-level doc comment. Deleted before
         //    anything is inserted, all scoped to the target site alone.
         await tx.delete(assetsTable).where(eq(assetsTable.siteId, targetSiteId))

@@ -24,15 +24,28 @@ import { DarkMode } from '../shared/theme.js'
   in — a much larger surface than "render a spec as docs," and its standalone browser build alone is
   ~3.3MB of JS across chunks before this repo's own bundling touches it.
 
-  swagger-ui's UMD bundle (`dist/swagger-ui-bundle.js`, the file this import resolves to given this
-  workspace's `resolve()` has no `browser` export condition set) is a self-contained webpack build —
-  React included, nothing left as an external import for rollup to chase down — that mounts into
+  swagger-ui's UMD bundle (`dist/swagger-ui-bundle.js`) is a self-contained webpack build — React
+  included, nothing left as an external bare import for the bundler to chase down — that mounts into
   whatever DOM node it is handed via `domNode`, shadow root included, and its CSS
   (`dist/swagger-ui.css`) is a plain stylesheet scoped under a `.swagger-ui` root class with no
   document-level side effects. That drops straight into the `unsafeCSS` + shadow-root pattern
   `block-katex` and `block-map` already use for a bundled library's stylesheet, and keeps the surface
   to what 2.5.x actually had: a spec rendered as documentation, with "Try it out" as one config flag
   rather than a whole separate API client product.
+
+  Getting this specific file takes an explicit `resolve.alias` in `rolldown.config.mjs`, not just the
+  bare `import SwaggerUIBundle from 'swagger-ui'` below. `rolldown.config.mjs`'s `platform: 'browser'`
+  puts `browser` in the resolved condition set (unlike the old rollup config's
+  `resolve({ exportConditions: ['production'] })`, which never requested it), and swagger-ui's own
+  `exports` map picks a DIFFERENT, non-self-contained ESM build under that condition --
+  `dist/swagger-ui-es-bundle-core.js`, which imports bare specifiers like `base64-js` that are meant
+  to be resolved by a consuming bundler, not run as-is. Rolldown happily bundles it, but the result
+  throws at render time (confirmed directly: it registers and imports cleanly, matching the same
+  shallow check the #3175 spike ran, but a real `SwaggerUIBundle({ domNode, spec, ... })` call against
+  the unaliased build throws `TypeError: o is not a function` and renders nothing into the shadow
+  root -- the shallow "did it register" check the spike used doesn't exercise this at all). The alias
+  pins this one import back to the same file the old build used, sidestepping the exports-map
+  condition question entirely for this one package.
 */
 
 /** Every HTTP method swagger-ui knows how to draw an "Execute" button for. */

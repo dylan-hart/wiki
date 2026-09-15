@@ -150,6 +150,75 @@ describe('UserSearchDialog avatar images', () => {
   })
 })
 
+/**
+ * Task #3264: a manually-uploaded avatar (`hasAvatar`) always wins; the provider-synced picture
+ * (`avatarProviderUrl`) is only a fallback, and the generic plate is the last resort.
+ */
+describe('UserSearchDialog avatar fallback', () => {
+  it('renders the uploaded avatar when hasAvatar is set, ignoring avatarProviderUrl', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          users: [
+            {
+              id: 'user-1',
+              name: 'User One',
+              email: 'one@example.com',
+              hasAvatar: true,
+              avatarProviderUrl: 'https://provider.example/photo.jpg'
+            }
+          ],
+          total: 1
+        })
+    })
+
+    mountDialog()
+    await flushPromises()
+
+    const img = document.body.querySelector('.user-search-dialog-list img')
+    expect(img.getAttribute('src')).toBe('/_user/user-1/avatar')
+  })
+
+  it('falls back to the provider avatar when there is no manual upload', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          users: [
+            {
+              id: 'user-1',
+              name: 'User One',
+              email: 'one@example.com',
+              hasAvatar: false,
+              avatarProviderUrl: 'https://provider.example/photo.jpg'
+            }
+          ],
+          total: 1
+        })
+    })
+
+    mountDialog()
+    await flushPromises()
+
+    const img = document.body.querySelector('.user-search-dialog-list img')
+    expect(img.getAttribute('src')).toBe('https://provider.example/photo.jpg')
+  })
+
+  it('falls back to the generic plate when neither avatar exists', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          users: [{ id: 'user-1', name: 'User One', email: 'one@example.com' }],
+          total: 1
+        })
+    })
+
+    mountDialog()
+    await flushPromises()
+
+    expect(document.body.querySelector('.user-search-dialog-list img')).toBeNull()
+  })
+})
+
 describe('UserSearchDialog excludeUserIds', () => {
   it('hides the excluded user from the results', async () => {
     API_CLIENT.get.mockReturnValueOnce({

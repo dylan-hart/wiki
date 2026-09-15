@@ -57,7 +57,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.listTerms(req.params.siteId)
+      return CARDINAL.models.glossary.listTerms(req.params.siteId)
     }
   )
 
@@ -94,9 +94,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.getCachedTerms(
+      return CARDINAL.models.glossary.getCachedTerms(
         req.params.siteId,
-        WIKI.models.groups.actorForRequest(req)
+        CARDINAL.models.groups.actorForRequest(req)
       )
     }
   )
@@ -126,7 +126,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.getAcronymMap(req.params.siteId)
+      return CARDINAL.models.glossary.getAcronymMap(req.params.siteId)
     }
   )
 
@@ -160,7 +160,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.createTerm(
+      return CARDINAL.models.glossary.createTerm(
         req.params.siteId,
         {
           term: req.body.term!,
@@ -207,7 +207,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.updateTerm(
+      return CARDINAL.models.glossary.updateTerm(
         req.params.siteId,
         req.params.termId,
         {
@@ -256,7 +256,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const deleted = await WIKI.models.glossary.deleteTerm(
+      const deleted = await CARDINAL.models.glossary.deleteTerm(
         req.params.siteId,
         req.params.termId,
         actorFromRequest(req)
@@ -292,7 +292,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.exportTerms(req.params.siteId)
+      return CARDINAL.models.glossary.exportTerms(req.params.siteId)
     }
   )
 
@@ -326,7 +326,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.importTerms(req.params.siteId, req.body)
+      return CARDINAL.models.glossary.importTerms(req.params.siteId, req.body)
     }
   )
 
@@ -365,7 +365,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.saveVersion(
+      return CARDINAL.models.glossary.saveVersion(
         req.params.siteId,
         req.body.terms,
         actorFromRequest(req)
@@ -400,7 +400,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.listVersions(req.params.siteId)
+      return CARDINAL.models.glossary.listVersions(req.params.siteId)
     }
   )
 
@@ -433,7 +433,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const version = await WIKI.models.glossary.getVersion(req.params.siteId, req.params.versionId)
+      const version = await CARDINAL.models.glossary.getVersion(
+        req.params.siteId,
+        req.params.versionId
+      )
       if (!version) {
         return reply.notFound('This glossary version does not exist.')
       }
@@ -448,7 +451,7 @@ async function routes(app: FastifyInstance) {
    * page's HTML the moment a term is added or edited -- so an admin who wants a term applied across
    * the whole site right away has, until now, had to trigger the per-page Rerender action one page at
    * a time. This is the bulk escape hatch: every markdown page of the site is queued through
-   * `WIKI.models.pages.queueRerenderAllPages()`, the very same render queue the single-page action
+   * `CARDINAL.models.pages.queueRerenderAllPages()`, the very same render queue the single-page action
    * and every ordinary save already use.
    *
    * Gated on `manage:glossary` rather than a per-page `write:pages` check, unlike
@@ -492,7 +495,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Rerendering pages requires a logged in user.')
       }
-      const queued = await WIKI.models.pages.queueRerenderAllPages(req.params.siteId, actor)
+      const queued = await CARDINAL.models.pages.queueRerenderAllPages(req.params.siteId, actor)
       return reply.code(202).send({ ok: true, queued })
     }
   )
@@ -528,7 +531,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.restoreVersion(
+      return CARDINAL.models.glossary.restoreVersion(
         req.params.siteId,
         req.params.versionId,
         actorFromRequest(req)

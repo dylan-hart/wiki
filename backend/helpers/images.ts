@@ -74,8 +74,8 @@ export function detectImageMime(data: Buffer): ImageMimeType | null {
  * @returns The resized JPEG, or null if Sharp is not usable on this system
  */
 export async function resizeImageToSquareJpeg(data: Buffer, size: number): Promise<Buffer | null> {
-  const definition = WIKI.models.extensions.getDefinition('sharp')
-  if (!definition || !(await WIKI.models.extensions.isInstalled(definition))) {
+  const definition = CARDINAL.models.extensions.getDefinition('sharp')
+  if (!definition || !(await CARDINAL.models.extensions.isInstalled(definition))) {
     return null
   }
   // -> The specifier is held in a variable on purpose: Sharp is an *optional* dependency, so a literal
@@ -92,8 +92,8 @@ export async function resizeImageToSquareJpeg(data: Buffer, size: number): Promi
     //    caller falls back to the original bytes rather than refusing the upload; the failure is
     //    recorded because Node will keep replaying it until the server restarts, so reinstalling Sharp
     //    from the admin area cannot help this process.
-    WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn('assets', 'could not resize an image with Sharp', { error: err })
+    CARDINAL.models.extensions.noteLoadFailure(specifier)
+    CARDINAL.logger.warn('assets', 'could not resize an image with Sharp', { error: err })
     return null
   }
 }
@@ -125,8 +125,8 @@ export async function normalizeImage(
   data: Buffer,
   { width, height, fit, format }: ImageNormalization
 ): Promise<Buffer | null> {
-  const definition = WIKI.models.extensions.getDefinition('sharp')
-  if (!definition || !(await WIKI.models.extensions.isInstalled(definition))) {
+  const definition = CARDINAL.models.extensions.getDefinition('sharp')
+  if (!definition || !(await CARDINAL.models.extensions.isInstalled(definition))) {
     return null
   }
   const specifier = 'sharp'
@@ -136,8 +136,8 @@ export async function normalizeImage(
   try {
     ;({ default: sharp } = await import(specifier))
   } catch (err: any) {
-    WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn('assets', 'could not load Sharp to re-encode an image', { error: err })
+    CARDINAL.models.extensions.noteLoadFailure(specifier)
+    CARDINAL.logger.warn('assets', 'could not load Sharp to re-encode an image', { error: err })
     return null
   }
   try {
@@ -150,7 +150,7 @@ export async function normalizeImage(
       format === 'png' ? resized.png({ compressionLevel: 9 }) : resized.webp({ quality: 80 })
     ).toBuffer()
   } catch (err: any) {
-    WIKI.logger.warn('assets', 'could not re-encode an uploaded image', { error: err })
+    CARDINAL.logger.warn('assets', 'could not re-encode an uploaded image', { error: err })
     return null
   }
 }
@@ -169,8 +169,8 @@ export async function makeImageThumbnail(
   width: number,
   height: number
 ): Promise<Buffer | null> {
-  const definition = WIKI.models.extensions.getDefinition('sharp')
-  if (!definition || !(await WIKI.models.extensions.isInstalled(definition))) {
+  const definition = CARDINAL.models.extensions.getDefinition('sharp')
+  if (!definition || !(await CARDINAL.models.extensions.isInstalled(definition))) {
     return null
   }
   const specifier = 'sharp'
@@ -181,8 +181,8 @@ export async function makeImageThumbnail(
   try {
     ;({ default: sharp } = await import(specifier))
   } catch (err: any) {
-    WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn('assets', 'could not load Sharp to generate a thumbnail', { error: err })
+    CARDINAL.models.extensions.noteLoadFailure(specifier)
+    CARDINAL.logger.warn('assets', 'could not load Sharp to generate a thumbnail', { error: err })
     return null
   }
   try {
@@ -191,7 +191,7 @@ export async function makeImageThumbnail(
       .webp({ quality: 80 })
       .toBuffer()
   } catch (err: any) {
-    WIKI.logger.debug('assets', 'could not generate a thumbnail for an upload', { error: err })
+    CARDINAL.logger.debug('assets', 'could not generate a thumbnail for an upload', { error: err })
     return null
   }
 }

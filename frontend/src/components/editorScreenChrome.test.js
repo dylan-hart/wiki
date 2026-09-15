@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import { tokenValue } from '../../test/tokens.js'
 
@@ -28,44 +27,30 @@ function token(name, expected) {
   neither `jsdom` nor `happy-dom` can answer for, since neither runs a layout engine or a real
   cascade, and mounting a Monaco editor in a real Chromium to read four background colours off it is
   out of all proportion to the claim. So the stylesheet itself is the artifact under test: each SFC's
-  own `<style lang="scss">` block is compiled through the same Sass, with the same `_theme`/`_palette`
-  injection `vite.config.js` and `vitest.config.js` both apply, and the emitted declarations are read
-  back. That catches the things a class-name assertion cannot -- a token resolving to the wrong hex,
-  a theme-scoped rule quietly out-specifying an unscoped override -- without pretending to have
-  measured a layout.
+  own `<style>` block is read back exactly as the app ships it (no compile step -- it is already
+  plain, valid CSS since OpenProject #3254 dropped the Sass pipeline), and the emitted declarations
+  are read back. That catches the things a class-name assertion cannot -- a token resolving to the
+  wrong hex, a theme-scoped rule quietly out-specifying an unscoped override -- without pretending to
+  have measured a layout.
 
   One suite across three components rather than three near-identical copies, following
   `editorMarkupShared.test.js`: what they share is the design file, not an implementation.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
-const srcDir = dirname(componentsDir)
 
 /**
- * One SFC's `<style lang="scss">` block, compiled the way the app compiles it.
- *
- * The `@use` prelude mirrors `css.preprocessorOptions.scss.additionalData` exactly; without it a bare
- * `$primary` / `$tint` in a component's rules is an undefined-variable error rather than a value.
+ * One SFC's `<style>` block, read back exactly the way the app ships it -- no compile step needed,
+ * since every SFC style block is already plain, valid CSS.
  *
  * @param {string} fileName an SFC in this directory
- * @returns {string} the compiled CSS
+ * @returns {string} the style block's own text
  */
 function compileStyles(fileName) {
   const source = readFileSync(join(componentsDir, fileName), 'utf8')
-  const block = source.match(/<style[^>]*lang="scss"[^>]*>([\s\S]*?)<\/style>/)
-  expect(block, `${fileName} has a scss style block`).toBeTruthy()
-  return sass.compileString(
-    `@use '@/css/_theme.scss' as *;\n@use '@/css/_palette.scss' as *;\n${block[1]}`,
-    {
-      importers: [
-        {
-          findFileUrl(url) {
-            return url.startsWith('@/') ? new URL(`file://${join(srcDir, url.slice(2))}`) : null
-          }
-        }
-      ]
-    }
-  ).css
+  const block = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)
+  expect(block, `${fileName} has a style block`).toBeTruthy()
+  return block[1]
 }
 
 /**
@@ -199,6 +184,27 @@ describe('the markdown editor’s own chrome', () => {
       'letter-spacing': '0.22em',
       'text-transform': 'uppercase',
       color: token('--color-text-caption', '#57668a')
+    })
+  })
+
+  /*
+    OpenProject #3252 (Sass removal, hand-converting the genuine `@at-root`-as-escape sites).
+    `.tabset-content`'s dark-mode tint used to read `@at-root .theme--dark & { ... }` -- `.theme--dark`
+    is a class nothing in this app (or upstream's `scarlett` branch) has ever applied to anything
+    (`composables/dark.js` is the single source of truth for dark mode, and it toggles `.body--dark`
+    on `<body>`), so the rule was permanently dead: this tint never painted in dark mode regardless of
+    theme. The hand-conversion corrects the class to `.body--dark`, the one every other dark-mode
+    override in this file actually reads, rather than silently carrying the dead selector forward.
+  */
+  it('tints the tabset panel teal in dark mode via the app’s real .body--dark class, not the dead .theme--dark one', () => {
+    // -> `declarations()` throws if this exact selector isn't emitted -- were the rule still keyed
+    //    off `.theme--dark`, this selector would not exist in the compiled stylesheet at all.
+    expect(
+      declarations(css, '.body--dark .editor-markdown-preview-content .tabset-content')
+    ).toEqual({
+      // -> OpenProject #3247 converted this rule's value from `rgba($teal-5, 0.1)` to the
+      //    equivalent `color-mix()` form before this WP hand-converted the rule's selector.
+      'background-color': `color-mix(in srgb, ${token('--color-teal-5', '#26a69a')} 10%, transparent)`
     })
   })
 })

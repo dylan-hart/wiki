@@ -26,7 +26,7 @@ import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test
  *     layout and `WBtn`'s utility classes come from;
  *   - the `<style>` elements Vitest injects into `document` during the mount (`test.css: true` is
  *     on) carry every SFC's styles, INCLUDING `PageHeader.vue`'s own scoped rule -- the fix under
- *     test. `_base.scss` and the rest of `app.scss` are in neither bundle, which is precisely why
+ *     test. `_base.css` and the rest of `app.css` are in neither bundle, which is precisely why
  *     the equal-box rule lives in this component's scoped block rather than there;
  *   - `wrapper.html()` carries the `data-v-*` scope attributes those scoped selectors need.
  *

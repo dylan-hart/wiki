@@ -6,5 +6,5 @@
  * the scheduler's single failure record rather than as a second one from here.
  */
 export async function task(): Promise<void> {
-  await WIKI.models.jobs.cleanHistory()
+  await CARDINAL.models.jobs.cleanHistory()
 }

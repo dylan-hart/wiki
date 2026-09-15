@@ -19,16 +19,16 @@ import type { ConfigTransform } from './shared.ts'
  * miscoerced, it comes back `flagged` — then `Authentication.buildConfig(module, incoming, {})` to
  * fill in every declared prop (module defaults for anything 2.x never had). This module never
  * constructs its own copy of that logic; it takes an `AuthModuleResolver` (the real
- * `WIKI.models.authentication` singleton satisfies it structurally) so the mapper and the model can
+ * `CARDINAL.models.authentication` singleton satisfies it structurally) so the mapper and the model can
  * never drift apart on what a "valid" config is.
  *
  * ---
  *
  * ## Unsupported source modules (mirrors Feature 414's provider-fallback precedent)
  *
- * 3.0 ships sixteen authentication modules (`backend/modules/authentication/*`, see
+ * 3.0 ships seventeen authentication modules (`backend/modules/authentication/*`, see
  * `../report.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
- * `strategyKey` isn't one of the sixteen survivors — resolved via `resolver.getModule()` returning
+ * `strategyKey` isn't one of the seventeen survivors — resolved via `resolver.getModule()` returning
  * `null`, not a hardcoded list, so this mapper tracks whichever modules actually exist on disk rather
  * than a snapshot of them — has nowhere to land: not just its `config` (a remap target that exists),
  * but the row itself. Exactly like Feature 414's `needsProviderFallback()`/`ProviderFallbackFlag` for
@@ -41,8 +41,8 @@ import type { ConfigTransform } from './shared.ts'
  * `resolver.getModule()` resolving is necessary but not sufficient for a `config` blob to be safe to
  * carry across: `CONFIG_TRANSFORMS` below only has a real key-by-key remap for `local`/`google`/
  * `github`/`oidc` (`MODULES_WITH_VERIFIED_CONFIG_MAPPING`). A row for any other module — `ldap`/`saml`/
- * `cas`/`auth0`/`okta`/`gitlab`/`keycloak`/`microsoft`/`discord`/`slack`/`twitch`/`oauth2`, all real
- * 3.0 modules with no verified prop-name check yet — that carried a non-empty `config` comes back
+ * `cas`/`auth0`/`okta`/`gitlab`/`keycloak`/`microsoft`/`discord`/`slack`/`twitch`/`oauth2`/`facebook`,
+ * all real 3.0 modules with no verified prop-name check yet — that carried a non-empty `config` comes back
  * `status: 'flagged'` instead of silently importing as an **enabled** strategy with an empty config
  * (no server URL, no bind DN, no certificate, no client secret): a broken login option an operator
  * would otherwise see reported as successfully created. A row with an *empty* config for one of these
@@ -96,10 +96,10 @@ export interface SourceAuthenticationRow extends SourceRecord {
 export type NewAuthenticationRow = typeof authenticationTable.$inferInsert
 
 // ---------------------------------------------------------------------------
-// Model dependency — the real `WIKI.models.authentication` singleton satisfies this structurally.
+// Model dependency — the real `CARDINAL.models.authentication` singleton satisfies this structurally.
 // Kept as a narrow interface (rather than importing the class) so this mapper is unit-testable
-// without a live DB: `getModule`/`buildConfig`/`validateConfig` never touch `WIKI.db`, only
-// `WIKI.data.authentication` (populated from disk by `refreshStrategiesFromDisk()`), so a test can
+// without a live DB: `getModule`/`buildConfig`/`validateConfig` never touch `CARDINAL.db`, only
+// `CARDINAL.data.authentication` (populated from disk by `refreshStrategiesFromDisk()`), so a test can
 // wire the real singleton against the real `backend/modules/authentication/*/definition.yml` files
 // with no database at all.
 // ---------------------------------------------------------------------------

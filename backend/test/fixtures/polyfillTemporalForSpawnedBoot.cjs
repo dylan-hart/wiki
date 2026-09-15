@@ -3,7 +3,7 @@
 /**
  * Preload for `index.test.ts`'s real `node backend` boot (OpenProject #2339 merge fixup).
  *
- * `index.ts` calls `Temporal.Now.instant()` unconditionally while building the `WIKI` global --
+ * `index.ts` calls `Temporal.Now.instant()` unconditionally while building the `CARDINAL` global --
  * correct for the real app, since `index.ts` calls `ensureTemporal()` first (see
  * `core/temporal.ts`), which installs `temporal-polyfill`, a real `dependencies` entry, whenever
  * `Temporal` is not already a native global (every official Node 26 build ships it natively; see

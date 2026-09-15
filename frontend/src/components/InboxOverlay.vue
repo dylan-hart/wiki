@@ -113,7 +113,7 @@ function close() {
 }
 </script>
 
-<style lang="scss">
+<style>
 /*
   A foreground to go with the background -- the same fix `ProfileOverlay.vue`'s `.layout-profile-card`
   needed for the same reason (see its own comment): `w-layout` is a plain div, not a `WCard` (the one
@@ -125,7 +125,7 @@ function close() {
 
   Written as `var(--color-*)` rather than the `var(--color-surface)`/`var(--color-text-body)`/`var(--color-dark-3)`/`var(--color-text-dark)` SCSS
   literals this used to read (OpenProject #2778, diffed against `Cardinal Wiki - Inbox 3x -
-  Cobalt.dc.html`): those constants are Ledger-only (`css/_theme.scss`'s own header says so), so
+  Cobalt.dc.html`): those constants are Ledger-only (`css/tailwind.css`'s own header says so), so
   Cobalt light rendered this panel in Ledger's body text colour and Cobalt dark in Ledger's panel
   colour -- both silently wrong once `body--cobalt` is on `<body>`, since neither literal picks up
   `body.body--cobalt`'s `--color-text-body: #1a2038` or `body.body--cobalt.body--dark`'s
@@ -134,11 +134,11 @@ function close() {
   rule.
 */
 .inbox-overlay {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-surface);
     color: var(--color-text-body);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     color: var(--color-text-dark);
   }
@@ -157,15 +157,15 @@ function close() {
   sidebar treatment "stays unchanged from Cobalt light", so one `body--cobalt` block below covers both.
 */
 .inbox-overlay-sidebar {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-tint-alt);
     border-inline-end: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     border-inline-end: 1px solid var(--color-hairline-dark);
   }
-  @at-root .body--cobalt & {
+  .body--cobalt & {
     background-color: var(--color-sidebar);
     border-inline-end-color: var(--color-sidebar-hairline);
   }
@@ -178,11 +178,11 @@ function close() {
     color: var(--color-slate);
     border-inline-start: 2px solid transparent;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
 
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       color: var(--color-sidebar-text);
 
       .w-icon,
@@ -202,13 +202,13 @@ function close() {
       border-inline-start-color: var(--color-accent-fill);
       color: var(--color-accent);
 
-      // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
+      /* -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon */
       .w-icon,
       iconify-icon {
         color: var(--color-accent-fill);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-3);
         color: var(--color-text-dark);
 
@@ -225,7 +225,7 @@ function close() {
         inset`'s inset box-shadow -- the same shape `NavItemEditor.vue`'s own Cobalt active row
         already draws for the identical "selected sidebar item" role.
       */
-      @at-root .body--cobalt & {
+      .body--cobalt & {
         background-color: var(--color-sidebar-active-bg);
         border-inline-start-color: transparent;
         border-radius: var(--radius-control);
@@ -279,7 +279,7 @@ function close() {
 .inbox-square-btn--negative.w-btn {
   border-color: var(--color-accent-fill);
 
-  @at-root .body--dark:not(.body--cobalt) & {
+  .body--dark:not(.body--cobalt) & {
     border-color: var(--color-accent-dark);
   }
 }
@@ -288,7 +288,7 @@ function close() {
   Diffed against the Cobalt pair (OpenProject #2778) and logged rather than fixed, since each needs a
   change outside this file's ownership:
 
-  - `.card-header` (`css/_base.scss`) draws this overlay's own title band from the compile-time
+  - `.card-header` (`css/_base.css`) draws this overlay's own title band from the compile-time
     `var(--color-dark-2)` SCSS constant, never picking up `--color-dark-2`'s Cobalt override -- the same
     pre-existing, app-wide gap #2772/#2773 already logged for `WConfirmDialog.vue`'s identical band.
     Still `#1c2a70` in the Cobalt mockup vs whatever `var(--color-dark-2)` renders as here.

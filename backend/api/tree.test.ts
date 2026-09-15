@@ -88,7 +88,7 @@ after(() => closeTestApp(app))
 
 test('visibleTreeItems: threads siteId into every filtered item, not just the first', () => {
   const calls: any[] = []
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     _permission: string,
     page: any
@@ -118,7 +118,7 @@ test('visibleTreeItems: threads siteId into every filtered item, not just the fi
 
 test('mayOnFolder: threads siteId into the RulePageRef passed to checkAccess', () => {
   const calls: any[] = []
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     _permission: string,
     page: any
@@ -136,7 +136,7 @@ test('mayOnFolder: threads siteId into the RulePageRef passed to checkAccess', (
 
 test('GET FOLDER route: passes the route siteId through to checkAccess', async () => {
   const calls: any[] = []
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     _permission: string,
     page: any
@@ -162,7 +162,7 @@ test('GET FOLDER route: passes the route siteId through to checkAccess', async (
  */
 test('GET TREE route: getTree receives the same resolved locale visibleTreeItems judges by, when the query omits locale', async () => {
   let getTreeLocale: string | null | undefined = 'not called'
-  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+  ;(globalThis as any).CARDINAL.models.tree.getTree = async (args: any) => {
     getTreeLocale = args.locale
     return []
   }
@@ -181,19 +181,19 @@ test('GET TREE route: getTree receives the same resolved locale visibleTreeItems
  * silently falling back to the site root.
  */
 test('CREATE FOLDER route: a parentId that does not resolve in this site is refused, not silently created at root', async () => {
-  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
-  const originalCreateFolder = (globalThis as any).WIKI.models.tree.createFolder
+  const originalGetFolderById = (globalThis as any).CARDINAL.models.tree.getFolderById
+  const originalCreateFolder = (globalThis as any).CARDINAL.models.tree.createFolder
   const getFolderByIdCalls: any[] = []
   let createFolderCalled = false
-  ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string, siteId: string) => {
+  ;(globalThis as any).CARDINAL.models.tree.getFolderById = async (id: string, siteId: string) => {
     getFolderByIdCalls.push({ id, siteId })
     return null
   }
-  ;(globalThis as any).WIKI.models.tree.createFolder = async () => {
+  ;(globalThis as any).CARDINAL.models.tree.createFolder = async () => {
     createFolderCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
   try {
     const res = await app.inject({
       method: 'POST',
@@ -210,15 +210,15 @@ test('CREATE FOLDER route: a parentId that does not resolve in this site is refu
     ])
     assert.equal(createFolderCalled, false)
   } finally {
-    ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
-    ;(globalThis as any).WIKI.models.tree.createFolder = originalCreateFolder
+    ;(globalThis as any).CARDINAL.models.tree.getFolderById = originalGetFolderById
+    ;(globalThis as any).CARDINAL.models.tree.createFolder = originalCreateFolder
   }
 })
 
 test('CREATE FOLDER route: a parentId that resolves in this site creates as normal', async () => {
-  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
-  ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
-  ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => ({
+  const originalGetFolderById = (globalThis as any).CARDINAL.models.tree.getFolderById
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
+  ;(globalThis as any).CARDINAL.models.tree.getFolderById = async (id: string) => ({
     id,
     siteId: ENABLED_SITE_ID,
     fileName: 'parent',
@@ -239,7 +239,7 @@ test('CREATE FOLDER route: a parentId that resolves in this site creates as norm
     assert.equal(res.statusCode, 200)
     assert.equal(res.json().ok, true)
   } finally {
-    ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    ;(globalThis as any).CARDINAL.models.tree.getFolderById = originalGetFolderById
   }
 })
 
@@ -252,7 +252,7 @@ test('CREATE FOLDER route: a parentId that resolves in this site creates as norm
  */
 test('GET TREE route: passes publicOnly: true to getTree for an unauthenticated request', async () => {
   let receivedPublicOnly: boolean | undefined
-  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+  ;(globalThis as any).CARDINAL.models.tree.getTree = async (args: any) => {
     receivedPublicOnly = args.publicOnly
     return []
   }
@@ -266,7 +266,7 @@ test('GET TREE route: passes publicOnly: true to getTree for an unauthenticated 
 
 test('GET TREE route: passes publicOnly: false to getTree for an authenticated request', async () => {
   let receivedPublicOnly: boolean | undefined
-  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+  ;(globalThis as any).CARDINAL.models.tree.getTree = async (args: any) => {
     receivedPublicOnly = args.publicOnly
     return []
   }
@@ -281,7 +281,7 @@ test('GET TREE route: passes publicOnly: false to getTree for an authenticated r
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {
   const calls: any[] = []
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     _permission: string,
     page: any
@@ -309,15 +309,15 @@ test('RENAME FOLDER route: passes the route siteId through to checkAccess', asyn
  */
 test('RENAME FOLDER route: refuses when the caller lacks write:pages at the destination path, and does not rename', async () => {
   let renameCalled = false
-  ;(globalThis as any).WIKI.models.tree.renameFolder = async () => {
+  ;(globalThis as any).CARDINAL.models.tree.renameFolder = async () => {
     renameCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async () => ({
     pages: [{ path: 'sub/child', tags: [], classification: null }],
     assets: []
   })
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     permission: string,
     page: any
@@ -333,15 +333,15 @@ test('RENAME FOLDER route: refuses when the caller lacks write:pages at the dest
 
 test('RENAME FOLDER route: refuses when a descendant page would land where the caller lacks write:pages, and does not rename', async () => {
   let renameCalled = false
-  ;(globalThis as any).WIKI.models.tree.renameFolder = async () => {
+  ;(globalThis as any).CARDINAL.models.tree.renameFolder = async () => {
     renameCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async () => ({
     pages: [{ path: 'sub/child', tags: [], classification: null }],
     assets: []
   })
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     permission: string,
     page: any
@@ -366,7 +366,7 @@ test('RENAME FOLDER route: refuses when a descendant page would land where the c
  * OpenProject #2100: DELETE FOLDER cascades to every descendant page and asset, but used to authorize
  * only the folder's own path (`manage:pages`) -- `delete:pages` was never checked at all, and no asset
  * permission was checked at all. The route now enumerates descendants first
- * (`WIKI.models.tree.listDescendants`) and requires `delete:pages` on every descendant page and
+ * (`CARDINAL.models.tree.listDescendants`) and requires `delete:pages` on every descendant page and
  * `manage:assets` on every descendant asset before calling `deleteFolder`, refusing (403) and deleting
  * nothing the moment a single descendant fails -- the same all-or-nothing shape the page move route's
  * `includeTranslations` uses.
@@ -374,18 +374,18 @@ test('RENAME FOLDER route: refuses when a descendant page would land where the c
 test('DELETE FOLDER route: refused 403 when a descendant page fails delete:pages, deleting nothing', async () => {
   const deleteFolderCalls: any[] = []
   const permissionsChecked: string[] = []
-  ;(globalThis as any).WIKI.models.tree.listDescendants = async (folderId: string) => {
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async (folderId: string) => {
     assert.equal(folderId, FOLDER_ID)
     return {
       pages: [{ path: 'sub/child', locale: 'en', tags: [], classification: null }],
       assets: []
     }
   }
-  ;(globalThis as any).WIKI.models.tree.deleteFolder = async (folderId: string) => {
+  ;(globalThis as any).CARDINAL.models.tree.deleteFolder = async (folderId: string) => {
     deleteFolderCalls.push(folderId)
     return { pages: [], assets: [] }
   }
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     permission: string,
     _page: any
@@ -416,15 +416,15 @@ test('DELETE FOLDER route: refused 403 when a descendant page fails delete:pages
 test('DELETE FOLDER route: refused 403 when a descendant asset fails manage:assets, deleting nothing', async () => {
   const deleteFolderCalls: any[] = []
   const permissionsChecked: string[] = []
-  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async () => ({
     pages: [],
     assets: [{ folderPath: 'sub', fileName: 'file.png', locale: 'en' }]
   })
-  ;(globalThis as any).WIKI.models.tree.deleteFolder = async (folderId: string) => {
+  ;(globalThis as any).CARDINAL.models.tree.deleteFolder = async (folderId: string) => {
     deleteFolderCalls.push(folderId)
     return { pages: [], assets: [] }
   }
-  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
     _actor: any,
     permission: string,
     _page: any
@@ -458,23 +458,23 @@ test('DELETE FOLDER route: still cascades as before once every descendant is aut
   const assetsDeleteOrphanedCalls: any[] = []
   const removedPages = [{ id: 'p1', folderPath: 'sub', fileName: 'child', locale: 'en' }]
   const removedAssets = [{ id: 'a1', folderPath: 'sub', fileName: 'file.png', locale: 'en' }]
-  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+  ;(globalThis as any).CARDINAL.models.tree.listDescendants = async () => ({
     pages: [{ path: 'sub/child', locale: 'en', tags: ['x'], classification: 'internal' }],
     assets: [{ folderPath: 'sub', fileName: 'file.png', locale: 'en' }]
   })
-  ;(globalThis as any).WIKI.models.tree.deleteFolder = async (folderId: string) => {
+  ;(globalThis as any).CARDINAL.models.tree.deleteFolder = async (folderId: string) => {
     deleteFolderCalls.push(folderId)
     return { pages: removedPages, assets: removedAssets }
   }
-  ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
-  ;(globalThis as any).WIKI.models.pages.deleteOrphaned = async (
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
+  ;(globalThis as any).CARDINAL.models.pages.deleteOrphaned = async (
     siteId: string,
     entries: any[],
     actor: any
   ) => {
     pagesDeleteOrphanedCalls.push({ siteId, entries, actor })
   }
-  ;(globalThis as any).WIKI.models.assets.deleteOrphaned = async (
+  ;(globalThis as any).CARDINAL.models.assets.deleteOrphaned = async (
     siteId: string,
     entries: any[]
   ) => {
@@ -508,15 +508,15 @@ test('DELETE FOLDER route: still cascades as before once every descendant is aut
  * must refuse the request itself rather than falling through to the request's own `parentPath`.
  */
 test('CREATE FOLDER route: refuses a foreign parentId and leaks neither a path nor a locale', async () => {
-  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
-  ;(globalThis as any).WIKI.models.tree.getFolderById = async () => null
+  const originalGetFolderById = (globalThis as any).CARDINAL.models.tree.getFolderById
+  ;(globalThis as any).CARDINAL.models.tree.getFolderById = async () => null
   const foreignParentId = '99999999-9999-4999-8999-999999999999'
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${ENABLED_SITE_ID}/tree/folders`,
     payload: { parentId: foreignParentId, pathName: 'intruder', title: 'Intruder' }
   })
-  ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+  ;(globalThis as any).CARDINAL.models.tree.getFolderById = originalGetFolderById
   assert.equal(res.statusCode, 404)
   const body = res.json()
   assert.equal(body.message, 'The parent folder does not exist.')

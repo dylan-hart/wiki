@@ -8,14 +8,14 @@ import { installTestWiki } from '../test/mocks.ts'
  * expands to every column of `pages` -- `content`, `searchContent`, the `ts` tsvector, `links`,
  * `historyData` and the generated `isSearchableComputed` included, none of which `toPage` reads
  * unconditionally. A real Postgres connection would only prove the query still returns the right
- * data, not that the column list sent to it actually shrank -- so this spies on `WIKI.db.select`
+ * data, not that the column list sent to it actually shrank -- so this spies on `CARDINAL.db.select`
  * instead of standing up `setupTestDb()`, asserting directly on the selection object `getPage`
  * builds rather than re-describing it.
  */
 describe('getPage selection (pure unit, OpenProject #1834)', () => {
   let wiki: { restore(): void }
 
-  /** A `WIKI.db.select`-shaped spy: records the selection config, then returns a chain ending in
+  /** A `CARDINAL.db.select`-shaped spy: records the selection config, then returns a chain ending in
    *  `.limit()`, which resolves to `[row]` (or `[]` when `row` is omitted). */
   function stubSelect(row?: Record<string, unknown>) {
     const calls: Record<string, unknown>[] = []
@@ -80,7 +80,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('the emitted selection omits searchContent/ts/historyData/links', async () => {
     const { select, calls } = stubSelect(fakeRow())
-    WIKI.db = { select } as unknown as typeof WIKI.db
+    CARDINAL.db = { select } as unknown as typeof CARDINAL.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
@@ -101,7 +101,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('without withContent, a non-redirect page comes back with no content key', async () => {
     const { select } = stubSelect(fakeRow({ editor: 'markdown', content: null }))
-    WIKI.db = { select } as unknown as typeof WIKI.db
+    CARDINAL.db = { select } as unknown as typeof CARDINAL.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
@@ -112,7 +112,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('with withContent, content comes back and the selection asks the column for it directly', async () => {
     const { select, calls } = stubSelect(fakeRow({ content: '# Hello' }))
-    WIKI.db = { select } as unknown as typeof WIKI.db
+    CARDINAL.db = { select } as unknown as typeof CARDINAL.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1', withContent: true })
@@ -124,7 +124,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('a redirect-editor page still comes back with content when withContent is off', async () => {
     const { select } = stubSelect(fakeRow({ editor: 'redirect', content: '/elsewhere' }))
-    WIKI.db = { select } as unknown as typeof WIKI.db
+    CARDINAL.db = { select } as unknown as typeof CARDINAL.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })

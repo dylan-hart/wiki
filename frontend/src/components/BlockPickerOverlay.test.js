@@ -249,7 +249,7 @@ describe('the selection treatment', () => {
     const styleBlock = source.slice(source.indexOf('<style'))
 
     expect(styleBlock).toMatch(
-      /&-mark\s*{\s*position:\s*absolute;\s*display:\s*var\(--corner-marks\);/
+      /\.block-picker-mark\s*{\s*position:\s*absolute;\s*display:\s*var\(--corner-marks\);/
     )
   })
 

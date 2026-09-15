@@ -583,27 +583,27 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
-.admin-icons {
-  &-icon {
-    animation:
-      fadeInLeft 0.6s forwards,
-      flower-rotate 30s linear infinite;
-  }
-
-  &-samples {
-    display: flex;
-    gap: 4px;
-    width: 84px;
-  }
-
-  &-sample {
-    color: $blue-8;
-
-    body.body--dark & {
-      color: $blue-3;
-    }
-  }
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.admin-icons-icon {
+  animation:
+    fadeInLeft 0.6s forwards,
+    flower-rotate 30s linear infinite;
+}
+.admin-icons-samples {
+  display: flex;
+  gap: 4px;
+  width: 84px;
+}
+.admin-icons-sample {
+  color: var(--color-blue-8);
+}
+body.body--dark .admin-icons-sample {
+  color: var(--color-blue-3);
 }
 
 @keyframes flower-rotate {

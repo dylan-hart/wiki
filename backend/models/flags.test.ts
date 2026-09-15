@@ -4,9 +4,9 @@ import { FLAGS, flags } from './flags.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * Pure unit tests: every method here reads `WIKI.config.flags` and writes through `WIKI.logger`, so
+ * Pure unit tests: every method here reads `CARDINAL.config.flags` and writes through `CARDINAL.logger`, so
  * a minimal stand-in global is enough — no database, and `updateFlags`'s one persistence hop is a
- * stubbed `WIKI.configSvc`.
+ * stubbed `CARDINAL.configSvc`.
  */
 describe('flags model', () => {
   let wikiHandle: { restore(): void }
@@ -38,7 +38,7 @@ describe('flags model', () => {
 
   describe('getFlags() / isEnabled()', () => {
     test('a flag missing from the stored blob reads as off, not undefined', () => {
-      WIKI.config.flags = { experimental: true }
+      CARDINAL.config.flags = { experimental: true }
 
       assert.deepEqual(flags.getFlags(), {
         experimental: true,
@@ -49,7 +49,7 @@ describe('flags model', () => {
     })
 
     test('only a literal true counts as on', () => {
-      WIKI.config.flags = { sqlLog: 'true', authDebug: 1 }
+      CARDINAL.config.flags = { sqlLog: 'true', authDebug: 1 }
 
       assert.equal(flags.isEnabled('sqlLog'), false)
       assert.equal(flags.isEnabled('authDebug'), false)
@@ -69,20 +69,20 @@ describe('flags model', () => {
     })
 
     test('sqlLog on raises the sql scope to debug, and nothing else', () => {
-      WIKI.config.flags.sqlLog = true
+      CARDINAL.config.flags.sqlLog = true
 
       assert.deepEqual(flags.logScopeOverrides(), { sql: 'debug' })
     })
 
     test('authDebug on raises the auth scope to debug, and nothing else', () => {
-      WIKI.config.flags.authDebug = true
+      CARDINAL.config.flags.authDebug = true
 
       assert.deepEqual(flags.logScopeOverrides(), { auth: 'debug' })
     })
 
     test('both on raises both', () => {
-      WIKI.config.flags.sqlLog = true
-      WIKI.config.flags.authDebug = true
+      CARDINAL.config.flags.sqlLog = true
+      CARDINAL.config.flags.authDebug = true
 
       assert.deepEqual(flags.logScopeOverrides(), { sql: 'debug', auth: 'debug' })
     })
@@ -90,15 +90,15 @@ describe('flags model', () => {
     test('the map is re-derived per call, so flipping a flag needs no restart', () => {
       assert.deepEqual(flags.logScopeOverrides(), {})
 
-      WIKI.config.flags.sqlLog = true
+      CARDINAL.config.flags.sqlLog = true
       assert.deepEqual(flags.logScopeOverrides(), { sql: 'debug' })
 
-      WIKI.config.flags.sqlLog = false
+      CARDINAL.config.flags.sqlLog = false
       assert.deepEqual(flags.logScopeOverrides(), {})
     })
 
     test('the experimental flag is not a log scope override', () => {
-      WIKI.config.flags.experimental = true
+      CARDINAL.config.flags.experimental = true
 
       assert.deepEqual(flags.logScopeOverrides(), {})
     })
@@ -117,7 +117,7 @@ describe('flags model', () => {
     })
 
     test('emits the same line with the flag on — the flag is not a gate here', () => {
-      WIKI.config.flags.authDebug = true
+      CARDINAL.config.flags.authDebug = true
 
       flags.authDebug('local login attempt for user 42')
 
@@ -125,7 +125,7 @@ describe('flags model', () => {
     })
 
     test('never emits at info, whatever the flag says', () => {
-      WIKI.config.flags.authDebug = true
+      CARDINAL.config.flags.authDebug = true
 
       flags.authDebug('a detail')
 
@@ -144,7 +144,7 @@ describe('flags model', () => {
     test('a saved patch logs one config line per changed flag and leaves the rest alone', async () => {
       assert.equal(await flags.updateFlags({ sqlLog: true }), true)
 
-      assert.deepEqual(WIKI.config.flags, {
+      assert.deepEqual(CARDINAL.config.flags, {
         experimental: false,
         authDebug: false,
         sqlLog: true
@@ -159,7 +159,7 @@ describe('flags model', () => {
     })
 
     test('a failed save rolls the flags back and reports it, logging nothing', async () => {
-      WIKI.configSvc.saveToDb = mock.fn(async () => false)
+      CARDINAL.configSvc.saveToDb = mock.fn(async () => false)
 
       assert.equal(await flags.updateFlags({ sqlLog: true }), false)
 

@@ -20,8 +20,8 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  *
  * DB-backed rather than a stub, deliberately: the guard's whole job is counting real `pages` rows for
  * the removed locale(s), so a test that stubs the count would only prove the route calls a function,
- * not that the count is accurate. `api/sites.test.ts` stubs `WIKI.models.sites` entirely for its own
- * (large, long-running) suite and has no `WIKI.db` to query against, so this lives in its own file
+ * not that the count is accurate. `api/sites.test.ts` stubs `CARDINAL.models.sites` entirely for its own
+ * (large, long-running) suite and has no `CARDINAL.db` to query against, so this lives in its own file
  * rather than sharing that one's top-level mock — the same split `comments.admin.test.ts` documents
  * for itself alongside `comments.test.ts`.
  */

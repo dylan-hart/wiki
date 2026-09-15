@@ -10,7 +10,7 @@ import type { NavigationItem } from '../../models/navigation.ts'
  * menu.
  *
  * Like every module in this feature, this one has no db access of its own — `NavigationWriteModel` is
- * injected, and its two methods are `WIKI.models.navigation`'s own `ensureSiteNav(siteId, locale)` and
+ * injected, and its two methods are `CARDINAL.models.navigation`'s own `ensureSiteNav(siteId, locale)` and
  * `setNavItems(siteId, navId, items)` rather than a reinvented write path. Writing through those two,
  * rather than driving `updateNavigation()`, is deliberate: that method requires an actual tree entry
  * (a `pageId`) to resolve `mode`/`ancestorId` against, and a fresh import has no reason to require one
@@ -60,7 +60,7 @@ import type { NavigationItem } from '../../models/navigation.ts'
  * `navigationMode` `createPage()` gave it, which is 3.0's own default, `'inherit'`.
  */
 
-/** The subset of `WIKI.models.navigation` this module actually calls, with the same signatures the
+/** The subset of `CARDINAL.models.navigation` this module actually calls, with the same signatures the
  * real model has — see the module doc comment for why these two calls in particular, and not a
  * hand-written insert. */
 export interface NavigationWriteModel {
@@ -87,7 +87,7 @@ export interface NavigationImportOptions {
   siteId: string
   /** Which one of 2.x's per-locale trees becomes 3.0's single, locale-less site-wide menu — see the
    * module doc comment. The caller is expected to pass the target site's own primary
-   * locale (`WIKI.sites[siteId].config.locales.primary`); this module has no `WIKI` access to default
+   * locale (`CARDINAL.sites[siteId].config.locales.primary`); this module has no `CARDINAL` access to default
    * it itself. */
   locale: string
 }

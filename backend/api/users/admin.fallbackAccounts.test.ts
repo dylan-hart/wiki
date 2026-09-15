@@ -7,7 +7,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 /**
  * `GET /fallback-accounts` route wiring: the real global permission gate
  * (`core/http/authHooks.ts#permissionPreHandler`, installed via `permissions: true`) plus a stubbed
- * `WIKI.models.users.getFallbackAccounts` — the query itself is a real database concern, covered by
+ * `CARDINAL.models.users.getFallbackAccounts` — the query itself is a real database concern, covered by
  * `models/users.fallbackAccounts.db.test.ts`.
  */
 

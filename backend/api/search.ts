@@ -19,8 +19,8 @@ async function withDbSearchExtras(
 ): Promise<SearchEngine[]> {
   const db = engines.find((eng) => eng.key === DB_ENGINE_KEY)
   if (db) {
-    db.dictOverrides = WIKI.models.search.getConfig(siteId).dictOverrides
-    db.availableDictionaries = await WIKI.models.search.getAvailableDictionaries()
+    db.dictOverrides = CARDINAL.models.search.getConfig(siteId).dictOverrides
+    db.availableDictionaries = await CARDINAL.models.search.getAvailableDictionaries()
   }
   return engines
 }
@@ -61,7 +61,7 @@ async function routes(app: FastifyInstance) {
    * UPDATE SITE SEARCH CONFIGURATION
    *
    * `semanticEnabled` (Task #3104) is the per-site half of the semantic-search availability flag
-   * triangle: `WIKI.capabilities.semanticSearch` (instance-wide, Task #3095) AND this setting must
+   * triangle: `CARDINAL.capabilities.semanticSearch` (instance-wide, Task #3095) AND this setting must
    * both be true before the feature is actually reachable — enforced here, not just hinted at in the
    * admin UI, so a stale or hand-crafted request can't flip this on when the capability itself is
    * false and end up with a setting that can never do anything.
@@ -121,7 +121,7 @@ async function routes(app: FastifyInstance) {
       }
 
       if (req.body.dictOverrides !== undefined) {
-        const available = await WIKI.models.search.getAvailableDictionaries()
+        const available = await CARDINAL.models.search.getAvailableDictionaries()
         for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
           if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
             return reply.badRequest('ERR_INVALID_LOCALE_CODE')
@@ -132,7 +132,7 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      if (req.body.semanticEnabled === true && !WIKI.capabilities?.semanticSearch) {
+      if (req.body.semanticEnabled === true && !CARDINAL.capabilities?.semanticSearch) {
         return reply.badRequest('ERR_SEMANTIC_SEARCH_UNAVAILABLE')
       }
 
@@ -144,7 +144,7 @@ async function routes(app: FastifyInstance) {
         patch.semanticEnabled = req.body.semanticEnabled
       }
 
-      const updated = await WIKI.models.sites.updateSite(req.params.siteId, {
+      const updated = await CARDINAL.models.sites.updateSite(req.params.siteId, {
         config: { search: { config: patch } }
       })
       if (!updated) {
@@ -177,7 +177,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a site's semantic search setting",
         description:
-          "`available` reflects `WIKI.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true.",
+          "`available` reflects `CARDINAL.capabilities.semanticSearch` (instance-wide: whether pgvector is usable at all); `enabled` is this site's own stored setting, independent of `available`. The feature is reachable only when both are true.",
         tags: ['Search'],
         params: { $ref: 'SiteIdParams#' },
         response: {
@@ -196,8 +196,8 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       return {
-        enabled: WIKI.models.search.getConfig(req.params.siteId).semanticEnabled,
-        available: WIKI.capabilities?.semanticSearch ?? false
+        enabled: CARDINAL.models.search.getConfig(req.params.siteId).semanticEnabled,
+        available: CARDINAL.capabilities?.semanticSearch ?? false
       }
     }
   )
@@ -243,11 +243,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!WIKI.capabilities?.semanticSearch) {
+      if (!CARDINAL.capabilities?.semanticSearch) {
         return reply.badRequest('ERR_SEMANTIC_SEARCH_UNAVAILABLE')
       }
 
-      const added = await WIKI.scheduler.addJob({
+      const added = await CARDINAL.scheduler.addJob({
         task: 'rebuildEmbeddingsIndex',
         payload: { siteId: req.params.siteId }
       })
@@ -301,7 +301,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const added = await WIKI.scheduler.addJob({
+      const added = await CARDINAL.scheduler.addJob({
         task: 'rebuildSearchIndex',
         payload: { siteId: req.params.siteId }
       })
@@ -344,7 +344,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       return withDbSearchExtras(
-        await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),
+        await CARDINAL.models.search.getSiteEngines(req.params.siteId, { mask: true }),
         req.params.siteId
       )
     }
@@ -406,21 +406,21 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const definition = WIKI.models.search.getDefinition(req.params.key)
+      const definition = CARDINAL.models.search.getDefinition(req.params.key)
       if (!definition) {
         return reply.notFound(`Search engine "${req.params.key}" does not exist.`)
       }
 
-      const invalid = WIKI.models.search.validateEngineConfig(
+      const invalid = CARDINAL.models.search.validateEngineConfig(
         req.params.key,
         req.body.config,
-        WIKI.models.search.getEngineConfig(req.params.siteId, req.params.key)
+        CARDINAL.models.search.getEngineConfig(req.params.siteId, req.params.key)
       )
       if (invalid) {
         return reply.badRequest(invalid)
       }
 
-      const selected = await WIKI.models.search.selectEngine(
+      const selected = await CARDINAL.models.search.selectEngine(
         req.params.siteId,
         req.params.key,
         req.body.config
@@ -463,9 +463,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      await WIKI.models.search.refreshFromDisk()
+      await CARDINAL.models.search.refreshFromDisk()
       return withDbSearchExtras(
-        await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),
+        await CARDINAL.models.search.getSiteEngines(req.params.siteId, { mask: true }),
         req.params.siteId
       )
     }

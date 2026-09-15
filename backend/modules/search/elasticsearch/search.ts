@@ -248,7 +248,7 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
     if (exists) {
       return
     }
-    WIKI.logger.info('search', 'creating the index', {
+    CARDINAL.logger.info('search', 'creating the index', {
       engine: MODULE_KEY,
       index: indexName
     })
@@ -396,8 +396,8 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
    * share an index here, and 2.5.x's version, with no such concept, could get away with dropping the
    * whole index.
    *
-   * Streamed in pages of `PAGE_SIZE` rows via keyset pagination on `id` (`WIKI.db` queries, replacing
-   * 2.5.x's `WIKI.models.knex(...).stream()`), each page immediately regrouped into size-limited
+   * Streamed in pages of `PAGE_SIZE` rows via keyset pagination on `id` (`CARDINAL.db` queries, replacing
+   * 2.5.x's `CARDINAL.models.knex(...).stream()`), each page immediately regrouped into size-limited
    * batches by `batchOperations()` and sent with `client.bulk()` -- so the whole table is never held in
    * memory at once, the same property the old knex stream had.
    */
@@ -405,7 +405,7 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
     const PAGE_SIZE = 500
     const { client, indexName } = await this.getClient(siteId)
 
-    WIKI.logger.debug('search', 'rebuilding the index', { engine: MODULE_KEY, site: siteId })
+    CARDINAL.logger.debug('search', 'rebuilding the index', { engine: MODULE_KEY, site: siteId })
     await client.deleteByQuery({
       index: indexName,
       query: { term: { siteId } },
@@ -437,7 +437,7 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
       }
     }
 
-    WIKI.logger.info('search', 'index rebuild completed', {
+    CARDINAL.logger.info('search', 'index rebuild completed', {
       engine: MODULE_KEY,
       site: siteId,
       pages: total

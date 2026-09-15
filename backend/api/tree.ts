@@ -145,7 +145,7 @@ async function routes(app: FastifyInstance) {
       //    nothing", so the two are not interchangeable here the way they are in `api/pages/read.ts`.
       const types = splitList(q.types)
       const tags = splitList(q.tags)
-      const items = await WIKI.models.tree.getTree({
+      const items = await CARDINAL.models.tree.getTree({
         siteId: req.params.siteId,
         parentId: q.parentId,
         parentPath: q.parentPath,
@@ -223,14 +223,14 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
       //    `:siteId` before any handler here runs, so this is the site, not a maybe.
-      const site = WIKI.sites[req.params.siteId]
+      const site = CARDINAL.sites[req.params.siteId]
       // -> The same setting that hides the sidebar's Browse button, enforced where it counts: with
       //    browsing off, the tree is not something to hand out one folder at a time either
       if (!site.config?.features?.browse) {
         return reply.forbidden('Browsing is disabled on this site.')
       }
       const locale = req.query.locale ?? defaultLocale(req.params.siteId)
-      const level = await WIKI.models.tree.browse({
+      const level = await CARDINAL.models.tree.browse({
         siteId: req.params.siteId,
         path: req.query.path,
         locale,
@@ -244,11 +244,11 @@ async function routes(app: FastifyInstance) {
         folder, or both at once. Judged on that path either way: for the page it IS the page, and for
         a folder it is the branch, which is what a rule over the branch is talking about.
       */
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       return {
         ...level,
         items: level.items.filter((item) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
             path: item.path,
             siteId: req.params.siteId,
             locale,
@@ -341,7 +341,7 @@ async function routes(app: FastifyInstance) {
       const locale = req.query.locale ?? defaultLocale(req.params.siteId)
       // -> `null` rather than `[]` for an absent filter, same as BROWSE THE TREE above
       const tags = splitList(req.query.tags)
-      const pages = await WIKI.models.tree.listPages({
+      const pages = await CARDINAL.models.tree.listPages({
         siteId: req.params.siteId,
         path: req.query.path,
         locale,
@@ -354,9 +354,9 @@ async function routes(app: FastifyInstance) {
       })
       // -> An index block is drawn inside a page, but it lists other pages: each one still has to be
       //    the reader's to see
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       return pages.filter((page) =>
-        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
           path: page.path,
           siteId: req.params.siteId,
           locale,
@@ -385,7 +385,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const folder = await WIKI.models.tree.getFolderById(req.params.folderId, req.params.siteId)
+      const folder = await CARDINAL.models.tree.getFolderById(
+        req.params.folderId,
+        req.params.siteId
+      )
       if (!folder) {
         return reply.notFound('This folder does not exist.')
       }
@@ -472,9 +475,9 @@ async function routes(app: FastifyInstance) {
         create anything, but would compute the permission check against the wrong path.
       */
       let parentPath = req.body.parentPath ?? ''
-      let parent: Awaited<ReturnType<typeof WIKI.models.tree.getFolderById>> = null
+      let parent: Awaited<ReturnType<typeof CARDINAL.models.tree.getFolderById>> = null
       if (req.body.parentId) {
-        parent = await WIKI.models.tree.getFolderById(req.body.parentId, req.params.siteId)
+        parent = await CARDINAL.models.tree.getFolderById(req.body.parentId, req.params.siteId)
         if (!parent) {
           return reply.notFound('The parent folder does not exist.')
         }
@@ -489,7 +492,7 @@ async function routes(app: FastifyInstance) {
       if (!mayOnFolder(req, 'manage:pages', req.params.siteId, target, locale)) {
         return reply.forbidden('You are not allowed to create a folder here.')
       }
-      const folder = await WIKI.models.tree.createFolder({
+      const folder = await CARDINAL.models.tree.createFolder({
         siteId: req.params.siteId,
         locale,
         parentId: req.body.parentId,
@@ -548,7 +551,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const existing = await WIKI.models.tree.getFolderById(req.params.folderId, req.params.siteId)
+      const existing = await CARDINAL.models.tree.getFolderById(
+        req.params.folderId,
+        req.params.siteId
+      )
       if (!existing) {
         return reply.notFound('This folder does not exist.')
       }
@@ -579,7 +585,7 @@ async function routes(app: FastifyInstance) {
         //    silently drag the denied branch to a path where the DENY no longer matches. Real `tags`
         //    and `classification` travel with each descendant page, not `classification: null` --
         //    that hardcoded null is only correct for the folder entry itself, which is not a page.
-        const { pages: descendants } = await WIKI.models.tree.listDescendants(
+        const { pages: descendants } = await CARDINAL.models.tree.listDescendants(
           req.params.folderId,
           req.params.siteId
         )
@@ -607,7 +613,7 @@ async function routes(app: FastifyInstance) {
           }
         }
       }
-      const folder = await WIKI.models.tree.renameFolder({
+      const folder = await CARDINAL.models.tree.renameFolder({
         siteId: req.params.siteId,
         folderId: req.params.folderId,
         pathName: req.body.pathName,
@@ -658,7 +664,10 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Deleting a folder requires a logged in user.')
       }
-      const existing = await WIKI.models.tree.getFolderById(req.params.folderId, req.params.siteId)
+      const existing = await CARDINAL.models.tree.getFolderById(
+        req.params.folderId,
+        req.params.siteId
+      )
       if (!existing) {
         return reply.notFound('This folder does not exist.')
       }
@@ -680,7 +689,7 @@ async function routes(app: FastifyInstance) {
       //    #2100). Judged on each descendant's own real path/tags/classification -- never the
       //    folder's -- the same way this handler's own `mayOnFolder` check (`helpers/pageAccess.ts`)
       //    is judged on the folder's.
-      const descendants = await WIKI.models.tree.listDescendants(
+      const descendants = await CARDINAL.models.tree.listDescendants(
         req.params.folderId,
         req.params.siteId
       )
@@ -701,11 +710,14 @@ async function routes(app: FastifyInstance) {
           )
         }
       }
-      const removed = await WIKI.models.tree.deleteFolder(req.params.folderId, req.params.siteId)
+      const removed = await CARDINAL.models.tree.deleteFolder(
+        req.params.folderId,
+        req.params.siteId
+      )
       // -> The tree entries are gone; these are the rows behind them, which is where a page and an
       //    asset actually live
-      await WIKI.models.pages.deleteOrphaned(req.params.siteId, removed.pages, actor)
-      await WIKI.models.assets.deleteOrphaned(req.params.siteId, removed.assets, {
+      await CARDINAL.models.pages.deleteOrphaned(req.params.siteId, removed.pages, actor)
+      await CARDINAL.models.assets.deleteOrphaned(req.params.siteId, removed.assets, {
         authorId: actor.id
       })
       return reply.code(204).send()

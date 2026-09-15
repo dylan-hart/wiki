@@ -2,7 +2,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { compileStringAsync } from 'sass'
 
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
@@ -163,13 +162,9 @@ describe(
 
     async function buildStylesheets() {
       const cssDir = dirname(fileURLToPath(import.meta.url))
-      const [appCss, content] = await Promise.all([
-        buildAppCss(),
-        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [cssDir]
-        })
-      ])
-      return { appCss, contentCss: content.css }
+      const contentCss = readFileSync(join(cssDir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
+      return { appCss, contentCss }
     }
 
     /**
@@ -293,7 +288,7 @@ describe(
         expect(cobaltLight.liNumeral.width).toBe('24px')
         expect(cobaltLight.liNumeral.height).toBe('24px')
         // -> A white numeral in both modes -- the disc's own fill is what carries the accent, not
-        //    the digit, per the locked dark-theme rule (`_page-contents.scss`'s own comment on it)
+        //    the digit, per the locked dark-theme rule (`_page-contents.css`'s own comment on it)
         expect(cobaltLight.liNumeral.color).toBe('rgb(255, 255, 255)')
         expect(cobaltDark.liNumeral.color).toBe('rgb(255, 255, 255)')
         // -> `--color-heading-h2` light / `#3d6df7` dark -- the disc itself is the one thing this

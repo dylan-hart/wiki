@@ -58,7 +58,7 @@ describe('pdfExportAvailable exposure (task 500)', () => {
 
   after(() => closeTestApp(app))
 
-  test('bootstrap surfaces docsBase from WIKI.config on site', async () => {
+  test('bootstrap surfaces docsBase from CARDINAL.config on site', async () => {
     renderingAvailable = true
     const res = await app.inject({
       method: 'GET',
@@ -90,7 +90,7 @@ describe('pdfExportAvailable exposure (task 500)', () => {
 
   /**
    * Task #2527: bootstrap reuses `buildSitePayload`, so the site's default `navigationId`
-   * (`WIKI.models.navigation.ensureSiteNav`) reaches every reader's browser on first load, not only a
+   * (`CARDINAL.models.navigation.ensureSiteNav`) reaches every reader's browser on first load, not only a
    * content page's own fetch response -- what lets a non-content route (the knowledge graph, tags
    * browse) resolve a real nav id instead of leaving it `null`.
    */
@@ -237,7 +237,7 @@ describe('isEnabled guard (task 699)', () => {
   after(() => closeTestApp(app))
 
   beforeEach(() => {
-    delete (globalThis as any).WIKI.session
+    delete (globalThis as any).CARDINAL.session
   })
 
   test('answers 404 for a hostname with no site behind it', async () => {

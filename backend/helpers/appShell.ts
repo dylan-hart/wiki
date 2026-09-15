@@ -101,7 +101,7 @@ let cacheState: AppShellCacheState | null = null
  * `resolveIsRTL` is called, and the shell file is read, only on a cache miss for the current `lang`
  * (a new `lang` never seen since the last rebuild, or the very first request after one) -- so the
  * common case of a repeat request for an already-seen `lang` neither re-reads the file nor calls
- * `WIKI.models.locales.getLocales()` (the `resolveIsRTL` this is called with in `index.ts`), taking
+ * `CARDINAL.models.locales.getLocales()` (the `resolveIsRTL` this is called with in `index.ts`), taking
  * that DB-backed lookup off the hot path along with the file read + regex substitution.
  *
  * Known limitation: because invalidation is tied to the shell file's `mtimeMs` rather than to locale

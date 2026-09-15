@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
 .glossary-import-dropzone {
   border: 2px dashed rgba(0, 0, 0, 0.2);
   transition: border-color 0.15s ease;

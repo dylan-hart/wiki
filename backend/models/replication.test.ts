@@ -10,7 +10,7 @@ import { ensureTemporal } from '../test/temporal.ts'
 /**
  * `tick()` (the due-check driven by the `replicationTick` cron seed, see `models/jobs.ts`) and
  * `pull()` (the actual HTTP pull, run by `tasks/simple/replication-pull.ts`) exercised as pure units
- * -- no database, no real network. `fetch` and `WIKI.scheduler.addJob`/`WIKI.configSvc.saveToDb` are
+ * -- no database, no real network. `fetch` and `CARDINAL.scheduler.addJob`/`CARDINAL.configSvc.saveToDb` are
  * stubbed, same `installTestWiki` + stubbed-`fetch` shape `tasks/simple/check-version.test.ts` uses.
  */
 
@@ -138,7 +138,7 @@ describe('replication.tick', () => {
     assert.equal(addJob.mock.callCount(), 1)
     assert.equal((addJob.mock.calls[0]!.arguments[0] as any).task, 'replicationPull')
     assert.equal(saveToDb.mock.callCount(), 1)
-    assert.ok(WIKI.config.replication.lastRunAt)
+    assert.ok(CARDINAL.config.replication.lastRunAt)
   })
 
   test('does not queue when the next scheduled fire is still in the future', async () => {

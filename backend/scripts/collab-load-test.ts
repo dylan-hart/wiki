@@ -1,4 +1,4 @@
-/* eslint-disable no-console -- a throwaway load-test script: its stdout IS its result, and it runs outside a booted `WIKI`. */
+/* eslint-disable no-console -- a throwaway load-test script: its stdout IS its result, and it runs outside a booted `CARDINAL`. */
 /**
  * Throwaway load test for `core/collab.ts`'s chunked relay path — task 478.
  *
@@ -13,7 +13,7 @@
  *
  * What it does:
  *   1. Seeds one page with a multi-megabyte markdown document.
- *   2. Boots three real, separate `core/collab.ts` instances (worker threads, own `WIKI` global, own
+ *   2. Boots three real, separate `core/collab.ts` instances (worker threads, own `CARDINAL` global, own
  *      postgres LISTEN/NOTIFY client, own `INSTANCE_ID` — see `test/collabWorker.ts`), standing in for
  *      "at least two backend instances".
  *   3. Opens several simulated editor sessions spread across those instances, each a genuinely separate

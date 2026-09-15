@@ -32,7 +32,7 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     // -> Puppeteer is never installed in this test environment, so a real `ensureCanRender()` would
     //    refuse every renderless create/update below (OpenProject #1716).
-    mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+    mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
@@ -64,8 +64,8 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const updatedIds: string[] = []
     let invalidateCalls = 0
-    const searchModel = (globalThis as any).WIKI.models.search
-    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    const searchModel = (globalThis as any).CARDINAL.models.search
+    const glossaryModel = (globalThis as any).CARDINAL.models.glossary
     searchModel.updated = async (page: any) => {
       updatedIds.push(page.id)
     }
@@ -110,8 +110,8 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('bulkSetClassification calls neither the search dispatcher nor the glossary cache for an empty id list', async () => {
     let searchCalls = 0
     let invalidateCalls = 0
-    const searchModel = (globalThis as any).WIKI.models.search
-    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    const searchModel = (globalThis as any).CARDINAL.models.search
+    const glossaryModel = (globalThis as any).CARDINAL.models.glossary
     searchModel.updated = async () => {
       searchCalls++
     }
@@ -258,7 +258,7 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
      * OpenProject #1935: `page:classification-changed` must fire on a real level change and stay
      * silent on a patch that merely restates the current level -- the editor sends every field on
      * every save, so `patch.classification !== undefined` alone is not the right guard. Spies on
-     * `WIKI.models.hooks.emit` the same way this file already spies on `WIKI.models.search` above
+     * `CARDINAL.models.hooks.emit` the same way this file already spies on `CARDINAL.models.search` above
      * (own-property shadow, restored via `delete` in `finally`).
      */
     test('updatePage emits page:classification-changed only when the level actually changes', async () => {
@@ -268,7 +268,7 @@ describe('pageClassification (DB-backed)', { skip: !hasTestDatabase() }, () => {
         actor
       )
 
-      const hooksModel = (globalThis as any).WIKI.models.hooks
+      const hooksModel = (globalThis as any).CARDINAL.models.hooks
       const emitted: { event: string; siteId: string | null; data: any }[] = []
       hooksModel.emit = async (event: string, siteId: string | null, data: any) => {
         emitted.push({ event, siteId, data })

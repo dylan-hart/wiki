@@ -125,13 +125,14 @@ describe('Graph.vue dark mode (OpenProject #2412)', () => {
  * all, unlike sibling selectors in the same style block (`.graph-view-truncation-notice`,
  * `.graph-view-tooltip`) -- it inherited browser-default black text on a near-black background.
  *
- * A computed-style assertion isn't a reliable way to verify this: `<style scoped>` + SCSS
- * `@at-root .body--dark &` nesting is a build-time transform, and happy-dom's CSS cascade support
- * for that combination under this suite's `css: true` pipeline isn't something to depend on for a
- * pass/fail signal. Reading the raw SFC source and checking each selector's rule body is the same
- * style of assertion this codebase already uses elsewhere for SFC style/text content (see
- * `AdminSearch.test.js`, `ErrorGeneric.test.js`), and it directly protects the actual regression:
- * a `color` declaration going missing again from one of these three selectors' light/dark blocks.
+ * A computed-style assertion isn't a reliable way to verify this: `<style scoped>` + native CSS
+ * `.body--dark &` nesting is a build-time (Sass) / runtime (browser) transform either way, and
+ * happy-dom's CSS cascade support for that combination under this suite's `css: true` pipeline isn't
+ * something to depend on for a pass/fail signal. Reading the raw SFC source and checking each
+ * selector's rule body is the same style of assertion this codebase already uses elsewhere for SFC
+ * style/text content (see `AdminSearch.test.js`, `ErrorGeneric.test.js`), and it directly protects
+ * the actual regression: a `color` declaration going missing again from one of these three
+ * selectors' light/dark blocks.
  */
 describe('Graph.vue legend/filter panel dark-mode text color (OpenProject #2497)', () => {
   // -> Extracts a top-level CSS rule's full body (selector `{` through its balanced closing `}`),
@@ -156,18 +157,27 @@ describe('Graph.vue legend/filter panel dark-mode text color (OpenProject #2497)
     '%s declares a color under both .body--light and .body--dark',
     (selector) => {
       let body = ruleBodyFor(selector)
-      // -> A rule may take its surface from the shared `graph-panel` mixin rather than declaring one
-      //    itself; the colours are still there, one level down, so follow the include.
-      if (body.includes('@include graph-panel;')) {
-        body += ruleBodyFor('@mixin graph-panel')
+      const hasBoth = () =>
+        /\.body--light\s+&\s*\{[^}]*\}/.test(body) && /\.body--dark\s+&\s*\{[^}]*\}/.test(body)
+      // -> A rule may take its surface from the shared `graph-panel` class (both floating panels
+      //    carry it in the template) rather than declaring one itself; the colours are still there,
+      //    in that class's own rule, so follow it when the selector's own body has neither block.
+      if (!hasBoth()) {
+        body += ruleBodyFor('.graph-panel')
       }
 
-      const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
-      expect(lightMatch, `expected a .body--light block in ${selector}`).not.toBeNull()
+      const lightMatch = body.match(/\.body--light\s+&\s*\{([^}]*)\}/)
+      expect(
+        lightMatch,
+        `expected a .body--light block in ${selector} (or the shared .graph-panel class)`
+      ).not.toBeNull()
       expect(lightMatch[1]).toMatch(/color:\s*[^;]+;/)
 
-      const darkMatch = body.match(/@at-root\s+\.body--dark\s+&\s*\{([^}]*)\}/)
-      expect(darkMatch, `expected a .body--dark block in ${selector}`).not.toBeNull()
+      const darkMatch = body.match(/\.body--dark\s+&\s*\{([^}]*)\}/)
+      expect(
+        darkMatch,
+        `expected a .body--dark block in ${selector} (or the shared .graph-panel class)`
+      ).not.toBeNull()
       expect(darkMatch[1]).toMatch(/color:\s*[^;]+;/)
     }
   )

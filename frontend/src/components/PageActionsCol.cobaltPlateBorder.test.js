@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import { tokenValue } from '../../test/tokens.js'
 
@@ -16,14 +15,13 @@ import { tokenValue } from '../../test/tokens.js'
   this fix) -- the rail has to draw its own ring INSET instead, so the page-properties plate, flush
   with the box's own edges, covers it in ordinary z-order with no overflow or negative-margin tricks.
 
-  Same reason as `PageActionsCol.cobaltIcons.test.js` for compiling the SFC's own `<style
-  lang="scss">` block directly rather than mounting it: neither `jsdom` nor `happy-dom` installs the
-  Cobalt half of the token layer, so a mount-based assertion would read Ledger's values regardless of
-  the `body--cobalt` class on the fixture.
+  Same reason as `PageActionsCol.cobaltIcons.test.js` for reading the SFC's own `<style>` block
+  directly rather than mounting it: neither `jsdom` nor `happy-dom` installs the Cobalt half of the
+  token layer, so a mount-based assertion would read Ledger's values regardless of the
+  `body--cobalt` class on the fixture.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
-const srcDir = dirname(componentsDir)
 
 function token(name, expected) {
   expect(tokenValue(name, 'cobalt'), `${name} should still be ${expected} under Cobalt`).toBe(
@@ -34,20 +32,9 @@ function token(name, expected) {
 
 function compileStyles(fileName) {
   const source = readFileSync(join(componentsDir, fileName), 'utf8')
-  const block = source.match(/<style[^>]*lang="scss"[^>]*>([\s\S]*?)<\/style>/)
-  expect(block, `${fileName} has a scss style block`).toBeTruthy()
-  return sass.compileString(
-    `@use '@/css/_theme.scss' as *;\n@use '@/css/_palette.scss' as *;\n${block[1]}`,
-    {
-      importers: [
-        {
-          findFileUrl(url) {
-            return url.startsWith('@/') ? new URL(`file://${join(srcDir, url.slice(2))}`) : null
-          }
-        }
-      ]
-    }
-  ).css
+  const block = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)
+  expect(block, `${fileName} has a style block`).toBeTruthy()
+  return block[1]
 }
 
 function declarations(css, selector) {

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import * as sass from 'sass'
 import { chromium, hasChromium, buildAppCss } from '../../test/realGridLayout.js'
 
 /*
@@ -26,26 +25,19 @@ const selfDir = dirname(fileURLToPath(import.meta.url))
 const frontendRoot = dirname(dirname(selfDir))
 
 /*
-  The rules under test are compiled from the SFCs' own `<style lang="scss">` text, not retyped as
-  literals here: a copy would keep passing after somebody moved `.page-breadcrumbs` back to 34px,
-  which is precisely the regression this guards. `vitest.config.js`'s `additionalData` injection is
-  reproduced because both blocks reach for bare `$hairline` / `$surface` / `$slate`, exactly as the
-  app build hands them.
+  The rules under test are read from the SFCs' own `<style>` text, not retyped as literals here: a
+  copy would keep passing after somebody moved `.page-breadcrumbs` back to 34px, which is precisely
+  the regression this guards. No compile step is needed -- both blocks are already plain, valid CSS
+  (OpenProject #3254 dropped the Sass pipeline they used to reach `$hairline`/`$surface`/`$slate`
+  through).
 */
 async function compileStyleBlock(relativePath) {
   const source = await readFile(join(frontendRoot, relativePath), 'utf8')
-  const block = source.match(/<style lang="scss">([\s\S]*?)<\/style>/)
+  const block = source.match(/<style>([\s\S]*?)<\/style>/)
   if (!block) {
-    throw new Error(`No <style lang="scss"> block found in ${relativePath}`)
+    throw new Error(`No <style> block found in ${relativePath}`)
   }
-  const themeDir = join(frontendRoot, 'src', 'css')
-  const injected = `@use '${join(themeDir, '_theme.scss')}' as *; @use '${join(themeDir, '_palette.scss')}' as *;`
-  const result = await sass.compileStringAsync(injected + block[1], {
-    loadPaths: [join(frontendRoot, 'src')],
-    silenceDeprecations: ['import', 'global-builtin', 'legacy-js-api', 'color-functions'],
-    logger: sass.Logger.silent
-  })
-  return result.css
+  return block[1]
 }
 
 describe(

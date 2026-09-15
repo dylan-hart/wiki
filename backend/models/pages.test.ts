@@ -34,7 +34,7 @@ import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers
  * wants to see what a page write left in the tree reads the row itself rather than through the model.
  */
 async function readTreeRow(id: string) {
-  const rows = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
+  const rows = await CARDINAL.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
   return rows[0] ?? null
 }
 
@@ -72,7 +72,11 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     //    tests supply a `render`. Stubbed to succeed here; the refusal itself, and the queued
     //    rerender it unlocks, get their own dedicated tests further down with a narrower override
     //    (OpenProject #1716).
-    ensureCanRenderMock = mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+    ensureCanRenderMock = mock.method(
+      CARDINAL.models.renderQueue,
+      'ensureCanRender',
+      async () => {}
+    )
   })
 
   after(async () => {
@@ -889,13 +893,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageInput({ path: 'docs/glossary-move-before' }),
       actor
     )
-    const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+    const term = await CARDINAL.models.glossary.createTerm(fixtures.siteId, {
       term: 'MoveCacheTerm',
       definition: 'Points at a page that is about to move.',
       pageId: page.id
     })
     try {
-      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      const before = await CARDINAL.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(
         before.find((t: any) => t.term === 'MoveCacheTerm')?.link,
         '/docs/glossary-move-before'
@@ -908,13 +912,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         actor
       )
 
-      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      const after = await CARDINAL.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(
         after.find((t: any) => t.term === 'MoveCacheTerm')?.link,
         '/docs/glossary-move-after'
       )
     } finally {
-      await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+      await CARDINAL.models.glossary.deleteTerm(fixtures.siteId, term.id)
     }
   })
 
@@ -1236,7 +1240,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
    * calls for: the full side-effect set a single-page `movePage` fires -- history, search, hooks,
    * storage, glossary -- must still fire exactly as before. Search/storage/hooks/glossary are stubbed
    * with `mock.fn()` (`backend/test/mocks.ts`'s convention) so each call's exact arguments can be
-   * asserted directly, the same way `WIKI.cache`/`WIKI.events`'s stubs let a test read `.mock.calls`.
+   * asserted directly, the same way `CARDINAL.cache`/`CARDINAL.events`'s stubs let a test read `.mock.calls`.
    */
   test('movePage fires the full side-effect set for a single-page move', async () => {
     const page = await pagesModel.createPage(
@@ -1245,10 +1249,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
 
-    const searchModel = (globalThis as any).WIKI.models.search
-    const hooksModel = (globalThis as any).WIKI.models.hooks
-    const storageModel = (globalThis as any).WIKI.models.storage
-    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    const searchModel = (globalThis as any).CARDINAL.models.search
+    const hooksModel = (globalThis as any).CARDINAL.models.hooks
+    const storageModel = (globalThis as any).CARDINAL.models.storage
+    const glossaryModel = (globalThis as any).CARDINAL.models.glossary
     searchModel.renamed = mock.fn(async () => {})
     hooksModel.emit = mock.fn(async () => {})
     storageModel.dispatch = mock.fn(async () => {})
@@ -1342,14 +1346,14 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
     const treeEntryBefore = await readTreeRow(page.id)
     assert.ok(treeEntryBefore)
-    const folderBefore = await WIKI.models.tree.getFolder({
+    const folderBefore = await CARDINAL.models.tree.getFolder({
       path: 'atomic-delete',
       locale: 'en',
       siteId: fixtures.siteId
     })
     const childrenBefore = folderBefore.meta?.children ?? 0
 
-    const deleteEntry = mock.method(WIKI.models.tree, 'deleteEntry', async () => {
+    const deleteEntry = mock.method(CARDINAL.models.tree, 'deleteEntry', async () => {
       throw new Error('simulated tree.deleteEntry failure')
     })
     try {
@@ -1364,7 +1368,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.ok(pageAfterFailure)
     const treeEntryAfterFailure = await readTreeRow(page.id)
     assert.ok(treeEntryAfterFailure)
-    const folderAfterFailure = await WIKI.models.tree.getFolder({
+    const folderAfterFailure = await CARDINAL.models.tree.getFolder({
       path: 'atomic-delete',
       locale: 'en',
       siteId: fixtures.siteId
@@ -1422,14 +1426,14 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageInput({ path: 'docs/atomic-delete/leaf' }),
       actor
     )
-    const parentFolder = await WIKI.models.tree.getFolder({
+    const parentFolder = await CARDINAL.models.tree.getFolder({
       path: 'docs/atomic-delete',
       locale: 'en',
       siteId: fixtures.siteId
     })
     const childrenBefore = (parentFolder as any).meta?.children ?? 0
 
-    const deleteEntry = mock.method(WIKI.models.tree, 'deleteEntry', async () => {
+    const deleteEntry = mock.method(CARDINAL.models.tree, 'deleteEntry', async () => {
       throw new Error('simulated tree.deleteEntry failure')
     })
     try {
@@ -1443,7 +1447,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     const stillThere = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
     assert.ok(stillThere, 'the page row was not left deleted by the failed transaction')
 
-    const parentFolderAfterFailure = await WIKI.models.tree.getFolder({
+    const parentFolderAfterFailure = await CARDINAL.models.tree.getFolder({
       path: 'docs/atomic-delete',
       locale: 'en',
       siteId: fixtures.siteId
@@ -1480,7 +1484,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
    * OpenProject #870: the FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term
    * canonically linked to a deleted page is unlinked at the db level -- but the cached, resolved copy
    * of that link (`models/glossary.ts#getCachedTerms`) would keep serving the old one forever
-   * (`WIKI.cache` carries no TTL) unless `deletePage` drops it too.
+   * (`CARDINAL.cache` carries no TTL) unless `deletePage` drops it too.
    */
   test('deletePage invalidates the glossary cache so a term linked to it resolves to no link', async () => {
     const page = await pagesModel.createPage(
@@ -1488,13 +1492,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageInput({ path: 'docs/glossary-delete-me' }),
       actor
     )
-    const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+    const term = await CARDINAL.models.glossary.createTerm(fixtures.siteId, {
       term: 'DeleteCacheTerm',
       definition: 'Points at a page that is about to be deleted.',
       pageId: page.id
     })
     try {
-      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      const before = await CARDINAL.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(
         before.find((t: any) => t.term === 'DeleteCacheTerm')?.link,
         '/docs/glossary-delete-me'
@@ -1502,10 +1506,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      const after = await CARDINAL.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(after.find((t: any) => t.term === 'DeleteCacheTerm')?.link, null)
     } finally {
-      await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+      await CARDINAL.models.glossary.deleteTerm(fixtures.siteId, term.id)
     }
   })
 
@@ -1536,7 +1540,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         .update(groupsTable)
         .set({ rules })
         .where(eq(groupsTable.id, fixtures.groupId))
-      await WIKI.models.groups.reloadCache()
+      await CARDINAL.models.groups.reloadCache()
     }
 
     test('a classification-only patch drops the cache so a newly-restricted term stops resolving', async () => {
@@ -1569,13 +1573,16 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         pageInput({ path: 'docs/glossary-classification-cache', classification: publicId }),
         actor
       )
-      const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+      const term = await CARDINAL.models.glossary.createTerm(fixtures.siteId, {
         term: 'ClassificationCacheTerm',
         definition: 'Points at a page about to be restricted.',
         pageId: page.id
       })
       try {
-        const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        const before = await CARDINAL.models.glossary.getCachedTerms(
+          fixtures.siteId,
+          restrictedActor
+        )
         assert.equal(
           before.find((t: any) => t.term === 'ClassificationCacheTerm')?.link,
           '/docs/glossary-classification-cache'
@@ -1588,10 +1595,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
           actor
         )
 
-        const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        const after = await CARDINAL.models.glossary.getCachedTerms(
+          fixtures.siteId,
+          restrictedActor
+        )
         assert.equal(after.find((t: any) => t.term === 'ClassificationCacheTerm')?.link, null)
       } finally {
-        await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+        await CARDINAL.models.glossary.deleteTerm(fixtures.siteId, term.id)
       }
     })
 
@@ -1619,13 +1629,16 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         pageInput({ path: 'docs/glossary-tags-cache', tags: ['allowed'] }),
         actor
       )
-      const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+      const term = await CARDINAL.models.glossary.createTerm(fixtures.siteId, {
         term: 'TagsCacheTerm',
         definition: 'Points at a page about to lose its access-granting tag.',
         pageId: page.id
       })
       try {
-        const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        const before = await CARDINAL.models.glossary.getCachedTerms(
+          fixtures.siteId,
+          restrictedActor
+        )
         assert.equal(
           before.find((t: any) => t.term === 'TagsCacheTerm')?.link,
           '/docs/glossary-tags-cache'
@@ -1633,25 +1646,28 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
         await pagesModel.updatePage(fixtures.siteId, page.id, { tags: [] }, actor)
 
-        const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        const after = await CARDINAL.models.glossary.getCachedTerms(
+          fixtures.siteId,
+          restrictedActor
+        )
         assert.equal(after.find((t: any) => t.term === 'TagsCacheTerm')?.link, null)
       } finally {
-        await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+        await CARDINAL.models.glossary.deleteTerm(fixtures.siteId, term.id)
       }
     })
   })
 
   /**
-   * Task #561's dispatcher wiring: `createPage`/`updatePage` already called `WIKI.models.search`
+   * Task #561's dispatcher wiring: `createPage`/`updatePage` already called `CARDINAL.models.search`
    * (as `indexPage`, previously), but `movePage`/`deletePage` called nothing at all — "silent no-ops
    * that only work by accident under Postgres" per the task. This spies on the dispatcher itself
-   * (`WIKI.models.search`, the same singleton `models/search.ts` exports) rather than asserting on
+   * (`CARDINAL.models.search`, the same singleton `models/search.ts` exports) rather than asserting on
    * search results, so it catches a hook that stops being called regardless of what the `db` engine
    * does or does not need to do about it.
    */
   test('createPage/updatePage/movePage/deletePage each call the search dispatcher', async () => {
     const calls: string[] = []
-    const searchModel = (globalThis as any).WIKI.models.search
+    const searchModel = (globalThis as any).CARDINAL.models.search
     searchModel.created = async (page: any) => {
       calls.push(`created:${page.path}`)
     }
@@ -1705,7 +1721,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
    */
   test('deleteOrphaned calls the search dispatcher for every page it removes', async () => {
     const calls: string[] = []
-    const searchModel = (globalThis as any).WIKI.models.search
+    const searchModel = (globalThis as any).CARDINAL.models.search
     searchModel.deleted = async (_siteId: string, pageId: string) => {
       calls.push(pageId)
     }
@@ -2093,18 +2109,18 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
   describe('listPagesForSitemap', () => {
     /**
-     * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is
+     * `fixtures.groupId` stands in for the guests group here: `CARDINAL.data.systemIds.guestsGroupId` is
      * only ever a fixed UUID looked up at runtime, not something `setupTestDb()` seeds meaning into,
      * so pointing it at the fixture group and writing rules onto that group exercises the exact same
      * `rulesForGroups` / `helpers/pageRules.ts` path a real anonymous request would go through.
      */
     async function setGuestRules(rules: any[]): Promise<void> {
-      WIKI.data = { systemIds: { guestsGroupId: fixtures.groupId } }
+      CARDINAL.data = { systemIds: { guestsGroupId: fixtures.groupId } }
       await fixtures.db
         .update(groupsTable)
         .set({ rules })
         .where(eq(groupsTable.id, fixtures.groupId))
-      await WIKI.models.groups.reloadCache()
+      await CARDINAL.models.groups.reloadCache()
     }
 
     test('lists published, browsable pages the guests group may read, and nothing else', async () => {
@@ -2287,7 +2303,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         actor
       )
       // -> A raw insert, not `createPage()`: `createPage` refuses any siteId absent from the
-      //    in-memory `WIKI.sites` cache, which a site row inserted straight into the DB (rather than
+      //    in-memory `CARDINAL.sites` cache, which a site row inserted straight into the DB (rather than
       //    through `models/sites.ts`) never populates. Only the WHERE clause's site scoping is under
       //    test here, so a hand-built row bypassing that whole cache/business-rule layer is enough.
       await fixtures.db.insert(pagesTable).values({
@@ -2706,8 +2722,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     })
 
     test('a site with only its primary locale active short-circuits to an empty list', async () => {
-      const originalLocales = WIKI.sites[fixtures.siteId]!.config.locales
-      WIKI.sites[fixtures.siteId]!.config.locales = { primary: 'en', active: ['en'] }
+      const originalLocales = CARDINAL.sites[fixtures.siteId]!.config.locales
+      CARDINAL.sites[fixtures.siteId]!.config.locales = { primary: 'en', active: ['en'] }
       try {
         await pagesModel.createPage(
           fixtures.siteId,
@@ -2721,7 +2737,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
         assert.deepEqual(entries, [])
       } finally {
-        WIKI.sites[fixtures.siteId]!.config.locales = originalLocales
+        CARDINAL.sites[fixtures.siteId]!.config.locales = originalLocales
       }
     })
   })
@@ -2729,7 +2745,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
 /**
  * The change-event trigger `updatePage`/`movePage`/`deletePage`/`deleteOrphaned` queue after
- * `pageHistory.record()` (`models/pages.ts#notifyWatchers`). `WIKI.scheduler` is a stub here (see
+ * `pageHistory.record()` (`models/pages.ts#notifyWatchers`). `CARDINAL.scheduler` is a stub here (see
  * `test/db.ts`) that records `addJob` calls instead of actually running a worker pool, so each test
  * drives the queued `notifyPageWatchers` task itself against the payload the trigger produced — which
  * exercises the real pipeline end to end without needing a live scheduler.
@@ -2773,10 +2789,10 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
         ]
       })
       .where(eq(groupsTable.id, fixtures.groupId))
-    await WIKI.models.groups.reloadCache()
+    await CARDINAL.models.groups.reloadCache()
     // -> Same reasoning as the describe block above: none of these tests supply a `render`, and
     //    Puppeteer is never installed here (OpenProject #1716).
-    mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+    mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
@@ -2788,7 +2804,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 
   beforeEach(() => {
     // -> Each test starts from the real sender; a stub installed by one test must not leak into the
-    //    next. WIKI.config here (see `test/db.ts`) has no `mail` key at all, so the real sender would
+    //    next. CARDINAL.config here (see `test/db.ts`) has no `mail` key at all, so the real sender would
     //    throw ERR_MAIL_NOT_CONFIGURED on its own — exactly the behavior the "leaves it pending, does
     //    not throw the job" tests below rely on without any extra setup.
     mail.sendPageWatchNotification = originalSendPageWatchNotification
@@ -2806,7 +2822,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 
   /** Runs every `notifyPageWatchers` job the stub scheduler was handed since the last call. */
   async function drainQueuedNotifications(): Promise<void> {
-    const addJob = WIKI.scheduler.addJob as unknown as {
+    const addJob = CARDINAL.scheduler.addJob as unknown as {
       mock: {
         calls: { arguments: [{ task: string; payload: any }]; result: any }[]
         resetCalls: () => void
@@ -2860,13 +2876,13 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/update-me' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
     })
     // -> The actor also watches their own page -- they must not be notified about their own edit
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: actor.id
@@ -2900,7 +2916,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/move-me' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -2920,7 +2936,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/delete-me' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -2939,7 +2955,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     assert.equal(events[0]!.pageId, null)
 
     // -> The watch row itself is gone with the page (FK cascade) -- only the pending event survives it
-    assert.equal(await WIKI.models.pageWatching.isWatching(page.id, watcherId), false)
+    assert.equal(await CARDINAL.models.pageWatching.isWatching(page.id, watcherId), false)
   })
 
   test('deletePage records the "deleted" pageWatchEvents row synchronously, before the async job ever runs', async () => {
@@ -2948,7 +2964,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/delete-synchronously' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -2975,7 +2991,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/immediate-me' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId,
@@ -3007,7 +3023,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/digest-me' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -3030,13 +3046,13 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/immediate-fails' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId,
       notifyMode: 'immediate'
     })
-    // -> `WIKI.config.mail` has no `host` in this test fixture (see `test/db.ts`), so the real
+    // -> `CARDINAL.config.mail` has no `host` in this test fixture (see `test/db.ts`), so the real
     //    sender throws `ERR_MAIL_NOT_CONFIGURED` -- exactly the "unconfigured mail" case this task
     //    has to fail loud on, not silently drop.
     await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Will Not Send' }, actor)
@@ -3056,7 +3072,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/opted-out' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId,
@@ -3075,7 +3091,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/captured-fields' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -3101,7 +3117,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/captured-locale', locale: 'fr' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -3121,7 +3137,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       pageInput({ path: 'watch/move-locale', locale: 'en' }),
       actor
     )
-    await WIKI.models.pageWatching.watch({
+    await CARDINAL.models.pageWatching.watch({
       siteId: fixtures.siteId,
       pageId: page.id,
       userId: watcherId
@@ -3149,7 +3165,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
  *
  * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
  * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
- * `WIKI.logger.info` is swapped for a collector per test rather than read back off
+ * `CARDINAL.logger.info` is swapped for a collector per test rather than read back off
  * `logger.backlog()`, for the same reason: the backlog's frame shape belongs to the logger.
  */
 describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -3169,7 +3185,7 @@ describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabas
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
     // -> Same reasoning as every other describe in this file: nothing here supplies a `render`, and
     //    Puppeteer is never installed in this environment (OpenProject #1716).
-    mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+    mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
@@ -3179,14 +3195,14 @@ describe('page content lifecycle log lines (DB-backed)', { skip: !hasTestDatabas
 
   beforeEach(() => {
     infoCalls = []
-    originalInfo = WIKI.logger.info
-    WIKI.logger.info = ((scope: string, message: string, fields: Record<string, any> = {}) => {
+    originalInfo = CARDINAL.logger.info
+    CARDINAL.logger.info = ((scope: string, message: string, fields: Record<string, any> = {}) => {
       infoCalls.push({ scope, message, fields })
     }) as any
   })
 
   afterEach(() => {
-    WIKI.logger.info = originalInfo
+    CARDINAL.logger.info = originalInfo
   })
 
   /** Every `info` line filed under `pages`, optionally narrowed to one message. */

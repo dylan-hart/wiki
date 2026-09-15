@@ -11,7 +11,7 @@ await ensureTemporal()
 
 /**
  * DB-backed route test for OpenProject #2237: `PUT /_api/audit-log/settings` against a real,
- * migrated database and the real `WIKI.models.auditLog` -- what this proves is the route's own
+ * migrated database and the real `CARDINAL.models.auditLog` -- what this proves is the route's own
  * behavior (recording `auditLog.retentionChanged` before the new value takes effect, and rejecting
  * a value below the floor), not `record()`/`purge()`'s own SQL orchestration, which is
  * `models/auditLog.test.ts`'s job. Mirrors `api/classificationLevels.test.ts`'s DB-backed pattern,
@@ -27,11 +27,11 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
     fixtures = await setupTestDb()
     ;({ auditLog: auditLogModel } = await import('../models/auditLog.ts'))
 
-    // `setRetentionDays()` persists through `WIKI.configSvc.saveToDb()`, which `test/db.ts`'s shared
+    // `setRetentionDays()` persists through `CARDINAL.configSvc.saveToDb()`, which `test/db.ts`'s shared
     // fixture does not install (no DB-backed suite has needed it before this one) -- a minimal stub
     // is enough here since this route's own contract is about ordering and the in-memory value, not
     // config persistence itself.
-    ;(globalThis as any).WIKI.configSvc = {
+    ;(globalThis as any).CARDINAL.configSvc = {
       saveToDb: async () => true
     }
 
@@ -54,8 +54,8 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
   test('PUT /settings records auditLog.retentionChanged before the new retention takes effect', async () => {
     const from = auditLogModel.getRetentionDays()
     let entryExistedDuringSave = false
-    const originalSaveToDb = (globalThis as any).WIKI.configSvc.saveToDb
-    ;(globalThis as any).WIKI.configSvc.saveToDb = async (...args: unknown[]) => {
+    const originalSaveToDb = (globalThis as any).CARDINAL.configSvc.saveToDb
+    ;(globalThis as any).CARDINAL.configSvc.saveToDb = async (...args: unknown[]) => {
       // By the time the setting is actually persisted, the record of the change must already be in
       // the log -- this is the "before the new retention takes effect" ordering the route promises.
       const { total } = await auditLogModel.list({ event: 'auditLog.retentionChanged' })
@@ -71,7 +71,7 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
       })
       assert.equal(res.statusCode, 200)
     } finally {
-      ;(globalThis as any).WIKI.configSvc.saveToDb = originalSaveToDb
+      ;(globalThis as any).CARDINAL.configSvc.saveToDb = originalSaveToDb
     }
 
     assert.ok(entryExistedDuringSave)

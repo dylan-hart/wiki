@@ -253,7 +253,7 @@ async function finishSetupTFA() {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 /*
   The digit row, re-dressed for the auth panel.
 
@@ -269,9 +269,10 @@ async function finishSetupTFA() {
   surface and should not silently inherit this screen's treatment. A scoped `:deep()` rule is
   unlayered, so it beats `@layer components` without needing `!important`.
 
-  OpenProject #2779: every color in this block moved off `_theme.scss`'s literal SCSS variables onto
-  the matching `var(--color-*)` custom property -- see `Login.vue`'s identical note on its own
-  `.auth` block for why (this screen never followed `body.body--cobalt`'s token overrides before).
+  OpenProject #2779: every color in this block moved off the old Sass `_theme.scss`'s literal
+  `$`-prefixed variables onto the matching `var(--color-*)` custom property -- see `Login.vue`'s
+  identical note on its own `.auth` block for why (this screen never followed `body.body--cobalt`'s
+  token overrides before).
 */
 .auth-otp :deep(.otp-input-container) {
   display: flex;

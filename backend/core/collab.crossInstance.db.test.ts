@@ -1,5 +1,5 @@
 /**
- * Two real `core/collab.ts` instances — two worker threads, each with its own `WIKI` global, its own
+ * Two real `core/collab.ts` instances — two worker threads, each with its own `CARDINAL` global, its own
  * room maps and its own postgres LISTEN/NOTIFY client — racing against one real database. The one
  * part of this module a single-process clone (`test/collabHarness.ts#makeInstance`) genuinely cannot
  * stand in for.
@@ -14,7 +14,7 @@ import { PEER_STATE_TIMEOUT, RELAY_REASSEMBLY_TIMEOUT } from './collab.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 // ----------------------------------------
-// Multi-instance: two real `collab.ts`, two real WIKI globals, one real database
+// Multi-instance: two real `collab.ts`, two real CARDINAL globals, one real database
 // ----------------------------------------
 
 interface WorkerHandle {
@@ -104,13 +104,13 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   let connectionString: string
   let a: WorkerHandle
   let b: WorkerHandle
-  // -> The real, DB-backed `WIKI` `setupTestDb()` installs, captured once so `beforeEach` below can
+  // -> The real, DB-backed `CARDINAL` `setupTestDb()` installs, captured once so `beforeEach` below can
   //    re-assert it before every test in THIS describe.
   let dbWiki: any
 
   before(async () => {
     fixtures = await setupTestDb()
-    dbWiki = (globalThis as any).WIKI
+    dbWiki = (globalThis as any).CARDINAL
     connectionString = process.env.DATABASE_URL!
     ;[a, b] = await Promise.all([
       startInstance(connectionString, fixtures.schema, 'instance-a', fixtures.siteId),
@@ -119,14 +119,14 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   })
 
   // -> The file-level `beforeEach` above (registered for every test in this whole file, not just one
-  //    describe) overwrites `globalThis.WIKI` with its own minimal stub -- no `sites`, no `db` --
+  //    describe) overwrites `globalThis.CARDINAL` with its own minimal stub -- no `sites`, no `db` --
   //    right before every test runs, including these. Node's test runner cascades hooks
   //    outer-to-inner, so this describe-scoped `beforeEach` runs after that one and puts the real,
-  //    DB-backed `WIKI` back before each test body here actually executes; without it, a call this
-  //    describe's tests make in the main process (e.g. `pages.createPage`) sees a `WIKI.sites` with
+  //    DB-backed `CARDINAL` back before each test body here actually executes; without it, a call this
+  //    describe's tests make in the main process (e.g. `pages.createPage`) sees a `CARDINAL.sites` with
   //    no entry for `fixtures.siteId` at all.
   beforeEach(() => {
-    ;(globalThis as any).WIKI = dbWiki
+    ;(globalThis as any).CARDINAL = dbWiki
   })
 
   after(async () => {

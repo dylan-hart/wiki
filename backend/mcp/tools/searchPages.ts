@@ -47,7 +47,7 @@ export async function handleSearchPages(
   const actor = actorFor(ctx)
   const seesEverything = maySeeEverything(actor, site.id)
 
-  const result = await WIKI.models.search.query({
+  const result = await CARDINAL.models.search.query({
     siteId: site.id,
     query: args.query,
     locales: args.locale ? [args.locale] : undefined,

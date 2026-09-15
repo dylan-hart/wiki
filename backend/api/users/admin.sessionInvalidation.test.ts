@@ -48,14 +48,14 @@ describe(
         .returning({ id: usersTable.id })
       secondUserId = secondUser!.id
 
-      // -> `groups.ts` reads `WIKI.config.auth.rootAdminGroupId` (root-admin-group protection) --
-      //    `setupTestDb()`'s minimal WIKI leaves `config` empty, so this must be set for the routes
+      // -> `groups.ts` reads `CARDINAL.config.auth.rootAdminGroupId` (root-admin-group protection) --
+      //    `setupTestDb()`'s minimal CARDINAL leaves `config` empty, so this must be set for the routes
       //    under test to even boot past that read. Pointed at a group nothing here uses, so it never
       //    actually engages that guard.
-      WIKI.config.auth = { rootAdminGroupId: '00000000-0000-0000-0000-000000000000' }
-      // -> `updateGroup()`'s `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId` on every
+      CARDINAL.config.auth = { rootAdminGroupId: '00000000-0000-0000-0000-000000000000' }
+      // -> `updateGroup()`'s `clampGuestPatch()` reads `CARDINAL.data.systemIds.guestsGroupId` on every
       //    call, not just for the guests group -- same reasoning as `rootAdminGroupId` above.
-      WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+      CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
 
       app = await buildTestApp({
         // -> Prefixed the same way `api/index.ts` registers them for real: both plugins declare

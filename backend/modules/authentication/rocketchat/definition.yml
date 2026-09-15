@@ -1,0 +1,54 @@
+key: rocketchat
+title: Rocket.Chat
+description: Sign in with a self-hosted Rocket.Chat workspace.
+author: requarks.io
+logo: https://static.requarks.io/logo/rocketchat.svg
+icon: /_assets/icons/ultraviolet-rocketchat.svg
+color: red-6
+vendor: 'Rocket.Chat'
+website: 'https://developer.rocket.chat/docs/oauth2-client'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  serverUrl:
+    type: String
+    title: Server URL
+    hint: This is self-hosted — point it at your own Rocket.Chat workspace's base URL, e.g. https://chat.example.com. No hosted default is offered because there isn't one.
+    icon: internet
+    order: 1
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the OAuth App registered under Administration > OAuth Apps on the Rocket.Chat workspace.
+    icon: key
+    order: 2
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same OAuth App.
+    icon: password
+    sensitive: true
+    order: 3
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all). Rocket.Chat's `/api/v1/me` reports no group/role claim of its own, so leave this off unless a custom OAuth2 proxy in front of Rocket.Chat is adding one.
+    icon: user-groups
+    default: false
+    order: 4
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which field of the user info response carries the user's group/role memberships.
+    icon: user-groups
+    default: 'groups'
+    order: 5
+    if:
+      - { key: 'mapGroups', eq: true }
+refs:
+  callbackUrl:
+    title: OAuth2 Redirect URL
+    hint: Add this to the OAuth App's Redirect URI.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

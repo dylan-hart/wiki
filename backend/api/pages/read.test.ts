@@ -20,7 +20,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
 
-  /** Minimal stand-in for what `WIKI.models.pages.getPage` hands back — nothing the route inspects. */
+  /** Minimal stand-in for what `CARDINAL.models.pages.getPage` hands back — nothing the route inspects. */
   function makeFakePage(overrides: Record<string, unknown> = {}) {
     return {
       id: PAGE_ID,
@@ -347,10 +347,10 @@ describe('pages API — response schema completeness (task 602)', () => {
  * `read:source` too, but only when content was actually requested — the plain page view (`render`
  * only) needs no more than `read:pages`, exactly as before.
  *
- * `WIKI.models.groups.actorForRequest` / `checkAccess` are stubbed to a minimal permission set
+ * `CARDINAL.models.groups.actorForRequest` / `checkAccess` are stubbed to a minimal permission set
  * carried on the test session (`testPagePermissions`) rather than pulling in the real page-rules
  * resolver — this is a route-wiring test, not a `helpers/pageRules.ts` test (see
- * `helpers/pageRules.test.ts` for that). `WIKI.models.pages.getPage` is stubbed to hand back
+ * `helpers/pageRules.test.ts` for that). `CARDINAL.models.pages.getPage` is stubbed to hand back
  * `content` exactly when asked, mirroring the real model's `withContent` contract, so the test
  * would fail the same way the bug did if the route stopped checking `read:source`.
  */
@@ -510,7 +510,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
  * Regression test for OpenProject #2251: `recordPageview()` in `pages.ts` used to write
  * `req.session.pageViewed = true` for every anonymous browser read unconditionally -- deliberately,
  * to defeat `saveUninitialized: false` so a returning anonymous reader is not miscounted as new --
- * *before* calling `WIKI.models.pageviews.record()`, whose own `isEnabled` guard lives in
+ * *before* calling `CARDINAL.models.pageviews.record()`, whose own `isEnabled` guard lives in
  * `models/pageviews.ts`. That meant disabling pageview tracking still minted a session (and the
  * `Set-Cookie` + permanent `sessions` row that comes with it) for every anonymous page read; only the
  * `pageviews` insert itself stopped.
@@ -624,11 +624,11 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
 
   afterEach(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   test('pageviews disabled: anonymous read never writes to the session and never records', async () => {
-    ;(globalThis as any).WIKI.config.pageviews.isEnabled = false
+    ;(globalThis as any).CARDINAL.config.pageviews.isEnabled = false
     const res = await app.inject({
       method: 'GET',
       url: `/sites/${SITE_ID}/pages/${PAGE_HASH}`
@@ -639,7 +639,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
   })
 
   test('pageviews enabled: anonymous read writes pageViewed onto the session and records', async () => {
-    ;(globalThis as any).WIKI.config.pageviews.isEnabled = true
+    ;(globalThis as any).CARDINAL.config.pageviews.isEnabled = true
     const res = await app.inject({
       method: 'GET',
       url: `/sites/${SITE_ID}/pages/${PAGE_HASH}`
@@ -659,10 +659,10 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
  * only a path-based one, silently. Fixed by selecting `locale`/`tags` too (`models/pages.ts`) and
  * threading both through into the `mayOnPage` call (`api/pages/read.ts`).
  *
- * `WIKI.models.groups.checkAccess` is wired to the real `resolvePageRule` from `helpers/pageRules.ts`
+ * `CARDINAL.models.groups.checkAccess` is wired to the real `resolvePageRule` from `helpers/pageRules.ts`
  * rather than a canned true/false, so a passing test here proves the actual rule-matching mechanism
  * sees the tags this route now passes through — not just that some stub was called with the right
- * shape. `WIKI.models.pages.getPathFromAlias` is stubbed to stand in for the (separately, DB-backed,
+ * shape. `CARDINAL.models.pages.getPathFromAlias` is stubbed to stand in for the (separately, DB-backed,
  * tested in `models/pages.test.ts`) fixed model method.
  */
 describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page rule (task 446)', () => {
@@ -845,7 +845,7 @@ describe('GET /sites/:siteId/pages/:pageId/translations', () => {
  * wrong permissions rather than erroring. The body now takes an explicit `locale`, which the frontend
  * threads through from the (path, locale) pair `Index.vue`'s route watcher already computed.
  *
- * `WIKI.models.groups.checkAccess` is wired to the real `resolvePageRule`, so a passing test proves
+ * `CARDINAL.models.groups.checkAccess` is wired to the real `resolvePageRule`, so a passing test proves
  * the locale in the request body is what reaches the rule engine — not just that some stub saw it.
  */
 describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 995)', () => {

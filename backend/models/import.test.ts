@@ -32,7 +32,7 @@ const PANDOC_DEFINITION: ExtensionDefinition = {
 }
 
 /**
- * `models/import.ts` guards on `WIKI.models.extensions`, exactly the way `models/renderQueue.ts`'s
+ * `models/import.ts` guards on `CARDINAL.models.extensions`, exactly the way `models/renderQueue.ts`'s
  * `ensureCanRender` guards on Puppeteer — so the extensions model is stubbed here rather than pulled
  * in for real, and `runPandoc` (the one method that actually shells out) is mocked per test so the
  * business logic — format validation, size limits, "no usable content", error surfacing — is
@@ -45,7 +45,7 @@ describe('page import (pandoc)', () => {
   let pageImport: typeof import('./import.ts').pageImport
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       models: {
         extensions: {
           getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
@@ -54,11 +54,11 @@ describe('page import (pandoc)', () => {
       }
     }
     ;({ pageImport } = await import('./import.ts'))
-    isInstalled = (globalThis as any).WIKI.models.extensions.isInstalled
+    isInstalled = (globalThis as any).CARDINAL.models.extensions.isInstalled
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   beforeEach(() => {
@@ -184,7 +184,7 @@ describe('page import (markdown pass-through)', () => {
   let pageImport: typeof import('./import.ts').pageImport
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       models: {
         extensions: {
           getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
@@ -197,7 +197,7 @@ describe('page import (markdown pass-through)', () => {
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   test('converts with no front matter as a plain pass-through', async () => {
@@ -313,7 +313,7 @@ describe('page import (pandoc concurrency gate, #2209)', () => {
   let pageImport: typeof import('./import.ts').pageImport
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       models: {
         extensions: {
           getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
@@ -325,7 +325,7 @@ describe('page import (pandoc concurrency gate, #2209)', () => {
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   test('never runs more than MAX_CONCURRENT_PANDOC conversions at once', async () => {

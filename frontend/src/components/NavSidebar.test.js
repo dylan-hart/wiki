@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import * as sass from 'sass'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import NavSidebar from './NavSidebar.vue'
@@ -826,12 +825,11 @@ describe('NavSidebar empty-space context menu', () => {
   })
 })
 /**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 721. Mounting at all is
- * itself a meaningful check: this component's `<style lang="scss">` was rewritten from physical
- * `left`/`right`/`border-left` declarations to logical `inset-inline-*`/`border-inline-*` ones (the
- * current-page bar and the open-group rail), and Vite's Sass pipeline would fail the whole render on
- * a malformed declaration -- a compile error here, not a failed assertion, is what would catch a
- * typo in that rewrite.
+ * Regression coverage for feature 413 ("RTL support end-to-end"), task 721. This component's
+ * `<style>` block was rewritten from physical `left`/`right`/`border-left` declarations to logical
+ * `inset-inline-*`/`border-inline-*` ones (the current-page bar and the open-group rail); the
+ * assertions below read the rendered result back rather than trusting a source diff, since CSS's own
+ * forgiving parser drops a malformed declaration silently rather than failing the render.
  *
  * The actual mirroring under `dir="rtl"` cannot be asserted from here: happy-dom's CSS engine does
  * not resolve logical properties against `direction` the way a real layout engine does (verified
@@ -1127,7 +1125,7 @@ describe('NavSidebar', () => {
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
     const itemRuleStart = styleBlock.indexOf('.w-item {')
-    const beforeRuleStart = styleBlock.indexOf('&::before', itemRuleStart)
+    const beforeRuleStart = styleBlock.indexOf('.w-item::before', itemRuleStart)
     const itemRule = styleBlock.slice(beforeRuleStart, beforeRuleStart + 700)
 
     // -> No bubbling trigger anywhere in the ACTUAL rules (comments -- including this fix's own,
@@ -1137,7 +1135,7 @@ describe('NavSidebar', () => {
     expect(codeOnly).not.toMatch(/:has\(:hover\)/)
     expect(styleBlock.slice(itemRuleStart, itemRuleStart + 200)).toMatch(/position:\s*relative/)
     expect(itemRule).toMatch(/opacity:\s*0;/)
-    expect(itemRule).toMatch(/&:hover::before\s*{\s*opacity:\s*0\.5/)
+    expect(itemRule).toMatch(/\.w-item:hover::before\s*{\s*opacity:\s*0\.5/)
     // -> A flat, aesthetic-independent constant (OpenProject #3031): `inset-inline-start` is
     //    resolved against `.w-item`'s own padding box, which never sees that element's own
     //    `margin-inline: var(--nav-item-inset)` -- so a formula built on that token (#2996) only
@@ -1148,9 +1146,7 @@ describe('NavSidebar', () => {
     expect(itemRule).not.toMatch(/--nav-item-inset/)
     // -> Width scales with depth, narrowed by 4px (icon-side gap tightening) and clamped so a
     //    depth-0 row never gets a negative width.
-    expect(itemRule).toMatch(
-      /width:\s*max\(0px,\s*calc\(var\(--nav-depth,\s*0\)\s*\*\s*10px\s*-\s*4px\)\)/
-    )
+    expect(itemRule).toMatch(/width:\s*max\(0px,\s*var\(--nav-depth,\s*0\)\s*\*\s*10px\s*-\s*4px\)/)
     // -> One dot PER lane, not one dot for the whole (now depth-scaled) box: a `repeat-x` tile
     //    exactly one lane (10px) wide, rather than a single centered, non-repeating image.
     expect(itemRule).toMatch(/background-repeat:\s*repeat-x/)
@@ -1224,7 +1220,7 @@ describe('NavSidebar', () => {
           source.indexOf('>', styleStart) + 1,
           source.lastIndexOf('</style>')
         )
-        compiledCss = sass.compileString(`:root { --color-slate-faint: #94a3b8; }\n${scss}`).css
+        compiledCss = `:root { --color-slate-faint: #94a3b8; }\n${scss}`
       })
 
       afterAll(async () => {
@@ -1348,14 +1344,12 @@ describe('NavSidebar', () => {
           source.indexOf('>', styleStart) + 1,
           source.lastIndexOf('</style>')
         )
-        const cobaltCss = sass.compileString(
-          `:root { --color-slate-faint: #94a3b8; --nav-item-inset: 10px; }\n${scss}`
-        ).css
+        const cobaltCss = `:root { --color-slate-faint: #94a3b8; --nav-item-inset: 10px; }\n${scss}`
         const page = await browser.newPage()
         try {
           await page.setContent(
             `<!doctype html><html><head><style>${cobaltCss}` +
-              // -> This suite injects only `NavSidebar.vue`'s OWN compiled SCSS, not Tailwind's
+              // -> This suite injects only `NavSidebar.vue`'s OWN CSS, not Tailwind's
               //    utility CSS -- so `.w-item`'s real `flex` class (`WItem.vue`) never actually
               //    becomes `display: flex` here. That's fine for every OTHER assertion in this
               //    describe (all `position: absolute`/dimension reads off the pseudo-element,
@@ -1477,15 +1471,14 @@ describe('NavSidebar', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
-    const sidebarNavBlock = styleBlock.slice(
-      styleBlock.indexOf('.sidebar-nav {'),
-      styleBlock.indexOf('.sidebar-nav {') +
-        styleBlock.slice(styleBlock.indexOf('.sidebar-nav {')).indexOf('&-list >')
-    )
+    const sidebarNavStart = styleBlock.indexOf('.sidebar-nav {')
+    const navRuleStart = styleBlock.indexOf('.sidebar-nav > nav {', sidebarNavStart)
+    const sidebarNavBlock = styleBlock.slice(sidebarNavStart, navRuleStart)
+    const navRule = styleBlock.slice(navRuleStart, styleBlock.indexOf('}', navRuleStart) + 1)
 
     expect(sidebarNavBlock).toMatch(/display:\s*flex/)
     expect(sidebarNavBlock).toMatch(/flex-direction:\s*column/)
-    expect(sidebarNavBlock).toMatch(/>\s*nav\s*{\s*[^}]*flex:\s*1\s+0\s+auto/)
+    expect(navRule).toMatch(/flex:\s*1\s+0\s+auto/)
     expect(sidebarNavBlock).not.toMatch(/min-height:\s*100%/)
   })
 
@@ -1501,14 +1494,15 @@ describe('NavSidebar', () => {
    * computed-style assertion cannot actually tell "no rule" apart from "environment can't resolve
    * it" here. Scoped to the specific `.sidebar-nav {` rule body (not the whole style block, which
    * also holds unrelated selectors) and to the `.body--dark &` block nested inside it, which is
-   * `.sidebar-nav`'s own dark twin (`@at-root` splices it out to `.body--dark .sidebar-nav`).
+   * `.sidebar-nav`'s own dark twin (native CSS nesting resolves `&` to `.sidebar-nav`, so this
+   * compiles to `.body--dark .sidebar-nav`).
    */
   it('draws no border-top of its own on the nav list, light or dark (OpenProject #2726)', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
     const sidebarNavStart = styleBlock.indexOf('.sidebar-nav {')
-    const darkStart = styleBlock.indexOf('@at-root .body--dark &', sidebarNavStart)
+    const darkStart = styleBlock.indexOf('.body--dark &', sidebarNavStart)
     const darkEnd = styleBlock.indexOf('\n  }', darkStart)
 
     // -> The light rule: from `.sidebar-nav {` up to the flex-column block the adjacent test above
@@ -1651,5 +1645,36 @@ describe('NavSidebar shared folder expansion state (OpenProject #2846)', () => {
     await wrapper.vm.$nextTick()
 
     expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
+  })
+})
+
+/*
+  OpenProject #3252 (Sass removal, hand-converting the genuine `@at-root`-as-escape sites), updated
+  by #3254 (final teardown) once the Sass compile step this test used to read the FLATTENED
+  `selector:hover { ... }` form through was removed.
+  `body.body--cobalt .sidebar-nav .w-item--clickable`'s hover/press tint (OpenProject #3011, light
+  and dark-Cobalt variants) used to read `@at-root body.body--cobalt[.body--dark] .sidebar-nav
+  .w-item--clickable { ... }`, deliberately WITHOUT `&` so it would NOT inherit the surrounding
+  `.sidebar-nav .w-list .w-item.is-active` nesting -- and is now two flat, unnested, top-level rules
+  in the source itself (see NavSidebar.vue's own "Hand-converted @at-root escapes" comment), each
+  with `&:hover`/`&:active` sub-rules native CSS nesting resolves identically to the old flattened
+  form at runtime. Column-0 (no leading whitespace) is what a source-scan checks instead: a
+  regression that re-nested either rule under that ancestor would indent it away from the line start.
+*/
+describe('NavSidebar Cobalt hover/press tint, hand-converted from @at-root (OpenProject #3011/#3252)', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'NavSidebar.vue'),
+    'utf-8'
+  )
+  const styleStart = source.indexOf('<style')
+  const css = source.slice(source.indexOf('>', styleStart) + 1, source.lastIndexOf('</style>'))
+
+  it('keeps the hover/press tint as flat, top-level rules -- never nested under .sidebar-nav .w-list .w-item.is-active, which they were written to escape', () => {
+    expect(css).toMatch(/^body\.body--cobalt \.sidebar-nav \.w-item--clickable \{$/m)
+    expect(css).toMatch(/^body\.body--cobalt\.body--dark \.sidebar-nav \.w-item--clickable \{$/m)
+    expect(css).toContain('&:hover {\n    background-color: rgba(31, 79, 214, 0.12) !important;')
+    expect(css).toContain('&:active {\n    background-color: rgba(31, 79, 214, 0.2) !important;')
+    expect(css).toContain('&:hover {\n    background-color: rgba(143, 176, 255, 0.16) !important;')
+    expect(css).toContain('&:active {\n    background-color: rgba(143, 176, 255, 0.26) !important;')
   })
 })

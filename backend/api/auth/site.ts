@@ -103,20 +103,20 @@ async function routes(app: FastifyInstance) {
       // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
       //    `:siteId` before any handler here runs, so this is the site, not a maybe —
       //    `models/sites.ts#getSiteById` is this same map lookup with an `await` in front of it.
-      const site = WIKI.sites[req.params.siteId]
+      const site = CARDINAL.sites[req.params.siteId]
       /*
         `getActiveStrategies` rather than the raw rows: it completes each config from the module's
         declared defaults, so a prop added to a module after a strategy was configured reads as its
         default here instead of as a missing key.
       */
-      const activeStrategies = (await WIKI.models.authentication.getActiveStrategies()).filter(
+      const activeStrategies = (await CARDINAL.models.authentication.getActiveStrategies()).filter(
         (str: any) => str.isEnabled
       )
       // -> A site created before it had strategies configured has no list at all
       const configuredStrategies = site.config.authStrategies ?? []
       const siteStrategies = activeStrategies
         .map((str: any) => {
-          const authModule = WIKI.data.authentication.find((m: any) => m.key === str.module)
+          const authModule = CARDINAL.data.authentication.find((m: any) => m.key === str.module)
           const siteStr = configuredStrategies.find((s: any) => s.id === str.id) || {}
           return {
             id: str.id,
@@ -210,7 +210,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.login.login(
+        const result = await CARDINAL.models.login.login(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -245,8 +245,8 @@ async function routes(app: FastifyInstance) {
           //    nowhere but here. `error`, not `debug` (V8): a 400 the client cannot act on, whose
           //    reason an operator could not see even at `logLevel: debug`, is something a person
           //    has to look at. The `authDebug` line stays: it is the admin flag's own firehose.
-          WIKI.logger.error('auth', 'login failed unexpectedly', { error: err, reqId: req.id })
-          WIKI.models.flags.authDebug(`Login failed unexpectedly: ${err.message}`)
+          CARDINAL.logger.error('auth', 'login failed unexpectedly', { error: err, reqId: req.id })
+          CARDINAL.models.flags.authDebug(`Login failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_LOGIN_FAILED')
         }
       }
@@ -323,7 +323,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.login.register(
+        const result = await CARDINAL.models.login.register(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -346,11 +346,11 @@ async function routes(app: FastifyInstance) {
         } else {
           // -> An unexpected failure, reported to the client as a generic one, matching the login
           //    route — logged at `error` for the same reason (V8)
-          WIKI.logger.error('auth', 'registration failed unexpectedly', {
+          CARDINAL.logger.error('auth', 'registration failed unexpectedly', {
             error: err,
             reqId: req.id
           })
-          WIKI.models.flags.authDebug(`Registration failed unexpectedly: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`Registration failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_REGISTRATION_FAILED')
         }
       }
@@ -403,7 +403,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.login.loginChangePassword(
+        const result = await CARDINAL.models.login.loginChangePassword(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -425,14 +425,14 @@ async function routes(app: FastifyInstance) {
         }
       } catch (err: any) {
         if (err.message.startsWith('ERR_')) {
-          WIKI.models.flags.authDebug(`Password change from login rejected: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`Password change from login rejected: ${err.message}`)
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.error('auth', 'password change from login failed unexpectedly', {
+          CARDINAL.logger.error('auth', 'password change from login failed unexpectedly', {
             error: err,
             reqId: req.id
           })
-          WIKI.models.flags.authDebug(`Password change from login failed: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`Password change from login failed: ${err.message}`)
           return reply.badRequest('ERR_CHANGE_PASSWORD_FAILED')
         }
       }
@@ -487,7 +487,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       try {
-        await WIKI.models.login.forgotPassword({
+        await CARDINAL.models.login.forgotPassword({
           strategyId: req.body.strategyId,
           email: req.body.email
         })
@@ -495,11 +495,13 @@ async function routes(app: FastifyInstance) {
         // -> Swallowed rather than reported: even an unexpected failure here must not produce a
         //    response distinguishable from the success case, or it becomes the oracle this route
         //    exists to avoid being.
-        WIKI.logger.error('auth', 'forgot-password request failed unexpectedly', {
+        CARDINAL.logger.error('auth', 'forgot-password request failed unexpectedly', {
           error: err,
           reqId: req.id
         })
-        WIKI.models.flags.authDebug(`Forgot-password request failed unexpectedly: ${err.message}`)
+        CARDINAL.models.flags.authDebug(
+          `Forgot-password request failed unexpectedly: ${err.message}`
+        )
       }
       return {
         ok: true,
@@ -559,7 +561,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.login.resetPassword(
+        const result = await CARDINAL.models.login.resetPassword(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -581,14 +583,14 @@ async function routes(app: FastifyInstance) {
         }
       } catch (err: any) {
         if (err.message.startsWith('ERR_')) {
-          WIKI.models.flags.authDebug(`Password reset rejected: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`Password reset rejected: ${err.message}`)
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.error('auth', 'password reset failed unexpectedly', {
+          CARDINAL.logger.error('auth', 'password reset failed unexpectedly', {
             error: err,
             reqId: req.id
           })
-          WIKI.models.flags.authDebug(`Password reset failed unexpectedly: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`Password reset failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_RESET_PASSWORD_FAILED')
         }
       }
@@ -665,7 +667,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.login.loginTFA(
+        const result = await CARDINAL.models.login.loginTFA(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -685,21 +687,21 @@ async function routes(app: FastifyInstance) {
           // -> See the login route's own comment above (OpenProject #2361): matches
           //    `limitAuthAttempts`' 429 + `Retry-After` contract instead of falling through to the
           //    generic `ERR_`-prefix 400 branch below.
-          WIKI.models.flags.authDebug(`2FA verification rate-limited: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`2FA verification rate-limited: ${err.message}`)
           reply.header('Retry-After', String(err.retryAfter))
           return reply.tooManyRequests(
             `Too many attempts. Try again in ${Math.ceil(err.retryAfter / 60)} minute(s).`
           )
         }
         if (err.message.startsWith('ERR_')) {
-          WIKI.models.flags.authDebug(`2FA verification rejected: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`2FA verification rejected: ${err.message}`)
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.error('auth', '2FA verification failed unexpectedly', {
+          CARDINAL.logger.error('auth', '2FA verification failed unexpectedly', {
             error: err,
             reqId: req.id
           })
-          WIKI.models.flags.authDebug(`2FA verification failed unexpectedly: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`2FA verification failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_TFA_FAILED')
         }
       }
@@ -745,7 +747,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const { authOptions, pending } = await WIKI.models.passkeys.startLogin({
+        const { authOptions, pending } = await CARDINAL.models.passkeys.startLogin({
           hostname: req.hostname,
           origin: req.headers.origin
         })
@@ -758,7 +760,7 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.error('auth', 'passkey login options failed unexpectedly', {
+          CARDINAL.logger.error('auth', 'passkey login options failed unexpectedly', {
             error: err,
             reqId: req.id
           })
@@ -804,7 +806,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.passkeys.verifyLogin(
+        const result = await CARDINAL.models.passkeys.verifyLogin(
           {
             authResponse: req.body.authResponse as any,
             pending: req.session.passkeyLogin,
@@ -820,11 +822,11 @@ async function routes(app: FastifyInstance) {
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
-          WIKI.logger.error('auth', 'passkey login failed unexpectedly', {
+          CARDINAL.logger.error('auth', 'passkey login failed unexpectedly', {
             error: err,
             reqId: req.id
           })
-          WIKI.models.flags.authDebug(`Passkey login failed unexpectedly: ${err.message}`)
+          CARDINAL.models.flags.authDebug(`Passkey login failed unexpectedly: ${err.message}`)
           return reply.badRequest('ERR_LOGIN_FAILED')
         }
       } finally {
@@ -864,18 +866,20 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const { user } = await WIKI.models.userCredentials.validateToken({
+        const { user } = await CARDINAL.models.userCredentials.validateToken({
           kind: 'verify',
           token: req.params.token
         })
         if (!user) {
           return reply.redirect(loginErrorUrl('/', 'ERR_INVALID_VALIDATION_TOKEN'))
         }
-        await WIKI.models.users.updateUser(user.id, { isVerified: true })
-        WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> verified their email address`)
+        await CARDINAL.models.users.updateUser(user.id, { isVerified: true })
+        CARDINAL.models.flags.authDebug(
+          `User ${user.id} <${user.email}> verified their email address`
+        )
         return reply.redirect('/login?verified=true')
       } catch (err: any) {
-        WIKI.models.flags.authDebug(`Email verification failed: ${err.message}`)
+        CARDINAL.models.flags.authDebug(`Email verification failed: ${err.message}`)
         return reply.redirect(loginErrorUrl('/', err.message))
       }
     }
@@ -917,7 +921,7 @@ async function routes(app: FastifyInstance) {
       const user = req.session?.authenticated ? req.session.user : null
 
       // -> Resolved before the session goes away, since it depends on who was logged in
-      const redirect = await WIKI.models.login.getLogoutRedirect(
+      const redirect = await CARDINAL.models.login.getLogoutRedirect(
         user?.id ?? null,
         req.params.siteId
       )
@@ -937,18 +941,18 @@ async function routes(app: FastifyInstance) {
       //    clearing cookie's attributes match the one being cleared exactly (OpenProject #2336).
       reply.clearCookie(sessionCookieName(), {
         path: '/',
-        secure: WIKI.config.security?.cookieSecure !== false,
+        secure: CARDINAL.config.security?.cookieSecure !== false,
         sameSite: 'lax'
       })
 
       if (user) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `User ${user.id} <${user.email}> logged out, redirecting to ${redirect}`
         )
         // -> No site context: `req.params.siteId` names which site's login page the user happened to
         //    log out from, not a business site scope for the account -- same reasoning as
         //    `user:join`/`user:login` in `models/users.ts`. A site-scoped hook must not receive this.
-        await WIKI.models.hooks.emit('user:logout', null, {
+        await CARDINAL.models.hooks.emit('user:logout', null, {
           userId: user.id,
           ip: req.ip,
           metadata: {

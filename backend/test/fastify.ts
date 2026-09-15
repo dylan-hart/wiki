@@ -44,7 +44,7 @@ export interface BuildTestAppOptions {
   /** The route plugin(s) under test. */
   routes: TestRoutes
   /**
-   * A `WIKI` global to install for the lifetime of the app, deep-merged over `createWikiStub()`'s
+   * A `CARDINAL` global to install for the lifetime of the app, deep-merged over `createWikiStub()`'s
    * defaults. Omit to leave whatever global is already in place alone — which is what a DB-backed
    * suite wants, since `setupTestDb()` has already installed one.
    */
@@ -121,7 +121,7 @@ function ajvOptions() {
   return { onCreate: registerAjvFormats }
 }
 
-/** Restore handles keyed by the app that owns them, so `closeTestApp` can put `WIKI` back. */
+/** Restore handles keyed by the app that owns them, so `closeTestApp` can put `CARDINAL` back. */
 const wikiHandles = new WeakMap<FastifyInstance, { restore(): void }>()
 
 /**
@@ -129,7 +129,7 @@ const wikiHandles = new WeakMap<FastifyInstance, { restore(): void }>()
  * the real auth hooks, with `routes` registered on it and `ready()` already awaited.
  *
  * Always pair with `closeTestApp(app)` in `after()`: that is what closes the instance AND restores
- * whatever `WIKI` global was in place before.
+ * whatever `CARDINAL` global was in place before.
  */
 export async function buildTestApp(opts: BuildTestAppOptions): Promise<FastifyInstance> {
   const handle = opts.wiki ? installTestWiki(opts.wiki) : null
@@ -210,7 +210,7 @@ export async function buildTestApp(opts: BuildTestAppOptions): Promise<FastifyIn
   return app
 }
 
-/** Close the instance and restore whatever `WIKI` global `buildTestApp` displaced. */
+/** Close the instance and restore whatever `CARDINAL` global `buildTestApp` displaced. */
 export async function closeTestApp(app: FastifyInstance | undefined): Promise<void> {
   if (!app) {
     return

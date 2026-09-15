@@ -74,7 +74,7 @@ export const JOB_SCHEDULE_SEED = [
     cron: '25 0 * * *',
     type: 'system'
   },
-  // -> Offset from `checkVersion` above, which also writes to `WIKI.config.update` -- both used to
+  // -> Offset from `checkVersion` above, which also writes to `CARDINAL.config.update` -- both used to
   //    land on the same minute and be claimed as one `processJob` batch, and `checkVersion`'s
   //    (now-fixed) unconditional overwrite of the whole `update` object raced this task's synchronous
   //    read of `update.locales` at the top of its own `task()`, discarding an operator's opt-out on
@@ -163,7 +163,7 @@ export const JOB_SCHEDULE_SEED = [
     cron: '58 0 * * *',
     type: 'system'
   },
-  // -> Checks the configured replication schedule (`WIKI.config.replication`, OpenProject #2437) and
+  // -> Checks the configured replication schedule (`CARDINAL.config.replication`, OpenProject #2437) and
   //    queues a `replicationPull` job when it's due -- same "comparison happens inside the task
   //    itself" shape as `storageSyncTick` above. Every 5 minutes rather than `storageSyncTick`'s
   //    every-minute cron, both because a replication schedule is realistically daily/weekly (no need
@@ -189,11 +189,11 @@ class Jobs {
    * Initialize jobs table
    */
   async init(): Promise<void> {
-    WIKI.logger.debug('config', 'seeding the scheduled jobs')
+    CARDINAL.logger.debug('config', 'seeding the scheduled jobs')
 
-    await WIKI.db.insert(jobScheduleTable).values([...JOB_SCHEDULE_SEED])
+    await CARDINAL.db.insert(jobScheduleTable).values([...JOB_SCHEDULE_SEED])
 
-    await WIKI.db.insert(jobLockTable).values({
+    await CARDINAL.db.insert(jobLockTable).values({
       key: 'cron',
       lastCheckedBy: 'init',
       // NOTE: an ISO string, not a Date, is passed deliberately — pg sends it verbatim and
@@ -214,7 +214,7 @@ class Jobs {
    * so the threshold has to be a comfortable multiple of that to avoid crying wolf.
    */
   async isHealthy(): Promise<boolean> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select({ lastCheckedAt: jobLockTable.lastCheckedAt })
       .from(jobLockTable)
       .where(eq(jobLockTable.key, 'cron'))
@@ -242,7 +242,7 @@ class Jobs {
    * which counts here in the meantime, exactly as it still shows under the scheduler's active tab.
    */
   async countActive(): Promise<number> {
-    return WIKI.db.$count(jobHistoryTable, eq(jobHistoryTable.state, 'active'))
+    return CARDINAL.db.$count(jobHistoryTable, eq(jobHistoryTable.state, 'active'))
   }
 
   /**
@@ -251,7 +251,7 @@ class Jobs {
    * The `/metrics` endpoint's queue-depth gauge; `countActive()` above is its running counterpart.
    */
   async countPending(): Promise<number> {
-    return WIKI.db.$count(jobsTable)
+    return CARDINAL.db.$count(jobsTable)
   }
 
   /**
@@ -263,21 +263,21 @@ class Jobs {
    * name documents this same caveat for scrapers.
    */
   async countFailed(): Promise<number> {
-    return WIKI.db.$count(jobHistoryTable, eq(jobHistoryTable.state, 'failed'))
+    return CARDINAL.db.$count(jobHistoryTable, eq(jobHistoryTable.state, 'failed'))
   }
 
   /**
    * The cron schedule: which tasks run automatically and how often
    */
   async getSchedule() {
-    return WIKI.db.select().from(jobScheduleTable).orderBy(jobScheduleTable.task)
+    return CARDINAL.db.select().from(jobScheduleTable).orderBy(jobScheduleTable.task)
   }
 
   /**
    * A single cron entry, or null if there is no such entry
    */
   async getScheduleEntry(id: string) {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select()
       .from(jobScheduleTable)
       .where(eq(jobScheduleTable.id, id))
@@ -294,7 +294,7 @@ class Jobs {
    * @returns The new job's ID, or null if the scheduler refused it
    */
   async runScheduledTask(entry: typeof jobScheduleTable.$inferSelect): Promise<string | null> {
-    const added = await WIKI.scheduler.addJob({
+    const added = await CARDINAL.scheduler.addJob({
       task: entry.task,
       payload: entry.payload ?? {}
     })
@@ -306,7 +306,7 @@ class Jobs {
    * come before any dated ones.
    */
   async getUpcoming() {
-    return WIKI.db
+    return CARDINAL.db
       .select()
       .from(jobsTable)
       .orderBy(sql`${jobsTable.waitUntil} ASC NULLS FIRST`, jobsTable.createdAt)
@@ -326,13 +326,13 @@ class Jobs {
     const where = states.length > 0 ? inArray(jobHistoryTable.state, states) : undefined
     const { total, rows } = await paginate({
       rows: () =>
-        WIKI.db
+        CARDINAL.db
           .select()
           .from(jobHistoryTable)
           .where(where)
           .orderBy(desc(jobHistoryTable.startedAt))
           .limit(limit),
-      total: () => WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+      total: () => CARDINAL.db.select({ total: count() }).from(jobHistoryTable).where(where)
     })
 
     return { total, jobs: rows }
@@ -342,7 +342,7 @@ class Jobs {
    * A single history entry, or null if no such job ever ran
    */
   async getHistoryEntry(id: string) {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select()
       .from(jobHistoryTable)
       .where(eq(jobHistoryTable.id, id))
@@ -358,7 +358,7 @@ class Jobs {
    * poll interval wide.
    */
   async getPendingEntry(id: string) {
-    const results = await WIKI.db.select().from(jobsTable).where(eq(jobsTable.id, id)).limit(1)
+    const results = await CARDINAL.db.select().from(jobsTable).where(eq(jobsTable.id, id)).limit(1)
     return results[0] ?? null
   }
 
@@ -389,19 +389,19 @@ class Jobs {
   async setResult(id: string, result: Record<string, any>): Promise<void> {
     const context = getJobExecutionContext()
     if (context && context.jobId === id) {
-      const updated = await WIKI.db
+      const updated = await CARDINAL.db
         .update(jobHistoryTable)
         .set({ result })
         .where(and(eq(jobHistoryTable.id, id), eq(jobHistoryTable.attempt, context.attempt)))
       if ((updated.rowCount ?? 0) < 1) {
-        WIKI.logger.warn('jobs', 'dropped a stale result, a later attempt has superseded it', {
+        CARDINAL.logger.warn('jobs', 'dropped a stale result, a later attempt has superseded it', {
           job: id,
           attempt: context.attempt
         })
       }
       return
     }
-    await WIKI.db.update(jobHistoryTable).set({ result }).where(eq(jobHistoryTable.id, id))
+    await CARDINAL.db.update(jobHistoryTable).set({ result }).where(eq(jobHistoryTable.id, id))
   }
 
   /**
@@ -413,7 +413,7 @@ class Jobs {
    * @returns Whether a queued job was removed
    */
   async cancelUpcoming(id: string): Promise<boolean> {
-    const result = await WIKI.db.delete(jobsTable).where(eq(jobsTable.id, id))
+    const result = await CARDINAL.db.delete(jobsTable).where(eq(jobsTable.id, id))
     return (result.rowCount ?? 0) > 0
   }
 
@@ -426,7 +426,7 @@ class Jobs {
    * @returns The new job's ID, or null if the scheduler refused it
    */
   async retryJob(entry: typeof jobHistoryTable.$inferSelect): Promise<string | null> {
-    const added = await WIKI.scheduler.addJob({
+    const added = await CARDINAL.scheduler.addJob({
       task: entry.task,
       payload: entry.payload ?? {},
       maxRetries: entry.maxRetries
@@ -438,14 +438,14 @@ class Jobs {
    * Purge old job history
    */
   async cleanHistory(): Promise<void> {
-    await WIKI.db.delete(jobHistoryTable).where(
+    await CARDINAL.db.delete(jobHistoryTable).where(
       and(
         not(eq(jobHistoryTable.state, 'active')),
         lte(
           jobHistoryTable.startedAt,
           new Date(
             Temporal.Now.instant().subtract({
-              seconds: WIKI.config.scheduler.historyExpiration
+              seconds: CARDINAL.config.scheduler.historyExpiration
             }).epochMilliseconds
           )
         )

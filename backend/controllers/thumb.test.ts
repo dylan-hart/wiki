@@ -121,8 +121,8 @@ describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)',
     // -> `thumbnail.siteId` is fixed to SITE_A_ID above, so point the request at a disabled site
     //    whose hostname resolves but whose asset lookup will mismatch -- guardSiteEnabled runs
     //    before that mismatch is ever checked, so it is what actually answers this request.
-    const original = (globalThis as any).WIKI.models.assets.getThumbnail
-    ;(globalThis as any).WIKI.models.assets.getThumbnail = async (id: string) =>
+    const original = (globalThis as any).CARDINAL.models.assets.getThumbnail
+    ;(globalThis as any).CARDINAL.models.assets.getThumbnail = async (id: string) =>
       id === VALID_UUID ? { ...thumbnail, siteId: 'disabled-site' } : null
     try {
       const res = await app.inject({
@@ -133,7 +133,7 @@ describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)',
       assert.equal(res.statusCode, 403)
       assert.equal(checkAccessCalls.length, 0)
     } finally {
-      ;(globalThis as any).WIKI.models.assets.getThumbnail = original
+      ;(globalThis as any).CARDINAL.models.assets.getThumbnail = original
     }
   })
 

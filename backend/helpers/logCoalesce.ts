@@ -7,7 +7,7 @@
  * happening at all. So the first few go through as themselves and the rest are counted, with one
  * line at the end of the window saying how many there were.
  *
- * Deliberately knows nothing about authentication, rate limits, or the `WIKI` global: it takes a
+ * Deliberately knows nothing about authentication, rate limits, or the `CARDINAL` global: it takes a
  * key, a window and a callback, and every decision about what a line SAYS belongs to the caller.
  * That is what lets `models/login.ts`'s refusals, `helpers/rateLimit.ts`'s bans and (OpenProject
  * #2675) the mail model's delivery failures share one implementation rather than three.

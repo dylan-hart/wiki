@@ -118,7 +118,12 @@ function onKeyDown({ event }) {
 defineExpose({ onKeyDown })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .editor-mention-list {
   min-width: 220px;
   max-width: 320px;
@@ -126,20 +131,18 @@ defineExpose({ onKeyDown })
     0 2px 4px rgba(0, 0, 0, 0.1),
     0 8px 24px rgba(0, 0, 0, 0.15);
   overflow: hidden;
-
-  @at-root .body--light & {
-    background-color: #fff;
-    border: 1px solid $grey-4;
-  }
-  @at-root .body--dark & {
-    background-color: var(--color-dark-4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  &-message {
-    padding: 10px 14px;
-    font-size: 0.85rem;
-    opacity: 0.7;
-  }
+}
+.body--light .editor-mention-list {
+  background-color: #fff;
+  border: 1px solid var(--color-grey-4);
+}
+.body--dark .editor-mention-list {
+  background-color: var(--color-dark-4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.editor-mention-list-message {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  opacity: 0.7;
 }
 </style>

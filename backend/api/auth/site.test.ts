@@ -27,7 +27,7 @@ const withSiteGuard: FastifyPluginAsync = async (instance) => {
 }
 /**
  * `POST /sites/:siteId/auth/register` and `GET /auth/verify/:token` — the request/response wiring
- * around `WIKI.models.login.register()` / `userCredentials.validateToken()` / `users.updateUser()`,
+ * around `CARDINAL.models.login.register()` / `userCredentials.validateToken()` / `users.updateUser()`,
  * which are stubbed here
  * rather than run for real (that's `models/users.test.ts`'s DB-backed coverage of `register()` itself).
  * Registers the whole `authentication.ts` plugin, matching `api/mail.test.ts`'s pattern, since Fastify

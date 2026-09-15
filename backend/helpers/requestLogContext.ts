@@ -2,7 +2,7 @@ import type { LogFields } from '../core/logger.ts'
 
 /**
  * The slice of a Fastify request the log-context builders below read — a structural subset of
- * `FastifyRequest`, kept narrow so these stay pure functions with no Fastify (or `WIKI`) dependency
+ * `FastifyRequest`, kept narrow so these stay pure functions with no Fastify (or `CARDINAL`) dependency
  * to construct in a test.
  */
 export interface RequestLogContextRequest {

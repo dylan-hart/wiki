@@ -626,7 +626,12 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   `ui-redesign/Cardinal Wiki - Tags 3x.dc.html`, walked top to bottom (OpenProject #2626). Every
   metric below is the design file's own; where a number here looks arbitrary it is quoted from it.
@@ -638,82 +643,82 @@ onMounted(async () => {
 */
 .tags-browse {
   /* The page's own inset, held here rather than on `w-page`, so the band above stays full-bleed. */
-  &-body {
-    display: flex;
-    align-items: flex-start;
-    /*
-      The design pads the body `16px 20px` beneath a full-bleed section band. `.w-section-header`
-      already contributes the section rhythm's own 14px `margin-block-end` (#2631), so 2px here lands
-      the first row on the design's 16px -- rather than overriding the shared band, which #2631 owns.
+}
+.tags-browse-body {
+  display: flex;
+  align-items: flex-start;
+  /*
+    The design pads the body `16px 20px` beneath a full-bleed section band. `.w-section-header`
+    already contributes the section rhythm's own 14px `margin-block-end` (#2631), so 2px here lands
+    the first row on the design's 16px -- rather than overriding the shared band, which #2631 owns.
 
-      Unrelated to the band's own HEIGHT (#2717 raised it 34px -> 38px to match the sidebar-actions
-      and breadcrumb bands beside it): this 2px reconciles the shared rhythm's fixed 14px trailing
-      margin against the design's fixed 16px total gap, and that arithmetic doesn't involve the
-      band's height at all -- `ui-redesign/Cardinal Wiki - Tags 3x.dc.html` draws the row below the
-      band at a flat `padding: 16px 20px` regardless of how tall the band above it is.
-    */
-    padding: 2px 20px 16px;
-    gap: 1.5rem;
-    /* The design wraps rather than squeezing: 280 + 24 + 320 is the point the two columns stack. */
-    flex-wrap: wrap;
-  }
-
-  &-sidebar {
-    flex: 0 0 280px;
-    min-width: 260px;
-  }
-
-  &-results {
-    flex: 1 1 auto;
-    min-width: 320px;
-  }
-
-  &-subheader {
-    /* 12px above every group, 8px above the column's first -- the design's own rhythm. */
-    padding: 12px 8px 0;
-    font-size: 13px;
-    font-weight: 500;
-    /*
-      `var(--color-accent)`, not the `var(--color-primary)` literal it replaces: numerically identical under
-      Ledger (both admin defaults are `#c14a52`), but the Cobalt Tags mockup's subheaders
-      ("Current selection", "Tags", "Locale", "Order by") are the accent red (`#c8303c`), which is
-      `--color-accent` under Cobalt -- `--color-primary` there is the unrelated link blue.
-    */
-    color: var(--color-accent);
-
-    &:first-child {
-      padding-block-start: 8px;
-    }
-
-    /*
-      Dark counterpart of the same accent-text role, not `--color-primary-light` (a lightened
-      PRIMARY, the wrong hue under Cobalt) -- `--color-accent-dark` is the token this codebase
-      already uses for "accent text on a dark ground" (`css/tailwind.css`'s `.text-highlight b`
-      dark rule), with a real Cobalt-dark value of its own so this renders correctly with no
-      dedicated dark mockup.
-    */
-    @at-root .body--dark & {
-      color: var(--color-accent-dark);
-    }
-  }
-
+    Unrelated to the band's own HEIGHT (#2717 raised it 34px -> 38px to match the sidebar-actions
+    and breadcrumb bands beside it): this 2px reconciles the shared rhythm's fixed 14px trailing
+    margin against the design's fixed 16px total gap, and that arithmetic doesn't involve the
+    band's height at all -- `ui-redesign/Cardinal Wiki - Tags 3x.dc.html` draws the row below the
+    band at a flat `padding: 16px 20px` regardless of how tall the band above it is.
+  */
+  padding: 2px 20px 16px;
+  gap: 1.5rem;
+  /* The design wraps rather than squeezing: 280 + 24 + 320 is the point the two columns stack. */
+  flex-wrap: wrap;
+}
+.tags-browse-sidebar {
+  flex: 0 0 280px;
+  min-width: 260px;
+}
+.tags-browse-results {
+  flex: 1 1 auto;
+  min-width: 320px;
+}
+.tags-browse-subheader {
+  /* 12px above every group, 8px above the column's first -- the design's own rhythm. */
+  padding: 12px 8px 0;
+  font-size: 13px;
+  font-weight: 500;
+  /*
+    `var(--color-accent)`, not the `var(--color-primary)` literal it replaces: numerically identical under
+    Ledger (both admin defaults are `#c14a52`), but the Cobalt Tags mockup's subheaders
+    ("Current selection", "Tags", "Locale", "Order by") are the accent red (`#c8303c`), which is
+    `--color-accent` under Cobalt -- `--color-primary` there is the unrelated link blue.
+  */
+  color: var(--color-accent);
+}
+.tags-browse-subheader:first-child {
+  padding-block-start: 8px;
+}
+.tags-browse-subheader {
+  /*
+    Dark counterpart of the same accent-text role, not `--color-primary-light` (a lightened
+    PRIMARY, the wrong hue under Cobalt) -- `--color-accent-dark` is the token this codebase
+    already uses for "accent text on a dark ground" (`css/tailwind.css`'s `.text-highlight b`
+    dark rule), with a real Cobalt-dark value of its own so this renders correctly with no
+    dedicated dark mockup.
+  */
+}
+.body--dark .tags-browse-subheader {
+  color: var(--color-accent-dark);
+}
+.tags-browse {
   /*
     The `#` ahead of a chip's label, in the design's mono. Sized in `em` so one rule serves both the
     11.5px sidebar chip (10px) and the 11px result-row chip (9.5px).
   */
-  &-hash {
-    margin-inline-end: 4px;
-    font-family: var(--font-mono);
-    font-size: 0.87em;
-    font-weight: 500;
-  }
-
+}
+.tags-browse-hash {
+  margin-inline-end: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+  font-weight: 500;
+}
+.tags-browse {
   /* Sidebar chips: `padding:3px 7px; gap:4px` -- neither the dense nor the default WChip box. */
-  &-chips .w-chip {
-    gap: 4px;
-    padding: 3px 7px;
-  }
-
+}
+.tags-browse-chips .w-chip {
+  gap: 4px;
+  padding: 3px 7px;
+}
+.tags-browse {
   /*
     `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
     #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow
@@ -727,102 +732,106 @@ onMounted(async () => {
     on purpose, already keyed off the same accent role #2813 decided on (see `WChip`'s own `color`
     usage on `.tags-browse-chips--selected` above).
   */
-  @at-root body.body--cobalt .tags-browse-chips--selected .w-chip {
-    box-shadow: var(--shadow-primary);
+}
+.tags-browse-count {
+  color: var(--color-text-secondary);
+}
+.tags-browse-count strong {
+  color: var(--color-ink);
+  font-weight: 700;
+}
+.body--dark .tags-browse-count {
+  color: var(--color-text-secondary-dark);
+}
+.body--dark .tags-browse-count strong {
+  color: var(--color-text-dark);
+}
+.tags-browse-plate {
+  margin: 8px 8px 0;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-white);
+}
+.body--dark .tags-browse-plate {
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-3);
+}
+.tags-browse-plate {
+  /*
+    Cobalt draws this plate's edge through `--shadow-card` alone, not the `border` above --
+    `--radius-card`/`--shadow-card` are both `0`/`none` under Ledger, so that border stays the
+    only visible edge there, and under Cobalt `--shadow-card` is itself a hairline ring now
+    (OpenProject #2856's matte pass), not the mockup's blurred `box-shadow:0 2px 10px
+    rgba(16,25,74,.08)` glow.
+  */
+}
+body.body--cobalt .tags-browse-plate {
+  border: 0;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+.tags-browse-plate .w-chip {
+  gap: 3px;
+}
+.tags-browse-result-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.body--dark .tags-browse-result-title {
+  color: var(--color-text-dark);
+}
+.tags-browse-result-desc {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+.body--dark .tags-browse-result-desc {
+  color: var(--color-text-secondary-dark);
+}
+.tags-browse-result-meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-text-caption);
+}
+.body--dark .tags-browse-result-meta {
+  color: var(--color-text-caption-dark);
+}
+.tags-browse-more {
+  padding: 16px 8px 0;
+}
+@media (max-width: 1023.98px) {
+  .tags-browse-body {
+    flex-direction: column;
+    /* The design's 20px inline padding is a desktop rhythm; a phone column takes the page's own. */
+    padding-inline: 16px;
   }
-
-  &-count {
-    color: var(--color-text-secondary);
-
-    strong {
-      color: var(--color-ink);
-      font-weight: 700;
-    }
-
-    @at-root .body--dark & {
-      color: var(--color-text-secondary-dark);
-
-      strong {
-        color: var(--color-text-dark);
-      }
-    }
+  .tags-browse-sidebar,
+  .tags-browse-results {
+    flex: none;
+    width: 100%;
+    min-width: 0;
   }
+}
 
-  &-plate {
-    margin: 8px 8px 0;
-    border: 1px solid var(--color-hairline);
-    background-color: var(--color-white);
+/*
+  Hoisted out of `.tags-browse` (was `@at-root body.body--cobalt .tags-browse-chips--selected
+  .w-chip`, converted by hand per docs/frontend-sass-removal-plan.md's block-classification note --
+  this selector deliberately does NOT descend from `.tags-browse`, so plain nesting under it would
+  have wrongly scoped the rule).
 
-    @at-root .body--dark & {
-      border-color: var(--color-hairline-dark);
-      background-color: var(--color-dark-3);
-    }
+  `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
+  #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow outright,
+  no replacement), so this rule is a no-op in every aesthetic today and is kept as the wiring
+  `--shadow-primary` gains a value again through in the future. A dedicated modifier class rather
+  than reaching for `.tags-browse-chips` alone: that class is shared with the "available tags" block
+  below, which stays a flat fill with no glow.
 
-    /*
-      Cobalt draws this plate's edge through `--shadow-card` alone, not the `border` above --
-      `--radius-card`/`--shadow-card` are both `0`/`none` under Ledger, so that border stays the
-      only visible edge there, and under Cobalt `--shadow-card` is itself a hairline ring now
-      (OpenProject #2856's matte pass), not the mockup's blurred `box-shadow:0 2px 10px
-      rgba(16,25,74,.08)` glow.
-    */
-    @at-root body.body--cobalt & {
-      border: 0;
-      border-radius: var(--radius-card);
-      box-shadow: var(--shadow-card);
-    }
-
-    .w-chip {
-      gap: 3px;
-    }
-  }
-
-  &-result-title {
-    font-size: 14.5px;
-    font-weight: 500;
-    color: var(--color-ink);
-
-    @at-root .body--dark & {
-      color: var(--color-text-dark);
-    }
-  }
-
-  &-result-desc {
-    font-size: 12.5px;
-    color: var(--color-text-secondary);
-
-    @at-root .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
-  &-result-meta {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--color-text-caption);
-
-    @at-root .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
-
-  &-more {
-    padding: 16px 8px 0;
-  }
-
-  @media (max-width: $breakpoint-sm-max) {
-    &-body {
-      flex-direction: column;
-      /* The design's 20px inline padding is a desktop rhythm; a phone column takes the page's own. */
-      padding-inline: 16px;
-    }
-
-    &-sidebar,
-    &-results {
-      flex: none;
-      width: 100%;
-      min-width: 0;
-    }
-  }
+  OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary` through
+  that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer on purpose,
+  already keyed off the same accent role #2813 decided on (see `WChip`'s own `color` usage on
+  `.tags-browse-chips--selected` above).
+*/
+body.body--cobalt .tags-browse-chips--selected .w-chip {
+  box-shadow: var(--shadow-primary);
 }
 
 /*
@@ -873,7 +882,7 @@ onMounted(async () => {
   .w-item + .w-item {
     border-block-start: 1px solid var(--color-tint);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-block-start-color: var(--color-hairline-dark);
     }
   }

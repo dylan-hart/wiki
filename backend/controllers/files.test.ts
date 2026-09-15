@@ -12,7 +12,7 @@ let wikiHandle: { restore(): void }
 
 describe('response headers (byte-serving behavior)', () => {
   /**
-   * Exercises `/_files/*` at the HTTP layer via `app.inject()`, with every `WIKI.models.*` call it
+   * Exercises `/_files/*` at the HTTP layer via `app.inject()`, with every `CARDINAL.models.*` call it
    * makes stubbed. `readContent()`'s own target-aware branching (disk cache vs. buffered read vs.
    * redirect) is covered at the model level in `models/assets.test.ts`; what this proves is the layer
    * this task actually touched here — that the route sets its response headers exactly the same way
@@ -65,7 +65,7 @@ describe('response headers (byte-serving behavior)', () => {
   }
 
   before(async () => {
-    // -> app.inject() needs no real socket, but building the app still requires WIKI to exist for the
+    // -> app.inject() needs no real socket, but building the app still requires CARDINAL to exist for the
     //    plugin registration path (fastify-sensible etc. don't touch it, but set a baseline anyway).
     wikiHandle = installTestWiki({ config: {} })
   })
@@ -269,21 +269,22 @@ describe('isEnabled guard (task 699)', () => {
    * Regression test for task 676: the `checkAccess` call here resolves its site from
    * `getSiteByHostname` rather than from a route param — a different source than every other call
    * site in this task, but the same fix — so a page rule scoped to one site (task 671) is enforced
-   * when a file is served through `/_files/*` too. Sharing this describe's app/WIKI setup rather than
+   * when a file is served through `/_files/*` too. Sharing this describe's app/CARDINAL setup rather than
    * standing up its own, since both cover the same hostname-resolved file routes.
    */
   test('passes the hostname-resolved siteId through to checkAccess', async () => {
-    const originalResolveAssetPath = (globalThis as any).WIKI.models.assetServing.resolveAssetPath
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    const originalResolveAssetPath = (globalThis as any).CARDINAL.models.assetServing
+      .resolveAssetPath
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
     const calls: any[] = []
-    ;(globalThis as any).WIKI.models.assetServing.resolveAssetPath = async () => ({
+    ;(globalThis as any).CARDINAL.models.assetServing.resolveAssetPath = async () => ({
       id: 'asset-1',
       folderPath: '',
       fileName: 'file.png',
       locale: 'en',
       updatedAt: new Date()
     })
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -301,8 +302,8 @@ describe('isEnabled guard (task 699)', () => {
       assert.equal(calls.length, 1)
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
     } finally {
-      ;(globalThis as any).WIKI.models.assetServing.resolveAssetPath = originalResolveAssetPath
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.assetServing.resolveAssetPath = originalResolveAssetPath
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 })

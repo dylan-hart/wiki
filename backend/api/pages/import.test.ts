@@ -26,9 +26,9 @@ describe('POST /sites/:siteId/pages/import', () => {
     convertToMarkdown = mock.fn(async () => ({ markdown: '# Converted\n' }))
 
     const wiki = {
-      // -> `defaultLocale()` reads `WIKI.sites[siteId]?.config?.locales?.primary`, falling back to
+      // -> `defaultLocale()` reads `CARDINAL.sites[siteId]?.config?.locales?.primary`, falling back to
       //    'en' -- an empty `sites` map is enough for that fallback to be exercised without throwing
-      //    on an undefined `WIKI.sites`.
+      //    on an undefined `CARDINAL.sites`.
       sites: {},
       models: {
         groups: {

@@ -80,11 +80,11 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
   let staged = false
 
   if (covers(target, 'pages')) {
-    const pages = await WIKI.models.pages.listAllForSite(target.siteId)
+    const pages = await CARDINAL.models.pages.listAllForSite(target.siteId)
     for (const page of pages) {
       try {
         const relPath = pageRelPath(target.siteId, page.locale, page.path, page.contentType)
-        const full = await WIKI.models.pages.getPage({
+        const full = await CARDINAL.models.pages.getPage({
           siteId: target.siteId,
           id: page.id,
           withContent: true
@@ -99,12 +99,12 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
     }
   }
 
-  const assets = await WIKI.models.assets.listAllForSite(target.siteId)
+  const assets = await CARDINAL.models.assets.listAllForSite(target.siteId)
   for (const asset of assets) {
     if (!belongsInTarget(asset, target.contentTypes)) continue
     try {
       const relPath = assetRelPath(asset.folderPath, asset.fileName)
-      const content = await WIKI.models.assets.getContent(asset.id)
+      const content = await CARDINAL.models.assets.getContent(asset.id)
       if (!content) continue
       if (await writeIfChanged(git, repoPath, relPath, content.data)) {
         staged = true
@@ -203,7 +203,7 @@ export async function importAll(target: StorageTarget): Promise<void> {
  * pointed at the configured remote and nothing pulled from it yet.
  *
  * Refuses to run if the configured path resolves to something that is clearly not this target's own
- * repo directory (`WIKI.ROOTPATH` itself, or a filesystem root) — `fs.rm` below is recursive, and a
+ * repo directory (`CARDINAL.ROOTPATH` itself, or a filesystem root) — `fs.rm` below is recursive, and a
  * blank or misconfigured `localRepoPath` must never be able to turn "purge the repo" into "purge the
  * install".
  */
@@ -211,7 +211,7 @@ export async function purge(target: StorageTarget): Promise<void> {
   const log = gitLog(target)
   const repoPath = resolveRepoPath(target.config?.localRepoPath)
   const parsedRoot = path.parse(repoPath).root
-  if (!repoPath || repoPath === WIKI.ROOTPATH || repoPath === parsedRoot) {
+  if (!repoPath || repoPath === CARDINAL.ROOTPATH || repoPath === parsedRoot) {
     throw new Error(
       `Refusing to purge "${repoPath}" — this does not look like a dedicated local repository path.`
     )

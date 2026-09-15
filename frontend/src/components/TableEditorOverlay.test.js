@@ -17,30 +17,6 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
  */
 const source = readFileSync(join(import.meta.dirname, 'TableEditorOverlay.vue'), 'utf-8')
 
-/**
- * Isolates one brace-balanced `<style>` block by its opening marker, so a structural check can ask
- * "does X live inside this specific nested rule" without a regex trying to track SCSS nesting depth
- * itself. Returns the block INCLUDING both braces, or `null` when the marker isn't found.
- */
-function extractBalancedBlock(text, startMarker) {
-  const markerIndex = text.indexOf(startMarker)
-  if (markerIndex === -1) {
-    return null
-  }
-  const blockStart = text.indexOf('{', markerIndex)
-  let depth = 0
-  let i = blockStart
-  do {
-    if (text[i] === '{') {
-      depth++
-    } else if (text[i] === '}') {
-      depth--
-    }
-    i++
-  } while (depth > 0 && i < text.length)
-  return text.slice(blockStart, i)
-}
-
 describe('TableEditorOverlay help link', () => {
   it('still uses siteStore elsewhere in the component', () => {
     expect(source).toContain('siteStore.overlayOpts')
@@ -178,16 +154,24 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     expect(source).not.toMatch(/\.w-section-header\s*\{/)
   })
 
+  // -> OpenProject #3254 flattened this file's nesting, so the Cobalt rules that used to sit inside
+  //    one `body.body--cobalt & { ... }` wrapper are now a contiguous run of separate, flat
+  //    top-level rules instead -- extracted here as one text range (start of the first rule through
+  //    the close of the last) rather than one brace-balanced block.
+  const cobaltRegionStart = source.indexOf('body.body--cobalt .table-editor-grid table {')
+  const cobaltRegionEndMarker =
+    'body.body--cobalt.body--dark .table-editor th.table-editor-cellbox {'
+  const cobaltRegionEnd =
+    source.indexOf('}', source.indexOf(cobaltRegionEndMarker, cobaltRegionStart)) + 1
+  const cobaltBlock = source.slice(cobaltRegionStart, cobaltRegionEnd)
+
   /*
     The `--radius-*` scale is zeroed outside Cobalt, and this grid used to draw no radius at all --
     OpenProject #2858 is the one deliberate exception, and it must stay scoped to `.body--cobalt`
-    rather than leaking a radius onto the grid under any other aesthetic. `extractBalancedBlock`
-    isolates the one Cobalt-scoped block by brace-matching from its opening marker, so the check is
-    "every `border-radius` in the file lives inside that block", not a textual coincidence.
+    rather than leaking a radius onto the grid under any other aesthetic.
   */
   it('scopes the single-plate radius to Cobalt alone, leaving every other aesthetic square', () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
-    expect(cobaltBlock).not.toBeNull()
+    expect(cobaltRegionStart).toBeGreaterThan(-1)
     expect(cobaltBlock).toContain('border-radius')
 
     const withoutCobaltBlock = source.replace(cobaltBlock, '')
@@ -201,20 +185,19 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     `jsdom` runs a layout/paint engine.
   */
   it("collapses the per-cell border into the plate's own border-spacing gap under Cobalt", () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
     expect(cobaltBlock).toContain('border-collapse: separate')
     expect(cobaltBlock).toContain('border-spacing: 2px')
-    expect(cobaltBlock).toMatch(/&-cellbox\s*\{\s*border: 0;/)
+    expect(cobaltBlock).toMatch(/body\.body--cobalt \.table-editor-cellbox\s*\{\s*border: 0;/)
   })
 
   it('tints Cobalt header cells distinctly from the plate and the data cells', () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
-    expect(cobaltBlock).toMatch(/th\.table-editor-cellbox\s*\{\s*background-color: #eef2ff;/)
+    expect(cobaltBlock).toMatch(
+      /body\.body--cobalt \.table-editor th\.table-editor-cellbox\s*\{\s*background-color: #eef2ff;/
+    )
   })
 
   it('rings the focused Cobalt cell instead of tinting it', () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
-    expect(cobaltBlock).toMatch(/&-cell:focus\s*\{/)
+    expect(cobaltBlock).toMatch(/body\.body--cobalt \.table-editor-cell:focus\s*\{/)
     expect(cobaltBlock).toContain('box-shadow: inset 0 0 0 2px var(--color-accent-strong)')
   })
 })

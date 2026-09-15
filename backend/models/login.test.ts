@@ -14,7 +14,7 @@ import { resetCoalesce } from '../helpers/logCoalesce.ts'
  * `passport-saml` modules, but never touching the guests group, a group the strategy's own
  * `autoEnrollGroups` still grants, a group carrying `manage:system`, or the configured root
  * administrators group — and never granting or revoking a group outside the strategy's own
- * `mappableGroups` allow-list. `WIKI.models.groups` and `users.getUserGroupIds` are stubbed rather
+ * `mappableGroups` allow-list. `CARDINAL.models.groups` and `users.getUserGroupIds` are stubbed rather
  * than run against a real database: what is under test here is the diffing logic, not group
  * persistence, which `models/groups.test.ts`-style DB-backed suites would be the place to cover.
  */
@@ -31,7 +31,7 @@ describe('login.syncProviderGroups', () => {
       models: {
         flags: { authDebug: () => {} },
         // -> The real singleton, not a stub: `syncProviderGroups` reads the membership it is
-        //    diffing against through `WIKI.models.users.getUserGroupIds`, which each test below
+        //    diffing against through `CARDINAL.models.users.getUserGroupIds`, which each test below
         //    mocks on that same object.
         users
       }
@@ -62,7 +62,7 @@ describe('login.syncProviderGroups', () => {
   ) {
     const assignUserToGroup = t.mock.fn(async () => true)
     const unassignUserFromGroup = t.mock.fn(async () => true)
-    ;(WIKI.models as any).groups = {
+    ;(CARDINAL.models as any).groups = {
       getAllGroups: async () => allGroups,
       systemGroupIds: async () =>
         allGroups.filter((g) => g.permissions?.includes('manage:system')).map((g) => g.id),
@@ -242,7 +242,7 @@ describe('login.syncProviderGroups', () => {
  * recovery code, refuse a recovery code mid-setup (none exist yet for a secret nobody has activated),
  * and refuse one outright once every stored code is spent. Every collaborator this touches —
  * `validateToken`, `verifyTfaCode`, `verifyAndConsumeRecoveryCode`, `destroyToken`, `enableTfa`,
- * `afterLoginChecks` — is a `WIKI`/database-backed method of the same `users` singleton, so the
+ * `afterLoginChecks` — is a `CARDINAL`/database-backed method of the same `users` singleton, so the
  * dispatch logic itself is tested by mocking those methods on the instance (restored automatically
  * after each test) rather than standing up a database for behavior that is not SQL.
  */
@@ -252,7 +252,7 @@ describe('login.loginTFA', () => {
   }
 
   // -> `loginTFA` now consumes the account-keyed rate limit (work package 2075(b)) before verifying
-  //    the submitted code — a real `WIKI.models.rateLimits.consume` stand-in that always allows,
+  //    the submitted code — a real `CARDINAL.models.rateLimits.consume` stand-in that always allows,
   //    exactly like `syncProviderGroups`'s own `before`/`after` above, since nothing in this suite is
   //    testing the limiter itself (see `helpers/rateLimit.test.ts#consumeAccountAuthAttempt` for that).
   let wiki: { restore(): void }
@@ -264,7 +264,7 @@ describe('login.loginTFA', () => {
         flags: { authDebug: () => {} },
         rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
         // -> The real singleton, so the `userCredentials.*` mocks each test installs are the ones
-        //    `loginTFA` actually reaches through `WIKI.models.userCredentials`.
+        //    `loginTFA` actually reaches through `CARDINAL.models.userCredentials`.
         userCredentials,
         // -> A no-op default so the two credential-rejection branches' new `login.failed` audit call
         //    (OpenProject #3200) doesn't throw here — its own shape is asserted in the "login outcome
@@ -355,7 +355,7 @@ describe('login.loginTFA', () => {
   test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before the code is verified", async (t) => {
     const user = makeUser()
     t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId: 'strat' }))
-    t.mock.method(WIKI.models.rateLimits, 'consume', async () => ({
+    t.mock.method(CARDINAL.models.rateLimits, 'consume', async () => ({
       allowed: false,
       hits: 999,
       retryAfter: 17
@@ -596,7 +596,7 @@ describe('login.login (form-based provider auto-provisioning)', () => {
   }
 
   function installWiki(getStrategyById: () => Promise<any>) {
-    globalThis.WIKI = createWikiStub({
+    globalThis.CARDINAL = createWikiStub({
       config: { security: {} },
       data: { authentication: [{ key: 'ldap', useForm: true }] },
       auth: {
@@ -707,7 +707,7 @@ describe('login.login (form-based provider auto-provisioning)', () => {
   //    always-allowed stub in every other test in this block.
   test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before authenticate() runs", async (t) => {
     installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: true, config: {} }))
-    ;(WIKI.models as any).rateLimits.consume = async () => ({
+    ;(CARDINAL.models as any).rateLimits.consume = async () => ({
       allowed: false,
       hits: 999,
       retryAfter: 42
@@ -742,7 +742,7 @@ describe('login.login (empty/missing password guard)', () => {
   const strategyId = 'strategy-1'
 
   function installWiki(authenticate: () => Promise<any>) {
-    globalThis.WIKI = createWikiStub({
+    globalThis.CARDINAL = createWikiStub({
       data: { authentication: [{ key: 'ldap', useForm: true }] },
       auth: {
         strategies: {
@@ -940,7 +940,7 @@ describe('login outcome logging', () => {
     withStrategy(async () => {
       throw new Error('should not be called')
     })
-    ;(WIKI as any).models.rateLimits.consume = async () => ({
+    ;(CARDINAL as any).models.rateLimits.consume = async () => ({
       allowed: false,
       hits: 11,
       retryAfter: 900

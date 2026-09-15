@@ -474,7 +474,7 @@ export function blockAllowances(
 } {
   const tags: string[] = []
   const attributes: Record<string, string[]> = {}
-  for (const definition of WIKI.models.blocks.definitions) {
+  for (const definition of CARDINAL.models.blocks.definitions) {
     if (!definition.isChild && !enabledBlocks.has(definition.block)) {
       continue
     }
@@ -518,7 +518,7 @@ export function blockAllowances(
  * the element goes, the content the author wrote inside it stays.
  */
 export function unwrapOrphanedChildBlocks($: cheerio.CheerioAPI): void {
-  const definitions = WIKI.models.blocks.definitions
+  const definitions = CARDINAL.models.blocks.definitions
   const childTags = definitions.filter((d) => d.isChild).map((d) => `block-${d.block}`)
   if (childTags.length < 1) {
     return

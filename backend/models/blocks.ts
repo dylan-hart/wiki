@@ -108,7 +108,7 @@ class Blocks {
    * repository, so a fresh checkout has none until `npm run build` has been run in `blocks/`.
    */
   async refreshFromDisk(): Promise<void> {
-    const manifestPath = path.join(WIKI.ROOTPATH, 'blocks/compiled/blocks.manifest.json')
+    const manifestPath = path.join(CARDINAL.ROOTPATH, 'blocks/compiled/blocks.manifest.json')
     try {
       const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
       if (!Array.isArray(manifest)) {
@@ -116,15 +116,19 @@ class Blocks {
       }
       this.definitions = manifest
       this.manifestLoaded = true
-      WIKI.logger.debug('blocks', 'loaded the manifest', { blocks: this.definitions.length })
+      CARDINAL.logger.debug('blocks', 'loaded the manifest', { blocks: this.definitions.length })
       await this.warnIfStale(manifestPath)
     } catch (err: any) {
       this.definitions = []
       this.manifestLoaded = false
-      WIKI.logger.warn('blocks', 'could not read the manifest, run "npm run build" in blocks/', {
-        path: manifestPath,
-        error: err
-      })
+      CARDINAL.logger.warn(
+        'blocks',
+        'could not read the manifest, run "npm run build" in blocks/',
+        {
+          path: manifestPath,
+          error: err
+        }
+      )
     }
   }
 
@@ -140,7 +144,7 @@ class Blocks {
    */
   private async warnIfStale(manifestPath: string): Promise<void> {
     try {
-      const sourcePath = path.join(WIKI.ROOTPATH, 'blocks')
+      const sourcePath = path.join(CARDINAL.ROOTPATH, 'blocks')
       const builtAt = (await stat(manifestPath)).mtimeMs
       const entries = await readdir(sourcePath, { withFileTypes: true })
       const stale: string[] = []
@@ -158,7 +162,7 @@ class Blocks {
         }
       }
       if (stale.length > 0) {
-        WIKI.logger.warn(
+        CARDINAL.logger.warn(
           'blocks',
           'changed since the manifest was built — run "npm run build" in blocks/ and restart to pick that up',
           { blocks: stale.join(', ') }
@@ -181,7 +185,7 @@ class Blocks {
    * @returns How many rows were added, changed and removed
    */
   async syncSite(siteId: string): Promise<{ added: number; updated: number; removed: number }> {
-    const existing = await WIKI.db
+    const existing = await CARDINAL.db
       .select({
         block: blocksTable.block,
         name: blocksTable.name,
@@ -205,7 +209,7 @@ class Blocks {
         //    `existing` with nothing there and both reach this insert. Without the conflict target
         //    the second write would 23505 on `blocks_composite_idx` and abort `postBoot()`; with it,
         //    the loser silently no-ops and the row it would have written is already there.
-        const [inserted] = await WIKI.db
+        const [inserted] = await CARDINAL.db
           .insert(blocksTable)
           .values({
             siteId,
@@ -231,7 +235,7 @@ class Blocks {
         row.description !== definition.description ||
         row.icon !== definition.icon
       ) {
-        await WIKI.db
+        await CARDINAL.db
           .update(blocksTable)
           .set({
             name: definition.name,
@@ -248,7 +252,7 @@ class Blocks {
       .map((entry: any) => entry.block)
       .filter((key: string) => !definedKeys.includes(key))
     if (orphaned.length > 0) {
-      await WIKI.db
+      await CARDINAL.db
         .delete(blocksTable)
         .where(
           and(
@@ -271,20 +275,20 @@ class Blocks {
    */
   async syncAllSites(): Promise<void> {
     if (!this.manifestLoaded) {
-      WIKI.logger.warn('blocks', 'skipping registration, the manifest could not be read')
+      CARDINAL.logger.warn('blocks', 'skipping registration, the manifest could not be read')
       return
     }
-    const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    const sites = await CARDINAL.db.select({ id: sitesTable.id }).from(sitesTable)
     const total = { added: 0, updated: 0, removed: 0 }
     for (const site of sites) {
-      const counts = await WIKI.models.blocks.syncSite(site.id)
+      const counts = await CARDINAL.models.blocks.syncSite(site.id)
       total.added += counts.added
       total.updated += counts.updated
       total.removed += counts.removed
     }
-    WIKI.logger.info('blocks', 'registered blocks', { sites: sites.length })
+    CARDINAL.logger.info('blocks', 'registered blocks', { sites: sites.length })
     if (total.added || total.updated || total.removed) {
-      WIKI.logger.info('blocks', 'blocks changed on disk', {
+      CARDINAL.logger.info('blocks', 'blocks changed on disk', {
         added: total.added,
         updated: total.updated,
         removed: total.removed
@@ -296,7 +300,7 @@ class Blocks {
    * Fetch the blocks available to a site, built-in first, then by name
    */
   async getSiteBlocks(siteId: string): Promise<SiteBlock[]> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select(blockSelection)
       .from(blocksTable)
       .where(eq(blocksTable.siteId, siteId))
@@ -358,7 +362,7 @@ class Blocks {
   async getCustomBlockDefinitions(
     siteId: string
   ): Promise<{ block: string; props: BlockProp[] }[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ block: blocksTable.block, props: blocksTable.props })
       .from(blocksTable)
       .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.isCustom, true)))
@@ -377,7 +381,7 @@ class Blocks {
    * Child blocks never appear: they have no row of their own, and follow the block they sit in.
    */
   async getEnabledKeys(siteId: string): Promise<Set<string>> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ block: blocksTable.block })
       .from(blocksTable)
       .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.isEnabled, true)))
@@ -498,7 +502,7 @@ class Blocks {
     const ids = states.map((s) => s.id)
     const rows =
       ids.length > 0
-        ? await WIKI.db
+        ? await CARDINAL.db
             .select({
               id: blocksTable.id,
               block: blocksTable.block,
@@ -519,7 +523,7 @@ class Blocks {
 
       const withoutConfig = group.filter((s) => s.config === undefined).map((s) => s.id)
       if (withoutConfig.length > 0) {
-        const result = await WIKI.db
+        const result = await CARDINAL.db
           .update(blocksTable)
           .set({ isEnabled })
           .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, withoutConfig)))
@@ -531,7 +535,7 @@ class Blocks {
           continue
         }
         const config = this.sanitizeConfig(blockById.get(state.id), state.config)
-        const result = await WIKI.db
+        const result = await CARDINAL.db
           .update(blocksTable)
           .set({ isEnabled, config })
           .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, state.id)))
@@ -551,7 +555,7 @@ class Blocks {
    * @returns The code bytes, or `undefined` if there is no such custom block on this site
    */
   async getCustomBlockCode(siteId: string, id: string): Promise<Buffer | undefined> {
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({ code: blockCodeTable.code })
       .from(blockCodeTable)
       .innerJoin(blocksTable, eq(blockCodeTable.blockId, blocksTable.id))
@@ -577,7 +581,7 @@ class Blocks {
     if (this.definitions.some((d) => d.block === tag)) {
       return true
     }
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({ id: blocksTable.id })
       .from(blocksTable)
       .where(
@@ -611,7 +615,7 @@ class Blocks {
     definition: BlockDefinition,
     code: Buffer
   ): Promise<SiteBlock> {
-    return WIKI.db.transaction(async (tx) => {
+    return CARDINAL.db.transaction(async (tx) => {
       let row
       try {
         ;[row] = await tx
@@ -668,7 +672,7 @@ class Blocks {
    * @returns Whether a block was deleted
    */
   async deleteCustomBlock(siteId: string, id: string): Promise<boolean> {
-    return WIKI.db.transaction(async (tx) => {
+    return CARDINAL.db.transaction(async (tx) => {
       const [row] = await tx
         .select({ id: blocksTable.id })
         .from(blocksTable)

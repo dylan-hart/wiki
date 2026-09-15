@@ -10,7 +10,7 @@ import { buildErrorLogContext } from './requestLogContext.ts'
  * `reply.send(error)`. Sending an `Error` from inside a custom error handler re-enters Fastify's own
  * `handleError` and lands at its `fallbackErrorHandler`, which serialises
  * `{ statusCode, code: error.code, message: error.message }` verbatim. `controllers/files.ts`'s
- * uncaught `WIKI.models.assetServing.readContent()` is the concrete case this closes: an `ENOENT`/`EACCES`
+ * uncaught `CARDINAL.models.assetServing.readContent()` is the concrete case this closes: an `ENOENT`/`EACCES`
  * there used to hand an unauthenticated client the absolute deployment path, and a Drizzle/pg
  * failure anywhere in this branch used to hand back raw SQL text naming tables and columns.
  *
@@ -59,7 +59,7 @@ export function buildNonApiErrorResponse(error: any): NonApiErrorResponse {
 
 /**
  * The actual non-`/_api` error handler `index.ts` wires into `app.setErrorHandler`. Answers with
- * `buildNonApiErrorResponse`'s body, logging through `WIKI.logger.error` only for a genuine bug --
+ * `buildNonApiErrorResponse`'s body, logging through `CARDINAL.logger.error` only for a genuine bug --
  * previously these throws reached only Fastify's own pino instance (`index.ts`'s logger option), so
  * they were missing from the admin terminal stream and its backlog.
  *
@@ -76,7 +76,7 @@ export function buildNonApiErrorResponse(error: any): NonApiErrorResponse {
  */
 export function sendNonApiError(error: any, reply: FastifyReply): void {
   if (!error?.statusCode) {
-    WIKI.logger.error('http', 'unhandled error outside /_api', { error })
+    CARDINAL.logger.error('http', 'unhandled error outside /_api', { error })
   }
   const { statusCode, body } = buildNonApiErrorResponse(error)
   reply.code(statusCode).type('application/json').send(body)
@@ -100,14 +100,14 @@ export function apiErrorHandler(error: any, req: FastifyRequest, reply: FastifyR
       message: error.message
     })
   } else {
-    // -> A bare `WIKI.logger.error(error)` with no fields gave an operator no way to trace a 500 back to the
+    // -> A bare `CARDINAL.logger.error(error)` with no fields gave an operator no way to trace a 500 back to the
     //    request that caused it. `req.id` is the same correlation id Fastify's own access log
     //    carries for this request (`genReqId`, in `index.ts`), so the two lines join in an
     //    aggregator.
     // -> `error`, not `warn` (Bug #2650). This branch's own comment already calls an error with no
     //    `statusCode` a bug; a bug that answered a client 500 is exactly what an operator alerting
     //    on `error` must be woken by.
-    WIKI.logger.error('http', 'unhandled error, answered 500', {
+    CARDINAL.logger.error('http', 'unhandled error, answered 500', {
       error,
       ...buildErrorLogContext(req)
     })

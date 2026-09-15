@@ -18,11 +18,11 @@
   to exist alongside it.
 
   Definitions are read the same way the real build does -- AST-parsed out of the raw source text via
-  `rollup/parseAst`, the same parser Rollup's own plugin API exposes as `this.parse()` -- rather than
-  by importing the modules (which register a custom element on load and so cannot run outside a
-  browser) or by running a full `rollup -c` build just to read `compiled/blocks.manifest.json` (this
+  `rolldown/parseAst`, the same parser Rolldown's own plugin API exposes as `this.parse()` -- rather
+  than by importing the modules (which register a custom element on load and so cannot run outside a
+  browser) or by running a full `rolldown -c` build just to read `compiled/blocks.manifest.json` (this
   script has no reason to also resolve, bundle and minify every block's real dependencies). See
-  `rollup.config.mjs`'s `blocksManifest()` plugin, whose `literalToValue()` this script imports and
+  `rolldown.config.mjs`'s `blocksManifest()` plugin, whose `literalToValue()` this script imports and
   reuses so the two extraction paths cannot drift apart.
 
   Usage: node scripts/check-locale-keys.mjs
@@ -31,9 +31,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { globSync } from 'node:fs'
-import { parseAst } from 'rollup/parseAst'
+import { parseAst } from 'rolldown/parseAst'
 
-import { literalToValue } from '../rollup.config.mjs'
+import { literalToValue } from '../rolldown.config.mjs'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const EN_JSON_PATH = path.join(ROOT, '../backend/locales/en.json')

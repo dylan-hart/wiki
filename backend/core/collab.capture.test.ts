@@ -269,7 +269,7 @@ describe('(f) connection cap: per-user and per-address ceilings', () => {
     // -> No peer to wait on: without this, every room's initRoom() would burn a real
     //    PEER_STATE_TIMEOUT querying for a nonexistent peer, the same seeding test (a) above does.
     inst.peerPresence = { known: false, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-user'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'cap-user'
     const userId = 'capped-user'
     const opened: { conn: FakeConn; session: any; pageId: string }[] = []
 
@@ -337,7 +337,7 @@ describe('(f) connection cap: per-user and per-address ceilings', () => {
   test('a connection past the per-address ceiling is refused, regardless of user id', async () => {
     const inst = makeInstance('cap-address')
     inst.peerPresence = { known: false, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-address'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'cap-address'
     const address = '203.0.113.5'
     const opened: { conn: FakeConn; session: any; pageId: string }[] = []
 
@@ -380,7 +380,7 @@ describe('(f) connection cap: per-user and per-address ceilings', () => {
   test('closing a socket releases both its user and address slots', async () => {
     const inst = makeInstance('cap-release')
     inst.peerPresence = { known: false, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-release'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'cap-release'
     const identity = { userId: 'release-user', address: '198.51.100.1' }
     const conn = fakeConn()
     const session: any = { room: null, pending: [] }

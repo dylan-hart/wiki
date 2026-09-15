@@ -18,7 +18,7 @@ function alias(value: string, isAcronym = false): GlossaryAlias {
 /**
  * OpenProject #2038: `invalidateCache()`'s cluster-broadcast half and `subscribeToEvents()`'s
  * inbound handler answering it are pure event-bus wiring, no SQL involved — so, per the
- * "prefer pure unit tests with no WIKI global and no database" guidance, this runs against
+ * "prefer pure unit tests with no CARDINAL global and no database" guidance, this runs against
  * `test/mocks.ts` stubs rather than `test/db.ts`'s real, migrated database, the same way
  * `models/groups.test.ts` / `models/sites.test.ts` / `models/approvals.test.ts` cover their own
  * `broadcastReload()`/`subscribeToEvents()` pairs (there, against a real DB only because their
@@ -30,17 +30,17 @@ describe('glossary.invalidateCache() / subscribeToEvents() (pure, OpenProject #2
   let events: ReturnType<typeof createEventsStub>
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
+    previousWiki = (globalThis as any).CARDINAL
   })
 
   beforeEach(() => {
     cache = createCacheStub()
     events = createEventsStub()
-    ;(globalThis as any).WIKI = { cache, events }
+    ;(globalThis as any).CARDINAL = { cache, events }
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('invalidateCache() deletes the local entry and emits exactly one outbound event carrying the siteId', () => {
@@ -335,7 +335,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
           ]
         })
         .where(eq(groupsTable.id, fixtures.groupId))
-      await WIKI.models.groups.reloadCache()
+      await CARDINAL.models.groups.reloadCache()
 
       const allowed = await glossaryModel.getCachedTerms(fixtures.siteId, noAccessActor)
       assert.equal(allowed.find((t) => t.term === 'GatedTerm')?.link, '/docs/gated-term-target')
@@ -345,7 +345,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
         .update(groupsTable)
         .set({ rules: [] })
         .where(eq(groupsTable.id, fixtures.groupId))
-      await WIKI.models.groups.reloadCache()
+      await CARDINAL.models.groups.reloadCache()
     }
   })
 
@@ -366,20 +366,20 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
   test('a second read within the cache window hits the cache rather than the database', async () => {
     await glossaryModel.createTerm(fixtures.siteId, { term: 'CacheHit', definition: 'Cached.' })
     await glossaryModel.getCachedTerms(fixtures.siteId, actor)
-    const getCallsBefore = (WIKI.cache.get as any).mock.callCount()
+    const getCallsBefore = (CARDINAL.cache.get as any).mock.callCount()
 
     await glossaryModel.getCachedTerms(fixtures.siteId, actor)
 
-    assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
+    assert.equal((CARDINAL.cache.get as any).mock.callCount(), getCallsBefore + 1)
   })
 
   test('a fresh cache entry carries a bounded ttl (OpenProject #2038 defence-in-depth belt)', async () => {
     await glossaryModel.createTerm(fixtures.siteId, { term: 'TtlBound', definition: 'Bounded.' })
-    ;(WIKI.cache.set as any).mock.resetCalls()
+    ;(CARDINAL.cache.set as any).mock.resetCalls()
 
     await glossaryModel.getCachedTerms(fixtures.siteId, actor)
 
-    const setCalls = (WIKI.cache.set as any).mock.calls
+    const setCalls = (CARDINAL.cache.set as any).mock.calls
     assert.equal(setCalls.length, 1, 'expected exactly one cache repopulation for the cold key')
     const [, , options] = setCalls[0].arguments
     assert.ok(

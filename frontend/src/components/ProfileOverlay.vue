@@ -220,7 +220,7 @@ const state = reactive({
  *
  * This component's own breakpoint rather than one of the app's: it is the width at which a nav column
  * shrunk to its own labels (~240px, see the stylesheet) is still more than the content can spare. The
- * stylesheet has to agree with it — `$nav-collapse-max` is the same boundary from the other side. Search's
+ * stylesheet has to agree with it — `899.98px` is the same boundary from the other side. Search's
  * own filter-panel disclosure (`pages/Search.vue`) uses this same number for the same reason: the two
  * cards are the same shape.
  *
@@ -267,26 +267,25 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   Where this card's two desktop assumptions give out. Both are its own, not the app's -- see the comment
   on the media queries at the bottom of this block. Stated as `max` values, just under the width the next
-  layout up starts at, the way `_palette.scss` states the shared ones.
+  layout up starts at, the way the app's shared breakpoints are stated as literals now too (the old
+  Sass `_palette.scss` that once named them is deleted).
 
-  `$nav-collapse-max` has to agree with the 900px `useMinWidth` above it, which is what decides whether
+  `899.98px` has to agree with the 900px `useMinWidth` above it, which is what decides whether
   the disclosure button is rendered at all.
 */
-$nav-collapse-max: 899.98px;
-$nav-shrink-max: 1199.98px;
 
 .layout-profile-card {
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
-  // -> Clips the header and body below to the panel's own rounded corners regardless of their own
-  //    radius (or lack of one), the same trick InboxLayout's card relies on for the same reason.
-  //    Cobalt turns this back off below (OpenProject #2895) -- see that rule's own comment.
+  /* -> Clips the header and body below to the panel's own rounded corners regardless of their own */
+  /*    radius (or lack of one), the same trick InboxLayout's card relies on for the same reason. */
+  /*    Cobalt turns this back off below (OpenProject #2895) -- see that rule's own comment. */
   overflow: hidden;
 
   /*
@@ -297,11 +296,11 @@ $nav-shrink-max: 1199.98px;
     row titles, input values, select values alike -- which is invisible against the dark surface.
     The light value is the black it was already inheriting, so only dark mode changes.
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-surface);
     color: var(--color-text-body);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     color: var(--color-text-dark);
   }
@@ -322,7 +321,7 @@ $nav-shrink-max: 1199.98px;
     rules, reached generically since they select on the shared `.card-header` class). In Ledger
     `--radius-dialog` is 0, so this card keeps doing real work there -- the override is Cobalt-only.
   */
-  @at-root .body--cobalt & {
+  .body--cobalt & {
     overflow: visible;
     background: transparent;
   }
@@ -336,10 +335,10 @@ $nav-shrink-max: 1199.98px;
   flex: 1 1 auto;
   display: flex;
   align-items: stretch;
-  // -> The card above fills whatever the outer `MainOverlayDialog` panel gives it rather than growing
-  //    with its content, so whatever doesn't fit has to scroll internally -- see `.w-page` below,
-  //    which is where that scroll actually happens (the rail scrolls too, but rarely needs to: six
-  //    items fit easily).
+  /* -> The card above fills whatever the outer `MainOverlayDialog` panel gives it rather than growing */
+  /*    with its content, so whatever doesn't fit has to scroll internally -- see `.w-page` below, */
+  /*    which is where that scroll actually happens (the rail scrolls too, but rarely needs to: six */
+  /*    items fit easily). */
   overflow: hidden;
 }
 
@@ -352,11 +351,11 @@ $nav-shrink-max: 1199.98px;
     box-shadow that used to sit alongside the border was a bevel, drawing a second, lighter line just
     inside the first -- which is exactly the relief this language does without.
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-tint-alt);
     border-inline-end: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     border-inline-end: 1px solid var(--color-hairline-dark);
   }
@@ -369,24 +368,24 @@ $nav-shrink-max: 1199.98px;
     color: var(--color-slate);
     border-inline-start: 2px solid transparent;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
 
-    // -> The same "you are here" mark as the inbox rail, the site sidebar and the folder tree
+    /* -> The same "you are here" mark as the inbox rail, the site sidebar and the folder tree */
     &.is-active {
       background-color: var(--color-surface);
       border-inline-start-color: var(--color-accent-fill);
       /* -> The label takes the accent too, not just the bar and the glyph, as the design draws it */
       color: var(--color-accent);
 
-      // -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon
+      /* -> WIcon draws an Iconify reference as <iconify-icon> and anything else via q-icon */
       .w-icon,
       iconify-icon {
         color: var(--color-accent-fill);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-3);
         color: var(--color-text-dark);
 
@@ -403,7 +402,7 @@ $nav-shrink-max: 1199.98px;
   flex: 1 1;
   overflow-y: auto;
 
-  // -> The rail already draws the seam between the two columns; a second line here doubled it
+  /* -> The rail already draws the seam between the two columns; a second line here doubled it */
 
   /*
     The content column has NO padding of its own at the top: `Cardinal Wiki - Profile 3x.dc.html`
@@ -458,7 +457,7 @@ $nav-shrink-max: 1199.98px;
   margin-inline: 20px;
   --w-hairline-color: #{var(--color-tint)};
 
-  @at-root .body--dark & {
+  .body--dark & {
     --w-hairline-color: #{var(--color-hairline-dark)};
   }
 }
@@ -484,7 +483,7 @@ $nav-shrink-max: 1199.98px;
   padding: 16px 20px;
   border-top: 1px solid var(--color-tint);
 
-  @at-root .body--dark & {
+  .body--dark & {
     border-top-color: var(--color-hairline-dark);
   }
 }
@@ -505,13 +504,13 @@ $nav-shrink-max: 1199.98px;
                    than stacking them
 
   Ordered narrowest-last, so each block overrides the one above it where the two speak about the same
-  property. `$nav-*-max` are this component's own -- deliberately not in `_palette.scss`, which is for
-  breakpoints the whole app shares: these two describe when THIS card runs out of room, which is a
-  function of its own nav column and of nothing else.
+  property. These two `max-width` breakpoints are this component's own -- deliberately never shared
+  app-wide breakpoints: they describe when THIS card runs out of room, which is a function of its own
+  nav column and of nothing else.
 */
 
 /* --- Below 1200px: the nav gives up its fixed width -------------------------------------------- */
-@media (max-width: $nav-shrink-max) {
+@media (max-width: 1199.98px) {
   /* -> `auto` basis: the column is as wide as its longest label needs, instead of 300px regardless */
   .layout-profile-sd {
     flex: 0 0 auto;
@@ -519,7 +518,7 @@ $nav-shrink-max: 1199.98px;
 }
 
 /* --- Below 900px: the nav is a disclosure above the content ------------------------------------- */
-@media (max-width: $nav-collapse-max) {
+@media (max-width: 899.98px) {
   .layout-profile-body {
     flex-direction: column;
   }
@@ -528,11 +527,11 @@ $nav-shrink-max: 1199.98px;
   .layout-profile-navbtn {
     justify-content: space-between;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint-alt);
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-bottom: 1px solid var(--color-hairline-dark);
     }
@@ -561,11 +560,11 @@ $nav-shrink-max: 1199.98px;
     flex: none;
     width: 100%;
 
-    @at-root .body--light & {
+    .body--light & {
       border-inline-end: 0;
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       border-inline-end: 0;
       border-bottom: 1px solid var(--color-hairline-dark);
     }

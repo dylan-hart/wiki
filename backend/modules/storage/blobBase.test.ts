@@ -76,8 +76,8 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
 }
 
 beforeEach(() => {
-  ;(WIKI.models.assets.getContent as any).mock.resetCalls()
-  ;(WIKI.logger.info as any).mock.resetCalls()
+  ;(CARDINAL.models.assets.getContent as any).mock.resetCalls()
+  ;(CARDINAL.logger.info as any).mock.resetCalls()
 })
 
 describe('blobBase / keyFor', () => {
@@ -155,7 +155,7 @@ describe('blobBase / activation cache', () => {
 
 describe('blobBase / per-asset lifecycle', () => {
   test('assetUploaded fetches the bytes and puts them under the site-scoped key', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
+    ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
       data: Buffer.from('hello'),
       mimeType: 'text/plain',
       fileName: 'notes.txt'
@@ -181,7 +181,7 @@ describe('blobBase / per-asset lifecycle', () => {
   })
 
   test('assetUploaded is a no-op when the asset was deleted again before delivery', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
+    ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
     const driver = makeDriver()
     const module = blobStorageModule(driver)
 
@@ -229,7 +229,7 @@ describe('blobBase / exportAll', () => {
     const target = makeTarget()
     target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
 
-    WIKI.models.assets.streamAll = async function* () {
+    CARDINAL.models.assets.streamAll = async function* () {
       yield {
         id: 'a1',
         fileName: 'pic.png',
@@ -261,7 +261,7 @@ describe('blobBase / exportAll', () => {
     const module = blobStorageModule(driver)
     const target = makeTarget()
 
-    WIKI.models.assets.streamAll = async function* () {
+    CARDINAL.models.assets.streamAll = async function* () {
       yield {
         id: 'a1',
         fileName: 'pic.png',
@@ -275,7 +275,7 @@ describe('blobBase / exportAll', () => {
 
     await module.exportAll(target)
 
-    const logged = (WIKI.logger.info as any).mock.calls.at(-1)!.arguments as [
+    const logged = (CARDINAL.logger.info as any).mock.calls.at(-1)!.arguments as [
       string,
       string,
       Record<string, unknown>

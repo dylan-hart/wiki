@@ -38,7 +38,7 @@ function workingConnector(counts: Partial<Record<keyof SourceConnector, number>>
  * `workingConnector`'s bare `{id: i}` fixtures, which never carry a `name`/`providerKey` and so are
  * always `skipped`/`flagged` before reaching a writer call. Used (with `dryRun: true`, so
  * `createDryRunWriter()` is the writer in play — see `phases/users.ts`) to exercise real per-record
- * `'created'` outcomes, including write-capability signaling, with no real `WIKI`/db needed. */
+ * `'created'` outcomes, including write-capability signaling, with no real `CARDINAL`/db needed. */
 function creatableUsersGroupsConnector(): SourceConnector {
   async function* groups(): AsyncGenerator<SourceRecord> {
     yield { id: 1, name: 'Editors', isSystem: false, permissions: [], pageRules: [] }
@@ -76,7 +76,7 @@ function contextWith(source: SourceConnector): MigrationContext {
     // Task 14: real values, but never actually exercised by these tests -- every record `usersPhase`
     // reads below either fails its own converter's requirements before a writer call (no `name`/no
     // `providerKey`) or is routed to `recorder.unmappable()`, so nothing here ever reaches
-    // `createDrizzleWriter()`'s real `WIKI`/db-touching methods. See
+    // `createDrizzleWriter()`'s real `CARDINAL`/db-touching methods. See
     // `phases/users.integration.test.ts` for coverage of the real write path against a real DB.
     localStrategyId: 'test-local-strategy-uuid',
     systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
@@ -120,7 +120,7 @@ function fakeSourcePage(overrides: Partial<SourceRecord> = {}): SourceRecord {
  * with `'empty-path'` before ever reaching `createPage()`. `pageHistory()`/`navigation()` are working
  * but empty, so both entities read cleanly with nothing to merge/import. Used (with `dryRun: true`, so
  * every dependency's placeholder/no-op branch is in play — see `phases/content.ts`) to exercise real
- * per-record `'created'` outcomes, including write-capability signaling, with no real `WIKI`/db
+ * per-record `'created'` outcomes, including write-capability signaling, with no real `CARDINAL`/db
  * needed. */
 function creatableContentConnector(pages: SourceRecord[] = [fakeSourcePage()]): SourceConnector {
   async function* pagesGen(): AsyncGenerator<SourceRecord> {
@@ -144,7 +144,7 @@ function creatableContentConnector(pages: SourceRecord[] = [fakeSourcePage()]): 
  * nested-folder asset with a mapped author, and two comments — one on an already-imported page, one
  * whose `pageId` names a page that was never imported. Used with `dryRun: true` (so `phases/assets.ts`'s
  * `assetsModel`/`treeModel`/`commentsModel` closures take their placeholder-id branch, never touching
- * the ambient `WIKI`) to exercise real per-record `'success'`/`'failure'` outcomes with no real `WIKI`/db
+ * the ambient `CARDINAL`) to exercise real per-record `'success'`/`'failure'` outcomes with no real `CARDINAL`/db
  * needed. */
 function creatableAssetsConnector(): SourceConnector {
   async function* assetsGen(): AsyncGenerator<SourceAssetFile> {
@@ -264,7 +264,7 @@ describe('migration phases', () => {
   test('contentPhase: a navigation item with an invalid/unvalidated target is blanked with a warning, not a thrown error that aborts the phase (review fix)', async () => {
     // -> navigation-import.ts's mapNavigationItem() carries an 'external'/'externalblank' target
     //    through verbatim, unvalidated -- a schemeless target like this one would have made the real
-    //    WIKI.models.navigation.setNavItems() throw CustomError('navigationInvalidTarget')
+    //    CARDINAL.models.navigation.setNavItems() throw CustomError('navigationInvalidTarget')
     //    (assertValidNavItems()), which define-phase.ts#readEntity() does not special-case the way it
     //    does NotYetImplementedError -- before the fix, this would have surfaced as the WHOLE phase
     //    reporting status: 'error' with an emptied report, discarding every already-imported page.
@@ -303,9 +303,9 @@ describe('migration phases', () => {
     //    every one fails 'read-error' before ever reaching a real upload() call -- routed to
     //    recorder.conflict(), never recorder.create(). `dryRun: true` (unlike `contextWith()`'s own
     //    `dryRun: false` default) for the same reason every other assetsPhase test in this file uses
-    //    it: it is what keeps `entities()` construction fully WIKI-free (see `phases/assets.ts`'s own
+    //    it: it is what keeps `entities()` construction fully CARDINAL-free (see `phases/assets.ts`'s own
     //    "Dry run" doc section, and `resolvePrimaryLocale()` in `context.ts`) — this test has no live
-    //    `WIKI` global to read from, and doesn't need one either way, since no record here ever
+    //    `CARDINAL` global to read from, and doesn't need one either way, since no record here ever
     //    reaches a real write regardless of `dryRun`.
     const result = await assetsPhase.run({
       ...contextWith(workingConnector({ assets: 9 })),

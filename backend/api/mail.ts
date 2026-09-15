@@ -56,9 +56,9 @@ async function routes(app: FastifyInstance) {
     },
     async () => {
       return {
-        ...WIKI.config.mail,
-        pass: WIKI.config.mail?.pass?.length > 0 ? PASSWORD_MASK : '',
-        dkimPrivateKey: WIKI.config.mail?.dkimPrivateKey?.length > 0 ? PASSWORD_MASK : ''
+        ...CARDINAL.config.mail,
+        pass: CARDINAL.config.mail?.pass?.length > 0 ? PASSWORD_MASK : '',
+        dkimPrivateKey: CARDINAL.config.mail?.dkimPrivateKey?.length > 0 ? PASSWORD_MASK : ''
       }
     }
   )
@@ -137,11 +137,11 @@ async function routes(app: FastifyInstance) {
         delete patch.dkimPrivateKey
       }
 
-      const previousConfig = WIKI.config.mail
-      WIKI.config.mail = { ...previousConfig, ...patch }
+      const previousConfig = CARDINAL.config.mail
+      CARDINAL.config.mail = { ...previousConfig, ...patch }
 
-      if (!(await WIKI.configSvc.saveToDb(['mail']))) {
-        WIKI.config.mail = previousConfig
+      if (!(await CARDINAL.configSvc.saveToDb(['mail']))) {
+        CARDINAL.config.mail = previousConfig
         return reply.internalServerError('Failed to save mail configuration.')
       }
 
@@ -200,7 +200,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        await WIKI.models.mail.sendTestEmail({
+        await CARDINAL.models.mail.sendTestEmail({
           to: req.body.recipientEmail,
           locale: req.session?.user?.locale
         })
@@ -210,7 +210,7 @@ async function routes(app: FastifyInstance) {
             'Mail is not configured. Set an SMTP host under Mail Configuration before sending a test email.'
           )
         }
-        WIKI.logger.warn('mail', 'sending the test email failed', { error: err })
+        CARDINAL.logger.warn('mail', 'sending the test email failed', { error: err })
         switch (classifyMailError(err)) {
           case 'auth':
             return reply.badRequest(

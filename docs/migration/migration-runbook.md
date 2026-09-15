@@ -167,13 +167,13 @@ holds per record for every phase except `settings` (whose single `settings` enti
 `settings`-tagged row into exactly one `site-config` sentinel write — see `report.ts`'s own doc
 comment):
 
-| Field               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `found`             | Every record this phase read off the source.                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `wouldCreate`       | Records with no existing destination match — a real run creates these.                                                                                                                                                                                                                                                                                                                                                                        |
-| `wouldSkipExisting` | Records the phase already found a matching entry for at the destination and left alone (the `users`/`content`(pages only)/`assets` phases check this), or — in the `settings` phase — an authentication/storage row whose target module is real but whose config could not be safely carried across (a `flagged` row, logged but not written). This is **not** re-run idempotency: against a fresh destination it is nearly always zero. |
-| `conflicts`         | A write that was attempted and did not succeed — a genuine problem, not an idempotency skip. Covers a `users`/`groups`/`content`/`assets`/`comments` record whose write failed (a malformed source row, a real insert error, a page's sibling-path collision), and — in the `settings` phase specifically — two sources' rows claiming the same authentication module, or a storage row naming a module with no pre-seeded target row. Review every entry here before the real run.                                                          |
-| `unmappable`        | Records this migration will never be able to write, dry run or not — see below.                                                                                                                                                                                                                                                                                                                                                               |
+| Field               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `found`             | Every record this phase read off the source.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `wouldCreate`       | Records with no existing destination match — a real run creates these.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `wouldSkipExisting` | Records the phase already found a matching entry for at the destination and left alone (the `users`/`content`(pages only)/`assets` phases check this), or — in the `settings` phase — an authentication/storage row whose target module is real but whose config could not be safely carried across (a `flagged` row, logged but not written). This is **not** re-run idempotency: against a fresh destination it is nearly always zero.                                            |
+| `conflicts`         | A write that was attempted and did not succeed — a genuine problem, not an idempotency skip. Covers a `users`/`groups`/`content`/`assets`/`comments` record whose write failed (a malformed source row, a real insert error, a page's sibling-path collision), and — in the `settings` phase specifically — two sources' rows claiming the same authentication module, or a storage row naming a module with no pre-seeded target row. Review every entry here before the real run. |
+| `unmappable`        | Records this migration will never be able to write, dry run or not — see below.                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### Unmappable records — what to do about each category
 
@@ -181,14 +181,15 @@ comment):
 reasons are defined; two are actually emitted by this branch's phases:
 
 - **`unsupported-auth-provider`** — a 2.x `users` row, or a 2.x `authentication` (strategy) row, whose
-  provider/module is one of the five 3.0 genuinely has no module directory for at all: `azure`,
-  `dropbox`, `facebook`, `firebase`, `rocketchat` (`backend/migration/report.ts`'s
+  provider/module is one of the three 3.0 genuinely has no module directory for at all: `azure`,
+  `dropbox`, `firebase` (`backend/migration/report.ts`'s
   `UNSUPPORTED_AUTH_PROVIDERS`, cross-checked live against `backend/modules/authentication/` by
-  `report.test.ts`). 3.0 now ships sixteen authentication modules — `auth0`, `cas`, `discord`,
-  `github`, `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`, `okta`,
-  `saml`, `slack`, `twitch` — so a 2.x user or strategy on `ldap`/`saml`/`cas`/`auth0`/`okta` is **not**
-  in this unmappable bucket any more; those five providers do have a 3.0 module. A user/strategy row
-  reported this way is dropped entirely: **no account or strategy is created for it at all.** Before
+  `report.test.ts`). 3.0 now ships eighteen authentication modules — `auth0`, `cas`, `discord`,
+  `facebook`, `github`, `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`,
+  `okta`, `rocketchat`, `saml`, `slack`, `twitch` — so a 2.x user or strategy on
+  `ldap`/`saml`/`cas`/`auth0`/`okta`/`facebook`/`rocketchat` is **not** in this unmappable bucket any
+  more; those seven providers do have a 3.0 module. A user/strategy row reported this way is dropped
+  entirely: **no account or strategy is created for it at all.** Before
   proceeding, get the list of affected users from this section of the report and decide, per your own
   deployment, whether they get manual account recreation after cutover, or nothing.
 - **`unsupported-storage-module`** — a 2.x `storage` row whose `key` names a module 3.0 has no
@@ -196,19 +197,19 @@ reasons are defined; two are actually emitted by this branch's phases:
   `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3). No storage target is
   updated for that module; the site's default per-module storage target (seeded at site-creation
   time) is simply left at its defaults.
-**Provider-fallback accounts need a password reset.** A 2.x user whose provider is anything other
-than `local` **and** not one of the five unsupported providers above (i.e. every user on `google`,
-`github`, `oidc`, `ldap`, `saml`, `cas`, `auth0`, `okta`, `gitlab`, `keycloak`, `microsoft`, `oauth2`,
-`discord`, `slack`, or `twitch`) is still imported — just not through a real provider link. Because
-automatic OAuth/LDAP/SAML re-linking isn't built yet, every such user is created as a **local-strategy
-account with a random, unusable password and `mustChangePwd` forced to `true`**, with the source
-`providerKey` preserved on that same auth entry (`migratedFallbackProvider`) purely for admin
-visibility. This is tracked internally as the importer runs (`UserImporter.providerFallbacks`), and
-after a live `users` phase it is queryable directly: `GET /_api/users/fallback-accounts`
-(`read:users`/`manage:users`) lists every account still on `mustChangePwd` together with its original
-`providerKey`, oldest-created first — get that list before communicating cutover instructions to
-affected users. The account drops off this list on its own once it relinks via SSO
-(`models/login.ts#clearMigratedFallbackLocalAuth`).
+  **Provider-fallback accounts need a password reset.** A 2.x user whose provider is anything other
+  than `local` **and** not one of the five unsupported providers above (i.e. every user on `google`,
+  `github`, `oidc`, `ldap`, `saml`, `cas`, `auth0`, `okta`, `gitlab`, `keycloak`, `microsoft`, `oauth2`,
+  `discord`, `slack`, or `twitch`) is still imported — just not through a real provider link. Because
+  automatic OAuth/LDAP/SAML re-linking isn't built yet, every such user is created as a **local-strategy
+  account with a random, unusable password and `mustChangePwd` forced to `true`**, with the source
+  `providerKey` preserved on that same auth entry (`migratedFallbackProvider`) purely for admin
+  visibility. This is tracked internally as the importer runs (`UserImporter.providerFallbacks`), and
+  after a live `users` phase it is queryable directly: `GET /_api/users/fallback-accounts`
+  (`read:users`/`manage:users`) lists every account still on `mustChangePwd` together with its original
+  `providerKey`, oldest-created first — get that list before communicating cutover instructions to
+  affected users. The account drops off this list on its own once it relinks via SSO
+  (`models/login.ts#clearMigratedFallbackLocalAuth`).
 
 ### Not migrated at all
 
@@ -241,10 +242,11 @@ order) writes straight through the same model-layer paths a live admin action ta
 `WIKI.models.storage.updateTarget()` for `settings`; `WIKI.models.groups.createGroupFromImport()` and a
 direct `users`/`userGroups` insert for `users`; `WIKI.models.pages.createPage()` plus a direct
 `pageHistory` insert and `WIKI.models.navigation.setNavItems()` for `content`; `WIKI.models.tree.getFolder()`
-+ `WIKI.models.assets.upload()` and `WIKI.models.comments.create()` for `assets`. Nothing here is a
-second, migration-only writer that could drift from what the live app does.
 
-- **`--only <phases>`** — run only a subset of phases (comma-separated: `settings`, `users`, `content`,
+- `WIKI.models.assets.upload()` and `WIKI.models.comments.create()` for `assets`. Nothing here is a
+  second, migration-only writer that could drift from what the live app does.
+
+* **`--only <phases>`** — run only a subset of phases (comma-separated: `settings`, `users`, `content`,
   `assets`) instead of everything. Useful for exercising one phase in isolation against a scratch
   destination while developing/testing a migration plan. **Not a safe way to resume a partially-failed
   live run**: re-running a phase that already wrote some rows is a fresh attempt to insert the same
@@ -252,7 +254,7 @@ second, migration-only writer that could drift from what the live app does.
   is guaranteed to always start empty — will generally fail on a natural-key collision rather than
   cleanly skip what's already there. See the top of this document: a live-run failure means truncating
   the destination and restarting from step 1, not patching forward with `--only`.
-- **`--report-file`** — keep doing this on the live run too. You want this exact JSON file for step 5.
+* **`--report-file`** — keep doing this on the live run too. You want this exact JSON file for step 5.
 
 The command exits non-zero if any phase reports `status: 'error'` — check the printed summary and the
 JSON report for `errors` on any phase before moving on. Per the note above, the correct recovery from
@@ -280,8 +282,8 @@ This does two independent checks (`backend/migration/verify.ts`):
 2. **Content spot-check** — hash-compares a random sample of pages (`--sample-size`, default 20) or
    an explicit list (`--sample-paths path1,path2,...`) between the source's raw `content` (markdown
    source, not rendered HTML) and the migrated 3.0 page's own stored `content`. A page whose content
-   the import deliberately rewrote — a 2.x draw.io `\`\`\`diagram` fence or a bare `\`\`\`mermaid`
-   fence, both converted to a working 3.0 block (`content-staging.ts`'s `stageContent()`) — will
+   the import deliberately rewrote — a 2.x draw.io `\`\`\`diagram`fence or a bare`\`\`\`mermaid`
+fence, both converted to a working 3.0 block (`content-staging.ts`'s `stageContent()`) — will
    correctly report a **mismatch** here: its 3.0 content is supposed to differ from 2.x's. Not a bug
    to chase; confirm it by hand instead (open the page, the diagram should actually draw).
 

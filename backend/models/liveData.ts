@@ -70,7 +70,7 @@ function anonymousRateLimitKey(siteId: string): string {
  * fresh fetches/minute. 120/minute leaves headroom above that while still bounding a caller that is
  * deliberately varying the request to bypass the response cache.
  *
- * Counted via `WIKI.models.rateLimits.consume` (OpenProject #1700) rather than `WIKI.cache`: the
+ * Counted via `CARDINAL.models.rateLimits.consume` (OpenProject #1700) rather than `CARDINAL.cache`: the
  * counter used to live in the same LRU the response cache, the glossary term map and the locale list
  * all share, so ordinary cache traffic could evict a credential's counter mid-window and silently
  * reset its count. `consume` is durable and keyed per credential, independent of both cache churn and
@@ -101,7 +101,7 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  * A stable, fixed-width cache key for one site/credential/url/jsonPath combination (OpenProject
  * #2185): `url` and `jsonPath` are author-supplied and otherwise unbounded, so concatenating them raw
  * (as this used to) let an arbitrarily long request grow the cache key without limit — including
- * evicting other entries this same `WIKI.cache` instance holds. Hashing collapses either one to a
+ * evicting other entries this same `CARDINAL.cache` instance holds. Hashing collapses either one to a
  * fixed width regardless of input length.
  */
 function buildCacheKey(
@@ -153,7 +153,7 @@ function buildCacheKey(
  * has already been loaded and has already passed its allowlist and scheme checks — an id that
  * resolves to nothing must not be able to burn down another (or a future) credential's budget.
  *
- * `WIKI.config.offline` is a fourth, independent guard (OpenProject #2212), checked immediately after
+ * `CARDINAL.config.offline` is a fourth, independent guard (OpenProject #2212), checked immediately after
  * the cache lookup and before anything else on the fresh-fetch path — including the DNS resolution
  * {@link assertNotPrivateAddress} performs. A cache hit is still served (nothing is reached), but a
  * fresh fetch refuses with a 503 rather than reaching out, the same way `diagramRender.ts` gates its
@@ -196,12 +196,12 @@ class LiveData {
 
     const refreshSeconds = clampRefreshSeconds(request.refreshInterval)
     const cacheKey = buildCacheKey(siteId, request.credentialId, request.url, request.jsonPath)
-    const cached = WIKI.cache.get(cacheKey) as LiveDataResult | undefined
+    const cached = CARDINAL.cache.get(cacheKey) as LiveDataResult | undefined
     if (cached) {
       return cached
     }
 
-    if (WIKI.config.offline) {
+    if (CARDINAL.config.offline) {
       throw new CustomError(
         'liveDataOffline',
         'Cardinal.js is in offline mode and cannot reach this endpoint to resolve live data.',
@@ -213,7 +213,7 @@ class LiveData {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (request.credentialId) {
-      const credential = await WIKI.models.blockCredentials.getCredentialForResolve(
+      const credential = await CARDINAL.models.blockCredentials.getCredentialForResolve(
         siteId,
         request.credentialId
       )
@@ -293,7 +293,7 @@ class LiveData {
         value,
         fetchedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
-      WIKI.cache.set(cacheKey, result, { ttl: refreshSeconds * 1000 })
+      CARDINAL.cache.set(cacheKey, result, { ttl: refreshSeconds * 1000 })
       return result
     } finally {
       await dispatcher.close()
@@ -306,16 +306,16 @@ class LiveData {
    * `rateLimitKey` is a credential id for a credentialed request, or {@link anonymousRateLimitKey}'s
    * per-site key for a credential-free one — each is its own independent budget.
    *
-   * Delegates to `WIKI.models.rateLimits.consume` (OpenProject #1700) — the same durable,
+   * Delegates to `CARDINAL.models.rateLimits.consume` (OpenProject #1700) — the same durable,
    * postgres-backed fixed-window limiter `models/hooks.ts#emit()` uses for webhook delivery — rather
-   * than counting in `WIKI.cache`. A single upsert reads, rolls over, increments and possibly bans the
+   * than counting in `CARDINAL.cache`. A single upsert reads, rolls over, increments and possibly bans the
    * row atomically, so this is also safe across a cluster of backend instances sharing one counter per
    * credential, not just within one process.
    *
    * @throws {CustomError} `Too Many Requests` (429) once the count exceeds the cap.
    */
   private async assertWithinRateLimit(rateLimitKey: string): Promise<void> {
-    const verdict = await WIKI.models.rateLimits.consume(
+    const verdict = await CARDINAL.models.rateLimits.consume(
       `${RATE_LIMIT_PREFIX}${rateLimitKey}`,
       RATE_LIMIT_POLICY
     )

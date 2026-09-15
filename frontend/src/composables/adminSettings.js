@@ -26,9 +26,9 @@ import { useSiteStore } from '@/stores/site'
  * mapping and any action beyond loading and saving.
  *
  * `load()` also owns not silently reverting a reader's own edit (Task #3195): a response is applied
- * only if no newer `load()` call has since started and no tracked field (`state.config`, or each
- * `extraState` key) changed while its fetch was in flight -- otherwise it is dropped rather than
- * merged over whatever the reader has done since.
+ * only if no newer `load()` call has since started and no tracked field -- `state.config`, each
+ * `extraState` key, or both together when a page configures both -- changed while its fetch was in
+ * flight -- otherwise it is dropped rather than merged over whatever the reader has done since.
  *
  * @param {object} opts
  * @param {string} opts.i18nPrefix The page's locale key stem -- `<prefix>.loadFailed`,
@@ -111,15 +111,15 @@ export function useAdminSettings({
   let requestGeneration = 0
 
   function snapshotTracked() {
-    if (defaults) {
-      return JSON.stringify(state.config)
+    if (!defaults && !extraState) {
+      return null
     }
-    if (extraState) {
-      return JSON.stringify(
-        Object.fromEntries(Object.keys(extraState).map((key) => [key, state[key]]))
-      )
-    }
-    return null
+    return JSON.stringify({
+      ...(defaults ? { config: state.config } : {}),
+      ...(extraState
+        ? Object.fromEntries(Object.keys(extraState).map((key) => [key, state[key]]))
+        : {})
+    })
   }
 
   async function load() {

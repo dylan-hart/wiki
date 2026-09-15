@@ -63,7 +63,7 @@ before(async () => {
   userId = fixtures.userId
   classificationId = fixtures.classificationId
 
-  const targets = await WIKI.db
+  const targets = await CARDINAL.db
     .insert(storageTable)
     .values([
       { siteId, module: 'test-git' },
@@ -83,7 +83,7 @@ after(async () => {
 
 /** Inserts a page owned by the fixture site/user, returning its id. */
 async function makePage(path: string): Promise<string> {
-  const [row] = await WIKI.db
+  const [row] = await CARDINAL.db
     .insert(pagesTable)
     .values({
       siteId,
@@ -104,7 +104,7 @@ async function makePage(path: string): Promise<string> {
 
 /** Inserts an asset owned by the fixture site/user, returning its id. */
 async function makeAsset(fileName: string): Promise<string> {
-  const [row] = await WIKI.db
+  const [row] = await CARDINAL.db
     .insert(assetsTable)
     .values({ siteId, authorId: userId, fileName, fileExt: 'png' })
     .returning({ id: assetsTable.id })
@@ -116,7 +116,7 @@ async function makeAsset(fileName: string): Promise<string> {
  *
  * The model used to carry `getState`/`getStatesForContent`/`getStatesForTarget` for exactly this, but
  * nothing in production ever called any of the three — a read method that exists only so its own test
- * can assert against it is not model surface, it is a fixture. `WIKI.db` is the fixture connection
+ * can assert against it is not model surface, it is a fixture. `CARDINAL.db` is the fixture connection
  * `setupTestDb()` installs, which is what those methods read through too.
  */
 type SyncStateRow = typeof contentSyncStateTable.$inferSelect
@@ -127,7 +127,7 @@ async function readState(
   contentId: string,
   targetId: string
 ): Promise<SyncStateRow | null> {
-  const rows = await WIKI.db
+  const rows = await CARDINAL.db
     .select()
     .from(contentSyncStateTable)
     .where(
@@ -146,7 +146,7 @@ async function readStatesForContent(
   contentType: SyncContentType,
   contentId: string
 ): Promise<SyncStateRow[]> {
-  return WIKI.db
+  return CARDINAL.db
     .select()
     .from(contentSyncStateTable)
     .where(
@@ -159,7 +159,7 @@ async function readStatesForContent(
 
 /** Every content item's row on one target. */
 async function readStatesForTarget(targetId: string): Promise<SyncStateRow[]> {
-  return WIKI.db
+  return CARDINAL.db
     .select()
     .from(contentSyncStateTable)
     .where(eq(contentSyncStateTable.targetId, targetId))
@@ -167,7 +167,7 @@ async function readStatesForTarget(targetId: string): Promise<SyncStateRow[]> {
 
 /** A fresh storage target of its own, so a count over it is not shared with any other test. */
 async function makeTarget(module: string): Promise<string> {
-  const [row] = await WIKI.db
+  const [row] = await CARDINAL.db
     .insert(storageTable)
     .values({ siteId, module })
     .returning({ id: storageTable.id })
@@ -311,7 +311,7 @@ test('countOutOfDate counts a page updated after its last sync again', { skip },
   //    this assertion when the two drifted (OpenProject #2737, previously quarantined). Reading
   //    Postgres's own `now()` once and deriving both timestamps from it makes the ordering a fact
   //    about one clock, not two.
-  const [{ dbNow }] = (await WIKI.db.execute(sql`select now() as "dbNow"`)).rows as [
+  const [{ dbNow }] = (await CARDINAL.db.execute(sql`select now() as "dbNow"`)).rows as [
     { dbNow: string }
   ]
   await contentSync.recordSuccess({
@@ -322,7 +322,7 @@ test('countOutOfDate counts a page updated after its last sync again', { skip },
     syncedAt: Temporal.Instant.from(dbNow)
   })
   const whileSynced = await contentSync.countOutOfDate('page', targetId, { siteId })
-  await WIKI.db
+  await CARDINAL.db
     .update(pagesTable)
     .set({
       title: 'edited after sync',
@@ -370,7 +370,7 @@ test('countOutOfDate is scoped to its contentType, not just the target', { skip 
 })
 
 test('getTargetSummary reports nothing for a target with no state at all', { skip }, async () => {
-  const targets = await WIKI.db
+  const targets = await CARDINAL.db
     .insert(storageTable)
     .values({ siteId, module: 'test-summary-empty' })
     .returning({ id: storageTable.id })
@@ -387,7 +387,7 @@ test(
   'getTargetSummary reports the most recent success and out-of-date count',
   { skip },
   async () => {
-    const targets = await WIKI.db
+    const targets = await CARDINAL.db
       .insert(storageTable)
       .values({ siteId, module: 'test-summary-synced' })
       .returning({ id: storageTable.id })
@@ -415,7 +415,7 @@ test(
   async () => {
     // -> A brand-new target has no contentSyncState rows at all, so every page and asset on the site
     //    matches through the `isNull(lastSyncedAt)` disjunct -- this is what pins `getTargetSummary`
-    //    to `countOutOfDate`'s aggregate path (WIKI.db.$count over the LEFT JOIN) rather than
+    //    to `countOutOfDate`'s aggregate path (CARDINAL.db.$count over the LEFT JOIN) rather than
     //    silently falling back to fetching and counting rows.
     const targetId = await makeTarget('test-summary-never-synced')
     await makePage('never-synced-summary-page')
@@ -423,8 +423,8 @@ test(
 
     const [summary, pageCount, assetCount] = await Promise.all([
       contentSync.getTargetSummary(targetId, { siteId }),
-      WIKI.db.$count(pagesTable, eq(pagesTable.siteId, siteId)),
-      WIKI.db.$count(assetsTable, eq(assetsTable.siteId, siteId))
+      CARDINAL.db.$count(pagesTable, eq(pagesTable.siteId, siteId)),
+      CARDINAL.db.$count(assetsTable, eq(assetsTable.siteId, siteId))
     ])
 
     // -> Every page/asset ever created against this shared `siteId` (across earlier tests in this
@@ -437,7 +437,7 @@ test(
 )
 
 test('getTargetSummary surfaces the most recent error', { skip }, async () => {
-  const targets = await WIKI.db
+  const targets = await CARDINAL.db
     .insert(storageTable)
     .values({ siteId, module: 'test-summary-error' })
     .returning({ id: storageTable.id })
@@ -466,7 +466,7 @@ test(
   'getTargetSummary keeps surfacing an error with no later success on the target',
   { skip },
   async () => {
-    const targets = await WIKI.db
+    const targets = await CARDINAL.db
       .insert(storageTable)
       .values({ siteId, module: 'test-summary-stale-none' })
       .returning({ id: storageTable.id })
@@ -489,7 +489,7 @@ test(
   "getTargetSummary hides a page's error once a *different* item has since synced successfully",
   { skip },
   async () => {
-    const targets = await WIKI.db
+    const targets = await CARDINAL.db
       .insert(storageTable)
       .values({ siteId, module: 'test-summary-stale-cleared' })
       .returning({ id: storageTable.id })
@@ -533,7 +533,7 @@ test(
   'getTargetSummary still surfaces a fresh error even after an earlier success on the target',
   { skip },
   async () => {
-    const targets = await WIKI.db
+    const targets = await CARDINAL.db
       .insert(storageTable)
       .values({ siteId, module: 'test-summary-fresh-error' })
       .returning({ id: storageTable.id })
@@ -580,7 +580,7 @@ test(
     const originalTz = process.env.TZ
     process.env.TZ = 'America/New_York'
     try {
-      const targets = await WIKI.db
+      const targets = await CARDINAL.db
         .insert(storageTable)
         .values({ siteId, module: 'test-tz-roundtrip' })
         .returning({ id: storageTable.id })
@@ -616,7 +616,7 @@ async function runStaleCheck(
   const originalTz = process.env.TZ
   process.env.TZ = tz
   try {
-    const targets = await WIKI.db
+    const targets = await CARDINAL.db
       .insert(storageTable)
       .values({ siteId, module: `test-tz-stale-${tz}-${successAfterFailure}-${Date.now()}` })
       .returning({ id: storageTable.id })
@@ -778,8 +778,8 @@ test('forgetContentBatch is a no-op for an empty id list', { skip }, async () =>
 
 // ---------------------------------------------------------------------------------------------
 // Integration: deleting a page through the real model cleans up its contentSyncState rows. Uses
-// the shared `test/db.ts` fixture (its own migrated schema + full `WIKI.models`) rather than the
-// hand-rolled `WIKI` above, because this needs `pages.deletePage`'s real dependency graph
+// the shared `test/db.ts` fixture (its own migrated schema + full `CARDINAL.models`) rather than the
+// hand-rolled `CARDINAL` above, because this needs `pages.deletePage`'s real dependency graph
 // (`pageHistory`, `tree`, `navigation`, `glossary`, `search`, `hooks`, `storage`), not just `db`.
 // ---------------------------------------------------------------------------------------------
 

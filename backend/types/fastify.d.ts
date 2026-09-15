@@ -43,6 +43,7 @@ declare module 'fastify' {
       email: string
       name: string
       hasAvatar?: boolean
+      avatarProviderUrl?: string | null
       timezone?: string
       dateFormat?: string
       timeFormat?: string

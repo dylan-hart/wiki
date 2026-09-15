@@ -48,7 +48,7 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      const rows = await WIKI.models.pageWatchEvents.listForUser(userId, req.params.siteId)
+      const rows = await CARDINAL.models.pageWatchEvents.listForUser(userId, req.params.siteId)
 
       // -> Resolved once per distinct actor in this page of results, not once per row: several
       //    notifications very plausibly share the same actor (see the identical pattern and reasoning
@@ -63,7 +63,7 @@ async function routes(app: FastifyInstance) {
         }
         let pending = actorNames.get(actorId)
         if (!pending) {
-          pending = WIKI.models.users
+          pending = CARDINAL.models.users
             .getById(actorId)
             .then((actorUser: any) => actorUser?.name ?? 'Someone')
           actorNames.set(actorId, pending)
@@ -108,7 +108,7 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      const count = await WIKI.models.pageWatchEvents.unreadCount(userId, req.params.siteId)
+      const count = await CARDINAL.models.pageWatchEvents.unreadCount(userId, req.params.siteId)
       return { count }
     }
   )
@@ -148,7 +148,10 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      const found = await WIKI.models.pageWatchEvents.markRead(req.params.notificationId, userId)
+      const found = await CARDINAL.models.pageWatchEvents.markRead(
+        req.params.notificationId,
+        userId
+      )
       if (!found) {
         return reply.notFound('This notification does not exist.')
       }

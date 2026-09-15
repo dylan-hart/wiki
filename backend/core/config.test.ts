@@ -38,7 +38,7 @@ await ensureTemporal()
  * threw `promise.trim is not a function` — the `catch` block always ran and `process.exit(1)` killed
  * the process. Fixed by awaiting the read before calling `.trim()`.
  *
- * `WIKI.ROOTPATH`/`WIKI.SERVERPATH` point at a throwaway fixture directory rather than the real repo
+ * `CARDINAL.ROOTPATH`/`CARDINAL.SERVERPATH` point at a throwaway fixture directory rather than the real repo
  * files, so this stays a self-contained unit test of `init()`'s DB_PASS_FILE branch instead of also
  * exercising the real `config.yml`/`base.yml` contents.
  */
@@ -91,10 +91,10 @@ after(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-test('reads and trims the DB_PASS_FILE contents into WIKI.config.db.pass', async () => {
+test('reads and trims the DB_PASS_FILE contents into CARDINAL.config.db.pass', async () => {
   await configSvc.init(true)
 
-  const wiki = (globalThis as any).WIKI
+  const wiki = (globalThis as any).CARDINAL
   assert.equal(wiki.config.db.pass, 'sup3rSecret')
 })
 
@@ -142,23 +142,23 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
       JSON.stringify({ version: '0.0.0-test', releaseDate: '2026-01-01', dev: true })
     )
 
-    previousPoolWiki = (globalThis as any).WIKI
+    previousPoolWiki = (globalThis as any).CARDINAL
     wikiHandle = installTestWiki({ ROOTPATH: poolDir, SERVERPATH: poolDir })
   })
 
   after(async () => {
-    ;(globalThis as any).WIKI = previousPoolWiki
+    ;(globalThis as any).CARDINAL = previousPoolWiki
     await rm(poolDir, { recursive: true, force: true })
   })
 
-  test('a configured pool.max flows through WIKI.config.pool into the Pool() constructor options', async () => {
+  test('a configured pool.max flows through CARDINAL.config.pool into the Pool() constructor options', async () => {
     await configSvc.init(true)
 
-    const wiki = (globalThis as any).WIKI
+    const wiki = (globalThis as any).CARDINAL
     assert.deepEqual(wiki.config.pool, { min: 1, max: 33 })
 
     // -> This is the exact call `init()` makes right before `new Pool({ ...literal, ...options })`
-    //    in db.ts — proving the configured value reaches that constructor call, not just WIKI.config.
+    //    in db.ts — proving the configured value reaches that constructor call, not just CARDINAL.config.
     assert.deepEqual(resolvePoolSizeOptions(false, wiki.config.pool), { min: 1, max: 33 })
 
     // -> Worker mode ignores the configured value entirely and pins to a single connection.
@@ -191,10 +191,10 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     const fixtureDir = await setupFixture(
       'port: 3000\nlogLvel: debug\ndb:\n  host: myhost\n  sslOptions:\n    autoo: false\n'
     )
-    // -> Regression coverage for the boot-order bug this replaced `WIKI.logger.warn` for: `init()`
-    //    runs before `WIKI.logger` exists at every real call site, so `WIKI` here deliberately has no
+    // -> Regression coverage for the boot-order bug this replaced `CARDINAL.logger.warn` for: `init()`
+    //    runs before `CARDINAL.logger` exists at every real call site, so `CARDINAL` here deliberately has no
     //    `logger` at all, proving the warning path no longer depends on it being present.
-    const previous = (globalThis as any).WIKI
+    const previous = (globalThis as any).CARDINAL
     wikiHandle = installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
     const warn = mock.method(console, 'warn', () => {})
 
@@ -202,7 +202,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
       await configSvc.init(true)
     } finally {
       warn.mock.restore()
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
       await rm(fixtureDir, { recursive: true, force: true })
     }
 
@@ -216,7 +216,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     const fixtureDir = await setupFixture(
       'port: 3000\nlogLevel: debug\ndb:\n  host: myhost\n  sslOptions:\n    auto: false\n'
     )
-    const previous = (globalThis as any).WIKI
+    const previous = (globalThis as any).CARDINAL
     wikiHandle = installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
     const warn = mock.method(console, 'warn', () => {})
 
@@ -224,7 +224,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
       await configSvc.init(true)
     } finally {
       warn.mock.restore()
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
       await rm(fixtureDir, { recursive: true, force: true })
     }
 
@@ -234,7 +234,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
 
 /**
  * `init()` returns where the configuration came from, rather than announcing it: it runs before
- * `WIKI.logger` exists at every real call site (the logger reads `WIKI.config.logLevel`, so config
+ * `CARDINAL.logger` exists at every real call site (the logger reads `CARDINAL.config.logLevel`, so config
  * has to be loaded first), which is the same constraint that puts the unknown-key warnings above on
  * `console.warn`. `index.ts` renders what comes back as `config=` and `overrides=` on the
  * `boot starting` line, so an operator can tell which file was actually read and which environment
@@ -287,12 +287,12 @@ describe('init() config provenance', () => {
   })
 
   async function initInFixture() {
-    const previous = (globalThis as any).WIKI
+    const previous = (globalThis as any).CARDINAL
     installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
     try {
       return await configSvc.init(true)
     } finally {
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
     }
   }
 
@@ -355,9 +355,9 @@ describe('init() config provenance', () => {
  * whether this boot is the one that seeded it — replacing the bare `source=db`, which said neither.
  */
 describe('the config loaded line', () => {
-  test('counts the DB blob top-level keys, not the merged WIKI.config', async () => {
+  test('counts the DB blob top-level keys, not the merged CARDINAL.config', async () => {
     const info = mock.fn()
-    const previous = (globalThis as any).WIKI
+    const previous = (globalThis as any).CARDINAL
     installTestWiki({
       config: { existingKeyFromYaml: true },
       logger: { ...createSilentLogger(), info },
@@ -372,14 +372,14 @@ describe('the config loaded line', () => {
       assert.equal(await configSvc.loadFromDb(), true)
       assert.equal(configSvc.dbKeyCount, 3)
       // -> The merged config has the yaml key too; the line reports 3, what the DB supplied.
-      assert.ok(Object.keys((globalThis as any).WIKI.config).length > 3)
+      assert.ok(Object.keys((globalThis as any).CARDINAL.config).length > 3)
     } finally {
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
     }
   })
 
   test('leaves the count alone when there is nothing in the settings table to read', async () => {
-    const previous = (globalThis as any).WIKI
+    const previous = (globalThis as any).CARDINAL
     configSvc.dbKeyCount = 7
     installTestWiki({
       config: {},
@@ -391,18 +391,18 @@ describe('the config loaded line', () => {
       assert.equal(configSvc.dbKeyCount, 7)
     } finally {
       configSvc.dbKeyCount = 0
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
     }
   })
 })
 
 /**
- * Regression coverage for OpenProject #2723: `init()`'s only sinks before `WIKI.logger` exists are
+ * Regression coverage for OpenProject #2723: `init()`'s only sinks before `CARDINAL.logger` exists are
  * meant to be `console.warn`/`console.error` for something actually worth an operator's attention
  * (a mistyped key, an unreadable config file) -- never a boot-progress announcement. The
  * "Loading configuration from ... OK" pair this replaces used a newline-less `process.stdout.write`
  * plus a bare `console.info(..., 'OK')` even when nothing was silenced, and survived the logging
- * conventions sweep precisely because neither call's receiver is `WIKI.logger` --
+ * conventions sweep precisely because neither call's receiver is `CARDINAL.logger` --
  * `test/logging-conventions.test.ts` gained its own console-call scan in the same change to close
  * that gap.
  */
@@ -429,7 +429,7 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
     previousProgressDbPassFile = process.env.DB_PASS_FILE
     delete process.env.DB_PASS_FILE
 
-    previousProgressWiki = (globalThis as any).WIKI
+    previousProgressWiki = (globalThis as any).CARDINAL
     installTestWiki({ ROOTPATH: progressDir, SERVERPATH: progressDir })
   })
 
@@ -439,7 +439,7 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
     } else {
       process.env.DB_PASS_FILE = previousProgressDbPassFile
     }
-    ;(globalThis as any).WIKI = previousProgressWiki
+    ;(globalThis as any).CARDINAL = previousProgressWiki
     await rm(progressDir, { recursive: true, force: true })
   })
 
@@ -477,7 +477,7 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
     )
     // -> No config.yml written: fs.readFile() throws ENOENT, driving the catch branch.
 
-    const previous = (globalThis as any).WIKI
+    const previous = (globalThis as any).CARDINAL
     installTestWiki({ ROOTPATH: missingConfigDir, SERVERPATH: missingConfigDir })
     const error = mock.method(console, 'error', () => {})
 
@@ -486,7 +486,7 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
       await assert.rejects(() => configSvc.init(), /process\.exit\(1\) called/)
     } finally {
       error.mock.restore()
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
       await rm(missingConfigDir, { recursive: true, force: true })
     }
 
@@ -545,7 +545,7 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const models = (await import('../models/index.ts')).default
 
-    previousDbWiki = (globalThis as any).WIKI
+    previousDbWiki = (globalThis as any).CARDINAL
     wikiHandle = installTestWiki({
       IS_DEBUG: false,
       ROOTPATH: process.cwd(),
@@ -572,7 +572,7 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
       await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
     }
     await pool?.end()
-    ;(globalThis as any).WIKI = previousDbWiki
+    ;(globalThis as any).CARDINAL = previousDbWiki
   })
 
   test('exactly one of two concurrent callers seeds; the other observes a fully-seeded DB', async () => {

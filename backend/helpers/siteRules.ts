@@ -95,16 +95,16 @@ export function resolveSiteRule(
 }
 
 /**
- * Shorthand for `WIKI.models.groups.checkSiteAdminAccess` — see that method for the whole rationale
+ * Shorthand for `CARDINAL.models.groups.checkSiteAdminAccess` — see that method for the whole rationale
  * (why the global half is site-blind, and why the site half is `checkSiteAccess()` unchanged).
  *
  * Purely a shorter name at the twenty-two route call sites: spelled out in full, the check is 107
  * columns inside an `if (!…)`, so oxfmt breaks every one of them across five lines and buries a
  * one-line permission gate in the middle of a handler. No logic of its own — it resolves
- * `WIKI.models.groups` at CALL time, never captured at module load, so a route test that stubs the
+ * `CARDINAL.models.groups` at CALL time, never captured at module load, so a route test that stubs the
  * model still decides the answer.
  *
- * The one `WIKI` touch in this otherwise WIKI-free file, and deliberately the only one: the
+ * The one `CARDINAL` touch in this otherwise CARDINAL-free file, and deliberately the only one: the
  * resolution algorithm above stays a pure function of its arguments, testable with no global at all
  * (`helpers/siteRules.test.ts`). This sits here rather than in `helpers/common.ts` because
  * `SITE_PERMISSIONS` — the vocabulary its `sitePermission` argument is drawn from — is declared in
@@ -116,5 +116,5 @@ export function maySiteAdmin(
   sitePermission: string,
   siteId: string
 ): boolean {
-  return WIKI.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)
+  return CARDINAL.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)
 }

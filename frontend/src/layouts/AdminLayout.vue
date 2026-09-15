@@ -466,7 +466,7 @@
 
       The position goes on a wrapper rather than on the button: `WBtn` is `relative` from its own class
       list, and Tailwind emits `relative` after `fixed`, so a `fixed` alongside it loses. `.corner-btn`
-      is in `css/_base.scss`, since this layout never loads MainLayout's stylesheet.
+      is in `css/_base.css`, since this layout never loads MainLayout's stylesheet.
 
       `left-0` (not `start-0`) is deliberate, matching `MainLayout`'s own corner button -- OpenProject
       #1590's physical-positioning triage: a fixed screen corner, not a reading-direction gutter. See
@@ -784,9 +784,7 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
-@use 'sass:color';
-
+<style>
 /*
   The admin header: a white plate ruled off from the page, matching the site header. The black bar
   it replaces was the one place in the app that carried its own colour rather than the site's, and
@@ -956,7 +954,7 @@ body.body--cobalt .admin-page-icon {
   background-color: var(--color-ink);
   border-inline-end: 1px solid var(--color-hairline-dark);
 
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-5);
   }
 
@@ -1046,8 +1044,8 @@ body.body--cobalt .admin-page-icon {
     per-site theming and would drift away from the lights on any site that sets its own colours. The
     FILL tone of each, for the same reason StatusLight uses it: nothing is drawn over these bars.
   */
-  // -> 5px is StatusLight's own width, so the stripe on a badge and the light on the row below it
-  //    are the same bar of colour rather than two thicknesses of it
+  /* -> 5px is StatusLight's own width, so the stripe on a badge and the light on the row below it */
+  /*    are the same bar of colour rather than two thicknesses of it */
   .count-badge {
     border-inline-end: 5px solid var(--color-negative-fill);
 
@@ -1255,14 +1253,14 @@ body.body--cobalt.body--dark {
   color: var(--color-text-secondary-dark);
 }
 
-// -> No `.w-card` rule here: WCard already paints its own surface with these exact colours, and an
-//    unlayered rule in an SFC stylesheet outranks every Tailwind utility however specific, so this
-//    restatement did nothing except stop the admin pages tinting a card with `bg-negative` / `bg-info`
+/* -> No `.w-card` rule here: WCard already paints its own surface with these exact colours, and an */
+/*    unlayered rule in an SFC stylesheet outranks every Tailwind utility however specific, so this */
+/*    restatement did nothing except stop the admin pages tinting a card with `bg-negative` / `bg-info` */
 .admin-container {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-paper);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-5);
   }
 }
@@ -1273,29 +1271,29 @@ body.body--cobalt.body--dark {
     backdrop-filter: blur(5px) saturate(180%);
   }
   > .w-dialog-viewport {
-    // -> Equal margins all round until 1600px, where the sides can afford to be wider. Same rule and
-    //    same reasoning as `.main-overlay` in `MainLayout`, which the admin overlays match.
+    /* -> Equal margins all round until 1600px, where the sides can afford to be wider. Same rule and */
+    /*    same reasoning as `.main-overlay` in `MainLayout`, which the admin overlays match. */
     padding: 24px;
 
     @media (min-width: 1600px) {
       padding: 24px 64px;
     }
 
-    // -> Last of the three, so it still wins on a phone: all three have the same specificity
+    /* -> Last of the three, so it still wins on a phone: all three have the same specificity */
     @media (max-width: 1023.98px) {
       padding: 0;
     }
 
-    // -> A flat panel with a hairline edge, matching `.main-overlay`'s; see MainLayout for why the
-    //    gradient title strip both of them used to draw is gone
+    /* -> A flat panel with a hairline edge, matching `.main-overlay`'s; see MainLayout for why the */
+    /*    gradient title strip both of them used to draw is gone */
     > .w-dialog-panel {
       box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
 
-      @at-root .body--light & {
+      .body--light & {
         background-color: var(--color-paper);
         border: 1px solid var(--color-hairline);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-5);
         border: 1px solid var(--color-hairline-dark);
       }
@@ -1303,6 +1301,6 @@ body.body--cobalt.body--dark {
   }
 }
 
-// -> The `.admin-footer > .q-bar` rule that used to sit here never matched: FooterNav rendered a
-//    footer element, never a bar. Its colours come from its own scoped style.
+/* -> The `.admin-footer > .q-bar` rule that used to sit here never matched: FooterNav rendered a */
+/*    footer element, never a bar. Its colours come from its own scoped style. */
 </style>

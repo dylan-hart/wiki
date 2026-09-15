@@ -241,7 +241,7 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
   })
 
   test('recordMany() with an empty array issues no statement', async (t) => {
-    const insertSpy = t.mock.method(WIKI.db, 'insert')
+    const insertSpy = t.mock.method(CARDINAL.db, 'insert')
     const before = (await auditLogModel.list({ limit: 1000 })).total
 
     await auditLogModel.recordMany([])

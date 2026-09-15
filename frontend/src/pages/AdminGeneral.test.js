@@ -56,6 +56,7 @@ const FIXTURE_SITE = {
   discoverable: true,
   sitemap: true,
   robots: { index: true, follow: false },
+  security: { embedAllowedOrigins: ['https://intranet.example.com'] },
   uploads: { conflictBehavior: 'reject' },
   features: {
     browse: true,
@@ -253,6 +254,7 @@ describe('AdminGeneral save() field round-trip', () => {
       sitemap: FIXTURE_SITE.sitemap,
       uploads: { conflictBehavior: 'reject' },
       robots: { index: true, follow: false },
+      security: { embedAllowedOrigins: FIXTURE_SITE.security.embedAllowedOrigins },
       features: {
         browse: true,
         comments: true,
@@ -263,6 +265,34 @@ describe('AdminGeneral save() field round-trip', () => {
       },
       discoverable: true,
       defaults: { tocDepth: { min: 2, max: 4 } }
+    })
+  })
+
+  /**
+   * Task #3274: `security.embedAllowedOrigins` round-trips through the same comma-separated-string
+   * UX `allowedUrlSchemes`/`pageExtensions` already use, and is lowercased/deduped the same way --
+   * matching the backend schema (`api/schemas/site.ts`), which only accepts a lowercase origin.
+   */
+  it('parses the embed-allowed-origins field as a trimmed, lowercased, deduped array', async () => {
+    const wrapper = await mountLoaded()
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+
+    const input = wrapper.get('[aria-label="admin.general.embedAllowedOrigins"]')
+    await input.setValue(
+      ' https://Intranet.example.com , https://portal.example.com,https://intranet.example.com '
+    )
+
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    const [, options] = API_CLIENT.put.mock.calls[0]
+    expect(options.json.security).toEqual({
+      embedAllowedOrigins: ['https://intranet.example.com', 'https://portal.example.com']
     })
   })
 })

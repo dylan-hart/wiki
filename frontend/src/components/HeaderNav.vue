@@ -34,7 +34,7 @@
           On the same `header-nav-btn` band as the five icon buttons at the far end of this 64px bar
           (and `AccountMenu`'s avatar): a flush, squared 64x64 target whose hover lights the header's
           full height, rather than the smaller rounded box `WBtn`'s own dense sizing draws around a
-          64px mark. `flat` alone, no `dense` -- `_base.scss`'s rule overrides both of `dense`'s
+          64px mark. `flat` alone, no `dense` -- `_base.css`'s rule overrides both of `dense`'s
           effects with `!important` anyway, so leaving it on would only misdescribe the button.
 
           The mark fills the full 64px band, flush with no inset: the official brand kit's
@@ -412,7 +412,7 @@ function openInbox() {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 /*
   The header band. A white plate ruled off from the page with a hairline -- not a dark bar -- so the
   rule is what separates it, and the rule has to be here rather than left to whatever is below it:
@@ -510,7 +510,7 @@ body.body--cobalt .site-header {
   The site name, a step down on a phone: 21px is a heading's size next to a 34px logo and two buttons
   on a 390px bar. Slight on purpose -- the title is still the first thing the bar says.
 */
-@media (max-width: $breakpoint-xs-max) {
+@media (max-width: 599.98px) {
   .site-title {
     font-size: 17px;
   }

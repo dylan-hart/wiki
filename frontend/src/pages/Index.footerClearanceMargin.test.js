@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test/realGridLayout.js'
 
@@ -39,14 +38,10 @@ async function readSfcStyles(relativePath) {
 }
 
 async function compileSfcStyles(relativePath) {
-  const themeDir = join(frontendRoot, 'src', 'css')
-  const styles = await readSfcStyles(relativePath)
-  return sass.compileString(
-    `@use '${join(themeDir, '_theme.scss')}' as *;\n` +
-      `@use '${join(themeDir, '_palette.scss')}' as *;\n` +
-      styles,
-    { loadPaths: [join(frontendRoot, 'src')] }
-  ).css
+  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
+  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
+  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  return await readSfcStyles(relativePath)
 }
 
 /*

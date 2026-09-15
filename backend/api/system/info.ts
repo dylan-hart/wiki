@@ -23,8 +23,8 @@ import type { FastifyInstance } from 'fastify'
  * `instancesTotal` from the same query rather than inventing a second one.
  */
 export async function getClusterNodes(): Promise<Record<string, any>[]> {
-  const instRaw = await WIKI.db.execute(
-    sql`SELECT usename, client_addr, application_name, backend_start, state_change FROM pg_stat_activity WHERE datname = ${WIKI.dbManager.dbName} AND application_name LIKE 'Cardinal.js%'`
+  const instRaw = await CARDINAL.db.execute(
+    sql`SELECT usename, client_addr, application_name, backend_start, state_change FROM pg_stat_activity WHERE datname = ${CARDINAL.dbManager.dbName} AND application_name LIKE 'Cardinal.js%'`
   )
   const insts: Record<string, any> = {}
   for (const inst of instRaw.rows as any[]) {
@@ -198,37 +198,37 @@ async function routes(app: FastifyInstance) {
     async () => {
       const clusterNodesTotal = (await getClusterNodes()).length
       return {
-        activeWorkers: await WIKI.models.jobs.countActive(),
+        activeWorkers: await CARDINAL.models.jobs.countActive(),
         clusterTotal: clusterNodesTotal,
         configFile: path.join(process.cwd(), 'config.yml'),
         cpuCores: os.cpus().length,
-        currentVersion: WIKI.version,
-        dbHost: WIKI.config.db.host,
-        dbVersion: WIKI.dbManager.VERSION,
-        groupsTotal: await WIKI.db.$count(groupsTable),
+        currentVersion: CARDINAL.version,
+        dbHost: CARDINAL.config.db.host,
+        dbVersion: CARDINAL.dbManager.VERSION,
+        groupsTotal: await CARDINAL.db.$count(groupsTable),
         hostname: os.hostname(),
-        httpPort: WIKI.config.port,
+        httpPort: CARDINAL.config.port,
         instancesTotal: clusterNodesTotal,
-        isApiEnabled: WIKI.config.api.isEnabled === true,
-        isMailConfigured: WIKI.config?.mail?.host?.length > 2,
-        isMetricsEnabled: WIKI.config.metrics.isEnabled === true,
-        isPageviewsEnabled: WIKI.config.pageviews.isEnabled === true,
-        isReplicationEnabled: WIKI.config.replication?.isEnabled === true,
-        isSchedulerHealthy: await WIKI.models.jobs.isHealthy(),
-        latestVersion: WIKI.config.update.version,
-        latestVersionReleaseDate: WIKI.config.update.versionDate,
-        loginsPastDay: await WIKI.db.$count(
+        isApiEnabled: CARDINAL.config.api.isEnabled === true,
+        isMailConfigured: CARDINAL.config?.mail?.host?.length > 2,
+        isMetricsEnabled: CARDINAL.config.metrics.isEnabled === true,
+        isPageviewsEnabled: CARDINAL.config.pageviews.isEnabled === true,
+        isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
+        isSchedulerHealthy: await CARDINAL.models.jobs.isHealthy(),
+        latestVersion: CARDINAL.config.update.version,
+        latestVersionReleaseDate: CARDINAL.config.update.versionDate,
+        loginsPastDay: await CARDINAL.db.$count(
           usersTable,
           gte(usersTable.lastLoginAt, sql`NOW() - INTERVAL '1 DAY'`)
         ),
         nodeVersion: process.version.substring(1),
         operatingSystem: `${os.type()} (${os.platform()}) ${os.release()} ${os.arch()}`,
-        pagesTotal: await WIKI.db.$count(pagesTable),
+        pagesTotal: await CARDINAL.db.$count(pagesTable),
         platform: os.platform(),
         ramTotal: formatByteSize(os.totalmem()),
         upgradeCapable: !isNil(process.env.UPGRADE_COMPANION),
-        usersTotal: await WIKI.db.$count(usersTable),
-        webhooksTotal: await WIKI.db.$count(hooksTable),
+        usersTotal: await CARDINAL.db.$count(usersTable),
+        webhooksTotal: await CARDINAL.db.$count(hooksTable),
         workingDirectory: process.cwd()
       }
     }
@@ -324,7 +324,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      const renderJob = await WIKI.scheduler.addJob({
+      const renderJob = await CARDINAL.scheduler.addJob({
         task: 'checkVersion',
         maxRetries: 0,
         promise: true
@@ -333,9 +333,9 @@ async function routes(app: FastifyInstance) {
       // preserving the existing behavior.
       await renderJob!.promise
       return {
-        current: WIKI.version,
-        latest: WIKI.config.update.version,
-        latestDate: WIKI.config.update.versionDate
+        current: CARDINAL.version,
+        latest: CARDINAL.config.update.version,
+        latestDate: CARDINAL.config.update.versionDate
       }
     }
   )

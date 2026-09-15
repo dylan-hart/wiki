@@ -1,6 +1,6 @@
 /**
  * Pure-unit coverage for the extraction/diff logic, plus one real-tree assertion that `en.json`'s
- * `blocks.*` namespace has not drifted from the actual `blocks/block-*` sources -- no `WIKI` global,
+ * `blocks.*` namespace has not drifted from the actual `blocks/block-*` sources -- no `CARDINAL` global,
  * no database, matching this repo's pure-unit-test convention.
  */
 import { describe, it } from 'node:test'

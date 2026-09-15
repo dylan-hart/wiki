@@ -15,7 +15,7 @@
  */
 </script>
 
-<style lang="scss">
+<style>
 /*
   Fills whatever holds it and centres the box. It did neither: sized and centred by the dialog inner
   of the library this replaces, it was a plain block whose box sat at the top left of the panel, 64px

@@ -7,7 +7,7 @@ import type { TaskResult } from '../../core/scheduler.ts'
  * model call, and a summary handed back only when it actually removed something.
  */
 export async function task(): Promise<TaskResult | void> {
-  const count = await WIKI.models.contentSync.purgeOrphaned()
+  const count = await CARDINAL.models.contentSync.purgeOrphaned()
   if (count > 0) {
     return { summary: 'purged orphaned contentSyncState rows', purged: count }
   }

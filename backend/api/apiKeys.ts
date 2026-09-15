@@ -33,7 +33,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.apiKeys.getKeys()
+      return CARDINAL.models.apiKeys.getKeys()
     }
   )
 
@@ -154,12 +154,12 @@ async function routes(app: FastifyInstance) {
 
       // -> A key inherits group permissions, so every group must exist; a stale client should not
       //    silently mint a key with fewer permissions than the operator picked
-      if (await WIKI.models.groups.hasUnknownGroupIds(req.body.groups)) {
+      if (await CARDINAL.models.groups.hasUnknownGroupIds(req.body.groups)) {
         return reply.badRequest('One of the groups does not exist.')
       }
       // -> Guests are anonymous visitors: a key holding their permissions grants nothing a caller
       //    could not already do without one
-      if (req.body.groups.includes(WIKI.data.systemIds.guestsGroupId)) {
+      if (req.body.groups.includes(CARDINAL.data.systemIds.guestsGroupId)) {
         return reply.badRequest('The guests group cannot be used for API keys.')
       }
 
@@ -236,7 +236,7 @@ async function routes(app: FastifyInstance) {
       if (req.apiKey) {
         return reply.forbidden('API keys cannot be revoked using another API key.')
       }
-      const key = await WIKI.models.apiKeys.getKeyById(req.params.keyId)
+      const key = await CARDINAL.models.apiKeys.getKeyById(req.params.keyId)
       if (!key) {
         return reply.notFound('API key does not exist.')
       }
@@ -244,8 +244,8 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('This API key is already revoked.')
       }
 
-      await WIKI.models.apiKeys.revokeKey(key.id)
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.apiKeys.revokeKey(key.id)
+      await CARDINAL.models.auditLog.record({
         event: 'apiKey.revoked',
         actor: actorFromRequest(req),
         targetType: 'apiKey',

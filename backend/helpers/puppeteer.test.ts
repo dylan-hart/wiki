@@ -126,7 +126,7 @@ describe('launchUnderSemaphore', () => {
 
 /**
  * `getPuppeteerLaunchArgs` is the sole place `--no-sandbox` can enter a launch, so this is a pure
- * unit test against a stubbed `WIKI.config.security`/`WIKI.logger` — no database, no real Puppeteer
+ * unit test against a stubbed `CARDINAL.config.security`/`CARDINAL.logger` — no database, no real Puppeteer
  * (an extension the operator installs, not a backend dependency) needed.
  */
 describe('getPuppeteerLaunchArgs', () => {
@@ -161,13 +161,13 @@ describe('getPuppeteerLaunchArgs', () => {
   })
 
   test('includes --no-sandbox when security.allowPuppeteerNoSandbox is set', () => {
-    ;(globalThis as any).WIKI.config.security.allowPuppeteerNoSandbox = true
+    ;(globalThis as any).CARDINAL.config.security.allowPuppeteerNoSandbox = true
     const args = getPuppeteerLaunchArgs()
     assert.deepEqual(args, ['--disable-dev-shm-usage', '--no-sandbox'])
   })
 
   test('logs a warning when the config key is set', () => {
-    ;(globalThis as any).WIKI.config.security.allowPuppeteerNoSandbox = true
+    ;(globalThis as any).CARDINAL.config.security.allowPuppeteerNoSandbox = true
     getPuppeteerLaunchArgs()
     assert.equal(warnCalls.length, 1)
     const [scope, message, fields] = warnCalls[0]!

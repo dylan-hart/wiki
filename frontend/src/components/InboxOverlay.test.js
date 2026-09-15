@@ -138,8 +138,8 @@ describe('InboxOverlay close', () => {
  * illegible against this overlay's own dark background in dark mode.
  *
  * Asserted against the source text rather than a computed style -- jsdom's CSS engine does not
- * reliably resolve a compound `@at-root .body--dark &` selector the way a real browser would, the
- * same reasoning `WelcomeOverlay.test.js`'s equivalent dark-mode fix documents.
+ * reliably resolve a compound `.body--dark &` selector the way a real browser would, the same
+ * reasoning `WelcomeOverlay.test.js`'s equivalent dark-mode fix documents.
  */
 describe('InboxOverlay: dark mode', () => {
   const source = readFileSync(
@@ -149,8 +149,8 @@ describe('InboxOverlay: dark mode', () => {
 
   /*
    * OpenProject #2778: these used to read the `$surface`/`$text-body`/`$dark-3`/`$text-dark` SCSS
-   * literals -- Ledger-only constants (`css/_theme.scss`'s own header says so) that never pick up
-   * Cobalt's `body.body--cobalt`/`body.body--cobalt.body--dark` overrides. Moved onto the matching
+   * literals -- Ledger-only constants (the old Sass `_theme.scss`'s own header said so) that never
+   * picked up Cobalt's `body.body--cobalt`/`body.body--cobalt.body--dark` overrides. Moved onto the matching
    * `var(--color-*)` custom properties, which resolve to the identical Ledger values (this assertion
    * still passes unchanged there) and to Cobalt's own values once `body--cobalt` is on `<body>`.
    */
@@ -158,27 +158,23 @@ describe('InboxOverlay: dark mode', () => {
     const overlayRule = source.match(/\.inbox-overlay\s*\{[\s\S]*?\n\}\n/)[0]
 
     expect(overlayRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*var\(--color-surface\)/
+      /\.body--light\s+&\s*\{[^}]*background-color:\s*var\(--color-surface\)/
     )
+    expect(overlayRule).toMatch(/\.body--light\s+&\s*\{[^}]*color:\s*var\(--color-text-body\)/)
     expect(overlayRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*color:\s*var\(--color-text-body\)/
+      /\.body--dark\s+&\s*\{[^}]*background-color:\s*var\(--color-dark-3\)/
     )
-    expect(overlayRule).toMatch(
-      /@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*var\(--color-dark-3\)/
-    )
-    expect(overlayRule).toMatch(
-      /@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*var\(--color-text-dark\)/
-    )
+    expect(overlayRule).toMatch(/\.body--dark\s+&\s*\{[^}]*color:\s*var\(--color-text-dark\)/)
   })
 
   it('gives .inbox-overlay-sidebar its own themed background too, not just its nav item text', () => {
     const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
 
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--light\s+&\s*\{[^}]*background-color:\s*var\(--color-tint-alt\)/
+      /\.body--light\s+&\s*\{[^}]*background-color:\s*var\(--color-tint-alt\)/
     )
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--dark\s+&\s*\{[^}]*background-color:\s*var\(--color-dark-4\)/
+      /\.body--dark\s+&\s*\{[^}]*background-color:\s*var\(--color-dark-4\)/
     )
   })
 })
@@ -200,19 +196,17 @@ describe('InboxOverlay: Cobalt aesthetic', () => {
     const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
 
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*background-color:\s*var\(--color-sidebar\)/
+      /\.body--cobalt\s+&\s*\{[^}]*background-color:\s*var\(--color-sidebar\)/
     )
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*border-inline-end-color:\s*var\(--color-sidebar-hairline\)/
+      /\.body--cobalt\s+&\s*\{[^}]*border-inline-end-color:\s*var\(--color-sidebar-hairline\)/
     )
   })
 
   it('gives an inactive rail row Cobalt text + icon colour', () => {
     const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
 
-    expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*color:\s*var\(--color-sidebar-text\)/
-    )
+    expect(sidebarRule).toMatch(/\.body--cobalt\s+&\s*\{[^}]*color:\s*var\(--color-sidebar-text\)/)
     expect(sidebarRule).toMatch(/var\(--color-sidebar-icon\)/)
   })
 
@@ -220,7 +214,7 @@ describe('InboxOverlay: Cobalt aesthetic', () => {
     const sidebarRule = source.match(/\.inbox-overlay-sidebar\s*\{[\s\S]*?\n\}\n\n\/\*/)[0]
 
     expect(sidebarRule).toMatch(
-      /@at-root\s+\.body--cobalt\s+&\s*\{[^}]*background-color:\s*var\(--color-sidebar-active-bg\)/
+      /\.body--cobalt\s+&\s*\{[^}]*background-color:\s*var\(--color-sidebar-active-bg\)/
     )
     expect(sidebarRule).toMatch(/border-inline-start-color:\s*transparent/)
     expect(sidebarRule).toMatch(/border-radius:\s*var\(--radius-control\)/)
@@ -238,7 +232,7 @@ describe('InboxOverlay: Cobalt aesthetic', () => {
     */
     expect(negativeRule).toMatch(/border-color:\s*var\(--color-accent-fill\)/)
     expect(negativeRule).toMatch(
-      /@at-root\s+\.body--dark:not\(\.body--cobalt\)\s+&\s*\{[^}]*border-color:\s*var\(--color-accent-dark\)/
+      /\.body--dark:not\(\.body--cobalt\)\s+&\s*\{[^}]*border-color:\s*var\(--color-accent-dark\)/
     )
   })
 })

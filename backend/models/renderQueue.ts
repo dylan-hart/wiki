@@ -108,7 +108,7 @@ class RenderQueue {
     permissions: RenderPermissions
     requestedById?: string | null
   }): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .insert(renderQueueTable)
       .values({
         siteId,
@@ -127,7 +127,7 @@ class RenderQueue {
         }
       })
 
-    const pending = await WIKI.db
+    const pending = await CARDINAL.db
       .select({ id: jobsTable.id })
       .from(jobsTable)
       .where(eq(jobsTable.task, DRAIN_TASK))
@@ -135,7 +135,7 @@ class RenderQueue {
     if (pending.length < 1) {
       // -> No retries: a render nobody can produce is not worth attempting three times, and the row
       //    stays queued for the next drain either way
-      await WIKI.scheduler.addJob({ task: DRAIN_TASK, maxRetries: 0 })
+      await CARDINAL.scheduler.addJob({ task: DRAIN_TASK, maxRetries: 0 })
     }
   }
 
@@ -187,7 +187,7 @@ class RenderQueue {
   private async renderQueuedPages(): Promise<void> {
     // -> Asked before anything else so that the common drain — a spare job for a batch already swept —
     //    costs one query and says nothing
-    const waiting = await WIKI.db
+    const waiting = await CARDINAL.db
       .select({ id: renderQueueTable.id })
       .from(renderQueueTable)
       .limit(1)
@@ -195,7 +195,7 @@ class RenderQueue {
       return
     }
     if (!(await this.isAvailable())) {
-      WIKI.logger.warn(
+      CARDINAL.logger.warn(
         'render',
         'pages are queued for rendering but the Puppeteer extension is not installed, leaving them queued'
       )
@@ -213,7 +213,7 @@ class RenderQueue {
         */
         renderer ??= await this.createRenderer()
 
-        const claimed = await WIKI.db
+        const claimed = await CARDINAL.db
           .delete(renderQueueTable)
           .where(
             inArray(
@@ -228,7 +228,7 @@ class RenderQueue {
         }
 
         try {
-          const page = await WIKI.models.pages.getPage({
+          const page = await CARDINAL.models.pages.getPage({
             siteId: entry.siteId,
             id: entry.pageId,
             withContent: true
@@ -239,38 +239,42 @@ class RenderQueue {
             continue
           }
           if (page.editor !== 'markdown') {
-            WIKI.logger.warn('render', 'server-side rendering is not implemented for this editor', {
-              page: page.id,
-              editor: page.editor
-            })
+            CARDINAL.logger.warn(
+              'render',
+              'server-side rendering is not implemented for this editor',
+              {
+                page: page.id,
+                editor: page.editor
+              }
+            )
             continue
           }
           const html = await renderer.render(
             page.content ?? '',
             {
-              ...WIKI.sites[entry.siteId]?.config?.editors?.[page.editor]?.config,
+              ...CARDINAL.sites[entry.siteId]?.config?.editors?.[page.editor]?.config,
               // -> No specific reader to speak for in a background re-render (OpenProject #1127) --
               //    resolved as an anonymous visitor would be, rather than skipping the check.
-              glossaryTerms: await WIKI.models.glossary.getCachedTerms(
+              glossaryTerms: await CARDINAL.models.glossary.getCachedTerms(
                 entry.siteId,
-                WIKI.models.groups.guestActor()
+                CARDINAL.models.groups.guestActor()
               )
             },
             { pagePath: page.path, siteOrigin: this.resolveSiteOrigin(entry.siteId) }
           )
-          await WIKI.models.pages.storeRender(
+          await CARDINAL.models.pages.storeRender(
             entry.siteId,
             page.id,
             html,
             { scripts: entry.allowScripts, styles: entry.allowStyles },
             page.path
           )
-          WIKI.logger.debug('render', 'rendered page from its source', {
+          CARDINAL.logger.debug('render', 'rendered page from its source', {
             page: page.id,
             path: page.path
           })
         } catch (err: any) {
-          WIKI.logger.warn('render', 'rendering the page failed', {
+          CARDINAL.logger.warn('render', 'rendering the page failed', {
             page: entry.pageId,
             error: err
           })
@@ -305,7 +309,7 @@ class RenderQueue {
    * is no real origin to compare against.
    */
   private resolveSiteOrigin(siteId: string): string | undefined {
-    const hostname = WIKI.sites[siteId]?.hostname
+    const hostname = CARDINAL.sites[siteId]?.hostname
     return hostname && hostname !== '*' ? `https://${hostname}` : undefined
   }
 
@@ -327,7 +331,7 @@ class RenderQueue {
       const page = await browser.newPage()
       // -> A shell page whose only job is to load the frontend's renderer bundle. It is served by this
       //    instance, so the bundle it loads is the one this instance's editor uses.
-      await page.goto(`http://127.0.0.1:${WIKI.config.port}/_render`, {
+      await page.goto(`http://127.0.0.1:${CARDINAL.config.port}/_render`, {
         waitUntil: 'networkidle0'
       })
       await page.waitForFunction('window.__wikiRenderReady === true', {

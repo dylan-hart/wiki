@@ -14,9 +14,9 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * route), not just through `GroupEditOverlay.vue`, which only ever offers `GUEST_ROLES` in its
  * `<select>` in the first place and so could never exercise this path.
  *
- * DB-backed rather than a stub of `WIKI.models.groups`, deliberately: `clampGuestPatch` is a
+ * DB-backed rather than a stub of `CARDINAL.models.groups`, deliberately: `clampGuestPatch` is a
  * private method of the real `Groups` class, reachable only through the real `updateGroup`, so a
- * stubbed model would prove nothing about the guard actually running. `WIKI.data.systemIds
+ * stubbed model would prove nothing about the guard actually running. `CARDINAL.data.systemIds
  * .guestsGroupId` is pointed at the fixture group `setupTestDb()` seeds, standing in for the real
  * guests group the same way `models/groups.test.ts` already treats it as a stand-in group.
  */
@@ -33,7 +33,7 @@ describe(
       ;({ groups: groupsModel } = await import('../models/groups.ts'))
       // -> Stand in for the real guests group: `clampGuestPatch` only activates for whichever group
       //    id this points at.
-      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: fixtures.groupId }
+      ;(globalThis as any).CARDINAL.data.systemIds = { guestsGroupId: fixtures.groupId }
 
       // -> `buildTestApp` installs the REAL `apiErrorHandler`: a thrown `CustomError` (or a
       //    `@fastify/sensible` error) carries `.statusCode`, but nothing shapes it into the
@@ -50,7 +50,7 @@ describe(
     })
 
     test('drops a disallowed role rather than rejecting the request', async () => {
-      const warn = mock.method(WIKI.logger, 'warn')
+      const warn = mock.method(CARDINAL.logger, 'warn')
 
       const res = await app.inject({
         method: 'PUT',
@@ -83,7 +83,7 @@ describe(
       // -> And the drop was not silent.
       assert.ok(
         warn.mock.calls.length > 0,
-        'expected WIKI.logger.warn to fire when roles are dropped'
+        'expected CARDINAL.logger.warn to fire when roles are dropped'
       )
       // -> `LogFn` is `(scope, message, fields?)`: the subsystem is argument 0, the wording 1.
       assert.equal(warn.mock.calls[0]!.arguments[0], 'auth')
@@ -93,7 +93,7 @@ describe(
     })
 
     test('a patch with only already-allowed roles does not warn', async () => {
-      const warn = mock.method(WIKI.logger, 'warn')
+      const warn = mock.method(CARDINAL.logger, 'warn')
 
       const res = await app.inject({
         method: 'PUT',
@@ -193,7 +193,7 @@ describe(
       ;({ groups: groupsModel } = await import('../models/groups.ts'))
       // -> Not the guests group: `clampGuestPatch` only clamps roles for that one group, and this test
       //    is about the `match`/`classifications` shape surviving validation, not the guest clamp.
-      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
+      ;(globalThis as any).CARDINAL.data.systemIds = { guestsGroupId: 'not-this-group' }
 
       // -> See the sibling `describe` above: `buildTestApp` brings the real error handler and the
       //    real shared-schema set, without which `groupsRoutes`' `$ref: 'ApiError#'` responses fail
@@ -260,13 +260,13 @@ describe(
       ;({ groups: groupsModel } = await import('../models/groups.ts'))
       // -> Not the guests group -- `clampGuestPatch` only clamps roles for that one group, and this
       //    test is about the seeded `permissions` column surviving a full round trip, not the clamp.
-      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
-      // -> `PUT /:groupId` reads `WIKI.config.auth.rootAdminGroupId` unconditionally once `patch
+      ;(globalThis as any).CARDINAL.data.systemIds = { guestsGroupId: 'not-this-group' }
+      // -> `PUT /:groupId` reads `CARDINAL.config.auth.rootAdminGroupId` unconditionally once `patch
       //    .permissions` is present (even an empty array survives the `if (patch.permissions ...)`
-      //    truthiness check below, since `[]` is truthy) -- `setupTestDb()`'s minimal WIKI leaves
+      //    truthiness check below, since `[]` is truthy) -- `setupTestDb()`'s minimal CARDINAL leaves
       //    `config` as `{}`, so this must be set for the round trip below to reach that far rather
       //    than crashing on `undefined.rootAdminGroupId`.
-      ;(globalThis as any).WIKI.config.auth = { rootAdminGroupId: 'not-this-group-either' }
+      ;(globalThis as any).CARDINAL.config.auth = { rootAdminGroupId: 'not-this-group-either' }
 
       app = await buildTestApp({ routes: groupsRoutes, ajv: true })
     })
@@ -314,7 +314,7 @@ describe(
  *
  * Same isolated-route-file approach as `navigation.test.ts`: `buildTestApp`'s `permissions: true`
  * installs the REAL global permission gate (`core/http/authHooks.ts#permissionPreHandler`), with a
- * session seeded through a test-only header ahead of it. `WIKI.models.groups` methods below are
+ * session seeded through a test-only header ahead of it. `CARDINAL.models.groups` methods below are
  * stubbed rather than hitting a real database -- this test is about the permission surface, not
  * model behavior.
  */
@@ -427,9 +427,9 @@ test('an anonymous request is refused the list', async () => {
  * `permissions`/`roles` surface for an unknown vocabulary entry to reach in the first place.
  *
  * Placed before the redirect-field-validation describe block below: that block's own `after()` tears
- * down the ambient `globalThis.WIKI` its isolated `redirectApp` needs, and these three cases run
- * against the file's own top-level `app`/`WIKI` instead -- ordered after that teardown, they would
- * find `WIKI` gone.
+ * down the ambient `globalThis.CARDINAL` its isolated `redirectApp` needs, and these three cases run
+ * against the file's own top-level `app`/`CARDINAL` instead -- ordered after that teardown, they would
+ * find `CARDINAL` gone.
  */
 test('PUT rejects an unknown global permission string with 400', async () => {
   const res = await app.inject({
@@ -497,7 +497,7 @@ test('PUT accepts a known global permission and a known rule role', async () => 
  * `javascript:...` on the administrators group and have it execute for the next admin who signs in
  * -- with no click required, and a complete bypass of `api/groups.ts`'s own `manage:system` guard,
  * whose entire purpose is to stop `manage:groups` reaching that permission. Isolated route-file
- * approach, same as the permission-surface suite above: `WIKI.models.groups` stubbed rather than a
+ * approach, same as the permission-surface suite above: `CARDINAL.models.groups` stubbed rather than a
  * real database, since this is about the route's own validation rather than model behavior.
  */
 describe('PUT /:groupId — redirect field validation', () => {

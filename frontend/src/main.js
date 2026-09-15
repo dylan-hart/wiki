@@ -14,7 +14,7 @@ import { initializeTemporal } from './boot/temporal'
 import { initializeHairlines } from './helpers/hairline'
 
 import './css/tailwind.css'
-import './css/app.scss'
+import './css/app.css'
 
 import RootApp from './App.vue'
 
@@ -35,6 +35,6 @@ initializeComponents(app)
 initializeEventBus()
 initializeErrors(app)
 initializeIconify()
-initializeExternals(router, store)
+initializeExternals(router)
 initializeI18n(app, store)
 app.mount('#app')

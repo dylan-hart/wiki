@@ -701,149 +701,134 @@ onBeforeUnmount(() => {
 defineExpose({ state, rows, visibleRows, offsets, totalHeight, windowRange, rowHeight })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .admin-live-log {
   /* -> `status-light` is a bar sized by whatever it sits in; here it wants to be a dot */
-  &-dot {
-    width: 6px;
-    height: 6px;
-    min-height: 6px;
-    flex: none;
-  }
-
-  &-viewport {
-    /* -> Sized off the viewport rather than off its own content, so a stream that never stops does
-          not grow the page forever */
-    height: calc(100vh - 340px);
-    min-height: 240px;
-    overflow-y: auto;
-    overflow-x: auto;
-    font-size: 12px;
-  }
-
-  &-empty {
-    padding: 16px;
-  }
-
-  &-row {
-    /* -> Must match ROW_HEIGHT in the script, which is what the scroll window is computed from */
-    line-height: 24px;
-
-    &.is-expandable {
-      cursor: pointer;
-    }
-
-    &:hover {
-      background-color: rgb(0 0 0 / 4%);
-    }
-
-    &.is-error {
-      color: var(--color-negative);
-    }
-
-    &.is-warning,
-    &.is-warn {
-      color: var(--color-warning);
-    }
-
-    &.is-debug {
-      color: var(--color-text-caption);
-    }
-  }
-
-  &-line {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    height: 24px;
-    padding: 0 12px;
-    white-space: nowrap;
-  }
-
-  &-caret {
-    width: 12px;
-    flex: none;
-  }
-
-  &-time {
-    flex: none;
-    opacity: 0.65;
-  }
-
-  &-level {
-    flex: none;
-    width: 44px;
-    text-transform: uppercase;
-    font-size: 10px;
-    letter-spacing: 0.04em;
-  }
-
-  &-scope {
-    flex: none;
-    width: 72px;
-    opacity: 0.8;
-  }
-
-  &-message {
-    flex: none;
-    max-width: 60%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  &-fields {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  &-chip {
-    flex: none;
-    border-radius: 3px;
-    padding: 0 4px;
-    background-color: rgb(0 0 0 / 5%);
-    opacity: 0.9;
-  }
-
-  &-chip-key {
-    opacity: 0.6;
-  }
-
-  &-copy {
-    margin-inline-start: auto;
-    flex: none;
-    cursor: pointer;
-    opacity: 0.4;
-
-    &:hover {
-      opacity: 1;
-    }
-  }
-
-  &-stack {
-    /* -> Must match STACK_LINE_HEIGHT / STACK_PADDING in the script */
-    line-height: 18px;
-    padding: 6px 12px 6px 44px;
-    margin: 0;
-    font-size: 11px;
-    white-space: pre;
-    opacity: 0.85;
-  }
 }
-
-.body--dark .admin-live-log {
-  &-row:hover {
-    background-color: rgb(255 255 255 / 6%);
-  }
-
-  &-row.is-debug {
-    color: var(--color-text-caption-dark);
-  }
-
-  &-chip {
-    background-color: rgb(255 255 255 / 8%);
-  }
+.admin-live-log-dot {
+  width: 6px;
+  height: 6px;
+  min-height: 6px;
+  flex: none;
+}
+.admin-live-log-viewport {
+  /* -> Sized off the viewport rather than off its own content, so a stream that never stops does
+        not grow the page forever */
+  height: calc(100vh - 340px);
+  min-height: 240px;
+  overflow-y: auto;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.admin-live-log-empty {
+  padding: 16px;
+}
+.admin-live-log-row {
+  /* -> Must match ROW_HEIGHT in the script, which is what the scroll window is computed from */
+  line-height: 24px;
+}
+.admin-live-log-row.is-expandable {
+  cursor: pointer;
+}
+.admin-live-log-row:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+.admin-live-log-row.is-error {
+  color: var(--color-negative);
+}
+.admin-live-log-row.is-warning,
+.admin-live-log-row.is-warn {
+  color: var(--color-warning);
+}
+.admin-live-log-row.is-debug {
+  color: var(--color-text-caption);
+}
+.admin-live-log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 24px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+.admin-live-log-caret {
+  width: 12px;
+  flex: none;
+}
+.admin-live-log-time {
+  flex: none;
+  opacity: 0.65;
+}
+.admin-live-log-level {
+  flex: none;
+  width: 44px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.admin-live-log-scope {
+  flex: none;
+  width: 72px;
+  opacity: 0.8;
+}
+.admin-live-log-message {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-live-log-fields {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.admin-live-log-chip {
+  flex: none;
+  border-radius: 3px;
+  padding: 0 4px;
+  background-color: rgba(0, 0, 0, 0.05);
+  opacity: 0.9;
+}
+.admin-live-log-chip-key {
+  opacity: 0.6;
+}
+.admin-live-log-copy {
+  margin-inline-start: auto;
+  flex: none;
+  cursor: pointer;
+  opacity: 0.4;
+}
+.admin-live-log-copy:hover {
+  opacity: 1;
+}
+.admin-live-log-stack {
+  /* -> Must match STACK_LINE_HEIGHT / STACK_PADDING in the script */
+  line-height: 18px;
+  padding: 6px 12px 6px 44px;
+  margin: 0;
+  font-size: 11px;
+  white-space: pre;
+  opacity: 0.85;
+}
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.body--dark .admin-live-log-row:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.body--dark .admin-live-log-row.is-debug {
+  color: var(--color-text-caption-dark);
+}
+.body--dark .admin-live-log-chip {
+  background-color: rgba(255, 255, 255, 0.08);
 }
 </style>

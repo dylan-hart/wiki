@@ -249,7 +249,7 @@ describe('GET /_terminal/logs — who is reading the logs (OpenProject #2648)', 
         fields: { job: 'job-1', error: { name: 'Error', message: 'disk full' } },
         stack: 'Error: disk full\n    at nowhere'
       }
-      WIKI.logger.ws.emit('log', live)
+      CARDINAL.logger.ws.emit('log', live)
 
       const [, , third] = await frames.atLeast(3)
       assert.deepEqual(JSON.parse(third!), live)

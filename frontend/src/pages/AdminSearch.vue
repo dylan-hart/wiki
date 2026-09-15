@@ -522,4 +522,4 @@ async function rebuildEmbeddings() {
 }
 </script>
 
-<style lang="scss"></style>
+<style></style>

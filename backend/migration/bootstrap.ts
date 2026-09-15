@@ -2,9 +2,9 @@
  * Shared boot sequence for every standalone migration-CLI entry point under `../tasks/` —
  * `migrate.ts` (the import) and `verify-migration.ts` (Feature 421 task 748's post-import
  * verification). Both need the exact same minimal runtime and nothing else: modeled on `worker.ts`'s
- * minimal `WIKI` global, not `index.ts`'s full boot — no HTTP server, no real scheduler, no real cache
+ * minimal `CARDINAL` global, not `index.ts`'s full boot — no HTTP server, no real scheduler, no real cache
  * backend, no collab websockets, just enough to talk to the 3.0 destination database and run the
- * model methods each script needs. `WIKI.events`/`WIKI.cache`/`WIKI.scheduler` are still populated,
+ * model methods each script needs. `CARDINAL.events`/`CARDINAL.cache`/`CARDINAL.scheduler` are still populated,
  * with no-op-or-best-effort stubs (see `createEventsStub()`/`createCacheStub()`/
  * `createSchedulerStub()` below) rather than left undefined, because the models this bootstrap loads
  * unconditionally reach for all three on their normal write paths.
@@ -40,17 +40,17 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  * - `comments` — called directly by `importers/comment-import.ts`, via `phases/assets.ts`'s
  *   `commentsModel.create()`.
  * - `locales`, `rendering`, `search`, `hooks`, `flags`, `classificationLevels`, `pageClassification`,
- *   `blocks` — reached transitively via `WIKI.models.pages.createPage()`
+ *   `blocks` — reached transitively via `CARDINAL.models.pages.createPage()`
  *   (`models/pages.ts:681,688,697,728,766,825,878,918,919,927`), the only page write path an importer
  *   calls today. `pageClassification` specifically backs `createPage()`'s
  *   `resolveCreateClassification()` call (`models/pages.ts:878`); `blocks` backs
  *   `models/rendering.ts`'s `getEnabledKeys(siteId)` call in the render pipeline `createPage()` runs
- *   every new page through. `blocks.getEnabledKeys()` is a plain live `WIKI.db` read with no cache to
+ *   every new page through. `blocks.getEnabledKeys()` is a plain live `CARDINAL.db` read with no cache to
  *   warm — unlike `classificationLevels` below, adding it needed no companion reload call.
- * - `extensions` — reached transitively via `WIKI.models.assets.upload()`'s thumbnail generation
+ * - `extensions` — reached transitively via `CARDINAL.models.assets.upload()`'s thumbnail generation
  *   (`helpers/images.ts`'s `resizeImageToSquareJpeg()`/`normalizeImage()`, both call
- *   `WIKI.models.extensions.getDefinition('sharp')`) AND via `helpers/puppeteer.ts#isPuppeteerAvailable()`
- *   (`WIKI.models.extensions.getDefinition('puppeteer')`), which `tasks/migrate.ts`'s
+ *   `CARDINAL.models.extensions.getDefinition('sharp')`) AND via `helpers/puppeteer.ts#isPuppeteerAvailable()`
+ *   (`CARDINAL.models.extensions.getDefinition('puppeteer')`), which `tasks/migrate.ts`'s
  *   `resolveRenderMode()` calls to resolve `--render-mode auto`. Its `definitions` array is only ever
  *   populated by an explicit `refreshFromDisk()` — this bootstrap calls it, same as the
  *   `authentication`/`storage` calls just below, specifically so the Puppeteer check answers for
@@ -59,15 +59,15 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   a real migration run against an instance that DID have Puppeteer resolved `'auto'` to
  *   `'passthrough'` anyway).
  *
- * - `navigation` — called directly by `phases/content.ts` (`WIKI.models.navigation.ensureSiteNav`
+ * - `navigation` — called directly by `phases/content.ts` (`CARDINAL.models.navigation.ensureSiteNav`
  *   et al.).
  * - `security` — called directly by `phases/settings.ts`: the settings phase's
- *   `security`-keyed instance-settings patch goes through the real `WIKI.models.security.updateConfig()`
+ *   `security`-keyed instance-settings patch goes through the real `CARDINAL.models.security.updateConfig()`
  *   (the same merge-then-`saveToDb()` path `api/system/settings.ts` uses), not a raw
- *   `WIKI.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
+ *   `CARDINAL.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
  *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
  * - `eventSubscriptions` — reached transitively via `models/hooks.ts`'s
- *   `notifyEventSubscriptionSubscribers()` (`WIKI.models.eventSubscriptions.listSubscribers(event)`),
+ *   `notifyEventSubscriptionSubscribers()` (`CARDINAL.models.eventSubscriptions.listSubscribers(event)`),
  *   itself called unconditionally by `createPage()`'s own `announce('page:create', ...)`. Unreachable
  *   on a migration into a fresh site in practice (no subscriber rows exist yet to notify), but
  *   `hooks.ts` calls `.listSubscribers()` before checking whether any exist, so the unloaded-model
@@ -86,9 +86,9 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  * `glossary` is deliberately NOT included: it is only reached through `pages.ts`'s `updatePage`/
  * `movePage`/`deletePage`, and no importer built so far calls any of those. Add it here the moment
  * one does — a call through an unloaded model throws `TypeError: Cannot read properties of
- * undefined`, not a type error, since `types/global.d.ts` types `WIKI.models` as fully populated.
+ * undefined`, not a type error, since `types/global.d.ts` types `CARDINAL.models` as fully populated.
  */
-export async function loadModels(): Promise<WikiGlobal['models']> {
+export async function loadModels(): Promise<CardinalGlobal['models']> {
   const [
     { sites },
     { settings },
@@ -168,16 +168,16 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     navigation,
     security,
     eventSubscriptions
-  } as WikiGlobal['models']
+  } as CardinalGlobal['models']
 }
 
 /**
- * No-op `WIKI.events` stub: a one-shot CLI process has no cluster to broadcast an HA propagation
- * event to, but write paths that unconditionally call `WIKI.events.outbound.emit(...)`
+ * No-op `CARDINAL.events` stub: a one-shot CLI process has no cluster to broadcast an HA propagation
+ * event to, but write paths that unconditionally call `CARDINAL.events.outbound.emit(...)`
  * (`models/groups.ts#broadcastReload`, for one) need the member to exist. Shaped like
  * `backend/test/mocks.ts#createEventsStub()`.
  */
-export function createEventsStub(): WikiGlobal['events'] {
+export function createEventsStub(): CardinalGlobal['events'] {
   const bus = () => ({
     emit: async () => {},
     on: () => {},
@@ -185,15 +185,15 @@ export function createEventsStub(): WikiGlobal['events'] {
     offAny: () => {},
     clearListeners: () => {}
   })
-  return { inbound: bus(), outbound: bus() } as unknown as WikiGlobal['events']
+  return { inbound: bus(), outbound: bus() } as unknown as CardinalGlobal['events']
 }
 
 /**
- * No-op `WIKI.cache` stub: nothing in a one-shot CLI process benefits from a request-scoped cache,
- * but write paths that unconditionally touch `WIKI.cache` need the member to exist. Shaped like
+ * No-op `CARDINAL.cache` stub: nothing in a one-shot CLI process benefits from a request-scoped cache,
+ * but write paths that unconditionally touch `CARDINAL.cache` need the member to exist. Shaped like
  * `backend/test/mocks.ts#createCacheStub()`.
  */
-export function createCacheStub(): WikiGlobal['cache'] {
+export function createCacheStub(): CardinalGlobal['cache'] {
   const store = new Map<string, unknown>()
   const stub = {
     get: (key: string) => store.get(key),
@@ -206,11 +206,11 @@ export function createCacheStub(): WikiGlobal['cache'] {
     getRemainingTTL: () => 0,
     clear: () => store.clear()
   }
-  return stub as unknown as WikiGlobal['cache']
+  return stub as unknown as CardinalGlobal['cache']
 }
 
 /**
- * `WIKI.scheduler` stand-in for this bootstrap: no piscina pool, no registered task-function map,
+ * `CARDINAL.scheduler` stand-in for this bootstrap: no piscina pool, no registered task-function map,
  * so unlike the real `core/scheduler.ts` this cannot execute a job itself. `addJob()` is the one
  * method any model this bootstrap loads reaches for — `models/renderQueue.ts#queuePage()`, to kick a
  * headless-browser render for `--render-mode queue`/`auto`'s 'queue' path (`models/pages.ts#createPage()`'s
@@ -218,7 +218,7 @@ export function createCacheStub(): WikiGlobal['cache'] {
  * a migration into a fresh site, since every one of those call sites is gated behind an already-
  * existing webhook/subscriber row a fresh site never has yet). Rather than execute anything, it
  * inserts the same `jobs` row the real `addJob()` would, best-effort (matching its own
- * error-swallowing behavior — `WIKI.logger.warn` rather than throw) — this bootstrap's own
+ * error-swallowing behavior — `CARDINAL.logger.warn` rather than throw) — this bootstrap's own
  * `bootstrapMigrationRuntime()` already refuses a destination that was never booted, so the operator's
  * already-running live server picks the row up on its own next poll (`core/scheduler.ts`'s 5-second
  * `pollingCheck`), the same way it would pick up a page left queued across a restart (`index.ts`'s own
@@ -228,9 +228,9 @@ export function createCacheStub(): WikiGlobal['cache'] {
  * supported. A real scheduler decides a job's `useWorker` from its own registered task-function map,
  * which this stub has none of, so guessing wrong for an unlisted task would misroute it on whichever
  * live server picks the row up; logging and skipping is the safe default for anything else, matching
- * `WIKI.events`/`WIKI.cache`'s own "reached transitively, never actually needed yet" stub philosophy.
+ * `CARDINAL.events`/`CARDINAL.cache`'s own "reached transitively, never actually needed yet" stub philosophy.
  */
-export function createSchedulerStub(): WikiGlobal['scheduler'] {
+export function createSchedulerStub(): CardinalGlobal['scheduler'] {
   const USE_WORKER: Record<string, boolean> = { renderPages: false }
   return {
     async addJob({
@@ -247,7 +247,7 @@ export function createSchedulerStub(): WikiGlobal['scheduler'] {
       waitUntil?: Date
     }) {
       if (!(task in USE_WORKER)) {
-        WIKI.logger.warn(
+        CARDINAL.logger.warn(
           'migrate',
           'cannot queue this task, the CLI scheduler stub only supports renderPages',
           { task }
@@ -255,7 +255,7 @@ export function createSchedulerStub(): WikiGlobal['scheduler'] {
         return undefined
       }
       try {
-        await WIKI.db.insert(jobsTable).values({
+        await CARDINAL.db.insert(jobsTable).values({
           id: crypto.randomUUID(),
           task,
           useWorker: USE_WORKER[task]!,
@@ -266,22 +266,22 @@ export function createSchedulerStub(): WikiGlobal['scheduler'] {
           createdBy: 'migrate-cli'
         })
       } catch (err: any) {
-        WIKI.logger.warn('migrate', 'queueing a task failed', { task, error: err })
+        CARDINAL.logger.warn('migrate', 'queueing a task failed', { task, error: err })
       }
       return undefined
     }
-  } as unknown as WikiGlobal['scheduler']
+  } as unknown as CardinalGlobal['scheduler']
 }
 
 /**
- * The synchronous, no-I/O part of `WIKI` that `bootstrapMigrationRuntime()` builds before any of
+ * The synchronous, no-I/O part of `CARDINAL` that `bootstrapMigrationRuntime()` builds before any of
  * `configSvc.init()`/`dbManager.init()`/`loadModels()` run — pulled out as its own pure function so
  * this exact shape can be asserted by a fast, DB-free unit test (`bootstrap.test.ts`).
  *
  * `auth` matters here specifically: `models/authentication.ts#activateStrategies()` — called
  * unconditionally at the end of every `createStrategy()`/`updateStrategy()`/`deleteStrategy()` — does
- * `WIKI.auth.strategies = {}` with no guard for it being unset. Before this function existed, this
- * bootstrap's `WIKI` literal omitted `auth` entirely (unlike `index.ts` and
+ * `CARDINAL.auth.strategies = {}` with no guard for it being unset. Before this function existed, this
+ * bootstrap's `CARDINAL` literal omitted `auth` entirely (unlike `index.ts` and
  * `test/db.ts#installTestWiki()`, both of which already seed the same empty shape), because no caller
  * had ever created an authentication strategy through this bootstrap before the `settings` phase
  * (Task 15). The result (caught by Task 15's own review round): the auth row insert inside
@@ -293,7 +293,10 @@ export function createSchedulerStub(): WikiGlobal['scheduler'] {
  */
 export function buildWikiShell(
   instanceId: string
-): Pick<WikiGlobal, 'IS_DEBUG' | 'ROOTPATH' | 'INSTANCE_ID' | 'SERVERPATH' | 'configSvc' | 'auth'> {
+): Pick<
+  CardinalGlobal,
+  'IS_DEBUG' | 'ROOTPATH' | 'INSTANCE_ID' | 'SERVERPATH' | 'configSvc' | 'auth'
+> {
   return {
     IS_DEBUG: process.env.NODE_ENV === 'development',
     ROOTPATH: process.cwd(),
@@ -305,7 +308,7 @@ export function buildWikiShell(
 }
 
 /**
- * Sets up the ambient `WIKI` global and connects it to the 3.0 destination database: `configSvc`,
+ * Sets up the ambient `CARDINAL` global and connects it to the 3.0 destination database: `configSvc`,
  * `logger`, then `dbManager.init()` (with `workerMode` defaulting to `false`, so this legitimately
  * runs `syncSchemas()` -> `checkForLegacyInstall()` + migrations against the 3.0 destination, same as
  * `index.ts`'s `preBoot()` — the *destination* must be a current 3.0 schema, so refusing a 2.x-shaped
@@ -314,35 +317,35 @@ export function buildWikiShell(
  * `instanceId` distinguishes entry points in logs (`migrate-cli` vs. `verify-migration-cli`) without
  * either needing to know about the other.
  */
-export async function bootstrapMigrationRuntime(instanceId: string): Promise<WikiGlobal> {
-  const WIKI = buildWikiShell(instanceId) as unknown as WikiGlobal
-  global.WIKI = WIKI
+export async function bootstrapMigrationRuntime(instanceId: string): Promise<CardinalGlobal> {
+  const CARDINAL = buildWikiShell(instanceId) as unknown as CardinalGlobal
+  global.CARDINAL = CARDINAL
 
-  await WIKI.configSvc.init()
-  WIKI.logger = logger.init()
+  await CARDINAL.configSvc.init()
+  CARDINAL.logger = logger.init()
 
-  WIKI.dbManager = dbManager
-  WIKI.db = await dbManager.init()
-  WIKI.models = await loadModels()
-  WIKI.events = createEventsStub()
-  WIKI.cache = createCacheStub()
-  WIKI.scheduler = createSchedulerStub()
+  CARDINAL.dbManager = dbManager
+  CARDINAL.db = await dbManager.init()
+  CARDINAL.models = await loadModels()
+  CARDINAL.events = createEventsStub()
+  CARDINAL.cache = createCacheStub()
+  CARDINAL.scheduler = createSchedulerStub()
 
-  // The `settings` phase reads/writes through `WIKI.models.authentication`/
-  // `WIKI.models.storage` as the mappers' own `AuthModuleResolver`/`StorageModuleResolver` — both
-  // resolve every module through `WIKI.data.authentication`/`WIKI.models.storage.definitions`, which
+  // The `settings` phase reads/writes through `CARDINAL.models.authentication`/
+  // `CARDINAL.models.storage` as the mappers' own `AuthModuleResolver`/`StorageModuleResolver` — both
+  // resolve every module through `CARDINAL.data.authentication`/`CARDINAL.models.storage.definitions`, which
   // start out empty (`{}`/`[]`) until something loads them from disk. `index.ts`'s `postBoot()` does
   // exactly that for a real server boot (`refreshStrategiesFromDisk()`/`refreshFromDisk()`), but this
   // minimal bootstrap had no caller that needed either populated before now — left unpopulated, every
   // authentication/storage row the migration reads would resolve `getModule()`/`getDefinition()` as
   // `null` and get misreported `unsupported`, regardless of the source module's real 3.0 support.
-  await WIKI.models.authentication.refreshStrategiesFromDisk()
-  await WIKI.models.storage.refreshFromDisk()
+  await CARDINAL.models.authentication.refreshStrategiesFromDisk()
+  await CARDINAL.models.storage.refreshFromDisk()
 
   // Same gap as the two calls above, for `extensions`: `helpers/puppeteer.ts#isPuppeteerAvailable()`
-  // (and therefore `WIKI.models.renderQueue.isAvailable()`, which `tasks/migrate.ts`'s
+  // (and therefore `CARDINAL.models.renderQueue.isAvailable()`, which `tasks/migrate.ts`'s
   // `resolveRenderMode()` calls to decide `--render-mode auto`) reads
-  // `WIKI.models.extensions.getDefinition('puppeteer')`, which answers `null` — "not available" —
+  // `CARDINAL.models.extensions.getDefinition('puppeteer')`, which answers `null` — "not available" —
   // until `refreshFromDisk()` has populated `definitions` at least once. Left uncalled, `auto` always
   // resolved to `'passthrough'` regardless of whether this destination actually has Puppeteer
   // installed, silently defeating the whole point of the default (caught only by running a real
@@ -351,19 +354,19 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   // doc comment above) stays correct either way — an empty `definitions` there answers "Sharp isn't
   // available" precisely because a real instance without the extension looks identical, and thumbnail
   // generation already treats that as "fall back to the original bytes", not an error.
-  await WIKI.models.extensions.refreshFromDisk()
+  await CARDINAL.models.extensions.refreshFromDisk()
 
   // Same shape of gap as the two calls above, for a `ClusterReloaded` cache instead of a disk read:
-  // `WIKI.models.pages.createPage()` -> `pageClassification.resolveCreateClassification()` falls back
-  // to `WIKI.models.classificationLevels.defaultLevel()` for every page with no parent to inherit a
+  // `CARDINAL.models.pages.createPage()` -> `pageClassification.resolveCreateClassification()` falls back
+  // to `CARDINAL.models.classificationLevels.defaultLevel()` for every page with no parent to inherit a
   // floor from, and `byId()` for one with an explicit level — both read the model's in-memory
   // `levels` array, which starts empty and is only ever populated by `reloadCache()` (a real server
   // boot calls it during `preBoot()`; this minimal bootstrap otherwise never would). Left unpopulated,
   // `defaultLevel()` throws `No classification levels are configured.` on the very first page a live
   // `content` phase writes — again invisible to `--dry-run`, which never reaches `createPage()`.
-  await WIKI.models.classificationLevels.reloadCache()
+  await CARDINAL.models.classificationLevels.reloadCache()
 
-  // The `users` phase needs `WIKI.config.auth.rootAdminGroupId`/`rootAdminUserId` —
+  // The `users` phase needs `CARDINAL.config.auth.rootAdminGroupId`/`rootAdminUserId` —
   // real, per-install ids `Settings.init()` persisted to the `settings` table at seed time, not
   // anything `configSvc.init()` above (config.yml + base.yml only) ever populates. `index.ts`'s
   // `preBoot()` calls `configSvc.ensureSeeded()` (which calls `loadFromDb()` internally) for the
@@ -374,16 +377,16 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   // this CLI to handle. Its boolean return (`false` means the `settings` table was empty) must not be
   // discarded — same failure `mcp/bootstrap.ts` already guards against for the same call — or
   // `resolveUsersImportContext()` below would silently resolve `undefined` ids from an empty
-  // `WIKI.config.auth`, which `createUserGroupImporter()` then treats as "unresolvable" and quietly
+  // `CARDINAL.config.auth`, which `createUserGroupImporter()` then treats as "unresolvable" and quietly
   // skips every source-Administrators/-Guests membership rather than erroring.
-  if (!(await WIKI.configSvc.loadFromDb())) {
+  if (!(await CARDINAL.configSvc.loadFromDb())) {
     throw new Error(
       'No settings found in the destination database. The destination must be a previously-booted ' +
         '3.0 install (run the main Wiki.js server against it at least once) before migrating into it.'
     )
   }
 
-  return WIKI
+  return CARDINAL
 }
 
 /**
@@ -392,13 +395,13 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
  * strategy id, its real system Administrators/Guests group ids, and the root admin user id to use as a
  * fallback content author. Called once, after `bootstrapMigrationRuntime()` has returned, by whichever
  * entry point actually builds a `MigrationContext` (`../tasks/migrate.ts`) — `bootstrap.ts` itself has
- * no `MigrationContext` to populate, since it only ever builds the ambient `WIKI` global.
+ * no `MigrationContext` to populate, since it only ever builds the ambient `CARDINAL` global.
  *
  * `localStrategyId`/`guestsGroupId` are fixed constants every 3.0 install seeds identically from
  * `base.yml`'s `systemIds` (`configSvc.init()` alone is enough to read them — no DB round trip).
  * `rootAdminGroupId`/`rootAdminUserId` are per-install ids `Settings.init()` generated once and
  * persisted under the `auth` settings key (`models/settings.ts`) — reading them requires the
- * `WIKI.configSvc.loadFromDb()` call `bootstrapMigrationRuntime()` now makes. See
+ * `CARDINAL.configSvc.loadFromDb()` call `bootstrapMigrationRuntime()` now makes. See
  * `importers/users-groups.ts`'s `SystemGroupIds` doc for the full trace of where the admin/guest
  * group ids live at runtime.
  *
@@ -407,17 +410,17 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
  * locale even after the `settings` phase had changed it. `context.ts#resolvePrimaryLocale()` reads it
  * fresh instead, at the point a phase actually needs it.
  */
-export function resolveUsersImportContext(WIKI: WikiGlobal): {
+export function resolveUsersImportContext(CARDINAL: CardinalGlobal): {
   localStrategyId: string
   systemGroupIds: SystemGroupIds
   operatorActorId: string
 } {
-  const localStrategyId = WIKI.data.systemIds.localAuthId
-  const adminGroupId = WIKI.config.auth?.rootAdminGroupId
-  const guestGroupId = WIKI.data.systemIds.guestsGroupId
-  const operatorActorId = WIKI.config.auth?.rootAdminUserId
+  const localStrategyId = CARDINAL.data.systemIds.localAuthId
+  const adminGroupId = CARDINAL.config.auth?.rootAdminGroupId
+  const guestGroupId = CARDINAL.data.systemIds.guestsGroupId
+  const operatorActorId = CARDINAL.config.auth?.rootAdminUserId
 
-  // `WIKI.config.auth` is typed `any` (assembled at runtime from YAML + jsonb — see
+  // `CARDINAL.config.auth` is typed `any` (assembled at runtime from YAML + jsonb — see
   // `types/global.d.ts`), so a missing/malformed `settings.auth` row would otherwise resolve
   // `undefined` here silently: `createUserGroupImporter()` treats an unresolved `systemGroupIds.admin`/
   // `.guest` as "not created" and quietly skips every membership pointing at the source's

@@ -51,6 +51,14 @@
             loading="lazy"
             width="30"
             height="30" />
+          <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+          <img
+            v-else-if="person.avatarProviderUrl"
+            :src="person.avatarProviderUrl"
+            alt=""
+            loading="lazy"
+            width="30"
+            height="30" />
           <span v-else>{{ initials(person.name) }}</span>
         </div>
         <w-tooltip>
@@ -138,97 +146,95 @@ function personLabel(person) {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+@charset "UTF-8";
 .collab-presence {
   display: flex;
   align-items: center;
   /* -> Leaves the leftmost bubble's own overlap margin with nothing to overlap into */
   padding-inline-start: 8px;
-
-  &-person {
-    position: relative;
-    /* -> The overlap that makes the row read as a group rather than a list of separate faces */
-    margin-inline-start: -8px;
-  }
-
+}
+.collab-presence-person {
+  position: relative;
+  /* -> The overlap that makes the row read as a group rather than a list of separate faces */
+  margin-inline-start: -8px;
+}
+.collab-presence {
   /*
     The ripple. Sits under the faces rather than over them, so a wave passing beneath the next avatar
     along does not wash over it -- `z-index: 0` against the bubbles' `1`, in document order, is what
     puts it there.
   */
-  &-wave {
-    position: absolute;
-    z-index: 0;
-    inset: 0;
-    border-radius: 9999px;
-    /* -> A hairline: the ring is meant to be noticed out of the corner of an eye, not read */
-    border: 1px solid transparent;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  &-person.is-typing &-wave {
-    animation: collab-presence-wave 1.6s ease-out infinite;
-  }
-
-  &-bubble {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 9999px;
-    color: #fff;
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    overflow: hidden;
-    user-select: none;
-
-    /*
-      The ring is what stops two adjacent faces from reading as one shape, so it has to be the header
-      behind them rather than a fixed colour — the header is near-white on one theme and near-black
-      on the other.
-    */
-    @at-root .body--light & {
-      /* -> The header's own ground, `var(--color-surface)` -- not the near-white it used to borrow from the
-         Material ramp, which read as a faint grey halo against the white behind it */
-      box-shadow: 0 0 0 2px var(--color-surface);
-    }
-    @at-root .body--dark & {
-      box-shadow: 0 0 0 2px var(--color-dark-3);
-    }
-
-    img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-  }
-
-  &-overflow {
-    @at-root .body--light & {
-      background-color: $grey-6;
-    }
-    @at-root .body--dark & {
-      background-color: $grey-8;
-    }
-  }
-
+}
+.collab-presence-wave {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: 9999px;
+  /* -> A hairline: the ring is meant to be noticed out of the corner of an eye, not read */
+  border: 1px solid transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+.collab-presence-person.is-typing .collab-presence-wave {
+  animation: collab-presence-wave 1.6s ease-out infinite;
+}
+.collab-presence-bubble {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  user-select: none;
+  /*
+    The ring is what stops two adjacent faces from reading as one shape, so it has to be the header
+    behind them rather than a fixed colour — the header is near-white on one theme and near-black
+    on the other.
+  */
+}
+.body--light .collab-presence-bubble {
+  /* -> The header's own ground, `var(--color-surface)` -- not the near-white it used to borrow from the
+     Material ramp, which read as a faint grey halo against the white behind it */
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+.body--dark .collab-presence-bubble {
+  box-shadow: 0 0 0 2px var(--color-dark-3);
+}
+.collab-presence-bubble img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.body--light .collab-presence-overflow {
+  background-color: var(--color-grey-6);
+}
+.body--dark .collab-presence-overflow {
+  background-color: var(--color-grey-8);
+}
+.collab-presence {
   /*
     The count stands in for several people at once and so has no one colour to ripple in; it borrows
     the grey it is drawn in. Every other wave takes its colour from its owner, inline.
   */
-  &-person--overflow &-wave {
-    @at-root .body--light & {
-      border-color: $grey-6;
-    }
-    @at-root .body--dark & {
-      border-color: $grey-8;
-    }
-  }
+}
+.body--light .collab-presence-person--overflow .collab-presence-wave {
+  border-color: var(--color-grey-6);
+}
+.body--dark .collab-presence-person--overflow .collab-presence-wave {
+  border-color: var(--color-grey-8);
 }
 
 @keyframes collab-presence-wave {

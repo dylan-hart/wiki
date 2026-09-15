@@ -384,63 +384,55 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.body--light .icon-picker a {
+  color: var(--color-blue-7);
+}
+.body--dark .icon-picker a {
+  color: var(--color-blue-3);
+}
 .icon-picker {
-  a {
-    @at-root .body--light & {
-      color: $blue-7;
-    }
-    @at-root .body--dark & {
-      color: $blue-3;
-    }
-  }
-
   /* -> A shade off the card, so the fields and the results area read as sitting on a surface */
-  .w-tab-panels {
-    @at-root .body--light & {
-      background-color: $grey-1;
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-4);
-    }
-  }
-
-  &-results {
-    position: relative;
-    height: 220px;
-    overflow-y: auto;
-
-    @at-root .body--light & {
-      background-color: #fff;
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-5);
-    }
-  }
-
-  &-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
-    gap: 2px;
-    padding: 4px;
-  }
-
-  &-cell {
-    height: 44px;
-
-    &--active {
-      @at-root .body--light & {
-        background-color: $blue-1;
-      }
-      @at-root .body--dark & {
-        background-color: $blue-9;
-      }
-    }
-  }
-
-  &-ref {
-    font-family: monospace;
-    word-break: break-all;
-  }
+}
+.body--light .icon-picker .w-tab-panels {
+  background-color: var(--color-grey-1);
+}
+.body--dark .icon-picker .w-tab-panels {
+  background-color: var(--color-dark-4);
+}
+.icon-picker-results {
+  position: relative;
+  height: 220px;
+  overflow-y: auto;
+}
+.body--light .icon-picker-results {
+  background-color: #fff;
+}
+.body--dark .icon-picker-results {
+  background-color: var(--color-dark-5);
+}
+.icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 2px;
+  padding: 4px;
+}
+.icon-picker-cell {
+  height: 44px;
+}
+.body--light .icon-picker-cell--active {
+  background-color: var(--color-blue-1);
+}
+.body--dark .icon-picker-cell--active {
+  background-color: var(--color-blue-9);
+}
+.icon-picker-ref {
+  font-family: monospace;
+  word-break: break-all;
 }
 </style>

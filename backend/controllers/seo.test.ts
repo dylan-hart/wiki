@@ -5,7 +5,7 @@ import type { SitemapPage } from './seo.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * Pure content-generation logic only — no `WIKI` global, no database, no Fastify instance. Everything
+ * Pure content-generation logic only — no `CARDINAL` global, no database, no Fastify instance. Everything
  * that decides what a request gets (site resolution, the `sitemap` gate, `listPagesForSitemap`'s
  * guest-rule filtering) is exercised where it actually lives: `models/pages.test.ts` for the query,
  * and there is no server-boot harness in this repo to run the route registration itself against.

@@ -24,7 +24,7 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
  * | 500 (unexpected)     | logs `unhandled error, answered 500`, its       | logs `unhandled error outside /_api`, |
  * |                      | fields carrying `buildErrorLogContext(req)`    | fields `{ error }` alone              |
  *
- * so this suite asserts on `WIKI.logger.error`'s call count, message and fields per probe — at `error`, which
+ * so this suite asserts on `CARDINAL.logger.error`'s call count, message and fields per probe — at `error`, which
  * is Bug #2650: both branches used to log a crashed request at `warn`, one level below what an
  * operator alerts on, so a 500 was indistinguishable from a routine notice. `warn` is mocked
  * alongside purely to assert it is NOT the level either branch reaches for. Built with a bare

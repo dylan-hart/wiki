@@ -1,4 +1,4 @@
-/* eslint-disable no-console -- config resolves before `WIKI.logger` is built, so stderr is the only sink it has (see `warnUnknownConfigKeys`'s own doc comment). */
+/* eslint-disable no-console -- config resolves before `CARDINAL.logger` is built, so stderr is the only sink it has (see `warnUnknownConfigKeys`'s own doc comment). */
 import { toMerged } from 'es-toolkit/object'
 import { isPlainObject } from 'es-toolkit/predicate'
 import { styleText } from 'node:util'
@@ -23,9 +23,9 @@ type ConfigObject = Record<string, any>
  * Only descends into a key present on both sides as a plain object; anything else either matches
  * (nothing to walk further) or is already reported as unknown at that path.
  *
- * Uses `console.warn`, not `WIKI.logger.warn`: this runs inside `init()`, which every call site
+ * Uses `console.warn`, not `CARDINAL.logger.warn`: this runs inside `init()`, which every call site
  * (index.ts, worker.ts, migration/bootstrap.ts, mcp/bootstrap.ts, scripts/audit-site-scoped-rules.ts)
- * awaits before `WIKI.logger` is set up — `logger.init()` itself reads `WIKI.config.logLevel`, so it
+ * awaits before `CARDINAL.logger` is set up — `logger.init()` itself reads `CARDINAL.config.logLevel`, so it
  * can only run after config is loaded, not before.
  */
 function warnUnknownConfigKeys(config: ConfigObject, schema: ConfigObject, pathPrefix = ''): void {
@@ -59,8 +59,8 @@ export type ConfigOverrideVar = (typeof CONFIG_OVERRIDE_VARS)[number]
 /**
  * What `init()` learned about where the configuration came from.
  *
- * Returned rather than logged: `init()` runs before `WIKI.logger` exists — `logger.init()` reads
- * `WIKI.config.logLevel`, so config has to be loaded first — which is also why the unknown-key
+ * Returned rather than logged: `init()` runs before `CARDINAL.logger` exists — `logger.init()` reads
+ * `CARDINAL.config.logLevel`, so config has to be loaded first — which is also why the unknown-key
  * warnings above go through `console.warn`. `index.ts` puts these on the `boot starting` line.
  */
 export interface ConfigProvenance {
@@ -89,12 +89,12 @@ export default {
   async init(silent = false): Promise<ConfigProvenance> {
     const overrides: ConfigOverrideVar[] = []
     const confPaths = {
-      config: path.join(WIKI.ROOTPATH, 'config.yml'),
-      data: path.join(WIKI.SERVERPATH, 'base.yml')
+      config: path.join(CARDINAL.ROOTPATH, 'config.yml'),
+      data: path.join(CARDINAL.SERVERPATH, 'base.yml')
     }
 
     if (process.env.CONFIG_FILE) {
-      confPaths.config = path.resolve(WIKI.ROOTPATH, process.env.CONFIG_FILE)
+      confPaths.config = path.resolve(CARDINAL.ROOTPATH, process.env.CONFIG_FILE)
       overrides.push('CONFIG_FILE')
     }
 
@@ -147,7 +147,7 @@ export default {
     // Load package info
 
     const packageInfo = JSON.parse(
-      await fs.readFile(path.join(WIKI.SERVERPATH, 'package.json'), 'utf-8')
+      await fs.readFile(path.join(CARDINAL.SERVERPATH, 'package.json'), 'utf-8')
     )
 
     // Load DB Password from Docker Secret File
@@ -176,11 +176,11 @@ export default {
       }
     }
 
-    WIKI.config = appconfig
-    WIKI.data = appdata
-    WIKI.version = packageInfo.version
-    WIKI.releaseDate = packageInfo.releaseDate
-    WIKI.devMode = packageInfo.dev === true
+    CARDINAL.config = appconfig
+    CARDINAL.data = appdata
+    CARDINAL.version = packageInfo.version
+    CARDINAL.releaseDate = packageInfo.releaseDate
+    CARDINAL.devMode = packageInfo.dev === true
 
     return { configPath: confPaths.config, overrides }
   },
@@ -189,10 +189,10 @@ export default {
    * Load config from DB
    */
   async loadFromDb(): Promise<boolean> {
-    const conf = await WIKI.models.settings.getConfig()
+    const conf = await CARDINAL.models.settings.getConfig()
     if (conf) {
       this.dbKeyCount = Object.keys(conf).length
-      WIKI.config = toMerged(WIKI.config, conf)
+      CARDINAL.config = toMerged(CARDINAL.config, conf)
       return true
     } else {
       return false
@@ -207,17 +207,17 @@ export default {
   async saveToDb(keys: string[], propagate = true): Promise<boolean> {
     try {
       for (const key of keys) {
-        let value = WIKI.config[key] ?? null
+        let value = CARDINAL.config[key] ?? null
         if (!isPlainObject(value)) {
           value = { v: value }
         }
-        await WIKI.models.settings.updateConfig(key, value)
+        await CARDINAL.models.settings.updateConfig(key, value)
       }
       if (propagate) {
-        WIKI.events.outbound.emit('reloadConfig')
+        CARDINAL.events.outbound.emit('reloadConfig')
       }
     } catch (err: any) {
-      WIKI.logger.error('config', 'failed to save configuration', { keys, error: err })
+      CARDINAL.logger.error('config', 'failed to save configuration', { keys, error: err })
       return false
     }
 
@@ -229,25 +229,25 @@ export default {
   async initDbValues(): Promise<void> {
     const ids = {
       groupAdminId: crypto.randomUUID(),
-      groupUserId: WIKI.data.systemIds.usersGroupId,
-      groupGuestId: WIKI.data.systemIds.guestsGroupId,
+      groupUserId: CARDINAL.data.systemIds.usersGroupId,
+      groupGuestId: CARDINAL.data.systemIds.guestsGroupId,
       siteId: crypto.randomUUID(),
-      authModuleId: WIKI.data.systemIds.localAuthId,
+      authModuleId: CARDINAL.data.systemIds.localAuthId,
       userAdminId: crypto.randomUUID(),
       userGuestId: crypto.randomUUID(),
-      classificationPublicId: WIKI.data.systemIds.classificationPublicId,
-      classificationInternalId: WIKI.data.systemIds.classificationInternalId,
-      classificationRestrictedId: WIKI.data.systemIds.classificationRestrictedId
+      classificationPublicId: CARDINAL.data.systemIds.classificationPublicId,
+      classificationInternalId: CARDINAL.data.systemIds.classificationInternalId,
+      classificationRestrictedId: CARDINAL.data.systemIds.classificationRestrictedId
     }
 
-    await WIKI.models.settings.init(ids)
-    await WIKI.models.sites.init(ids)
-    await WIKI.models.groups.init(ids)
-    await WIKI.models.classificationLevels.init(ids)
-    await WIKI.models.authentication.init(ids)
-    await WIKI.models.users.init(ids)
-    await WIKI.models.jobs.init()
-    await WIKI.models.icons.init()
+    await CARDINAL.models.settings.init(ids)
+    await CARDINAL.models.sites.init(ids)
+    await CARDINAL.models.groups.init(ids)
+    await CARDINAL.models.classificationLevels.init(ids)
+    await CARDINAL.models.authentication.init(ids)
+    await CARDINAL.models.users.init(ids)
+    await CARDINAL.models.jobs.init()
+    await CARDINAL.models.icons.init()
   },
   /**
    * Ensure the DB carries default values, treating the is-empty check and the seed itself as one
@@ -274,22 +274,22 @@ export default {
   async ensureSeeded(): Promise<boolean> {
     return withAdvisoryLock('wiki:migrate', async () => {
       // -> `keys=` is the top-level count of the `settings` blob itself, not of the merged
-      //    `WIKI.config`: what the operator wants to know here is how much of the running
+      //    `CARDINAL.config`: what the operator wants to know here is how much of the running
       //    configuration came from the database rather than from base.yml/config.yml. `seeded=`
       //    says whether this boot is the one that wrote it.
       if (await this.loadFromDb()) {
-        WIKI.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: false })
+        CARDINAL.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: false })
         return false
       }
 
-      WIKI.logger.warn('config', 'no settings in db, seeding defaults')
+      CARDINAL.logger.warn('config', 'no settings in db, seeding defaults')
       await this.initDbValues()
 
       if (!(await this.loadFromDb())) {
         throw new Error('Settings table is still empty after seeding defaults.')
       }
 
-      WIKI.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: true })
+      CARDINAL.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: true })
       return true
     })
   },
@@ -297,8 +297,8 @@ export default {
    * Subscribe to HA propagation events
    */
   subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadConfig', async () => {
-      await WIKI.configSvc.loadFromDb()
+    CARDINAL.events.inbound.on('reloadConfig', async () => {
+      await CARDINAL.configSvc.loadFromDb()
     })
   }
 }

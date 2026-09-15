@@ -481,7 +481,7 @@ describe('TreeBrowserDialog e2e save-dialog contract', () => {
  *
  * The page is handed the compiled `src/css/tailwind.css` (the `w-1/3` / `w-2/3` fractions and every
  * other utility on the markup) PLUS the `<style>` elements Vitest injected for this SFC's own
- * `<style lang="scss">` block, which is where the column tint, the browser height and the corner
+ * `<style>` block, which is where the column tint, the browser height and the corner
  * marks live. Both halves are needed: neither describes the dialog on its own.
  */
 describe(

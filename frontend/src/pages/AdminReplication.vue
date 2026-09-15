@@ -234,4 +234,4 @@ async function save() {
 }
 </script>
 
-<style lang="scss"></style>
+<style></style>

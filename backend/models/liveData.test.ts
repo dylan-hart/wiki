@@ -14,8 +14,8 @@ function jsonResponse(body: unknown, init: { status?: number; ok?: boolean } = {
 }
 
 /**
- * A minimal `WIKI.models.rateLimits`-shaped stand-in for `assertWithinRateLimit`'s durable limiter
- * (OpenProject #1700) — a real Map, deliberately NOT `WIKI.cache`, so a test can prove the rate-limit
+ * A minimal `CARDINAL.models.rateLimits`-shaped stand-in for `assertWithinRateLimit`'s durable limiter
+ * (OpenProject #1700) — a real Map, deliberately NOT `CARDINAL.cache`, so a test can prove the rate-limit
  * window survives cache churn (clears, evictions) rather than sharing storage with it the way the old
  * LRU-backed counter did. Mirrors `models/rateLimits.ts#consume()`'s fixed-window-plus-ban semantics
  * closely enough for this model's purposes (`models/hooks.test.ts`'s `createFakeRateLimits` is the
@@ -57,7 +57,7 @@ describe('LiveData.resolve', () => {
 
   before(async () => {
     await ensureTemporal()
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       cache: createCacheStub(),
       config: { offline: false },
       models: {
@@ -71,8 +71,8 @@ describe('LiveData.resolve', () => {
 
   beforeEach(() => {
     getCredentialForResolve = mock.fn(async () => undefined)
-    ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
-    WIKI.config.offline = false
+    ;(CARDINAL.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
+    CARDINAL.config.offline = false
     // -> Stubbed to a public address by default so the SSRF guard (`assertNotPrivateAddress`) never
     //    blocks a test that isn't specifically exercising it, and so no test here makes a real DNS
     //    lookup. Individual tests below override this via `mock.method` again to exercise the guard
@@ -82,11 +82,11 @@ describe('LiveData.resolve', () => {
 
   afterEach(() => {
     mock.restoreAll()
-    ;(WIKI.cache as any).clear()
+    ;(CARDINAL.cache as any).clear()
   })
 
-  test('refuses with 503 when WIKI.config.offline is set, before any fetch', async () => {
-    WIKI.config.offline = true
+  test('refuses with 503 when CARDINAL.config.offline is set, before any fetch', async () => {
+    CARDINAL.config.offline = true
     const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await assert.rejects(
       liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' }),
@@ -102,7 +102,7 @@ describe('LiveData.resolve', () => {
     const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 7 }))
     const request = { url: 'https://example.com/metrics', jsonPath: '$.v', refreshInterval: 60 }
     const first = await liveData.resolve('site-1', request)
-    WIKI.config.offline = true
+    CARDINAL.config.offline = true
     const second = await liveData.resolve('site-1', request)
     assert.deepEqual(second, first)
     assert.equal(fetchMock.mock.calls.length, 1)
@@ -467,12 +467,12 @@ describe('LiveData.resolve', () => {
       jsonPath: '$.v',
       refreshInterval: 1
     })
-    const setCall = (WIKI.cache.set as any).mock.calls.at(-1)
+    const setCall = (CARDINAL.cache.set as any).mock.calls.at(-1)
     assert.equal(setCall.arguments[2].ttl, 10 * 1000)
   })
 
   test('the cache key stays a bounded length no matter how long the url is (OpenProject #2185)', async () => {
-    const cacheSetMock = WIKI.cache.set as any
+    const cacheSetMock = CARDINAL.cache.set as any
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     const longUrl = `https://example.com/metrics?${'a'.repeat(10000)}`
     await liveData.resolve('site-1', { url: longUrl, jsonPath: '$.v' })
@@ -501,15 +501,15 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
       secret: 's3cr3t-token',
       allowedOrigins: ['https://example.com']
     }))
-    ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
-    WIKI.config.offline = false
+    ;(CARDINAL.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
+    CARDINAL.config.offline = false
     mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])
   })
 
   afterEach(() => {
     mock.restoreAll()
-    ;(WIKI.cache as any).clear()
-    ;(WIKI.models.rateLimits as any).clear()
+    ;(CARDINAL.cache as any).clear()
+    ;(CARDINAL.models.rateLimits as any).clear()
   })
 
   /** Exhausts a credential's per-window cap, always missing the response cache (a distinct url each
@@ -672,18 +672,18 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
     assert.equal(result.value, 1)
   })
 
-  test('filling WIKI.cache between calls does not reset the credential window (OpenProject #1700)', async () => {
-    // -> The rate-limit counter used to live in `WIKI.cache` alongside the response cache, so ordinary
+  test('filling CARDINAL.cache between calls does not reset the credential window (OpenProject #1700)', async () => {
+    // -> The rate-limit counter used to live in `CARDINAL.cache` alongside the response cache, so ordinary
     //    cache churn (capacity eviction of the counter's own key) could silently reset a credential's
-    //    window. It now lives in `WIKI.models.rateLimits` instead (a real durable store; `createFakeRateLimits`
-    //    stands in for it here) — clearing `WIKI.cache` between requests, simulating that churn, must
+    //    window. It now lives in `CARDINAL.models.rateLimits` instead (a real durable store; `createFakeRateLimits`
+    //    stands in for it here) — clearing `CARDINAL.cache` between requests, simulating that churn, must
     //    have no effect on the counter.
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await exhaust('cred-rate-6', 120)
-    // -> Simulates the response cache (and every other unrelated WIKI.cache key) being evicted or
+    // -> Simulates the response cache (and every other unrelated CARDINAL.cache key) being evicted or
     //    flushed between requests -- the exact scenario that used to reset this credential's rate-limit
     //    window when the counter shared that cache.
-    ;(WIKI.cache as any).clear()
+    ;(CARDINAL.cache as any).clear()
     await assert.rejects(
       liveData.resolve('site-1', {
         credentialId: 'cred-rate-6',

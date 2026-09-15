@@ -45,7 +45,7 @@ function invalidReason(body: HookBody, { partial }: { partial: boolean }): strin
   if (body.events !== undefined && body.events.length < 1) {
     return 'At least one event is required.'
   }
-  if (body.siteId != null && !WIKI.sites[body.siteId]) {
+  if (body.siteId != null && !CARDINAL.sites[body.siteId]) {
     return 'The selected site does not exist.'
   }
   return null
@@ -79,7 +79,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.hooks.getHooks()
+      return CARDINAL.models.hooks.getHooks()
     }
   )
 
@@ -155,7 +155,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const hook = await WIKI.models.hooks.getHookById(req.params.hookId)
+      const hook = await CARDINAL.models.hooks.getHookById(req.params.hookId)
       if (!hook) {
         return reply.notFound('Webhook does not exist.')
       }
@@ -220,13 +220,16 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!(await WIKI.models.hooks.getHookById(req.params.hookId))) {
+      if (!(await CARDINAL.models.hooks.getHookById(req.params.hookId))) {
         return reply.notFound('Webhook does not exist.')
       }
       const { limit } = req.query
-      const { total, deliveries } = await WIKI.models.hooks.getDeliveryHistory(req.params.hookId, {
-        limit
-      })
+      const { total, deliveries } = await CARDINAL.models.hooks.getDeliveryHistory(
+        req.params.hookId,
+        {
+          limit
+        }
+      )
       return { total, limit, deliveries }
     }
   )
@@ -283,7 +286,7 @@ async function routes(app: FastifyInstance) {
       const body = JSON.stringify({
         event: 'hook:test',
         sentAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
-        instance: WIKI.INSTANCE_ID,
+        instance: CARDINAL.INSTANCE_ID,
         data: {
           message: 'This is a test event sent by Cardinal.js to verify your webhook endpoint.'
         }
@@ -359,7 +362,7 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest(invalid)
       }
 
-      const id = await WIKI.models.hooks.createHook({
+      const id = await CARDINAL.models.hooks.createHook({
         name: req.body.name!,
         events: req.body.events!,
         url: req.body.url!,
@@ -425,7 +428,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       // -> Same body-`siteId`, `manage:system`-only shape as CREATE above -- see the comment there.
-      if (!(await WIKI.models.hooks.getHookById(req.params.hookId))) {
+      if (!(await CARDINAL.models.hooks.getHookById(req.params.hookId))) {
         return reply.notFound('Webhook does not exist.')
       }
       const invalid = invalidReason(req.body, { partial: true })
@@ -451,7 +454,7 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest('No webhook fields provided to update.')
       }
 
-      await WIKI.models.hooks.updateHook(req.params.hookId, patch)
+      await CARDINAL.models.hooks.updateHook(req.params.hookId, patch)
 
       return {
         ok: true,
@@ -493,7 +496,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!(await WIKI.models.hooks.deleteHook(req.params.hookId))) {
+      if (!(await CARDINAL.models.hooks.deleteHook(req.params.hookId))) {
         return reply.notFound('Webhook does not exist.')
       }
       return reply.code(204).send()

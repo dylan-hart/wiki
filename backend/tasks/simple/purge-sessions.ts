@@ -7,7 +7,7 @@ import type { TaskResult } from '../../core/scheduler.ts'
  * back only when it actually removed something.
  */
 export async function task(): Promise<TaskResult | void> {
-  const count = await WIKI.models.sessions.purgeExpiredSessions()
+  const count = await CARDINAL.models.sessions.purgeExpiredSessions()
   if (count > 0) {
     return { summary: 'purged sessions past the cookie window', purged: count }
   }

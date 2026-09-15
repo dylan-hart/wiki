@@ -26,8 +26,8 @@ import {
  * mounts that answer straight off disk — the part of `initHTTPServer()` that builds a server rather
  * than wiring behaviour onto one.
  *
- * `createHttpApp()` assigns `WIKI.app` and `WIKI.server` as it goes, in the same order `index.ts`
- * did: the graceful-shutdown handlers below are registered on `WIKI.server` (`./shutdown.ts`'s
+ * `createHttpApp()` assigns `CARDINAL.app` and `CARDINAL.server` as it goes, in the same order `index.ts`
+ * did: the graceful-shutdown handlers below are registered on `CARDINAL.server` (`./shutdown.ts`'s
  * `createGracefulShutdown()`), so the object and its handlers cannot be separated from the
  * construction that produces them, and a single `FastifyInstance` return value has nowhere to carry
  * the second one back. `index.ts` keeps the boot sequence and the `listen()` that ends it.
@@ -46,9 +46,9 @@ export function createHttpApp(): FastifyInstance {
       //    against ajv-formats' own narrower one any more.
       onCreate: registerAjvFormats
     },
-    bodyLimit: WIKI.config.bodyParserLimit || 5242880, // 5mb
+    bodyLimit: CARDINAL.config.bodyParserLimit || 5242880, // 5mb
     // -> Fastify's own `incoming request` / `request completed` pair is off: `registerAccessLogging`
-    //    below emits ONE `http` line per request through `WIKI.logger` instead, so the access log has
+    //    below emits ONE `http` line per request through `CARDINAL.logger` instead, so the access log has
     //    the same scope, shape and destination as everything else the instance says. Pino used to
     //    write that pair straight to stdout as raw JSON in text mode — two lines a request, reaching
     //    neither the terminal backlog nor an aggregator's one format (4,761 pino lines against 14,266
@@ -60,7 +60,7 @@ export function createHttpApp(): FastifyInstance {
     logController: new LogController({ disableRequestLogging: true }),
     // -> What is left of pino is Fastify's own diagnostics — `Reply was already sent`, an `FST_ERR_*`
     //    raised outside a handler — which have no other way out. `level: 'warn'` keeps exactly those,
-    //    and `pinoStreamToWikiLogger` re-emits each one through `WIKI.logger`, so there is one stream
+    //    and `pinoStreamToWikiLogger` re-emits each one through `CARDINAL.logger`, so there is one stream
     //    and one format. The `logFormat: 'json'` reshaping this option block used to carry is gone
     //    with the volume it existed for: nothing reaches stdout as pino any more, so there is no
     //    second producer's envelope left to match.
@@ -82,12 +82,12 @@ export function createHttpApp(): FastifyInstance {
     //    and the hostname reads in `controllers/files.ts`/`seo.ts`/`site.ts` and
     //    `api/auth/provider.ts`) reads `req.hostname`, so narrowing this one setting closes the
     //    cross-site `X-Forwarded-Host` steering gap for all of them (task 2085).
-    trustProxy: WIKI.config.security.trustProxy ?? false,
+    trustProxy: CARDINAL.config.security.trustProxy ?? false,
     routerOptions: {
       ignoreTrailingSlash: true
     }
   })
-  WIKI.app = app
+  CARDINAL.app = app
   registerAccessLogging(app)
   // -> Awaited via `Promise.allSettled` by `runShutdownSequence()` (`./shutdown.ts`) once the
   //    pre-close delay has elapsed — each one is itself internally bounded (`scheduler.stop()`'s own
@@ -98,12 +98,12 @@ export function createHttpApp(): FastifyInstance {
   //    is one call rather than its two steps listed separately here, because those two steps have
   //    an order dependency (`unsubscribeFromNotifications()`'s own drain needs a live pool) that
   //    `Promise.allSettled` running sibling entries concurrently would not preserve.
-  WIKI.server = createGracefulShutdown(app, [
-    () => WIKI.scheduler.stop(),
-    () => WIKI.collab.shutdown(),
-    () => WIKI.dbManager.shutdown()
+  CARDINAL.server = createGracefulShutdown(app, [
+    () => CARDINAL.scheduler.stop(),
+    () => CARDINAL.collab.shutdown(),
+    () => CARDINAL.dbManager.shutdown()
   ])
-  registerProbes(app, WIKI.server.isReady)
+  registerProbes(app, CARDINAL.server.isReady)
 
   app.register(fastifySensible)
   app.register(fastifyCompress, { global: true })
@@ -124,7 +124,7 @@ export function createHttpApp(): FastifyInstance {
     page attached it. One `verifyClient` here closes that for both current routes
     (`controllers/terminal.ts`, `controllers/collab.ts`) and any future one, rather than each handler
     re-deriving its own origin check. See `helpers/common.ts#isSameOriginWebSocketHandshake` --
-    passed `WIKI.sitesMappings`' own hostnames too, so a handshake between two sites this same
+    passed `CARDINAL.sitesMappings`' own hostnames too, so a handshake between two sites this same
     instance actually serves is also accepted, not only a request whose Origin matches the exact Host
     it landed on.
   */
@@ -139,7 +139,7 @@ export function createHttpApp(): FastifyInstance {
         isSameOriginWebSocketHandshake(
           info.origin,
           info.req.headers.host,
-          Object.keys(WIKI.sitesMappings)
+          Object.keys(CARDINAL.sitesMappings)
         )
     }
   })
@@ -148,7 +148,7 @@ export function createHttpApp(): FastifyInstance {
   // Handle graceful server shutdown
   // ----------------------------------------
 
-  registerShutdownLogging(WIKI.server)
+  registerShutdownLogging(CARDINAL.server)
 
   return app
 }
@@ -164,7 +164,7 @@ interface PinoRecord {
 }
 
 /**
- * The sidecar stream Fastify's own pino writes to, so its diagnostics land on `WIKI.logger` rather
+ * The sidecar stream Fastify's own pino writes to, so its diagnostics land on `CARDINAL.logger` rather
  * than as raw JSON on stdout.
  *
  * With `disableRequestLogging` on and pino at `level: 'warn'`, what still comes through here is only
@@ -174,7 +174,7 @@ interface PinoRecord {
  *
  * Two properties this has to keep:
  *
- * - **It cannot recurse.** `WIKI.logger` writes with `console.log`; it never re-enters pino, so a
+ * - **It cannot recurse.** `CARDINAL.logger` writes with `console.log`; it never re-enters pino, so a
  *   line emitted here cannot produce another record to translate.
  * - **`write` is total.** A malformed or non-JSON record is dropped, never thrown: pino writes from
  *   inside Fastify's own error path, where a throw would replace the fault being reported with this
@@ -207,7 +207,7 @@ export function pinoStreamToWikiLogger(): { write: (line: string) => void } {
         //    stream, and severity is carried across rather than flattened to one level — an
         //    `FST_ERR_*` reported as a warning would read as less than it is.
         const level = (record.level ?? 40) >= 50 ? 'error' : 'warn'
-        WIKI.logger[level]('http', message, fields)
+        CARDINAL.logger[level]('http', message, fields)
       } catch {
         // -> Deliberately silent: see the "write is total" note above.
       }
@@ -233,7 +233,7 @@ export function registerAccessLogging(app: FastifyInstance): void {
     const status = reply.statusCode
     const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'debug'
 
-    WIKI.logger[level]('http', `${req.method} ${req.url} → ${status}`, {
+    CARDINAL.logger[level]('http', `${req.method} ${req.url} → ${status}`, {
       ...buildRequestLogContext(req),
       ms: reply.elapsedTime,
       ip: req.ip
@@ -262,7 +262,7 @@ const PROGRAMMATIC_SHUTDOWN_REASON = 'programmatic'
  *
  * Split out of `createHttpApp()` so the branches below are reachable from a test with a fake emitter
  * rather than only by signalling a real process. Called from where the block sat inline, since the
- * handlers are registered on `WIKI.server` as it is constructed.
+ * handlers are registered on `CARDINAL.server` as it is constructed.
  *
  * Two lines, one per end of the teardown, replacing the four the HTTP server and scheduler used to
  * emit between them (`Shutting down HTTP Server`, `Stopping Scheduler`, `Scheduler: [ STOPPED ]`,
@@ -289,11 +289,11 @@ export function registerShutdownLogging(server: Pick<ShutdownController, 'on'>):
 
   server.on(SHUTTING_DOWN, (err?: Error) => {
     shutdownStartedAt = Date.now()
-    WIKI.logger.info('boot', 'stopping', {
+    CARDINAL.logger.info('boot', 'stopping', {
       reason: err?.message ?? PROGRAMMATIC_SHUTDOWN_REASON
     })
     if (err && !EXPECTED_SHUTDOWN_REASONS.has(err.message)) {
-      WIKI.logger.warn('boot', 'shutdown reason was not an expected signal', { error: err })
+      CARDINAL.logger.warn('boot', 'shutdown reason was not an expected signal', { error: err })
     }
   })
 
@@ -302,7 +302,7 @@ export function registerShutdownLogging(server: Pick<ShutdownController, 'on'>):
   //    synchronous for both pipes and TTYs on Linux and macOS, which is what keeps this line from
   //    being dropped under `docker logs`.
   server.on(SHUTDOWN, () => {
-    WIKI.logger.info('boot', 'stopped', {
+    CARDINAL.logger.info('boot', 'stopped', {
       ms: shutdownStartedAt === null ? 0 : Date.now() - shutdownStartedAt
     })
   })
@@ -317,7 +317,7 @@ export function registerShutdownLogging(server: Pick<ShutdownController, 'on'>):
  *
  * A committed file under this backend's own `assets/branding/`, same as `controllers/site.ts`'s
  * `SITE_ASSET_FALLBACKS` and for the same reason (OpenProject #2611): resolved against
- * `WIKI.SERVERPATH`, not a `vite build` output directory that may be stale, missing, or (before this
+ * `CARDINAL.SERVERPATH`, not a `vite build` output directory that may be stale, missing, or (before this
  * fix) buffered once at process boot by the `fastify-favicon` plugin this replaced — which meant a
  * rebuilt icon needed a full restart to ever reach a request, on top of the same day-long,
  * never-revalidated cache header `replyWithFile` fixes for the rest of the branding fallbacks
@@ -338,13 +338,13 @@ const ROOT_FAVICON_CACHE = 'public, no-cache'
  */
 export function registerStaticAssets(app: FastifyInstance): void {
   app.get('/favicon.ico', async (req, reply) =>
-    replyWithFile(req, reply, path.join(WIKI.SERVERPATH, ROOT_FAVICON_PATH), {
+    replyWithFile(req, reply, path.join(CARDINAL.SERVERPATH, ROOT_FAVICON_PATH), {
       cacheControl: ROOT_FAVICON_CACHE
     })
   )
   app.register(fastifyStatic, {
     prefix: '/_assets/',
-    root: path.join(WIKI.ROOTPATH, 'assets/_assets'),
+    root: path.join(CARDINAL.ROOTPATH, 'assets/_assets'),
     index: false,
     maxAge: '7d',
     decorateReply: false,
@@ -366,7 +366,7 @@ export function registerStaticAssets(app: FastifyInstance): void {
 
   app.register(fastifyStatic, {
     prefix: '/_blocks/',
-    root: path.join(WIKI.ROOTPATH, 'blocks/compiled'),
+    root: path.join(CARDINAL.ROOTPATH, 'blocks/compiled'),
     index: false,
     maxAge: '1h'
   })

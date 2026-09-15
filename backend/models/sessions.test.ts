@@ -37,10 +37,10 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;({ sessions: sessionsModel } = await import('./sessions.ts'))
     // -> Not part of the minimal `installTestWiki()` fixture (`test/db.ts`) — added here because
     //    `rotateSecret()` below is the one model method that needs it, via `saveToDb()`. The real
-    //    module, not a stub: it upserts through `WIKI.models.settings.updateConfig`, which works fine
+    //    module, not a stub: it upserts through `CARDINAL.models.settings.updateConfig`, which works fine
     //    unseeded against this suite's own fresh schema.
-    WIKI.configSvc = configSvc
-    WIKI.config.auth = { secret: 'fixture-initial-secret-value' }
+    CARDINAL.configSvc = configSvc
+    CARDINAL.config.auth = { secret: 'fixture-initial-secret-value' }
 
     const [secondUser] = await fixtures.db
       .insert(usersTable)
@@ -146,7 +146,7 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
    * runs, with no restart -- the real regression this whole mechanism exists to close (the old
    * `index.ts` FIXME this task removed). `helpers/authSecretSigner.test.ts` covers the signer's
    * read-fresh-per-call mechanism in isolation, with no DB; this is the round trip through the real
-   * model method, which is also what actually swaps `WIKI.config.auth.secret` here.
+   * model method, which is also what actually swaps `CARDINAL.config.auth.secret` here.
    */
   test('rotateSecret invalidates already-signed cookies immediately, and new ones verify under the new secret', async () => {
     const signedBeforeRotation = authSecretSigner.sign('session-before-rotation')
@@ -211,14 +211,14 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
 describe('sessionStoreAdapter', () => {
   let previousWiki: any
 
-  /** Installs a `WIKI.models.sessions` whose three methods are whatever this test needs. */
+  /** Installs a `CARDINAL.models.sessions` whose three methods are whatever this test needs. */
   function installSessionsModel(stub: Record<string, (...args: any[]) => Promise<any>>) {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { models: { sessions: stub } }
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = { models: { sessions: stub } }
   }
 
   afterEach(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('get resolves through the callback as (null, result)', async () => {

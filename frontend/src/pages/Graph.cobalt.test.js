@@ -17,7 +17,7 @@ const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'Graph.vue'
 const source = readFileSync(SOURCE_PATH, 'utf-8')
 
 function styleBlock(src) {
-  return src.match(/<style lang="scss" scoped>([\s\S]*)<\/style>/)[1]
+  return src.match(/<style scoped>([\s\S]*)<\/style>/)[1]
 }
 
 describe('Graph.vue Cobalt diff (OpenProject #2777)', () => {
@@ -30,17 +30,18 @@ describe('Graph.vue Cobalt diff (OpenProject #2777)', () => {
     )
   })
 
-  it("gives the right-rail and filters panels (the graph-panel mixin) Cobalt's shadowed-sheet treatment", () => {
+  it("gives the right-rail and filters panels (the shared .graph-panel class) Cobalt's shadowed-sheet treatment", () => {
     expect(styleBlock(source)).toMatch(
-      /@at-root body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/
+      /body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/
     )
   })
 
   it("gives the truncation notice its own Cobalt override, matching the mockup's borderless pill", () => {
     const overrides = styleBlock(source).match(
-      /@at-root body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
+      /body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
     )
-    // -> One for the graph-panel mixin (shared by both floating panels), one for the truncation notice.
+    // -> One for the shared .graph-panel class (both floating panels carry it in the template), one
+    //    for the truncation notice.
     expect(overrides?.length).toBe(2)
   })
 

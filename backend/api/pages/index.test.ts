@@ -23,20 +23,20 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
    * model. A mismatch skips the write entirely and answers 409 with enough of the current page for
    * the client to offer a diff/overwrite choice without a second round trip.
    *
-   * `WIKI.models.pages` / `WIKI.models.groups` / `WIKI.collab` are stubbed, and an `onRequest` hook
+   * `CARDINAL.models.pages` / `CARDINAL.models.groups` / `CARDINAL.collab` are stubbed, and an `onRequest` hook
    * stands in for `@fastify/session` by writing an authenticated session directly onto the request —
    * keeping this a self-contained unit test of the route's conflict-detection wiring rather than
    * pulling in the db/schema/drizzle/session-store graph.
    *
    * Also covers `GET /sites/:siteId/pages/:pageIdOrHash`'s `viewer.activeEditors` (task 546): the route
-   * folds `WIKI.collab.participantInfo()` — itself covered directly, against the real `Awareness`
+   * folds `CARDINAL.collab.participantInfo()` — itself covered directly, against the real `Awareness`
    * library, in `core/collab.test.ts` — into the same per-page-view response as `approvalState` and
    * `isWatching`. What is worth a route-level test here is the wiring around that call, not
    * `participantInfo()` itself: that it is only ever asked for on a site with `collaborativeEditing` on,
    * and that its answer reaches `viewer.activeEditors` unchanged.
    *
    * And `viewer.draft` (OpenProject #2455), right beside it: the same collab-feature gate, plus a
-   * `write:pages` check `activeEditors` does not need. `WIKI.models.pageDrafts.summary()` itself is
+   * `write:pages` check `activeEditors` does not need. `CARDINAL.models.pageDrafts.summary()` itself is
    * covered directly in `models/pageDrafts.db.test.ts`; what's worth covering here is the wiring.
    */
 
@@ -375,7 +375,7 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
    * which are page-rule permissions a group's global `permissions` column never legitimately carries
    * (the group editor doesn't offer them, and nothing seeds them there). The check was effectively dead
    * for every real editor, contradicting the route's own documented behavior ("Drafts are included only
-   * for someone who may write pages"). It now asks `WIKI.models.groups.mayHoldPermissionSomewhere()`,
+   * for someone who may write pages"). It now asks `CARDINAL.models.groups.mayHoldPermissionSomewhere()`,
    * which pools the actor's actual page rules instead — covered directly, against real rule rows, in
    * `models/groups.test.ts`; what's worth covering here is that the route wires that answer through to
    * both search options rather than the old `actor.permissions` scan.
@@ -566,7 +566,7 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
     GET PAGE and PAGE HISTORY carried no `guardSiteEnabled` call at all before OpenProject #1587/
     #1593 -- neither was reachable through this describe's original three-route scope. Both now
     answer 403 through the shared preHandler wired above, with no route-specific stub required: the
-    preHandler runs before the handler ever touches `WIKI.models`.
+    preHandler runs before the handler ever touches `CARDINAL.models`.
   */
 
   test('GET PAGE: answers 403 for a disabled site, without ever calling getPage', async () => {
@@ -624,8 +624,8 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
 
   test('PAGE USER PERMISSIONS route: passes the route siteId through to pagePermissionsFor', async () => {
     const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -645,15 +645,15 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
         assert.equal(page.siteId, ENABLED_SITE_ID)
       }
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 
   test('RESOLVE ALIAS route: passes the route siteId through an inline page ref to mayOnPage', async () => {
     const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    const originalGetPathFromAlias = (globalThis as any).WIKI.models.pages.getPathFromAlias
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    const originalGetPathFromAlias = (globalThis as any).CARDINAL.models.pages.getPathFromAlias
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -661,7 +661,7 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
       calls.push(page)
       return true
     }
-    ;(globalThis as any).WIKI.models.pages.getPathFromAlias = async () => ({
+    ;(globalThis as any).CARDINAL.models.pages.getPathFromAlias = async () => ({
       id: 'p1',
       path: 'some/path'
     })
@@ -675,8 +675,8 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
       assert.equal(calls[0].path, 'some/path')
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
-      ;(globalThis as any).WIKI.models.pages.getPathFromAlias = originalGetPathFromAlias
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.pages.getPathFromAlias = originalGetPathFromAlias
     }
   })
 })

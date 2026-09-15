@@ -883,7 +883,12 @@ onMounted(load)
 onBeforeUnmount(disposeEditor)
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /**
  * The subway line: its colour, and the radius of the turn it makes at the end.
  *
@@ -895,43 +900,42 @@ onBeforeUnmount(disposeEditor)
  * is the opposite of what "this overlay is drawn on ink in BOTH [site] THEMES" (below) was ever
  * meant to say -- it was never meant to also mean "in both aesthetics."
  */
-$timeline-line: var(--color-hairline-dark);
-$timeline-turn: 16px;
-
 .page-history {
   /* -> The header is the positioning context for the page title below */
-  .card-header {
-    position: relative;
-  }
-
+}
+.page-history .card-header {
+  position: relative;
+}
+.page-history {
   /*
     -> `left`/`translateX(-50%)` stay physical on purpose (OpenProject #1601's repo-wide pass): this
        centers the title over the whole header regardless of reading direction, the same centering
        trick as `WSignal.vue`/`ErrorGeneric.vue` -- not a reading-direction lean. See
        `frontend/src/logicalSpacing.test.js`.
   */
-  &-page {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    /* -> Never wide enough to reach either group of controls; a long title is cut instead */
-    max-width: 40%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    pointer-events: none;
-    font-size: 0.8rem;
-    opacity: 0.6;
-    /*
-      -> The page's OWN title, so it is set as the author wrote it. `.card-header` (`css/_base.scss`)
-         uppercases a dialog's title band, and this span sits inside that band, so it inherited the
-         transform and shouted the page name back. The design draws the two differently on purpose:
-         the `PAGE HISTORY` label beside it declares `text-transform: uppercase` explicitly, and this
-         span declares no transform at all.
-    */
-    text-transform: none;
-  }
-
+}
+.page-history-page {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  /* -> Never wide enough to reach either group of controls; a long title is cut instead */
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 0.8rem;
+  opacity: 0.6;
+  /*
+    -> The page's OWN title, so it is set as the author wrote it. `.card-header` (`css/_base.css`)
+       uppercases a dialog's title band, and this span sits inside that band, so it inherited the
+       transform and shouted the page name back. The design draws the two differently on purpose:
+       the `PAGE HISTORY` label beside it declares `text-transform: uppercase` explicitly, and this
+       span declares no transform at all.
+  */
+  text-transform: none;
+}
+.page-history {
   /*
     This overlay is drawn on INK in both themes -- the design's own choice, and the only screen in
     the app that is (`ui-redesign/Cardinal Wiki - History 3x.dc.html`). A diff is code, and code is
@@ -939,90 +943,89 @@ $timeline-turn: 16px;
     it. So the tones below are Cardinal's dark ramp stated directly rather than through a theme
     branch: panel for the timeline column, the recessed tone for the diff beside it.
   */
-  &-sidebar {
-    background-color: var(--color-dark-4);
-    color: var(--color-text-dark);
-    border-inline-end: 1px solid var(--color-hairline-dark);
-  }
-
-  &-main {
-    display: flex;
-    flex-direction: column;
-    /* -> Ink, a step BELOW the timeline rail beside it: the diff is the recessed half of the pair */
-    background-color: var(--color-dark-5);
-    color: var(--color-text-dark);
-    /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
-    height: 100%;
-    min-height: 0;
-  }
-
+}
+.page-history-sidebar {
+  background-color: var(--color-dark-4);
+  color: var(--color-text-dark);
+  border-inline-end: 1px solid var(--color-hairline-dark);
+}
+.page-history-main {
+  display: flex;
+  flex-direction: column;
+  /* -> Ink, a step BELOW the timeline rail beside it: the diff is the recessed half of the pair */
+  background-color: var(--color-dark-5);
+  color: var(--color-text-dark);
+  /* -> The grid cell already has a height; this claims it so the diff can fill what is left */
+  height: 100%;
+  min-height: 0;
+}
+.page-history {
   /* The subway line: one continuous rule behind the dots, drawn by the list rather than the items. */
-  &-timeline {
-    position: relative;
-    padding: 1rem 0;
+}
+.page-history-timeline {
+  position: relative;
+  padding: 1rem 0;
+  /*
+    The line: down behind the dots, then a quarter turn out to the leading edge rather than
+    stopping in mid-air.
 
-    /*
-      The line: down behind the dots, then a quarter turn out to the leading edge rather than
-      stopping in mid-air.
+    Both halves are ONE border of ONE box -- the trailing and bottom edges of an invisible
+    rectangle, joined by a corner radius -- rather than a straight element meeting a curved one.
+    Two elements cannot be made to match under fractional display scaling: each snaps to the device
+    pixel grid from its own layout box, so at 125% or 150% one lands on a whole device pixel and the
+    other straddles two, and the seam shows as a change of thickness. As a single border there is
+    nothing to line up: the browser rasterises the straight stretch and the curve as one path.
 
-      Both halves are ONE border of ONE box -- the trailing and bottom edges of an invisible
-      rectangle, joined by a corner radius -- rather than a straight element meeting a curved one.
-      Two elements cannot be made to match under fractional display scaling: each snaps to the device
-      pixel grid from its own layout box, so at 125% or 150% one lands on a whole device pixel and the
-      other straddles two, and the seam shows as a change of thickness. As a single border there is
-      nothing to line up: the browser rasterises the straight stretch and the curve as one path.
+    The box's trailing edge sits under the middle of the dots: 1rem of padding, half of the 28px
+    dot, half of the 2px line. OpenProject #1601: `inset-inline-start`/`border-inline-end`/
+    `border-end-end-radius`, so the turn follows the dots to the leading edge under RTL too.
+  */
+}
+.page-history-timeline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: 0;
+  width: calc(1rem + 14px + 1px);
+  border-inline-end: 2px solid var(--color-hairline-dark);
+  border-bottom: 2px solid var(--color-hairline-dark);
+  border-end-end-radius: 16px;
+}
+.page-history-item {
+  position: relative;
+  display: flex;
+  /* -> Wraps so the notes below can claim a row of their own; no row gap, since they bring their
+        own margin */
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0 0.75rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+}
+.page-history-item:hover {
+  background-color: var(--color-dark-2);
+}
+.page-history-item {
+  /*
+    An inset shadow rather than a `border-left`, which is what this was: a border is part of the
+    box, so it pushed the row's contents 3px across and took the dot of every picked entry off the
+    line while the unpicked ones stayed on it.
 
-      The box's trailing edge sits under the middle of the dots: 1rem of padding, half of the 28px
-      dot, half of the 2px line. OpenProject #1601: `inset-inline-start`/`border-inline-end`/
-      `border-end-end-radius`, so the turn follows the dots to the leading edge under RTL too.
-    */
-    &::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      inset-inline-start: 0;
-      width: calc(1rem + 14px + 1px);
-      border-inline-end: 2px solid $timeline-line;
-      border-bottom: 2px solid $timeline-line;
-      border-end-end-radius: $timeline-turn;
-    }
-  }
-
-  &-item {
-    position: relative;
-    display: flex;
-    /* -> Wraps so the notes below can claim a row of their own; no row gap, since they bring their
-          own margin */
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 0 0.75rem;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-
-    &:hover {
-      background-color: var(--color-dark-2);
-    }
-
-    /*
-      An inset shadow rather than a `border-left`, which is what this was: a border is part of the
-      box, so it pushed the row's contents 3px across and took the dot of every picked entry off the
-      line while the unpicked ones stayed on it.
-
-      `--color-accent-fill`, not `var(--color-primary)`: this is an UNTEXTED highlight (a wash plus an inset
-      bar, the same pairing the file manager's own selected row and the site's active-nav item both
-      use), not a fill carrying text -- the design's own mockup draws it in the accent-fill tone in
-      both aesthetics (`#e4676b`/`#ff4d5a`), never the white-text accent this held instead
-      (OpenProject #2776). `color-mix()` derives the 16%-opacity wash from that same token rather
-      than adding a second, undeclared one -- `_base.scss`'s `.header-nav-btn:hover` rule already
-      establishes the pattern.
-    */
-    &.is-picked {
-      background-color: color-mix(in srgb, var(--color-accent-fill) 16%, transparent);
-      box-shadow: inset 3px 0 0 var(--color-accent-fill);
-    }
-  }
-
+    `--color-accent-fill`, not `var(--color-primary)`: this is an UNTEXTED highlight (a wash plus an inset
+    bar, the same pairing the file manager's own selected row and the site's active-nav item both
+    use), not a fill carrying text -- the design's own mockup draws it in the accent-fill tone in
+    both aesthetics (`#e4676b`/`#ff4d5a`), never the white-text accent this held instead
+    (OpenProject #2776). `color-mix()` derives the 16%-opacity wash from that same token rather
+    than adding a second, undeclared one -- `_base.css`'s `.header-nav-btn:hover` rule already
+    establishes the pattern.
+  */
+}
+.page-history-item.is-picked {
+  background-color: color-mix(in srgb, var(--color-accent-fill) 16%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-accent-fill);
+}
+.page-history {
   /*
     The subway stop: 28px, round, ringed in the timeline column's own ground so the line behind it
     reads as passing UNDER the dot rather than through it. All three measurements are the design's
@@ -1032,16 +1035,17 @@ $timeline-turn: 16px;
     below it already said "the sidebar's own colour"; var(--color-dark-4) is what that actually is, and against
     var(--color-dark-4) the old ring drew a visible dark halo instead of disappearing.
   */
-  &-dot {
-    flex: 0 0 28px;
-    height: 28px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 0 0 3px var(--color-dark-4);
-  }
-
+}
+.page-history-dot {
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 3px var(--color-dark-4);
+}
+.page-history {
   /*
     One fill per kind of change, taken from the design rather than from the Material ramp these used
     to resolve through: `bg-blue-7` is #1e88e5, where the design's "Updated" dot is #5f78a8, and
@@ -1050,133 +1054,130 @@ $timeline-turn: 16px;
 
     Every dot is a fill, so the glyph over it takes whichever ink clears it: white on the two darker
     fills, var(--color-ink) on the two bright ones. That is how the design draws its own amber "Moved" dot
-    (stroke #1c2233), and it is the rule `css/_theme.scss` states for every `-fill` tone.
+    (stroke #1c2233), and it is the rule `css/tailwind.css` states for every `-fill` tone.
 
     #5f78a8 is a literal because the palette has no name for it -- it is the only tone on this screen
     that is neither chrome nor a status. Naming it is a job for the token pass, not for this file.
   */
-  &-dot.is-created {
-    background-color: var(--color-positive-fill);
-    color: #fff;
-  }
-
-  &-dot.is-updated {
-    background-color: #5f78a8;
-    color: #fff;
-  }
-
-  &-dot.is-moved {
-    background-color: var(--color-warning-fill);
-    color: var(--color-ink);
-  }
-
-  &-dot.is-deleted {
-    background-color: var(--color-negative-fill);
-    color: var(--color-ink);
-  }
-
+}
+.page-history-dot.is-created {
+  background-color: var(--color-positive-fill);
+  color: #fff;
+}
+.page-history-dot.is-updated {
+  background-color: #5f78a8;
+  color: #fff;
+}
+.page-history-dot.is-moved {
+  background-color: var(--color-warning-fill);
+  color: var(--color-ink);
+}
+.page-history-dot.is-deleted {
+  background-color: var(--color-negative-fill);
+  color: var(--color-ink);
+}
+.page-history {
   /* -> An action this build has no name for: chrome, so it reads as unclassified rather than as a status */
-  &-dot.is-other {
-    background-color: var(--color-slate-soft);
-    color: #fff;
-  }
-
-  &-body {
-    flex: 1 1 auto;
-    min-width: 0;
-    font-size: 0.85rem;
-    line-height: 1.35;
-  }
-
-  &-meta {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary-dark);
-  }
-
+}
+.page-history-dot.is-other {
+  background-color: var(--color-slate-soft);
+  color: #fff;
+}
+.page-history-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+.page-history-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary-dark);
+}
+.page-history {
   /*
     The design sets one tone across all three metadata lines but not one typeface: the timestamp and
     the destination path are mono, the author's name is the proportional face beside them. They all
     used to be `-meta` alone, so the whole block came out proportional.
   */
-  &-time {
-    margin-top: 2px;
-    font-family: var(--font-mono);
-  }
-
-  &-path {
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-  }
-
+}
+.page-history-time {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+.page-history-path {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.page-history {
   /*
     Square mono plates, uppercase and tracked -- how the design draws both of the entry's markers,
     the CURRENT cursor and the VIA MCP provenance mark. `WBadge` is already mono/9px/600; what it
     does not do on its own is the casing or the tracking, and it drew both of these as pills until
     the `rounded` prop came off (the language zeroes every radius but a genuinely round shape).
   */
-  &-item .w-badge {
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-  }
-
+}
+.page-history-item .w-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.page-history {
   /* -> Full width, indented to sit under the entry's text rather than under its dot */
-  &-notes {
-    flex: 0 0 100%;
-    min-width: 0;
-    padding-inline-start: calc(28px + 0.75rem);
-  }
-
-  &-reason {
-    margin-top: 0.25rem;
-    font-size: 0.78rem;
-    font-style: italic;
-    color: var(--color-text-dark);
-    word-break: break-word;
-  }
-
+}
+.page-history-notes {
+  flex: 0 0 100%;
+  min-width: 0;
+  padding-inline-start: calc(28px + 0.75rem);
+}
+.page-history-reason {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--color-text-dark);
+  word-break: break-word;
+}
+.page-history {
   /* -> Mono, like every other list of machine names in this language and like the design's own row */
-  &-fields {
-    margin-top: 0.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    color: var(--color-text-caption-dark);
-    word-break: break-word;
-  }
-
-  &-pick {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  &-load-more {
-    display: flex;
-    justify-content: center;
-    padding: 0.5rem 1rem 1rem;
-  }
-
-  &-compare {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    /* -> No gap: each side owns exactly half the width, and its own padding keeps the two apart */
-    padding: 0.75rem 0;
-    border-bottom: 1px solid var(--color-hairline-dark);
-    font-size: 0.85rem;
-  }
-
+}
+.page-history-fields {
+  margin-top: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-caption-dark);
+  word-break: break-word;
+}
+.page-history-pick {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.page-history-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 1rem 1rem;
+}
+.page-history-compare {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* -> No gap: each side owns exactly half the width, and its own padding keeps the two apart */
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--color-hairline-dark);
+  font-size: 0.85rem;
+}
+.page-history {
   /* -> Half each, so B starts on the divider between the editor's two panes rather than wherever
         the row's other contents happen to leave it */
-  &-side {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex: 0 0 50%;
-    min-width: 0;
-    padding: 0 1rem;
-  }
-
+}
+.page-history-side {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 0 0 50%;
+  min-width: 0;
+  padding: 0 1rem;
+}
+.page-history {
   /*
     -> The accent under a white letter, and the mono the design sets both cursors in.
 
@@ -1184,25 +1185,25 @@ $timeline-turn: 16px;
     (OpenProject #2776) -- the design's own A/B plates fill `#c8303c` under Cobalt, `--q-accent`'s
     value, not the site's unrelated primary blue.
   */
-  &-letter {
-    flex: 0 0 24px;
-    height: 24px;
-    background-color: var(--color-accent);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 12px;
-  }
-
-  &-pick-group .w-btn {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 11px;
-  }
-
+}
+.page-history-letter {
+  flex: 0 0 24px;
+  height: 24px;
+  background-color: var(--color-accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 12px;
+}
+.page-history-pick-group .w-btn {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+}
+.page-history {
   /*
     Cobalt only (OpenProject #2872, `ui-iteration/README.md` Part 1.1/Part 2 "History (Cobalt) |
     Side by side / Inline gap + Inline rounded; A/B chips rounded with 4px gap"): a Cobalt `w-btn`
@@ -1220,56 +1221,49 @@ $timeline-turn: 16px;
     is needed -- verified by the source-text conformance test alongside this rule, since jsdom here
     has no compiled token stylesheet to resolve a real cascade against.
   */
-  body.body--cobalt & {
-    &-toggle {
-      gap: 10px;
-    }
-
-    &-pick-group {
-      gap: 4px;
-    }
-
-    &-toggle .w-btn:not(:last-child),
-    &-pick-group .w-btn:not(:last-child) {
-      border-inline-end: none;
-    }
-  }
-
-  &-same {
-    flex: 0 0 auto;
-    padding: 0.5rem 1rem;
-    font-size: 0.8rem;
-    color: var(--color-text-secondary-dark);
-    background-color: var(--color-dark-2);
-  }
-
+}
+body.body--cobalt .page-history-toggle {
+  gap: 10px;
+}
+body.body--cobalt .page-history-pick-group {
+  gap: 4px;
+}
+body.body--cobalt .page-history-toggle .w-btn:not(:last-child),
+body.body--cobalt .page-history-pick-group .w-btn:not(:last-child) {
+  border-inline-end: none;
+}
+.page-history-same {
+  flex: 0 0 auto;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary-dark);
+  background-color: var(--color-dark-2);
+}
+.page-history {
   /* -> Takes the diff pane's own place rather than sitting alongside it, unlike `-same` above: there
         is no partial diff underneath this one to also show. */
-  &-toolarge {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    padding: 2rem;
-    text-align: center;
-    color: var(--color-text-secondary-dark);
-  }
-
-  &-toolarge-text {
-    max-width: 32rem;
-    font-size: 0.9rem;
-  }
-
-  &-toolarge-actions {
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  &-diff {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
+}
+.page-history-toolarge {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-secondary-dark);
+}
+.page-history-toolarge-text {
+  max-width: 32rem;
+  font-size: 0.9rem;
+}
+.page-history-toolarge-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+.page-history-diff {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 </style>

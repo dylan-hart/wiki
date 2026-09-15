@@ -24,23 +24,23 @@ import type { WriteRecorder } from '../recorder.ts'
  * phase run — see `settingsPhase` below for the closure-scoped guard that enforces that against
  * `define-phase.ts#readEntity()`'s per-record `classify` contract.
  *
- * ## Resolver classification touches `WIKI` unconditionally, unlike this phase's writes
+ * ## Resolver classification touches `CARDINAL` unconditionally, unlike this phase's writes
  *
- * `phases/content.ts`/`phases/users.ts` both keep a `dryRun` run fully `WIKI`/db-free (their
+ * `phases/content.ts`/`phases/users.ts` both keep a `dryRun` run fully `CARDINAL`/db-free (their
  * classification logic runs through an injected writer that has its own no-op dry-run
  * implementation). That split isn't available here: `mapAuthenticationRows`/`mapStorageRows` need a
  * real `AuthModuleResolver`/`StorageModuleResolver` — `resolver.getModule()`/`getDefinition()` is
  * what tells a row `created`/`updated` apart from `unsupported` in the first place, not just how it's
- * written — and the real resolvers are `WIKI.models.authentication`/`WIKI.models.storage` themselves.
+ * written — and the real resolvers are `CARDINAL.models.authentication`/`CARDINAL.models.storage` themselves.
  * Both models' `getModule`/`getDefinition`/`buildConfig`/`validateConfig` only ever read
- * `WIKI.data.authentication`/`WIKI.models.storage.definitions` (populated once from disk by
- * `refreshStrategiesFromDisk()`/`refreshFromDisk()` — see `bootstrap.ts`), never `WIKI.db`, so this is
+ * `CARDINAL.data.authentication`/`CARDINAL.models.storage.definitions` (populated once from disk by
+ * `refreshStrategiesFromDisk()`/`refreshFromDisk()` — see `bootstrap.ts`), never `CARDINAL.db`, so this is
  * cheap and read-only, but it does mean a pure unit test of this phase's real classification (as
- * `phases.test.ts` has for `usersPhase`/`contentPhase`) isn't possible without a live `WIKI` global —
+ * `phases.test.ts` has for `usersPhase`/`contentPhase`) isn't possible without a live `CARDINAL` global —
  * covered instead by `phases/settings.integration.test.ts`'s real `setupTestDb()` destination.
  *
  * The one destination *read* this function makes outside a `recorder.create()` write callback —
- * `WIKI.models.storage.getSiteTargets(ctx.siteId)`, to find the row a storage update applies to — is
+ * `CARDINAL.models.storage.getSiteTargets(ctx.siteId)`, to find the row a storage update applies to — is
  * for the same reason: deciding `wouldCreate` vs. `conflict` for a storage row requires knowing
  * whether the row a mapped update targets actually exists, and that decision has to happen before
  * calling exactly one recorder method (never both — see the storage loop below), the same "compute
@@ -49,7 +49,7 @@ import type { WriteRecorder } from '../recorder.ts'
  * behind `ctx.dryRun` (as `phases/content.ts#existingEntry` does) matches what that file's own doc
  * comment says a real CLI run could safely do anyway ("the destination db is always live even under
  * --dry-run, so checking the real tree ... is both possible and correct there") — content.ts chose the
- * gate only to keep its own pure-unit tests `WIKI`-free, which this phase's tests cannot be regardless.
+ * gate only to keep its own pure-unit tests `CARDINAL`-free, which this phase's tests cannot be regardless.
  */
 async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder): Promise<void> {
   const settingsRows: SiteSettingsSourceRow[] = []
@@ -81,25 +81,25 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
       //    (`models/sites.ts`'s own `mergeWith(current, patch, ...)`), so this is already safe against
       //    the same wholesale-replace hazard `instanceSettings.mail`/`.security` below have to guard
       //    against by hand.
-      await WIKI.models.sites.updateSite(ctx.siteId, { config: siteConfigPatch })
+      await CARDINAL.models.sites.updateSite(ctx.siteId, { config: siteConfigPatch })
     }
     if (instanceSettings.mail) {
-      // -> `WIKI.models.settings.updateConfig(key, value)` is a raw `INSERT ... ON CONFLICT DO UPDATE`
+      // -> `CARDINAL.models.settings.updateConfig(key, value)` is a raw `INSERT ... ON CONFLICT DO UPDATE`
       //    that REPLACES the whole `mail` row wholesale — writing `instanceSettings.mail` straight
       //    through it (as an earlier version of this code did) would silently delete every field the
       //    2.x mapper's patch doesn't happen to produce (its own doc comment: `MAIL_FIELDS` has no
       //    `defaultBaseURL`, so a 2.x source with mail configured would delete
       //    `mail.defaultBaseURL` from the destination). The real admin route
       //    (`api/mail.ts`'s PATCH handler) never calls `updateConfig()` directly for exactly this
-      //    reason: it shallow-merges the incoming patch onto `WIKI.config.mail` (already the
+      //    reason: it shallow-merges the incoming patch onto `CARDINAL.config.mail` (already the
       //    DB-loaded value — `bootstrap.ts`'s `configSvc.loadFromDb()` runs before any phase does)
-      //    and writes the merged whole back via `WIKI.configSvc.saveToDb(['mail'])`. Mirrored here
+      //    and writes the merged whole back via `CARDINAL.configSvc.saveToDb(['mail'])`. Mirrored here
       //    verbatim rather than reimplemented, so this stays byte-for-byte the same merge the admin
       //    UI's own save button performs.
-      const previousMail = WIKI.config.mail
-      WIKI.config.mail = { ...previousMail, ...instanceSettings.mail }
-      if (!(await WIKI.configSvc.saveToDb(['mail']))) {
-        WIKI.config.mail = previousMail
+      const previousMail = CARDINAL.config.mail
+      CARDINAL.config.mail = { ...previousMail, ...instanceSettings.mail }
+      if (!(await CARDINAL.configSvc.saveToDb(['mail']))) {
+        CARDINAL.config.mail = previousMail
         throw new Error('failed to save mail configuration during migration')
       }
     }
@@ -108,20 +108,20 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
       //    patch doesn't produce — `corsConfig`/`corsMode`/`cspDirectives`/`enforceCsp`/
       //    `hstsDuration`/`uploadScanSVG`/`forceAssetDownload`/... — would be silently deleted). Unlike
       //    `mail`, `security` already has a real model method that does the correct merge-then-save:
-      //    `WIKI.models.security.updateConfig(patch)` (`models/security.ts`) does the exact same
+      //    `CARDINAL.models.security.updateConfig(patch)` (`models/security.ts`) does the exact same
       //    `{ ...previous, ...patch }` + `saveToDb(['security'])` `api/mail.ts` does for `mail`, so
       //    this calls it directly instead of hand-rolling the merge a second time.
-      const saved = await WIKI.models.security.updateConfig(instanceSettings.security)
+      const saved = await CARDINAL.models.security.updateConfig(instanceSettings.security)
       if (!saved) {
         throw new Error('failed to save security configuration during migration')
       }
     }
   })
 
-  // -> `WIKI.models.authentication` satisfies `AuthModuleResolver` structurally: `getModule`,
+  // -> `CARDINAL.models.authentication` satisfies `AuthModuleResolver` structurally: `getModule`,
   //    `buildConfig` and `validateConfig` all match the narrow interface's signatures exactly (see
   //    `mappers/authentication.ts`'s own doc comment on why the interface exists at all).
-  const authResolver: AuthModuleResolver = WIKI.models.authentication
+  const authResolver: AuthModuleResolver = CARDINAL.models.authentication
   // -> Every created authentication row's `autoEnrollGroups` is silently `[]`, regardless of what
   //    the 2.x source row actually had configured: remapping them needs old-group-id ->
   //    new-group-UUID entries that only exist once the `users` phase has run, but `settings` runs
@@ -138,7 +138,7 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
       case 'created': {
         const row = result.row!
         await recorder.create(result.sourceKey, () =>
-          WIKI.models.authentication
+          CARDINAL.models.authentication
             .createStrategy({
               module: row.module,
               displayName: row.displayName,
@@ -184,9 +184,9 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
     }
   }
 
-  // -> `WIKI.models.storage` satisfies `StorageModuleResolver` structurally, same reasoning as
+  // -> `CARDINAL.models.storage` satisfies `StorageModuleResolver` structurally, same reasoning as
   //    `authResolver` above.
-  const storageResolver: StorageModuleResolver = WIKI.models.storage
+  const storageResolver: StorageModuleResolver = CARDINAL.models.storage
   const storageResult = await mapStorageRows(storageRows, {
     resolver: storageResolver,
     siteId: ctx.siteId
@@ -197,13 +197,13 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
         const update = result.update!
         const identifier = `${result.sourceKey}@${ctx.siteId}`
         // -> Read before deciding which single recorder method to call — see the module doc
-        //    comment's "Resolver classification touches WIKI unconditionally" section for why this
+        //    comment's "Resolver classification touches CARDINAL unconditionally" section for why this
         //    isn't gated behind `ctx.dryRun`, and why it happens outside `recorder.create()`'s own
         //    write callback (nesting a `conflict()` call inside a `create()` that already counted
         //    this record would double-count it against `report.ts`'s
         //    `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length`
         //    invariant).
-        const targets = await WIKI.models.storage.getSiteTargets(ctx.siteId)
+        const targets = await CARDINAL.models.storage.getSiteTargets(ctx.siteId)
         const existing = targets.find((t) => t.module === update.module)
         if (!existing) {
           // -> Structurally shouldn't happen: `Sites.createSite()` calls `storage.syncSite()` at
@@ -231,7 +231,7 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
           )
         }
         await recorder.create(identifier, () =>
-          WIKI.models.storage
+          CARDINAL.models.storage
             .updateTarget(ctx.siteId, existing, {
               id: existing.id,
               isEnabled: update.values.isEnabled,

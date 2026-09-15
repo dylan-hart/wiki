@@ -25,8 +25,8 @@ import type { StorageTarget } from '../../../models/storage.ts'
 /**
  * Pure unit tests: no database, no real network. The S3 SDK's HTTP layer is stubbed via
  * `aws-sdk-client-mock`, which patches `S3Client.prototype.send` — every instance this module
- * constructs is caught by the one mock installed below. `WIKI.logger`/`WIKI.models.assets` are the
- * only `WIKI` members `storage.ts` touches, so that's all the global stub needs to carry — matching
+ * constructs is caught by the one mock installed below. `CARDINAL.logger`/`CARDINAL.models.assets` are the
+ * only `CARDINAL` members `storage.ts` touches, so that's all the global stub needs to carry — matching
  * the pure-unit-test convention this repo's backend testing follows.
  */
 
@@ -44,7 +44,7 @@ installTestWiki({
 beforeEach(() => {
   s3Mock.reset()
   s3Mock.on(HeadBucketCommand).resolves({})
-  ;(WIKI.models.assets.getContent as any).mock.resetCalls()
+  ;(CARDINAL.models.assets.getContent as any).mock.resetCalls()
 })
 
 /** A fresh target per test, so the module's per-target client cache never leaks between cases. */
@@ -273,7 +273,7 @@ describe('s3 storage / per-asset lifecycle', () => {
   test('every per-asset command names the configured bucket', async () => {
     s3Mock.on(PutObjectCommand).resolves({})
     s3Mock.on(DeleteObjectCommand).resolves({})
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
+    ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
       data: Buffer.from('hello'),
       mimeType: 'text/plain',
       fileName: 'notes.txt'
@@ -295,7 +295,7 @@ describe('s3 storage / per-asset lifecycle', () => {
 
   test('assetUploaded omits StorageClass in do mode even though storageTier is set', async () => {
     s3Mock.on(PutObjectCommand).resolves({})
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
+    ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
       data: Buffer.from('hi'),
       mimeType: 'text/plain',
       fileName: 'notes.txt'
@@ -370,7 +370,7 @@ describe('s3 storage / exportAll', () => {
       })
     )
     const target = makeTarget({ bucket: 'forbidden-bucket' })
-    WIKI.models.assets.streamAll = async function* () {} as any
+    CARDINAL.models.assets.streamAll = async function* () {} as any
 
     await assert.rejects(
       () => storageModule.exportAll(target),

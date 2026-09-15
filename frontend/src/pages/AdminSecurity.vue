@@ -622,4 +622,4 @@ const trustProxyAddresses = computed({
 })
 </script>
 
-<style lang="scss"></style>
+<style></style>

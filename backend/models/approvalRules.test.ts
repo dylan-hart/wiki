@@ -43,7 +43,7 @@ describe('approvalRules.broadcastReload (DB-backed)', { skip: !hasTestDatabase()
   })
 
   test('createRule broadcasts reloadApprovals after refreshing this instance', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await approvalRules.createRule(fixtures.siteId, {
       name: 'broadcast create',
       isEnabled: true,
@@ -52,7 +52,7 @@ describe('approvalRules.broadcastReload (DB-backed)', { skip: !hasTestDatabase()
       submitterGroups: [],
       reviewerGroups: [fixtures.groupId]
     })
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadApprovals'))
   })
 
@@ -65,9 +65,9 @@ describe('approvalRules.broadcastReload (DB-backed)', { skip: !hasTestDatabase()
       submitterGroups: [],
       reviewerGroups: [fixtures.groupId]
     })
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await approvalRules.updateRule(fixtures.siteId, rule.id, { isEnabled: false })
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadApprovals'))
   })
 
@@ -80,9 +80,9 @@ describe('approvalRules.broadcastReload (DB-backed)', { skip: !hasTestDatabase()
       submitterGroups: [],
       reviewerGroups: [fixtures.groupId]
     })
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await approvalRules.deleteRule(fixtures.siteId, rule.id)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadApprovals'))
   })
 
@@ -95,7 +95,7 @@ describe('approvalRules.broadcastReload (DB-backed)', { skip: !hasTestDatabase()
     }
     try {
       approvalRules.subscribeToEvents()
-      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const onCalls = (CARDINAL.events.inbound.on as any).mock.calls
       const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadApprovals')?.arguments[1]
       assert.ok(handler, 'expected subscribeToEvents to register a reloadApprovals handler')
       await handler()

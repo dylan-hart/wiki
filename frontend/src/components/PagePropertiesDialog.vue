@@ -500,7 +500,7 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   The panel is inset from the window and rounded now, so the two children that reach its corners have
   to be rounded too -- a square toolbar or scroll area paints straight over the radius. `inherit`

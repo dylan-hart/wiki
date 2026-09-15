@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest'
  * aesthetic class to appear as a DESCENDANT of `.is-focused`, backwards from the real DOM where
  * `body.body--*` is always the top-level ancestor, so the rule could never match.
  *
- * Vitest doesn't run a real SCSS compiler or a layout engine, so this asserts against the raw
- * `<style lang="scss">` source text itself: the two flat, correctly
+ * Vitest doesn't run a layout engine, so this asserts against the raw `<style>` source text itself:
+ * the two flat, correctly
  * scoped selectors must be present, and the backwards-nesting pattern that produced the bug must not
  * reappear.
  */
@@ -44,7 +44,7 @@ function ruleBody(styleBlock, selector) {
 describe('HeaderSearch.vue focused-field selectors', () => {
   const componentDir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(componentDir, 'HeaderSearch.vue'), 'utf8')
-  const styleBlock = source.slice(source.indexOf('<style lang="scss">'))
+  const styleBlock = source.slice(source.indexOf('<style>'))
 
   it('has a flat, top-level Cobalt focused-field selector', () => {
     expect(styleBlock).toContain(
@@ -58,18 +58,19 @@ describe('HeaderSearch.vue focused-field selectors', () => {
     )
   })
 
-  // -> The bug: `.header-search-row-inline.is-focused &-field` nested INSIDE these two
-  //    aesthetic-scoped blocks compiles backwards -- `&` resolves to the enclosing
-  //    `body.body--cobalt .header-search` / `.body--dark:not(.body--cobalt) .header-search`
-  //    selector, landing it AFTER `.is-focused` in the flattened selector instead of before it, so
-  //    it can never match the real DOM (`body.body--*` is always the top-level ancestor).
-  it.each([
-    ['Cobalt', 'body.body--cobalt .header-search'],
-    ['Ledger dark mode', '.body--dark:not(.body--cobalt) .header-search']
-  ])('never re-nests the focused-field rule inside the %s block', (_label, selector) => {
-    expect(ruleBody(styleBlock, selector)).not.toContain(
-      '.header-search-row-inline.is-focused &-field'
-    )
+  // -> The bug: `.header-search-row-inline.is-focused &-field` nested INSIDE a
+  //    `body.body--cobalt .header-search { ... }` / `.body--dark:not(.body--cobalt) .header-search
+  //    { ... }` wrapper block compiled backwards -- `&` resolved to the enclosing selector, landing
+  //    it AFTER `.is-focused` in the flattened selector instead of before it, so it could never match
+  //    the real DOM (`body.body--*` is always the top-level ancestor). The fix (and OpenProject
+  //    #3254's later flattening of this file's remaining nesting) both leave no such wrapper for a
+  //    regression to re-nest inside any more -- these two flat selectors above ARE the guard now.
+  it('carries no `body.body--cobalt .header-search {` wrapper for a future edit to re-nest inside', () => {
+    expect(styleBlock).not.toContain('body.body--cobalt .header-search {')
+  })
+
+  it('carries no `.body--dark:not(.body--cobalt) .header-search {` wrapper for a future edit to re-nest inside', () => {
+    expect(styleBlock).not.toContain('.body--dark:not(.body--cobalt) .header-search {')
   })
 })
 
@@ -84,7 +85,7 @@ describe('HeaderSearch.vue focused-field selectors', () => {
 describe('HeaderSearch.vue Cobalt focused-tags-btn selector', () => {
   const componentDir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(componentDir, 'HeaderSearch.vue'), 'utf8')
-  const styleBlock = source.slice(source.indexOf('<style lang="scss">'))
+  const styleBlock = source.slice(source.indexOf('<style>'))
 
   it('gives the tags button a real focused border color, matching the field, in Cobalt', () => {
     const body = ruleBody(
@@ -107,7 +108,7 @@ describe('HeaderSearch.vue Cobalt focused-tags-btn selector', () => {
 describe('HeaderSearch.vue search mode button cursor', () => {
   const componentDir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(componentDir, 'HeaderSearch.vue'), 'utf8')
-  const styleBlock = source.slice(source.indexOf('<style lang="scss">'))
+  const styleBlock = source.slice(source.indexOf('<style>'))
 
   it('gives the shared tags/mode button rule an explicit pointer cursor', () => {
     const body = ruleBody(styleBlock, '.header-search-tags-btn,\n.header-search-mode-btn')

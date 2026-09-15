@@ -397,44 +397,42 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.link-picker-browser {
+  height: 300px;
+  max-height: 90vh;
+}
 .link-picker {
-  &-browser {
-    height: 300px;
-    max-height: 90vh;
-  }
-
   /* -> The tree column carries the recessed surface, as it does in the File Manager */
-  &-tree {
-    height: 300px;
-
-    @at-root .body--light & {
-      background-color: $blue-grey-1;
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-4);
-    }
-  }
-
-  &-list {
-    padding: 8px 12px;
-
-    > .w-item {
-      padding: 4px 6px;
-
-      &.active {
-        background-color: var(--color-primary);
-        color: #fff;
-
-        .w-item-label--caption {
-          color: rgba(255, 255, 255, 0.7);
-        }
-      }
-    }
-  }
-
-  &-href {
-    overflow-wrap: anywhere;
-  }
+}
+.link-picker-tree {
+  height: 300px;
+}
+.body--light .link-picker-tree {
+  background-color: var(--color-blue-grey-1);
+}
+.body--dark .link-picker-tree {
+  background-color: var(--color-dark-4);
+}
+.link-picker-list {
+  padding: 8px 12px;
+}
+.link-picker-list > .w-item {
+  padding: 4px 6px;
+}
+.link-picker-list > .w-item.active {
+  background-color: var(--color-primary);
+  color: #fff;
+}
+.link-picker-list > .w-item.active .w-item-label--caption {
+  color: rgba(255, 255, 255, 0.7);
+}
+.link-picker-href {
+  overflow-wrap: anywhere;
 }
 </style>

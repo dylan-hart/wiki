@@ -143,7 +143,7 @@ describe('PdfExport.exportPdf', () => {
   let calls: any
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       logger: { debug: () => {} },
       config: { security: {} },
       models: {
@@ -156,11 +156,11 @@ describe('PdfExport.exportPdf', () => {
       }
     }
     ;({ pdfExport } = await import('./pdfExport.ts'))
-    isInstalled = (globalThis as any).WIKI.models.extensions.isInstalled
+    isInstalled = (globalThis as any).CARDINAL.models.extensions.isInstalled
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   function fakeBrowser() {

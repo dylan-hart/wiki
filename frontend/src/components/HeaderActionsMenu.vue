@@ -26,6 +26,10 @@
               <w-avatar v-if="userStore.hasAvatar" size="32px">
                 <img :src="`/_user/current/avatar`" :alt="userStore.name" />
               </w-avatar>
+              <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+              <w-avatar v-else-if="userStore.avatarProviderUrl" size="32px">
+                <img :src="userStore.avatarProviderUrl" :alt="userStore.name" />
+              </w-avatar>
               <w-icon v-else name="tabler:user-circle" />
             </w-item-section>
             <w-item-section>
@@ -212,9 +216,9 @@ function logout() {
 }
 </script>
 
-<style lang="scss">
-// -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline `color`,
-//    which would outrank this rule. Matches `.account-avbtn`, the button it stands in for.
+<style>
+/* -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline `color`, */
+/*    which would outrank this rule. Matches `.account-avbtn`, the button it stands in for. */
 .header-actions-btn {
   color: rgba(255, 255, 255, 0.75);
 }

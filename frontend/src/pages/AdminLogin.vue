@@ -337,7 +337,7 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
 .admin-login-bg {
   width: 100%;
   height: 140px;
@@ -346,10 +346,10 @@ onMounted(async () => {
 
 .admin-login-providers {
   .w-item {
-    @at-root .body--light & {
-      background-color: $grey-2;
+    .body--light & {
+      background-color: var(--color-grey-2);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-5);
     }
 

@@ -116,7 +116,7 @@ export async function runShutdownSequence(
  *
  * `/_live` answers 200 for as long as the process is up, independent of `isReady` — a liveness probe
  * asks only "is this process alive", never "is it ready for traffic". `/_ready` answers 200 only
- * once `isReady()` says so (flipped by `WIKI.server.setReady()` once `postBoot()` has populated the
+ * once `isReady()` says so (flipped by `CARDINAL.server.setReady()` once `postBoot()` has populated the
  * caches every request path reads from — see `index.ts`) and 503 from the moment teardown starts.
  */
 export function registerProbes(app: FastifyInstance, isReady: () => boolean): void {
@@ -130,7 +130,7 @@ export function registerProbes(app: FastifyInstance, isReady: () => boolean): vo
   })
 }
 
-/** What `WIKI.server` is typed as — see `types/global.d.ts`. */
+/** What `CARDINAL.server` is typed as — see `types/global.d.ts`. */
 export interface ShutdownController {
   on: EventEmitter['on']
   setReady: () => void
@@ -161,11 +161,11 @@ export function createGracefulShutdown(
     {
       delay: false,
       // -> close-with-grace's own console-only diagnostics (a second signal/error while already
-      //    closing) — routed through WIKI.logger like every other line rather than left on stdout
+      //    closing) — routed through CARDINAL.logger like every other line rather than left on stdout
       //    as a second, differently-shaped producer.
       logger: {
         error: (message?: unknown, ...rest: unknown[]) =>
-          WIKI.logger.warn('boot', [message, ...rest].filter(Boolean).join(' '))
+          CARDINAL.logger.warn('boot', [message, ...rest].filter(Boolean).join(' '))
       },
       skip: [...SKIPPED_EVENTS]
     },

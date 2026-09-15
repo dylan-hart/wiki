@@ -20,16 +20,6 @@ function mountToc(props, options = {}) {
   return mount(PageToc, { props, global: { plugins: [i18n] }, ...options })
 }
 
-/**
- * `PageToc.vue`'s `<style lang="scss">` reaches for bare `$grey-9` / `$grey-7` / ... (see the file),
- * relying on the `@use '@/css/_theme.scss' as *; @use '@/css/_palette.scss' as *;` the app build
- * injects into every SFC style block via `css.preprocessorOptions.scss.additionalData`
- * (`vite.config.js`). `vitest.config.js` mirrors that setting; without it, mounting this component
- * would fail to compile at all -- a Sass "undefined variable" error, not a failing assertion -- which
- * is what makes it a good end-to-end check that the harness's SCSS wiring genuinely works, not just
- * that it is present in the config file.
- */
-
 describe('PageToc', () => {
   const nodes = [
     { key: '#intro', label: 'Introduction', level: 1, children: [] },

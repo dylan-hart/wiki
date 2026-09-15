@@ -6,7 +6,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Coverage for Task 592's `GET /_api/analytics/modules` route: mirrors
- * `GET /_api/authentication/modules` in shape (reads `WIKI.models.analytics.getModules()`,
+ * `GET /_api/authentication/modules` in shape (reads `CARDINAL.models.analytics.getModules()`,
  * responds with the `AnalyticsModule#` array schema) and declares the same route-level permission
  * pattern (`config.permissions`), except `manage:sites` rather than `manage:system` since analytics
  * provider config is per-site (see `Site#/properties/analytics`), not instance-wide the way an

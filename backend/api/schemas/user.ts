@@ -64,6 +64,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       hasAvatar: {
         type: 'boolean'
       },
+      avatarProviderUrl: {
+        type: 'string',
+        nullable: true,
+        description:
+          'The provider-reported avatar URL cached at login, or null when none has been synced. A manually-uploaded avatar (hasAvatar) always takes precedence over this as a rendering fallback.'
+      },
       isSystem: {
         type: 'boolean'
       },
@@ -150,6 +156,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       hasAvatar: {
         type: 'boolean'
+      },
+      avatarProviderUrl: {
+        type: 'string',
+        nullable: true,
+        description:
+          'The provider-reported avatar URL cached at login, or null when none has been synced. A manually-uploaded avatar (hasAvatar) always takes precedence over this as a rendering fallback.'
       },
       location: {
         type: 'string'

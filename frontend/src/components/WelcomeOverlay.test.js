@@ -113,13 +113,13 @@ describe('WelcomeOverlay: create homepage button', () => {
 
 /**
  * OpenProject #2499: `.welcome` was hardcoded to a light theme (white radial-gradient background,
- * `#eee` border, `$grey-9` text) with no `body--dark` branch at all, so the overlay rendered as a
- * bright, jarring full-screen light panel even in dark mode. Fixed by adding a
- * `@at-root .body--dark &` branch, the same additive pattern `Login.vue`'s structurally similar
- * full-screen `.auth` screen already uses.
+ * `#eee` border, `var(--color-grey-9)` text) with no `body--dark` branch at all, so the overlay
+ * rendered as a bright, jarring full-screen light panel even in dark mode. Fixed by adding a
+ * `.body--dark &` branch, the same additive pattern `Login.vue`'s structurally similar full-screen
+ * `.auth` screen already uses.
  *
  * Asserted against the source text rather than a computed style: jsdom's CSS engine does not
- * reliably resolve a compound `@at-root .body--dark &` selector the way a real browser would, so a
+ * reliably resolve a compound `.body--dark &` selector the way a real browser would, so a
  * `getComputedStyle` assertion here would not actually prove the rule is wired up (see
  * `PageToc.test.js` for the same source-based-assertion precedent on a different SCSS fix).
  */
@@ -130,27 +130,22 @@ describe('WelcomeOverlay: dark mode', () => {
   )
 
   it('gives .welcome a body--dark override for background, border and text color', () => {
-    const welcomeRule = source.match(/\.welcome\s*\{[\s\S]*?\n\}\n/)[0]
+    const darkRule = source.match(/\.body--dark \.welcome\s*\{[\s\S]*?\n\}\n/)[0]
 
-    expect(welcomeRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{/)
-    expect(welcomeRule).toMatch(
-      /@at-root\s+\.body--dark\s+&\s*\{[^}]*background:[^}]*var\(--color-dark-6\)/
-    )
-    expect(welcomeRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*color:\s*\$blue-grey-1/)
-    expect(welcomeRule).toMatch(
-      /@at-root\s+\.body--dark\s+&\s*\{[^}]*border:[^}]*var\(--color-dark-4\)/
-    )
+    expect(darkRule).toMatch(/background:[^}]*var\(--color-dark-6\)/)
+    expect(darkRule).toMatch(/color:\s*var\(--color-blue-grey-1\)/)
+    expect(darkRule).toMatch(/border:[^}]*var\(--color-dark-4\)/)
   })
 
   it('still keeps the light-mode background/border/color as the default (unguarded) values', () => {
     expect(source).toMatch(/background: #fff radial-gradient\(ellipse, #fff, #ddd\);/)
-    expect(source).toMatch(/color: \$grey-9;/)
+    expect(source).toMatch(/color: var\(--color-grey-9\);/)
     expect(source).toMatch(/border: 1px solid #eee;/)
   })
 
   it('gives the decorative .welcome-bg glow a dark override too, so no white halo remains', () => {
-    const bgRule = source.match(/&-bg\s*\{[\s\S]*?\n {2}\}\n/)[0]
+    const bgDarkRule = source.match(/\.body--dark \.welcome-bg\s*\{[\s\S]*?\n\}\n/)[0]
 
-    expect(bgRule).toMatch(/@at-root\s+\.body--dark\s+&\s*\{[^}]*var\(--color-dark-6\)/)
+    expect(bgDarkRule).toMatch(/var\(--color-dark-6\)/)
   })
 })

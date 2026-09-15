@@ -50,7 +50,7 @@ beforeEach(() => {
   }))
   consume.mock.resetCalls()
   consume.mock.mockImplementation(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-  // -> `limitRenders` fronts its own `WIKI.models.rateLimits.consume` with an in-process ban memo
+  // -> `limitRenders` fronts its own `CARDINAL.models.rateLimits.consume` with an in-process ban memo
   //    (`helpers/rateLimit.ts#activeBanMemo`), keyed by IP here since every request in this file is
   //    anonymous — cleared per test so a refusal in one test can't silently ban every test after it
   //    that shares the same injected IP.

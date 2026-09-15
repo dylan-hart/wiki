@@ -176,7 +176,7 @@ function onKeydown(ev) {
 }
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 /*
   RESPONSIVE ROW STACKING (OpenProject #2822, narrowed by #2823)
   =============================================

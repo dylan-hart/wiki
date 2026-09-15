@@ -11,7 +11,7 @@ let wikiHandle: { restore(): void }
 /**
  * `/_blocks/custom/:siteId/:fileName` — a unit-level test of the controller's own wiring (id
  * validation, lookup, headers), the same way `api/blocks.test.ts` covers the upload route without a
- * real database: `WIKI.models.blocks.getCustomBlockCode` is stubbed rather than pulling in Drizzle.
+ * real database: `CARDINAL.models.blocks.getCustomBlockCode` is stubbed rather than pulling in Drizzle.
  *
  * The route is public (see the file's own doc comment for why), so unlike `api/blocks.test.ts` there
  * is no `config: { permissions }` to note as out of scope here.

@@ -23,7 +23,7 @@
   `renderers/markdown.js` resolves it to literal KaTeX markup at render time, landing it right here in
   the light DOM alongside everything else this file styles -- see `.tex-math-error` below for the one
   piece of it this file actually owns; the formula's own look comes from KaTeX's stylesheet, imported
-  globally in `app.scss`.
+  globally in `app.css`.
 
   The measurements follow what the documentation platforms have converged on -- 15.5px body text, headings
   at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a tinted
@@ -35,13 +35,6 @@
   without rewriting selectors, and the brand colours stay indirected through `--color-primary` so a
   re-themed site follows.
 */
-
-/*
-  The Sass breakpoint variables, loaded explicitly. `vite.config.js` injects this module into every SFC
-  through `additionalData`, but that reaches only the files Vite itself hands to Sass -- a partial pulled
-  in by `@use` from `app.scss` is resolved by Sass, and arrives without it.
-*/
-@use 'palette' as *;
 
 .page-contents {
   /* -- Palette ----------------------------------------------------------------- */
@@ -237,7 +230,7 @@
 
   /*
     Admonition hues: the bar and the wash behind it, per severity, in the language's own status tones
-    (`css/_theme.scss`) rather than the generic Material-era set this carried -- a rendered page was
+    (`css/tailwind.css`) rather than the generic Material-era set this carried -- a rendered page was
     putting five hues on screen that appear nowhere else in the app.
 
     Each is the TEXT tone of its status, not the fill: these colour the bar, the icon and the alert's
@@ -379,7 +372,7 @@
   */
   isolation: isolate;
 
-  @at-root .body--dark & {
+  .body--dark & {
     --content-ink: var(--color-text-dark);
     --content-ink-muted: var(--color-text-secondary-dark);
     --content-ink-faint: var(--color-text-caption-dark);
@@ -514,7 +507,7 @@
     their Ledger counterparts further down, not tokens, because there is no value that turns one
     into the other.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     /*
       -> h1 is body ink, not the aesthetic's saturated navy `--color-ink` -- the Ledger-default
       `--content-h1: var(--color-ink)` reads as a second "blue" heading beside h2's own accent color,
@@ -639,7 +632,7 @@
     cannot be used here), the chip's accent lightens to the tone that clears the floor on a dark
     card, and the callout inverts to a translucent cobalt wash.
   */
-  @at-root body.body--cobalt.body--dark & {
+  body.body--cobalt.body--dark & {
     --content-h2: var(--color-heading-h2);
     --content-surface-code: var(--color-dark-4);
     --content-code-ink: var(--color-tag-chip-accent-text);
@@ -714,9 +707,9 @@
     margin-bottom: 0;
   }
 
-  // ---------------------------------------------------------------------------
-  // HEADINGS
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* HEADINGS */
+  /* --------------------------------------------------------------------------- */
 
   /*
     Space belongs ABOVE a heading, several times what sits below it: that asymmetry is what visibly
@@ -796,7 +789,8 @@
       two top levels stop reading as two -- and only this level moves, so the rest of the ramp descends
       from a shorter first step rather than being redrawn.
     */
-    @media (max-width: $breakpoint-xs-max) {
+    /* -> 599.98px: mirrors tailwind.css's --breakpoint-sm; a media query can't read a custom property */
+    @media (max-width: 599.98px) {
       font-size: 1.75rem;
     }
   }
@@ -821,7 +815,8 @@
       but a section heading is the one level that is also RULED, and a grey rule fading out across the
       column separates it from a plain heading far more than two points of type ever did.
     */
-    @media (max-width: $breakpoint-xs-max) {
+    /* -> 599.98px: mirrors tailwind.css's --breakpoint-sm; a media query can't read a custom property */
+    @media (max-width: 599.98px) {
       font-size: 1.375rem;
     }
   }
@@ -963,9 +958,9 @@
     text-transform: uppercase;
   }
 
-  // ---------------------------------------------------------------------------
-  // TEXT
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* TEXT */
+  /* --------------------------------------------------------------------------- */
 
   p {
     margin: 0 0 1.15em;
@@ -1084,9 +1079,9 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // LINKS
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* LINKS */
+  /* --------------------------------------------------------------------------- */
 
   /*
     The same `--color-primary` the page title is drawn in -- literally the same token, resolving to the
@@ -1136,9 +1131,9 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // LISTS
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* LISTS */
+  /* --------------------------------------------------------------------------- */
 
   ul,
   ol {
@@ -1203,7 +1198,7 @@
     too; `line-height: 1.5rem` was already decoupled the same way (`rem` is root-relative, not
     parent-relative) and needed no change.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     > ol,
     li > ol {
       list-style: none;
@@ -1358,7 +1353,7 @@
       print-color-adjust: exact;
       -webkit-print-color-adjust: exact;
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%2314171f' stroke-width='3' stroke-linecap='square' stroke-linejoin='miter' d='M5 12l4.5 4.5L19 7'/%3E%3C/svg%3E");
       }
     }
@@ -1461,7 +1456,8 @@
       On a phone the two halves stack. The rule between them goes with the arrangement it was drawn
       for: down the leading edge of a wrapped description it would read as a quote inside the row.
     */
-    @media (max-width: $breakpoint-xs-max) {
+    /* -> 599.98px: mirrors tailwind.css's --breakpoint-sm; a media query can't read a custom property */
+    @media (max-width: 599.98px) {
       em {
         margin-inline-start: 0;
         padding-inline-start: 0;
@@ -1487,9 +1483,9 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // QUOTES AND ADMONITIONS
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* QUOTES AND ADMONITIONS */
+  /* --------------------------------------------------------------------------- */
 
   /*
     A quote is a BOX in Cardinal: a hairline rectangle on the content surface with a tinted gutter
@@ -1566,7 +1562,7 @@
       the gutter and the other IS the marks -- and the padding closes up to what a bar needs rather
       than what a 44px gutter did.
     */
-    @at-root body.body--cobalt & {
+    body.body--cobalt & {
       padding-inline: 1em 1.1em;
       border: 0;
       border-inline-start: 4px solid var(--content-info);
@@ -1680,7 +1676,7 @@
         override above on specificity, regardless of source order -- an admonition is still a
         `blockquote`, so that generic rule would otherwise also be in the running here.
       */
-      @at-root body.body--cobalt & {
+      body.body--cobalt & {
         border-start-end-radius: 6px;
         border-end-end-radius: 6px;
 
@@ -1770,9 +1766,9 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // CODE
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* CODE */
+  /* --------------------------------------------------------------------------- */
 
   /*
     An inline span is a square tinted chip with a hairline edge, as the design draws it -- the same
@@ -2195,9 +2191,9 @@
     font-weight: 600;
   }
 
-  // ---------------------------------------------------------------------------
-  // TABLES
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* TABLES */
+  /* --------------------------------------------------------------------------- */
 
   /*
     A wide table scrolls itself rather than widening the article -- inside its own scroll box now,
@@ -2279,7 +2275,7 @@
 
   /*
     OpenProject #3007: reconciling this shared rule with the handoff's global scrollbar spec. The
-    engine gotcha applies here exactly as it does in `_base.scss` -- `scrollbar-width`/`scrollbar-
+    engine gotcha applies here exactly as it does in `_base.css` -- `scrollbar-width`/`scrollbar-
     color` never sit unwrapped on the same selector as a `::-webkit-scrollbar*` rule, so the standard
     properties stay isolated in their own `@supports not selector(::-webkit-scrollbar)` block below.
 
@@ -2289,34 +2285,25 @@
     scrollbar-*` tokens each aesthetic's own section above sets, which is what lets a table's
     scrollbar blend into ITS OWN surface (the frame in Ledger, the page ground in Cobalt) rather than
     read as the app's more prominent chrome scrollbar dropped onto a table. The leading `body`
-    element on every selector below is deliberate, not decoration: it is what keeps each override at
-    a strictly higher specificity than the aesthetic-scoped global rule it overrides (both are
-    otherwise one class plus one pseudo-element/-class, which would tie and fall back to source
-    order between two different files -- exactly the trap `PageActionsCol.vue`'s own header comment
-    warns about) regardless of how the two stylesheets end up concatenated. Each is `@at-root`
-    rather than plain nesting for a second, purely structural reason: everything in this file sits
-    inside the outer `.page-contents { ... }` block, so an ordinary nested rule here would compile to
-    `.page-contents body .table-scroll::-webkit-scrollbar-thumb` -- `body` AFTER `.page-contents`,
-    requiring a `<body>` descendant of the article column, which does not exist. `@at-root` writes
-    the selector exactly as stated instead, `body` first.
+    element each override's selector starts with is deliberate, not decoration: it is what keeps
+    each override at a strictly higher specificity than the aesthetic-scoped global rule it
+    overrides (both are otherwise one class plus one pseudo-element/-class, which would tie and fall
+    back to source order between two different files -- exactly the trap `PageActionsCol.vue`'s own
+    header comment warns about) regardless of how the two stylesheets end up concatenated.
+
+    OpenProject #3252: these four rules used to be `@at-root body .table-scroll::-webkit-scrollbar-*`
+    right here, escaping the outer `.page-contents { ... }` this whole file sits inside for a
+    second, purely structural reason -- an ordinary nested rule in this spot would compile to
+    `.page-contents body .table-scroll::-webkit-scrollbar-thumb`, `body` AFTER `.page-contents`,
+    requiring a `<body>` descendant of the article column, which does not exist. Native CSS nesting
+    has no `@at-root`; hand-converted to plain, unnested rules at the bottom of this file instead --
+    see "Hand-converted @at-root escapes" there, `body` written first exactly as `@at-root` used to.
   */
   @supports not selector(::-webkit-scrollbar) {
     .table-scroll {
       scrollbar-width: thin;
       scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
     }
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-track {
-    background: var(--content-table-scrollbar-track);
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-thumb {
-    background: var(--content-table-scrollbar-thumb);
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-thumb:hover {
-    background-color: var(--content-table-scrollbar-thumb-hover);
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-thumb:active {
-    background-color: var(--content-table-scrollbar-thumb-active);
   }
 
   /*
@@ -2657,9 +2644,9 @@
     order: 1;
   }
 
-  // ---------------------------------------------------------------------------
-  // FIGURES, IMAGES AND DIAGRAMS
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* FIGURES, IMAGES AND DIAGRAMS */
+  /* --------------------------------------------------------------------------- */
 
   img {
     max-width: 100%;
@@ -2762,9 +2749,9 @@
     vertical-align: -0.2em;
   }
 
-  // ---------------------------------------------------------------------------
-  // RULES AND DISCLOSURES
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* RULES AND DISCLOSURES */
+  /* --------------------------------------------------------------------------- */
 
   hr {
     height: 1px;
@@ -2801,9 +2788,9 @@
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // FOOTNOTES
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* FOOTNOTES */
+  /* --------------------------------------------------------------------------- */
 
   /*
     The reference in the text. `markdown-it-footnote` emits it already bracketed -- `[1]` -- so the
@@ -2899,9 +2886,9 @@
     text-decoration: none;
   }
 
-  // ---------------------------------------------------------------------------
-  // PRINT
-  // ---------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------- */
+  /* PRINT */
+  /* --------------------------------------------------------------------------- */
 
   @media print {
     /* Washes and tints cost ink and print muddy; the structure has to come from the rules instead */
@@ -2993,4 +2980,26 @@
       content: none;
     }
   }
+}
+
+/*
+  Hand-converted @at-root escapes (OpenProject #3252). The four rules below used to sit inline in
+  the TABLES section above, just under `.table-scroll`, as `@at-root body
+  .table-scroll::-webkit-scrollbar-*` -- see that section's own comment for why `body` leads each
+  selector and why plain nesting can't reach it (this whole file sits inside `.page-contents { ... }`,
+  so an ordinary nested rule would put `body` AFTER `.page-contents` instead of first). Native CSS
+  nesting has no `@at-root`; these stay flat, top-level rules instead, `body` written first exactly
+  as `@at-root` used to compile it.
+*/
+body .table-scroll::-webkit-scrollbar-track {
+  background: var(--content-table-scrollbar-track);
+}
+body .table-scroll::-webkit-scrollbar-thumb {
+  background: var(--content-table-scrollbar-thumb);
+}
+body .table-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--content-table-scrollbar-thumb-hover);
+}
+body .table-scroll::-webkit-scrollbar-thumb:active {
+  background-color: var(--content-table-scrollbar-thumb-active);
 }

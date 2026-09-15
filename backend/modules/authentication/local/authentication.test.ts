@@ -6,7 +6,7 @@ import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * `authenticate()` is the password-login path every e2e spec depends on. It touches only
- * `WIKI.models.users.getByEmail` — no database, so this is a pure
+ * `CARDINAL.models.users.getByEmail` — no database, so this is a pure
  * unit test with `getByEmail` stubbed to return a canned row per test.
  */
 

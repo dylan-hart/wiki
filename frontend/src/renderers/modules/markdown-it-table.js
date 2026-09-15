@@ -39,7 +39,7 @@
  *   rows for a top caption, naturally after them for a bottom one -- rather than the old plugin's own
  *   quirk of always emitting it as the table's first child regardless of which end it was authored
  *   on. That was a limitation of the old plugin, not a shape `renderers/markdown.js`'s retagging (or
- *   `_page-contents.scss`'s `order: 1` rule for a bottom caption, keyed off the `caption-side: bottom`
+ *   `_page-contents.css`'s `order: 1` rule for a bottom caption, keyed off the `caption-side: bottom`
  *   style this plugin still sets) actually needs: both already place a bottom caption at the visual
  *   end of the grid by CSS order, regardless of where its own tokens sit in the document.
  *

@@ -78,12 +78,12 @@ if (isEntryPoint) {
  * reasoning `tasks/migrate.ts` documents for its own cleanup `finally`.
  */
 async function shutdown(code: number): Promise<never> {
-  // -> `WIKI` is declared non-nullable (`types/global.d.ts`), but genuinely is not yet assigned when
+  // -> `CARDINAL` is declared non-nullable (`types/global.d.ts`), but genuinely is not yet assigned when
   //    this runs before `bootstrapMcpRuntime()` (the missing-`WIKI_MCP_API_KEY` early exit) — `typeof`
   //    is the one check that is safe to make of a possibly-unset `var` without the type checker
   //    treating it as always true.
-  if (typeof WIKI !== 'undefined') {
-    await WIKI.dbManager?.pool?.end()
+  if (typeof CARDINAL !== 'undefined') {
+    await CARDINAL.dbManager?.pool?.end()
   }
   process.exit(code)
 }
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const WIKI = await bootstrapMcpRuntime('mcp-stdio')
+  const CARDINAL = await bootstrapMcpRuntime('mcp-stdio')
 
   let ctx: McpAuthContext
   try {
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
   //   one per `initialize` request) -- logged once, right after the one auth check above succeeds, so
   //   it lands in the audit log exactly like an HTTP session's own `mcp.sessionOpened` entry does. No
   //   `req`/IP to read here (this transport has no HTTP request), hence no `actorIp`.
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.sessionOpened',
     actor: auditActorFor(ctx),
     targetType: 'apiKey',
@@ -176,7 +176,7 @@ async function main(): Promise<void> {
     siteId: ctx.siteId
   })
 
-  const server = createMcpServer(WIKI.version)
+  const server = createMcpServer(CARDINAL.version)
   // -> Re-verified on a short timer rather than fixed for the process's whole lifetime — see
   //    `mcp/stdioReverify.ts`'s doc comment and `McpAuthContextGetter`'s in `mcp/auth.ts`. A key that
   //    stops verifying (revoked, expired, or the model call itself errors) shuts this process down

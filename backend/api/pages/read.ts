@@ -41,14 +41,14 @@ import {
  * a session"). Setting `pageViewed` is what closes it here: without it, an anonymous reader with no
  * other reason to touch their session would look like a brand new visitor on every single view.
  *
- * That write is gated on the same `WIKI.config.pageviews.isEnabled` opt-out `record()` itself checks
+ * That write is gated on the same `CARDINAL.config.pageviews.isEnabled` opt-out `record()` itself checks
  * (OpenProject #2251): with tracking off there is no visitor identity worth preserving across requests,
  * so forcing a session (and the `Set-Cookie` + permanent `sessions` row that comes with it) for every
  * anonymous read would only defeat `saveUninitialized: false` for nothing in return.
  */
 function recordPageview(req: FastifyRequest, siteId: string, pageId: string): void {
   if (req.apiKey) {
-    void WIKI.models.pageviews.record({
+    void CARDINAL.models.pageviews.record({
       siteId,
       pageId,
       clientType: 'api',
@@ -56,9 +56,9 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
     })
     return
   }
-  if (req.session && WIKI.config.pageviews?.isEnabled === true) {
+  if (req.session && CARDINAL.config.pageviews?.isEnabled === true) {
     req.session.pageViewed = true
-    void WIKI.models.pageviews.record({
+    void CARDINAL.models.pageviews.record({
       siteId,
       pageId,
       clientType: 'browser',
@@ -69,7 +69,7 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
 
 /**
  * The page permissions that make a page's password irrelevant to the holder — asked of
- * `WIKI.models.groups.mayHoldPermissionSomewhere()` rather than any one page's rule.
+ * `CARDINAL.models.groups.mayHoldPermissionSomewhere()` rather than any one page's rule.
  *
  * Used only by search, which spans many pages that may each carry a different rule, so there is no
  * single page here to ask `mayOnPage()` about. This is deliberately coarser than `mayBypassPassword()`
@@ -93,14 +93,14 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
     return
   }
   const paths = [...new Set(results.map((r) => r.path))]
-  const rows = await WIKI.models.pages.getTranslationRows(siteId, paths)
+  const rows = await CARDINAL.models.pages.getTranslationRows(siteId, paths)
   const rowsByPath = new Map<string, TranslationRow[]>()
   for (const row of rows) {
     const list = rowsByPath.get(row.path) ?? []
     list.push({ locale: row.locale, updatedAt: row.updatedAt })
     rowsByPath.set(row.path, list)
   }
-  const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+  const activeLocales: string[] = CARDINAL.sites[siteId]?.config?.locales?.active ?? [
     defaultLocale(siteId)
   ]
   const statuses = computeTranslationStatuses(rowsByPath, activeLocales, defaultLocale(siteId))
@@ -115,7 +115,7 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
  * setting (Task #3104), exactly how Task #3103 defines the combined `features.semanticSearch` flag.
  *
  * Computed locally rather than calling into Task #3103's own work: neither it nor Task #3095's
- * `WIKI.capabilities` typing exists yet in this worktree (see the round-2 coordination note's
+ * `CARDINAL.capabilities` typing exists yet in this worktree (see the round-2 coordination note's
  * ground-truth check), and #3103's own ownership note assigns it the site-info route, not a shared
  * helper. Once #3103 lands, prefer whatever it exports over keeping this as a second, independently
  * -drifting copy of the same AND -- the coordination note calls this out by name as the "flag
@@ -123,8 +123,8 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
  * off-switch.
  */
 function semanticSearchEnabledFor(siteId: string): boolean {
-  const capabilityEnabled = Boolean((WIKI as any).capabilities?.semanticSearch)
-  const siteEnabled = Boolean(WIKI.sites[siteId]?.config?.search?.config?.semanticEnabled)
+  const capabilityEnabled = Boolean((CARDINAL as any).capabilities?.semanticSearch)
+  const siteEnabled = Boolean(CARDINAL.sites[siteId]?.config?.search?.config?.semanticEnabled)
   return capabilityEnabled && siteEnabled
 }
 
@@ -285,19 +285,19 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const actor = actorFrom(req)
-      const accessActor = WIKI.models.groups.actorForRequest(req)
+      const accessActor = CARDINAL.models.groups.actorForRequest(req)
       // -> "May write pages somewhere on this site" and "may read a locked page's text anywhere on
       //    this site" are the same question here — both amount to holding `write:pages`/
       //    `manage:pages` via SOME rule scoped to this site, not the (unrelated) group-wide
       //    permission list. See `mayHoldPermissionSomewhere()`'s own doc for why DENY is ignored,
       //    why the site is threaded through (OpenProject #2146/#2162), and why this can't be asked
       //    per page the way `mayOnPage()` is elsewhere.
-      const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
+      const maySeeEverything = CARDINAL.models.groups.mayHoldPermissionSomewhere(
         accessActor,
         PAGE_PASSWORD_BYPASS_ROLES,
         req.params.siteId
       )
-      const result = await WIKI.models.search.query({
+      const result = await CARDINAL.models.search.query({
         siteId: req.params.siteId,
         query: req.query.query,
         path: req.query.path,
@@ -336,7 +336,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/search/semantic',
     /*
       No route-level permissions: visibility is enforced per row via `filterVisible`, inherited
-      through `WIKI.models.semanticSearch.search()` (Feature #3092) — same convention as `pages/search`
+      through `CARDINAL.models.semanticSearch.search()` (Feature #3092) — same convention as `pages/search`
       above.
     */
     {
@@ -389,8 +389,8 @@ async function routes(app: FastifyInstance) {
           503
         )
       }
-      const accessActor = WIKI.models.groups.actorForRequest(req)
-      return WIKI.models.semanticSearch.search(
+      const accessActor = CARDINAL.models.groups.actorForRequest(req)
+      return CARDINAL.models.semanticSearch.search(
         req.query.query,
         accessActor,
         siteId,
@@ -443,7 +443,7 @@ async function routes(app: FastifyInstance) {
       // -> The stored form of whatever the including page wrote, since that is what it is looked up
       //    by. The site root is the `home` page.
       const path = normalizePagePath(req.query.path)
-      const page = await WIKI.models.pages.getPage({
+      const page = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         hash: generatePathHash(path || 'home'),
         locale: req.query.locale,
@@ -531,7 +531,7 @@ async function routes(app: FastifyInstance) {
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
       const wantsContent = Boolean(req.query.withContent) && Boolean(actor)
-      const page = await WIKI.models.pages.getPage({
+      const page = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         ...(isId ? { id: req.params.pageIdOrHash } : { hash: req.params.pageIdOrHash }),
         locale: req.query.locale,
@@ -576,7 +576,7 @@ async function routes(app: FastifyInstance) {
         no query either.
       */
       const [approvalState, isWatching, commentsCount, revision] = await Promise.all([
-        WIKI.models.approvals.pageViewerState(req, req.params.siteId, {
+        CARDINAL.models.approvals.pageViewerState(req, req.params.siteId, {
           id: page.id,
           path: page.path,
           locale: page.locale,
@@ -585,10 +585,10 @@ async function routes(app: FastifyInstance) {
           classification: page.classification
         }),
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
-        WIKI.models.pageWatching.isWatching(page.id, actorId),
-        WIKI.models.comments.countForPage(page.id),
+        CARDINAL.models.pageWatching.isWatching(page.id, actorId),
+        CARDINAL.models.comments.countForPage(page.id),
         mayOnPage(req, 'read:history', req.params.siteId, page)
-          ? WIKI.models.pageHistory.revisionSummary(page.id)
+          ? CARDINAL.models.pageHistory.revisionSummary(page.id)
           : null
       ])
       /*
@@ -599,10 +599,10 @@ async function routes(app: FastifyInstance) {
         the feature were re-enabled and disabled again while a stale one lingered.
       */
       const collabEnabled = Boolean(
-        WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+        CARDINAL.sites[req.params.siteId]?.config?.features?.collaborativeEditing
       )
       const activeEditors = collabEnabled
-        ? WIKI.collab.participantInfo(page.id)
+        ? CARDINAL.collab.participantInfo(page.id)
         : { count: 0, names: [] }
       /*
         A recovery draft (OpenProject #2455) is nothing but a collaboration room's own leftover
@@ -613,7 +613,7 @@ async function routes(app: FastifyInstance) {
       */
       const draft =
         collabEnabled && mayOnPage(req, 'write:pages', req.params.siteId, page)
-          ? ((await WIKI.models.pageDrafts.summary(page.id)) ?? null)
+          ? ((await CARDINAL.models.pageDrafts.summary(page.id)) ?? null)
           : null
       return {
         ...page,
@@ -692,7 +692,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
-      const page = await WIKI.models.pages.unlockPage({
+      const page = await CARDINAL.models.pages.unlockPage({
         siteId: req.params.siteId,
         ...(isId ? { id: req.params.pageIdOrHash } : { hash: req.params.pageIdOrHash }),
         locale: req.query.locale,
@@ -751,7 +751,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const target = await WIKI.models.pages.getPage({
+      const target = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         id: req.params.pageId
       })
@@ -761,7 +761,7 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to manage this page.')
       }
-      const translations = await WIKI.models.pages.getTranslations(
+      const translations = await CARDINAL.models.pages.getTranslations(
         req.params.siteId,
         target.path,
         target.id
@@ -829,16 +829,18 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       const actor = actorFrom(req)
-      const rows = await WIKI.models.pages.listTranslationStatusRows(req.params.siteId, page.path)
+      const rows = await CARDINAL.models.pages.listTranslationStatusRows(
+        req.params.siteId,
+        page.path
+      )
       // -> Same two-step narrowing as `api/graph.ts`'s node listing: publication-state exclusion
       //    for an anonymous caller first (a draft/scheduled translation must never reach one),
       //    then `read:pages` per candidate row.
       const visibleRows = (
         actor ? rows : rows.filter((row) => row.publishState === 'published')
       ).filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
-      const activeLocales: string[] = WIKI.sites[req.params.siteId]?.config?.locales?.active ?? [
-        defaultLocale(req.params.siteId)
-      ]
+      const activeLocales: string[] = CARDINAL.sites[req.params.siteId]?.config?.locales
+        ?.active ?? [defaultLocale(req.params.siteId)]
       return computeTranslationStatus(
         activeLocales,
         defaultLocale(req.params.siteId),
@@ -884,7 +886,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      const rows = await WIKI.models.pages.listBacklinks(req.params.siteId, page.path)
+      const rows = await CARDINAL.models.pages.listBacklinks(req.params.siteId, page.path)
       return rows
         .filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
         .map((row) => ({
@@ -944,7 +946,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const target = await WIKI.models.pages.getPathFromAlias(req.params.siteId, req.params.alias)
+      const target = await CARDINAL.models.pages.getPathFromAlias(
+        req.params.siteId,
+        req.params.alias
+      )
       if (!target) {
         return reply.notFound('No page uses this alias.')
       }

@@ -23,8 +23,8 @@ const OPTIONS = [
 ]
 
 // Reads a top-level SCSS rule's body (opening `selector {` through its matching `}`) straight out
-// of an SFC's source, for a style assertion scoped SCSS `@at-root` nesting can't reliably make via
-// computed style under happy-dom -- shared by the #2522 and #2893 guards below.
+// of an SFC's source, for a style assertion scoped nesting can't reliably make via computed style
+// under happy-dom -- shared by the #2522 and #2893 guards below.
 const ruleBodyFor = (source, selector) => {
   const opener = `${selector} {`
   const start = source.indexOf(opener)
@@ -107,7 +107,14 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    expect(style.flexDirection).toBe('row')
+    // -> `flexFlow`, not `flexDirection` directly: lightningcss (wired into `vitest.config.js` to
+    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) coalesces the
+    //    source's separate `flex-direction: row; flex-wrap: wrap;` into the shorthand
+    //    `flex-flow: wrap;`, omitting `row` since it is that shorthand's own initial value -- valid,
+    //    equivalent CSS, but happy-dom does not expand a shorthand missing a component back into
+    //    that component's own longhand, so `style.flexDirection` reads empty. `flexFlow` is what
+    //    happy-dom actually populates.
+    expect(style.flexFlow).toBe('wrap')
   })
 
   it('renders as a single row for a wider option set too (browser/api/mcp, OpenProject #2855/#2828)', () => {
@@ -125,7 +132,14 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    expect(style.flexDirection).toBe('row')
+    // -> `flexFlow`, not `flexDirection` directly: lightningcss (wired into `vitest.config.js` to
+    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) coalesces the
+    //    source's separate `flex-direction: row; flex-wrap: wrap;` into the shorthand
+    //    `flex-flow: wrap;`, omitting `row` since it is that shorthand's own initial value -- valid,
+    //    equivalent CSS, but happy-dom does not expand a shorthand missing a component back into
+    //    that component's own longhand, so `style.flexDirection` reads empty. `flexFlow` is what
+    //    happy-dom actually populates.
+    expect(style.flexFlow).toBe('wrap')
   })
 
   /**
@@ -134,22 +148,22 @@ describe('GraphClientTypeFilter', () => {
    * (`.graph-client-type-filter-caption`) had no color rule at all, and the `w-checkbox` option
    * labels are deliberately colorless by design (inheriting from an ancestor). Both fell back to
    * browser-default black in dark mode. As with `Graph.darkMode.test.js`'s OpenProject #2497
-   * guard, scoped SCSS `@at-root .body--dark &` nesting is a build-time transform whose cascade
-   * isn't reliably assertable via computed style under happy-dom, so this reads the raw SFC
-   * source and checks the rule body directly instead.
+   * guard, scoped `.body--dark &` nesting is a build-time (Sass) / runtime (browser) transform
+   * whose cascade isn't reliably assertable via computed style under happy-dom, so this reads the
+   * raw SFC source and checks the rule body directly instead.
    */
   describe('dark mode text color (OpenProject #2522)', () => {
     it('.graph-client-type-filter declares a color under both .body--light and .body--dark', () => {
       const body = ruleBodyFor(componentSource, '.graph-client-type-filter')
 
-      const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
+      const lightMatch = body.match(/\.body--light\s+&\s*\{([^}]*)\}/)
       expect(
         lightMatch,
         'expected a .body--light block in .graph-client-type-filter'
       ).not.toBeNull()
       expect(lightMatch[1]).toMatch(/color:\s*[^;]+;/)
 
-      const darkMatch = body.match(/@at-root\s+\.body--dark\s+&\s*\{([^}]*)\}/)
+      const darkMatch = body.match(/\.body--dark\s+&\s*\{([^}]*)\}/)
       expect(darkMatch, 'expected a .body--dark block in .graph-client-type-filter').not.toBeNull()
       expect(darkMatch[1]).toMatch(/color:\s*[^;]+;/)
     })
@@ -160,7 +174,7 @@ describe('GraphClientTypeFilter', () => {
    * 70%-opacity label -- a different font family, size, weight, letter-spacing and casing than
    * `Graph.vue`'s `.graph-view-control-caption`, which GROUP BY/SIZE BY/the filter captions all
    * use. Reads both raw SFC sources rather than mounting + computed style, for the same
-   * `@at-root` reason the #2522 guard above does.
+   * reason the #2522 guard above does.
    */
   describe('caption style matches Graph.vue GROUP BY/SIZE BY captions (OpenProject #2893)', () => {
     it('shares font-family/size/weight/letter-spacing/text-transform with .graph-view-control-caption', () => {
@@ -195,11 +209,11 @@ describe('GraphClientTypeFilter', () => {
     it('declares the caption color tokens under both .body--light and .body--dark', () => {
       const body = ruleBodyFor(componentSource, '.graph-client-type-filter-caption')
 
-      const lightMatch = body.match(/@at-root\s+\.body--light\s+&\s*\{([^}]*)\}/)
+      const lightMatch = body.match(/\.body--light\s+&\s*\{([^}]*)\}/)
       expect(lightMatch, 'expected a .body--light block').not.toBeNull()
       expect(lightMatch[1]).toMatch(/color:\s*var\(--color-text-caption\);/)
 
-      const darkMatch = body.match(/@at-root\s+\.body--dark\s+&\s*\{([^}]*)\}/)
+      const darkMatch = body.match(/\.body--dark\s+&\s*\{([^}]*)\}/)
       expect(darkMatch, 'expected a .body--dark block').not.toBeNull()
       expect(darkMatch[1]).toMatch(/color:\s*var\(--color-text-caption-dark\);/)
     })

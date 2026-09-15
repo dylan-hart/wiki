@@ -222,7 +222,7 @@ describe('assembleGraph', () => {
   })
 
   // -> OpenProject #1217: node.classification is the resolved display name, not the raw id --
-  //    `classificationName` stands in for `WIKI.models.classificationLevels.byId(id)?.name`.
+  //    `classificationName` stands in for `CARDINAL.models.classificationLevels.byId(id)?.name`.
   test("resolves each node's classification id through the classificationName accessor", () => {
     const rows = [makeRow({ path: 'a', classification: 'level-restricted' })]
 
@@ -423,12 +423,12 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
     ;({ pages: pagesModel } = await import('../models/pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-    // -> `mayOnPage`'s anonymous path resolves the actor's groups through `WIKI.data.systemIds
-    //    .guestsGroupId` (`models/groups.ts#groupIdsForRequest`) -- `setupTestDb()` leaves `WIKI.data`
+    // -> `mayOnPage`'s anonymous path resolves the actor's groups through `CARDINAL.data.systemIds
+    //    .guestsGroupId` (`models/groups.ts#groupIdsForRequest`) -- `setupTestDb()` leaves `CARDINAL.data`
     //    empty, so an anonymous request needs this set, with the fixture group standing in as
     //    "guests" and granted `read:pages` site-wide through a real rule (not the group-wide
     //    `permissions` column, which page-rule checks never consult).
-    WIKI.data.systemIds = { guestsGroupId: fixtures.groupId }
+    CARDINAL.data.systemIds = { guestsGroupId: fixtures.groupId }
     const guestRule: GroupRule = {
       id: 'guest-read-rule',
       name: 'Guest read',
@@ -508,10 +508,10 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
 
     const listAllForGraph = t.mock.method(pagesModel, 'listAllForGraph')
     const contributorCountsForGraph = t.mock.method(
-      WIKI.models.pageHistory,
+      CARDINAL.models.pageHistory,
       'contributorCountsForGraph'
     )
-    const countsForGraph = t.mock.method(WIKI.models.pageviews, 'countsForGraph')
+    const countsForGraph = t.mock.method(CARDINAL.models.pageviews, 'countsForGraph')
 
     const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
     assert.equal(res.statusCode, 200)
@@ -521,9 +521,9 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
   })
 
   test('no pageview aggregate runs, and every node reports all-zero pageviews, while tracking is disabled', async (t) => {
-    const previousPageviewsConfig = WIKI.config.pageviews
-    WIKI.config.pageviews = { isEnabled: false }
-    WIKI.cache.delete(`graph:${fixtures.siteId}`)
+    const previousPageviewsConfig = CARDINAL.config.pageviews
+    CARDINAL.config.pageviews = { isEnabled: false }
+    CARDINAL.cache.delete(`graph:${fixtures.siteId}`)
 
     try {
       const page = await pagesModel.createPage(
@@ -536,7 +536,7 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
         },
         actor
       )
-      const countsForGraph = t.mock.method(WIKI.models.pageviews, 'countsForGraph')
+      const countsForGraph = t.mock.method(CARDINAL.models.pageviews, 'countsForGraph')
 
       testSession = {
         authenticated: true,
@@ -569,7 +569,7 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
         total: { browser: 0, api: 0, mcp: 0, all: 0 }
       })
     } finally {
-      WIKI.config.pageviews = previousPageviewsConfig
+      CARDINAL.config.pageviews = previousPageviewsConfig
     }
   })
 
@@ -732,7 +732,7 @@ describe('listAllForGraph publication filtering (DB-backed)', { skip: !hasTestDa
 /**
  * OpenProject #1864: `GET /sites/:siteId/graph`'s permission filter used to call `mayOnPage(req, ...)`
  * per row, which rebuilds the actor internally on every call. It now hoists
- * `WIKI.models.groups.actorForRequest(req)` once per request (`tree.ts`'s `visibleTreeItems()`
+ * `CARDINAL.models.groups.actorForRequest(req)` once per request (`tree.ts`'s `visibleTreeItems()`
  * shape) and calls `checkAccess(actor, ...)` per row directly.
  *
  * Exercised at the route/HTTP level rather than through `assembleGraph()`'s pure predicate, since
@@ -765,7 +765,7 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
     checkAccess = mock.fn(
       (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
     )
-    // -> `createWikiStub`'s own `WIKI.cache` stub backs this: the route reads and writes the graph
+    // -> `createWikiStub`'s own `CARDINAL.cache` stub backs this: the route reads and writes the graph
     //    bundle through it (`helpers/graphCache.ts`), so `loadGraphData` needs somewhere to look
     //    before it will ever call `listAllForGraph` et al.
     const wiki = {

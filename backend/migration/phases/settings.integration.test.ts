@@ -82,33 +82,33 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> `setupTestDb()`'s own minimal WIKI (`test/db.ts#installTestWiki()`) does not set
-      //    `WIKI.configSvc` — no other DB-backed suite needs the real `saveToDb()`/`loadFromDb()`
+      // -> `setupTestDb()`'s own minimal CARDINAL (`test/db.ts#installTestWiki()`) does not set
+      //    `CARDINAL.configSvc` — no other DB-backed suite needs the real `saveToDb()`/`loadFromDb()`
       //    round trip the way this phase's `mail` merge does. `models/sessions.test.ts` establishes
       //    the precedent for adding it back in per-suite rather than widening the shared fixture.
-      WIKI.configSvc = configSvc
+      CARDINAL.configSvc = configSvc
       // -> Mirrors `bootstrap.ts#bootstrapMigrationRuntime()`'s own two disk-loading calls (Task 15):
-      //    `WIKI.models.authentication`/`WIKI.models.storage`'s resolvers need these populated before
+      //    `CARDINAL.models.authentication`/`CARDINAL.models.storage`'s resolvers need these populated before
       //    `getModule()`/`getDefinition()` can recognize any real module. `setupTestDb()`'s own
-      //    minimal WIKI does not call either, since no other DB-backed suite in this repo needs both
+      //    minimal CARDINAL does not call either, since no other DB-backed suite in this repo needs both
       //    at once the way this phase does.
-      await WIKI.models.authentication.refreshStrategiesFromDisk()
-      await WIKI.models.storage.refreshFromDisk()
+      await CARDINAL.models.authentication.refreshStrategiesFromDisk()
+      await CARDINAL.models.storage.refreshFromDisk()
       // -> `setupTestDb()` inserts the fixture site directly (not through `Sites.createSite()`), so
       //    it never ran `Storage.syncSite()` — seed the one-row-per-module baseline a real site would
       //    already have, which is what proves the storage mapper's output is applied as an UPDATE
       //    against an existing row, never an INSERT.
-      await WIKI.models.storage.syncSite(fixtures.siteId)
+      await CARDINAL.models.storage.syncSite(fixtures.siteId)
       // -> Preexisting instance settings this run's `mail`/`security` patches must NOT clobber (Task
       //    15's review-round Critical #2 fix): `defaultBaseURL` has no 2.x source field at all
       //    (`mappers/site-settings.ts`'s `MAIL_FIELDS` doesn't list it), and `corsMode` isn't touched
       //    by this run's `security` source row either. A wholesale-replace write would silently
       //    delete both.
-      WIKI.config.mail = {
+      CARDINAL.config.mail = {
         defaultBaseURL: 'https://preexisting.example.com',
         senderName: 'Old Name'
       }
-      WIKI.config.security = { corsMode: 'custom', enforceCsp: false }
+      CARDINAL.config.security = { corsMode: 'custom', enforceCsp: false }
     })
 
     after(async () => {
@@ -171,12 +171,12 @@ describe(
 
       // -> Critical #2 fix: the mail patch merges onto the existing row rather than replacing it —
       //    `defaultBaseURL` (no 2.x source field at all) survives, and the new fields land alongside
-      //    it, both in the in-memory `WIKI.config.mail` AND the persisted `settings` DB row.
-      assert.equal(WIKI.config.mail.defaultBaseURL, 'https://preexisting.example.com')
-      assert.equal(WIKI.config.mail.senderName, 'Migrated Mailer')
-      assert.equal(WIKI.config.mail.senderEmail, 'mailer@example.com')
-      assert.equal(WIKI.config.mail.host, 'smtp.example.com')
-      const persistedConfig = await WIKI.models.settings.getConfig()
+      //    it, both in the in-memory `CARDINAL.config.mail` AND the persisted `settings` DB row.
+      assert.equal(CARDINAL.config.mail.defaultBaseURL, 'https://preexisting.example.com')
+      assert.equal(CARDINAL.config.mail.senderName, 'Migrated Mailer')
+      assert.equal(CARDINAL.config.mail.senderEmail, 'mailer@example.com')
+      assert.equal(CARDINAL.config.mail.host, 'smtp.example.com')
+      const persistedConfig = await CARDINAL.models.settings.getConfig()
       assert.ok(persistedConfig)
       assert.equal(
         (persistedConfig as Record<string, any>).mail.defaultBaseURL,
@@ -187,9 +187,9 @@ describe(
       // -> Same merge proof for security: `corsMode` (untouched by this run's source row) survives,
       //    and the mapped fields (`enforceCsp`/`hstsDuration`, from `securityCSP`/
       //    `securityHSTSDuration`) land alongside it.
-      assert.equal(WIKI.config.security.corsMode, 'custom')
-      assert.equal(WIKI.config.security.enforceCsp, true)
-      assert.equal(WIKI.config.security.hstsDuration, 15768000)
+      assert.equal(CARDINAL.config.security.corsMode, 'custom')
+      assert.equal(CARDINAL.config.security.enforceCsp, true)
+      assert.equal(CARDINAL.config.security.hstsDuration, 15768000)
       assert.equal((persistedConfig as Record<string, any>).security.corsMode, 'custom')
       assert.equal((persistedConfig as Record<string, any>).security.enforceCsp, true)
 
@@ -202,9 +202,12 @@ describe(
       assert.equal(created!.isEnabled, true)
       // -> Critical #1 fix's other half: `createStrategy()`'s own `activateStrategies()` call
       //    completed without throwing (proven merely by `settingsPhase.run()` above having returned
-      //    `status: 'ok'` rather than `'error'`), and actually populated `WIKI.auth.strategies` for
+      //    `status: 'ok'` rather than `'error'`), and actually populated `CARDINAL.auth.strategies` for
       //    the strategy it just created.
-      assert.ok(WIKI.auth.strategies[created!.id], 'activateStrategies() loaded the new strategy')
+      assert.ok(
+        CARDINAL.auth.strategies[created!.id],
+        'activateStrategies() loaded the new strategy'
+      )
 
       const diskRowsAfter = await fixtures.db
         .select()

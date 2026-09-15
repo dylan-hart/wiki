@@ -21,7 +21,7 @@ export interface SyncGuardedGroups {
   guestsGroupId: string
   /** The configured root administrators group, if any -- an IdP can never revoke it. */
   rootAdminGroupId?: string | null
-  /** Every group carrying `manage:system` (`WIKI.models.groups.systemGroupIds()`, which already
+  /** Every group carrying `manage:system` (`CARDINAL.models.groups.systemGroupIds()`, which already
    *  folds the root administrators group in on its own -- passing `rootAdminGroupId` too is
    *  harmless, not required). */
   systemGroupIds: string[]

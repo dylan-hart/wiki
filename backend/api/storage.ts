@@ -35,7 +35,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.storage.getSiteTargets(req.params.siteId, { mask: true })
+      return CARDINAL.models.storage.getSiteTargets(req.params.siteId, { mask: true })
     }
   )
 
@@ -75,14 +75,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const target = await WIKI.models.storage.getSiteTargetById(
+      const target = await CARDINAL.models.storage.getSiteTargetById(
         req.params.siteId,
         req.params.targetId
       )
       if (!target) {
         return reply.notFound('Storage target does not exist.')
       }
-      return WIKI.models.contentSync.getTargetSummary(target.id, { siteId: req.params.siteId })
+      return CARDINAL.models.contentSync.getTargetSummary(target.id, { siteId: req.params.siteId })
     }
   )
 
@@ -139,14 +139,14 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       // -> Validated as a whole first: a partially applied storage configuration is worse than a
       //    refused one, since the admin area saves every target at once
-      const current = await WIKI.models.storage.getSiteTargets(req.params.siteId)
+      const current = await CARDINAL.models.storage.getSiteTargets(req.params.siteId)
       const patches = []
       for (const patch of req.body.targets) {
         const target = current.find((t) => t.id === patch.id)
         if (!target) {
           return reply.notFound(`Storage target ${patch.id} does not exist.`)
         }
-        const invalid = await WIKI.models.storage.validateTarget(target, patch)
+        const invalid = await CARDINAL.models.storage.validateTarget(target, patch)
         if (invalid) {
           return reply.badRequest(invalid)
         }
@@ -156,9 +156,9 @@ async function routes(app: FastifyInstance) {
       let updated = 0
       const actor = actorFromRequest(req)
       for (const { target, patch } of patches) {
-        if (await WIKI.models.storage.updateTarget(req.params.siteId, target, patch)) {
+        if (await CARDINAL.models.storage.updateTarget(req.params.siteId, target, patch)) {
           updated++
-          await WIKI.models.auditLog.record({
+          await CARDINAL.models.auditLog.record({
             event: 'storage.targetUpdated',
             actor,
             targetType: 'storageTarget',
@@ -235,7 +235,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const target = await WIKI.models.storage.getSiteTargetById(
+      const target = await CARDINAL.models.storage.getSiteTargetById(
         req.params.siteId,
         req.params.targetId
       )
@@ -258,7 +258,7 @@ async function routes(app: FastifyInstance) {
         //    #2429's mass-delete safety guard) — carried through unconditionally for every
         //    sync-shaped action anyway, the same way `data` already is, since a handler that doesn't
         //    read a key it doesn't recognize is simply ignoring it, not misbehaving.
-        const added = await WIKI.scheduler.addJob({
+        const added = await CARDINAL.scheduler.addJob({
           task: 'dispatchStorage',
           payload: {
             targetId: target.id,
@@ -277,9 +277,9 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.storage.executeAction(target, req.params.action)
+        await CARDINAL.models.storage.executeAction(target, req.params.action)
       } catch (err: any) {
-        WIKI.logger.warn('storage', 'a target action failed', {
+        CARDINAL.logger.warn('storage', 'a target action failed', {
           target: target.id,
           module: target.module,
           action: req.params.action,

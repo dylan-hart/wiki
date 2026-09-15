@@ -12,7 +12,7 @@ let wikiHandle: { restore(): void }
 /**
  * WP 1852: a conditional avatar request must be answered from the `hash` column alone — never by
  * loading the avatar blob (`getAvatar`) — and only fall through to the blob read when the ETag does
- * not match. `WIKI.models.users` is mocked with `node:test`'s `mock.fn()` so a test can assert
+ * not match. `CARDINAL.models.users` is mocked with `node:test`'s `mock.fn()` so a test can assert
  * `getAvatar` was (or was not) called, the same mocking approach `controllers/site.test.ts` documents
  * for its sibling route.
  */

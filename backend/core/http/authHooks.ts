@@ -113,12 +113,12 @@ export function registerAuthHooks(app: FastifyInstance): void {
       return
     }
     try {
-      req.apiKey = await WIKI.models.apiKeys.verify(token)
+      req.apiKey = await CARDINAL.models.apiKeys.verify(token)
     } catch (err: any) {
       // -> `warn`, not `debug` (audit V8): a refused credential is security-relevant, and an
       //    operator watching for a compromised key must see it without turning on debug logging.
       //    Say why, too: the caller holds the credential and can act on "revoked" or "expired".
-      WIKI.logger.warn('auth', 'api key refused', { error: err })
+      CARDINAL.logger.warn('auth', 'api key refused', { error: err })
       return reply.unauthorized(err.message)
     }
     // -> Global, not per-route: a compromised key has to be caught on whichever endpoint it hits,

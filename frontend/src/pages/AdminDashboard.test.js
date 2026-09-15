@@ -58,13 +58,12 @@ function mountDashboard() {
 }
 
 /*
-  The grid rule under test lives in `AdminDashboard.vue`'s own (unscoped) `<style lang="scss">`
+  The grid rule under test lives in `AdminDashboard.vue`'s own (unscoped) `<style>`
   block, which `buildAppCss()` knows nothing about -- that compiles `src/css/tailwind.css` alone.
-  Vitest's `css: true` does run every mounted SFC's style block through the real Sass/PostCSS
-  pipeline and inject the result into the test document's `<head>`, so lifting those `<style>`
-  elements out AFTER mounting is what gets the page's own rules in front of the browser. Measured
-  without them, the cards are an unstyled stack of divs and the assertion below would pass while
-  proving nothing.
+  Vitest's `css: true` does inject every mounted SFC's style block into the test document's `<head>`,
+  so lifting those `<style>` elements out AFTER mounting is what gets the page's own rules in front
+  of the browser. Measured without them, the cards are an unstyled stack of divs and the assertion
+  below would pass while proving nothing.
 */
 function mountedStyles() {
   return [...document.querySelectorAll('style')].map((el) => el.textContent).join('\n')

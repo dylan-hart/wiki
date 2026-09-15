@@ -17,7 +17,7 @@
  * `tree` rows (pages/folders/assets) on top of that base fixture, for suites — `models/navigation.ts`
  * is the first — that need entries in the tree beyond what `setupTestDb()` provides.
  *
- * Installs a minimal `WIKI` global alongside it — `db`, a quiet `logger`, `sites`, `config`, `models`,
+ * Installs a minimal `CARDINAL` global alongside it — `db`, a quiet `logger`, `sites`, `config`, `models`,
  * plus the `cache`/`events`/`scheduler` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
  * isolates each matched file into its own process by default, so this global does not leak into any
  * other file's run.
@@ -55,7 +55,7 @@ export interface TestFixtures {
    *  is `NOT NULL`), and this is the fixture's "most open" default, matching what a fresh install's
    *  own seeding (`models/classificationLevels.ts#init`) would call `Public`. */
   classificationId: string
-  /** The schema this run's tables live in — a worker thread standing up its own `WIKI` needs this to
+  /** The schema this run's tables live in — a worker thread standing up its own `CARDINAL` needs this to
    *  point its own pool's `search_path` at the same tables rather than an empty `public`. */
   schema: string
 }
@@ -68,12 +68,12 @@ export function hasTestDatabase(): boolean {
 let pool: Pool | null = null
 let currentSchema: string | null = null
 /** The restore handle `installTestWiki()` hands back, held so `teardownTestDb()` can put back
- *  whatever `globalThis.WIKI` was before rather than leaving this fixture's `WIKI` in place for
+ *  whatever `globalThis.CARDINAL` was before rather than leaving this fixture's `CARDINAL` in place for
  *  whatever runs next in the same file (see #1021). */
 let wikiHandle: { restore(): void } | null = null
 
 /**
- * Connect, create a fresh schema, migrate, install `WIKI`, and seed one site/user/group.
+ * Connect, create a fresh schema, migrate, install `CARDINAL`, and seed one site/user/group.
  *
  * Each call gets its own randomly-named schema rather than reusing a fixed one (`public`): `node
  * --test` runs matched files concurrently by default, and every DB-backed suite in this repo points
@@ -169,7 +169,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
   // -> `config` reads back as `unknown` (no `$type<>` pin on the jsonb column -- see `SiteRow`'s own
   //    comment in `db/schema.ts`); the cast matches the one `models/sites.ts#reloadCache()` applies
   //    to the same shape in production.
-  WIKI.sites[site!.id] = site! as SiteRow
+  CARDINAL.sites[site!.id] = site! as SiteRow
 
   return {
     db,
@@ -318,7 +318,7 @@ export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
 }
 
 /**
- * The minimal `WIKI` global these tests need. Not the full boot sequence in `index.ts` — that also
+ * The minimal `CARDINAL` global these tests need. Not the full boot sequence in `index.ts` — that also
  * starts the HTTP server, the scheduler's thread pool and the postgres LISTEN/NOTIFY subscription,
  * none of which model-layer logic touches, and any one of which is a reason a test could hang or
  * flake for a cause unrelated to the code under test.
@@ -337,7 +337,7 @@ function installDbTestWiki(db: WikiDb, models: typeof import('../models/index.ts
   wikiHandle = installTestWiki({
     db,
     // -> `helpers/advisoryLock.ts#getLockPool()` lazily builds its dedicated lock pool from
-    //    `WIKI.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
+    //    `CARDINAL.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
     //    a suite that exercises the real `withAdvisoryLock` (not the dependency-injected fakes
     //    most task-level tests use) needs this present, or it crashes reading `.config` off
     //    `undefined` (OpenProject #2347). Only `config.connectionString` is provided: nothing

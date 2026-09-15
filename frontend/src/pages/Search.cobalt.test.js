@@ -18,12 +18,13 @@ const source = readFileSync(SOURCE_PATH, 'utf-8')
 
 describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
   it('introduces no hardcoded Ledger SCSS color literal in its style block', () => {
-    const styleBlock = source.match(/<style lang="scss">([\s\S]*)<\/style>/)[1]
+    const styleBlock = source.match(/<style>([\s\S]*)<\/style>/)[1]
     // -> Strip comments first: several explain the fix by NAMING the literal they replaced
     //    (`$primary`, `$accent-dark`, ...), which would otherwise read as the regression itself.
     const withoutComments = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
-    // -> The page's own local layout variables ($filters-collapse-max, $plate-size, ...) are fine;
-    //    only the Ledger theme literals are the regression this guards against.
+    // -> The page's own local layout constants (filters-collapse-max, plate-size, ...) are plain
+    //    px literals now (inlined, no longer Sass variables); only a Ledger theme literal is the
+    //    regression this guards against.
     expect(withoutComments).not.toMatch(
       /\$(hairline|surface|primary|slate|ink|tint(-alt)?|dark-\d|text-(body|secondary|caption|dark)(-dark)?|accent-(fill|strong|dark|text)|paper)\b/
     )
@@ -31,7 +32,7 @@ describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
 
   it('draws the card, plate and truncation-adjacent surfaces as Cobalt shadowed sheets', () => {
     const cobaltOverrides = source.match(
-      /@at-root body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
+      /body\.body--cobalt \.layout-search-(?:card|plate) \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
     )
     // -> `.layout-search-card` and `.layout-search-plate` each get their own override.
     expect(cobaltOverrides?.length).toBe(2)
@@ -58,12 +59,13 @@ describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
  * pair every other secondary-tier row in this file already uses.
  */
 describe('Search.vue empty-query prompt type role (OpenProject #2984)', () => {
-  const styleBlock = source.match(/<style lang="scss">([\s\S]*)<\/style>/)[1]
+  const styleBlock = source.match(/<style>([\s\S]*)<\/style>/)[1]
 
   /**
-   * `&-empty-prompt`'s own rule nests two `@at-root … &` blocks, so a non-greedy `[\s\S]*?\}` regex
-   * stops at the FIRST closing brace (the light-mode block's), not the rule's own -- brace-counting
-   * from the selector's own opening `{` is what actually finds the matching close.
+   * OpenProject #3254 flattened this file's nesting, so `.layout-search-empty-prompt`'s size/
+   * line-height and its two theme-toggle color overrides are now three separate, flat top-level
+   * rules rather than one `&-empty-prompt { ... .body--light & { ... } ... }` block -- extracted the
+   * same brace-counting way, just once per rule instead of once for the whole nest.
    */
   function extractRule(selector) {
     const start = styleBlock.indexOf(selector)
@@ -81,19 +83,20 @@ describe('Search.vue empty-query prompt type role (OpenProject #2984)', () => {
   }
 
   it('sets the empty-query prompt to its own absolute size and line-height', () => {
-    const rule = extractRule('&-empty-prompt')
+    const rule = extractRule('.layout-search-empty-prompt {')
     expect(rule).toMatch(/font-size:\s*14\.5px;/)
     expect(rule).toMatch(/line-height:\s*1\.6;/)
   })
 
   it('colors the empty-query prompt with the secondary-text token pair, not a literal', () => {
-    const rule = extractRule('&-empty-prompt')
-    expect(rule).toMatch(/color:\s*var\(--color-text-secondary\);/)
-    expect(rule).toMatch(/color:\s*var\(--color-text-secondary-dark\);/)
+    const lightRule = extractRule('.body--light .layout-search-empty-prompt {')
+    const darkRule = extractRule('.body--dark .layout-search-empty-prompt {')
+    expect(lightRule).toMatch(/color:\s*var\(--color-text-secondary\);/)
+    expect(darkRule).toMatch(/color:\s*var\(--color-text-secondary-dark\);/)
   })
 
   it('is not scoped under body.body--cobalt -- the metric is identical in both aesthetics', () => {
-    const rule = extractRule('&-empty-prompt')
+    const rule = extractRule('.layout-search-empty-prompt {')
     expect(rule).not.toMatch(/body\.body--cobalt/)
   })
 })

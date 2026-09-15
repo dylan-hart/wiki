@@ -337,7 +337,7 @@ Total RAM: ${state.info.ramTotal}`
 }
 </script>
 
-<style lang="scss">
+<style>
 .admin-system {
   .v-list-item-title,
   .v-list-item__subtitle {
@@ -350,7 +350,7 @@ Total RAM: ${state.info.ramTotal}`
     padding: 8px 12px;
     font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       color: #fff;
     }

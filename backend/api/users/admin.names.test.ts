@@ -14,7 +14,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * that the route's own emptiness refusal still fires when neither a name nor a first name would
  * produce a usable display name.
  *
- * `WIKI.models.*` is stubbed rather than DB-backed for the same reason
+ * `CARDINAL.models.*` is stubbed rather than DB-backed for the same reason
  * `admin.createWelcomeEmail.test.ts` stubs it: nothing here is SQL orchestration, it is payload
  * plumbing, and the derivation itself already has its own coverage in `models/users.names.test.ts`.
  */

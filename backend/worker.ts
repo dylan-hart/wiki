@@ -13,7 +13,7 @@ import { workerInstanceId } from './helpers/bootSummary.ts'
 
 await ensureTemporal()
 
-const WIKI = {
+const CARDINAL = {
   IS_DEBUG: process.env.NODE_ENV === 'development',
   ROOTPATH: process.cwd(),
   // -> Settled before the logger below is built, so every line this thread ever emits — its boot
@@ -27,56 +27,57 @@ const WIKI = {
     threadId
   ),
   // -> Same transport as `INSTANCE_ID` above, and settled at the same module-scope timing: the
-  //    parent process forwards its already-settled `WIKI.capabilities` into `workerData`
+  //    parent process forwards its already-settled `CARDINAL.capabilities` into `workerData`
   //    (`core/scheduler.ts`'s pool construction) once, at pool-creation time, since a worker thread never
   //    calls `syncSchemas()` itself to learn it (OpenProject #3124). A task run in this thread that
-  //    reads `WIKI.capabilities?.semanticSearch` now sees the real boot-time value instead of always
+  //    reads `CARDINAL.capabilities?.semanticSearch` now sees the real boot-time value instead of always
   //    `undefined`.
-  capabilities: (workerData as { capabilities?: WikiGlobal['capabilities'] } | null)?.capabilities,
+  capabilities: (workerData as { capabilities?: CardinalGlobal['capabilities'] } | null)
+    ?.capabilities,
   SERVERPATH: path.join(process.cwd(), 'backend'),
   configSvc,
   ensureDb: async () => {
-    if (WIKI.db) {
+    if (CARDINAL.db) {
       return true
     }
 
-    WIKI.db = await dbManager.init(true)
+    CARDINAL.db = await dbManager.init(true)
     /*
       Only the settings model, which is what `loadFromDb` reads through — not the whole registry.
       A worker thread pays the import cost of everything it pulls in, and importing all of them
       brings cheerio, sanitize-html, bcrypt and the rest into a thread that wanted one `select`.
       A task that needs another model imports that model itself.
     */
-    WIKI.models = {
+    CARDINAL.models = {
       settings: (await import('./models/settings.ts')).settings
-    } as WikiGlobal['models']
+    } as CardinalGlobal['models']
 
     try {
-      await WIKI.configSvc.loadFromDb()
+      await CARDINAL.configSvc.loadFromDb()
     } catch (err: any) {
       // -> One record: the message inline and the stack below it, rather than a second `error(err)`
       //    the operator only saw with debug already on.
-      WIKI.logger.error('db', 'database initialization failed', { error: err })
+      CARDINAL.logger.error('db', 'database initialization failed', { error: err })
       process.exit(1)
     }
   }
-} as unknown as WikiGlobal
-global.WIKI = WIKI
+} as unknown as CardinalGlobal
+global.CARDINAL = CARDINAL
 
-await WIKI.configSvc.init(true)
+await CARDINAL.configSvc.init(true)
 
 // ----------------------------------------
 // Init Logger
 // ----------------------------------------
 
-WIKI.logger = logger.init()
+CARDINAL.logger = logger.init()
 
 // ----------------------------------------
 // Execute Task
 // ----------------------------------------
 
 export default async (job: any) => {
-  // -> No `WIKI.INSTANCE_ID` assignment here any more: the id is settled at boot, above, so a job
+  // -> No `CARDINAL.INSTANCE_ID` assignment here any more: the id is settled at boot, above, so a job
   //    can no longer rename the thread it is running on halfway through its life.
   const task = (await import(`./tasks/workers/${kebabCase(job.task)}.ts`)).task
   await task(job)

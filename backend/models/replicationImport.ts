@@ -173,7 +173,7 @@ class ReplicationImportModel {
   /** `<dataPath>/imports/replication` — separate from `siteImport.ts`'s own `<dataPath>/imports`, so
    *  the two importers' TTL sweeps never race the same directory. */
   get importsPath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'imports', 'replication')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'imports', 'replication')
   }
 
   /**
@@ -259,7 +259,7 @@ class ReplicationImportModel {
    *
    * @param filePath Path to the uploaded archive, as returned by `saveUpload`.
    * @returns How many rows of each kind were restored, which the caller (`replicationImport`'s task)
-   *   records on the job's history row via `WIKI.models.jobs.setResult`.
+   *   records on the job's history row via `CARDINAL.models.jobs.setResult`.
    */
   async importSnapshot(filePath: string): Promise<ReplicationImportReport> {
     const { entries, assetBlobs, stagingDir } = await readArchive(filePath)
@@ -305,7 +305,7 @@ class ReplicationImportModel {
         })
       )
 
-      await WIKI.db.transaction(async (tx) => {
+      await CARDINAL.db.transaction(async (tx) => {
         // -> Children first, mirroring each table's real foreign keys (see the design doc's ordering
         //    table) — a mid-transaction failure rolls back the whole thing, so this order only has to
         //    satisfy Postgres's own constraint checks, not guard against a partial state surviving.

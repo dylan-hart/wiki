@@ -30,7 +30,7 @@ export interface AdvisoryLockHandle {
  *
  * Blocking (`pg_advisory_lock`) rather than the non-blocking retry/backoff `withAdvisoryLock` below
  * uses: this is a boot-time primitive (`core/db.ts#syncSchemas` is the only caller), taken on a caller-
- * supplied pool before `WIKI.db`/`WIKI.dbManager.config` necessarily exist yet, so there is no request-
+ * supplied pool before `CARDINAL.db`/`CARDINAL.dbManager.config` necessarily exist yet, so there is no request-
  * serving pool connection at risk of being starved the way `withAdvisoryLock`'s doc comment describes.
  */
 export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<AdvisoryLockHandle> {
@@ -68,7 +68,7 @@ export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<Advi
  * specifically, at negligible cost: none of these handlers are on a request's critical path, and a
  * second job for the same target simply waits its turn instead of racing.
  *
- * **Never checks a client out of `WIKI.db.$client`, the pool that serves requests.** `fn()` is a
+ * **Never checks a client out of `CARDINAL.db.$client`, the pool that serves requests.** `fn()` is a
  * storage module handler — a `git push`, an S3 `PUT`, an SFTP transfer, i.e. arbitrarily long network
  * I/O — held for the whole time the lock is held (the lock and its release must run on the exact same
  * physical connection, same constraint `test/db.ts`'s `createExtensionsSerialized` documents and
@@ -76,7 +76,7 @@ export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<Advi
  * out of that same pool would consume every connection an HTTP request needs, and previously did so by
  * blocking inside `pg_advisory_lock` with no way to give the connection back early (OpenProject #2246).
  * `getLockPool()` below hands out connections from a second, small, dedicated pool instead — cloned
- * from the same connection parameters (`WIKI.dbManager.config`) but capped at `LOCK_POOL_MAX`, so a
+ * from the same connection parameters (`CARDINAL.dbManager.config`) but capped at `LOCK_POOL_MAX`, so a
  * storm of contended lock attempts can starve only itself, never a request in flight.
  *
  * **Never blocks inside `pg_advisory_lock`.** A contended acquisition instead polls
@@ -128,27 +128,27 @@ let lockPool: Pool | null = null
 
 /**
  * Lazily build the dedicated advisory-lock pool from the same connection parameters the main pool was
- * built from (`WIKI.dbManager.config`, populated once `dbManager.init()` has run — always true by the
+ * built from (`CARDINAL.dbManager.config`, populated once `dbManager.init()` has run — always true by the
  * time any job dispatches a lock, since nothing during boot itself calls `withAdvisoryLock`).
  *
  * Every real boot path (`index.ts`, `mcp/bootstrap.ts`, `migration/bootstrap.ts`,
- * `scripts/audit-site-scoped-rules.ts`) sets `WIKI.dbManager` to the real `core/db.ts` module and
- * always calls `dbManager.init()` before `WIKI.db` is usable, so `WIKI.dbManager.config` is always
+ * `scripts/audit-site-scoped-rules.ts`) sets `CARDINAL.dbManager` to the real `core/db.ts` module and
+ * always calls `dbManager.init()` before `CARDINAL.db` is usable, so `CARDINAL.dbManager.config` is always
  * present by the time production code gets here. A lightweight test harness can legitimately build
- * `WIKI.db` directly (a plain `drizzle({ client: pool, ... })`) without ever running `dbManager.init()`
- * — for that shape only, fall back to reusing `WIKI.db.$client` itself rather than throwing on
- * `WIKI.dbManager` (or its `.config`) being absent. This is not a legacy shim: production always takes
- * the primary branch, since `WIKI.dbManager` is unconditionally populated during boot.
+ * `CARDINAL.db` directly (a plain `drizzle({ client: pool, ... })`) without ever running `dbManager.init()`
+ * — for that shape only, fall back to reusing `CARDINAL.db.$client` itself rather than throwing on
+ * `CARDINAL.dbManager` (or its `.config`) being absent. This is not a legacy shim: production always takes
+ * the primary branch, since `CARDINAL.dbManager` is unconditionally populated during boot.
  */
 function getLockPool(): Pool {
   if (!lockPool) {
-    lockPool = WIKI.dbManager?.config
+    lockPool = CARDINAL.dbManager?.config
       ? new Pool({
-          ...(WIKI.dbManager.config as PoolConfig),
-          application_name: `Cardinal.js - ${WIKI.INSTANCE_ID}:LOCKS`,
+          ...(CARDINAL.dbManager.config as PoolConfig),
+          application_name: `Cardinal.js - ${CARDINAL.INSTANCE_ID}:LOCKS`,
           max: LOCK_POOL_MAX
         })
-      : (WIKI.db.$client as Pool)
+      : (CARDINAL.db.$client as Pool)
   }
   return lockPool
 }
@@ -159,7 +159,7 @@ function getLockPool(): Pool {
  *
  * Tolerates a pool that has already been ended by whoever constructed it — the fallback branch of
  * `getLockPool()` above can hand back a pool object a test owns and closes directly (e.g.
- * `WIKI.db.$client`), so by the time a later test resets the cache, `.end()` on it may already have
+ * `CARDINAL.db.$client`), so by the time a later test resets the cache, `.end()` on it may already have
  * run. This only needs to guarantee the module-level cache itself is cleared, not that it is the one
  * to close the connection.
  */
@@ -216,7 +216,7 @@ export async function withAdvisoryLock<T>(
         //    propagating, and `fn`'s own error (most likely the same dead connection) is the one the
         //    caller needs — see `dispatch-storage.ts`, which rethrows to drive `jobHistory` state.
         unlockFailed = true
-        WIKI.logger.warn('db', 'releasing an advisory lock failed, discarding the connection', {
+        CARDINAL.logger.warn('db', 'releasing an advisory lock failed, discarding the connection', {
           key,
           error: err
         })

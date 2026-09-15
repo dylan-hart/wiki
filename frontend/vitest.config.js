@@ -45,15 +45,27 @@ export const FLAKY_INCLUDE = TEST_INCLUDE.map((glob) =>
  *   - the `@` alias — every component imports through it;
  *   - the `vue()` plugin's `isCustomElement` rule for `<iconify-icon>`, and `transformAssetUrls`,
  *     for parity with how the app's own SFCs compile;
- *   - the Tailwind plugin — component markup is full of Tailwind utility classes;
- *   - the SCSS `additionalData` injection — `src/css/_theme.scss` / `_palette.scss` are `@use`d into
- *     every SFC style block by the app build, so a component whose `<style lang="scss">` reaches for
- *     a bare `$primary` or `$grey-4` (several do, e.g. `PageToc.vue`) only resolves under test if the
- *     same injection runs here. Without it such a component fails to even mount — a Sass "undefined
- *     variable" error — which looks nothing like the assertion actually being tested and wastes time
- *     chasing the wrong failure.
+ *   - the Tailwind plugin — component markup is full of Tailwind utility classes.
+ *
+ * `css.transformer: 'lightningcss'` (test-only — `vite.config.js`'s real build stays on Vite's
+ * default, since real browsers need no help with native CSS nesting) exists for one reason: happy-dom
+ * 20.14.5's `getComputedStyle` returns nothing at all for a rule that contains ANY nested `&`
+ * sub-rule, even for that same rule's own un-nested declarations sitting right beside it (verified
+ * directly — a bare `.foo { height: 41px; & .bar { color: blue } }` resolves `height` to `''` under
+ * happy-dom, while the identical rule with the nested part removed resolves it fine). Sass used to
+ * shield every test from this by flattening nesting away before happy-dom ever saw it; now that
+ * `frontend/src/css` is plain CSS with native nesting throughout (OpenProject #3254), lightningcss's
+ * `targets` below downlevels it the same way for old-browser output, at parse time, transparently to
+ * every test -- an old-Chrome target is arbitrary and only has to predate Chrome 112's native-nesting
+ * support.
  */
 export default defineConfig({
+  css: {
+    transformer: 'lightningcss',
+    lightningcss: {
+      targets: { chrome: 80 << 16 }
+    }
+  },
   plugins: [
     vue({
       template: {
@@ -82,13 +94,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
-    }
-  },
-  css: {
-    preprocessorOptions: {
-      scss: {
-        additionalData: `@use '@/css/_theme.scss' as *; @use '@/css/_palette.scss' as *;`
-      }
     }
   },
   test: {

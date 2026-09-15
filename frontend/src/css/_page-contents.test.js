@@ -2,7 +2,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { compileStringAsync } from 'sass'
 
 import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
@@ -23,18 +22,18 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
  * Fixed the same mechanical way as `.count-badge` (task 721/727, asserted by
  * `layouts/AdminLayout.test.js`): physical `-left` replaced with logical `-inline-start`, which
  * resolves against `dir` on its own with no JS involved. This is a source-level regression test in
- * the same style as that one -- `_page-contents.scss` is a plain stylesheet partial applied to raw
+ * the same style as that one -- `_page-contents.css` is a plain stylesheet partial applied to raw
  * rendered markdown, not a mountable component, so there is no Vue tree to inspect computed styles
  * on; asserting the compiled-from source is the direct way to pin the fix down.
  */
-describe('_page-contents.scss ul.links-list', () => {
+describe('_page-contents.css ul.links-list', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
   const start = source.indexOf('ul.links-list {')
   const end = source.indexOf('@media (prefers-reduced-motion: reduce) {', start)
   if (start === -1 || end === -1) {
     throw new Error(
-      'ul.links-list block not found in _page-contents.scss -- has it moved or been renamed?'
+      'ul.links-list block not found in _page-contents.css -- has it moved or been renamed?'
     )
   }
   const block = source.slice(start, end)
@@ -66,7 +65,7 @@ describe('_page-contents.scss ul.links-list', () => {
 })
 
 /**
- * OpenProject #1694 ("Convert `_page-contents.scss` to logical properties so rendered wiki content
+ * OpenProject #1694 ("Convert `_page-contents.css` to logical properties so rendered wiki content
  * works in RTL"), filed from the 2026-08-24 audit (`docs/audit-2026-08-24/accessibility-i18n.md`
  * §9) -- the same defect the `ul.links-list` suite above pins down for one construct (task 721's
  * RTL audit covered only specific named components, and this file wasn't one of them), applied here
@@ -86,9 +85,9 @@ describe('_page-contents.scss ul.links-list', () => {
  * inside that rule stays visually stable either way even if it happens to use a physical property --
  * this suite carves that one block out of the scan rather than special-casing selectors by name.
  */
-describe('_page-contents.scss logical properties (whole file)', () => {
+describe('_page-contents.css logical properties (whole file)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   // -> The single rule that pins its subtree to `direction: ltr`; see its own comment for why a
   //    physical property inside it (there happen to be none left) would still be safe under RTL.
@@ -149,7 +148,7 @@ describe('_page-contents.scss logical properties (whole file)', () => {
    */
   it('rounds the admonition corners opposite the accent bar via logical corner properties, scoped to Cobalt only', () => {
     expect(source).toMatch(
-      /@at-root body\.body--cobalt & \{\s*border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/
+      /body\.body--cobalt & \{\s*border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/
     )
   })
 
@@ -234,15 +233,15 @@ describe('_page-contents.scss logical properties (whole file)', () => {
  * keeps today's rounded/no-marks look, now via an explicit override scoped by both the severity
  * selector and `body.body--cobalt` rather than as a side effect of an absent rule.
  */
-describe('_page-contents.scss admonition corners -- square by default, rounded under Cobalt (OpenProject #3131)', () => {
+describe('_page-contents.css admonition corners -- square by default, rounded under Cobalt (OpenProject #3131)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   /** The declarations of the admonition selector group's own block (not a per-severity sub-block). */
   function admonitionBlock() {
     const start = source.indexOf('&.is-info,\n    &:has(> .is-info),\n    &.is-success,')
     if (start === -1) {
-      throw new Error('Admonition selector group not found in _page-contents.scss -- has it moved?')
+      throw new Error('Admonition selector group not found in _page-contents.css -- has it moved?')
     }
     let depth = 0
     let braceStart = -1
@@ -257,15 +256,15 @@ describe('_page-contents.scss admonition corners -- square by default, rounded u
         }
       }
     }
-    throw new Error('Admonition selector group block is unterminated in _page-contents.scss')
+    throw new Error('Admonition selector group block is unterminated in _page-contents.css')
   }
 
   const block = admonitionBlock()
 
   it('sets no border-radius of its own at the top level of the block (Ledger draws it square)', () => {
-    // -> Only the nested `@at-root body.body--cobalt &` sub-block may declare these -- captured
+    // -> Only the nested `body.body--cobalt &` sub-block may declare these -- captured
     //    separately below -- so strip that sub-block out before scanning the rest.
-    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = block.indexOf('body.body--cobalt &')
     expect(cobaltStart).toBeGreaterThan(-1)
     const outsideCobalt = block.slice(0, cobaltStart)
     expect(outsideCobalt).not.toMatch(/border-radius/)
@@ -274,13 +273,13 @@ describe('_page-contents.scss admonition corners -- square by default, rounded u
   })
 
   it('carries no `&::after { content: none }` at the top level, letting the plain blockquote corner marks cascade through', () => {
-    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = block.indexOf('body.body--cobalt &')
     const outsideCobalt = block.slice(0, cobaltStart)
     expect(outsideCobalt).not.toMatch(/&::after\s*\{\s*content:\s*none;\s*\}/)
   })
 
   it('re-rounds the two corners and re-suppresses the marks, but only inside an explicit body.body--cobalt scope', () => {
-    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = block.indexOf('body.body--cobalt &')
     const cobaltBlock = block.slice(cobaltStart)
     expect(cobaltBlock).toMatch(/border-start-end-radius:\s*6px;/)
     expect(cobaltBlock).toMatch(/border-end-end-radius:\s*6px;/)
@@ -304,13 +303,9 @@ describe('_page-contents.scss admonition corners -- square by default, rounded u
 
     async function buildStylesheets() {
       const cssDir = dirname(fileURLToPath(import.meta.url))
-      const [appCss, content] = await Promise.all([
-        buildAppCss(),
-        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [cssDir]
-        })
-      ])
-      return { appCss, contentCss: content.css }
+      const contentCss = readFileSync(join(cssDir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
+      return { appCss, contentCss }
     }
 
     async function measure({ dark: darkMode = false, cobalt = false } = {}) {
@@ -385,9 +380,9 @@ describe('_page-contents.scss admonition corners -- square by default, rounded u
  * OpenProject #2783's own comment log) -- left as a known, separately-tracked case rather than
  * silently folded into this pass.
  */
-describe('_page-contents.scss admonition tones resolve through the color token', () => {
+describe('_page-contents.css admonition tones resolve through the color token', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   it.each([
     ['--content-info', '--color-info'],
@@ -406,7 +401,7 @@ describe('_page-contents.scss admonition tones resolve through the color token',
  *
  * The second pass brought the PROSE half of a rendered page onto Cardinal and left these four
  * constructs behind, each still drawn in the vocabulary that preceded it. Asserted from source for
- * the same reason the two suites above are: `_page-contents.scss` is a stylesheet partial over raw
+ * the same reason the two suites above are: `_page-contents.css` is a stylesheet partial over raw
  * rendered markdown, not a mountable component, and jsdom paints nothing -- there is no computed
  * style to read and no layout to measure. What CAN be pinned from source is that a specific
  * pre-Cardinal treatment is gone and the design's own one is in its place, which is exactly the
@@ -416,15 +411,15 @@ describe('_page-contents.scss admonition tones resolve through the color token',
  * `helpers/accessibility.test.js` -- a hex in a stylesheet is only right relative to the ground it
  * lands on, and that is a contrast assertion, not a source one.
  */
-describe('_page-contents.scss rendered content beyond prose', () => {
+describe('_page-contents.css rendered content beyond prose', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector)
     if (start === -1) {
-      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+      throw new Error(`\`${selector}\` not found in _page-contents.css -- has it moved?`)
     }
     let depth = 0
     for (let i = start; i < source.length; i += 1) {
@@ -437,7 +432,7 @@ describe('_page-contents.scss rendered content beyond prose', () => {
         }
       }
     }
-    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.css`)
   }
 
   describe('task-list checkbox', () => {
@@ -606,7 +601,7 @@ describe('_page-contents.scss rendered content beyond prose', () => {
  * that shape). Neither jsdom nor happy-dom resolves a `var()` chain or runs the cascade over real
  * stylesheets, so both would report the source's intent back rather than the result.
  *
- * So this compiles the real `_page-contents.scss` beside the real `tailwind.css` -- the two files
+ * So this compiles the real `_page-contents.css` beside the real `tailwind.css` -- the two files
  * that between them own every token in the chain -- and reads `getComputedStyle` off actual
  * rendered-markdown markup in a real headless Chromium, once light and once with `body--dark` on,
  * which is how the app itself switches theme. Same harness rule as every other real-browser suite
@@ -615,7 +610,7 @@ describe('_page-contents.scss rendered content beyond prose', () => {
  * raised well past the 5s default.
  */
 describe(
-  '_page-contents.scss rendered content beyond prose — real browser',
+  '_page-contents.css rendered content beyond prose — real browser',
   { skip: !hasChromium(), timeout: 60000 },
   () => {
     let browser
@@ -654,21 +649,19 @@ describe(
 
     /*
       The two stylesheets that between them own every token in the chain: `tailwind.css` declares
-      the Cardinal palette, `_page-contents.scss` maps it onto the article's own properties. Sass
-      compiles the partial directly rather than through `app.scss`, with the same load path
-      `vite.config.js` gives it -- `@use 'palette'` is the one module it reaches for.
+      the Cardinal palette, `_page-contents.css` maps it onto the article's own properties. Read
+      directly rather than through `app.css`, and directly usable as-is -- no compile step needed
+      (OpenProject #3254 dropped the Sass pipeline this used to run through; #3253 had already
+      converted the partial's one `$breakpoint-xs-max` need to a literal, alongside every `@at-root`
+      at nesting depth 1 in this file, ahead of that).
     */
     let stylesheets
 
     async function buildStylesheets() {
       const cssDir = dirname(fileURLToPath(import.meta.url))
-      const [appCss, content] = await Promise.all([
-        buildAppCss(),
-        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [cssDir]
-        })
-      ])
-      return { appCss, contentCss: content.css }
+      const contentCss = readFileSync(join(cssDir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
+      return { appCss, contentCss }
     }
 
     /**
@@ -876,7 +869,7 @@ describe(
  * over its own minimal sample, since that one's `SAMPLE` has no headings, paragraph or `<a>` to read.
  */
 describe(
-  '_page-contents.scss article role-table conformance — real browser (OpenProject #2977)',
+  '_page-contents.css article role-table conformance — real browser (OpenProject #2977)',
   { skip: !hasChromium(), timeout: 60000 },
   () => {
     let browser
@@ -898,13 +891,9 @@ describe(
 
     async function buildStylesheets() {
       const cssDir = dirname(fileURLToPath(import.meta.url))
-      const [appCss, content] = await Promise.all([
-        buildAppCss(),
-        compileStringAsync(readFileSync(join(cssDir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [cssDir]
-        })
-      ])
-      return { appCss, contentCss: content.css }
+      const contentCss = readFileSync(join(cssDir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
+      return { appCss, contentCss }
     }
 
     async function measure({ dark: darkMode = false, cobalt = false } = {}) {
@@ -1004,11 +993,11 @@ describe(
  * `cobaltTokens.test.js`'s own "assert against the declared text" pattern for a hand-edited
  * property list with no compiled stylesheet in this environment to read a `var()` cascade off of.
  */
-describe('_page-contents.scss Cobalt table-head swap stays sentence-case with no tracking (§4.1)', () => {
+describe('_page-contents.css Cobalt table-head swap stays sentence-case with no tracking (§4.1)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt &')
-  const cobaltBlockEnd = source.indexOf('@at-root body.body--cobalt.body--dark &')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+  const cobaltBlockStart = source.indexOf('body.body--cobalt &')
+  const cobaltBlockEnd = source.indexOf('body.body--cobalt.body--dark &')
   const cobaltBlock = source.slice(cobaltBlockStart, cobaltBlockEnd)
 
   it('sets the Barlow sans head font, normal tracking and no case transform under Cobalt', () => {
@@ -1025,20 +1014,20 @@ describe('_page-contents.scss Cobalt table-head swap stays sentence-case with no
  * OpenProject #2883 ("Cobalt list rendering (numbered steps, bullets, nested lists, task lists)
  * doesn't fully match mockups"). Two independent regressions in the numbered-step circle, both
  * invisible to reading the rule and caught only by measuring what a real browser actually resolves
- * -- see the rule's own header comments in `_page-contents.scss` for the mechanism of each. The
+ * -- see the rule's own header comments in `_page-contents.css` for the mechanism of each. The
  * source-level checks below pin the exact declarations the fix depends on; the real-browser check
  * pins the thing neither a source read nor jsdom/happy-dom can confirm, the actual computed pixel
  * size of a `::before` pseudo-element.
  */
-describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
+describe('_page-contents.css cobalt numbered list (OpenProject #2883)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector)
     if (start === -1) {
-      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+      throw new Error(`\`${selector}\` not found in _page-contents.css -- has it moved?`)
     }
     let depth = 0
     for (let i = start; i < source.length; i += 1) {
@@ -1051,7 +1040,7 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
         }
       }
     }
-    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.css`)
   }
 
   it("sizes the circle's box in `rem`, not `em` -- `em` on a property other than `font-size` resolves against the PSEUDO-ELEMENT's own (smaller, fixed 11px) computed font-size, not the list item's, which is what silently shrank the 24px handoff circle to 16.5px", () => {
@@ -1088,12 +1077,8 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
         </article>`
 
     async function measureCircle() {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         await page.setContent(
@@ -1135,9 +1120,9 @@ describe('_page-contents.scss cobalt numbered list (OpenProject #2883)', () => {
  * decoupling directly: the numeral stays 11px even when the surrounding article's own font-size
  * differs from `.page-contents`'s default.
  */
-describe('_page-contents.scss cobalt numbered-step numeral is a fixed size (OpenProject #2965)', () => {
+describe('_page-contents.css cobalt numbered-step numeral is a fixed size (OpenProject #2965)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   it('does not size the numeral in `em`, which would resolve against the changing `.page-contents` base', () => {
     expect(source).toMatch(/font:\s*600 11px\/1\.5rem var\(--font-mono\)/)
@@ -1156,12 +1141,8 @@ describe('_page-contents.scss cobalt numbered-step numeral is a fixed size (Open
     })
 
     it("keeps the numeral at 11px even when the article's own base font-size differs from 16px, proving the numeral no longer tracks it", async () => {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         await page.setContent(
@@ -1194,25 +1175,25 @@ describe('_page-contents.scss cobalt numbered-step numeral is a fixed size (Open
  * time — `.table-clip` now sits between the two, owning `overflow: hidden` plus the radius on its
  * own, because `.table-scroll`'s own `overflow-x: auto` produces a native scrollbar that is not
  * reliably clipped by `border-radius` on that SAME element (a classic, space-reserving scrollbar
- * squares off the very corner it sits against) — see `_page-contents.scss`'s own `// TABLES` header
+ * squares off the very corner it sits against) — see `_page-contents.css`'s own `TABLES` header
  * comment for the full mechanism.
  */
-describe('_page-contents.scss table frame (OpenProject #2917)', () => {
+describe('_page-contents.css table frame (OpenProject #2917)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
   // -> The shared `.table-wrap`/`.table-clip`/`.table-scroll` mechanics this describe covers live in
-  //    the `// TABLES` section (see that section's own header comment). Since OpenProject #3007,
+  //    the `TABLES` section (see that section's own header comment). Since OpenProject #3007,
   //    the per-aesthetic sections earlier in the file set only the `--content-table-scrollbar-*`
-  //    tokens the `// TABLES` section's own `.table-scroll` rule consumes -- they no longer declare
+  //    tokens the `TABLES` section's own `.table-scroll` rule consumes -- they no longer declare
   //    a `.table-scroll` selector of their own, so a plain search finding one of those instead is no
   //    longer a risk, but the explicit `tablesSectionStart` anchor stays regardless.
-  const tablesSectionStart = source.indexOf('\n  // TABLES\n')
+  const tablesSectionStart = source.indexOf('\n  /* TABLES */\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector, tablesSectionStart)
     if (start === -1) {
-      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+      throw new Error(`\`${selector}\` not found in _page-contents.css -- has it moved?`)
     }
     let depth = 0
     for (let i = start; i < source.length; i += 1) {
@@ -1225,7 +1206,7 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
         }
       }
     }
-    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.css`)
   }
 
   it('draws the body on the stated content surface rather than whatever sits behind the wrapper', () => {
@@ -1250,7 +1231,7 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
   })
 
   it('never states scrollbar-width/scrollbar-color unwrapped alongside a ::-webkit-scrollbar* rule on the same selector, in the shared .table-scroll rule', () => {
-    // -> Same source-scan shape as `_base.scss`'s own equivalent test, applied to the one place in
+    // -> Same source-scan shape as `_base.css`'s own equivalent test, applied to the one place in
     //    this file that sets the standards properties.
     const scanSource = source.slice(tablesSectionStart)
     const lines = scanSource.split('\n')
@@ -1320,7 +1301,7 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     )
     expect(source).toMatch(/--content-table-scrollbar-thumb-active:\s*var\(--color-heading-h2\);/)
     // -> No aesthetic keeps its own literal-valued `.table-scroll` override any more -- every
-    //    colour flows through the shared token pair the `// TABLES` section's rule consumes
+    //    colour flows through the shared token pair the `TABLES` section's rule consumes
     expect(source).not.toMatch(
       /\.table-scroll\s*\{\s*scrollbar-width:\s*thin;\s*scrollbar-color:\s*#c5cff5/
     )
@@ -1423,12 +1404,8 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       </article>`
 
     async function measure({ dark: darkMode = false, cobalt = false, wide = false } = {}) {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
@@ -1492,12 +1469,8 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       cobalt = false,
       scrollToEnd = false
     } = {}) {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage({ viewport: { width: 500, height: 400 } })
       try {
         const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
@@ -1655,12 +1628,8 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       proves the trailing column is actually draggable into view rather than stuck off-screen.
     */
     it('actually scrolls a wide table horizontally: the last column is off-screen before scrolling and comes fully into view after', async () => {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage({ viewport: { width: 500, height: 400 } })
       try {
         await page.setContent(
@@ -1704,12 +1673,8 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
       a real assertion rather than one that happens to pass at whatever width the test runner gives it.
     */
     it("shrinks a narrow table's frame to its own content width instead of stretching to fill the container", async () => {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage({ viewport: { width: 800, height: 400 } })
       try {
         await page.setContent(
@@ -1735,12 +1700,8 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
     })
 
     it("still stretches a wide table to fill (and scroll past) the container, since fit-content never shrinks below the columns' natural width", async () => {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage({ viewport: { width: 800, height: 400 } })
       try {
         await page.setContent(
@@ -1780,16 +1741,16 @@ describe('_page-contents.scss table frame (OpenProject #2917)', () => {
  * tinted. This pins that shape down the same way `NavSidebar.test.js` pins the depth-cue-dot fix --
  * asserting the new rule AND the absence of the pattern it replaced, from source.
  */
-describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => {
+describe('_page-contents.css table head/body (OpenProject #2916/#2919)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  const tablesSectionStart = source.indexOf('\n  // TABLES\n')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+  const tablesSectionStart = source.indexOf('\n  /* TABLES */\n')
 
   /** The declarations of one selector's block, given the selector's own opening line. */
   function blockFor(selector) {
     const start = source.indexOf(selector, tablesSectionStart)
     if (start === -1) {
-      throw new Error(`\`${selector}\` not found in _page-contents.scss -- has it moved?`)
+      throw new Error(`\`${selector}\` not found in _page-contents.css -- has it moved?`)
     }
     let depth = 0
     for (let i = start; i < source.length; i += 1) {
@@ -1802,7 +1763,7 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
         }
       }
     }
-    throw new Error(`\`${selector}\` block is unterminated in _page-contents.scss`)
+    throw new Error(`\`${selector}\` block is unterminated in _page-contents.css`)
   }
 
   it('gives the wrapper no drop shadow at all -- `--content-table-shadow` is a single `none`, not a per-theme box-shadow', () => {
@@ -1885,9 +1846,9 @@ describe('_page-contents.scss table head/body (OpenProject #2916/#2919)', () => 
  * themes -- the JS side (which cells get the attribute, when) is `renderedContent.test.js`'s own
  * coverage, exercised entirely through jsdom with no rendering engine involved.
  */
-describe('_page-contents.scss cell-range select mode highlight (OpenProject #3239)', () => {
+describe('_page-contents.css cell-range select mode highlight (OpenProject #3239)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   it('paints the selected-cell rule off the two dedicated select tokens, on both cell roles', () => {
     expect(source).toMatch(
@@ -1921,12 +1882,8 @@ describe('_page-contents.scss cell-range select mode highlight (OpenProject #323
       </article>`
 
     async function measure({ dark: darkMode = false } = {}) {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         await page.setContent(
@@ -1982,11 +1939,11 @@ describe('_page-contents.scss cell-range select mode highlight (OpenProject #323
  * above pin the token wiring and the head/band/hover rules from source -- what they CANNOT catch is
  * whether the CSS Subgrid technique those rules depend on actually does its one job: making a
  * column's width agree across every row even though no selector anywhere knows the real column
- * count (see `_page-contents.scss`'s own "Column sizing, CSS Grid style" comment for the full
+ * count (see `_page-contents.css`'s own "Column sizing, CSS Grid style" comment for the full
  * mechanism). A source regex can't tell a working subgrid from a broken one that happens to declare
  * the right properties -- only real layout can, which is what this describe is for.
  */
-describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015)', () => {
+describe('_page-contents.css table CSS Grid column alignment (OpenProject #3015)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
 
   const SAMPLE = `
@@ -2033,12 +1990,8 @@ describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015
     })
 
     async function measure() {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         await page.setContent(
@@ -2112,12 +2065,8 @@ describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015
       //    light); before the fix its zebra rule (specificity 5) beat the hover rule (specificity
       //    4) regardless of the real `:hover` match below, so the assertion would have failed on
       //    the pre-fix selector.
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         await page.setContent(
@@ -2159,9 +2108,9 @@ describe('_page-contents.scss table CSS Grid column alignment (OpenProject #3015
  * covers what that change depends on: the grid-column span and the bottom-placement `order` fallback
  * that only real layout can prove.
  */
-describe('_page-contents.scss table caption spans the grid and honors caption-side (OpenProject #3023)', () => {
+describe('_page-contents.css table caption spans the grid and honors caption-side (OpenProject #3023)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   it('spans the caption across every grid column, not just the first', () => {
     expect(source).toMatch(
@@ -2215,12 +2164,8 @@ describe('_page-contents.scss table caption spans the grid and honors caption-si
     }
 
     async function measure(captionHtml) {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         await page.setContent(
@@ -2300,9 +2245,9 @@ describe('_page-contents.scss table caption spans the grid and honors caption-si
  * (`.page-contents`'s own base, then whatever each element is set relative to) has resolved, and
  * that it resolves to the same numbers whether or not Cobalt is active.
  */
-describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
+describe('_page-contents.css article type scale (OpenProject #2963)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
 
   it('sets the article base at 15.5px/1.72, not the old 16px/1.6', () => {
     expect(source).toMatch(/\.page-contents\s*\{[\s\S]*?font-size:\s*0\.96875rem;/)
@@ -2344,13 +2289,13 @@ describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
   })
 
   it('never re-scopes any of this to `body.body--cobalt` -- the design handoff draws one ramp for both aesthetics', () => {
-    const cobaltStart = source.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = source.indexOf('body.body--cobalt &')
     expect(cobaltStart).toBeGreaterThan(-1)
     // -> None of the type-scale properties this WP owns appear inside a Cobalt-scoped block anywhere
     //    in the file; a real per-block parse would be needed to prove a NEGATIVE precisely, but every
     //    `body.body--cobalt` block in this file is a short, self-contained token/color override (see
     //    #2964's own `--content-h1`/`--content-h2` block), never a font-size declaration.
-    const cobaltBlocks = [...source.matchAll(/@at-root body\.body--cobalt & \{/g)]
+    const cobaltBlocks = [...source.matchAll(/body\.body--cobalt & \{/g)]
     expect(cobaltBlocks.length).toBeGreaterThan(0)
   })
 
@@ -2372,12 +2317,8 @@ describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
       </article>`
 
     async function measure({ dark: darkMode = false, cobalt = false } = {}) {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         const bodyClasses = [darkMode ? 'body--dark' : '', cobalt ? 'body--cobalt' : '']
@@ -2490,14 +2431,14 @@ describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
  * `#e8ecff` dark) instead. `--content-h2` and its accent color are untouched -- that split (h2
  * alone carries the accent) is the locked design decision this fix must not disturb.
  */
-describe('_page-contents.scss cobalt h1 ink (OpenProject #2964)', () => {
+describe('_page-contents.css cobalt h1 ink (OpenProject #2964)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt & {')
-  const cobaltDarkBlockStart = source.indexOf('@at-root body.body--cobalt.body--dark & {')
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+  const cobaltBlockStart = source.indexOf('body.body--cobalt & {')
+  const cobaltDarkBlockStart = source.indexOf('body.body--cobalt.body--dark & {')
   if (cobaltBlockStart === -1 || cobaltDarkBlockStart === -1) {
     throw new Error(
-      'body.body--cobalt block(s) not found in _page-contents.scss -- have they moved?'
+      'body.body--cobalt block(s) not found in _page-contents.css -- have they moved?'
     )
   }
   const cobaltBlock = source.slice(cobaltBlockStart, cobaltDarkBlockStart)
@@ -2527,12 +2468,8 @@ describe('_page-contents.scss cobalt h1 ink (OpenProject #2964)', () => {
       </article>`
 
     async function measureHeadingColors({ dark: darkMode = false } = {}) {
-      const [{ css: contentCss }, appCss] = await Promise.all([
-        compileStringAsync(readFileSync(join(dir, '_page-contents.scss'), 'utf-8'), {
-          loadPaths: [dir]
-        }),
-        buildAppCss()
-      ])
+      const contentCss = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+      const appCss = await buildAppCss()
       const page = await browser.newPage()
       try {
         const bodyClasses = ['body--cobalt', darkMode ? 'body--dark' : ''].filter(Boolean).join(' ')

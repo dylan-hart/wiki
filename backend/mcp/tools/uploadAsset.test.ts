@@ -235,7 +235,7 @@ test('handleUploadAsset: refused calls never reach the audit log', async () => {
 
 test('handleUploadAsset: wraps a model validation failure as an McpToolError', async () => {
   const c = ctx({ access: ['write:assets'] })
-  ;(globalThis as any).WIKI.models.assets.upload = async () => {
+  ;(globalThis as any).CARDINAL.models.assets.upload = async () => {
     throw new CustomError('assetInvalidFileName', 'This file name cannot be used.')
   }
   await assert.rejects(
@@ -250,7 +250,7 @@ test('handleUploadAsset: wraps a model validation failure as an McpToolError', a
 
 test('handleUploadAsset: refuses content over the configured upload size limit', async () => {
   const c = ctx({ access: ['write:assets'] })
-  ;(globalThis as any).WIKI.config.security.uploadMaxFileSize = 4
+  ;(globalThis as any).CARDINAL.config.security.uploadMaxFileSize = 4
   await assert.rejects(
     () => handleUploadAsset(c, { fileName: 'a.txt', content: CONTENT_B64, siteId: SITE_ID }),
     /exceeds the/

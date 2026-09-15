@@ -7,7 +7,7 @@
   loaded by URL, not imported: `component.js` points `GlobalWorkerOptions.workerSrc` at whatever
   this file compiles to, next to it in /_blocks.
 
-  The rollup config picks this up from the file name alone -- any `worker.js` beside a block's
+  The rolldown config picks this up from the file name alone -- any `worker.js` beside a block's
   component becomes `<block>.worker.js` -- so there is nothing to add there for the next block that
   needs one.
 */

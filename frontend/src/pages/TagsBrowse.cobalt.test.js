@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
  * environment, so the established pattern for pinning a hand-edited stylesheet's shape is asserting
  * against the SOURCE TEXT directly, not a mounted-and-computed style.
  *
- * `TagsBrowse.vue`'s own `<style lang="scss">` block styled every panel/text color with hardcoded
+ * `TagsBrowse.vue`'s own `<style>` block styled every panel/text color with hardcoded
  * Ledger SCSS literals ($hairline, $surface, $primary, ...) scoped only by bare .body--light/
  * .body--dark -- never body.body--cobalt -- so the screen picked up no Cobalt color at all. This
  * suite pins the fix: the literals are gone, replaced by their var(--color-*) equivalents (which are
@@ -22,7 +22,7 @@ const source = readFileSync(SOURCE_PATH, 'utf-8')
 
 describe('TagsBrowse.vue Cobalt diff (OpenProject #2777)', () => {
   it('introduces no hardcoded Ledger SCSS color literal in its style block', () => {
-    const styleBlock = source.match(/<style lang="scss">([\s\S]*)<\/style>/)[1]
+    const styleBlock = source.match(/<style>([\s\S]*)<\/style>/)[1]
     // -> Strip comments first: several explain the fix by NAMING the literal they replaced
     //    (`$primary`, `$accent-dark`, ...), which would otherwise read as the regression itself.
     const withoutComments = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -48,13 +48,15 @@ describe('TagsBrowse.vue Cobalt diff (OpenProject #2777)', () => {
   })
 
   it('draws the "Current selection"/"Tags"/"Locale"/"Order by" subheaders in the accent role', () => {
-    expect(source).toMatch(/&-subheader\s*\{[\s\S]*?color:\s*var\(--color-accent\);/)
-    expect(source).toMatch(/@at-root \.body--dark & \{\s*color:\s*var\(--color-accent-dark\);/)
+    expect(source).toMatch(/\.tags-browse-subheader\s*\{[\s\S]*?color:\s*var\(--color-accent\);/)
+    expect(source).toMatch(
+      /\.body--dark \.tags-browse-subheader \{\s*color:\s*var\(--color-accent-dark\);/
+    )
   })
 
   it("draws the results plate as Cobalt's shadowed sheet", () => {
     expect(source).toMatch(
-      /@at-root body\.body--cobalt & \{\s*border:\s*0;\s*border-radius:\s*var\(--radius-card\);\s*box-shadow:\s*var\(--shadow-card\);\s*\}/
+      /body\.body--cobalt \.tags-browse-plate \{\s*border:\s*0;\s*border-radius:\s*var\(--radius-card\);\s*box-shadow:\s*var\(--shadow-card\);\s*\}/
     )
   })
 })

@@ -2,7 +2,6 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import * as sass from 'sass'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
@@ -18,8 +17,8 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
 
   Measured in a real headless Chromium, for the reason `test/realGridLayout.js` and #2613's own suite
   document at length: neither `jsdom` nor `happy-dom` runs a layout engine, so `getBoundingClientRect()`
-  there comes back zeroed regardless of what the CSS says. The rules under test are compiled from the
-  two SFCs' own `<style lang="scss">` text, not retyped as literals here, so a regression that moves
+  there comes back zeroed regardless of what the CSS says. The rules under test are read from the
+  two SFCs' own `<style>` text, not retyped as literals here, so a regression that moves
   the band back to 34px (or removes the local override) fails this test rather than passing it.
 */
 
@@ -28,18 +27,11 @@ const frontendRoot = dirname(dirname(selfDir))
 
 async function compileStyleBlock(relativePath) {
   const source = await readFile(join(frontendRoot, relativePath), 'utf8')
-  const block = source.match(/<style lang="scss">([\s\S]*?)<\/style>/)
+  const block = source.match(/<style>([\s\S]*?)<\/style>/)
   if (!block) {
-    throw new Error(`No <style lang="scss"> block found in ${relativePath}`)
+    throw new Error(`No <style> block found in ${relativePath}`)
   }
-  const themeDir = join(frontendRoot, 'src', 'css')
-  const injected = `@use '${join(themeDir, '_theme.scss')}' as *; @use '${join(themeDir, '_palette.scss')}' as *;`
-  const result = await sass.compileStringAsync(injected + block[1], {
-    loadPaths: [join(frontendRoot, 'src')],
-    silenceDeprecations: ['import', 'global-builtin', 'legacy-js-api', 'color-functions'],
-    logger: sass.Logger.silent
-  })
-  return result.css
+  return block[1]
 }
 
 describe(

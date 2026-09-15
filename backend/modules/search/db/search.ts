@@ -92,13 +92,13 @@ const OVERFETCH_HARD_CAP = 5000
  * `dictOverrides` is read through `models/search.ts`'s `getConfig(siteId)` rather than duplicated
  * here: it is a per-site setting the admin area edits through the same `/sites/:siteId/search`
  * endpoint regardless of which engine that site has active, so the dispatcher stays the one place that
- * reads `WIKI.sites[siteId].config.search.config`. `termHighlighting` is different: it is this
+ * reads `CARDINAL.sites[siteId].config.search.config`. `termHighlighting` is different: it is this
  * module's own declared prop (`definition.yml`), edited through the generic per-engine config form and
- * saved to `WIKI.sites[siteId].config.search.engines.db`, so it's read back the same way, through
+ * saved to `CARDINAL.sites[siteId].config.search.engines.db`, so it's read back the same way, through
  * `search.getEngineConfig(siteId, MODULE_KEY)`.
  */
 class DbSearchModule implements SearchModule {
-  /** Nothing to connect: this module runs queries straight through `WIKI.db`, already open at boot. */
+  /** Nothing to connect: this module runs queries straight through `CARDINAL.db`, already open at boot. */
   async init(_siteId: string, _config: Record<string, any>): Promise<void> {}
 
   async created(page: SearchIndexablePage): Promise<void> {
@@ -142,7 +142,7 @@ class DbSearchModule implements SearchModule {
    * every `to_tsvector` call fail at rebuild time, long after the setting was saved.
    */
   async getAvailableDictionaries(): Promise<string[]> {
-    const rows = await WIKI.db.execute(sql`SELECT cfgname FROM pg_ts_config ORDER BY cfgname`)
+    const rows = await CARDINAL.db.execute(sql`SELECT cfgname FROM pg_ts_config ORDER BY cfgname`)
     return rows.rows.map((r: any) => r.cfgname as string)
   }
 
@@ -161,7 +161,7 @@ class DbSearchModule implements SearchModule {
       return wanted
     }
     if (wanted) {
-      WIKI.logger.warn('search', 'text search dictionary is not installed, falling back', {
+      CARDINAL.logger.warn('search', 'text search dictionary is not installed, falling back', {
         engine: MODULE_KEY,
         locale,
         dictionary: wanted,
@@ -224,7 +224,7 @@ class DbSearchModule implements SearchModule {
     const hasQuery = terms.length > 0
 
     // -> Only the locales in play need an arm in the dictionary CASE
-    const siteLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? ['en']
+    const siteLocales: string[] = CARDINAL.sites[siteId]?.config?.locales?.active ?? ['en']
     const searchedLocales = locales.length > 0 ? locales : siteLocales
     /*
       No terms means no query to parse, and therefore no dictionary to parse it with.
@@ -388,7 +388,7 @@ class DbSearchModule implements SearchModule {
       const needed = offset + limit
       let candidateLimit = Math.min(needed + OVERFETCH_MARGIN, OVERFETCH_HARD_CAP)
       for (;;) {
-        const fetched = await WIKI.db.execute(rowsQuery(candidateLimit, 0))
+        const fetched = await CARDINAL.db.execute(rowsQuery(candidateLimit, 0))
         rawRows = fetched.rows as any[]
         visibleRows = filterVisible(rawRows, actor, siteId, toRef)
         const exhausted = rawRows.length < candidateLimit
@@ -398,7 +398,7 @@ class DbSearchModule implements SearchModule {
         candidateLimit = Math.min(candidateLimit * OVERFETCH_GROWTH_FACTOR, OVERFETCH_HARD_CAP)
       }
     } else {
-      const fetched = await WIKI.db.execute(rowsQuery(limit, offset))
+      const fetched = await CARDINAL.db.execute(rowsQuery(limit, offset))
       rawRows = fetched.rows as any[]
       visibleRows = rawRows
     }
@@ -477,7 +477,7 @@ class DbSearchModule implements SearchModule {
     }
     conditions.push(sql`similarity(p.title, ${terms}) > ${SUGGEST_TITLE_THRESHOLD}`)
 
-    const rows = await WIKI.db.execute(sql`
+    const rows = await CARDINAL.db.execute(sql`
       SELECT p.path, p.locale, p.title, p.tags, p.classification, similarity(p.title, ${terms}) AS score
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
@@ -512,12 +512,12 @@ class DbSearchModule implements SearchModule {
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const available = await this.getAvailableDictionaries()
-    const localeRows = await WIKI.db.execute(
+    const localeRows = await CARDINAL.db.execute(
       sql`SELECT DISTINCT locale FROM pages WHERE "siteId" = ${siteId} ORDER BY locale`
     )
     const locales = (localeRows.rows as any[]).map((r) => r.locale as string)
 
-    WIKI.logger.debug('search', 'rebuilding the index', {
+    CARDINAL.logger.debug('search', 'rebuilding the index', {
       engine: MODULE_KEY,
       site: siteId,
       locales: locales.length
@@ -528,7 +528,7 @@ class DbSearchModule implements SearchModule {
       const dictionary = this.dictionaryForLocale(locale, available, siteId)
       // -> The dictionary name is an identifier in `to_tsvector`, and it is only ever one of the
       //    names postgres itself reported, so it cannot carry anything unexpected
-      const updated = await WIKI.db.execute(sql`
+      const updated = await CARDINAL.db.execute(sql`
         UPDATE pages SET ts =
           setweight(to_tsvector(${sql.raw(`'${dictionary}'`)}, coalesce(title, '')), 'A') ||
           setweight(to_tsvector(${sql.raw(`'${dictionary}'`)}, coalesce(description, '')), 'B') ||
@@ -538,7 +538,7 @@ class DbSearchModule implements SearchModule {
       const pages = updated.rowCount ?? 0
       result.pages += pages
       result.locales.push({ locale, dictionary, pages })
-      WIKI.logger.debug('search', 'locale reindexed', {
+      CARDINAL.logger.debug('search', 'locale reindexed', {
         engine: MODULE_KEY,
         locale,
         dictionary,
@@ -546,7 +546,7 @@ class DbSearchModule implements SearchModule {
       })
     }
 
-    WIKI.logger.info('search', 'index rebuild completed', {
+    CARDINAL.logger.info('search', 'index rebuild completed', {
       engine: MODULE_KEY,
       site: siteId,
       pages: result.pages,
@@ -574,7 +574,7 @@ class DbSearchModule implements SearchModule {
       // -> The dictionary name is an identifier in `to_tsvector`, and it is only ever one of the
       //    names postgres itself reported, so it cannot carry anything unexpected
       const dict = sql.raw(`'${dictionary}'`)
-      await WIKI.db.execute(sql`
+      await CARDINAL.db.execute(sql`
         UPDATE pages SET ts =
           setweight(to_tsvector(${dict}, coalesce(title, '')), 'A') ||
           setweight(to_tsvector(${dict}, coalesce(description, '')), 'B') ||
@@ -582,7 +582,7 @@ class DbSearchModule implements SearchModule {
         WHERE id = ${id}
       `)
     } catch (err: any) {
-      WIKI.logger.warn('search', 'indexing a page failed', {
+      CARDINAL.logger.warn('search', 'indexing a page failed', {
         engine: MODULE_KEY,
         page: id,
         error: err

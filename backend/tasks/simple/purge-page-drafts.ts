@@ -8,7 +8,7 @@ import type { TaskResult } from '../../core/scheduler.ts'
  * actually removed something.
  */
 export async function task(): Promise<TaskResult | void> {
-  const purged = await WIKI.models.pageDrafts.purgeStale()
+  const purged = await CARDINAL.models.pageDrafts.purgeStale()
   if (purged > 0) {
     return { summary: 'purged stale autosave drafts', purged }
   }

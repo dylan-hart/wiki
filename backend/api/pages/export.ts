@@ -66,9 +66,9 @@ async function routes(app: FastifyInstance) {
         return reply
       }
 
-      const pdf = await WIKI.models.pdfExport.exportPdf({
+      const pdf = await CARDINAL.models.pdfExport.exportPdf({
         hostname: req.hostname,
-        port: WIKI.config.port,
+        port: CARDINAL.config.port,
         path: page.path,
         // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
         //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient

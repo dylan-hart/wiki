@@ -61,6 +61,18 @@ ENV NODE_ENV=production
 # The browser the Puppeteer extension drives, installed above rather than downloaded by Puppeteer: the
 # distro keeps it patched, it exists for arm64 as well as amd64, and the image does not carry two copies
 # of Chromium. `PUPPETEER_SKIP_DOWNLOAD` has to be set before the install below for that to hold.
+#
+# This does mean `chromium`'s version here floats with whatever Debian bookworm's apt repo currently
+# serves, rather than the Chrome-for-Testing build backend/package.json's `puppeteer` was actually
+# developed and pinned against. The two drifting too far apart is a real failure mode, not a
+# theoretical one: puppeteer 25.4.0 (pinned to Chrome 151.0.7922.47) against a bookworm chromium that
+# had already reached 152.0.7977.75 sent `Page.navigate` calls the newer browser refused outright with
+# `net::ERR_INVALID_ARGUMENT` (OpenProject #3256). `backend/package.json`'s `puppeteer` version is kept
+# close to whatever this apt package currently resolves to for that reason — see
+# `docs/decisions/2026-09-14-puppeteer-chromium-protocol-pin.md` for how that pairing was checked and
+# `backend/helpers/puppeteer.ts`'s `launchPuppeteerBrowser` doc comment for the pointer future readers
+# will actually land on. A currency pass that bumps `puppeteer` without re-checking this pairing can
+# reintroduce the same failure.
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 

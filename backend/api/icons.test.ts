@@ -14,8 +14,8 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * granted to through a page rule. `mayUseIconPicker()` now checks in-handler instead, the same
  * `No route-level permissions:` pattern `api/blocks.ts`'s `mayListBlocks()` uses.
  *
- * Unit-level, no database: `WIKI.models.icons`/`groups` are stubbed the same way
- * `blocks.test.ts`'s site-scoped delegation suite stubs `WIKI.models.blocks`/`groups`.
+ * Unit-level, no database: `CARDINAL.models.icons`/`groups` are stubbed the same way
+ * `blocks.test.ts`'s site-scoped delegation suite stubs `CARDINAL.models.blocks`/`groups`.
  */
 describe('icons picker permissions (task #931)', () => {
   let getSetsCalls = 0
@@ -60,7 +60,7 @@ describe('icons picker permissions (task #931)', () => {
       //    this suite grants page-rule roles through; returning `undefined` leaves the request's own
       //    session alone.
       session: (req: any) => {
-        WIKI.models.groups.mayHoldPermissionSomewhere = (
+        CARDINAL.models.groups.mayHoldPermissionSomewhere = (
           actor: { permissions: string[] },
           permissions: string[]
         ) => {
@@ -188,7 +188,7 @@ describe('icons picker permissions (task #931)', () => {
 
 /**
  * `POST /sideload` (OpenProject #2939/#2946): a `manage:system`-only trigger for
- * `WIKI.models.icons.sideloadFromDataPath()`, letting an admin rescan `<dataPath>/icons/` for a
+ * `CARDINAL.models.icons.sideloadFromDataPath()`, letting an admin rescan `<dataPath>/icons/` for a
  * dropped-in icon set collection file against a running instance without a restart. Mirrors
  * `locales.test.ts`'s own `POST /sideload` suite, including its `session: 'header', permissions:
  * true` harness setup — needed because this route (unlike the picker routes above) enforces the

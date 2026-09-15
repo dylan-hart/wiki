@@ -795,20 +795,22 @@ function rowClasses(row) {
 }
 </script>
 
-<style lang="scss">
-.import-batch-page-dialog {
-  &-review {
-    max-height: 60vh;
-    overflow: auto;
-  }
-
-  &-actions {
-    background-color: var(--color-dark-3);
-    background-image: radial-gradient(at top left, var(--color-dark-3), var(--color-dark-5));
-    border-top: 1px solid #000;
-    box-shadow: 0 -1px 0 0 rgba(#fff, 0.06);
-    color: #fff;
-  }
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.import-batch-page-dialog-review {
+  max-height: 60vh;
+  overflow: auto;
+}
+.import-batch-page-dialog-actions {
+  background-color: var(--color-dark-3);
+  background-image: radial-gradient(at top left, var(--color-dark-3), var(--color-dark-5));
+  border-top: 1px solid #000;
+  box-shadow: 0 -1px 0 0 rgba(255, 255, 255, 0.06);
+  color: #fff;
 }
 
 .import-batch-dropzone {

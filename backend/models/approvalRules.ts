@@ -104,7 +104,7 @@ class ApprovalRules extends ClusterReloaded {
    * page rules.
    */
   async reloadCache(): Promise<void> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ ...ruleSelection, siteId: approvalRulesTable.siteId })
       .from(approvalRulesTable)
       .orderBy(asc(sql`lower(${approvalRulesTable.name})`), asc(approvalRulesTable.createdAt))
@@ -113,7 +113,7 @@ class ApprovalRules extends ClusterReloaded {
       rulesCache[siteId] ??= []
       rulesCache[siteId].push(rule)
     }
-    WIKI.logger.debug('pages', 'reloaded the approval rules cache', { rules: rows.length })
+    CARDINAL.logger.debug('pages', 'reloaded the approval rules cache', { rules: rows.length })
   }
 
   /**
@@ -137,7 +137,7 @@ class ApprovalRules extends ClusterReloaded {
    * @returns The rule, or null if this site has no such rule
    */
   async getRule(siteId: string, id: string): Promise<ApprovalRule | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select(ruleSelection)
       .from(approvalRulesTable)
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
@@ -151,7 +151,7 @@ class ApprovalRules extends ClusterReloaded {
    * @returns The rule as stored
    */
   async createRule(siteId: string, patch: ApprovalRulePatch): Promise<ApprovalRule> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .insert(approvalRulesTable)
       .values({
         siteId,
@@ -198,7 +198,7 @@ class ApprovalRules extends ClusterReloaded {
       }
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .update(approvalRulesTable)
       .set(values)
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
@@ -269,7 +269,7 @@ class ApprovalRules extends ClusterReloaded {
    * @returns Whether a rule was deleted
    */
   async deleteRule(siteId: string, id: string): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(approvalRulesTable)
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
     await this.broadcastReload()

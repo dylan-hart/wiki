@@ -25,7 +25,7 @@ import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
  * Feature 391's `mayManageCommentsAnywhere`/`listForSite`-based route was discarded in favor of this one;
  * nothing else depended on it.
  *
- * `WIKI.models.comments`'s `get`/`create`/`update`/`delete`/`listForPage` (Feature 391's page-scoped
+ * `CARDINAL.models.comments`'s `get`/`create`/`update`/`delete`/`listForPage` (Feature 391's page-scoped
  * primitives) don't resolve `authorName`/`authorEmail` on their own — only `listForPage`'s join does.
  * `resolveAuthorName` below fills that gap for the POST/PATCH responses at the route layer rather than
  * widening every model method's query, since it's needed in exactly two places.
@@ -54,7 +54,7 @@ const commentIdParam = {
  * site has, the slower every single request gets, independent of how many the actor can actually see.
  *
  * This does the opposite: it bounds the permission check by page COUNT, not comment count.
- * `WIKI.models.groups.checkAccess` is a synchronous, in-memory call — `models/groups.ts` keeps every
+ * `CARDINAL.models.groups.checkAccess` is a synchronous, in-memory call — `models/groups.ts` keeps every
  * group's rules cached, reloaded on write, so evaluating it repeatedly costs no database round trip at
  * all — so the only DB-bound work is one query for the site's page refs (`comments.pageRefsForSite`,
  * served off `pages_siteId_locale_path_idx`/`pages_siteId_locale_hash_idx` -- both leading on
@@ -82,9 +82,14 @@ async function accessiblePageIdsForAdmin(
   if (actor.permissions.includes('manage:system')) {
     return null
   }
-  const pageRefs: AdminPageRef[] = await WIKI.models.comments.pageRefsForSite(siteId, pathFilter)
+  const pageRefs: AdminPageRef[] = await CARDINAL.models.comments.pageRefsForSite(
+    siteId,
+    pathFilter
+  )
   return pageRefs
-    .filter((page) => WIKI.models.groups.checkAccess(actor, 'manage:comments', { ...page, siteId }))
+    .filter((page) =>
+      CARDINAL.models.groups.checkAccess(actor, 'manage:comments', { ...page, siteId })
+    )
     .map((page) => page.id)
 }
 
@@ -98,7 +103,7 @@ async function resolveAuthorName(comment: {
   guestName: string | null
 }): Promise<string> {
   if (comment.authorId) {
-    const user = await WIKI.models.users.getById(comment.authorId)
+    const user = await CARDINAL.models.users.getById(comment.authorId)
     if (user) {
       return user.name
     }
@@ -205,7 +210,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.commentProviders.getSiteProviders(req.params.siteId, { mask: true })
+      return CARDINAL.models.commentProviders.getSiteProviders(req.params.siteId, { mask: true })
     }
   )
 
@@ -237,7 +242,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const provider = await WIKI.models.commentProviders.setActiveProvider(
+        const provider = await CARDINAL.models.commentProviders.setActiveProvider(
           req.params.siteId,
           req.body.module,
           req.body.config ?? {}
@@ -336,10 +341,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       const pageIds = await accessiblePageIdsForAdmin(actor, req.params.siteId, req.query.pagePath)
 
-      return WIKI.models.comments.listForAdmin({
+      return CARDINAL.models.comments.listForAdmin({
         siteId: req.params.siteId,
         pageIds,
         author: req.query.author,
@@ -377,16 +382,16 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const comment = await WIKI.models.comments.getWithPage(req.params.commentId)
+      const comment = await CARDINAL.models.comments.getWithPage(req.params.commentId)
       // -> Existence is checked only after confirming it belongs to this site, so a comment id from a
       //    different site is indistinguishable from one that does not exist at all.
       if (!comment || comment.siteId !== req.params.siteId) {
         return reply.notFound('This comment does not exist.')
       }
 
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       if (
-        !WIKI.models.groups.checkAccess(actor, 'manage:comments', {
+        !CARDINAL.models.groups.checkAccess(actor, 'manage:comments', {
           ...comment.page,
           siteId: req.params.siteId
         })
@@ -400,7 +405,7 @@ async function routes(app: FastifyInstance) {
       //    what fixed OpenProject #935: this site-wide moderation delete used to skip the emit
       //    entirely, so a webhook subscriber mirroring comments missed every deletion done from the
       //    admin moderation screen.
-      await WIKI.models.comments.delete(comment.id)
+      await CARDINAL.models.comments.delete(comment.id)
       return reply.code(204).send()
     }
   )
@@ -440,7 +445,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      const thread = await WIKI.models.comments.listForPage(page.id)
+      const thread = await CARDINAL.models.comments.listForPage(page.id)
       return thread.map((comment) => toPublicComment(comment))
     }
   )
@@ -463,7 +468,7 @@ async function routes(app: FastifyInstance) {
         No route-level `permissions`: same as the list route, `write:comments` is a page-rule
         permission decided per page below — and, per task 609, THIS route is the anonymous-safe one
         of the two, mirroring 2.5.x's guest commenting. An anonymous actor reaches `mayOnPage` the
-        same way an authenticated one does (`WIKI.models.groups.actorForRequest` resolves it to the
+        same way an authenticated one does (`CARDINAL.models.groups.actorForRequest` resolves it to the
         Guests group), so a wiki that grants that group `write:comments` gets guest posting simply by
         the rule existing — nothing here special-cases "no session" as a blanket refusal.
       */
@@ -504,7 +509,7 @@ async function routes(app: FastifyInstance) {
       // -> Both flags only ever hid the form client-side (`PageComments.vue` gates its own mount on
       //    `siteStore.features.comments && pageStore.allowComments`) -- neither was checked here, so
       //    a direct POST still stored the comment regardless of either being off (OpenProject #935).
-      if (!WIKI.sites[req.params.siteId]?.config?.features?.comments) {
+      if (!CARDINAL.sites[req.params.siteId]?.config?.features?.comments) {
         return reply.forbidden('Comments are disabled for this site.')
       }
       if (!page.allowComments) {
@@ -543,13 +548,13 @@ async function routes(app: FastifyInstance) {
         // -> A `replyTo` naming a comment that doesn't exist, or that exists on a different page,
         //    must be rejected rather than stored: `listForPage` is scoped to THIS page, so a
         //    cross-page id simply won't be found here either way.
-        const thread = await WIKI.models.comments.listForPage(page.id)
+        const thread = await CARDINAL.models.comments.listForPage(page.id)
         if (!flattenIds(thread).has(replyTo)) {
           return reply.badRequest('replyTo does not name a comment on this page.')
         }
       }
 
-      const comment = await WIKI.models.comments.create({
+      const comment = await CARDINAL.models.comments.create({
         siteId: req.params.siteId,
         pageId: page.id,
         authorId: actor ? actor.id : null,
@@ -572,7 +577,7 @@ async function routes(app: FastifyInstance) {
 
       // -> The one case `authorEmail` IS shown: the poster being handed their own address back.
       const authorEmail = actor
-        ? ((await WIKI.models.users.getById(actor.id))?.email ?? null)
+        ? ((await CARDINAL.models.users.getById(actor.id))?.email ?? null)
         : comment.guestEmail
       return {
         id: comment.id,
@@ -631,7 +636,7 @@ async function routes(app: FastifyInstance) {
 
       // -> Existence is checked only after the page-level read gate above, so a comment's presence
       //    is never revealed to a requester who could not even see the page's comments at all.
-      const comment = await WIKI.models.comments.get(req.params.commentId)
+      const comment = await CARDINAL.models.comments.get(req.params.commentId)
       if (!comment || comment.pageId !== page.id) {
         return reply.notFound('This comment does not exist.')
       }
@@ -651,7 +656,9 @@ async function routes(app: FastifyInstance) {
         )
       }
 
-      const updated = await WIKI.models.comments.update(comment.id, { content: req.body.content })
+      const updated = await CARDINAL.models.comments.update(comment.id, {
+        content: req.body.content
+      })
       // -> `models/comments.ts#update()` emits `comment:edit` itself. `resolveAuthorName` here is
       //    only for this response's own `authorName` field, which needs the same resolution
       //    independently.
@@ -709,7 +716,7 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> Same ordering as PATCH: existence is only checked past the page-level read gate.
-      const comment = await WIKI.models.comments.get(req.params.commentId)
+      const comment = await CARDINAL.models.comments.get(req.params.commentId)
       if (!comment || comment.pageId !== page.id) {
         return reply.notFound('This comment does not exist.')
       }
@@ -719,7 +726,7 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> `models/comments.ts#delete()` emits `comment:delete` itself.
-      await WIKI.models.comments.delete(comment.id)
+      await CARDINAL.models.comments.delete(comment.id)
       return reply.code(204).send()
     }
   )

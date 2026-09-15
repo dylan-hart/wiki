@@ -64,11 +64,11 @@ function toRecordOutcome(
  *
  * Same split `phases/content.ts`'s `pagesModel`/`navigationModel` use: each of `assetsModel`/
  * `treeModel`/`commentsModel` below checks `ctx.dryRun` *inside* its own method body before ever
- * touching the ambient `WIKI` global, minting a placeholder id instead — so a `dryRun: true` run's
- * `entities()` construction touches `WIKI` nowhere at all, and `importAsset()`/`importComment()`'s own
+ * touching the ambient `CARDINAL` global, minting a placeholder id instead — so a `dryRun: true` run's
+ * `entities()` construction touches `CARDINAL` nowhere at all, and `importAsset()`/`importComment()`'s own
  * real classification logic (folder resolution, actor fallback, missing-page detection) still runs
  * identically in both modes. `commentsModel.setReplyTo()` follows the same split, so a dry run's
- * `onComplete` pass touches `WIKI` no more than its `create()` calls did.
+ * `onComplete` pass touches `CARDINAL` no more than its `create()` calls did.
  */
 export const assetsPhase = definePhase({
   id: 'assets',
@@ -89,21 +89,21 @@ export const assetsPhase = definePhase({
         writeUnlessDryRun(
           ctx.dryRun,
           () => ({ ...placeholderRow(), fileName: input.fileName }),
-          () => WIKI.models.assets.upload(input)
+          () => CARDINAL.models.assets.upload(input)
         )
     }
     const treeModel: TreeFolderModel = {
       getFolder: (input) =>
-        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.tree.getFolder(input))
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => CARDINAL.models.tree.getFolder(input))
     }
     const assetDeps: AssetImportDeps = { assetsModel, treeModel }
     const assetOptions: AssetImportOptions = {
       siteId: ctx.siteId,
-      // -> Read fresh off WIKI.sites (not a ctx.primaryLocale value snapshotted before any phase ran)
+      // -> Read fresh off CARDINAL.sites (not a ctx.primaryLocale value snapshotted before any phase ran)
       //    — see context.ts's resolvePrimaryLocale() doc comment (whole-branch review Critical #1).
       //    Resolved here, at entities()-construction time, rather than deferred into treeModel's own
       //    dry-run-gated closure like content.ts's navigationModel does: resolvePrimaryLocale() already
-      //    internalizes the same "stay WIKI-free under dryRun" gate content.ts's dependencies apply by
+      //    internalizes the same "stay CARDINAL-free under dryRun" gate content.ts's dependencies apply by
       //    hand, and this phase's own entities(ctx) is only ever called once the `settings`/`content`
       //    phases it transitively depends on have already finished (MIGRATION_PHASES' sequential run
       //    order — see resolvePrimaryLocale()'s own doc comment).
@@ -114,12 +114,12 @@ export const assetsPhase = definePhase({
 
     const commentsModel: CommentsWriteModel = {
       create: (input) =>
-        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.comments.create(input)),
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => CARDINAL.models.comments.create(input)),
       setReplyTo: (id, replyTo) =>
         writeUnlessDryRun(
           ctx.dryRun,
           () => undefined,
-          () => WIKI.models.comments.setReplyTo(id, replyTo)
+          () => CARDINAL.models.comments.setReplyTo(id, replyTo)
         )
     }
     const commentDeps: CommentImportDeps = { commentsModel }

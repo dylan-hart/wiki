@@ -10,7 +10,7 @@
  * to hardcode a flat grey `scrollbar-width`/`scrollbar-color` + `::-webkit-scrollbar*` treatment
  * here, but Vue's scoped-style `[data-v-xxx]` attribute gave `.w-scroll-area[data-v-xxx]
  * ::-webkit-scrollbar*` higher specificity than the global, aesthetic-scoped `.body--ledger
- * ::-webkit-scrollbar*` / `.body--cobalt ::-webkit-scrollbar*` rules in `_base.scss`, so every
+ * ::-webkit-scrollbar*` / `.body--cobalt ::-webkit-scrollbar*` rules in `_base.css`, so every
  * `<w-scroll-area>` region (the reader/admin sidebars among them) silently kept the old grey bar no
  * matter which aesthetic was active. `<body>` always carries exactly one of `body--ledger` /
  * `body--cobalt` (`composables/aesthetic.js`'s mutually-exclusive toggle), so leaving no local rule

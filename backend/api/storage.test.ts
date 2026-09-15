@@ -7,11 +7,11 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Task 545: prove `POST /sites/:siteId/storage/targets/:targetId/actions/exportAll` actually calls
- * `WIKI.models.storage.executeAction()` with the resolved target and action name, and that the
+ * `CARDINAL.models.storage.executeAction()` with the resolved target and action name, and that the
  * route's existing `try { await executeAction(...) } catch (err) { reply.badRequest(err.message) }`
  * contract (`api/storage.ts`) turns a thrown module error — the shape a broken cloud config (wrong
  * bucket, revoked credentials) produces — into a 400 with a readable message rather than an unhandled
- * 500. `WIKI.models.storage` is stubbed here rather than exercising a real cloud SDK: that proof lives
+ * 500. `CARDINAL.models.storage` is stubbed here rather than exercising a real cloud SDK: that proof lives
  * in `modules/storage/s3/storage.emulated.test.ts`, which runs the real s3 module against a real
  * S3-compatible server. This file is only about the HTTP-layer contract on top of it.
  */
@@ -68,7 +68,7 @@ before(async () => {
 beforeEach(() => {
   executeAction.mock.resetCalls()
   getSiteTargetById.mock.resetCalls()
-  ;(WIKI.scheduler.addJob as any).mock.resetCalls()
+  ;(CARDINAL.scheduler.addJob as any).mock.resetCalls()
 })
 
 after(() => closeTestApp(app))
@@ -149,8 +149,8 @@ describe('confirmMassDelete threads through the queued job for a sync-shaped act
 
     assert.equal(res.statusCode, 200)
     assert.equal(res.json().ok, true)
-    assert.equal((WIKI.scheduler.addJob as any).mock.calls.length, 1)
-    const [job] = (WIKI.scheduler.addJob as any).mock.calls[0]!.arguments
+    assert.equal((CARDINAL.scheduler.addJob as any).mock.calls.length, 1)
+    const [job] = (CARDINAL.scheduler.addJob as any).mock.calls[0]!.arguments
     assert.equal(job.task, 'dispatchStorage')
     assert.equal(job.payload.handler, 'sync')
     assert.equal(job.payload.data.confirmMassDelete, false)
@@ -164,7 +164,7 @@ describe('confirmMassDelete threads through the queued job for a sync-shaped act
     })
 
     assert.equal(res.statusCode, 200)
-    const [job] = (WIKI.scheduler.addJob as any).mock.calls[0]!.arguments
+    const [job] = (CARDINAL.scheduler.addJob as any).mock.calls[0]!.arguments
     assert.equal(job.payload.data.confirmMassDelete, true)
   })
 })

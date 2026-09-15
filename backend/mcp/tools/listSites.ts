@@ -22,7 +22,7 @@ function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
   if (ctx.permissions.includes('access:admin') || ctx.permissions.includes('manage:sites')) {
     return true
   }
-  return WIKI.models.groups.checkAccess(actorFor(ctx), 'read:pages', {
+  return CARDINAL.models.groups.checkAccess(actorFor(ctx), 'read:pages', {
     path: '',
     locale: defaultLocale(site.id),
     siteId: site.id,
@@ -39,7 +39,7 @@ function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
  * every site's hostname and title regardless of what it may actually reach.
  */
 export function handleListSites(ctx: McpAuthContext): CallToolResult {
-  const sites = Object.values(WIKI.sites as Record<string, McpSite>).filter(
+  const sites = Object.values(CARDINAL.sites as Record<string, McpSite>).filter(
     (site) => site.isEnabled && (!ctx.siteId || site.id === ctx.siteId) && maySeeSite(ctx, site)
   )
   const listed: ListedSite[] = sites.map((site) => ({

@@ -210,6 +210,41 @@ describe('user store: applyProfile() / setToGuest()', () => {
     expect(store.permissions).toEqual(['write:pages'])
   })
 
+  /**
+   * Task #3264: `avatarProviderUrl` rides `/whoami`'s response the same way `hasAvatar` does, and
+   * must reset to `null` (not linger from a previous session) once the reader signs out.
+   */
+  it('adopts avatarProviderUrl when the response carries one', () => {
+    const store = useUserStore()
+    store.applyProfile({
+      authenticated: true,
+      id: 'abc-123',
+      avatarProviderUrl: 'https://provider.example/photo.jpg'
+    })
+
+    expect(store.avatarProviderUrl).toBe('https://provider.example/photo.jpg')
+  })
+
+  it('defaults avatarProviderUrl to null when the response carries none', () => {
+    const store = useUserStore()
+    store.applyProfile({ authenticated: true, id: 'abc-123' })
+
+    expect(store.avatarProviderUrl).toBe(null)
+  })
+
+  it('resets avatarProviderUrl to null on setToGuest', () => {
+    const store = useUserStore()
+    store.applyProfile({
+      authenticated: true,
+      id: 'abc-123',
+      avatarProviderUrl: 'https://provider.example/photo.jpg'
+    })
+
+    store.setToGuest()
+
+    expect(store.avatarProviderUrl).toBe(null)
+  })
+
   it('clears page and site permissions on setToGuest, so a stale edit button cannot survive a logout', () => {
     const store = useUserStore()
     store.applyProfile({ authenticated: true, id: 'abc-123', permissions: ['write:pages'] })

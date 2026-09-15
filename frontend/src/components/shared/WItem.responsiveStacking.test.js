@@ -69,9 +69,12 @@ describe('WItem/WItemSection responsive row stacking', () => {
       .join('\n')
 
     // -> `.w-item` becomes the query container ONLY when it has the two-main-section shape
-    //    (OpenProject #2823) -- not unconditionally
+    //    (OpenProject #2823) -- not unconditionally. `container: w-item / inline-size`, not
+    //    `container-type`/`container-name` as two declarations: lightningcss (wired into
+    //    `vitest.config.js` to downlevel native CSS nesting for happy-dom's benefit, OpenProject
+    //    #3254) coalesces the source's separate longhands into this shorthand -- equivalent CSS.
     expect(compiledCss).toMatch(
-      /\.w-item\[data-v-[\da-f]+]:has\(\.w-item-section--main \+ \.w-item-section--main\)\s*{[^}]*container-type:\s*inline-size/
+      /\.w-item\[data-v-[\da-f]+]:has\(\.w-item-section--main \+ \.w-item-section--main\)\s*{[^}]*container:\s*w-item \/ inline-size/
     )
     // -> `flex-wrap: wrap` is unconditional WITHIN that same `:has()` scope, not itself behind a
     //    container query (see WItem.vue's own comment on why a same-element container query never
@@ -83,13 +86,17 @@ describe('WItem/WItemSection responsive row stacking', () => {
       /@container[^{]*{\s*\.w-item\[data-v-[\da-f]+]\s*{[^}]*flex-wrap/
     )
     // -> A second adjacent main section claims the full row width under a container query keyed off
+    //    `w-item`. `(width <= 599.98px)`, not the source's own `(max-width: 599.98px)`: lightningcss
+    //    (wired into `vitest.config.js` to downlevel native CSS nesting for happy-dom's benefit,
+    //    OpenProject #3254) canonicalizes to the modern range-syntax form -- equivalent condition.
     expect(compiledCss).toMatch(
-      /@container w-item \(max-width: 599\.98px\)\s*{\s*\.w-item-section--main \+ \.w-item-section--main\[data-v-[\da-f]+]\s*{[^}]*flex:\s*1 0 100%/
+      /@container w-item \(width <= 599\.98px\)\s*{\s*\.w-item-section--main \+ \.w-item-section--main\[data-v-[\da-f]+]\s*{[^}]*flex:\s*1 0 100%/
     )
     // -> No leftover viewport-keyed media query duplicating the same rule
     expect(compiledCss).not.toMatch(
       /@media[^{]*max-width:\s*599\.98px[^{]*{\s*\.w-item-section--main/
     )
+    expect(compiledCss).not.toMatch(/@media[^{]*width <= 599\.98px[^{]*{\s*\.w-item-section--main/)
   })
 
   it('renders as two MAIN sections with no fixed pixel width baked in (the row itself decides)', () => {

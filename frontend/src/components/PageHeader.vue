@@ -763,7 +763,7 @@ async function toggleWatch() {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 /*
   One target box for the whole action row (OpenProject #2616).
 
@@ -783,7 +783,7 @@ async function toggleWatch() {
   this row.
 
   `!important` because `WBtn` writes `min-height` and `padding` as INLINE styles, which no class beats
-  on specificity alone; `.w-btn.header-nav-btn` in `css/_base.scss` documents the same fight against
+  on specificity alone; `.w-btn.header-nav-btn` in `css/_base.css` documents the same fight against
   the same two properties for the site header's own band.
 */
 .page-header-actions > .w-btn {
@@ -841,7 +841,7 @@ async function toggleWatch() {
 
   Unlayered scoped rules, so they beat the `text-h4` utility without needing `!important`.
 */
-@media (max-width: $breakpoint-xs-max) {
+@media (max-width: 599.98px) {
   .page-header-title {
     font-size: 1.5rem;
     line-height: 2rem;
@@ -979,7 +979,7 @@ async function toggleWatch() {
     background-color: rgb(0 0 0 / 0.09);
   }
 
-  @at-root .body--dark & {
+  .body--dark & {
     &:hover {
       background-color: rgb(255 255 255 / 0.08);
     }

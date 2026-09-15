@@ -161,11 +161,11 @@ class CommentProviders {
   /**
    * Load the comment provider module definitions from disk.
    *
-   * @param modulesPath Defaults to `modules/comments` under `WIKI.SERVERPATH`; overridable so tests
+   * @param modulesPath Defaults to `modules/comments` under `CARDINAL.SERVERPATH`; overridable so tests
    *   can point this at a fixture directory instead of the real modules tree.
    */
   async refreshFromDisk(
-    modulesPath: string = path.join(WIKI.SERVERPATH, 'modules/comments')
+    modulesPath: string = path.join(CARDINAL.SERVERPATH, 'modules/comments')
   ): Promise<void> {
     try {
       const definitions = await readModuleDefinitions<CommentProviderDefinition>(modulesPath, {
@@ -180,13 +180,13 @@ class CommentProviders {
         }
       })
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
-      WIKI.logger.debug('ext', 'loaded module definitions', {
+      CARDINAL.logger.debug('ext', 'loaded module definitions', {
         kind: 'comments',
         modules: this.definitions.length
       })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.error('ext', 'reading the module definitions failed', {
+      CARDINAL.logger.error('ext', 'reading the module definitions failed', {
         kind: 'comments',
         path: modulesPath,
         error: err
@@ -219,11 +219,11 @@ class CommentProviders {
 
   /** Register the installed comment provider modules for every site. Called at boot, after storage. */
   async syncAllSites(): Promise<void> {
-    const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    const sites = await CARDINAL.db.select({ id: sitesTable.id }).from(sitesTable)
     for (const site of sites) {
-      await WIKI.models.commentProviders.syncSite(site.id)
+      await CARDINAL.models.commentProviders.syncSite(site.id)
     }
-    WIKI.logger.info('ext', 'registered comment providers', { sites: sites.length })
+    CARDINAL.logger.info('ext', 'registered comment providers', { sites: sites.length })
   }
 
   /**
@@ -242,7 +242,7 @@ class CommentProviders {
     siteId: string,
     { mask = false }: { mask?: boolean } = {}
   ): Promise<CommentProvider[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select()
       .from(commentProvidersTable)
       .where(eq(commentProvidersTable.siteId, siteId))
@@ -350,7 +350,7 @@ class CommentProviders {
     const current = await this.getSiteProviderByModule(siteId, moduleKey)
     const mergedConfig = this.buildConfig(moduleKey, config, current?.config ?? {})
 
-    await WIKI.db.transaction(async (tx) => {
+    await CARDINAL.db.transaction(async (tx) => {
       await tx
         .update(commentProvidersTable)
         .set({ isEnabled: false })

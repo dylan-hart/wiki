@@ -38,10 +38,12 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
   `passwordStrength.js`, `randomPassword.js`, `injectCss.js`, `accessibility.js`, `siteImages.js`.
 - `src/renderers/` — page content rendering pipeline: `markdown.js` plus `modules/` (katex, kroki,
   plantuml, markdown-it plugins).
-- `src/css/` — `tailwind.css` (theme tokens, utilities and the shared component classes) plus SCSS:
-  `_theme.scss` (brand colours) and `_palette.scss` (the Material ramp the older stylesheets use).
-  Both are injected into every SFC by `css.preprocessorOptions.scss.additionalData` in
-  `vite.config.js`, which is why templates can write bare `$primary` / `$grey-4`.
+- `src/css/` — `tailwind.css` (theme tokens, utilities and the shared component classes) plus a
+  handful of plain CSS partials (`app.css`, `_base.css`, `_page-contents.css`, ...), assembled by
+  `app.css`'s own `@import`s and loaded once, globally, by `main.js`. There is no preprocessor:
+  Sass was removed entirely (OpenProject #1160 / #3172's spike, #3246–#3254), and every `<style>`
+  block a component carries is plain CSS with native nesting, resolving against the `var(--color-*)`
+  / etc. tokens `tailwind.css` declares.
 - `src/assets/`, `public/`, `index.html`.
 
 Path alias `@` → `frontend/src` (defined in `vite.config.js`; `jsconfig.json` mirrors it for the IDE).
@@ -151,14 +153,11 @@ does in the real build, not because it was convenient to share:
 - the **`@` alias**, `vue()`'s `isCustomElement` rule for `<iconify-icon>`, and
   `transformAssetUrls` — every component compiles the same way under test as it does in the app;
 - the **Tailwind plugin** — component markup is full of Tailwind utility classes;
-- the **SCSS `additionalData` injection** (`css.preprocessorOptions.scss`) — several SFCs' `<style
-lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue` is the test
-  suite's proof case), which only resolves under test if the same `@use '@/css/_theme.scss' as *;
-@use '@/css/_palette.scss' as *;` runs here. Miss this and such a component doesn't fail its
-  assertion — it fails to even _compile_ with a Sass "undefined variable" error, which wastes time
-  chasing the wrong problem. `test.css: true` in the Vitest `test` block is required alongside it:
-  Vitest stubs out CSS processing by default (a `<style>` import resolves to `{}` and nothing is
-  actually run through Sass), which would silently skip the very thing being verified.
+- **`test.css: true`** in the Vitest `test` block — Vitest stubs out CSS processing by default (a
+  `<style>` import resolves to `{}` and nothing reaches the document), which would silently skip
+  the very thing several suites verify: an SFC's own `<style>` block actually applying (`PageToc.vue`
+  and its `--page-toc-*` token wiring is one proof case). With it on, each mounted component's style
+  block is read and injected into the test document for real, the same way `vite build` ships it.
 - **`vue()`'s template `compilerOptions.comments: false`** — deliberately _not_ mirrored from
   `vite.config.js`, and load-bearing rather than optional. `@vitejs/plugin-vue` preserves
   template-level comments in dev mode (matching vue-loader's old behaviour) but strips them for
@@ -171,6 +170,17 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   every one of those reads the wrong element. Forcing `comments: false` reproduces the single-root
   shape these components actually ship with in production, which is what a test should be verifying
   against.
+- **`css.transformer: 'lightningcss'`** — deliberately _not_ mirrored from `vite.config.js`, which
+  needs no help: real browsers parse native CSS nesting fine. happy-dom does not — a rule containing
+  any nested `&` sub-rule resolves `getComputedStyle` to empty for that rule's OWN un-nested
+  declarations too, not only the nested ones (verified directly). `lightningcss`'s `targets` (an
+  arbitrarily old Chrome, only needing to predate native-nesting support) downlevels every SFC's
+  `<style>` block to flat selectors at parse time, transparently to every test. Two side effects
+  worth knowing when a test's literal-CSS-text assertion breaks: it also canonicalizes color
+  keywords/values (e.g. `transparent` → `#0000`) and coalesces longhands into shorthands where
+  legal (`flex-direction` + `flex-wrap` → `flex-flow`, `container-type` + `container-name` →
+  `container`, `max-width` media/container conditions → `width <=` range syntax) — all equivalent
+  CSS, so fix the assertion's expected text, not the source rule.
 
 - **File convention: co-located `*.test.js`**, matching the backend's `*.test.ts` convention — a
   test lives next to the file it covers (`components/shared/WBtn.vue` →

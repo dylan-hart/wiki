@@ -17,8 +17,8 @@ export interface PageviewTableRow {
 /**
  * Per-page pageview counts for `AdminPageviews.vue`'s sortable table (OpenProject #2791) -- distinct
  * from `GET /sites/:siteId/graph`, which serves the same underlying
- * `WIKI.models.pageviews.countsForGraph()` shape but for node-sizing, not a page-by-page admin
- * breakdown. Every browsable page on the site is listed (via `WIKI.models.pages.listAllForGraph()`,
+ * `CARDINAL.models.pageviews.countsForGraph()` shape but for node-sizing, not a page-by-page admin
+ * breakdown. Every browsable page on the site is listed (via `CARDINAL.models.pages.listAllForGraph()`,
  * unfiltered by publish state -- the caller already holds `manage:system`), zeroed for one with no
  * pageview rows at all, so the table's row count matches the site's page count rather than only the
  * pages that happen to have traffic.
@@ -72,8 +72,8 @@ async function routes(app: FastifyInstance) {
     },
     async (req): Promise<PageviewTableRow[]> => {
       const [pages, counts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId),
-        WIKI.models.pageviews.countsForGraph(req.params.siteId)
+        CARDINAL.models.pages.listAllForGraph(req.params.siteId),
+        CARDINAL.models.pageviews.countsForGraph(req.params.siteId)
       ])
 
       return pages.map((page) => {

@@ -14,22 +14,22 @@ import { describe, expect, it } from 'vitest'
  * very same `MainOverlayDialog.vue` (Inbox, Profile, File Manager, History, ...) via its own hardcoded
  * `class="main-overlay"`.
  *
- * The fix moves the styling into `css/_overlay-dialog.scss`, `@use`d by `app.scss`, which `main.js`
+ * The fix moves the styling into `css/_overlay-dialog.css`, `@import`ed by `app.css`, which `main.js`
  * imports unconditionally at boot -- not per-route -- so it is present regardless of which layout's
  * chunk happens to be loaded. This is a source-level regression test in the same style as
- * `_page-contents.test.js`: asserting the compiled-from source rather than mounting a component,
- * since the bug is about WHICH CSS CHUNK loads, not about any single layout's own rendering.
+ * `_page-contents.test.js`: asserting the source directly rather than mounting a component, since
+ * the bug is about WHICH CSS CHUNK loads, not about any single layout's own rendering.
  */
 describe('shared .main-overlay styling lives outside any one layout chunk', () => {
   const cssDir = dirname(fileURLToPath(import.meta.url))
-  const partial = readFileSync(join(cssDir, '_overlay-dialog.scss'), 'utf-8')
-  const appScss = readFileSync(join(cssDir, 'app.scss'), 'utf-8')
+  const partial = readFileSync(join(cssDir, '_overlay-dialog.css'), 'utf-8')
+  const appScss = readFileSync(join(cssDir, 'app.css'), 'utf-8')
   const mainLayoutDir = join(cssDir, '..', 'layouts')
   const mainLayout = readFileSync(join(mainLayoutDir, 'MainLayout.vue'), 'utf-8')
   const adminLayout = readFileSync(join(mainLayoutDir, 'AdminLayout.vue'), 'utf-8')
 
-  it('is loaded globally by app.scss, not by a per-layout <style> chunk', () => {
-    expect(appScss).toMatch(/@use\s+'overlay-dialog';/)
+  it('is loaded globally by app.css, not by a per-layout <style> chunk', () => {
+    expect(appScss).toMatch(/@import\s+'\.\/_overlay-dialog\.css';/)
   })
 
   it('carries the base light/dark panel background', () => {
@@ -53,9 +53,15 @@ describe('shared .main-overlay styling lives outside any one layout chunk', () =
     )
   })
 
-  it('resolves its own $breakpoint-sm-max rather than relying on per-SFC injection', () => {
-    expect(partial).toMatch(/@use\s+'palette'\s+as\s+\*;/)
-    expect(partial).toMatch(/\$breakpoint-sm-max/)
+  it('is native CSS with no Sass-specific syntax left (OpenProject #3249)', () => {
+    // -> strips the file's own header comment first, which explains the removal by naming the
+    //    old `@use 'palette' as *;`/`$breakpoint-sm-max` syntax -- a plain substring check without
+    //    this would fail on the comment rather than testing the code it describes.
+    const withoutComments = partial.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(withoutComments).not.toMatch(/@use\s+'palette'/)
+    expect(withoutComments).not.toMatch(/\$breakpoint-sm-max/)
+    // -> the literal the old Sass `_palette.scss:78` resolved to -- a media query can't read a custom property
+    expect(withoutComments).toMatch(/@media \(max-width: 1023\.98px\)/)
   })
 
   it('is no longer duplicated inside MainLayout.vue, so it cannot drift from the shared copy', () => {

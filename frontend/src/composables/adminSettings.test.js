@@ -210,6 +210,35 @@ describe('useAdminSettings() load', () => {
     expect(onLoaded).not.toHaveBeenCalled()
   })
 
+  it('does not let a response overwrite an extraState edit made while its fetch was in flight, for a page that also configures defaults (Task #3266)', async () => {
+    let resolveFetch
+    const onLoaded = vi.fn()
+    const fetch = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve
+      })
+    )
+    const { api } = await mountComposable({
+      siteId: 'site-1',
+      defaults: () => ({ colorPrimary: '#FFF' }),
+      extraState: { active: ['en'] },
+      onLoaded,
+      fetch
+    })
+
+    const pending = api.load()
+    // -> The reader edits an extraState field -- not state.config -- before this in-flight load's
+    //    response ever lands. Before the fix, snapshotTracked() only ever compared state.config for
+    //    a page configuring both, so this edit went undetected and the response below was applied.
+    api.state.active = ['en', 'fr']
+    resolveFetch({ colorPrimary: '#000' })
+    await pending
+
+    expect(api.state.active).toEqual(['en', 'fr'])
+    expect(api.state.config).toEqual({ colorPrimary: '#FFF' })
+    expect(onLoaded).not.toHaveBeenCalled()
+  })
+
   it('drops a response from a call superseded by a newer load() before it resolves', async () => {
     let resolveFirst
     let resolveSecond

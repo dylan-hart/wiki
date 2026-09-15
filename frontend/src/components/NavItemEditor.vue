@@ -930,7 +930,7 @@ watch(loading, (v) => emit('update:loading', v), { immediate: true })
 onMounted(load)
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 /*
   -- Cobalt (Task #2802) ----------------------------------------------------------------
   `ui-redesign-nav/HANDOFF.md` §2, Cobalt column, on top of the Ledger restyle below (Task #2801) --

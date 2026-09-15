@@ -57,10 +57,10 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
 
   /**
    * Same reasoning as the register suite's own copy above: `afterLoginChecks()` looks the strategy up
-   * in `WIKI.auth.strategies`, not the database.
+   * in `CARDINAL.auth.strategies`, not the database.
    */
   function registerLiveStrategy(strategyId: string, config: Record<string, any> = {}): void {
-    ;(WIKI.auth.strategies as any)[strategyId] = { config }
+    ;(CARDINAL.auth.strategies as any)[strategyId] = { config }
   }
 
   async function createLocalUser(
@@ -71,7 +71,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       password = 'originalpwd1'
     }: { email: string; name?: string; password?: string }
   ): Promise<string> {
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     return users.createUser({ name, email, password, isVerified: true })
   }
 
@@ -83,7 +83,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
     sendForgotPasswordMock = mock.method(mail, 'sendForgotPassword', async () => {})
     sendPasswordResetConfirmedMock = mock.method(mail, 'sendPasswordResetConfirmed', async () => {})
 
-    WIKI.data.authentication = [
+    CARDINAL.data.authentication = [
       {
         key: MODULE_KEY,
         title: 'Test Local Reset',

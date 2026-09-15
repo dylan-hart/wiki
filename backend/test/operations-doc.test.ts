@@ -18,7 +18,7 @@ import path from 'node:path'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const OPERATIONS_MD = path.join(REPO_ROOT, 'docs/operations.md')
 
-/** `<dataPath>` subdirectory -> a backend source file that references it via `WIKI.config.dataPath`. */
+/** `<dataPath>` subdirectory -> a backend source file that references it via `CARDINAL.config.dataPath`. */
 const DATA_PATH_SUBDIRS: Record<string, string> = {
   locales: 'backend/models/locales.ts',
   'cache/icons': 'backend/models/icons.ts',
@@ -48,8 +48,8 @@ describe('docs/operations.md — operations reference', () => {
         const sourceRaw = fs.readFileSync(sourcePath, 'utf8')
         assert.match(
           sourceRaw,
-          /WIKI\.config\.dataPath/,
-          `${sourceFile} should still resolve a path under WIKI.config.dataPath — ` +
+          /CARDINAL\.config\.dataPath/,
+          `${sourceFile} should still resolve a path under CARDINAL.config.dataPath — ` +
             'if this model stopped writing under <dataPath>, the doc entry above is stale'
         )
         assert.match(

@@ -11,14 +11,14 @@ import { installTestWiki } from '../../test/mocks.ts'
 /**
  * `mapAuthenticationRow(s)` (task 765) tests.
  *
- * The resolver under test is the *real* `WIKI.models.authentication` singleton, not a hand-rolled
+ * The resolver under test is the *real* `CARDINAL.models.authentication` singleton, not a hand-rolled
  * fake — per the task description ("going through `Authentication.buildConfig`/`validateConfig` ...
- * against each module's `definition.yml` props"), so this suite boots the minimal slice of `WIKI`
- * that `getModule`/`buildConfig`/`validateConfig` actually touch: `WIKI.data.authentication`,
+ * against each module's `definition.yml` props"), so this suite boots the minimal slice of `CARDINAL`
+ * that `getModule`/`buildConfig`/`validateConfig` actually touch: `CARDINAL.data.authentication`,
  * populated by `refreshStrategiesFromDisk()` reading the real
  * `backend/modules/authentication/*\/definition.yml` files straight off disk. None of the three
- * methods this mapper calls touches `WIKI.db`, so this needs no database — see `worker.ts`'s own
- * minimal-`WIKI` pattern for the precedent this mirrors.
+ * methods this mapper calls touches `CARDINAL.db`, so this needs no database — see `worker.ts`'s own
+ * minimal-`CARDINAL` pattern for the precedent this mirrors.
  */
 
 let wikiHandle: { restore(): void }
@@ -28,7 +28,7 @@ before(async () => {
   const { authentication } = await import('../../models/authentication.ts')
   await authentication.refreshStrategiesFromDisk()
   assert.ok(
-    WIKI.data.authentication?.length > 0,
+    CARDINAL.data.authentication?.length > 0,
     'refreshStrategiesFromDisk should have loaded the real on-disk module definitions'
   )
 })

@@ -14,7 +14,7 @@
  *    corruption that a row-count match alone would never reveal (a page that imported "successfully"
  *    but with its body cut off half way through still counts as 1 row either side). Deliberately
  *    `content`, not `render`: `createPage()` never stores the render it was given verbatim — it
- *    recomputes one via `WIKI.models.rendering.postProcess()` (sanitize, cheerio transforms,
+ *    recomputes one via `CARDINAL.models.rendering.postProcess()` (sanitize, cheerio transforms,
  *    re-serialize), so a render-vs-render hash comparison would report a mismatch for essentially
  *    every real page. `content` is the one field `createPage()` stores unmodified.
  *
@@ -499,7 +499,7 @@ export interface SpotCheckOptions {
 
 /** Looks up one destination page's stored body by the natural key an importer would key on (`siteId`,
  * `locale`, `path` — the same key `phases/content.ts`'s `existingEntry` checks against
- * `WIKI.models.tree.getEntryAt()`; `path` is the already-normalized 3.0 tree path, not the raw 2.x one
+ * `CARDINAL.models.tree.getEntryAt()`; `path` is the already-normalized 3.0 tree path, not the raw 2.x one
  * — see `runContentSpotCheck`). Returns `undefined` when no such page exists at the destination. */
 export type DestinationPageLookup = (
   siteId: string,

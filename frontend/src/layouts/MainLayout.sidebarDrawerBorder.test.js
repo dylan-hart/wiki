@@ -12,10 +12,10 @@ import { describe, expect, it } from 'vitest'
  * drawers still use unchanged), matching `--color-sidebar-hairline` -- the same token
  * `.sidebar-footerbtns`'s own `border-top` already uses.
  *
- * `MainLayout.vue`'s `<style lang="scss">` block is global (unscoped), so this is plain SCSS
- * source with no compiled stylesheet in this test environment to assert live values against --
- * the established pattern for that (`MainLayout.cobaltDialogCorners.test.js`, `cobaltTokens.test.js`)
- * is a direct source-text assertion.
+ * `MainLayout.vue`'s `<style>` block is global (unscoped), and there is no compiled stylesheet in
+ * this test environment to assert live values against -- the established pattern for that
+ * (`MainLayout.cobaltDialogCorners.test.js`, `cobaltTokens.test.js`) is a direct source-text
+ * assertion.
  */
 
 const source = readFileSync(join(import.meta.dirname, 'MainLayout.vue'), 'utf-8')

@@ -7,7 +7,7 @@ import type { ParsedSource, SourceRawOptions } from './source-args.ts'
 export type { ParsedSource } from './source-args.ts'
 
 /** The three `--render-mode` values. `'auto'` is resolved by `tasks/migrate.ts` (which has a live
- * `WIKI` to check Puppeteer availability with) into a concrete `'queue'`/`'passthrough'` before a
+ * `CARDINAL` to check Puppeteer availability with) into a concrete `'queue'`/`'passthrough'` before a
  * `MigrationContext` is built — see `context.ts`'s `renderMode` doc and `migrate.ts`'s
  * `resolveRenderMode()`. */
 export type RenderModeOption = 'auto' | 'queue' | 'passthrough'

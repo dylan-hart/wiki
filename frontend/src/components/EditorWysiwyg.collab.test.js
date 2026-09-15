@@ -197,6 +197,38 @@ describe('EditorWysiwyg collaboration (OpenProject #1124)', () => {
       wrapper.unmount()
     })
 
+    /**
+     * Task #3264: the awareness `user` field seeded here is the SAME field `composables/collab.js`
+     * writes at connect time (`provider.awareness.setLocalStateField('user', {...})`) -- Tiptap's
+     * CollaborationCaret extension overwrites it with whatever this component hands it, so a stale
+     * copy missing `avatarProviderUrl` would silently wipe out the one that connect-time write set,
+     * for as long as the WYSIWYG editor stays open.
+     */
+    it('carries avatarProviderUrl into the awareness user field alongside hasAvatar', async () => {
+      const { wrapper, collabStore, userStore } = await mountEditor('Hello from Cardinal.js')
+      userStore.hasAvatar = false
+      userStore.avatarProviderUrl = 'https://provider.example/photo.jpg'
+
+      collabStore.status = 'connected'
+      collabStore.hasSynced = true
+      await flushPromises()
+
+      const factory = bindCollabEditor.mock.calls.at(-1)[0]
+      const doc = new Y.Doc()
+      const ytext = doc.getText('content')
+      const awareness = fakeAwareness()
+
+      factory(ytext, awareness)
+      await nextTick()
+
+      expect(awareness.getLocalState().user.avatarProviderUrl).toBe(
+        'https://provider.example/photo.jpg'
+      )
+      expect(awareness.getLocalState().user.hasAvatar).toBe(false)
+
+      wrapper.unmount()
+    })
+
     it('seeds the shared fragment from the page content when nobody has written to it yet, once the seed claim is granted', async () => {
       const { wrapper, collabStore } = await mountEditor('Hello from Cardinal.js')
 

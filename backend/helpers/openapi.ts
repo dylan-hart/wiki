@@ -4,7 +4,7 @@ import { uniq } from 'es-toolkit/array'
  * OpenAPI security scheme declarations for the Swagger doc served at `/_api`.
  *
  * `bearerAuth` is the only real auth path: the `onRequest` hook in `index.ts` reads
- * `Authorization: Bearer <token>` and verifies it via `WIKI.models.apiKeys.verify()`. Nothing in the
+ * `Authorization: Bearer <token>` and verifies it via `CARDINAL.models.apiKeys.verify()`. Nothing in the
  * codebase reads an `X-API-Key` header, so this used to also declare an `apiKeyAuth` scheme that
  * documented a credential style the server never actually checked — picking it in the Swagger UI
  * Authorize dialog produced requests that silently failed to authenticate. If a genuine need for a

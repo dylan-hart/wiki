@@ -64,7 +64,7 @@ async function fetchAssetBatch({
   if (afterId) {
     conditions.push(gt(assetsTable.id, afterId))
   }
-  const rows = await WIKI.db
+  const rows = await CARDINAL.db
     .select({
       id: assetsTable.id,
       fileName: assetsTable.fileName,
@@ -113,7 +113,7 @@ const ASSET_CONTENT_TYPES: AssetContentCategory[] = ['images', 'documents', 'oth
  * @param client A connected SFTP client, e.g. from `connectSftp`.
  * @param target The site's configured target; `target.config.basePath` is where files land, and
  *   `target.siteId` is which site's assets get exported.
- * @param options.fetchBatch Defaults to a real `WIKI.db` query; override in tests.
+ * @param options.fetchBatch Defaults to a real `CARDINAL.db` query; override in tests.
  * @param options.onProgress Called once per batch fetched (not per asset) with the running total of
  *   assets actually written (skipped rows — inactive bucket, no data — don't count), so a caller can
  *   log progress at a granularity useful for a large export. Never called for a no-op run (no asset

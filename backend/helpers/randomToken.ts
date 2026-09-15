@@ -25,7 +25,7 @@ export function randomToken(bytes = 16): string {
 
 /**
  * A random lowercase-hex id: `bytes` bytes of entropy, hex-encoded (2 characters per byte). For
- * the one former call site — `WIKI.INSTANCE_ID` in `index.ts` — that needs the old
+ * the one former call site — `CARDINAL.INSTANCE_ID` in `index.ts` — that needs the old
  * hex-alphabet-only shape rather than base64url; the 5-byte default reproduces that exact
  * 10-character, 40-bit output.
  */

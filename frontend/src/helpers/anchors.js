@@ -36,7 +36,7 @@ const DRIFT_TOLERANCE = 4
  * `:target` used to do this and cannot any more: an in-content fragment link is followed with
  * `router.push`, and a pushed hash does not set the document's target element. Doing it here instead
  * covers arriving with a `#fragment` in the URL by the same path, which `:target` handled differently
- * from a click. Styled in `_page-contents.scss` — the two have to be kept in step.
+ * from a click. Styled in `_page-contents.css` — the two have to be kept in step.
  */
 export const LANDED_CLASS = 'is-anchor-landed'
 

@@ -96,7 +96,7 @@ export interface SearchContractOptions {
   makeModule(config: Record<string, any>): SearchContractHarness
   /** The engine's own config record, as the site stores it under `search.engines[<key>]`. */
   config: Record<string, any>
-  /** The whole site config to install as `WIKI.sites[CONTRACT_SITE_ID].config`. */
+  /** The whole site config to install as `CARDINAL.sites[CONTRACT_SITE_ID].config`. */
   siteConfig: Record<string, any>
 }
 
@@ -105,12 +105,12 @@ async function withCheckAccess(
   checkAccess: (actor: AccessActor, permission: string, page: any) => boolean,
   body: () => Promise<void>
 ): Promise<void> {
-  const previous = WIKI.models.groups.checkAccess
-  WIKI.models.groups.checkAccess = checkAccess as typeof WIKI.models.groups.checkAccess
+  const previous = CARDINAL.models.groups.checkAccess
+  CARDINAL.models.groups.checkAccess = checkAccess as typeof CARDINAL.models.groups.checkAccess
   try {
     await body()
   } finally {
-    WIKI.models.groups.checkAccess = previous
+    CARDINAL.models.groups.checkAccess = previous
   }
 }
 

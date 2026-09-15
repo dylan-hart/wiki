@@ -37,7 +37,7 @@ import { installTestWiki } from '../test/mocks.ts'
  * (`helpers/pubsub.ts`'s `createNotifier`, wired here as the module-scoped `notifier` in `db.ts`)
  * mirrors that faithfully on the sending side — it reads the live client fresh on every send and
  * does nothing (no throw, no buffering) when there isn't one. Test 1 below exercises exactly that
- * condition: `WIKI.dbManager.pubsubClient` being `null`, which is the real state both while the
+ * condition: `CARDINAL.dbManager.pubsubClient` being `null`, which is the real state both while the
  * only other instance is down and during this instance's own listener reconnect window
  * (`helpers/pubsub.ts`'s `connectListener`, task 703) after a dropped connection and before the
  * next one lands.
@@ -117,8 +117,8 @@ beforeEach(() => {
   disconnectWebsocketsMock = mock.fn(() => 0)
   // -> OpenProject #966: `subscribeToNotifications()` also wires `groups`/`sites`/`approvals`
   //    `.subscribeToEvents()` now (see `core/db.ts`), which is real model code reachable off
-  //    `WIKI.models` — stubbed here the same way `configSvc.loadFromDb`/`maintenance.flushCaches`
-  //    already are, so this suite's minimal `WIKI` needs a `models` object at all.
+  //    `CARDINAL.models` — stubbed here the same way `configSvc.loadFromDb`/`maintenance.flushCaches`
+  //    already are, so this suite's minimal `CARDINAL` needs a `models` object at all.
   // -> OpenProject #2042: `locales` joins the same wiring.
   groupsReloadCacheMock = mock.fn(async () => {})
   sitesReloadCacheMock = mock.fn(async () => {})
@@ -179,9 +179,9 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     //    exactly this via `setClient(null)` before a fresh client lands).
     dbManager.pubsubClient = null
 
-    // -> Fires synchronously off WIKI.events.outbound via onAny(notifyViaDB); must not throw even
+    // -> Fires synchronously off CARDINAL.events.outbound via onAny(notifyViaDB); must not throw even
     //    though there is nothing to send it on.
-    await WIKI.events.outbound.emit('reloadConfig')
+    await CARDINAL.events.outbound.emit('reloadConfig')
 
     // -> `createNotifier`'s send() is fire-and-forget internally (queued behind `tail`); wait for it.
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -217,7 +217,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     //    raw payload, even for a specific `.on(eventName, ...)` — the same shape `notifyViaDB`
     //    destructures off `onAny`. Matches how the codebase's own subscribers would read it, if
     //    they read the argument at all (today, neither does).
-    WIKI.events.inbound.on('reloadConfig', (evt: any) => {
+    CARDINAL.events.inbound.on('reloadConfig', (evt: any) => {
       received.push({ event: 'reloadConfig', value: evt.data })
     })
 
@@ -226,7 +226,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-a', event: 'reloadConfig', value: null })
     })
-    // -> `WIKI.events.inbound.emit()` (called from `onNotification`) is async and unawaited there,
+    // -> `CARDINAL.events.inbound.emit()` (called from `onNotification`) is async and unawaited there,
     //    matching production; give its listeners a tick before asserting either way.
     await new Promise((resolve) => setTimeout(resolve, 0))
     assert.deepEqual(received, [])
@@ -383,7 +383,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
   })
 
   test('redaction does not depend on the sqlLog flag, which no longer gates the call', () => {
-    WIKI.config.flags.sqlLog = true
+    CARDINAL.config.flags.sqlLog = true
 
     queryLogger.logQuery('update "settings" set "value" = $1', [secretBlobParam])
 
@@ -398,7 +398,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     // -> The behaviour change this suite exists to pin: `logQuery` has no gate of its own any more.
     //    Whether the line is rendered is `core/logger.ts#effectiveLevel`'s decision, asserted over
     //    in `core/logger.test.ts`; here the only claim is that this call site stopped making it.
-    WIKI.config.flags.sqlLog = false
+    CARDINAL.config.flags.sqlLog = false
 
     queryLogger.logQuery('select 1', [pemLikeParam])
 
@@ -522,7 +522,7 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
   })
 
   test('slowQueryMs 0 (the shipped default) times nothing, however slow the query is', async () => {
-    WIKI.config.slowQueryMs = 0
+    CARDINAL.config.slowQueryMs = 0
     const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 0 } })
     instrumentSlowQueries(client)
 
@@ -534,7 +534,7 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
 
   test('a non-numeric or negative slowQueryMs reads as off rather than as a threshold of 0', async () => {
     for (const configured of [-1, 'soon', null, undefined, Number.NaN]) {
-      WIKI.config.slowQueryMs = configured
+      CARDINAL.config.slowQueryMs = configured
       const client = makeFakeClient({ delayMs: 60 })
       instrumentSlowQueries(client)
 
@@ -655,7 +655,7 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
     `instrumentSlowQueries`'s doc comment.
   */
   test('with the sql scope at debug as well, the slow path still emits exactly one line', async () => {
-    WIKI.config.logScopes = { sql: 'debug' }
+    CARDINAL.config.logScopes = { sql: 'debug' }
     const client = makeFakeClient({ delayMs: 80, result: { rows: [], rowCount: 1 } })
     instrumentSlowQueries(client)
 
@@ -676,7 +676,7 @@ describe('instrumentSlowQueries() — slowQueryMs (#2676)', () => {
  * for the full reasoning. A fake `db` (just an `execute` mock.fn, matching this suite's other fakes)
  * stands in for the real Drizzle instance since this is pure guard logic, not SQL.
  */
-describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
+describe('dropSchemaIfDev() — CARDINAL.IS_DEBUG guard (task 2270)', () => {
   let executeMock: any
   let warnMock: any
   let fakeDb: any
@@ -685,13 +685,13 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
     executeMock = mock.fn(async () => ({ rows: [] }))
     fakeDb = { execute: executeMock }
     warnMock = mock.fn(() => {})
-    WIKI.logger.warn = warnMock
-    WIKI.config = { db: { schema: 'wiki' }, dev: {} }
+    CARDINAL.logger.warn = warnMock
+    CARDINAL.config = { db: { schema: 'wiki' }, dev: {} }
   })
 
   test('dropSchema set, IS_DEBUG false: the schema is NOT dropped, and a refusal is logged', async () => {
-    WIKI.IS_DEBUG = false
-    WIKI.config.dev.dropSchema = true
+    CARDINAL.IS_DEBUG = false
+    CARDINAL.config.dev.dropSchema = true
 
     await dbManager.dropSchemaIfDev(fakeDb)
 
@@ -704,8 +704,8 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
   })
 
   test('dropSchema set, IS_DEBUG true: the schema IS dropped', async () => {
-    WIKI.IS_DEBUG = true
-    WIKI.config.dev.dropSchema = true
+    CARDINAL.IS_DEBUG = true
+    CARDINAL.config.dev.dropSchema = true
 
     await dbManager.dropSchemaIfDev(fakeDb)
 
@@ -714,8 +714,8 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
   })
 
   test('dropSchema unset: nothing happens regardless of IS_DEBUG, and nothing is logged', async () => {
-    WIKI.IS_DEBUG = true
-    WIKI.config.dev.dropSchema = false
+    CARDINAL.IS_DEBUG = true
+    CARDINAL.config.dev.dropSchema = false
 
     await dbManager.dropSchemaIfDev(fakeDb)
 
@@ -727,7 +727,7 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
 /**
  * Task 2249: `init()`'s `new Pool({...})` now carries an explicit `max`, `connectionTimeoutMillis`
  * and (via the `options` connection string, alongside `search_path`) `statement_timeout`, all sourced
- * from `WIKI.config.pool` (defaulted in `base.yml`, operator-tunable via `config.yml`). Unset, pg-pool
+ * from `CARDINAL.config.pool` (defaulted in `base.yml`, operator-tunable via `config.yml`). Unset, pg-pool
  * falls back to `max: 10` with no connect or statement bound at all, so a saturated pool or a runaway
  * query blocks its caller forever (`docs/audit-2026-08-24/security/12-infrastructure-ops.md` §2).
  *
@@ -877,7 +877,7 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
     )
   })
 
-  test('emitting error on the pool logs through WIKI.logger.error rather than throwing', async () => {
+  test('emitting error on the pool logs through CARDINAL.logger.error rather than throwing', async () => {
     await dbManager.init(true)
 
     const err: any = new Error('Connection terminated unexpectedly')
@@ -1000,7 +1000,7 @@ describe('shutdown() — OpenProject #2023', () => {
  *
  * This describe nests its own `beforeEach`/`afterEach` rather than relying on a one-time `before()`:
  * the file-level `beforeEach`/`afterEach` above (for the mock-`Pool` NOTIFY tests) unconditionally
- * reset `dbManager.pool` to `null` and stub `globalThis.WIKI` before/after *every* test in this file,
+ * reset `dbManager.pool` to `null` and stub `globalThis.CARDINAL` before/after *every* test in this file,
  * including these — nested hooks run after the outer `beforeEach` and before the outer `afterEach`,
  * so they are what re-establish real DB state for the duration of each test here.
  */
@@ -1030,12 +1030,12 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
     if (!DATABASE_URL) {
       return
     }
-    outerWiki = (globalThis as any).WIKI
+    outerWiki = (globalThis as any).CARDINAL
     schema = `test_syncschemas_${randomBytes(6).toString('hex')}`
     // -> `public` stays on the search path behind the fresh schema, matching both production
     //    (`core/db.ts#init`'s own Pool `options`) and `test/db.ts`'s `setupTestDb()`: an unqualified
     //    `CREATE TYPE`/`CREATE TABLE` inside a migration file targets whichever schema is first on
-    //    the connection's search_path, not `WIKI.config.db.schema` by name — without this, this
+    //    the connection's search_path, not `CARDINAL.config.db.schema` by name — without this, this
     //    suite's own migration lands in `public` instead of the fresh schema it thinks it owns, and
     //    can collide with a same-named type/table another suite (or a leftover prior run) already
     //    left there.
@@ -1054,7 +1054,7 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
     await pool.end()
     dbManager.pool = null
-    ;(globalThis as any).WIKI = outerWiki
+    ;(globalThis as any).CARDINAL = outerWiki
   })
 
   test(

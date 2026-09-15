@@ -250,4 +250,4 @@ function revoke(key) {
 onMounted(load)
 </script>
 
-<style lang="scss"></style>
+<style></style>

@@ -32,7 +32,7 @@ export interface PdfExportRequest {
    * connects to.
    */
   hostname: string
-  /** This instance's own port, i.e. `WIKI.config.port` — puppeteer always connects over loopback. */
+  /** This instance's own port, i.e. `CARDINAL.config.port` — puppeteer always connects over loopback. */
   port: number
   /** The page's own path, e.g. `getting-started`. Empty string for the home page. */
   path: string
@@ -178,7 +178,7 @@ class PdfExport {
    * HOSTNAME: puppeteer always connects to `127.0.0.1:${port}` — never to `hostname` itself, which may
    * not even resolve from this process (a custom domain pointed at a load balancer in front of it, for
    * instance). What actually decides which site answers is this instance's own hostname→site mapping
-   * (`WIKI.sitesMappings`, read off `req.hostname` on every request — see `index.ts`), so the caller's
+   * (`CARDINAL.sitesMappings`, read off `req.hostname` on every request — see `index.ts`), so the caller's
    * own hostname is sent as a spoofed `Host` header via `page.setExtraHTTPHeaders` instead: reachable
    * over loopback like `models/renderQueue.ts`'s `/_render` shell, but resolving to the same site the
    * export was asked against.

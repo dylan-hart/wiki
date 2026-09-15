@@ -9,7 +9,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * OpenProject #788: the self-service `/users/profile/api-keys*` routes — list/create/revoke a
  * personal access token, scoped to the session's own user id. Mirrors the harness
  * `api/users.test.ts` already uses for `/whoami` (a minimal fastify app, `req.session` simulated via
- * an `onRequest` hook reading a test-only header), with `WIKI.models.apiKeys` mocked rather than
+ * an `onRequest` hook reading a test-only header), with `CARDINAL.models.apiKeys` mocked rather than
  * hitting a real database — the DB-backed live-resolution behavior itself is covered in
  * `models/apiKeys.test.ts`; what belongs here is the routing: who may call these, and that ownership
  * is enforced rather than trusted from the URL alone.

@@ -5,8 +5,8 @@
  * Same approach as `storage.test.ts`/`content.test.ts`: real `git` binaries via `simple-git` against
  * throwaway temp directories — a bare repo standing in for "origin", and two working copies of it (one
  * playing this target's own local repo, one playing an outside collaborator pushing directly to
- * origin) — plus a minimal `WIKI` stub. Nothing here needs Postgres: what's under test is which
- * `WIKI.models.pages`/`WIKI.models.assets` call `sync()` decides to make for a given remote change,
+ * origin) — plus a minimal `CARDINAL` stub. Nothing here needs Postgres: what's under test is which
+ * `CARDINAL.models.pages`/`CARDINAL.models.assets` call `sync()` decides to make for a given remote change,
  * which a stub records precisely and a real DB would only obscure behind more setup.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
@@ -30,7 +30,7 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
 }
 
-/** Installs a `WIKI` stub. Model calls are recorded on the returned `calls` object. */
+/** Installs a `CARDINAL` stub. Model calls are recorded on the returned `calls` object. */
 function installWiki(
   rootPath: string,
   {

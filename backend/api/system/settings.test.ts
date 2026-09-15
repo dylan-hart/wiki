@@ -15,7 +15,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * an auditor actually sees, which is exactly what a "these three are the same route" refactor is
  * able to quietly get wrong.
  *
- * `WIKI.configSvc.saveToDb` and `WIKI.models.auditLog.record` are stubs: what belongs to the route
+ * `CARDINAL.configSvc.saveToDb` and `CARDINAL.models.auditLog.record` are stubs: what belongs to the route
  * is that the config object is mutated, that the right key is persisted, that the right audit event
  * is recorded with the new value — and that a failed save rolls the in-memory config back rather
  * than leaving the process disagreeing with the database.
@@ -77,7 +77,7 @@ describe('PUT /api | /metrics | /pageviews — the boolean flag toggles', () => 
     })
     // -> `buildTestApp`'s `wiki` is deep-merged over the stub defaults, so read the object the app
     //    actually installed rather than the literal above: the handlers mutate THAT one.
-    config = (globalThis as any).WIKI.config
+    config = (globalThis as any).CARDINAL.config
   })
 
   after(() => closeTestApp(app))
@@ -171,9 +171,9 @@ describe('PUT /api | /metrics | /pageviews — the boolean flag toggles', () => 
 /**
  * OpenProject #2335: `GET /pageviews` used to answer just `{ isEnabled }`, leaving
  * `AdminPageviews.vue` no way to show an admin real evidence that tracking is actually recording
- * anything. It now also returns `summary`, sourced straight from `WIKI.models.pageviews.summary()`
+ * anything. It now also returns `summary`, sourced straight from `CARDINAL.models.pageviews.summary()`
  * (that method's own DB-backed tests in `models/pageviews.test.ts` cover the aggregation itself --
- * this route-level test stubs it, same as `GET /info`'s stubbed `WIKI.models.jobs` in `api/system/info.test.ts`, so it's
+ * this route-level test stubs it, same as `GET /info`'s stubbed `CARDINAL.models.jobs` in `api/system/info.test.ts`, so it's
  * only verifying the route wires the model's return value through unchanged).
  */
 describe('GET /pageviews', () => {
@@ -201,7 +201,7 @@ describe('GET /pageviews', () => {
 
   after(() => closeTestApp(app))
 
-  test('returns isEnabled from config and summary from WIKI.models.pageviews.summary()', async () => {
+  test('returns isEnabled from config and summary from CARDINAL.models.pageviews.summary()', async () => {
     const res = await app.inject({ method: 'GET', url: '/pageviews' })
     assert.equal(res.statusCode, 200)
     const body = res.json()

@@ -12,7 +12,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * hook lives in `index.ts` and is out of scope here; this covers the route handlers' own logic
  * (site/engine lookup, validation, response shape), the same boundary `api/sites.test.ts` draws.
  *
- * `WIKI.models.search` is stubbed rather than pulling in the real disk-scanning model, keeping this a
+ * `CARDINAL.models.search` is stubbed rather than pulling in the real disk-scanning model, keeping this a
  * self-contained test of the routes' wiring to whatever the model returns/throws.
  */
 
@@ -218,12 +218,12 @@ test('PATCH .../search rejects a dictionary the database does not have with a co
 
 /**
  * `semanticEnabled` (task #3104) — the per-site half of the two-flag availability triangle. Whether
- * `WIKI.capabilities.semanticSearch` (the instance-wide half) is true is controlled per test below by
- * mutating the installed global directly, since `buildTestApp` only installs the `WIKI` stub once for
+ * `CARDINAL.capabilities.semanticSearch` (the instance-wide half) is true is controlled per test below by
+ * mutating the installed global directly, since `buildTestApp` only installs the `CARDINAL` stub once for
  * the whole file.
  */
 test('PATCH .../search rejects semanticEnabled: true when the capability is unavailable', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   const res = await app.inject({
     method: 'PATCH',
     url: `/sites/${SITE_ID}/search`,
@@ -235,7 +235,7 @@ test('PATCH .../search rejects semanticEnabled: true when the capability is unav
 })
 
 test('PATCH .../search accepts semanticEnabled: true when the capability is available', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
   const res = await app.inject({
     method: 'PATCH',
     url: `/sites/${SITE_ID}/search`,
@@ -250,7 +250,7 @@ test('PATCH .../search accepts semanticEnabled: true when the capability is avai
 })
 
 test('PATCH .../search always accepts semanticEnabled: false, capability or no capability', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   const res = await app.inject({
     method: 'PATCH',
     url: `/sites/${SITE_ID}/search`,
@@ -278,7 +278,7 @@ test('GET .../search/semantic 404s for a site that does not exist', async () => 
 
 test('GET .../search/semantic reports the stored setting and the instance capability', async () => {
   semanticEnabled = true
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/search/semantic` })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json(), { enabled: true, available: false })
@@ -286,7 +286,7 @@ test('GET .../search/semantic reports the stored setting and the instance capabi
 })
 
 test('POST .../search/rebuild-embeddings 400s when the capability is unavailable', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_ID}/search/rebuild-embeddings`
@@ -296,7 +296,7 @@ test('POST .../search/rebuild-embeddings 400s when the capability is unavailable
 })
 
 test('POST .../search/rebuild-embeddings 404s for a site that does not exist', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
   const res = await app.inject({
     method: 'POST',
     url: '/sites/22222222-2222-2222-2222-222222222222/search/rebuild-embeddings'
@@ -305,7 +305,7 @@ test('POST .../search/rebuild-embeddings 404s for a site that does not exist', a
 })
 
 test('POST .../search/rebuild-embeddings queues the job and returns its id when the capability is available', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_ID}/search/rebuild-embeddings`

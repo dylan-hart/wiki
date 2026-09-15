@@ -267,14 +267,14 @@ describe('MarkdownRenderer - table grid markup', () => {
       '<div style="caption-side: bottom" class="table-caption">Bottom Caption</div>'
     )
     // -> Emitted after the last row this time -- its own natural authored position, since it was
-    //    authored below the table. `_page-contents.scss`'s `order: 1` rule (keyed off this same
+    //    authored below the table. `_page-contents.css`'s `order: 1` rule (keyed off this same
     //    inline style) is what still puts it at the visual end of the grid regardless.
     expect(html.indexOf('table-caption')).toBeGreaterThan(html.lastIndexOf('role="row"'))
   })
 })
 
 /**
- * OpenProject #2916/#2935/#2958: THREE nested scroll/clip/frame divs `_page-contents.scss` now draws
+ * OpenProject #2916/#2935/#2958: THREE nested scroll/clip/frame divs `_page-contents.css` now draws
  * around every rendered table -- `.table-wrap`, the outer non-scrolling frame
  * (border/radius/shadow/corner-marks); `.table-clip`, a plain `overflow: hidden` + radius box with
  * nothing else on it; and `.table-scroll`, the inner box that actually scrolls -- rather than one or

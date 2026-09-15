@@ -56,7 +56,7 @@ async function fetchPageBatch({
   if (afterId) {
     conditions.push(gt(pagesTable.id, afterId))
   }
-  return WIKI.db
+  return CARDINAL.db
     .select({
       id: pagesTable.id,
       locale: pagesTable.locale,
@@ -95,7 +95,7 @@ export interface PageExportLocaleInfo {
   namespacingEnabled: boolean
 }
 
-/** Derive `PageExportLocaleInfo` from a cached site config (`WIKI.sites[siteId]`). */
+/** Derive `PageExportLocaleInfo` from a cached site config (`CARDINAL.sites[siteId]`). */
 export function resolveLocaleInfo(
   site: { config?: { locales?: { primary?: string; active?: string[] } } } | undefined
 ): PageExportLocaleInfo {
@@ -136,8 +136,8 @@ export function remotePathForPage(
  * @param client A connected SFTP client, e.g. from `connectSftp`.
  * @param target The site's configured target; `target.config.basePath` is where files land, and
  *   `target.siteId` is which site's pages get exported.
- * @param options.localeInfo Defaults to resolving the real site from `WIKI.sites`; override in tests.
- * @param options.fetchBatch Defaults to a real `WIKI.db` query; override in tests.
+ * @param options.localeInfo Defaults to resolving the real site from `CARDINAL.sites`; override in tests.
+ * @param options.fetchBatch Defaults to a real `CARDINAL.db` query; override in tests.
  * @param options.onProgress Called once per batch written (not per page) with the running total, so a
  *   caller can log progress at a granularity useful for a large export. Never called for a no-op run
  *   (content type inactive, or zero eligible pages).
@@ -157,7 +157,7 @@ export async function exportPages(
     return
   }
 
-  const localeInfo = options.localeInfo ?? resolveLocaleInfo(WIKI.sites[target.siteId])
+  const localeInfo = options.localeInfo ?? resolveLocaleInfo(CARDINAL.sites[target.siteId])
   const fetchBatch = options.fetchBatch ?? fetchPageBatch
   const pageSize = options.pageSize ?? PAGE_BATCH_SIZE
   const basePath = String(target.config.basePath ?? '').replace(/\/+$/, '')

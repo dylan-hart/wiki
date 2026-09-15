@@ -18,12 +18,12 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
   /**
    * Regression / verification coverage for `GET /_site/current/<resource>` (task 745, part 2), the
    * asset-serving counterpart of `GET /_api/sites/:siteIdorHostname`'s `strict` fix
-   * (`api/sites.test.ts`). Both routes resolve a site the same way — `WIKI.models.sites
+   * (`api/sites.test.ts`). Both routes resolve a site the same way — `CARDINAL.models.sites
    * .getSiteByHostname({ hostname: req.hostname })` — so this suite proves that mechanism actually
    * picks the right site per-request across multiple hostnames, not just that the model function is
    * correct in isolation.
    *
-   * `WIKI.models.sites.getSiteByHostname`/`getAsset` are stubbed to reproduce the real model's
+   * `CARDINAL.models.sites.getSiteByHostname`/`getAsset` are stubbed to reproduce the real model's
    * exact/wildcard semantics (`models/sites.ts`) rather than pulling in the db/schema/drizzle graph —
    * same approach as `api/sites.test.ts`.
    */
@@ -144,9 +144,9 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
    * independent 304 path, so a redeployed fallback's new bytes are never stuck behind a stale
    * browser cache the way a day-long `max-age` at an unchanging URL used to leave them (#2724).
    *
-   * Runs its own app + `WIKI` stub, saved/restored around the shared `globalThis.WIKI` the suite above
+   * Runs its own app + `CARDINAL` stub, saved/restored around the shared `globalThis.CARDINAL` the suite above
    * uses — same pattern `helpers/images.test.ts`'s Sharp-unavailable describe uses for the same reason:
-   * the route handler reads `WIKI` off `globalThis` at request time, so only one stub can be active at
+   * the route handler reads `CARDINAL` off `globalThis` at request time, so only one stub can be active at
    * once, and this suite's data (a single site, a mutable asset) doesn't fit the multi-site fixture
    * above.
    */
@@ -539,7 +539,7 @@ describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201
  * covered the moment it is added.
  */
 describe('SITE_ASSET_FALLBACKS — the backend owns its branding fallback files', () => {
-  /** The real `backend/`, i.e. what `WIKI.SERVERPATH` resolves to in a running instance. */
+  /** The real `backend/`, i.e. what `CARDINAL.SERVERPATH` resolves to in a running instance. */
   const serverPath = path.join(import.meta.dirname, '..')
 
   for (const [kind, relativePath] of Object.entries(SITE_ASSET_FALLBACKS)) {

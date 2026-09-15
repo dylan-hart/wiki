@@ -190,11 +190,11 @@ class Icons {
   upstreamBudget = { windowStartedAt: 0, used: 0 }
 
   get cachePath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'cache/icons')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'cache/icons')
   }
 
   get apiUrl(): string {
-    return WIKI.config.icons?.apiUrl || 'https://api.iconify.design'
+    return CARDINAL.config.icons?.apiUrl || 'https://api.iconify.design'
   }
 
   /**
@@ -223,8 +223,8 @@ class Icons {
    * Every added icon set, alphabetically, with the number of icons stored for each
    */
   async getSets(): Promise<IconSet[]> {
-    const sets = await WIKI.db.select().from(iconSetsTable).orderBy(iconSetsTable.name)
-    const counts = await WIKI.db
+    const sets = await CARDINAL.db.select().from(iconSetsTable).orderBy(iconSetsTable.name)
+    const counts = await CARDINAL.db
       .select({ prefix: iconsTable.prefix, total: count() })
       .from(iconsTable)
       .groupBy(iconsTable.prefix)
@@ -244,7 +244,7 @@ class Icons {
    * needed by the admin listing, which stays on `getSets()`.
    */
   async getSet(prefix: string): Promise<IconSetRow | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select()
       .from(iconSetsTable)
       .where(eq(iconSetsTable.prefix, prefix))
@@ -257,7 +257,7 @@ class Icons {
    * The prefixes of the sets icons may currently be drawn from
    */
   async getEnabledPrefixes(): Promise<string[]> {
-    const sets = await WIKI.db
+    const sets = await CARDINAL.db
       .select({ prefix: iconSetsTable.prefix })
       .from(iconSetsTable)
       .where(eq(iconSetsTable.isEnabled, true))
@@ -283,7 +283,7 @@ class Icons {
       return Promise.reject(new Error(`There is no "${prefix}" icon set available upstream.`))
     }
 
-    const inserted = await WIKI.db
+    const inserted = await CARDINAL.db
       .insert(iconSetsTable)
       .values({
         prefix,
@@ -293,7 +293,7 @@ class Icons {
         refreshedAt: new Date()
       })
       .returning()
-    WIKI.logger.info('icons', 'added icon set', { prefix })
+    CARDINAL.logger.info('icons', 'added icon set', { prefix })
     const set = inserted[0]!
     // -> A set that was just added has no icons stored for it yet, so there is no need to ask --
     //    `iconCount` is only ever 0 the moment a set is created.
@@ -310,7 +310,7 @@ class Icons {
    * @returns Whether the set was updated
    */
   async setSetState(prefix: string, isEnabled: boolean): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(iconSetsTable)
       .set({ isEnabled })
       .where(eq(iconSetsTable.prefix, prefix))
@@ -325,8 +325,8 @@ class Icons {
    * @returns How many stored icons went with it
    */
   async deleteSet(prefix: string): Promise<number> {
-    const deletedIcons = await WIKI.db.delete(iconsTable).where(eq(iconsTable.prefix, prefix))
-    await WIKI.db.delete(iconSetsTable).where(eq(iconSetsTable.prefix, prefix))
+    const deletedIcons = await CARDINAL.db.delete(iconsTable).where(eq(iconsTable.prefix, prefix))
+    await CARDINAL.db.delete(iconSetsTable).where(eq(iconSetsTable.prefix, prefix))
 
     for (const key of this.memoryCache.keys()) {
       if (key.startsWith(`${prefix}:`)) {
@@ -335,7 +335,7 @@ class Icons {
     }
     await fs.rm(path.join(this.cachePath, prefix), { recursive: true, force: true })
 
-    WIKI.logger.info('icons', 'deleted icon set', { prefix })
+    CARDINAL.logger.info('icons', 'deleted icon set', { prefix })
     return deletedIcons.rowCount ?? 0
   }
 
@@ -348,17 +348,19 @@ class Icons {
    */
   async refreshSets(): Promise<number> {
     const collections = await this.getCollections()
-    const sets = await WIKI.db.select({ prefix: iconSetsTable.prefix }).from(iconSetsTable)
+    const sets = await CARDINAL.db.select({ prefix: iconSetsTable.prefix }).from(iconSetsTable)
     let refreshed = 0
     for (const set of sets) {
       const info = collections[set.prefix]
       if (!info) {
         // -> A set can be renamed or withdrawn upstream. Keeping the row is the right call: its icons
         //    are stored here and content still references them.
-        WIKI.logger.warn('icons', 'icon set is no longer offered upstream', { prefix: set.prefix })
+        CARDINAL.logger.warn('icons', 'icon set is no longer offered upstream', {
+          prefix: set.prefix
+        })
         continue
       }
-      await WIKI.db
+      await CARDINAL.db
         .update(iconSetsTable)
         .set({ name: info.name ?? set.prefix, info, refreshedAt: new Date() })
         .where(eq(iconSetsTable.prefix, set.prefix))
@@ -382,7 +384,7 @@ class Icons {
   async getAvailableSets(): Promise<AvailableIconSet[]> {
     const [collections, added] = await Promise.all([
       this.getCollections(),
-      WIKI.db.select({ prefix: iconSetsTable.prefix }).from(iconSetsTable)
+      CARDINAL.db.select({ prefix: iconSetsTable.prefix }).from(iconSetsTable)
     ])
     const addedPrefixes = added.map((s) => s.prefix)
     return Object.entries(collections)
@@ -452,7 +454,7 @@ class Icons {
     }
     const clampedLimit = Math.min(Math.max(limit, 32), 999)
 
-    if (WIKI.config.offline) {
+    if (CARDINAL.config.offline) {
       return this.searchIconsLocally(query, searchIn, clampedLimit)
     }
 
@@ -465,9 +467,13 @@ class Icons {
       const result = await this.apiFetch(`/search?${params}`)
       return (result.icons ?? []) as string[]
     } catch (err: any) {
-      WIKI.logger.warn('icons', 'could not search the Iconify API, falling back to local icons', {
-        error: err
-      })
+      CARDINAL.logger.warn(
+        'icons',
+        'could not search the Iconify API, falling back to local icons',
+        {
+          error: err
+        }
+      )
       return this.searchIconsLocally(query, searchIn, clampedLimit)
     }
   }
@@ -485,7 +491,7 @@ class Icons {
    */
   async searchIconsLocally(query: string, prefixes: string[], limit: number): Promise<string[]> {
     const pattern = `%${escapeLikePattern(query)}%`
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ prefix: iconsTable.prefix, name: iconsTable.name })
       .from(iconsTable)
       .where(and(inArray(iconsTable.prefix, prefixes), ilike(iconsTable.name, pattern)))
@@ -554,7 +560,7 @@ class Icons {
     }
 
     // -> Then the permanent record, in one query for everything still missing
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select()
       .from(iconsTable)
       .where(and(eq(iconsTable.prefix, prefix), inArray(iconsTable.name, stillMissingAfterDisk)))
@@ -598,7 +604,7 @@ class Icons {
       return { icons: {}, notFound: names }
     }
     if (!this.claimUpstreamBudget()) {
-      WIKI.logger.warn('icons', 'upstream request budget exhausted, not fetching', {
+      CARDINAL.logger.warn('icons', 'upstream request budget exhausted, not fetching', {
         prefix,
         icons: asking.join(',')
       })
@@ -612,12 +618,12 @@ class Icons {
       )) as IconifyJSON
     } catch (err: any) {
       if (err instanceof IconNotFoundUpstreamError) {
-        WIKI.logger.debug('icons', 'upstream has no icons for this request', {
+        CARDINAL.logger.debug('icons', 'upstream has no icons for this request', {
           prefix,
           icons: asking.join(',')
         })
       } else {
-        WIKI.logger.warn('icons', 'fetching icons upstream failed', {
+        CARDINAL.logger.warn('icons', 'fetching icons upstream failed', {
           url: this.apiUrl,
           prefix,
           error: err
@@ -638,7 +644,7 @@ class Icons {
       }
       if (!isSafeIconBody(data.body)) {
         notFound.push(name)
-        WIKI.logger.warn('icons', 'refused an unsafe icon body', { prefix, icon: name })
+        CARDINAL.logger.warn('icons', 'refused an unsafe icon body', { prefix, icon: name })
         continue
       }
       icons[name] = data
@@ -648,7 +654,10 @@ class Icons {
     }
 
     if (Object.keys(icons).length > 0) {
-      WIKI.logger.debug('icons', 'stored new icons', { prefix, icons: Object.keys(icons).length })
+      CARDINAL.logger.debug('icons', 'stored new icons', {
+        prefix,
+        icons: Object.keys(icons).length
+      })
     }
     return { icons, notFound: [...notFound, ...names.filter((n) => !asking.includes(n))] }
   }
@@ -669,7 +678,7 @@ class Icons {
       hFlip: icon.hFlip ?? false,
       vFlip: icon.vFlip ?? false
     }
-    await WIKI.db
+    await CARDINAL.db
       .insert(iconsTable)
       .values(values)
       .onConflictDoUpdate({
@@ -843,7 +852,10 @@ class Icons {
       await fs.writeFile(tempPath, JSON.stringify(icon), 'utf8')
       await fs.rename(tempPath, filePath)
     } catch (err: any) {
-      WIKI.logger.warn('icons', 'writing to the icon cache failed', { path: filePath, error: err })
+      CARDINAL.logger.warn('icons', 'writing to the icon cache failed', {
+        path: filePath,
+        error: err
+      })
       await fs.rm(tempPath, { force: true }).catch(() => {})
     }
   }
@@ -857,7 +869,7 @@ class Icons {
     this.catalogCache.clear()
     await fs.rm(this.cachePath, { recursive: true, force: true })
     await fs.mkdir(this.cachePath, { recursive: true })
-    WIKI.logger.info('icons', 'purged the icon cache')
+    CARDINAL.logger.info('icons', 'purged the icon cache')
   }
 
   /**
@@ -872,8 +884,8 @@ class Icons {
     diskSize: number
   }> {
     const [sets, iconCount] = await Promise.all([
-      WIKI.db.select({ isEnabled: iconSetsTable.isEnabled }).from(iconSetsTable),
-      WIKI.db.$count(iconsTable)
+      CARDINAL.db.select({ isEnabled: iconSetsTable.isEnabled }).from(iconSetsTable),
+      CARDINAL.db.$count(iconsTable)
     ])
     const disk = await this.measureDiskCache()
     return {
@@ -919,7 +931,7 @@ class Icons {
   sideloadPath(): string {
     // -> Falls back to `base.yml`'s own default rather than requiring every caller to have merged
     //    it in, the same reasoning `Locales.sideloadPath` uses.
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath || './data', 'icons')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath || './data', 'icons')
   }
 
   /**
@@ -930,7 +942,7 @@ class Icons {
    * generates it from the `@iconify-json/tabler` npm package.
    */
   vendoredIconSetsPath(): string {
-    return path.join(WIKI.SERVERPATH, 'assets/icon-sets')
+    return path.join(CARDINAL.SERVERPATH, 'assets/icon-sets')
   }
 
   /**
@@ -1021,7 +1033,7 @@ class Icons {
       }
 
       try {
-        await WIKI.db
+        await CARDINAL.db
           .insert(iconSetsTable)
           .values({
             prefix,
@@ -1040,11 +1052,11 @@ class Icons {
       }
 
       loaded.push({ prefix, iconCount: resolved.length })
-      WIKI.logger.debug('icons', 'sideloaded icon set', { prefix, icons: resolved.length })
+      CARDINAL.logger.debug('icons', 'sideloaded icon set', { prefix, icons: resolved.length })
     }
 
     if (skipped.length > 0) {
-      WIKI.logger.warn('icons', 'skipped icon sideload files', {
+      CARDINAL.logger.warn('icons', 'skipped icon sideload files', {
         skipped: skipped.length,
         files: skipped.map((s) => `${s.prefix} (${s.error})`).join(', ')
       })
@@ -1065,13 +1077,13 @@ class Icons {
    * @throws When offline mode is on, the request fails, or the response is otherwise malformed
    */
   async apiFetch(pathname: string): Promise<any> {
-    if (WIKI.config.offline) {
+    if (CARDINAL.config.offline) {
       return Promise.reject(
         new Error('Cardinal.js is in offline mode and cannot reach the Iconify API.')
       )
     }
     const url = `${this.apiUrl}${pathname}`
-    WIKI.logger.debug('icons', 'fetching upstream', { url })
+    CARDINAL.logger.debug('icons', 'fetching upstream', { url })
     const resp = await fetch(url, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(15_000)
@@ -1117,7 +1129,7 @@ class Icons {
     try {
       await fs.mkdir(this.cachePath, { recursive: true })
     } catch (err: any) {
-      WIKI.logger.warn('icons', 'creating the icon cache directory failed', {
+      CARDINAL.logger.warn('icons', 'creating the icon cache directory failed', {
         path: this.cachePath,
         error: err
       })
@@ -1145,8 +1157,8 @@ class Icons {
    * `ensureSeeded()`'s advisory lock around `initDbValues()`).
    */
   async init(): Promise<void> {
-    WIKI.logger.debug('config', 'seeding the default icon sets')
-    await WIKI.db
+    CARDINAL.logger.debug('config', 'seeding the default icon sets')
+    await CARDINAL.db
       .insert(iconSetsTable)
       .values(DEFAULT_SETS.map((set) => ({ ...set, isEnabled: true })))
       .onConflictDoNothing()

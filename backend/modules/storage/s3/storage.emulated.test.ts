@@ -107,7 +107,7 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
   }
 
   test('ensureBucket creates the bucket on first activation, then assetUploaded round-trips real bytes', async () => {
-    WIKI.models.assets.getContent = async () => ({
+    CARDINAL.models.assets.getContent = async () => ({
       data: Buffer.from('hello from the emulator'),
       mimeType: 'text/plain',
       fileName: 'hello.txt'
@@ -128,7 +128,7 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
   })
 
   test('assetDeleted removes an object that was actually there', async () => {
-    WIKI.models.assets.getContent = async () => ({
+    CARDINAL.models.assets.getContent = async () => ({
       data: Buffer.from('to be deleted'),
       mimeType: 'text/plain',
       fileName: 'gone.txt'
@@ -146,7 +146,7 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
   })
 
   test('assetRenamed moves the real object to its new key and removes the old one', async () => {
-    WIKI.models.assets.getContent = async () => ({
+    CARDINAL.models.assets.getContent = async () => ({
       data: Buffer.from('renamed content'),
       mimeType: 'text/plain',
       fileName: 'old.txt'
@@ -172,7 +172,7 @@ describe('s3 storage / against a real S3-compatible backend (MinIO)', { skip: !s
   test('exportAll writes only the assets the target contentTypes cover, at the real computed keys', async () => {
     const target = makeTarget()
     target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
-    WIKI.models.assets.streamAll = async function* () {
+    CARDINAL.models.assets.streamAll = async function* () {
       yield {
         id: 'a1',
         fileName: 'pic.png',

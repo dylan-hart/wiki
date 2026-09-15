@@ -36,7 +36,7 @@ const FILE_CACHE = 'private, max-age=600, must-revalidate'
  */
 async function routes(app: FastifyInstance) {
   app.get<{ Params: { '*': string } }>('/*', async (req, reply) => {
-    const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
+    const site = await CARDINAL.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site) {
       return reply.notFound('Site not found')
     }
@@ -52,7 +52,10 @@ async function routes(app: FastifyInstance) {
       return reply
     }
 
-    const asset = await WIKI.models.assetServing.resolveAssetPath(site.id, req.params['*'] ?? '')
+    const asset = await CARDINAL.models.assetServing.resolveAssetPath(
+      site.id,
+      req.params['*'] ?? ''
+    )
     // -> Not readable is answered as not there, so the URL cannot be used to probe for files
     //
     // -> Resolved by hostname, not a `:siteId` path param, so `apiKeySitePinHook`
@@ -76,10 +79,10 @@ async function routes(app: FastifyInstance) {
       return reply
     }
 
-    const content = await WIKI.models.assetServing.readContent(asset, site.id)
+    const content = await CARDINAL.models.assetServing.readContent(asset, site.id)
     if (!content) {
       // -> The path resolved to a row that is no longer there, so the resolution was a stale one
-      WIKI.models.assetServing.forgetPath(site.id, asset.folderPath, asset.fileName)
+      CARDINAL.models.assetServing.forgetPath(site.id, asset.folderPath, asset.fileName)
       return reply.notFound('File not found')
     }
     if ('redirectUrl' in content) {

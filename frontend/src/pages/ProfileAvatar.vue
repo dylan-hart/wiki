@@ -37,12 +37,21 @@
               <w-avatar
                 class="profile-avatar-circ"
                 size="180px"
-                :color="userStore.hasAvatar ? `dark-1` : `primary`"
+                :color="showsImage ? `dark-1` : `primary`"
                 text-color="white"
-                :class="userStore.hasAvatar ? `is-image` : ``">
+                :class="showsImage ? `is-image` : ``">
                 <img
                   v-if="userStore.hasAvatar"
                   :src="`/_user/current/avatar?` + state.assetTimestamp"
+                  :alt="userStore.name" />
+                <!--
+                  -> A manual upload always wins; the provider-synced picture is only a fallback
+                     (Task #3264) -- there is no "clear" for it here since it isn't stored by this
+                     page's upload/clear routes, only cached at login.
+                -->
+                <img
+                  v-else-if="userStore.avatarProviderUrl"
+                  :src="userStore.avatarProviderUrl"
                   :alt="userStore.name" />
                 <w-icon v-else name="tabler:user" />
               </w-avatar>
@@ -93,6 +102,8 @@ const state = reactive({
 const acceptedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 const canEdit = computed(() => siteStore.features?.profile)
+/** Whichever avatar actually renders -- the manual upload, or its provider-synced fallback. */
+const showsImage = computed(() => userStore.hasAvatar || Boolean(userStore.avatarProviderUrl))
 
 // METHODS
 
@@ -169,7 +180,7 @@ async function clearImage() {
 }
 </script>
 
-<style lang="scss">
+<style>
 .profile-avatar-circ {
   box-shadow:
     2px 2px 15px -5px var(--color-primary),

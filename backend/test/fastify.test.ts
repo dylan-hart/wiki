@@ -132,19 +132,19 @@ describe('buildTestApp / permissions', () => {
     assert.equal((await app.inject({ method: 'GET', url: '/err' })).statusCode, 404)
   })
 
-  test('closeTestApp restores whatever WIKI was in place before', async () => {
+  test('closeTestApp restores whatever CARDINAL was in place before', async () => {
     await closeTestApp(app)
     const sentinel = { marker: 'outer' } as any
-    ;(globalThis as any).WIKI = sentinel
+    ;(globalThis as any).CARDINAL = sentinel
     const scoped = await buildTestApp({
       routes: probeRoutes,
       wiki: { config: { a: 1 } },
       schemas: []
     })
-    assert.equal((globalThis as any).WIKI.config.a, 1)
+    assert.equal((globalThis as any).CARDINAL.config.a, 1)
     await closeTestApp(scoped)
-    assert.equal((globalThis as any).WIKI, sentinel)
-    delete (globalThis as any).WIKI
+    assert.equal((globalThis as any).CARDINAL, sentinel)
+    delete (globalThis as any).CARDINAL
     app = await buildTestApp({ routes: probeRoutes, wiki: {}, schemas: [] })
   })
 })

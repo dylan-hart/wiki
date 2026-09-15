@@ -38,7 +38,7 @@ export interface PhaseResult {
 }
 
 /**
- * Shared state every phase reads and reports through, rather than each phase reaching into `WIKI.*`
+ * Shared state every phase reads and reports through, rather than each phase reaching into `CARDINAL.*`
  * or talking to another phase's output directly — see Feature 421 task 742's description.
  */
 export interface MigrationContext {
@@ -54,7 +54,7 @@ export interface MigrationContext {
   dryRun: boolean
   /** Optional progress sink; defaults to doing nothing so the harness is usable without a logger. */
   log?: (message: string) => void
-  /** This install's real local-auth strategy id (`WIKI.data.systemIds.localAuthId`), resolved once by
+  /** This install's real local-auth strategy id (`CARDINAL.data.systemIds.localAuthId`), resolved once by
    * `bootstrap.ts#resolveUsersImportContext()` — the `users` phase needs it to key every
    * imported account's `auth` jsonb column, the same way `Settings.init()` does for a freshly-seeded
    * install. */
@@ -65,7 +65,7 @@ export interface MigrationContext {
    * actually lives at runtime: a membership pointing at the *source's* system group (skipped, not
    * imported) remaps onto these instead of being dropped. */
   systemGroupIds: SystemGroupIds
-  /** This install's root admin user id (`WIKI.config.auth.rootAdminUserId`), resolved once by
+  /** This install's root admin user id (`CARDINAL.config.auth.rootAdminUserId`), resolved once by
    * `bootstrap.ts#resolveUsersImportContext()`. Not read by the `users` phase itself — carried here so
    * the `content` phase has a real, always-valid fallback author for content whose source
    * author could not be mapped onto an imported user. */
@@ -106,39 +106,39 @@ export interface MigrationPhase {
 }
 
 /**
- * Resolves the destination site's CURRENT primary locale — read fresh off `WIKI.sites`, never
+ * Resolves the destination site's CURRENT primary locale — read fresh off `CARDINAL.sites`, never
  * snapshotted once before any phase runs. `MigrationContext` used to carry a `primaryLocale` field,
  * populated by `bootstrap.ts#resolveUsersImportContext()` before `runMigration()` ever started (whole-
  * branch review Critical #1). That field always read the destination's PRE-migration locale, because
- * the `settings` phase — which runs first (`dependsOn: []`) and can rewrite `WIKI.sites[siteId]
+ * the `settings` phase — which runs first (`dependsOn: []`) and can rewrite `CARDINAL.sites[siteId]
  * .config.locales.primary` via `mapSiteSettings()`'s `siteConfigPatch.locales` (from 2.x's `lang.code`)
- * — updates the destination through `WIKI.models.sites.updateSite()`, which the `content`/`assets`
+ * — updates the destination through `CARDINAL.models.sites.updateSite()`, which the `content`/`assets`
  * phases (both transitively `dependsOn: ['settings']`, via `content`'s `dependsOn: ['users']` and
  * `users`' own `dependsOn: ['settings']`) never re-read: they kept using the stale value captured at
  * the very start of the run. A non-English 2.x source therefore had every imported asset/nav write land
  * under `'en'` — the destination's pre-migration default — instead of the locale `settings` had just
  * set.
  *
- * `WIKI.models.sites.updateSite()` calls `broadcastReload()` -> `reloadCache()` synchronously before it
- * resolves, so `WIKI.sites[siteId]` is already the post-`settings`-phase value by the time any later
+ * `CARDINAL.models.sites.updateSite()` calls `broadcastReload()` -> `reloadCache()` synchronously before it
+ * resolves, so `CARDINAL.sites[siteId]` is already the post-`settings`-phase value by the time any later
  * phase in `MIGRATION_PHASES`' sequential run order (`orchestrator.ts` awaits each phase fully before
  * starting the next) actually calls this. Calling it before `settings` has run (a phase invoked in
  * isolation via `--only`, or a hand-built `MigrationContext` in a unit test) simply reads whatever
- * `WIKI.sites` already holds — the destination's real current config, same as any other live read.
+ * `CARDINAL.sites` already holds — the destination's real current config, same as any other live read.
  *
- * Falls back to `'en'` (never throws) under `ctx.dryRun`, without touching `WIKI` at all — the same
- * "keep a dry run fully WIKI-free" choice `phases/content.ts`'s `existingEntry`/`pagesModel.createPage`
+ * Falls back to `'en'` (never throws) under `ctx.dryRun`, without touching `CARDINAL` at all — the same
+ * "keep a dry run fully CARDINAL-free" choice `phases/content.ts`'s `existingEntry`/`pagesModel.createPage`
  * already make purely for testability (see that file's own "Dry run" doc section): this phase's pure
- * unit tests (`phases/phases.test.ts`) run with `dryRun: true` and no live `WIKI` global at all, so
- * reading `WIKI.sites` unconditionally here would throw `ReferenceError: WIKI is not defined` in every
+ * unit tests (`phases/phases.test.ts`) run with `dryRun: true` and no live `CARDINAL` global at all, so
+ * reading `CARDINAL.sites` unconditionally here would throw `ReferenceError: CARDINAL is not defined` in every
  * one of them. The tradeoff only affects a dry run's own report-only navigation-locale-selection
  * preview, never a real write, which never happens under `dryRun` regardless. A live run (`dryRun:
- * false`) mirrors `models/assets.ts#getAssetByPath()`'s own `WIKI.sites[siteId]?.config?.locales
+ * false`) mirrors `models/assets.ts#getAssetByPath()`'s own `CARDINAL.sites[siteId]?.config?.locales
  * ?.primary ?? 'en'` precedent for the same defensive fallback.
  */
 export function resolvePrimaryLocale(ctx: Pick<MigrationContext, 'siteId' | 'dryRun'>): string {
   if (ctx.dryRun) {
     return 'en'
   }
-  return WIKI.sites[ctx.siteId]?.config?.locales?.primary ?? 'en'
+  return CARDINAL.sites[ctx.siteId]?.config?.locales?.primary ?? 'en'
 }

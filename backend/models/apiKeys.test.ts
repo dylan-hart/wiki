@@ -126,7 +126,7 @@ describe('apiKeys.test.ts withFixedNow', () => {
 /**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
  * permissions away from what the key's groups grant, never hand it one the groups didn't already
- * hold. It touches neither `WIKI` nor the database, so this is a pure unit test — the DB-backed
+ * hold. It touches neither `CARDINAL` nor the database, so this is a pure unit test — the DB-backed
  * wiring in `resolvePermissions()` (which groups' permissions get fetched from Postgres) is
  * unchanged by this feature and already exercised elsewhere; this suite covers only the new
  * narrowing behavior itself.
@@ -160,7 +160,7 @@ describe('apiKeys.narrowToScope', () => {
 /**
  * `siteId` propagation: `createKey()` signs the given site (or `null`, for instance-wide) into the
  * token's `site` claim, and `verify()` reads it back onto `ApiKeyIdentity` so a route handler can read
- * `req.apiKey.siteId`. `WIKI.db` is a minimal in-memory stub (no Postgres) — just enough of
+ * `req.apiKey.siteId`. `CARDINAL.db` is a minimal in-memory stub (no Postgres) — just enough of
  * `insert()`/`select()` for `createKey`'s single insert and `verify`'s `getKeyById` +
  * `resolvePermissions` lookups — and the signing keypair is a real one from
  * `generateSigningCertificates()`, so the JWT is genuinely signed and verified, not faked.
@@ -172,7 +172,7 @@ describe('apiKeys siteId propagation through JWT claims', () => {
 
   before(async () => {
     await ensureTemporal()
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: {
         api: { isEnabled: true },
         auth: { certs: generateSigningCertificates() }
@@ -211,7 +211,7 @@ describe('apiKeys siteId propagation through JWT claims', () => {
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   test('createKey signs the given siteId into the token, and verify() returns it on the identity', async () => {
@@ -255,7 +255,7 @@ describe('apiKeys.createKey expiration lifetimes', () => {
 
   before(async () => {
     await ensureTemporal()
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: {
         api: { isEnabled: true },
         auth: { certs: generateSigningCertificates() }
@@ -288,7 +288,7 @@ describe('apiKeys.createKey expiration lifetimes', () => {
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   beforeEach(() => {
@@ -367,7 +367,7 @@ describe('apiKeys.createKey expiration lifetimes', () => {
  * OpenProject #788: a personal access token's whole point is that its permissions are resolved LIVE
  * from the owning user's CURRENT group membership on every `verify()` call, never a snapshot taken at
  * `createKey()` time — the design decision this module's own doc comment explains at length. That is
- * genuinely a DB-backed question (it is exactly the live join the mock-`WIKI.db` suite above has no
+ * genuinely a DB-backed question (it is exactly the live join the mock-`CARDINAL.db` suite above has no
  * use for), so this runs against a real, migrated database via `test/db.ts`, the same way
  * `models/groups.test.ts#checkAccess` does for the equivalent claim about sessions.
  */
@@ -377,8 +377,8 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
   before(async () => {
     await ensureTemporal()
     fixtures = await setupTestDb()
-    WIKI.config.api = { isEnabled: true }
-    WIKI.config.auth = { certs: generateSigningCertificates() }
+    CARDINAL.config.api = { isEnabled: true }
+    CARDINAL.config.auth = { certs: generateSigningCertificates() }
   })
 
   after(async () => {
@@ -542,13 +542,13 @@ describe(
       fixtures = await setupTestDb()
       ;({ groups: groupsModel } = await import('./groups.ts'))
 
-      WIKI.config.auth = { certs: generateSigningCertificates() }
-      WIKI.config.api = { isEnabled: true }
+      CARDINAL.config.auth = { certs: generateSigningCertificates() }
+      CARDINAL.config.api = { isEnabled: true }
       // -> Deliberately NOT the fixture's own group: a guests id that names nothing, so that if
       //    `groupIdsForRequest()` ever regresses back to hoisting an API key up to the guests group,
       //    the rules cache has nothing for it and `checkAccess` answers false instead of accidentally
       //    passing anyway.
-      WIKI.data = { systemIds: { guestsGroupId: 'nonexistent-guests-group-id' } }
+      CARDINAL.data = { systemIds: { guestsGroupId: 'nonexistent-guests-group-id' } }
     })
 
     after(async () => {

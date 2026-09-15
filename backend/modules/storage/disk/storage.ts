@@ -128,12 +128,12 @@ interface SiteEntry {
  * fails on the same entry (and has written the same entries before it) on every retry, which is what
  * makes rerunning it after a partial failure safe rather than merely likely to converge.
  *
- * Queried straight off the tree rather than through `WIKI.models.tree`'s `getTree()`, which caps
+ * Queried straight off the tree rather than through `CARDINAL.models.tree`'s `getTree()`, which caps
  * recursion at a folder depth meant for a UI listing (see `MAX_DEPTH` there) — a dump must not stop
  * partway down a deep folder tree.
  */
 async function listSiteEntries(siteId: string): Promise<SiteEntry[]> {
-  const rows = await WIKI.db
+  const rows = await CARDINAL.db
     .select({
       id: treeTable.id,
       type: treeTable.type,
@@ -189,7 +189,7 @@ export async function dump(target: StorageTarget): Promise<void> {
   for (const entry of entries) {
     try {
       if (entry.type === 'page') {
-        const page = await WIKI.models.pages.getPage({
+        const page = await CARDINAL.models.pages.getPage({
           siteId: target.siteId,
           id: entry.id,
           withContent: true
@@ -202,7 +202,7 @@ export async function dump(target: StorageTarget): Promise<void> {
         const destPath = path.join(basePath, page.locale, `${page.path}.${ext}`)
         await writeUnderPath(destPath, page.content ?? '')
       } else {
-        const content = await WIKI.models.assets.getContent(entry.id)
+        const content = await CARDINAL.models.assets.getContent(entry.id)
         if (!content) {
           // -> Deleted, or its bytes were purged (e.g. by the db module's `purge` action) between
           //    listing and dumping; nothing left to write for it
@@ -249,7 +249,7 @@ export interface ImportAllResult {
  *  in `models/types.ts`. `manage:system` is what lets it write pages that carry scripts or styles
  *  without a real reviewer in the loop, the same bypass every other `manage:system` check gets. */
 function importActor(): { id: string; groupIds: string[]; permissions: string[] } {
-  return { id: WIKI.data.systemIds.userAdminId, groupIds: [], permissions: ['manage:system'] }
+  return { id: CARDINAL.data.systemIds.userAdminId, groupIds: [], permissions: ['manage:system'] }
 }
 
 /**
@@ -284,7 +284,7 @@ async function importPage(
   const fileName = parts.at(-1)!
   const parentPath = parts.slice(0, -1).join('/')
 
-  const occupant = await WIKI.models.tree.getEntryAt({ siteId, locale, parentPath, fileName })
+  const occupant = await CARDINAL.models.tree.getEntryAt({ siteId, locale, parentPath, fileName })
   if (occupant) {
     result.pagesSkipped++
     return
@@ -292,7 +292,7 @@ async function importPage(
 
   const content = await fs.readFile(filePath, 'utf8')
   const actor = importActor()
-  await WIKI.models.pages.createPage(
+  await CARDINAL.models.pages.createPage(
     siteId,
     {
       path: pagePath,
@@ -310,7 +310,7 @@ async function importPage(
  * Import one non-markdown file as an asset, in the folder its position in the tree implies — the
  * inverse of `dump()`'s `<path>/<locale>/<folderPath>/<fileName>`.
  *
- * Goes straight through `WIKI.models.assets.upload()` — the same extension → mimeType → `AssetKind`
+ * Goes straight through `CARDINAL.models.assets.upload()` — the same extension → mimeType → `AssetKind`
  * detection a real upload gets, and the same collision handling: what happens to a name already taken
  * is the site's own `uploads.conflictBehavior` (`overwrite`, `reject` or `new` — see
  * `Assets.conflictBehaviorFor()`), not a rule this module invents. That does mean a target on a site
@@ -340,7 +340,7 @@ async function importAsset(
     const cacheKey = `${locale}/${folderPath}`
     folderId = folderIds.get(cacheKey)
     if (!folderId) {
-      const folder = await WIKI.models.tree.getFolder({
+      const folder = await CARDINAL.models.tree.getFolder({
         path: folderPath,
         locale,
         siteId,
@@ -354,7 +354,7 @@ async function importAsset(
   const data = await fs.readFile(filePath)
   const actor = importActor()
   try {
-    await WIKI.models.assets.upload({
+    await CARDINAL.models.assets.upload({
       siteId,
       locale,
       folderId,
@@ -436,7 +436,7 @@ async function importLocaleDir(
       }
     } catch (err: any) {
       result.unrecognized.push({ path: relPath, reason: err.message })
-      WIKI.logger.warn('storage', 'importing a file failed', {
+      CARDINAL.logger.warn('storage', 'importing a file failed', {
         module: 'disk',
         path: relPath,
         error: err
@@ -449,7 +449,7 @@ async function importLocaleDir(
  * `importAll` ("Import Everything"): walk `target.config.path` and reconcile it against
  * `target.siteId`'s tree, creating whatever `dump()` would have written but is not there yet — the
  * inverse of `dump()`. A top-level entry is only ever descended into when it is a directory named
- * after one of the site's active locales (`WIKI.sites[siteId].config.locales.active`); anything else
+ * after one of the site's active locales (`CARDINAL.sites[siteId].config.locales.active`); anything else
  * — a stray file, a directory for a locale the site does not have configured — is reported in
  * `unrecognized` rather than guessed at, since there is no locale to file it under. The module's own
  * `_manual` and `_daily` backup folders are recognized and skipped without being reported: they are
@@ -484,7 +484,9 @@ export async function importAll(target: StorageTarget): Promise<ImportAllResult>
     throw new Error(`Failed to read "${basePath}" to import: ${err.message}`)
   }
 
-  const activeLocales = new Set<string>(WIKI.sites[target.siteId]?.config?.locales?.active ?? [])
+  const activeLocales = new Set<string>(
+    CARDINAL.sites[target.siteId]?.config?.locales?.active ?? []
+  )
   const folderIds = new Map<string, string>()
 
   for (const entry of topEntries) {
@@ -509,7 +511,7 @@ export async function importAll(target: StorageTarget): Promise<ImportAllResult>
     )
   }
 
-  WIKI.logger.info('storage', 'import completed', {
+  CARDINAL.logger.info('storage', 'import completed', {
     module: 'disk',
     target: target.id,
     pagesCreated: result.pagesCreated,

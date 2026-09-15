@@ -12,23 +12,22 @@
   async chunk -- a fresh/direct load of an admin route never imported `MainLayout.vue`'s chunk, so
   `.main-overlay`'s entire styling (background AND Cobalt treatment, both light and dark) never
   loaded there, even though `AdminLayout.vue` mounts the very same `MainOverlayDialog.vue`. Living
-  here instead -- pulled into `app.scss`, which `main.js` imports unconditionally at boot rather than
+  here instead -- pulled into `app.css`, which `main.js` imports unconditionally at boot rather than
   per route -- makes the styling available regardless of which layout's chunk happens to be loaded,
   for any current or future layout that mounts `MainOverlayDialog.vue`.
 
   `AdminLayout.vue` also declares its OWN separate `.admin-overlay` class and styling, for its own
   distinct route-based admin overlays -- that is not `.main-overlay` and is untouched by this file.
 
-  The Sass breakpoint variables, loaded explicitly. `vite.config.js` injects this module into every
-  SFC through `additionalData`, but that reaches only the files Vite itself hands to Sass -- a
-  partial pulled in by `@use` from `app.scss` is resolved by Sass, and arrives without it (see
-  `_page-contents.scss`, which follows the same pattern for the same reason).
+  OpenProject #3249 (Sass removal 4/9): converted to native CSS nesting + custom properties. The one
+  `$breakpoint-sm-max` reference below is now the literal `1023.98px` it always resolved to (the
+  since-deleted `_palette.scss:78`) rather than a Sass module import -- a media query can't read a
+  custom property.
 */
-@use 'palette' as *;
 
-// -> Ported from the Quasar dialog internals onto WDialog's own structure: the old
-//    "q-dialog__backdrop" class became `.w-dialog-backdrop`, "q-dialog__inner" became
-//    `.w-dialog-viewport`, and "q-layout-container" became `.w-dialog-panel`
+/* -> Ported from the Quasar dialog internals onto WDialog's own structure: the old */
+/*    "q-dialog__backdrop" class became `.w-dialog-backdrop`, "q-dialog__inner" became */
+/*    `.w-dialog-viewport`, and "q-layout-container" became `.w-dialog-panel` */
 .main-overlay {
   > .w-dialog-backdrop {
     background-color: rgba(0, 0, 0, 0.6);
@@ -52,8 +51,8 @@
       padding: 24px 64px;
     }
 
-    // -> Last of the three, so it still wins on a phone: all three have the same specificity
-    @media (max-width: $breakpoint-sm-max) {
+    /* -> Last of the three, so it still wins on a phone: all three have the same specificity */
+    @media (max-width: 1023.98px) {
       padding: 0;
     }
 
@@ -69,10 +68,10 @@
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
       border-top: 10px solid var(--color-dark-5);
 
-      @at-root .body--light & {
+      .body--light & {
         background-color: var(--color-surface);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-5);
         border-top-color: var(--color-dark-6);
       }
@@ -96,7 +95,7 @@
         header and body below round and fill THEMSELVES instead, so there is no shared clip
         boundary between two differently-coloured boxes for a browser to antialias.
       */
-      @at-root .body--cobalt & {
+      .body--cobalt & {
         border-top: 0;
         border-radius: var(--radius-dialog);
         background: transparent;
@@ -104,7 +103,7 @@
       }
 
       /*
-        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.scss`), not
+        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.css`), not
         something owned by any one overlay -- every entry `MainOverlayDialog.vue` mounts (Inbox,
         Profile, File Manager, History, Table Editor, Edit Menu Items, Block Picker, ...) renders
         one as its own first element, so rounding it here (scoped under `.main-overlay`) reaches
@@ -122,15 +121,15 @@
         the dark ramp's own "card, dialog body" rung in Cobalt dark) -- reused rather than a new
         custom property, since it already resolves correctly for both.
       */
-      @at-root .body--cobalt & .card-header {
+      .body--cobalt & .card-header {
         border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
       }
-      @at-root .body--cobalt & .card-header + * {
+      .body--cobalt & .card-header + * {
         background: var(--float-bg);
         overflow: auto;
         border-bottom-left-radius: var(--radius-dialog);
       }
-      @at-root .body--cobalt & .card-header ~ *:last-child {
+      .body--cobalt & .card-header ~ *:last-child {
         background: var(--float-bg);
         overflow: auto;
         border-bottom-right-radius: var(--radius-dialog);

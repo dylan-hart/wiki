@@ -34,25 +34,25 @@ import { readyFields } from './helpers/bootSummary.ts'
 import { randomHexToken } from './helpers/randomToken.ts'
 
 if (!semver.satisfies(process.version, '>=26')) {
-  // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
+  // eslint-disable-next-line no-console -- refused before config, and therefore before `CARDINAL.logger`, exists
   console.error('ERROR: Node.js 26.x or later required!')
   process.exit(1)
 }
 
 if (existsSync('./package.json')) {
-  // eslint-disable-next-line no-console -- refused before config, and therefore before `WIKI.logger`, exists
+  // eslint-disable-next-line no-console -- refused before config, and therefore before `CARDINAL.logger`, exists
   console.error('ERROR: Must run server from the parent directory!')
   process.exit(1)
 }
 
 // Contrary to this repo's prior assumption, Node does not ship `Temporal` as an unflagged native
-// global even on Node 26 -- see `core/temporal.ts`'s doc comment. Must resolve before the `WIKI`
+// global even on Node 26 -- see `core/temporal.ts`'s doc comment. Must resolve before the `CARDINAL`
 // literal below, which calls `Temporal.Now.instant()` synchronously.
 await ensureTemporal()
 
 // The global is assembled progressively: the literal below holds what is known at startup, and
 // preBoot()/initHTTPServer() fill in db, models, cache, scheduler, events, app and server.
-const WIKI = {
+const CARDINAL = {
   IS_DEBUG: process.env.NODE_ENV === 'development',
   ROOTPATH: process.cwd(),
   INSTANCE_ID: randomHexToken(),
@@ -66,20 +66,20 @@ const WIKI = {
   sites: {},
   sitesMappings: {},
   startedAt: Temporal.Now.instant()
-} as unknown as WikiGlobal
-global.WIKI = WIKI
+} as unknown as CardinalGlobal
+global.CARDINAL = CARDINAL
 
-if (WIKI.IS_DEBUG) {
+if (CARDINAL.IS_DEBUG) {
   process.on('warning', (warning: Error) => {
-    // eslint-disable-next-line no-console -- registered before `WIKI.logger` exists, and a Node process warning can fire before it does
+    // eslint-disable-next-line no-console -- registered before `CARDINAL.logger` exists, and a Node process warning can fire before it does
     console.log(warning.stack)
   })
 }
 
 // -> Returns where the configuration actually came from rather than logging it: this runs before
-//    `WIKI.logger` exists (the logger reads `WIKI.config.logLevel`), so the provenance is carried
+//    `CARDINAL.logger` exists (the logger reads `CARDINAL.config.logLevel`), so the provenance is carried
 //    out to the `boot starting` line below instead of being announced from inside `init()`.
-const configProvenance = await WIKI.configSvc.init()
+const configProvenance = await CARDINAL.configSvc.init()
 
 // ----------------------------------------
 // Init Logger
@@ -87,16 +87,16 @@ const configProvenance = await WIKI.configSvc.init()
 
 // -> The thunk is the LIVE half of the per-scope thresholds (OpenProject #2663): re-read on every
 //    line, so flipping `sqlLog` or `authDebug` in the admin area raises that scope from the next
-//    line onwards with no restart. `WIKI.models` does not exist yet — `preBoot()` below builds it —
+//    line onwards with no restart. `CARDINAL.models` does not exist yet — `preBoot()` below builds it —
 //    which is exactly why this is a thunk and not a value.
-WIKI.logger = logger.init({
-  scopeOverrides: () => WIKI.models?.flags?.logScopeOverrides() ?? {}
+CARDINAL.logger = logger.init({
+  scopeOverrides: () => CARDINAL.models?.flags?.logScopeOverrides() ?? {}
 })
 
-// -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
+// -> Registered as early as `CARDINAL.logger` exists, so nothing between here and the end of boot can
 //    crash the process unlogged via a rejection nobody's `.catch` caught. Exits deliberately rather
 //    than carrying on in a state some in-flight operation already gave up on.
-registerUnhandledRejectionHandler(WIKI.logger, {
+registerUnhandledRejectionHandler(CARDINAL.logger, {
   exit: (code) => process.exit(code)
 })
 
@@ -113,10 +113,10 @@ registerUnhandledRejectionHandler(WIKI.logger, {
 //    reads them, so `PORT` present but inert does not appear. `none` rather than an omitted field,
 //    so "this build reports overrides and there were none" is distinguishable from "this build does
 //    not report them".
-WIKI.logger.info('boot', 'starting', {
-  version: WIKI.version,
+CARDINAL.logger.info('boot', 'starting', {
+  version: CARDINAL.version,
   node: process.version,
-  instance: WIKI.INSTANCE_ID,
+  instance: CARDINAL.INSTANCE_ID,
   config: configProvenance.configPath,
   overrides: configProvenance.overrides.join(',') || 'none'
 })
@@ -127,23 +127,23 @@ WIKI.logger.info('boot', 'starting', {
 
 async function preBoot() {
   try {
-    WIKI.dbManager = (await import('./core/db.ts')).default
-    WIKI.db = await dbManager.init()
-    WIKI.models = (await import('./models/index.ts')).default
+    CARDINAL.dbManager = (await import('./core/db.ts')).default
+    CARDINAL.db = await dbManager.init()
+    CARDINAL.models = (await import('./models/index.ts')).default
 
     // -> The is-empty check and the seed itself are held under one advisory lock so a concurrently
     //    booting instance can never observe a half-seeded database — see `configSvc.ensureSeeded()`.
-    await WIKI.configSvc.ensureSeeded()
+    await CARDINAL.configSvc.ensureSeeded()
   } catch (err: any) {
     // -> One record: the message inline and the stack below it, rather than a second `error(err)`
     //    the operator only saw with debug already on.
-    WIKI.logger.error('db', 'database initialization failed', { error: err })
+    CARDINAL.logger.error('db', 'database initialization failed', { error: err })
     process.exit(1)
   }
 
-  WIKI.cache = new LRUCache({ max: 5000 })
-  WIKI.scheduler = await scheduler.init()
-  WIKI.events = {
+  CARDINAL.cache = new LRUCache({ max: 5000 })
+  CARDINAL.scheduler = await scheduler.init()
+  CARDINAL.events = {
     inbound: new Emittery(),
     outbound: new Emittery()
   }
@@ -154,67 +154,67 @@ async function preBoot() {
 // ----------------------------------------
 
 async function postBoot() {
-  await WIKI.models.locales.refreshFromDisk()
+  await CARDINAL.models.locales.refreshFromDisk()
 
-  await WIKI.models.authentication.refreshStrategiesFromDisk()
+  await CARDINAL.models.authentication.refreshStrategiesFromDisk()
 
   // -> Analytics providers have no db table of their own (see `models/analytics.ts`), so this is
   //    the only refresh they need — no per-site sync follows, unlike auth strategies and storage
-  await WIKI.models.analytics.refreshFromDisk()
+  await CARDINAL.models.analytics.refreshFromDisk()
 
-  await WIKI.models.authentication.activateStrategies()
-  await WIKI.models.locales.reloadCache()
-  await WIKI.models.sites.reloadCache()
+  await CARDINAL.models.authentication.activateStrategies()
+  await CARDINAL.models.locales.reloadCache()
+  await CARDINAL.models.sites.reloadCache()
   // -> Page access is decided from these on every request, so they are in memory from the start
-  await WIKI.models.groups.reloadCache()
+  await CARDINAL.models.groups.reloadCache()
   // -> Likewise: every page view asks whether the page takes suggestions and who reviews it
-  await WIKI.models.approvalRules.reloadCache()
+  await CARDINAL.models.approvalRules.reloadCache()
   // -> The floor invariant (#1080) is checked on every page create/move, so this is in memory too
-  await WIKI.models.classificationLevels.reloadCache()
+  await CARDINAL.models.classificationLevels.reloadCache()
 
   // -> Must follow the sites cache: every site gets a row per installed block
-  await WIKI.models.blocks.refreshFromDisk()
-  await WIKI.models.blocks.syncAllSites()
+  await CARDINAL.models.blocks.refreshFromDisk()
+  await CARDINAL.models.blocks.syncAllSites()
 
   // -> Same: every site gets a row per installed storage module
-  await WIKI.models.storage.refreshFromDisk()
-  await WIKI.models.storage.syncAllSites()
+  await CARDINAL.models.storage.refreshFromDisk()
+  await CARDINAL.models.storage.syncAllSites()
 
   // -> Same: every site gets a row per installed comment provider module
-  await WIKI.models.commentProviders.refreshFromDisk()
-  await WIKI.models.commentProviders.syncAllSites()
+  await CARDINAL.models.commentProviders.refreshFromDisk()
+  await CARDINAL.models.commentProviders.syncAllSites()
 
   // -> Definitions only: a site names its one active engine directly in config
   //    (`site.config.search.engine`) rather than keeping a row per installed module, so there is no
   //    per-site sync step to run here the way there is for storage/blocks
-  await WIKI.models.search.refreshFromDisk()
+  await CARDINAL.models.search.refreshFromDisk()
   // -> Provisions whatever engine each site currently has active (OpenProject #920) -- covers a site
   //    that selected a non-`db` engine before this existed, and every normal restart after, which each
   //    module's idempotent `init()` is safe to run again for
-  await WIKI.models.search.initActiveEngines()
+  await CARDINAL.models.search.initActiveEngines()
 
   // -> Optional third-party tooling: report what is available, since features silently degrade
   //    without it
-  await WIKI.models.extensions.refreshFromDisk()
-  await WIKI.models.extensions.logState()
+  await CARDINAL.models.extensions.refreshFromDisk()
+  await CARDINAL.models.extensions.logState()
 
   // -> The icon cache is derived from the db and starts empty on a fresh instance
-  await WIKI.models.icons.ensureCacheDir()
+  await CARDINAL.models.icons.ensureCacheDir()
   // -> Sideloaded icon collections under <dataPath>/icons/ are the offline-vendored equivalent of
   //    the upstream Iconify API fetch; unconditional every boot, mirroring locales' own
   //    refreshFromDisk (OpenProject #2945)
-  await WIKI.models.icons.sideloadFromDataPath()
+  await CARDINAL.models.icons.sideloadFromDataPath()
 
-  await WIKI.dbManager.subscribeToNotifications()
+  await CARDINAL.dbManager.subscribeToNotifications()
   // -> Its own postgres listener, on its own channel: collaboration traffic is far heavier than the
   //    event bus's and has nothing to do with it. Must follow the sites cache, which the websocket
   //    handshake reads the per-site feature toggle from.
-  await WIKI.collab.init()
-  await WIKI.scheduler.start()
+  await CARDINAL.collab.init()
+  await CARDINAL.scheduler.start()
 
   // -> A page queued for rendering when this instance went down is still queued, and nothing looks at
   //    that table until somebody asks for another render. Costs one query when there is nothing to do.
-  await WIKI.scheduler.addJob({ task: 'renderPages', maxRetries: 0 })
+  await CARDINAL.scheduler.addJob({ task: 'renderPages', maxRetries: 0 })
 }
 
 // ----------------------------------------
@@ -302,11 +302,14 @@ async function initHTTPServer() {
   // ----------------------------------------
 
   try {
-    await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
-    WIKI.logger.info('http', 'listening', { host: WIKI.config.bindIP, port: WIKI.config.port })
+    await app.listen({ port: CARDINAL.config.port, host: CARDINAL.config.bindIP })
+    CARDINAL.logger.info('http', 'listening', {
+      host: CARDINAL.config.bindIP,
+      port: CARDINAL.config.port
+    })
     // -> `/_ready` is deliberately NOT flipped ready here: `app.listen()` only means the socket
-    //    accepts connections, not that a request can be served correctly. `WIKI.sites`/
-    //    `WIKI.sitesMappings` are still `{}` at this point (see the WIKI literal above), no auth
+    //    accepts connections, not that a request can be served correctly. `CARDINAL.sites`/
+    //    `CARDINAL.sitesMappings` are still `{}` at this point (see the CARDINAL literal above), no auth
     //    strategy is active yet, and the groups/locales/approvals/classification caches every
     //    request path reads from are still empty -- all of that is filled in by `postBoot()`, which
     //    runs after this function returns. Reporting ready here would let a rolling update or load
@@ -317,9 +320,9 @@ async function initHTTPServer() {
     //    answers from here onward regardless, so liveness probes still see the process as up
     //    throughout.
   } catch (err: any) {
-    WIKI.logger.error('boot', 'http server failed to bind', {
-      host: WIKI.config.bindIP,
-      port: WIKI.config.port,
+    CARDINAL.logger.error('boot', 'http server failed to bind', {
+      host: CARDINAL.config.bindIP,
+      port: CARDINAL.config.port,
       error: err
     })
     process.exit(1)
@@ -333,22 +336,22 @@ async function initHTTPServer() {
 await preBoot()
 await initHTTPServer()
 
-await runBootPhaseOrExit(postBoot, 'post-boot initialization', WIKI.logger)
+await runBootPhaseOrExit(postBoot, 'post-boot initialization', CARDINAL.logger)
 
 // -> The last line of the boot narrative, and the one an operator actually waits for: everything
 //    `postBoot()` did has already reported itself above it. Emitted one statement BEFORE
 //    `setReady()` rather than after, so `setReady()` stays the final statement of the file (see
 //    `index.test.ts` / OpenProject #2062) while this is still the last thing written — `setReady()`
-//    itself logs nothing. `ms` is wall time since the `WIKI` literal at the top of this file, which
+//    itself logs nothing. `ms` is wall time since the `CARDINAL` literal at the top of this file, which
 //    is as close to process start as anything in userland gets.
-WIKI.logger.info(
+CARDINAL.logger.info(
   'boot',
   'ready',
   readyFields({
-    sites: WIKI.sites,
-    bindIP: WIKI.config.bindIP,
-    port: WIKI.config.port,
-    ms: Temporal.Now.instant().epochMilliseconds - WIKI.startedAt.epochMilliseconds
+    sites: CARDINAL.sites,
+    bindIP: CARDINAL.config.bindIP,
+    port: CARDINAL.config.port,
+    ms: Temporal.Now.instant().epochMilliseconds - CARDINAL.startedAt.epochMilliseconds
   })
 )
 
@@ -357,4 +360,4 @@ WIKI.logger.info(
 //    the scheduler, ...) happens there. Signalling ready any earlier — e.g. as the last statement of
 //    initHTTPServer(), right after the listener binds — means /_ready reports 200 while every page
 //    request would still resolve to not-found (OpenProject #2062).
-WIKI.server.setReady()
+CARDINAL.server.setReady()

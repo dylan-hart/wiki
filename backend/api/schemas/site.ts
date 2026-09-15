@@ -23,17 +23,17 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       pdfExportAvailable: {
         type: 'boolean',
         description:
-          'Whether this instance can render a page to PDF — i.e. whether the Puppeteer extension is installed (`WIKI.models.renderQueue.isAvailable()`). Instance-wide, not a per-site setting: lets the PDF export control hide or disable itself with an explanatory tooltip instead of offering a button that always fails.'
+          'Whether this instance can render a page to PDF — i.e. whether the Puppeteer extension is installed (`CARDINAL.models.renderQueue.isAvailable()`). Instance-wide, not a per-site setting: lets the PDF export control hide or disable itself with an explanatory tooltip instead of offering a button that always fails.'
       },
       docsBase: {
         type: 'string',
         description:
-          "Base URL this instance's in-app \"view docs\" / help links are built from (`WIKI.config.docsBase`, from `base.yml`). Instance-wide, not a per-site setting: `siteStore.docsBase` on the frontend appends a path to it, e.g. `docsBase + '/admin/general'`."
+          "Base URL this instance's in-app \"view docs\" / help links are built from (`CARDINAL.config.docsBase`, from `base.yml`). Instance-wide, not a per-site setting: `siteStore.docsBase` on the frontend appends a path to it, e.g. `docsBase + '/admin/general'`."
       },
       isReplicationEnabled: {
         type: 'boolean',
         description:
-          'Whether this instance is configured as a scheduled-replication TARGET (`WIKI.config.replication.isEnabled`, from `base.yml`/`config.yml` — see Epic #2437). Instance-wide, not a per-site setting: a replication target periodically wipes and replaces its own data from a source instance, which is what this flag lets the frontend warn an admin about (header banner, Feature #2833).'
+          'Whether this instance is configured as a scheduled-replication TARGET (`CARDINAL.config.replication.isEnabled`, from `base.yml`/`config.yml` — see Epic #2437). Instance-wide, not a per-site setting: a replication target periodically wipes and replaces its own data from a source instance, which is what this flag lets the frontend warn an admin about (header banner, Feature #2833).'
       },
       navigationId: {
         type: 'string',
@@ -140,7 +140,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           semanticSearch: {
             type: 'boolean',
             description:
-              "Whether semantic (vector) search is available on this site right now -- the AND of the instance-wide boot-time capability (`WIKI.capabilities.semanticSearch`, Task #3095: whether pgvector was successfully provisioned) and this site's own `search.config.semanticEnabled` admin setting (Task #3104). Computed at request time in `buildSitePayload` (api/sites.ts); this is the single source of truth the semantic-search route (Task #3102) and the frontend mode toggle/admin setting visibility both read, rather than re-deriving it from the two inputs themselves."
+              "Whether semantic (vector) search is available on this site right now -- the AND of the instance-wide boot-time capability (`CARDINAL.capabilities.semanticSearch`, Task #3095: whether pgvector was successfully provisioned) and this site's own `search.config.semanticEnabled` admin setting (Task #3104). Computed at request time in `buildSitePayload` (api/sites.ts); this is the single source of truth the semantic-search route (Task #3102) and the frontend mode toggle/admin setting visibility both read, rather than re-deriving it from the two inputs themselves."
           },
           showOtherGroups: {
             type: 'boolean',
@@ -180,6 +180,24 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           },
           follow: {
             type: 'boolean'
+          }
+        }
+      },
+      security: {
+        type: 'object',
+        description:
+          'Per-site security settings stored on the general surface (Feature #3267). Distinct from the instance-wide `security.disallowIframe`/`xFrameOptions` config, which this does not touch.',
+        properties: {
+          embedAllowedOrigins: {
+            type: 'array',
+            description:
+              "Origins (`scheme://host[:port]`, lowercase, no path/query/fragment) permitted to embed this site's pages via iframe -- relaxes `frame-ancestors` CSP for exactly these origins (Task #3275 reads this array; enforcement lives there, not here). Empty (the default) means no embedding is allowed, i.e. today's unchanged behavior.",
+            items: {
+              type: 'string',
+              maxLength: 255,
+              pattern:
+                '^https?:\\/\\/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?$'
+            }
           }
         }
       },

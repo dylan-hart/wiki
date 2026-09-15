@@ -100,7 +100,7 @@ function codeOf(pre) {
  * The renderer already names it, but only as a `language-*` class on the `<code>` INSIDE the block
  * (`renderers/markdown.js`), and CSS cannot read a class's suffix into a `content` string. Cobalt's
  * code block carries the language as a mono label in its top-right corner
- * (`ui-redesign-cobalt/HANDOFF.md`, "Code blocks"), which `_page-contents.scss` draws off this
+ * (`ui-redesign-cobalt/HANDOFF.md`, "Code blocks"), which `_page-contents.css` draws off this
  * attribute; Ledger's block has no label and simply never selects on it.
  *
  * Done here rather than in `renderers/markdown.js` because the render is STORED: a page saved
@@ -390,7 +390,7 @@ function addCodeCopyButtons(root, t) {
 /**
  * The per-table copy-to-CSV button, following `addCodeCopyButtons` exactly: marks the wrapper as
  * done, builds a button reusing the same `copyWithFeedback` icon-swap/timeout pattern, and appends
- * it to `.table-wrap` -- the outer frame (see `_page-contents.scss`'s `// TABLES` section), not
+ * it to `.table-wrap` -- the outer frame (see `_page-contents.css`'s `// TABLES` section), not
  * `.table-scroll`, so the control never travels with the table's own horizontal scroll and is never
  * clipped by the scroller's `overflow-x`.
  */
@@ -577,7 +577,7 @@ function focusTableSelectCell(cell) {
 
 /**
  * Stamps `data-table-selected` on exactly the cells inside the active anchor<->focus rectangle, and
- * clears it from every other cell of the same table -- the whole of what `_page-contents.scss` needs
+ * clears it from every other cell of the same table -- the whole of what `_page-contents.css` needs
  * to paint the highlight.
  */
 function renderTableSelectHighlight() {
@@ -894,7 +894,7 @@ export function _resetTableSelectMode() {
 */
 
 /** What marks the `<mark>` wrappers this pass creates as its own, distinct from an author's own
- *  `==term==` markdown -- `_page-contents.scss` already styles a bare `mark`, which this reuses
+ *  `==term==` markdown -- `_page-contents.css` already styles a bare `mark`, which this reuses
  *  rather than inventing a second visual language; only the "current match" state adds anything.
  */
 const KEYWORD_HIGHLIGHT_ATTR = 'keywordHighlight'

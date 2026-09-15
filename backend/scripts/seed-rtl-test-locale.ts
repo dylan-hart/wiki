@@ -1,4 +1,4 @@
-/* eslint-disable no-console -- a one-off seeding script: its stdout IS its result, and it runs outside a booted `WIKI`. */
+/* eslint-disable no-console -- a one-off seeding script: its stdout IS its result, and it runs outside a booted `CARDINAL`. */
 /**
  * One-off seed for two synthetic locales, for validating feature 413 ("RTL support end-to-end") and
  * WP #1662 (the content-vs-interface locale split) end to end.
@@ -36,7 +36,7 @@
  *     `'./seed-rtl-test-locale.ts'`, from a script or test that already has a Drizzle `db` handle
  *     (e.g. `test/db.ts`'s `setupTestDb()`).
  *   - `node backend/scripts/seed-rtl-test-locale.ts` (from the repo root, or anywhere -- it builds
- *     its own connections from `DATABASE_URL` and does not depend on `WIKI` or `cwd`), which upserts
+ *     its own connections from `DATABASE_URL` and does not depend on `CARDINAL` or `cwd`), which upserts
  *     both rows into whichever database `DATABASE_URL` names and exits.
  */
 import { drizzle } from 'drizzle-orm/node-postgres'

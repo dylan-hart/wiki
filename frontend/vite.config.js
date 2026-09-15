@@ -213,18 +213,6 @@ export default defineConfig(({ mode }) => {
       temporalPolyfillChunkPlugin(),
       vueDevTools()
     ],
-    css: {
-      preprocessorOptions: {
-        scss: {
-          /*
-            Every SFC style block gets these, which is what Quasar's Vite plugin used to do with its
-            `sassVariables` option. Without it each file would have to import them itself, and the
-            app's stylesheets are written against bare `$primary` / `$dark-3` / `$grey-4`.
-          */
-          additionalData: `@use '@/css/_theme.scss' as *; @use '@/css/_palette.scss' as *;`
-        }
-      }
-    },
     resolve: {
       alias: [
         { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },

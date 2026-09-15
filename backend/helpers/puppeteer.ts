@@ -25,8 +25,8 @@ import { CustomError } from './common.ts'
  */
 export function getPuppeteerLaunchArgs(): string[] {
   const args = ['--disable-dev-shm-usage']
-  if (WIKI.config.security.allowPuppeteerNoSandbox) {
-    WIKI.logger.warn(
+  if (CARDINAL.config.security.allowPuppeteerNoSandbox) {
+    CARDINAL.logger.warn(
       'render',
       "launching Puppeteer with --no-sandbox, which disables Chromium's own process sandbox for " +
         'every page render, PDF export and diagram render this instance performs',
@@ -162,6 +162,16 @@ export async function launchUnderSemaphore(
  * (drawing a Mermaid diagram) — three different reasons to open a browser that should still open the
  * exact same browser, and all three funnel through the one semaphore here.
  *
+ * The `puppeteer` version declared in `package.json` matters for more than its API surface: the
+ * `dev/build/Dockerfile` image points this at Debian bookworm's own `chromium` apt package
+ * (`PUPPETEER_EXECUTABLE_PATH`) rather than the Chrome-for-Testing build `puppeteer` would otherwise
+ * download, so `puppeteer`'s pinned CDP protocol target has to stay reasonably close to whatever
+ * Chromium version that apt package currently resolves to. Too far apart and `page.goto()` can fail
+ * outright with `net::ERR_INVALID_ARGUMENT` even though the browser itself launches fine — see
+ * OpenProject #3256 and `docs/decisions/2026-09-14-puppeteer-chromium-protocol-pin.md`, and don't bump
+ * this dependency without re-checking that pairing (`test/puppeteerChromiumVersionPin.test.ts` guards
+ * against doing so silently).
+ *
  * @param errorName The `CustomError` name to fail with. Each caller has its own, so a client can tell
  *   a render failure from an export failure apart despite both sharing this one cause. Also the name
  *   a caller rejected for being over the concurrency ceiling fails with.
@@ -174,7 +184,7 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
   try {
     ;({ default: puppeteer } = await import(specifier))
   } catch (err: any) {
-    WIKI.models.extensions.noteLoadFailure(specifier)
+    CARDINAL.models.extensions.noteLoadFailure(specifier)
     throw new CustomError(errorName, `Could not load the Puppeteer extension: ${err.message}`, 503)
   }
 
@@ -194,8 +204,8 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
  * rendering each asked with a byte-identical two-liner of their own. One question, one answer.
  */
 export async function isPuppeteerAvailable(): Promise<boolean> {
-  const definition = WIKI.models.extensions.getDefinition('puppeteer')
-  return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+  const definition = CARDINAL.models.extensions.getDefinition('puppeteer')
+  return Boolean(definition) && (await CARDINAL.models.extensions.isInstalled(definition!))
 }
 
 /**
@@ -228,6 +238,6 @@ export async function closeQuietly(
   try {
     await closable?.close()
   } catch (err: any) {
-    WIKI.logger.debug('render', 'could not close cleanly', { subject: label, error: err })
+    CARDINAL.logger.debug('render', 'could not close cleanly', { subject: label, error: err })
   }
 }

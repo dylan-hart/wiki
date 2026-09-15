@@ -390,9 +390,9 @@ export interface LoggerInitOptions {
    * restart.
    *
    * A thunk rather than a value because that is the whole point — `index.ts` hands one reading
-   * `WIKI.models.flags`, whose `sqlLog`/`authDebug` switches an administrator flips in the admin
+   * `CARDINAL.models.flags`, whose `sqlLog`/`authDebug` switches an administrator flips in the admin
    * area mid-run. It is injected rather than imported because `logger.init()` runs long before
-   * `WIKI.models` exists, and the logger has no business importing a model in either case.
+   * `CARDINAL.models` exists, and the logger has no business importing a model in either case.
    *
    * Optional, and empty by default: the other five `init()` callers (`worker.ts`,
    * `tasks/promoteAdminRuntime.ts`, `mcp/bootstrap.ts`, `scripts/audit-site-scoped-rules.ts`,
@@ -412,12 +412,12 @@ export interface LoggerInitOptions {
  * log at `debug`, with nothing said about the config having been ignored. `logFormat` had the same
  * shape of hole: anything but `json` silently took the text branch, so `jsno` looked like it worked.
  *
- * `console.error`, not `WIKI.logger.error`: this decides how `WIKI.logger` is built, so there is no
+ * `console.error`, not `CARDINAL.logger.error`: this decides how `CARDINAL.logger` is built, so there is no
  * logger to report through yet -- the same exception `core/config.ts#warnUnknownConfigKeys`
  * documents for itself. One line per rejected value, naming the value and the valid set, then exit.
  */
 function assertValidLogConfig(exit: (code: number) => void): void {
-  const { logLevel, logFormat, logScopes } = WIKI.config
+  const { logLevel, logFormat, logScopes } = CARDINAL.config
   if (!LEVELS.includes(logLevel)) {
     console.error(
       styleText(
@@ -509,8 +509,8 @@ export default {
     */
     const effectiveLevel = (scope: string): LogLevel =>
       scopeOverrides()[scope as LogScope] ??
-      (WIKI.config.logScopes as ScopeOverrides | null | undefined)?.[scope as LogScope] ??
-      WIKI.config.logLevel
+      (CARDINAL.config.logScopes as ScopeOverrides | null | undefined)?.[scope as LogScope] ??
+      CARDINAL.config.logLevel
 
     primaryLogger.ws = new EventEmitter()
     // -> One listener per connected admin terminal, so the default cap of 10 is a leak warning rather
@@ -539,16 +539,19 @@ export default {
           return
         }
 
-        const frame = buildFrame(record, lvl, new Date().toISOString(), WIKI.INSTANCE_ID)
+        const frame = buildFrame(record, lvl, new Date().toISOString(), CARDINAL.INSTANCE_ID)
         // -> A stack is noise on a warning an operator has already decided to live with, and the
         //    whole point of the record on an error. `warn` gets one only when the operator has
         //    asked for everything. Deliberately the GLOBAL level, not this scope's: "show me
         //    everything" is a property of the run, and reading it per scope would also strip the
         //    stack off a warning in a scope an operator had quietened for unrelated reasons.
-        const withStack = lvl === 'error' || (lvl === 'warn' && WIKI.config.logLevel === 'debug')
+        const withStack =
+          lvl === 'error' || (lvl === 'warn' && CARDINAL.config.logLevel === 'debug')
 
         console.log(
-          WIKI.config.logFormat === 'json' ? renderJson(frame) : renderText(frame, { withStack })
+          CARDINAL.config.logFormat === 'json'
+            ? renderJson(frame)
+            : renderText(frame, { withStack })
         )
 
         /*

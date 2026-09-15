@@ -744,4 +744,4 @@ async function scanPageProblems() {
 }
 </script>
 
-<style lang="scss"></style>
+<style></style>

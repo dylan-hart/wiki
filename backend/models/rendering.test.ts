@@ -13,7 +13,7 @@ import type { BlockDefinition } from './blocks.ts'
  * which is the "block-vs-fence handoff" the diagram blocks depend on (`firstUpdated()` in each of
  * `block-diagram`, `block-kroki`, `block-plantuml` reads its source out of exactly the `<pre>` this
  * locks down). `getEnabledKeys` is the one call in the path that is real SQL orchestration rather
- * than logic worth exercising here, so it is the one thing stubbed -- `WIKI.models.blocks.definitions`
+ * than logic worth exercising here, so it is the one thing stubbed -- `CARDINAL.models.blocks.definitions`
  * itself is a plain in-memory array (read from the compiled manifest at boot, not a query), so it is
  * given real fixtures shaped exactly like the three diagram blocks' own `static definition.props`.
  *
@@ -89,7 +89,7 @@ let enabledBlocks = new Set<string>()
 let customBlocks: { block: string; props: { name: string }[] }[] = []
 
 // -> A `createWikiStub()` global rather than `test/db.ts`'s `setupTestDb()`: nothing under test here
-//    reaches the database, so the only real dependency is `WIKI.models.blocks` itself
+//    reaches the database, so the only real dependency is `CARDINAL.models.blocks` itself
 const wiki = installTestWiki({
   models: {
     blocks: {
@@ -188,7 +188,7 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 })
 
 /*
- * `blockAllowances()` used to read only `WIKI.models.blocks.definitions` -- the compiled manifest,
+ * `blockAllowances()` used to read only `CARDINAL.models.blocks.definitions` -- the compiled manifest,
  * which a custom block (a `blocks` row with `isCustom: true`, uploaded through `api/blocks.ts`) has no
  * entry in at all. That meant `block-<customTag>` never reached the sanitizer's allowlist and was
  * silently stripped from every saved page, however the editor's own preview rendered it. OpenProject
@@ -364,15 +364,15 @@ describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () 
  * values exactly like a browser would. OpenProject #2139 closes the gap with a second sanitize pass
  * after `inlineIcons()`, against the identical options object the first pass used.
  *
- * `WIKI.models.icons` is stubbed only with what `inlineIcons()`/`iconSvg()` actually call --
+ * `CARDINAL.models.icons` is stubbed only with what `inlineIcons()`/`iconSvg()` actually call --
  * `parseRef`, `resolveIcons`, `renderInlineSvg` -- keyed off a `resolvedIcons` map this describe block
  * populates per test, the same "minimal stub of the one real dependency" approach the file's own
- * header comment already uses for `WIKI.models.blocks`.
+ * header comment already uses for `CARDINAL.models.blocks`.
  */
 describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
   const resolvedIcons = new Map<string, { body: string }>()
 
-  ;(WIKI.models as any).icons = {
+  ;(CARDINAL.models as any).icons = {
     parseRef(ref: string) {
       const [prefix, name] = `${ref}`.split(':')
       return prefix && name ? { prefix, name } : null
@@ -483,7 +483,7 @@ describe('rendering.postProcess: visible callout for a permission-gated tag (Ope
 
 /*
  * OpenProject #2459 (Feature #2418's Scope): `postProcess` reads a site's admin-configured
- * `allowedUrlSchemes` off `WIKI.sites[siteId].config` and passes it through to `sanitizeOptions()`.
+ * `allowedUrlSchemes` off `CARDINAL.sites[siteId].config` and passes it through to `sanitizeOptions()`.
  * The scheme-filtering logic itself (dedupe, the categorical javascript:/vbscript:/data: denylist)
  * is `helpers/htmlSanitizePolicy.test.ts`'s to cover -- what belongs here is only that this model
  * actually reaches for the right config key for the right site, and that a site without one behaves
@@ -491,7 +491,7 @@ describe('rendering.postProcess: visible callout for a permission-gated tag (Ope
  */
 describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject #2459)', () => {
   test('a link using a site-configured custom scheme survives sanitization', async () => {
-    WIKI.sites['site-with-schemes'] = makeSite({
+    CARDINAL.sites['site-with-schemes'] = makeSite({
       id: 'site-with-schemes',
       config: { allowedUrlSchemes: ['discord'] }
     })
@@ -506,7 +506,7 @@ describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject 
   })
 
   test('a site with no allowedUrlSchemes config still strips a non-default scheme, unchanged', async () => {
-    WIKI.sites['site-no-config'] = makeSite({ id: 'site-no-config' })
+    CARDINAL.sites['site-no-config'] = makeSite({ id: 'site-no-config' })
 
     const result = await rendering.postProcess(
       'site-no-config',
@@ -517,7 +517,7 @@ describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject 
     assert.doesNotMatch(result.render, /href="discord:/)
   })
 
-  test('a siteId with no WIKI.sites entry at all behaves identically to the hardcoded defaults', async () => {
+  test('a siteId with no CARDINAL.sites entry at all behaves identically to the hardcoded defaults', async () => {
     const result = await rendering.postProcess(
       'site-entirely-unknown-to-wiki-sites',
       '<a href="discord://channel/123">Join</a><a href="https://example.com">x</a>',

@@ -7,7 +7,7 @@
  * payload `Storage.dispatch()` queues per
  * write-path event — an id, a path, a locale, the acting user's id, and for a rename/delete-adjacent
  * event whatever the old name was — never the page's rendered content or the asset's bytes. A handler
- * that needs those fetches them itself via `WIKI.models.pages` / `WIKI.models.assets`, which is why
+ * that needs those fetches them itself via `CARDINAL.models.pages` / `CARDINAL.models.assets`, which is why
  * every one of these opens with a lookup.
  *
  * `ensureRepo()` (task 504, `storage.ts`) is called at the top of every handler rather than once and
@@ -49,7 +49,7 @@ export function covers(target: StorageTarget, bucket: string): boolean {
  * §5.3.
  */
 function localeNamespace(siteId: string, locale: string): string {
-  const primary = WIKI.sites?.[siteId]?.config?.locales?.primary
+  const primary = CARDINAL.sites?.[siteId]?.config?.locales?.primary
   return primary && locale !== primary ? `${locale}/` : ''
 }
 
@@ -121,7 +121,7 @@ export async function resolveAuthor(
   if (!authorId) {
     return fallback
   }
-  const user = await WIKI.models.users.getById(authorId)
+  const user = await CARDINAL.models.users.getById(authorId)
   return user?.email ? { name: user.name || fallback.name, email: user.email } : fallback
 }
 
@@ -158,7 +158,7 @@ async function writeAndCommit(
 export async function created(target: StorageTarget, data: Record<string, any>): Promise<void> {
   if (!covers(target, 'pages')) return
   const { git, repoPath } = await ensureRepo(target)
-  const page = await WIKI.models.pages.getPage({
+  const page = await CARDINAL.models.pages.getPage({
     siteId: data.siteId,
     id: data.id,
     withContent: true
@@ -180,7 +180,7 @@ export async function created(target: StorageTarget, data: Record<string, any>):
 export async function updated(target: StorageTarget, data: Record<string, any>): Promise<void> {
   if (!covers(target, 'pages')) return
   const { git, repoPath } = await ensureRepo(target)
-  const page = await WIKI.models.pages.getPage({
+  const page = await CARDINAL.models.pages.getPage({
     siteId: data.siteId,
     id: data.id,
     withContent: true
@@ -213,7 +213,7 @@ export async function updated(target: StorageTarget, data: Record<string, any>):
 export async function renamed(target: StorageTarget, data: Record<string, any>): Promise<void> {
   if (!covers(target, 'pages')) return
   const { git, repoPath } = await ensureRepo(target)
-  const page = await WIKI.models.pages.getPage({
+  const page = await CARDINAL.models.pages.getPage({
     siteId: data.siteId,
     id: data.id,
     withContent: true
@@ -282,7 +282,7 @@ export async function assetUploaded(
   data: Record<string, any>
 ): Promise<void> {
   const { git, repoPath } = await ensureRepo(target)
-  const content = await WIKI.models.assets.getContent(data.id)
+  const content = await CARDINAL.models.assets.getContent(data.id)
   if (!content) return
   const relPath = assetRelPath(data.folderPath, data.fileName)
   const author = await resolveAuthor(target, data.authorId)
@@ -314,7 +314,7 @@ export async function assetRenamed(
     return
   }
   // -> Nothing tracked at the old name — write fresh at the new one instead of failing the rename.
-  const content = await WIKI.models.assets.getContent(data.id)
+  const content = await CARDINAL.models.assets.getContent(data.id)
   if (!content) return
   await writeAndCommit(
     git,

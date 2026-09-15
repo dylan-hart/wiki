@@ -13,7 +13,7 @@ import { hooks } from '../../models/hooks.ts'
  *
  * A worker task is handed the whole job rather than its payload — see `worker.ts` — and starts with
  * nothing but config and a logger, so the database connection is opened on demand and the one model
- * this needs is imported here rather than taken off `WIKI.models`, which a worker does not carry.
+ * this needs is imported here rather than taken off `CARDINAL.models`, which a worker does not carry.
  */
 export async function task(job: {
   payload: {
@@ -23,6 +23,6 @@ export async function task(job: {
     instance: string
   }
 }): Promise<void> {
-  await WIKI.ensureDb!()
+  await CARDINAL.ensureDb!()
   await hooks.deliver(job.payload)
 }

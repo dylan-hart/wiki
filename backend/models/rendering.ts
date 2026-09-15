@@ -118,18 +118,18 @@ class Rendering {
     permissions: RenderPermissions,
     pagePath: string = ''
   ): Promise<PostProcessResult> {
-    const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(siteId)
-    const customBlocks = await WIKI.models.blocks.getCustomBlockDefinitions(siteId)
+    const enabledBlocks = await CARDINAL.models.blocks.getEnabledKeys(siteId)
+    const customBlocks = await CARDINAL.models.blocks.getCustomBlockDefinitions(siteId)
     const options = sanitizeOptions(
       permissions,
       blockAllowances(enabledBlocks, customBlocks),
       // -> A site's own additional allowed URL schemes (Feature #2418) -- additive to the
       //    hardcoded `ALLOWED_SCHEMES` floor, never a replacement for it. Absent for a site with
-      //    no config in `WIKI.sites` (a stubbed-out test, or a race with cache reload) -- and
-      //    `WIKI.sites` itself may be absent too (a `WIKI` stub with no `sites` at all, as several
+      //    no config in `CARDINAL.sites` (a stubbed-out test, or a race with cache reload) -- and
+      //    `CARDINAL.sites` itself may be absent too (a `CARDINAL` stub with no `sites` at all, as several
       //    pre-existing `rendering.test.ts` siblings still are) -- either of which
       //    `sanitizeOptions()` treats identically to an empty list.
-      WIKI.sites?.[siteId]?.config?.allowedUrlSchemes
+      CARDINAL.sites?.[siteId]?.config?.allowedUrlSchemes
     )
 
     /*
@@ -251,7 +251,7 @@ class Rendering {
     */
     const wanted = new Map<string, Set<string>>()
     for (const el of elements) {
-      const parsed = WIKI.models.icons.parseRef(referenceOf($(el)))
+      const parsed = CARDINAL.models.icons.parseRef(referenceOf($(el)))
       if (parsed) {
         wanted.set(parsed.prefix, (wanted.get(parsed.prefix) ?? new Set()).add(parsed.name))
       }
@@ -259,7 +259,7 @@ class Rendering {
 
     const resolved = new Map<string, IconifyIcon>()
     for (const [prefix, names] of wanted) {
-      const found = await WIKI.models.icons.resolveIcons(prefix, [...names])
+      const found = await CARDINAL.models.icons.resolveIcons(prefix, [...names])
       for (const [name, icon] of Object.entries(found.icons)) {
         resolved.set(`${prefix}:${name}`, icon)
       }
@@ -312,7 +312,7 @@ class Rendering {
       flipFromString(customisations, flip)
     }
 
-    const svg = $(WIKI.models.icons.renderInlineSvg(icon, customisations))
+    const svg = $(CARDINAL.models.icons.renderInlineSvg(icon, customisations))
 
     const {
       icon: _icon,

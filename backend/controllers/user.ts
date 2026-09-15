@@ -36,7 +36,7 @@ async function routes(app: FastifyInstance) {
     // -> Answered from the hash column alone whenever possible: a conditional request (the common
     //    case, since AVATAR_CACHE forces revalidation on every open) never has to read the blob back
     //    out of the database or hash it.
-    const hash = await WIKI.models.users.getAvatarHash(userId)
+    const hash = await CARDINAL.models.users.getAvatarHash(userId)
     if (!hash) {
       return reply.notFound('This user has no avatar')
     }
@@ -48,7 +48,7 @@ async function routes(app: FastifyInstance) {
       return reply
     }
 
-    const avatar = await WIKI.models.users.getAvatar(userId)
+    const avatar = await CARDINAL.models.users.getAvatar(userId)
     if (!avatar) {
       return reply.notFound('This user has no avatar')
     }

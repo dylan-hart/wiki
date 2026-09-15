@@ -27,7 +27,7 @@ class Analytics {
    * The analytics modules found on disk, alphabetically by title.
    */
   getModules(): AnalyticsModule[] {
-    return [...((WIKI.data.analytics ?? []) as AnalyticsModule[])].sort((a, b) =>
+    return [...((CARDINAL.data.analytics ?? []) as AnalyticsModule[])].sort((a, b) =>
       a.title.localeCompare(b.title)
     )
   }
@@ -44,12 +44,12 @@ class Analytics {
     //    `analytics` key, so a failed scan would otherwise leave the field `undefined` for every
     //    reader of it -- see the same note in `models/authentication.ts`, whose consumers call
     //    `.find(...)` on it unguarded.
-    WIKI.data.analytics = []
+    CARDINAL.data.analytics = []
     try {
       // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
       //    not actually ship a provider for must not reach a site's analytics settings.
-      WIKI.data.analytics = await readModuleDefinitions<AnalyticsModule>(
-        path.join(WIKI.SERVERPATH, 'modules/analytics'),
+      CARDINAL.data.analytics = await readModuleDefinitions<AnalyticsModule>(
+        path.join(CARDINAL.SERVERPATH, 'modules/analytics'),
         {
           label: 'analytics module',
           parseProps: true,
@@ -58,12 +58,12 @@ class Analytics {
         }
       )
 
-      WIKI.logger.debug('ext', 'loaded module definitions', {
+      CARDINAL.logger.debug('ext', 'loaded module definitions', {
         kind: 'analytics',
-        modules: WIKI.data.analytics.length
+        modules: CARDINAL.data.analytics.length
       })
     } catch (err: any) {
-      WIKI.logger.error('ext', 'reading the module definitions failed', {
+      CARDINAL.logger.error('ext', 'reading the module definitions failed', {
         kind: 'analytics',
         error: err
       })

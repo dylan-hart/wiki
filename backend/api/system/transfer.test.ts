@@ -15,8 +15,8 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * suite runs the real `systemRoutes` plugin with the real `importModel` (against a throwaway
  * `dataPath`) rather than mocking either, so what it actually asserts is that the archive lands on
  * disk at all, with the exact bytes sent, and that `req.body` resolves to that file's path rather
- * than a `Buffer` — the architectural change this task made. Only `WIKI.models.sites.getSiteById` and
- * `WIKI.scheduler.addJob` are mocked, since a real target site and a real job queue are their own
+ * than a `Buffer` — the architectural change this task made. Only `CARDINAL.models.sites.getSiteById` and
+ * `CARDINAL.scheduler.addJob` are mocked, since a real target site and a real job queue are their own
  * suites' concerns.
  */
 describe('POST /import (streamed upload)', () => {
