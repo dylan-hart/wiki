@@ -841,7 +841,7 @@ async function toggleWatch() {
 
   Unlayered scoped rules, so they beat the `text-h4` utility without needing `!important`.
 */
-@media (max-width: $breakpoint-xs-max) {
+@media (max-width: 599.98px) {
   .page-header-title {
     font-size: 1.5rem;
     line-height: 2rem;
@@ -979,7 +979,7 @@ async function toggleWatch() {
     background-color: rgb(0 0 0 / 0.09);
   }
 
-  @at-root .body--dark & {
+  .body--dark & {
     &:hover {
       background-color: rgb(255 255 255 / 0.08);
     }

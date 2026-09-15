@@ -956,7 +956,7 @@ body.body--cobalt .admin-page-icon {
   background-color: var(--color-ink);
   border-inline-end: 1px solid var(--color-hairline-dark);
 
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-5);
   }
 
@@ -1259,10 +1259,10 @@ body.body--cobalt.body--dark {
 //    unlayered rule in an SFC stylesheet outranks every Tailwind utility however specific, so this
 //    restatement did nothing except stop the admin pages tinting a card with `bg-negative` / `bg-info`
 .admin-container {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-paper);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-5);
   }
 }
@@ -1291,11 +1291,11 @@ body.body--cobalt.body--dark {
     > .w-dialog-panel {
       box-shadow: 0 10px 40px 0 rgba(28, 34, 51, 0.28);
 
-      @at-root .body--light & {
+      .body--light & {
         background-color: var(--color-paper);
         border: 1px solid var(--color-hairline);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-5);
         border: 1px solid var(--color-hairline-dark);
       }

@@ -181,14 +181,14 @@ function loadAdmin() {
 <style lang="scss">
 .welcome {
   background: #fff radial-gradient(ellipse, #fff, #ddd);
-  color: $grey-9;
+  color: var(--color-grey-9);
   height: 100vh;
   border: 1px solid #eee;
 
-  @at-root .body--dark & {
+  .body--dark & {
     background: var(--color-dark-6)
       radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
-    color: $blue-grey-1;
+    color: var(--color-blue-grey-1);
     border: 1px solid var(--color-dark-4);
   }
 
@@ -198,13 +198,13 @@ function loadAdmin() {
     left: 50%;
     width: 320px;
     height: 320px;
-    background: linear-gradient(0, #fff 50%, $blue-5 50%);
+    background: linear-gradient(0, #fff 50%, var(--color-blue-5) 50%);
     border-radius: 50%;
     filter: blur(100px);
     transform: translate(-50%, -55%);
 
-    @at-root .body--dark & {
-      background: linear-gradient(0, var(--color-dark-6) 50%, $blue-5 50%);
+    .body--dark & {
+      background: linear-gradient(0, var(--color-dark-6) 50%, var(--color-blue-5) 50%);
     }
   }
 
@@ -235,7 +235,7 @@ function loadAdmin() {
     line-height: 4rem;
     text-align: center;
 
-    @media (max-width: $breakpoint-md-max) {
+    @media (max-width: 1439.98px) {
       font-size: 2.5rem;
       line-height: 2.5rem;
     }
@@ -244,7 +244,7 @@ function loadAdmin() {
   &-subtitle {
     font-size: 1.2rem;
     font-weight: 500;
-    color: $blue-7;
+    color: var(--color-blue-7);
     line-height: 1.2rem;
     margin-top: 1rem;
   }

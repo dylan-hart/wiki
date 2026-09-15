@@ -666,9 +666,9 @@ const resolvedContentWidth = computed(() =>
 /**
  * Below 750px, where the contents stop being a column beside the article and become a panel over it.
  *
- * This view's own threshold: at 200px (see `$toc-narrow-max`) the column still costs a third of a 600px
+ * This view's own threshold: at 200px (see `1399.98px`) the column still costs a third of a 600px
  * window, and an article is what the reader came for. `MainLayout` has to agree with it — that is where
- * scroll-to-top gives up this corner — and so does `$toc-overlay-max` in the stylesheet below.
+ * scroll-to-top gives up this corner — and so does `749.98px` in the stylesheet below.
  */
 const isAtLeast750 = useMinWidth(750)
 const tocIsPanel = computed(() => !isAtLeast750.value)
@@ -1425,14 +1425,12 @@ function goBack() {
   app's -- `_palette.scss` is for the breakpoints the whole app shares, and this one is a function of this
   page's two sidebars. Stated as a `max` value just under 1400px, the way the shared ones are.
 */
-$toc-narrow-max: 1399.98px;
 
 /*
   ...and where it stops being a column at all and becomes a panel over the article. The same boundary as
   the 750px `useMinWidth` above, which decides whether the opener is rendered, and as the one `MainLayout`
   uses to stand scroll-to-top down from this corner. All three have to agree.
 */
-$toc-overlay-max: 749.98px;
 
 /*
   The column in place of the article: the lock screen, the page that does not exist, and the
@@ -1455,10 +1453,10 @@ $toc-overlay-max: 749.98px;
     `_page-contents.scss`, so a plain block dropped in beside it inherits the document's black and
     goes invisible on the dark surface. The icon below takes its colour from here as well.
   */
-  @at-root .body--light & {
-    color: $grey-9;
+  .body--light & {
+    color: var(--color-grey-9);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: #fff;
   }
 }
@@ -1503,12 +1501,12 @@ $toc-overlay-max: 749.98px;
     page -- deliberately inherits rather than taking `active-color`, and what it was inheriting in
     dark mode was the document's black.
   */
-  @at-root .body--light:not(.body--cobalt) & {
+  .body--light:not(.body--cobalt) & {
     background-color: var(--color-surface);
     border-bottom: 1px solid var(--color-hairline);
     color: var(--color-text-caption);
   }
-  @at-root .body--dark:not(.body--cobalt) & {
+  .body--dark:not(.body--cobalt) & {
     background-color: var(--color-dark-3);
     border-bottom: 1px solid var(--color-hairline-dark);
     color: var(--color-text-caption-dark);
@@ -1530,7 +1528,7 @@ $toc-overlay-max: 749.98px;
     needed. The separator's inline `color` (`separator-color="grey"`) sits on that SAME `<li>`, not a
     child, so unseating it does need `!important`.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     background-color: transparent;
     border-bottom: 0;
     color: var(--color-text-caption);
@@ -1557,7 +1555,7 @@ $toc-overlay-max: 749.98px;
     13px is where it stops. The trail is how a reader gets back out, and it is already the smallest type
     on the screen -- what is wanted is a bar that gives way to the page under it, not one nobody can read.
   */
-  @media (max-width: $breakpoint-xs-max) {
+  @media (max-width: 599.98px) {
     min-height: 30px;
     font-size: 10.5px;
   }
@@ -1571,10 +1569,10 @@ $toc-overlay-max: 749.98px;
 .page-breadcrumbs-modified {
   white-space: nowrap;
 
-  @at-root .body--light & {
+  .body--light & {
     color: var(--color-text-caption);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: var(--color-text-caption-dark);
   }
 }
@@ -1631,7 +1629,7 @@ $toc-overlay-max: 749.98px;
     So the variance the desktop band just lost is deliberate down here -- there is no height worth
     holding when everything that would fill it is half the size.
   */
-  @media (max-width: $breakpoint-xs-max) {
+  @media (max-width: 599.98px) {
     min-height: 0;
     padding-block: 10px;
   }
@@ -1641,11 +1639,11 @@ $toc-overlay-max: 749.98px;
     resolve to `0`/`none`/`0` for anyway -- kept as literal rules rather than folded into the tokens
     since Ledger draws no card at all, just a ruled-off band.
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-surface);
     border-bottom: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     border-bottom: 1px solid var(--color-hairline-dark);
   }
@@ -1664,7 +1662,7 @@ $toc-overlay-max: 749.98px;
     present at once). Leaving this undeclared would let Ledger's surface colour win instead of the
     token.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     border-bottom: 0;
     background-color: var(--page-header-bg);
   }
@@ -1690,7 +1688,7 @@ $toc-overlay-max: 749.98px;
     */
     color: var(--page-header-fg);
 
-    @at-root .body--dark:not(.body--cobalt) & {
+    .body--dark:not(.body--cobalt) & {
       color: var(--color-text-dark);
     }
   }
@@ -1710,7 +1708,7 @@ $toc-overlay-max: 749.98px;
     /* Same reasoning as the title above -- Ledger's token value is `var(--color-text-secondary)`. */
     color: var(--page-header-subtitle-fg);
 
-    @at-root .body--dark:not(.body--cobalt) & {
+    .body--dark:not(.body--cobalt) & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -1759,7 +1757,7 @@ $toc-overlay-max: 749.98px;
     and `Search.vue`'s own footer both use the same component and must not be affected.
   */
   .w-footer {
-    @at-root body.body--cobalt & {
+    body.body--cobalt & {
       position: fixed;
       inset-inline: 0;
       bottom: 0;
@@ -1819,7 +1817,7 @@ $toc-overlay-max: 749.98px;
   content position is unchanged; only the scrollbar's own track now stops above the bar.
 
   No narrow-viewport counterpart is needed here the way `.page-sidebar` needs one below
-  `$toc-overlay-max`: this wrapper is never repositioned to `position: fixed` at any breakpoint, so a
+  `749.98px`: this wrapper is never repositioned to `position: fixed` at any breakpoint, so a
   single unconditioned rule covers every viewport width.
 */
 body.body--cobalt .page-container > .min-w-0.flex-1 {
@@ -1834,7 +1832,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   flex: 1 0 auto;
   padding: var(--article-column-pad);
 
-  @media (max-width: $breakpoint-xs-max) {
+  @media (max-width: 599.98px) {
     padding: var(--article-column-pad-xs);
   }
 
@@ -1853,7 +1851,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     --content-bleed: var(--content-bleed-default);
   }
 
-  @media (max-width: $breakpoint-xs-max) {
+  @media (max-width: 599.98px) {
     .page-contents {
       --content-bleed: var(--content-bleed-xs);
     }
@@ -1902,10 +1900,10 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   `MainLayout`.
 */
 .page-container {
-  @at-root .body--light:not(.body--cobalt) & {
+  .body--light:not(.body--cobalt) & {
     background-color: var(--color-surface);
   }
-  @at-root .body--dark:not(.body--cobalt) & {
+  .body--dark:not(.body--cobalt) & {
     background-color: var(--color-dark-3);
   }
 
@@ -1915,7 +1913,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     what shows through is `MainLayout`'s `--color-paper` -- one ground behind every card, which is
     what makes them read as cards at all.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     background-color: transparent;
   }
 }
@@ -1976,7 +1974,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     1400px is this view's own threshold rather than one of the app's `--breakpoint-*`: it is where THIS
     column starts crowding the article, which depends on its own width and the nav's.
   */
-  @media (max-width: $toc-narrow-max) {
+  @media (max-width: 1399.98px) {
     flex: 0 0 200px;
   }
 
@@ -1999,7 +1997,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     fixed screen corner (the opener, below), not with the reading direction, so none of it should move
     when the locale does.
   */
-  @media (max-width: $toc-overlay-max) {
+  @media (max-width: 749.98px) {
     position: fixed;
     top: 0;
     right: 0;
@@ -2022,11 +2020,11 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     page's own metadata (contents, tags, revision, watchers), so it belongs to the sheet, and the
     hairline down its leading edge is what separates the two.
   */
-  @at-root .body--light:not(.body--cobalt) & {
+  .body--light:not(.body--cobalt) & {
     background-color: #fbfcfe;
     border-inline-start: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark:not(.body--cobalt) & {
+  .body--dark:not(.body--cobalt) & {
     background-color: var(--color-dark-4);
     border-inline-start: 1px solid var(--color-hairline-dark);
   }
@@ -2036,7 +2034,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     paper ground, so the column itself is transparent and unruled, and its padding drops the 20px of
     side inset the sections used to need (each card brings its own).
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     background-color: transparent;
     border-inline-start: 0;
     /*
@@ -2063,7 +2061,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     /* -> 22px of air on each side, as the design draws them */
     margin-block: 22px;
   }
-  @at-root .body--dark & .w-separator {
+  .body--dark & .w-separator {
     --w-hairline-color: #{var(--color-hairline-dark)};
   }
 
@@ -2124,7 +2122,7 @@ body.body--cobalt .page-sidebar {
 }
 
 /*
-  The narrow-viewport counterpart: below `$toc-overlay-max` this column is a `position: fixed`
+  The narrow-viewport counterpart: below `749.98px` this column is a `position: fixed`
   overlay of its own (`top: 0; right: 0; bottom: 0`, in the block above). A margin is NOT a no-op
   there the way it would be for a plain fixed box: with both `top` and `bottom` set non-auto and
   `height: auto`, the spec solves the used height as the containing block's size minus `top`,
@@ -2134,7 +2132,7 @@ body.body--cobalt .page-sidebar {
   here, and `margin-bottom` explicitly zeroed to cancel the other rule; same clearance, same token,
   same reasoning as `.bg-sidebar.w-drawer--overlay` in `MainLayout.vue`.
 */
-@media (max-width: $toc-overlay-max) {
+@media (max-width: 749.98px) {
   body.body--cobalt .page-sidebar {
     margin-bottom: 0;
     bottom: var(--footer-bar-height);
@@ -2362,11 +2360,11 @@ body.body--cobalt .toc-open-btn-anchor {
   border-radius: 999px;
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
 
-  @at-root .body--light & {
+  .body--light & {
     background-color: #fff;
-    color: $grey-9;
+    color: var(--color-grey-9);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     color: #fff;
   }

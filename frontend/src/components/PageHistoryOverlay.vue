@@ -895,8 +895,6 @@ onBeforeUnmount(disposeEditor)
  * is the opposite of what "this overlay is drawn on ink in BOTH [site] THEMES" (below) was ever
  * meant to say -- it was never meant to also mean "in both aesthetics."
  */
-$timeline-line: var(--color-hairline-dark);
-$timeline-turn: 16px;
 
 .page-history {
   /* -> The header is the positioning context for the page title below */
@@ -983,9 +981,9 @@ $timeline-turn: 16px;
       bottom: 0;
       inset-inline-start: 0;
       width: calc(1rem + 14px + 1px);
-      border-inline-end: 2px solid $timeline-line;
-      border-bottom: 2px solid $timeline-line;
-      border-end-end-radius: $timeline-turn;
+      border-inline-end: 2px solid var(--color-hairline-dark);
+      border-bottom: 2px solid var(--color-hairline-dark);
+      border-end-end-radius: 16px;
     }
   }
 

@@ -220,10 +220,10 @@ onBeforeUnmount(() => {
   --page-toc-indent: 14px;
   /* Translucent, not a palette grey: the rail sits on the sidebar's own fill in both themes */
   --page-toc-rail: rgba(0, 0, 0, 0.1);
-  --page-toc-ink-strong: #{$grey-9};
-  --page-toc-ink: #{$grey-7};
-  --page-toc-ink-soft: #{$grey-6};
-  --page-toc-ink-hover: #{$grey-10};
+  --page-toc-ink-strong: var(--color-grey-9);
+  --page-toc-ink: var(--color-grey-7);
+  --page-toc-ink-soft: var(--color-grey-6);
+  --page-toc-ink-hover: var(--color-grey-10);
   --page-toc-hover-surface: rgba(0, 0, 0, 0.04);
   /*
     The active entry, as three properties rather than one colour: Ledger marks it with a 2px accent
@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
 
   line-height: 1.4;
 
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     --page-toc-rail: transparent;
     --page-toc-ink-strong: var(--color-text-body);
     --page-toc-ink: var(--color-text-secondary);
@@ -253,7 +253,7 @@ onBeforeUnmount(() => {
     --page-toc-active-weight: 600;
   }
 
-  @at-root body.body--cobalt.body--dark & {
+  body.body--cobalt.body--dark & {
     --page-toc-ink-strong: var(--color-text-dark);
     --page-toc-ink: var(--color-text-secondary-dark);
     --page-toc-ink-soft: var(--color-text-secondary-dark);
@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
     --page-toc-active-surface: var(--color-accent-wash-dark);
   }
 
-  @at-root .body--dark & {
+  .body--dark & {
     --page-toc-rail: rgba(255, 255, 255, 0.12);
     --page-toc-ink-strong: rgba(255, 255, 255, 0.87);
     --page-toc-ink: rgba(255, 255, 255, 0.6);
@@ -377,7 +377,7 @@ onBeforeUnmount(() => {
   &-item--active {
     color: var(--page-toc-active-ink);
 
-    @at-root .body--dark:not(.body--cobalt) & {
+    .body--dark:not(.body--cobalt) & {
       color: var(--color-primary-light);
     }
 

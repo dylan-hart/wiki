@@ -510,7 +510,7 @@ body.body--cobalt .site-header {
   The site name, a step down on a phone: 21px is a heading's size next to a 34px logo and two buttons
   on a 390px bar. Slight on purpose -- the title is still the first thing the bar says.
 */
-@media (max-width: $breakpoint-xs-max) {
+@media (max-width: 599.98px) {
   .site-title {
     font-size: 17px;
   }

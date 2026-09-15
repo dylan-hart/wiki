@@ -220,7 +220,7 @@ const state = reactive({
  *
  * This component's own breakpoint rather than one of the app's: it is the width at which a nav column
  * shrunk to its own labels (~240px, see the stylesheet) is still more than the content can spare. The
- * stylesheet has to agree with it — `$nav-collapse-max` is the same boundary from the other side. Search's
+ * stylesheet has to agree with it — `899.98px` is the same boundary from the other side. Search's
  * own filter-panel disclosure (`pages/Search.vue`) uses this same number for the same reason: the two
  * cards are the same shape.
  *
@@ -273,11 +273,9 @@ onBeforeUnmount(() => {
   on the media queries at the bottom of this block. Stated as `max` values, just under the width the next
   layout up starts at, the way `_palette.scss` states the shared ones.
 
-  `$nav-collapse-max` has to agree with the 900px `useMinWidth` above it, which is what decides whether
+  `899.98px` has to agree with the 900px `useMinWidth` above it, which is what decides whether
   the disclosure button is rendered at all.
 */
-$nav-collapse-max: 899.98px;
-$nav-shrink-max: 1199.98px;
 
 .layout-profile-card {
   display: flex;
@@ -297,11 +295,11 @@ $nav-shrink-max: 1199.98px;
     row titles, input values, select values alike -- which is invisible against the dark surface.
     The light value is the black it was already inheriting, so only dark mode changes.
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-surface);
     color: var(--color-text-body);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     color: var(--color-text-dark);
   }
@@ -322,7 +320,7 @@ $nav-shrink-max: 1199.98px;
     rules, reached generically since they select on the shared `.card-header` class). In Ledger
     `--radius-dialog` is 0, so this card keeps doing real work there -- the override is Cobalt-only.
   */
-  @at-root .body--cobalt & {
+  .body--cobalt & {
     overflow: visible;
     background: transparent;
   }
@@ -352,11 +350,11 @@ $nav-shrink-max: 1199.98px;
     box-shadow that used to sit alongside the border was a bevel, drawing a second, lighter line just
     inside the first -- which is exactly the relief this language does without.
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-tint-alt);
     border-inline-end: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     border-inline-end: 1px solid var(--color-hairline-dark);
   }
@@ -369,7 +367,7 @@ $nav-shrink-max: 1199.98px;
     color: var(--color-slate);
     border-inline-start: 2px solid transparent;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
 
@@ -386,7 +384,7 @@ $nav-shrink-max: 1199.98px;
         color: var(--color-accent-fill);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-3);
         color: var(--color-text-dark);
 
@@ -458,7 +456,7 @@ $nav-shrink-max: 1199.98px;
   margin-inline: 20px;
   --w-hairline-color: #{var(--color-tint)};
 
-  @at-root .body--dark & {
+  .body--dark & {
     --w-hairline-color: #{var(--color-hairline-dark)};
   }
 }
@@ -484,7 +482,7 @@ $nav-shrink-max: 1199.98px;
   padding: 16px 20px;
   border-top: 1px solid var(--color-tint);
 
-  @at-root .body--dark & {
+  .body--dark & {
     border-top-color: var(--color-hairline-dark);
   }
 }
@@ -511,7 +509,7 @@ $nav-shrink-max: 1199.98px;
 */
 
 /* --- Below 1200px: the nav gives up its fixed width -------------------------------------------- */
-@media (max-width: $nav-shrink-max) {
+@media (max-width: 1199.98px) {
   /* -> `auto` basis: the column is as wide as its longest label needs, instead of 300px regardless */
   .layout-profile-sd {
     flex: 0 0 auto;
@@ -519,7 +517,7 @@ $nav-shrink-max: 1199.98px;
 }
 
 /* --- Below 900px: the nav is a disclosure above the content ------------------------------------- */
-@media (max-width: $nav-collapse-max) {
+@media (max-width: 899.98px) {
   .layout-profile-body {
     flex-direction: column;
   }
@@ -528,11 +526,11 @@ $nav-shrink-max: 1199.98px;
   .layout-profile-navbtn {
     justify-content: space-between;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint-alt);
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-bottom: 1px solid var(--color-hairline-dark);
     }
@@ -561,11 +559,11 @@ $nav-shrink-max: 1199.98px;
     flex: none;
     width: 100%;
 
-    @at-root .body--light & {
+    .body--light & {
       border-inline-end: 0;
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       border-inline-end: 0;
       border-bottom: 1px solid var(--color-hairline-dark);
     }

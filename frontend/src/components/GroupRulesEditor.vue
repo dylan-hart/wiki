@@ -650,7 +650,7 @@ async function importRules() {
 
     input {
       font-weight: 700;
-      color: $grey-6;
+      color: var(--color-grey-6);
       letter-spacing: 1px;
       font-size: 12px;
       line-height: 12px;
@@ -661,10 +661,10 @@ async function importRules() {
       background-color: transparent;
 
       &::placeholder {
-        color: $grey-5;
+        color: var(--color-grey-5);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         color: rgba(255, 255, 255, 0.7);
 
         &::placeholder {
@@ -675,9 +675,9 @@ async function importRules() {
   }
 
   &-card {
-    background-color: $grey-2 !important;
+    background-color: var(--color-grey-2) !important;
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-6) !important;
     }
 
@@ -706,14 +706,14 @@ async function importRules() {
     }
 
     &-filters {
-      background-color: $grey-3;
+      background-color: var(--color-grey-3);
       flex-basis: 300px;
 
       .text-caption:first-child {
-        color: $grey-7;
+        color: var(--color-grey-7);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-5);
       }
     }

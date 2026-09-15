@@ -457,11 +457,11 @@ onBeforeUnmount(() => {
     that shared rule, where the File Manager design asks for the same `var(--color-paper)`, and this line should be
     deleted rather than kept in step when that question is answered.
   */
-  @at-root .body--light & {
+  .body--light & {
     color: var(--color-ink);
     background-color: var(--color-paper);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: #fff;
   }
 
@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
     themselves needs to change.
   */
   .card-header .w-btn-group {
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       gap: 8px;
 
       > .w-btn:not(:last-child) {
@@ -492,11 +492,11 @@ onBeforeUnmount(() => {
     `.w-section-header` draws the `Markdown` heading below with.
   */
   &-toolbar {
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint);
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-2);
       border-bottom: 1px solid var(--color-hairline-dark);
     }
@@ -513,7 +513,7 @@ onBeforeUnmount(() => {
       margin-inline: 4px;
       --w-hairline-color: #{var(--color-rule)};
 
-      @at-root .body--dark & {
+      .body--dark & {
         --w-hairline-color: #{var(--color-border-dark)};
       }
     }
@@ -543,7 +543,7 @@ onBeforeUnmount(() => {
     border: 1px solid var(--color-hairline);
     background-color: var(--color-surface);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-color: var(--color-hairline-dark);
       background-color: var(--color-dark-3);
     }
@@ -615,7 +615,7 @@ onBeforeUnmount(() => {
       background-color: var(--color-tint);
       outline: 1px solid var(--color-slate);
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-2);
         outline-color: var(--color-slate-light);
       }
@@ -639,13 +639,13 @@ onBeforeUnmount(() => {
     with exactly one exception, the focused cell's ring.
 
     Scoped `body.body--cobalt` (a type selector plus the aesthetic class) rather than the `&`-nested
-    `@at-root .body--cobalt &` the rest of this file uses, specifically so this block outranks the
+    `.body--cobalt &` the rest of this file uses, specifically so this block outranks the
     generic `&-cell:focus` dark rule above on specificity alone: under Cobalt DARK both that rule's
     `.body--dark .table-editor-cell:focus` and a same-shape `.body--cobalt .table-editor-cell:focus`
     would tie, leaving the winner to source order rather than intent. The extra `body` type selector
     breaks that tie unconditionally, matching `tailwind.css`'s own `body.body--cobalt` convention.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     &-grid table {
       border-collapse: separate;
       border-spacing: 2px;
@@ -704,7 +704,7 @@ onBeforeUnmount(() => {
     `body.body--cobalt` -- see the comment on `th.table-editor-cellbox` above for why nesting it
     there doesn't work.
   */
-  @at-root body.body--cobalt.body--dark & {
+  body.body--cobalt.body--dark & {
     th.table-editor-cellbox {
       background-color: var(--color-dark-3);
     }

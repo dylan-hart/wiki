@@ -134,11 +134,11 @@ function close() {
   rule.
 */
 .inbox-overlay {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-surface);
     color: var(--color-text-body);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     color: var(--color-text-dark);
   }
@@ -157,15 +157,15 @@ function close() {
   sidebar treatment "stays unchanged from Cobalt light", so one `body--cobalt` block below covers both.
 */
 .inbox-overlay-sidebar {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-tint-alt);
     border-inline-end: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     border-inline-end: 1px solid var(--color-hairline-dark);
   }
-  @at-root .body--cobalt & {
+  .body--cobalt & {
     background-color: var(--color-sidebar);
     border-inline-end-color: var(--color-sidebar-hairline);
   }
@@ -178,11 +178,11 @@ function close() {
     color: var(--color-slate);
     border-inline-start: 2px solid transparent;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
 
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       color: var(--color-sidebar-text);
 
       .w-icon,
@@ -208,7 +208,7 @@ function close() {
         color: var(--color-accent-fill);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-3);
         color: var(--color-text-dark);
 
@@ -225,7 +225,7 @@ function close() {
         inset`'s inset box-shadow -- the same shape `NavItemEditor.vue`'s own Cobalt active row
         already draws for the identical "selected sidebar item" role.
       */
-      @at-root .body--cobalt & {
+      .body--cobalt & {
         background-color: var(--color-sidebar-active-bg);
         border-inline-start-color: transparent;
         border-radius: var(--radius-control);
@@ -279,7 +279,7 @@ function close() {
 .inbox-square-btn--negative.w-btn {
   border-color: var(--color-accent-fill);
 
-  @at-root .body--dark:not(.body--cobalt) & {
+  .body--dark:not(.body--cobalt) & {
     border-color: var(--color-accent-dark);
   }
 }

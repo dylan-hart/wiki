@@ -598,10 +598,10 @@ onMounted(async () => {
   }
 
   &-sample {
-    color: $blue-8;
+    color: var(--color-blue-8);
 
     body.body--dark & {
-      color: $blue-3;
+      color: var(--color-blue-3);
     }
   }
 }

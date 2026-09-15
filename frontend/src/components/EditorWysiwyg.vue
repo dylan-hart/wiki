@@ -765,11 +765,11 @@ defineExpose({ editor, menuBar })
       `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
       this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
     */
-    @at-root .body--light & {
-      background: linear-gradient(to top, $grey-1 0%, #fff 100%);
-      border-bottom: 1px solid $grey-4;
+    .body--light & {
+      background: linear-gradient(to top, var(--color-grey-1) 0%, #fff 100%);
+      border-bottom: 1px solid var(--color-grey-4);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background: linear-gradient(to top, var(--color-dark-3) 0%, var(--color-dark-2) 100%);
       border-bottom: 1px solid var(--color-dark-1);
     }
@@ -783,7 +783,7 @@ defineExpose({ editor, menuBar })
       The typed content itself, so a dark toolbar above isn't paired with the default (black-on-
       whatever's-behind-it) text the rest of this rule otherwise never sets a color for.
     */
-    @at-root .body--dark & {
+    .body--dark & {
       color: rgba(255, 255, 255, 0.87);
     }
 
@@ -814,9 +814,9 @@ defineExpose({ editor, menuBar })
       background-color: rgba(#616161, 0.1);
       color: #616161;
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: rgba(255, 255, 255, 0.08);
-        color: $grey-4;
+        color: var(--color-grey-4);
       }
     }
 
@@ -844,7 +844,7 @@ defineExpose({ editor, menuBar })
       padding-inline-start: 1rem;
       border-inline-start: 2px solid rgba(#0d0d0d, 0.1);
 
-      @at-root .body--dark & {
+      .body--dark & {
         border-inline-start-color: rgba(255, 255, 255, 0.2);
       }
     }
@@ -854,7 +854,7 @@ defineExpose({ editor, menuBar })
       border-top: 2px solid rgba(#0d0d0d, 0.1);
       margin: 2rem 0;
 
-      @at-root .body--dark & {
+      .body--dark & {
         border-top-color: rgba(255, 255, 255, 0.2);
       }
     }
@@ -875,7 +875,7 @@ defineExpose({ editor, menuBar })
         box-sizing: border-box;
         position: relative;
 
-        @at-root .body--dark & {
+        .body--dark & {
           border-color: var(--color-dark-1);
         }
 
@@ -889,7 +889,7 @@ defineExpose({ editor, menuBar })
         text-align: start;
         background-color: #f1f3f5;
 
-        @at-root .body--dark & {
+        .body--dark & {
           background-color: var(--color-dark-2);
         }
       }
@@ -948,7 +948,7 @@ defineExpose({ editor, menuBar })
       pointer-events: none;
       height: 0;
 
-      @at-root .body--dark & {
+      .body--dark & {
         color: rgba(255, 255, 255, 0.35);
       }
     }

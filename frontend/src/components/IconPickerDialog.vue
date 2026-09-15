@@ -387,20 +387,20 @@ onMounted(async () => {
 <style lang="scss">
 .icon-picker {
   a {
-    @at-root .body--light & {
-      color: $blue-7;
+    .body--light & {
+      color: var(--color-blue-7);
     }
-    @at-root .body--dark & {
-      color: $blue-3;
+    .body--dark & {
+      color: var(--color-blue-3);
     }
   }
 
   /* -> A shade off the card, so the fields and the results area read as sitting on a surface */
   .w-tab-panels {
-    @at-root .body--light & {
-      background-color: $grey-1;
+    .body--light & {
+      background-color: var(--color-grey-1);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
     }
   }
@@ -410,10 +410,10 @@ onMounted(async () => {
     height: 220px;
     overflow-y: auto;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: #fff;
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-5);
     }
   }
@@ -429,11 +429,11 @@ onMounted(async () => {
     height: 44px;
 
     &--active {
-      @at-root .body--light & {
-        background-color: $blue-1;
+      .body--light & {
+        background-color: var(--color-blue-1);
       }
-      @at-root .body--dark & {
-        background-color: $blue-9;
+      .body--dark & {
+        background-color: var(--color-blue-9);
       }
     }
   }

@@ -688,7 +688,7 @@ onBeforeUnmount(disposeEditor)
     font-weight: 600;
     line-height: 1.4;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-dark);
     }
   }
@@ -705,7 +705,7 @@ onBeforeUnmount(disposeEditor)
       font-weight: 500;
     }
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
 
       strong {
@@ -719,7 +719,7 @@ onBeforeUnmount(disposeEditor)
     font-size: 11.5px;
     line-height: 1.5;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }
@@ -748,7 +748,7 @@ onBeforeUnmount(disposeEditor)
     text-transform: uppercase;
     white-space: nowrap;
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-color: var(--color-border-dark);
       color: var(--color-slate-light);
     }
@@ -765,7 +765,7 @@ onBeforeUnmount(disposeEditor)
     border-top: 1px solid var(--color-hairline);
     display: flex;
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-top-color: var(--color-hairline-dark);
     }
   }

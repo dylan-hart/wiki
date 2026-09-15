@@ -243,7 +243,7 @@ onMounted(async () => {
   on the group itself is the equivalent scope with no such wrapper needed.
 */
 .block-picker-actions {
-  @at-root .body--cobalt & {
+  .body--cobalt & {
     gap: 8px;
 
     > .w-btn:not(:last-child) {
@@ -260,10 +260,10 @@ onMounted(async () => {
     Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
     panels have to state it themselves or everything inheriting `color` stays black on a dark surface.
   */
-  @at-root .body--light & {
+  .body--light & {
     color: var(--color-text-body);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: var(--color-text-dark);
   }
 
@@ -281,10 +281,10 @@ onMounted(async () => {
     min-width: 300px;
     height: 100%;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-surface);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-5);
     }
   }
@@ -294,11 +294,11 @@ onMounted(async () => {
     min-width: 280px;
     height: 100%;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint);
       border-inline-start: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-3);
       border-inline-start: 1px solid var(--color-hairline-dark);
     }
@@ -367,7 +367,7 @@ onMounted(async () => {
       box-shadow: inset 0 0 0 1px var(--color-accent-fill);
     }
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-3);
       border-color: var(--color-hairline-dark);
 
@@ -401,13 +401,13 @@ onMounted(async () => {
       color: var(--color-accent);
     }
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-color: var(--color-hairline-dark);
       background-color: var(--color-dark-4);
       color: var(--color-slate-light);
     }
 
-    @at-root .body--dark .is-selected > & {
+    .body--dark .is-selected > & {
       border-color: var(--color-accent-dark);
       background-color: var(--color-accent-wash-dark);
       color: var(--color-accent-dark);
@@ -437,7 +437,7 @@ onMounted(async () => {
       opacity: 1;
     }
 
-    @at-root .body--dark & {
+    .body--dark & {
       --mark-tone: var(--color-accent-dark);
     }
   }
@@ -478,7 +478,7 @@ onMounted(async () => {
     font-size: 13.5px;
     font-weight: 600;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-ink);
     }
 
@@ -492,10 +492,10 @@ onMounted(async () => {
     font-size: 12.5px;
     line-height: 1.5;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-secondary);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -510,10 +510,10 @@ onMounted(async () => {
     font-size: 11px;
     font-weight: 500;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-caption);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
 
@@ -521,7 +521,7 @@ onMounted(async () => {
       color: var(--color-accent);
     }
 
-    @at-root .body--dark .is-selected & {
+    .body--dark .is-selected & {
       color: var(--color-accent-dark);
     }
   }
@@ -546,10 +546,10 @@ onMounted(async () => {
       line-height: 1.6;
     }
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-secondary);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -570,7 +570,7 @@ onMounted(async () => {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-6);
     }
   }

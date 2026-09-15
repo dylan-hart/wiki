@@ -1423,7 +1423,6 @@ onBeforeUnmount(() => {
   it is the same 900 the site header collapses its actions at -- both are simply where a window stops
   having room for a row of chrome.
 */
-$fileman-hdr-wrap-max: 899.98px;
 
 .fileman {
   /*
@@ -1440,7 +1439,7 @@ $fileman-hdr-wrap-max: 899.98px;
     ordered last, which is what puts it on the second. Close is what this is for -- off the end of the row
     it was unreachable, and it is the only way out of the overlay.
   */
-  @media (max-width: $fileman-hdr-wrap-max) {
+  @media (max-width: 899.98px) {
     > .card-header {
       flex-wrap: wrap;
     }
@@ -1599,12 +1598,12 @@ $fileman-hdr-wrap-max: 899.98px;
     a file's title, the size in the right-hand column) came out black on the dark fill.
   */
   &-left {
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint-alt);
       border-inline-end: 1px solid var(--color-hairline);
       color: var(--color-slate);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-inline-end: 1px solid var(--color-hairline-dark);
       color: var(--color-text-secondary-dark);
@@ -1612,11 +1611,11 @@ $fileman-hdr-wrap-max: 899.98px;
   }
 
   &-center {
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-surface);
       color: var(--color-text-body);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-3);
       color: var(--color-text-dark);
     }
@@ -1630,12 +1629,12 @@ $fileman-hdr-wrap-max: 899.98px;
       pane). No token distinguishes "surface" from "surface, a shade warmer" -- logged rather than
       guessed at with a new one-off selector.
     */
-    @at-root .body--light & {
+    .body--light & {
       background-color: #fbfcfe;
       border-inline-start: 1px solid var(--color-hairline);
       color: var(--color-text-body);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-inline-start: 1px solid var(--color-hairline-dark);
       color: var(--color-text-dark);
@@ -1649,11 +1648,11 @@ $fileman-hdr-wrap-max: 899.98px;
     two hairlines ruled across it. Dark follows the path bar too: the recessed rung, not the panel's.
   */
   &-toolbar {
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint);
       border-block-end: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-block-end: 1px solid var(--color-hairline-dark);
     }
@@ -1666,7 +1665,7 @@ $fileman-hdr-wrap-max: 899.98px;
   */
   &-upload-btn {
     // -> The fill tone in both appearances: it is a hairline here, not a label, so the "never under
-    //    white text" constraint that separates `$positive-fill` from `$positive` does not apply.
+    //    white text" constraint that separates `var(--color-positive-fill)` from `var(--color-positive)` does not apply.
     border-color: var(--color-positive-fill);
   }
 
@@ -1674,12 +1673,12 @@ $fileman-hdr-wrap-max: 899.98px;
     font-family: var(--font-mono);
     font-size: 11.5px;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint) !important;
       border-block-start: 1px solid var(--color-hairline);
       color: var(--color-text-caption);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4) !important;
       border-block-start: 1px solid var(--color-hairline-dark);
       color: var(--color-text-caption-dark);
@@ -1718,10 +1717,10 @@ $fileman-hdr-wrap-max: 899.98px;
       width: 200px;
     }
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-caption);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
 
       > img {
@@ -1755,11 +1754,11 @@ $fileman-hdr-wrap-max: 899.98px;
     font-weight: 500;
     text-align: center;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: rgba(255, 255, 255, 0.9);
       color: var(--color-text-body);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: rgba(20, 23, 31, 0.85);
       color: var(--color-text-dark);
     }
@@ -1843,13 +1842,13 @@ $fileman-hdr-wrap-max: 899.98px;
         background-color: var(--color-accent-wash);
         color: var(--color-ink);
 
-        @at-root .body--dark & {
+        .body--dark & {
           background-color: var(--color-accent-wash-dark);
           color: var(--color-text-dark);
         }
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         &:not(:last-child) {
           border-block-end-color: var(--color-hairline-dark);
         }
@@ -1903,10 +1902,10 @@ $fileman-hdr-wrap-max: 899.98px;
       overflow: hidden;
       text-overflow: ellipsis;
 
-      @at-root .body--light & {
+      .body--light & {
         color: var(--color-text-caption);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         color: var(--color-text-caption-dark);
       }
     }
@@ -1918,10 +1917,10 @@ $fileman-hdr-wrap-max: 899.98px;
       font-family: var(--font-mono);
       font-size: 11.5px;
 
-      @at-root .body--light & {
+      .body--light & {
         color: var(--color-text-secondary);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         color: var(--color-text-secondary-dark);
       }
     }
@@ -1939,11 +1938,11 @@ $fileman-hdr-wrap-max: 899.98px;
     justify-content: center;
     margin-block-end: 16px;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint);
       border: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-3);
       border: 1px solid var(--color-hairline-dark);
     }
@@ -1980,7 +1979,7 @@ $fileman-hdr-wrap-max: 899.98px;
       border: 0 solid var(--color-slate-soft);
       pointer-events: none;
 
-      @at-root .body--dark & {
+      .body--dark & {
         border-color: var(--color-slate-light);
       }
 
@@ -2022,10 +2021,10 @@ $fileman-hdr-wrap-max: 899.98px;
     gap: 10px;
     padding: 7px 0;
 
-    @at-root .body--light & {
+    .body--light & {
       border-block-end: 1px solid var(--color-tint);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       border-block-end: 1px solid var(--color-hairline-dark);
     }
 
@@ -2039,10 +2038,10 @@ $fileman-hdr-wrap-max: 899.98px;
       letter-spacing: 0.14em;
       text-transform: uppercase;
 
-      @at-root .body--light & {
+      .body--light & {
         color: var(--color-text-caption);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         color: var(--color-text-caption-dark);
       }
     }
@@ -2053,10 +2052,10 @@ $fileman-hdr-wrap-max: 899.98px;
       // -> A long file name has nowhere to break: the gutter beside it is fixed
       word-break: break-word;
 
-      @at-root .body--light & {
+      .body--light & {
         color: var(--color-ink);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         color: var(--color-text-dark);
       }
     }
@@ -2098,10 +2097,10 @@ $fileman-hdr-wrap-max: 899.98px;
     flex: 1;
     height: 12px;
 
-    @at-root .body--light & {
-      background-color: $blue-grey-2;
+    .body--light & {
+      background-color: var(--color-blue-grey-2);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4) !important;
     }
 
