@@ -93,7 +93,7 @@ npm test`. In CI, a fresh `postgres:18` service container per run is what makes 
   alone, the dialog silently saves under a title-derived path instead of the one the test asked for.
 - **Multi-site (flow 3) resolves the second site by hostname, not a UI switcher** — there isn't one
   yet; a Cardinal.js 3.x site is addressed by the request's `Host` header
-  (`WIKI.sitesMappings[req.hostname]`, `index.ts`), so "switching sites" here means navigating the
+  (`CARDINAL.sitesMappings[req.hostname]`, `index.ts`), so "switching sites" here means navigating the
   browser to a different hostname. `*.localhost` resolves to the loopback address without any
   `/etc/hosts` entry (RFC 6761, honoured by Chromium and every major OS resolver), which is what
   lets the spec reach a freshly-created site (`e2e-site-<slug>.localhost`) by just navigating to it.
