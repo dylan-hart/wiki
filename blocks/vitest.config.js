@@ -11,7 +11,7 @@ export const FLAKY_INCLUDE = ['**/*.flaky.test.js']
  * Blocks have no app framework around them — no Vue, no build-time SFC compilation, nothing but a
  * Lit custom element registering itself against `window.customElements` and rendering into its own
  * shadow root. So unlike `frontend/vitest.config.js` there is no plugin stack to mirror here: a
- * block's source is loaded exactly as `blocks/rollup.config.mjs` would bundle it, straight ESM.
+ * block's source is loaded exactly as `blocks/rolldown.config.mjs` would bundle it, straight ESM.
  *
  * `environment: 'jsdom'` rather than `happy-dom` (which `frontend/` uses): a block's whole
  * surface under test IS its shadow DOM — attribute reflection, slotted light-DOM content, Lit's

@@ -78,7 +78,7 @@ npm run dev            # vite dev server on :3001 (needs backend running on :300
 npm run build          # builds into ../assets — required before the backend can serve the UI
 
 # blocks
-npm run build          # rollup → blocks/compiled/
+npm run build          # rolldown → blocks/compiled/
 ```
 
 `npm run ncu` (→ `npx npm-check-updates@23 -i`) for interactive dependency updates — no pinned

@@ -6,19 +6,24 @@ the whole repo.
 ## Layout
 
 Self-contained Lit components. Each lives in `blocks/block-<name>/component.js` — the glob in
-`rollup.config.mjs` picks up any directory matching `block-*` automatically, so a new block needs no
+`rolldown.config.mjs` picks up any directory matching `block-*` automatically, so a new block needs no
 config change. Output goes to `blocks/compiled/`, which the backend serves statically under
 `/_blocks/`. Blocks are loaded dynamically at runtime, which is why `_blocks/**` is excluded from
 Vite's `dynamicImportVarsOptions`. A block pulling in a heavy library is fine — nothing is fetched
-until its tag turns up in a page — and a library that still ships CommonJS works too, since the
-rollup config runs `@rollup/plugin-commonjs` after `resolve()`.
+until its tag turns up in a page — and a library that still ships CommonJS works too, since Rolldown's
+CommonJS interop and Node resolution are built in (no `@rollup/plugin-commonjs`/`-node-resolve`
+equivalent needed). A package whose `exports` map resolves to a different, non-self-contained file
+under Rolldown's `platform: 'browser'` condition set than it did under the old rollup config's
+`resolve({ exportConditions: ['production'] })` is the one real gotcha found so far — see the
+`resolve.alias` for `swagger-ui` in `rolldown.config.mjs` and the fuller writeup in
+`block-openapi/component.js`'s header comment.
 
 Blocks style themselves off `:host` and read the theme colors via CSS custom properties
 (`var(--q-primary)` — the `--q-` prefix is historical; the properties are declared in
 `css/tailwind.css` and rewritten at runtime for per-site theming).
 
 **`static definition = {…}` must stay a plain object literal inside the block's own
-`component.js`.** `rollup.config.mjs`'s manifest builder, `scripts/check-locale-keys.mjs` and
+`component.js`.** `rolldown.config.mjs`'s manifest builder, `scripts/check-locale-keys.mjs` and
 `definitions.test.js` all read it out of the source text rather than by importing the module, so a
 definition assembled from a shared object, spread, or computed key is invisible to all three. This
 holds through inheritance — a block extending a shared base still declares its own literal. Only
@@ -106,7 +111,7 @@ No block reads `API_CLIENT` or `WIKI_STATE` any more; a new one that does is a r
 
 `blocks/`'s test runner is **Vitest**, run via `npm run test` (→ `vitest run`). Config is
 `blocks/vitest.config.js` — deliberately minimal, no plugin stack to mirror the way frontend's does:
-a block has no build-time template compilation (`rollup.config.mjs` bundles plain ESM, it doesn't
+a block has no build-time template compilation (`rolldown.config.mjs` bundles plain ESM, it doesn't
 transform it) and no app framework around it, so a test loads `component.js` exactly as the browser
 would.
 
