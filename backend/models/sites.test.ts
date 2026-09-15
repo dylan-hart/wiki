@@ -621,7 +621,7 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
   })
 
   test('strict: true also folds case', async () => {
-    const site = await sites.getSiteByHostname({ hostname: 'CARDINAL.EXAMPLE.COM', strict: true })
+    const site = await sites.getSiteByHostname({ hostname: 'WIKI.EXAMPLE.COM', strict: true })
     assert.equal(site?.id, EXACT_SITE_ID)
   })
 })
