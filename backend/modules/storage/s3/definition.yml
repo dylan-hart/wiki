@@ -90,6 +90,15 @@ props:
     order: 2
     if:
       - { key: 'mode', eq: 'custom' }
+  region:
+    type: String
+    title: Region
+    hint: The signing region to use for SigV4 requests. Must match the value your S3-compatible server is configured with (e.g. Garage's `s3_region`) or every signed request will fail signature validation.
+    icon: geography
+    default: us-east-1
+    order: 9
+    if:
+      - { key: 'mode', eq: 'custom' }
   bucket:
     type: String
     title: Unique bucket name
