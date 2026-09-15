@@ -52,7 +52,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `processGuards.ts` (the one `unhandledRejection` handler).
   - `core/http/` — everything `index.ts` used to do to a Fastify instance: `server.ts`
     (`createHttpApp()` — instance options, graceful shutdown (`shutdown.ts`),
-    `sensible`/`compress`/`websocket`, `WIKI.app`/`WIKI.server`; plus `registerStaticAssets(app)`),
+    `sensible`/`compress`/`websocket`, `CARDINAL.app`/`CARDINAL.server`; plus `registerStaticAssets(app)`),
     `shutdown.ts` (`close-with-grace` wiring, the `/_live`/`/_ready` probes, the 5s pre-close delay
     and the `SHUTTING_DOWN`/`SHUTDOWN` events `server.ts#registerShutdownLogging` consumes),
     `security.ts` (helmet/CSP/CORS),
@@ -61,15 +61,15 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
     the route-permission `preHandler`, the API-key site pin), `siteRouting.ts`
     (`RESERVED_ROOT_FILES` / `SERVER_ROUTE_SEGMENTS` / `isPageUrl`, the SEO redirects, per-request
     site resolution, the app-shell not-found fallback), `errors.ts` and `routes.ts` (every mounted
-    prefix). `index.ts` is now only the boot script: the `WIKI` literal, the three phases,
+    prefix). `index.ts` is now only the boot script: the `CARDINAL` literal, the three phases,
     `app.listen()`. **Registration order is behaviour** — Fastify registers plugins in call order,
     so `registerStaticAssets(app)` staying between `registerSecurity(app)` and
     `registerSession(app)` is a real constraint, not tidiness.
 - `db/` — `schema.ts` (all Drizzle table definitions), `relations.ts`, `migrations/` (generated).
 - `models/` — data-access classes over Drizzle, aggregated by `models/index.ts` and exposed as
-  `WIKI.models.*`. Business logic belongs here, not in route handlers. `types.ts` holds the shared
+  `CARDINAL.models.*`. Business logic belongs here, not in route handlers. `types.ts` holds the shared
   `SystemIds` passed to each model's `init()` during first-run seeding. A model too large for one
-  file is split by subject into siblings, each its own `WIKI.models` member: **rendering is two
+  file is split by subject into siblings, each its own `CARDINAL.models` member: **rendering is two
   models** — `rendering.ts` is the post-process pipeline a save runs through, `renderQueue.ts` the
   headless-browser queue (their shared sanitizer policy is `helpers/htmlSanitizePolicy.ts`);
   **`users` no longer holds login** — `login.ts` owns login/register/2FA-login/forgot/reset,
@@ -129,7 +129,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
 - `tasks/simple/` — jobs run in-process by the scheduler; each exports `task()`. File name is
   kebab-case, the task key is its camelCase form.
 - `tasks/workers/` — CPU-bound jobs run in a worker thread via `worker.ts`, which boots a minimal
-  `WIKI` global (config + logger + lazy `ensureDb()`) and dynamically imports the task.
+  `CARDINAL` global (config + logger + lazy `ensureDb()`) and dynamically imports the task.
 - `base.yml` — system defaults for every config key. Do not edit as a user-facing config; it defines
   the shape merged with `config.yml` and the db `settings` table.
 - `helpers/` — small pure utilities. `common.ts` is the general bag (the tree-path codec,
@@ -144,7 +144,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `fsPurge.ts`, `htmlSanitizePolicy.ts`, `approvalMatch.ts`, `blobTarget.ts`,
   `pageSerialization.ts`, `pageRules.ts`, `siteRules.ts`, `permissions.ts`, `config.ts`, … See
   [Backend patterns](#backend-patterns) for which question each answers.
-- `types/` — ambient declarations: `global.d.ts` (the `WIKI` global) and `fastify.d.ts` (session +
+- `types/` — ambient declarations: `global.d.ts` (the `CARDINAL` global) and `fastify.d.ts` (session +
   route-permission augmentations).
 - `locales/` — `en.json` source strings (Localazy-managed) + `metadata.js` language table (the one
   remaining JavaScript file; typed by its sibling `metadata.d.ts`).
@@ -175,11 +175,11 @@ Consequences of type stripping, all enforced by `backend/tsconfig.json`:
 type checking rather than be quietly tolerated. `locales/metadata.js` is the sole exception and is
 resolved through its sibling `metadata.d.ts`.
 
-`backend/types/global.d.ts` declares the ambient `WIKI` global as the `WikiGlobal` interface, wired
-to the real module types (`WIKI.db` is the Drizzle instance, `WIKI.models` is `models/index.ts`, and
+`backend/types/global.d.ts` declares the ambient `CARDINAL` global as the `CardinalGlobal` interface, wired
+to the real module types (`CARDINAL.db` is the Drizzle instance, `CARDINAL.models` is `models/index.ts`, and
 so on). Only `config` and `data` stay `any` — both are assembled at runtime from YAML plus a JSONB
-settings table, so they have no static shape. `index.ts` and `worker.ts` build their own local `WIKI`
-literal and assert it to `WikiGlobal`, since each populates the object progressively.
+settings table, so they have no static shape. `index.ts` and `worker.ts` build their own local `CARDINAL`
+literal and assert it to `CardinalGlobal`, since each populates the object progressively.
 
 `backend/types/fastify.d.ts` augments Fastify: session fields (`authenticated`, `user`,
 `permissions`) and the per-route `config.permissions` used by the `preHandler` permission hook.
@@ -187,7 +187,7 @@ literal and assert it to `WikiGlobal`, since each populates the object progressi
 **Five dynamic paths are extension-sensitive** and invisible to the type checker — they must be
 updated by hand if the files they point at are ever renamed:
 
-- `core/scheduler.ts` → `path.join(WIKI.SERVERPATH, 'worker.ts')` (the piscina pool entry)
+- `core/scheduler.ts` → `path.join(CARDINAL.SERVERPATH, 'worker.ts')` (the piscina pool entry)
 - `worker.ts` → `import('./tasks/workers/${kebabCase(job.task)}.ts')`
 - `models/authentication.ts` → `import('../modules/authentication/${stg.module}/authentication.ts')`
 - `models/storage.ts` → `import('../modules/storage/${key}/storage.ts')`, plus the `storage.ts`
@@ -198,7 +198,7 @@ updated by hand if the files they point at are ever renamed:
 `scheduler.ts` matches `tasks/simple/` filenames against `/^[^.]+\.[jt]s$/`, so `.ts` and `.js` are
 both accepted but any other dotted filename (a stray `.test.ts`, a `.d.ts`) is rejected outright.
 
-`worker.ts` builds its own minimal `WIKI` (config + logger + lazy `ensureDb()`), but the shared
+`worker.ts` builds its own minimal `CARDINAL` (config + logger + lazy `ensureDb()`), but the shared
 declaration types it as the full object — so worker-only code can reference members that do not
 actually exist in a worker thread. Be deliberate about what you touch there.
 
@@ -218,14 +218,14 @@ Conventions established during the conversion, worth following in new code:
 
 ## Backend patterns
 
-- **The `WIKI` global.** Set up in `index.ts`, typed in `types/global.d.ts`, available everywhere
+- **The `CARDINAL` global.** Set up in `index.ts`, typed in `types/global.d.ts`, available everywhere
   without importing:
-  `WIKI.db` (Drizzle), `WIKI.models.*`, `WIKI.config`, `WIKI.logger` (see
-  [Logging](#logging) — every line takes a scope), `WIKI.cache`, `WIKI.scheduler`,
-  `WIKI.events.{inbound,outbound}` (Emittery), `WIKI.sites` / `WIKI.sitesMappings` (cached site
-  configs), `WIKI.ROOTPATH`, `WIKI.SERVERPATH`, `WIKI.INSTANCE_ID`.
+  `CARDINAL.db` (Drizzle), `CARDINAL.models.*`, `CARDINAL.config`, `CARDINAL.logger` (see
+  [Logging](#logging) — every line takes a scope), `CARDINAL.cache`, `CARDINAL.scheduler`,
+  `CARDINAL.events.{inbound,outbound}` (Emittery), `CARDINAL.sites` / `CARDINAL.sitesMappings` (cached site
+  configs), `CARDINAL.ROOTPATH`, `CARDINAL.SERVERPATH`, `CARDINAL.INSTANCE_ID`.
 - **Routes** are Fastify plugins: `async function routes(app) { ... }` with a default export.
-- **`/_api` is deliberately unversioned.** `info.version` in the Swagger doc is `WIKI.version`, not a
+- **`/_api` is deliberately unversioned.** `info.version` in the Swagger doc is `CARDINAL.version`, not a
   separate API contract number. Frontend and backend ship as one coupled release (the frontend's
   `assets/` build is served by that same backend commit), so there is no independent-compatibility
   scenario to manage — versioning exists to reconcile a producer and consumer that release
@@ -255,7 +255,7 @@ Conventions established during the conversion, worth following in new code:
   by `core/http/errors.ts`, shapes `/_api/` failures into `{ ok, error, statusCode, message }` JSON.
 - **Schema changes**: edit `db/schema.ts`, then `npm run db-generate` and commit the generated
   migration. Never hand-edit an existing migration.
-- **`WIKI.db.execute()` returns pg's `QueryResult` envelope, not a bare row array** — read
+- **`CARDINAL.db.execute()` returns pg's `QueryResult` envelope, not a bare row array** — read
   `result.rows`. A `result.rows ?? result` probe is dead code (verified against
   `drizzle-orm`'s `node-postgres` driver). This is the same distinction as the raw-`sql`-expression
   note under Temporal below: neither path is a plain column read.
@@ -269,7 +269,7 @@ Reach for these rather than re-deriving; each is the single implementation, and 
 regression the split existed to prevent.
 
 - **Hostname → site id**: `helpers/siteResolution.ts#siteIdForHostname(hostname, { strict })`, never
-  a bare `WIKI.sitesMappings[…]` index — it folds the case and applies the `*` catch-all (`strict`
+  a bare `CARDINAL.sitesMappings[…]` index — it folds the case and applies the `*` catch-all (`strict`
   skips the fallback). Siblings: `siteForHostname(hostname)` and `resolveSiteParam(param, hostname,
 { strict })` for the `current`/uuid/hostname three-way a path parameter can spell.
 - **A cacheable response's ETag/`Cache-Control`/304 dance**:
@@ -284,7 +284,7 @@ regression the split existed to prevent.
   `isUniqueViolation(err)`, `escapeLikePattern(value)` and `BCRYPT_ROUNDS`. Never write
   `bcrypt.hash(x, 12)`, and never hand-roll a prefix filter's escaping.
 - **A TTL sweep of a `<dataPath>` directory**: `helpers/fsPurge.ts#purgeFilesOlderThan(dir, ttl)`.
-- **"Are these real group ids"**: `WIKI.models.groups.hasUnknownGroupIds(ids)`.
+- **"Are these real group ids"**: `CARDINAL.models.groups.hasUnknownGroupIds(ids)`.
 - **Offset pagination**: `helpers/pagination.ts#paginate`. Its `total` thunk takes drizzle's own
   `select({ total: count() })` — and the `total` alias is load-bearing, since `paginate` reads
   `totals[0]?.total` and any other alias silently paginates as `total: 0`.
@@ -297,7 +297,7 @@ helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEv
   are deliberately not (theirs are per-site invalidates, not whole-cache reloads).
 - **Telling the outside world about a page or asset write**: `models/hooks.ts#announce` — webhook
   emit then storage dispatch, both awaited, in that order. It is a module function, not a `Hooks`
-  method, precisely so a caller's test can stub `WIKI.models.hooks` as a bare `{ emit }`.
+  method, precisely so a caller's test can stub `CARDINAL.models.hooks` as a bare `{ emit }`.
 - **Page-placement refusals**: `helpers/localeRouting.ts#assertLocaleActive` /
   `#assertPathNotReservedLocale`. `tree.ts`'s reserved-locale check is a deliberately different,
   root-only error and is not these.
@@ -364,16 +364,16 @@ helpers/clusterCache.ts#ClusterReloaded`, declaring `protected readonly reloadEv
 
 ## Logging
 
-Everything the backend writes to stdout goes through `WIKI.logger`, in one shape:
+Everything the backend writes to stdout goes through `CARDINAL.logger`, in one shape:
 
 ```ts
-WIKI.logger.info('db', 'connected', { postgres: '18.6', schema, migrations: 0, ms })
-WIKI.logger.error('jobs', 'purgeUploads failed, no attempts left', {
+CARDINAL.logger.info('db', 'connected', { postgres: '18.6', schema, migrations: 0, ms })
+CARDINAL.logger.error('jobs', 'purgeUploads failed, no attempts left', {
   job: job.id,
   attempts: 3,
   error: err
 })
-WIKI.logger.debug('jobs', 'storageSyncTick found nothing due')
+CARDINAL.logger.debug('jobs', 'storageSyncTick found nothing due')
 ```
 
 `(scope, message, fields?)` on each of the four levels — `error`, `warn`, `info`, `debug`. A file
@@ -381,7 +381,7 @@ that logs a lot from one subsystem binds a child instead, and every line it emit
 standing fields:
 
 ```ts
-const log = WIKI.logger.scope('storage', { module: 'git', target: target.id })
+const log = CARDINAL.logger.scope('storage', { module: 'git', target: target.id })
 log.debug('pulling from origin', { branch })
 ```
 
@@ -419,21 +419,21 @@ log.debug('pulling from origin', { branch })
   `tasks/migrate.ts`, `tasks/verify-migration.ts` and `tasks/promote-admin.ts`. Each carries a
   file-level disable and a one-line reason. `index.ts` gets three _inline_ disables instead — the
   Node-version and cwd refusals, and the `IS_DEBUG` process-warning dump, all of which run before
-  `WIKI.logger` exists — since the rest of the file logs normally. A new `console.*` anywhere else
-  goes through `WIKI.logger`.
+  `CARDINAL.logger` exists — since the rest of the file logs normally. A new `console.*` anywhere else
+  goes through `CARDINAL.logger`.
 
 `logLevel` (`error|warn|info|debug`), `logFormat` (`text|json`) and `logScopes` (a map of scope to
 level) are validated at boot case-sensitively: an unrecognised value — including an unknown scope
 name in `logScopes` — is a one-line refusal and `exit(1)`, not a value that quietly logs everything.
 
 **A line's threshold is per scope, resolved per call**, in `core/logger.ts#effectiveLevel`: the
-`scopeOverrides` thunk `init()` was handed, then `WIKI.config.logScopes`, then `logLevel` as the
+`scopeOverrides` thunk `init()` was handed, then `CARDINAL.config.logScopes`, then `logLevel` as the
 default for a scope neither map names. `index.ts` is what supplies the thunk, over
 `models/flags.ts#logScopeOverrides()` — which is all the `sqlLog` and `authDebug` system flags are
 now: `sqlLog` raises `sql` to `debug`, `authDebug` raises `auth` to `debug`, live, no restart.
 Neither flag gates a call site any more, and **new code must not add a second gate of its own**:
 `core/db.ts`'s query logger emits every query at `debug sql` unconditionally and lets the threshold
-decide, and `models/flags.ts#authDebug()` is a bare `WIKI.logger.debug('auth', message)`. A line
+decide, and `models/flags.ts#authDebug()` is a bare `CARDINAL.logger.debug('auth', message)`. A line
 worth emitting only sometimes is a line at the right level in the right scope, not a line behind an
 `if`.
 
@@ -507,9 +507,9 @@ below, written from the #2687/#2688 test-value audits.
   `path.join(path.dirname(fileURLToPath(import.meta.url)), 'base.yml')`, so it belongs with the file
   it guards the same way any other co-located test does. A test file that genuinely does have one
   specific co-located sibling belongs next to it, not here.
-- **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
+- **Prefer pure unit tests with no `CARDINAL` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
-  `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
+  `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `CARDINAL`, no
   database) are the reference examples. Reach for a real Postgres instance when the thing under test
   _is_ SQL orchestration that a mock of the query builder would mostly just be re-describing rather
   than verifying — a `models/` write path that inserts, checks a constraint, and coordinates a couple
@@ -521,7 +521,7 @@ below, written from the #2687/#2688 test-value audits.
   so an unset `DATABASE_URL` reports as skipped and CI/local runs without one still pass with nothing
   DB-backed even attempted. `setupTestDb()` (call from `before()`) connects, creates a fresh,
   randomly-named schema, runs the real migrations from `db/migrations/` into it, installs a minimal
-  `WIKI` global scoped to just what a model needs (`db`, a silent `logger`, `sites`, `config`,
+  `CARDINAL` global scoped to just what a model needs (`db`, a silent `logger`, `sites`, `config`,
   `models`, plus the `cache`/`events` stubs below), and seeds one site/user/group — returned as
   `{ db, siteId, userId, groupId }`. `teardownTestDb()` (call from `after()`) drops that schema and
   closes the pool.
@@ -537,27 +537,27 @@ below, written from the #2687/#2688 test-value audits.
     `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`. Nothing under
     `npm run test` spins up its own database — pointing `DATABASE_URL` at one, ephemeral or
     `.devcontainer`'s, is always the caller's choice to make.
-- **Mocking convention: `test/mocks.ts`.** `WIKI.cache` and `WIKI.events` exist for cross-request and
+- **Mocking convention: `test/mocks.ts`.** `CARDINAL.cache` and `CARDINAL.events` exist for cross-request and
   cross-instance concerns that almost no model-layer test is actually exercising — `createCacheStub()`
   / `createEventsStub()` (and `createSchedulerStub()`, `createSiteAdminAccessStub()`,
   `createSilentLogger()`) build the smallest object satisfying the methods a code path under test
   actually calls (`node:test`'s `mock.fn()`, so a test that DOES care can assert
   `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
-  the app boots with. Follow the same pattern for any other `WIKI` member a future model test
+  the app boots with. Follow the same pattern for any other `CARDINAL` member a future model test
   needs present but does not care about.
   - **`createSilentLogger()` swallows both call shapes and answers `scope()` with itself**, so a
-    suite asserting on a log line spies the level method it cares about (`WIKI.logger.warn =
+    suite asserting on a log line spies the level method it cares about (`CARDINAL.logger.warn =
 mock.fn()`) rather than building its own logger. Assert on the **scope and the fields** a call
     passed, not on the rendered string: the renderer is `core/logger.ts`'s business, and a test that
     matches formatted text breaks the moment a column widens. **Never assert against
-    `WIKI.logger.backlog()` or subscribe to `WIKI.logger.ws`** — both carry structured frames whose
+    `CARDINAL.logger.backlog()` or subscribe to `CARDINAL.logger.ws`** — both carry structured frames whose
     shape belongs to the logger, not to the code under test.
-  - **A new test never writes a `WIKI = {…}` literal.** `installTestWiki(overrides)` installs
+  - **A new test never writes a `CARDINAL = {…}` literal.** `installTestWiki(overrides)` installs
     `createWikiStub(overrides)` as the global and returns a `{ restore() }` to call in
     `after()`/`afterEach()` — `node --test` isolates each matched FILE into its own process but not
     each suite within one, so a file that installs a global and walks away leaves it standing.
     `setupTestDb()` is a caller of the same builder. The pre-harness `models/*.test.ts` suites (30
-    files as of this writing, `assetServing.test.ts` among them) still write their own `WIKI = {…}`
+    files as of this writing, `assetServing.test.ts` among them) still write their own `CARDINAL = {…}`
     literal directly — they predate `installTestWiki` and are converted as each is next touched, not
     as a standalone sweep.
   - **`createWikiStub` defaults `models` to `{}` on purpose**: an absent member throwing is coverage
@@ -565,7 +565,7 @@ mock.fn()`) rather than building its own logger. Assert on the **scope and the f
     model it should not), so a suite names exactly the methods its code path calls. `data.systemIds`
     defaults to `{}` so a read answers `undefined` rather than throwing. Overrides are
     **deep-merged** — a nested `{ events: {…} }` merges into the default rather than replacing it,
-    so assert against `WIKI.events`, not the literal you passed — while arrays, class instances and
+    so assert against `CARDINAL.events`, not the literal you passed — while arrays, class instances and
     `mock.fn()`s replace wholesale. The merge copies property DESCRIPTORS, so a stub may declare a
     **getter** to steer what a route sees from a module-level variable per test.
 - **A route test boots through `test/fastify.ts#buildTestApp({ routes, wiki, schemas, session,

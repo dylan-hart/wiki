@@ -180,7 +180,7 @@ Otherwise follow **standard JS** rules. Note that much of `frontend/` predates o
 the standard-style space before parens (`function initializeRouter ()`); new and touched code should
 be oxfmt-formatted, but don't reformat untouched files as drive-by changes.
 
-Each of the three workspaces has its own `.oxlintrc.json` — the backend declares the `WIKI` global
+Each of the three workspaces has its own `.oxlintrc.json` — the backend declares the `CARDINAL` global
 and node env; the frontend adds the `vue` plugin and the `API_CLIENT` / `EVENT_BUS` / `Temporal`
 globals; blocks declares a browser env, with no globals of its own to add. Only the `correctness`
 category is an error, everywhere.
@@ -246,7 +246,7 @@ editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, ar
 each rule names some of them (`roles`) plus how it addresses pages (`match` + `path`, or tags) and
 what it does with them (`mode`: ALLOW / DENY / FORCEALLOW). Nothing is granted by default, and when
 several rules match, the most specific one wins — `helpers/pageRules.ts` documents the ordering.
-Ask `WIKI.models.groups.checkAccess(actor, permission, page)`, or
+Ask `CARDINAL.models.groups.checkAccess(actor, permission, page)`, or
 `mayOnPage(req, permission, siteId, page)` in `helpers/pageAccess.ts`.
 
 **Site-scoped delegation permissions** are bound to a site (not a path): `site:general`,
@@ -258,12 +258,12 @@ site administrator. A group grants them through the **same rule rows** page perm
 alone instead of `path`/`match`/`locales`: an empty `sites` array means every site, a populated one
 means only those ids. Nothing is granted by default; `helpers/siteRules.ts#resolveSiteRule` documents the ALLOW <
 DENY < FORCEALLOW tie-break, the same ordering `helpers/pageRules.ts` uses. Ask
-`WIKI.models.groups.checkSiteAccess(actor, permission, siteId)`.
+`CARDINAL.models.groups.checkSiteAccess(actor, permission, siteId)`.
 
 **"Global permission OR `site:*` delegation" has one implementation**:
-`WIKI.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)`, with
+`CARDINAL.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)`, with
 `helpers/siteRules.ts#maySiteAdmin` as its four-argument call-site shorthand (no logic of its own;
-it resolves `WIKI.models.groups` at call time, and exists only so a one-line gate stays one line).
+it resolves `CARDINAL.models.groups` at call time, and exists only so a one-line gate stays one line).
 The global half is checked first and is site-blind, so delegation is additive rather than a
 migration; the site half is `checkSiteAccess()` unchanged, site pin, API-key scope boundary and
 `manage:system` bypass included. Do not write a route-file wrapper around it.
