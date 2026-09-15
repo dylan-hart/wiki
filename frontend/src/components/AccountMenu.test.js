@@ -68,6 +68,58 @@ describe('AccountMenu initials plate', () => {
 })
 
 /**
+ * Task #3264: a manually-uploaded avatar (`hasAvatar`) always wins; the provider-synced picture
+ * (`avatarProviderUrl`) is only a fallback rendered in its place, and initials are the last resort.
+ */
+describe('AccountMenu avatar fallback', () => {
+  function mountFor({ hasAvatar = false, avatarProviderUrl = null } = {}) {
+    const { wrapper } = mountWithApp(AccountMenu, {
+      messages: {
+        common: { header: { profile: 'Profile', logout: 'Log Out', account: 'Account' } }
+      },
+      stores: {
+        user: (store) =>
+          store.$patch({
+            authenticated: true,
+            name: 'Reader',
+            email: 'r@example.com',
+            hasAvatar,
+            avatarProviderUrl
+          })
+      }
+    })
+    return wrapper
+  }
+
+  it('renders the uploaded avatar when hasAvatar is set, ignoring avatarProviderUrl', () => {
+    const wrapper = mountFor({
+      hasAvatar: true,
+      avatarProviderUrl: 'https://provider.example/photo.jpg'
+    })
+
+    const img = wrapper.find('.account-avbtn img')
+    expect(img.attributes('src')).toBe('/_user/current/avatar')
+  })
+
+  it('falls back to the provider avatar when there is no manual upload', () => {
+    const wrapper = mountFor({
+      hasAvatar: false,
+      avatarProviderUrl: 'https://provider.example/photo.jpg'
+    })
+
+    const img = wrapper.find('.account-avbtn img')
+    expect(img.attributes('src')).toBe('https://provider.example/photo.jpg')
+  })
+
+  it('falls back to initials when neither a manual nor a provider avatar exists', () => {
+    const wrapper = mountFor()
+
+    expect(wrapper.find('.account-avbtn img').exists()).toBe(false)
+    expect(wrapper.find('.account-initials').exists()).toBe(true)
+  })
+})
+
+/**
  * OpenProject #2787: Profile and Logout should each fill exactly half of the actions row -- flush to
  * the outer edges and to a shared middle divider -- instead of sitting centered with a gap the way
  * `WCardActions`' shared default lays out every OTHER caller's confirm/cancel pair, and Logout should

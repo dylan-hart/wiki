@@ -51,6 +51,14 @@
             loading="lazy"
             width="30"
             height="30" />
+          <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+          <img
+            v-else-if="person.avatarProviderUrl"
+            :src="person.avatarProviderUrl"
+            alt=""
+            loading="lazy"
+            width="30"
+            height="30" />
           <span v-else>{{ initials(person.name) }}</span>
         </div>
         <w-tooltip>

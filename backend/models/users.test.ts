@@ -89,6 +89,7 @@ describe('users.updateSession', () => {
       email: 'ada@example.com',
       name: 'Ada Lovelace',
       hasAvatar: true,
+      avatarProviderUrl: null,
       timezone: 'America/New_York',
       dateFormat: 'YYYY-MM-DD',
       timeFormat: undefined,
@@ -98,6 +99,29 @@ describe('users.updateSession', () => {
       cvd: 'none',
       locale: 'fr'
     })
+  })
+
+  /**
+   * Task #3264: `avatarProviderUrl` rides the session the same way `hasAvatar` does -- carried at
+   * login rather than re-fetched per request (see `api/users/admin.ts#whoAmI`'s doc comment) -- so
+   * the frontend can render it as a fallback avatar without an extra round trip.
+   */
+  test('carries avatarProviderUrl through onto the session when the row has one', async () => {
+    const user = makeUser({ avatarProviderUrl: 'https://provider.example/photo.jpg' })
+    const req = makeReq()
+
+    await users.updateSession(user, req)
+
+    assert.equal(req.session.user.avatarProviderUrl, 'https://provider.example/photo.jpg')
+  })
+
+  test('normalizes a missing avatarProviderUrl to null rather than undefined', async () => {
+    const user = makeUser()
+    const req = makeReq()
+
+    await users.updateSession(user, req)
+
+    assert.equal(req.session.user.avatarProviderUrl, null)
   })
 
   test('flattens permissions across every group the user belongs to', async () => {

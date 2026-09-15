@@ -42,9 +42,22 @@ const { FakeWebsocketProvider } = vi.hoisted(() => {
       return this.states
     }
 
-    on() {}
+    on(event, cb) {
+      ;(this.listeners[event] ??= []).push(cb)
+    }
 
-    off() {}
+    off(event, cb) {
+      this.listeners[event] = (this.listeners[event] ?? []).filter((fn) => fn !== cb)
+    }
+
+    // -> Not part of the real y-protocols API -- a test-only hook so a suite can drive the same
+    //    'change' listener `composables/collab.js` itself registers via `on()` above, the same way
+    //    `FakeWebsocketProvider#emit` lets a test drive the provider's own listeners.
+    emit(event, ...args) {
+      for (const cb of this.listeners[event] ?? []) {
+        cb(...args)
+      }
+    }
   }
 
   class FakeWebsocketProvider {
@@ -337,6 +350,71 @@ describe('bindCollabEditor', () => {
     boot()
     expect(() => bindCollabEditor(() => undefined)).not.toThrow()
     expect(() => stopCollabSession()).not.toThrow()
+  })
+})
+
+/**
+ * Task #3264: `avatarProviderUrl` rides the same awareness `user` field `hasAvatar` already does --
+ * written once at connect, and read back by `refreshParticipants()` into `collabStore.participants`
+ * for `CollabPresence.vue` to render as a fallback.
+ */
+describe('collab presence carries avatarProviderUrl', () => {
+  function boot({ avatarProviderUrl = null } = {}) {
+    const siteStore = useSiteStore()
+    const pageStore = usePageStore()
+    const userStore = useUserStore()
+    siteStore.id = 'site-1'
+    pageStore.id = 'page-1'
+    userStore.id = 'user-1'
+    userStore.name = 'Ada Lovelace'
+    userStore.hasAvatar = false
+    userStore.avatarProviderUrl = avatarProviderUrl
+    startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
+    return { provider: latestProvider() }
+  }
+
+  it('seeds the local awareness state with the signed-in user’s avatarProviderUrl', () => {
+    const { provider } = boot({ avatarProviderUrl: 'https://provider.example/photo.jpg' })
+
+    expect(provider.awareness.getLocalState().user.avatarProviderUrl).toBe(
+      'https://provider.example/photo.jpg'
+    )
+  })
+
+  it('seeds null rather than undefined when the user has none', () => {
+    const { provider } = boot()
+
+    expect(provider.awareness.getLocalState().user.avatarProviderUrl).toBe(null)
+  })
+
+  it('maps a remote participant’s avatarProviderUrl into collabStore.participants on an awareness change', () => {
+    const { provider } = boot()
+    provider.awareness.states.set(1, {
+      user: {
+        id: 'user-2',
+        name: 'Grace Hopper',
+        hasAvatar: false,
+        avatarProviderUrl: 'https://provider.example/grace.jpg',
+        color: '#222'
+      }
+    })
+
+    provider.awareness.emit('change')
+
+    const remote = useCollabStore().participants.find((p) => p.id === 'user-2')
+    expect(remote.avatarProviderUrl).toBe('https://provider.example/grace.jpg')
+  })
+
+  it('normalizes a remote participant with no avatarProviderUrl to null, not undefined', () => {
+    const { provider } = boot()
+    provider.awareness.states.set(1, {
+      user: { id: 'user-2', name: 'Grace Hopper', hasAvatar: false, color: '#222' }
+    })
+
+    provider.awareness.emit('change')
+
+    const remote = useCollabStore().participants.find((p) => p.id === 'user-2')
+    expect(remote.avatarProviderUrl).toBe(null)
   })
 })
 

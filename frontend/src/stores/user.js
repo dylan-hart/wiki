@@ -123,6 +123,12 @@ export const useUserStore = defineStore('user', {
     email: '',
     name: '',
     hasAvatar: false,
+    /**
+     * The provider-reported avatar URL cached at login (Task #3264), or `null` when none has been
+     * synced. Only a fallback: `hasAvatar` wins wherever both are set, matching the backend's own
+     * `syncAvatarFromProvider()` precedence.
+     */
+    avatarProviderUrl: null,
     location: '',
     jobTitle: '',
     pronouns: '',
@@ -183,6 +189,7 @@ export const useUserStore = defineStore('user', {
         name: resp.name || 'Unknown User',
         email: resp.email,
         hasAvatar: resp.hasAvatar ?? false,
+        avatarProviderUrl: resp.avatarProviderUrl ?? null,
         location: resp.location || '',
         jobTitle: resp.jobTitle || '',
         pronouns: resp.pronouns || '',
@@ -232,6 +239,7 @@ export const useUserStore = defineStore('user', {
         email: '',
         name: '',
         hasAvatar: false,
+        avatarProviderUrl: null,
         location: '',
         jobTitle: '',
         pronouns: '',

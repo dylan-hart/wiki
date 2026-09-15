@@ -49,6 +49,15 @@
                   width="32"
                   height="32" />
               </w-avatar>
+              <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+              <w-avatar v-else-if="usr.avatarProviderUrl" size="md">
+                <img
+                  :src="usr.avatarProviderUrl"
+                  :alt="usr.name"
+                  loading="lazy"
+                  width="32"
+                  height="32" />
+              </w-avatar>
               <w-avatar v-else size="md" color="primary" text-color="white" icon="tabler:user" />
             </w-item-section>
             <w-item-section>
