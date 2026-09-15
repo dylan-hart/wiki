@@ -28,6 +28,24 @@ function authenticatedShellMarker(page) {
 }
 
 /**
+ * How long to wait for `authenticatedShellMarker` to appear after a login, instead of the suite's
+ * global 5s `expect.timeout` (`playwright.config.js`) -- a successful login is never a router push:
+ * `AuthLoginPanel.vue`'s `handleLoginResponse` 'redirect' branch always does a real
+ * `window.location.replace()` (a full teardown/rebuild of the whole app through `bootstrap`), and
+ * unless `prefers-reduced-motion` is set it first burns a fixed, unconditional 320ms
+ * (`EXIT_FLOURISH_MS`) on the exit-flourish animation before that navigation even starts. That is a
+ * fundamentally heavier round trip than an ordinary in-SPA assertion -- 320ms of dead time, then a
+ * real page load (asset fetch, JS boot, another `bootstrap` fetch, mount) -- and is exactly what CI
+ * load pushes past 5s (OpenProject #3306, the confirmed shared cause of a hard failure in
+ * `scheduler.spec.js`'s `reapStaleJobs` test plus three specs independently flagged flaky in the
+ * same CI run -- `glossary.spec.js`, `scheduler.spec.js`'s own `beforeEach`, and
+ * `viewport-narrow.spec.js` -- each failing at its own call into this wait). 15s matches the
+ * suite's existing convention for other CI-load-sensitive waits (`toPass({ timeout: 15_000 })`,
+ * used repeatedly in `scheduler.spec.js`).
+ */
+const AUTHENTICATED_SHELL_TIMEOUT = 15_000
+
+/**
  * Fills the login form already on screen and submits it -- no navigation, and no assertion about
  * what comes back. Split out from `loginAsAdmin` because three specs sign in somewhere other than a
  * fresh `/login` visit (a second site's hostname reached through its own "Login" link, a second
@@ -57,7 +75,7 @@ export async function submitLogin(page, email, password) {
 export async function loginAsAdmin(page) {
   await page.goto('/login')
   await submitLogin(page, ADMIN_EMAIL, ADMIN_PASSWORD)
-  await expect(authenticatedShellMarker(page)).toBeVisible()
+  await expect(authenticatedShellMarker(page)).toBeVisible({ timeout: AUTHENTICATED_SHELL_TIMEOUT })
 }
 
 /**
@@ -68,10 +86,14 @@ export async function loginAsAdmin(page) {
  * that helper's own comment gives -- `loginAsAdmin` already waited on the marker, and this assertion
  * disagreeing with it below 900px was exactly the trap task 2114 hit.
  *
+ * Called both from `loginAsAdmin`-driven specs and directly after `submitLogin` (`auth.spec.js`,
+ * `multi-site.spec.js`) -- both paths go through the same full-page-reload login, so this uses the
+ * same `AUTHENTICATED_SHELL_TIMEOUT` `loginAsAdmin` does (OpenProject #3306).
+ *
  * @param {import('@playwright/test').Page} page
  */
 export async function expectAuthenticatedShell(page) {
-  await expect(authenticatedShellMarker(page)).toBeVisible()
+  await expect(authenticatedShellMarker(page)).toBeVisible({ timeout: AUTHENTICATED_SHELL_TIMEOUT })
   await expect(page.getByRole('link', { name: 'Login' })).toHaveCount(0)
 }
 
