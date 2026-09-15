@@ -6,18 +6,18 @@
  * MathJax's own `FontData.dynamicFileName()` (`@mathjax/src`) decides which one it needs at
  * *typesetting* time, as a string assembled at runtime — `dynamicPrefix + '/' + file + '.js'`, with
  * `dynamicPrefix` defaulting to the bare package specifier `@mathjax/mathjax-newcm-font/js/svg/
- * dynamic` — and hands it to `mathjax.asyncLoad`. Rollup can only fold an `import()` into its own
- * chunk graph when the call's specifier is a literal it can see in the source; a string built at
+ * dynamic` — and hands it to `mathjax.asyncLoad`. The bundler can only fold an `import()` into its
+ * own chunk graph when the call's specifier is a literal it can see in the source; a string built at
  * runtime is opaque to it, and handing that runtime string straight to a browser's native `import()`
  * is exactly the previously-broken behavior this block shipped (a bare specifier with nothing to
  * resolve it — no import map, no bundler watching at request time). So every file the installed
- * package ships gets its own literal `import()` here, which Rollup's default multi-entry code
+ * package ships gets its own literal `import()` here, which Rolldown's default multi-entry code
  * splitting turns into its own chunk under `compiled/` with no config change needed — and
  * `component.js`'s `mathjax.asyncLoad` hook picks the matching entry out of this map instead of
  * passing MathJax's computed name to `import()` unchanged.
  *
  * `dynamicChunks.test.js` is the guard against this list drifting from the package's actual
- * `svg/dynamic/` contents on a version bump — the same shape of check `rollup.config.mjs`'s
+ * `svg/dynamic/` contents on a version bump — the same shape of check `rolldown.config.mjs`'s
  * `blocksManifest()` runs against block directories, applied here to a third-party font package.
  */
 export const DYNAMIC_CHUNKS = {

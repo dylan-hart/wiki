@@ -26,7 +26,7 @@ import { DarkMode } from '../shared/theme.js'
   the shadow root with the component, where the class names KaTeX writes into its markup are.
 
   The `url()` in each face is already a data URI by this point: see `cssAsString` in
-  `rollup.config.mjs` for why a block cannot leave its fonts as files.
+  `rolldown.config.mjs` for why a block cannot leave its fonts as files.
 */
 const FONT_FACE_RULE = /@font-face\{[^{}]*\}/g
 const KATEX_FONT_FACES = (katexCss.match(FONT_FACE_RULE) ?? []).join('')

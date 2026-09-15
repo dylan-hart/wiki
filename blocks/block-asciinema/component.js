@@ -1,7 +1,7 @@
 import { LitElement, html, css, unsafeCSS } from 'lit'
 import { create } from 'asciinema-player'
 // -> The player's stylesheet, as a string. It is what draws the terminal, and a <link> in the page
-//    cannot reach into this shadow root — see the `cssAsString` plugin in rollup.config.mjs.
+//    cannot reach into this shadow root — see the `cssAsString` plugin in rolldown.config.mjs.
 import playerCss from 'asciinema-player/dist/bundle/asciinema-player.css'
 import { boolean } from '../shared/props.js'
 import { renderError } from '../shared/render.js'

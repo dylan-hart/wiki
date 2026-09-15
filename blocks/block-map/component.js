@@ -1,6 +1,7 @@
 import { LitElement, html, css, unsafeCSS } from 'lit'
-// -> The ESM build by name: leaflet's `main` is still the UMD bundle, which rollup can only take
-//    apart with a commonjs plugin, and it has no `exports` map to pick the module build for us
+// -> The ESM build by name: leaflet's `main` is still the UMD bundle, which needs the bundler's
+//    built-in CommonJS interop to take apart, and it has no `exports` map to pick the module build
+//    for us
 import * as L from 'leaflet/dist/leaflet-src.esm.js'
 import leafletCss from 'leaflet/dist/leaflet.css'
 import { renderError } from '../shared/render.js'
