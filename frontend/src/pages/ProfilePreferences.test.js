@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
@@ -529,20 +529,19 @@ describe('ProfilePreferences carries identity fields through unmodified (OpenPro
 })
 
 /**
- * Task #3220 (Epic #3219): the explicit Save button is gone -- a field change auto-applies,
- * debounced, with no toast on success (ambient, the point is removing the need to think about
+ * Task #3220 (Epic #3219) established the shape: the explicit Save button is gone -- a field change
+ * auto-applies, with no toast on success (ambient, the point is removing the need to think about
  * saving at all) but a toast, plus inline error state where it can be pinned to a field, on failure.
- * Mirrors `ProfileInfo.test.js`'s own suite of the same name; this page's own control is the
- * timezone `w-select` rather than a text `w-input`.
+ * Task #3320 (Feature #3319) then dropped the debounce entirely for this page: every field here is a
+ * toggle or a select, and there is no intermediate "typing" state for either the way there is for a
+ * text field, so each one saves as soon as its own change event fires. `ProfileInfo.vue` keeps its
+ * own debounce for the text fields it still owns (`ProfileInfo.test.js` covers that one); this page
+ * carries no debounce at all any more, which is what the tests below pin.
  */
-describe('ProfilePreferences auto-save (Task #3220)', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+describe('ProfilePreferences fields save immediately, no debounce (Task #3220/#3320)', () => {
+  function findToggle(wrapper, label) {
+    return wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+  }
 
   it('renders no Save button at all', async () => {
     const wrapper = mountProfile(FULL_PROFILE)
@@ -556,28 +555,93 @@ describe('ProfilePreferences auto-save (Task #3220)', () => {
     mountProfile(FULL_PROFILE)
     await flushPromises()
     globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
-
-    await vi.advanceTimersByTimeAsync(2000)
     await flushPromises()
 
     expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
   })
 
-  it('saves automatically, debounced, once a field is edited -- with no explicit trigger', async () => {
+  it('saves as soon as a btn-toggle segment is clicked, with no debounce wait', async () => {
     const wrapper = mountProfile(FULL_PROFILE)
     await flushPromises()
     globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
 
+    // -> No timer advance at all: this must already have gone out.
     await toggleTimeFormatTo24h(wrapper)
-    await flushPromises()
-    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(800)
     await flushPromises()
 
     expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
     expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
       timeFormat: '24h'
+    })
+  })
+
+  it('saves each of the seven toggle/select fields immediately on its own change', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const cases = [
+      {
+        label: 'profile.aesthetic',
+        text: 'profile.aestheticLedger',
+        field: 'aesthetic',
+        value: 'ledger'
+      },
+      {
+        label: 'profile.appearance',
+        text: 'profile.appearanceLight',
+        field: 'appearance',
+        value: 'light'
+      },
+      {
+        label: 'profile.contentWidth',
+        text: 'profile.contentWidthFull',
+        field: 'contentWidth',
+        value: 'full'
+      },
+      {
+        label: 'profile.timeFormat',
+        text: 'admin.general.defaultTimeFormat24h',
+        field: 'timeFormat',
+        value: '24h'
+      },
+      { label: 'profile.cvd', text: 'profile.cvdProtanopia', field: 'cvd', value: 'protanopia' }
+    ]
+
+    for (const { label, text, field, value } of cases) {
+      globalThis.API_CLIENT.put.mockClear()
+      const toggle = findToggle(wrapper, label)
+      const segment = toggle.findAll('button').find((btn) => btn.text() === text)
+      await segment.trigger('click')
+      await flushPromises()
+
+      expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+      expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({ [field]: value })
+    }
+
+    // -> The two `w-select`-backed fields (timezone, dateFormat) emit the same `update:model-value`
+    //    event a real pick would; driving them through the DOM's own dropdown is `WSelect.test.js`'s
+    //    job, not this suite's.
+    globalThis.API_CLIENT.put.mockClear()
+    const dateFormatSelect = wrapper
+      .findAllComponents({ name: 'WSelect' })
+      .find((c) => c.props('ariaLabel') === 'admin.general.defaultDateFormat')
+    await dateFormatSelect.vm.$emit('update:modelValue', 'YYYY-MM-DD')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      dateFormat: 'YYYY-MM-DD'
+    })
+
+    globalThis.API_CLIENT.put.mockClear()
+    const timezoneSelect = wrapper
+      .findAllComponents({ name: 'WSelect' })
+      .find((c) => c.props('ariaLabel') === 'admin.general.defaultTimezone')
+    await timezoneSelect.vm.$emit('update:modelValue', 'America/New_York')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      timezone: 'America/New_York'
     })
   })
 
@@ -588,7 +652,6 @@ describe('ProfilePreferences auto-save (Task #3220)', () => {
     notifyQueue.splice(0, notifyQueue.length)
 
     await toggleTimeFormatTo24h(wrapper)
-    await vi.advanceTimersByTimeAsync(800)
     await flushPromises()
 
     expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
@@ -605,7 +668,6 @@ describe('ProfilePreferences auto-save (Task #3220)', () => {
     notifyQueue.splice(0, notifyQueue.length)
 
     await toggleTimeFormatTo24h(wrapper)
-    await vi.advanceTimersByTimeAsync(800)
     await flushPromises()
 
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })

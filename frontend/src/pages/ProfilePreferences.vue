@@ -24,10 +24,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.appearance"
+          :model-value="state.config.appearance"
           :options="appearances"
           :disabled="!canEdit"
-          :aria-label="t(`profile.appearance`)" />
+          :aria-label="t(`profile.appearance`)"
+          @update:model-value="onFieldChange('appearance', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -39,10 +40,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.aesthetic"
+          :model-value="state.config.aesthetic"
           :options="aesthetics"
           :disabled="!canEdit"
-          :aria-label="t(`profile.aesthetic`)" />
+          :aria-label="t(`profile.aesthetic`)"
+          @update:model-value="onFieldChange('aesthetic', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -55,10 +57,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.contentWidth"
+          :model-value="state.config.contentWidth"
           :options="contentWidths"
           :disabled="!canEdit"
-          :aria-label="t(`profile.contentWidth`)" />
+          :aria-label="t(`profile.contentWidth`)"
+          @update:model-value="onFieldChange('contentWidth', $event)" />
       </w-item-section>
     </w-item>
     <h2 class="w-section-header">{{ t('profile.time') }}</h2>
@@ -76,13 +79,14 @@
         -->
         <w-select
           ref="timezoneField"
-          v-model="state.config.timezone"
+          :model-value="state.config.timezone"
           :options="timezones"
           options-dense
           hide-bottom-space
           :aria-label="t(`admin.general.defaultTimezone`)"
           :readonly="!canEdit"
-          :rules="[timezoneRule]" />
+          :rules="[timezoneRule]"
+          @update:model-value="onFieldChange('timezone', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -94,13 +98,14 @@
       </w-item-section>
       <w-item-section>
         <w-select
-          v-model="state.config.dateFormat"
+          :model-value="state.config.dateFormat"
           emit-value
           map-options
           hide-bottom-space
           :aria-label="t(`admin.general.defaultDateFormat`)"
           :options="dateFormats"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @update:model-value="onFieldChange('dateFormat', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -112,10 +117,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.timeFormat"
+          :model-value="state.config.timeFormat"
           :options="timeFormats"
           :disabled="!canEdit"
-          :aria-label="t(`profile.timeFormat`)" />
+          :aria-label="t(`profile.timeFormat`)"
+          @update:model-value="onFieldChange('timeFormat', $event)" />
       </w-item-section>
     </w-item>
     <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
@@ -127,10 +133,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.cvd"
+          :model-value="state.config.cvd"
           :options="cvdChoices"
           :disabled="!canEdit"
-          :aria-label="t(`profile.cvd`)" />
+          :aria-label="t(`profile.cvd`)"
+          @update:model-value="onFieldChange('cvd', $event)" />
       </w-item-section>
     </w-item>
   </w-page>
@@ -138,13 +145,12 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { debounce } from 'es-toolkit/function'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { profileSaving } from '@/composables/profileSaving'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 
 import { useCommonStore } from '@/stores/common'
 import { useSiteStore } from '@/stores/site'
@@ -211,10 +217,13 @@ const state = reactive({
 })
 
 /*
-  Task #3220: auto-save is ambient, so its debounce has to run per keystroke rather than per
-  explicit click -- 800ms gives a reader a real pause to keep typing before a request goes out.
+  Task #3320 (Feature #3319): every field this page owns editing is a toggle or a select -- there is
+  no intermediate "typing" state the way there is for a text field, so each one saves immediately on
+  its own change event (`onFieldChange` below) rather than through a debounce. `ProfileInfo.vue`
+  keeps a debounce of its own for the text fields it still owns; nothing here needs one, which is why
+  this page carries no `debounce`/`AUTO_SAVE_DEBOUNCE_MS` of its own the way it used to before the
+  split (OpenProject #3315) put only toggle/select controls on this page.
 */
-const AUTO_SAVE_DEBOUNCE_MS = 800
 
 const timezoneField = ref(null)
 
@@ -268,6 +277,18 @@ const timezones = Intl.supportedValuesOf('timeZone')
 const canEdit = computed(() => siteStore.features?.profile)
 
 // METHODS
+
+/*
+  Task #3320: every field on this page calls this directly from its own change event -- see the
+  module-level comment above `timezoneField`.
+*/
+function onFieldChange(field, value) {
+  state.config[field] = value
+  if (suppressAutoSave || !canEdit.value) {
+    return
+  }
+  save()
+}
 
 /**
  * The profile is read from the server rather than from the user store, same reasoning as
@@ -381,7 +402,7 @@ async function save() {
       contentWidth: state.config.contentWidth,
       cvd: state.config.cvd
     })
-    // -> Task #3220: ambient auto-save -- no success toast.
+    // -> Task #3220/#3320: ambient auto-save -- no success toast.
   } catch (err) {
     applyFieldErrors(err)
     notify({
@@ -393,33 +414,9 @@ async function save() {
   profileSaving.end()
 }
 
-const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)
-
-/*
-  Watches the whole config object rather than any one field, same reasoning as `ProfileInfo.vue`'s
-  own watcher -- see Task #3220/#3221's coordination note. `applyProfile()` is the only other writer
-  of `state.config`, and it guards itself with `suppressAutoSave`.
-*/
-watch(
-  () => state.config,
-  () => {
-    if (suppressAutoSave || !canEdit.value) {
-      return
-    }
-    debouncedAutoSave()
-  },
-  { deep: true }
-)
-
 // MOUNTED
 
 onMounted(() => {
   fetchProfile()
-})
-
-// -> A pending debounced auto-save left uncancelled would otherwise fire ~800ms after the reader has
-//    already navigated away from this page (OpenProject #808).
-onUnmounted(() => {
-  debouncedAutoSave.cancel()
 })
 </script>
