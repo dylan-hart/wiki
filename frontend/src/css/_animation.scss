@@ -1,6 +1,6 @@
-// ------------------------------------------------------------------
-// ANIMATION
-// ------------------------------------------------------------------
+/* ------------------------------------------------------------------
+   ANIMATION
+   ------------------------------------------------------------------ */
 
 :root {
   --animate-duration: 0.6s;
@@ -11,13 +11,54 @@
   animation-fill-mode: both;
 }
 
-@for $i from 1 to 12 {
-  .wait-p#{$i}s {
-    animation-delay: $i * 0.1s !important;
-  }
+/* -> `wait-p<N>s` per-tenth-of-a-second delay utility, N = 1 through 11 (native CSS has no loop
+      construct, so this replaces a Sass `@for $i from 1 to 12` -- keep any addition in the same
+      0.1s-per-step, !important pattern) */
+.wait-p1s {
+  animation-delay: 0.1s !important;
 }
 
-// -> Slide Up Transition
+.wait-p2s {
+  animation-delay: 0.2s !important;
+}
+
+.wait-p3s {
+  animation-delay: 0.3s !important;
+}
+
+.wait-p4s {
+  animation-delay: 0.4s !important;
+}
+
+.wait-p5s {
+  animation-delay: 0.5s !important;
+}
+
+.wait-p6s {
+  animation-delay: 0.6s !important;
+}
+
+.wait-p7s {
+  animation-delay: 0.7s !important;
+}
+
+.wait-p8s {
+  animation-delay: 0.8s !important;
+}
+
+.wait-p9s {
+  animation-delay: 0.9s !important;
+}
+
+.wait-p10s {
+  animation-delay: 1s !important;
+}
+
+.wait-p11s {
+  animation-delay: 1.1s !important;
+}
+
+/* -> Slide Up Transition */
 
 .slide-up-enter-active,
 .slide-up-leave-active {
@@ -34,7 +75,7 @@
   transform: translateY(-15px);
 }
 
-// -> fadeIn
+/* -> fadeIn */
 
 @keyframes fadeIn {
   from {
@@ -50,7 +91,7 @@
   animation-name: fadeIn;
 }
 
-// -> fadeInLeft
+/* -> fadeInLeft */
 
 @keyframes fadeInLeft {
   from {
@@ -68,7 +109,7 @@
   animation-name: fadeInLeft;
 }
 
-// -> Print + Reduce Motion
+/* -> Print + Reduce Motion */
 
 @media print, (prefers-reduced-motion: reduce) {
   .animated {

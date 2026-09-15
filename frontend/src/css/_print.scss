@@ -1,6 +1,6 @@
-// ------------------------------------------------------------------
-// PRINT
-// ------------------------------------------------------------------
+/* ------------------------------------------------------------------
+   PRINT
+   ------------------------------------------------------------------ */
 /*
   Printing a page used to print the whole app shell along with it -- the header, the side nav, the
   contents/tags/rating column, every floating corner button, and the page's own action row all came
@@ -24,7 +24,7 @@
   nothing below has to single it out -- it survives simply by never being chrome to begin with.
 */
 @media print {
-  // -> Chrome: never part of the article, always hidden
+  /* -> Chrome: never part of the article, always hidden */
   .w-header,
   .w-drawer,
   .corner-btn,
@@ -39,8 +39,10 @@
     display: none !important;
   }
 
-  // -> Structure: freed from the fixed-height scrolling shell so the article can paginate in full --
-  //    see the comment above for why this is needed alongside the hiding above
+  /*
+    -> Structure: freed from the fixed-height scrolling shell so the article can paginate in full --
+       see the comment above for why this is needed alongside the hiding above
+  */
   .w-layout--page,
   .w-layout--container,
   .w-page-container,
