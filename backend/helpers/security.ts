@@ -338,6 +338,42 @@ export function corsOrigin(security: {
 }
 
 /**
+ * The `frame-ancestors` directive value for a site's iframe-embed allowlist (OpenProject #3275), or
+ * `null` when the site's allowlist is empty — the "no embedding, current behavior unchanged" default
+ * from Feature #3267's spec. `'self'` is always included alongside the configured origins: the
+ * allowlist is additive (who ELSE may embed this site), not a replacement for the wiki embedding its
+ * own pages in its own UI.
+ *
+ * Deliberately not run through `parseCspDirectives`/`CSP_DIRECTIVE_NAMES` — this builds one directive
+ * from a known-shape string array, not a whole admin-authored policy string, so there is nothing here
+ * for that parser to validate.
+ */
+export function frameAncestorsDirective(origins: string[]): string | null {
+  if (!origins.length) {
+    return null
+  }
+  return `frame-ancestors 'self' ${origins.join(' ')}`
+}
+
+/**
+ * Adds one CSP directive onto an existing `Content-Security-Policy` header value, without disturbing
+ * whatever directives are already there — `core/http/security.ts`'s boot-time helmet registration
+ * covers every other directive; this only ever appends `frame-ancestors`
+ * (`frameAncestorsDirective` above) on top of it. `existingCsp` mirrors what Fastify's
+ * `reply.getHeader()` can hand back: a plain string, an array (multiple `setHeader` calls coalesced),
+ * or `undefined`/nothing at all when CSP enforcement (`security.enforceCsp`) is off instance-wide —
+ * in which case the new directive becomes the entire header value, same as CSP would look if an
+ * operator had configured only `frame-ancestors` and nothing else.
+ */
+export function appendCspDirective(
+  existingCsp: string | string[] | number | undefined,
+  directive: string
+): string {
+  const existing = Array.isArray(existingCsp) ? existingCsp.join('; ') : existingCsp
+  return existing ? `${existing}; ${directive}` : directive
+}
+
+/**
  * The full option object passed to `@fastify/cors`. This registration is global — it also covers
  * `/_render`, `/_thumb`, `/_assets` and friends, which legitimately want to be embeddable
  * cross-origin — rather than split so `/_api` gets its own policy. `/_api` alone drives the method

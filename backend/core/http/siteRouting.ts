@@ -4,7 +4,11 @@ import type { FastifyInstance } from 'fastify'
 import { resolveAppShellLocale, getTemplatedAppShell } from '../../helpers/appShell.ts'
 import { stripPageExtension } from '../../helpers/common.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
-import { resolveRequestSite, siteIdForHostname } from '../../helpers/siteResolution.ts'
+import {
+  applyEmbedFrameAncestors,
+  resolveRequestSite,
+  siteIdForHostname
+} from '../../helpers/siteResolution.ts'
 
 /**
  * Everything that decides WHICH site (and which canonical URL) a page-shaped request belongs to: the
@@ -140,7 +144,9 @@ export function registerSeoRedirects(app: FastifyInstance): void {
 
 /**
  * Resolves the site a page-shaped request belongs to onto `req.site`, bouncing a hostname that
- * addresses no site (or a disabled one) to the matching `/_error/*` page.
+ * addresses no site (or a disabled one) to the matching `/_error/*` page. Once resolved, also applies
+ * that site's `frame-ancestors` CSP directive (`helpers/siteResolution.ts#applyEmbedFrameAncestors`,
+ * OpenProject #3275) — a no-op for the (default) empty-allowlist case.
  */
 export function registerSiteResolution(app: FastifyInstance): void {
   app.decorateRequest('site', null)
@@ -168,6 +174,7 @@ export function registerSiteResolution(app: FastifyInstance): void {
         return done()
       case 'ok':
         req.site = resolution.site
+        applyEmbedFrameAncestors(resolution.site, reply)
         return done()
       case 'disabled':
         // -> Distinguishable from "not-found" below: this hostname does address a real site, it is

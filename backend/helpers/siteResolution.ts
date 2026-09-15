@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 
 import { isValidUuid } from './common.ts'
+import { appendCspDirective, frameAncestorsDirective } from './security.ts'
 
 /**
  * What a page/shell request's hostname resolved to, for the site-resolution hook in
@@ -190,6 +191,48 @@ export function guardSiteEnabled(
     return true
   }
   return false
+}
+
+/**
+ * A site's per-site iframe-embed allowlist (OpenProject #3275, off Feature #3267's confirmed scope):
+ * `site.config.security.embedAllowedOrigins`, defaulting to `[]` — the field #3274 owns (storage +
+ * admin UI). Read defensively rather than assuming the shape: today no site's `config` has a
+ * `security` sub-key at all (checked against `models/sites.ts`'s default-config blocks when this was
+ * written), so a site resolved before #3274 lands, or one that predates the field, both read as "no
+ * allowlist" rather than throwing.
+ */
+export function embedAllowedOrigins(site: Record<string, any> | null | undefined): string[] {
+  const origins = site?.config?.security?.embedAllowedOrigins
+  return Array.isArray(origins) ? origins : []
+}
+
+/**
+ * Sets the resolved site's `frame-ancestors` CSP directive on the response, layered on top of
+ * whatever `core/http/security.ts`'s boot-time helmet registration already put on
+ * `Content-Security-Policy` for every other directive — never replacing it. A no-op, leaving the
+ * response exactly as helmet already built it, when the site's allowlist is empty (the default): that
+ * is the "current behavior unchanged" acceptance case.
+ *
+ * Called from `core/http/siteRouting.ts#registerSiteResolution`'s `onRequest` hook once a site
+ * resolves, which is registered (and therefore runs) after `core/http/security.ts#registerSecurity`'s
+ * helmet registration — see `index.ts`'s boot order — so `reply.getHeader()` here already sees
+ * whatever helmet set.
+ *
+ * Takes the narrow reply slice it actually uses (`getHeader`/`header`), matching `guardSiteEnabled`
+ * above, so a test can exercise it with a small stand-in rather than a real Fastify reply.
+ */
+export function applyEmbedFrameAncestors(
+  site: Record<string, any> | null | undefined,
+  reply: Pick<FastifyReply, 'getHeader' | 'header'>
+): void {
+  const directive = frameAncestorsDirective(embedAllowedOrigins(site))
+  if (!directive) {
+    return
+  }
+  reply.header(
+    'content-security-policy',
+    appendCspDirective(reply.getHeader('content-security-policy'), directive)
+  )
 }
 
 /**
