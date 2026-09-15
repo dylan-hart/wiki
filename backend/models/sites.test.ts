@@ -180,6 +180,72 @@ describe(
 )
 
 /**
+ * Feature #3267 / Task #3274: both `createSite()` and `init()` seed
+ * `security: { embedAllowedOrigins: [] }` -- no origin may embed this site's pages via iframe until
+ * an admin explicitly adds one (Task #3275 reads this array to compute a per-request
+ * `frame-ancestors` CSP directive). Same "seed the closed-by-default shape" pattern as
+ * `allowedUrlSchemes` above.
+ */
+describe(
+  'sites default config carries security.embedAllowedOrigins (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let sitesModel: typeof import('./sites.ts').sites
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ sites: sitesModel } = await import('./sites.ts'))
+      WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('createSite() defaults config.security.embedAllowedOrigins to an empty array', async () => {
+      const site = await sitesModel.createSite('sites-embed-allowed-origins-test.localhost')
+      const [row] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, site.id))
+      assert.deepEqual((row!.config as Record<string, any>).security, { embedAllowedOrigins: [] })
+    })
+
+    test('createSite() config argument can override the seeded embedAllowedOrigins default', async () => {
+      const site = await sitesModel.createSite(
+        'sites-embed-allowed-origins-override-test.localhost',
+        {
+          security: { embedAllowedOrigins: ['https://intranet.example.com'] }
+        }
+      )
+      const [row] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, site.id))
+      assert.deepEqual((row!.config as Record<string, any>).security, {
+        embedAllowedOrigins: ['https://intranet.example.com']
+      })
+    })
+
+    test('init() seeds the same security.embedAllowedOrigins default as createSite()', async () => {
+      const seededSiteId = randomUUID()
+      await sitesModel.init({
+        groupAdminId: randomUUID(),
+        groupUserId: randomUUID(),
+        groupGuestId: randomUUID(),
+        siteId: seededSiteId,
+        authModuleId: randomUUID(),
+        userAdminId: randomUUID(),
+        userGuestId: randomUUID(),
+        classificationPublicId: randomUUID(),
+        classificationInternalId: randomUUID(),
+        classificationRestrictedId: randomUUID()
+      })
+      const [row] = await fixtures.db
+        .select()
+        .from(sitesTable)
+        .where(eq(sitesTable.id, seededSiteId))
+      assert.deepEqual((row!.config as Record<string, any>).security, { embedAllowedOrigins: [] })
+    })
+  }
+)
+
+/**
  * Feature #2753 / Task #2765: both `createSite()` and `init()` seed `theme.aesthetic: 'ledger'`
  * alongside `theme.dark: false`, the same "seed a default new sites can change" shape as
  * `analytics.providers` above.

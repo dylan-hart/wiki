@@ -651,6 +651,60 @@ test('an allowedUrlSchemes entry with an invalid character is rejected by the sc
   assert.equal(updateSiteCalls.length, 0)
 })
 
+/**
+ * Feature #3267 / Task #3274: `security.embedAllowedOrigins` is gated by `site:general`, the same as
+ * `allowedUrlSchemes` above -- both are additive per-site config surfaces on the same general
+ * delegation, not a new permission.
+ */
+test('site:general on this site may save security.embedAllowedOrigins (task #3274)', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { security: { embedAllowedOrigins: ['https://intranet.example.com'] } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.deepEqual(updateSiteCalls[0].patch.config.security, {
+    embedAllowedOrigins: ['https://intranet.example.com']
+  })
+})
+
+/**
+ * The schema enforces a bare origin (`scheme://host[:port]`, lowercase, no path/query/fragment) since
+ * Task #3275 reads this array directly as literal CSP `frame-ancestors` source-list tokens.
+ */
+test('a security.embedAllowedOrigins entry with a path is rejected by the schema and never reaches updateSite', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { security: { embedAllowedOrigins: ['https://intranet.example.com/embed'] } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('an uppercase security.embedAllowedOrigins entry is rejected by the schema and never reaches updateSite', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { security: { embedAllowedOrigins: ['https://Intranet.example.com'] } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
 test('site:general on this site may not also save the theme surface', async () => {
   const res = await app.inject({
     method: 'PUT',
