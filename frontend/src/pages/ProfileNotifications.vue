@@ -49,6 +49,7 @@ import { computed, onMounted, reactive } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { profileSaving } from '@/composables/profileSaving'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 // I18N
@@ -230,6 +231,7 @@ async function fetchSubscriptions() {
 
 async function save() {
   state.loading++
+  profileSaving.begin()
   try {
     await API_CLIENT.put('users/profile/notifications', { json: { ...state.config } }).json()
     notify({
@@ -244,6 +246,7 @@ async function save() {
     })
   }
   state.loading--
+  profileSaving.end()
 }
 
 // MOUNTED

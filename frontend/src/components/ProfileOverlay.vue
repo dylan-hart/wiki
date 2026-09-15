@@ -13,9 +13,10 @@
         <w-btn
           color="white"
           text-color="text-secondary"
-          :label="t('common.actions.close')"
-          :aria-label="t('common.actions.close')"
+          :label="isSaving ? t('profile.closeDisabledLabel') : t('common.actions.close')"
+          :aria-label="isSaving ? t('profile.closeDisabledLabel') : t('common.actions.close')"
           icon="tabler:x"
+          :loading="isSaving"
           @click="close" />
       </w-btn-group>
     </w-header>
@@ -92,6 +93,7 @@ import { useI18n } from 'vue-i18n'
 import { computed, defineAsyncComponent, onBeforeUnmount, reactive } from 'vue'
 
 import { useMinWidth } from '@/composables/screen'
+import { pendingProfileSaves } from '@/composables/profileSaving'
 
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
@@ -238,6 +240,15 @@ const isNavCollapsed = computed(() => !isAtLeast900.value)
 const currentSection = computed(() => {
   return sidenav.value.find((item) => item.key === state.section) ?? sidenav.value[0]
 })
+
+/**
+ * OpenProject #3282: whether any section has a save/write request in flight -- reads the shared
+ * module singleton rather than anything local, since the section that started the request may have
+ * since unmounted (switching tabs unmounts the previous section entirely, see `sectionComponents`
+ * above). Gates the close button below; `MainOverlayDialog.vue`'s own dismiss guard reads the same
+ * singleton directly for the backdrop-click/Escape path, since it is this component's ancestor.
+ */
+const isSaving = computed(() => pendingProfileSaves.value > 0)
 
 // METHODS
 

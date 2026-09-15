@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import ProfileAuth from './ProfileAuth.vue'
@@ -6,6 +6,25 @@ import ProfileAuth from './ProfileAuth.vue'
 import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
+import { pendingProfileSaves } from '@/composables/profileSaving'
+import { dialog } from '@/composables/dialog'
+
+/*
+  OpenProject #3282's write-action tests below need `confirm(...).onOk(cb)` to fire its callback
+  immediately rather than waiting on a real, rendered WConfirmDialog -- the same mocking idiom
+  `GlossaryImportDialog.test.js` already uses for the same reason. None of this file's other tests
+  click into a menu item that reaches `confirm()`/`dialog()`, so mocking both file-wide is safe.
+*/
+vi.mock('@/composables/dialog', async (importOriginal) => ({
+  ...(await importOriginal()),
+  confirm: vi.fn(() => ({ onOk: (cb) => cb() })),
+  dialog: vi.fn(() => ({ onOk: () => ({ onCancel: () => {} }) }))
+}))
+
+vi.mock('@simplewebauthn/browser', () => ({
+  browserSupportsWebAuthn: vi.fn(() => true),
+  startRegistration: vi.fn(() => Promise.resolve({ id: 'cred-1' }))
+}))
 
 /**
  * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users/profile.ts`) was a
@@ -76,6 +95,151 @@ async function mountPage({ authMethods, recoveryCodesResponse }) {
   await flushPromises()
   return wrapper
 }
+
+/**
+ * OpenProject #3282: each of ProfileAuth's 5 write actions counts itself on the shared
+ * `pendingProfileSaves` module singleton (what gates the Profile dialog's close button/dismiss
+ * guard), alongside `loading.show()`/`loading.hide()`. Each test overrides the relevant
+ * `API_CLIENT` method with a manually-resolved promise so the in-flight count is observable before
+ * the request settles.
+ */
+describe('ProfileAuth pendingProfileSaves (OpenProject #3282)', () => {
+  beforeEach(() => {
+    pendingProfileSaves.value = 0
+  })
+
+  it('counts disableTfa while the DELETE is in flight', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      recoveryCodesResponse: { ok: true, total: 10, remaining: 10 }
+    })
+    let resolveDelete
+    API_CLIENT.delete.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve
+      })
+    )
+
+    // -> disableTfa() itself returns nothing (its async work runs inside confirm()'s mocked onOk
+    //    callback, uncaptured), so the in-flight/settled states are observed via flushPromises()
+    //    rather than by awaiting disableTfa()'s own return value.
+    wrapper.vm.disableTfa('auth-local')
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(1)
+
+    resolveDelete({})
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+
+  it('counts setPasswordLogin while the PUT is in flight', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      recoveryCodesResponse: { ok: true, total: 10, remaining: 10 }
+    })
+    let resolvePut
+    API_CLIENT.put.mockReturnValue({
+      json: () =>
+        new Promise((resolve) => {
+          resolvePut = resolve
+        })
+    })
+
+    const disableLoginPromise = wrapper.vm.setPasswordLogin('auth-local', false)
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(1)
+
+    resolvePut({})
+    await disableLoginPromise
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+
+  it('counts regenerateRecoveryCodes while the POST is in flight', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      recoveryCodesResponse: { ok: true, total: 10, remaining: 10 }
+    })
+    let resolvePost
+    API_CLIENT.post.mockReturnValue({
+      json: () =>
+        new Promise((resolve) => {
+          resolvePost = resolve
+        })
+    })
+
+    wrapper.vm.regenerateRecoveryCodes('auth-local')
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(1)
+
+    resolvePost({ recoveryCodes: ['a', 'b'] })
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+
+  it('counts deactivatePasskey while the DELETE is in flight', async () => {
+    stubApi({
+      'users/profile/auth': {
+        authMethods: [],
+        passkeys: [{ id: 'pk-1', name: 'Yubikey 5', siteHostname: 'wiki.example' }]
+      }
+    })
+    const { wrapper } = mountWithApp(ProfileAuth, {
+      messages: { ...MESSAGES, common: { ...MESSAGES.common, datetime: '{date} at {time}' } }
+    })
+    await flushPromises()
+    let resolveDelete
+    API_CLIENT.delete.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve
+      })
+    )
+
+    wrapper.vm.deactivatePasskey({ id: 'pk-1' })
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(1)
+
+    resolveDelete({})
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+
+  it('counts setupPasskey across its challenge/register/verify round trip', async () => {
+    const wrapper = await mountPage({
+      authMethods: [localAuthMethod()],
+      recoveryCodesResponse: { ok: true, total: 10, remaining: 10 }
+    })
+    dialog.mockImplementationOnce(() => ({
+      onOk: (cb) => {
+        cb({ name: 'My Passkey' })
+        return { onCancel: () => {} }
+      },
+      onCancel: () => {}
+    }))
+    let resolveVerify
+    API_CLIENT.post.mockImplementation((url) => {
+      if (url === 'users/profile/passkeys/challenge') {
+        return { json: () => Promise.resolve({ registrationOptions: {} }) }
+      }
+      if (url === 'users/profile/passkeys') {
+        return {
+          json: () =>
+            new Promise((resolve) => {
+              resolveVerify = resolve
+            })
+        }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const setupPromise = wrapper.vm.setupPasskey()
+    await flushPromises()
+    expect(pendingProfileSaves.value).toBe(1)
+
+    resolveVerify({})
+    await setupPromise
+    expect(pendingProfileSaves.value).toBe(0)
+  })
+})
 
 describe('ProfileAuth recovery-code count', () => {
   it('fetches and renders the remaining count for an enrolled local auth method', async () => {

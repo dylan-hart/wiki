@@ -208,6 +208,7 @@ import { useI18n } from 'vue-i18n'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { profileSaving } from '@/composables/profileSaving'
 import { confirm, dialog } from '@/composables/dialog'
 import { onMounted, reactive } from 'vue'
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
@@ -315,6 +316,7 @@ function disableTfa(strategyId) {
     okLabel: t('profile.authDisableTfa')
   }).onOk(async () => {
     loading.show()
+    profileSaving.begin()
     try {
       await API_CLIENT.delete(`users/profile/tfa/${strategyId}`)
       notify({
@@ -330,6 +332,7 @@ function disableTfa(strategyId) {
     }
     await fetchAuthMethods()
     loading.hide()
+    profileSaving.end()
   })
 }
 
@@ -349,6 +352,7 @@ function enablePasswordLogin(strategyId) {
 
 async function setPasswordLogin(strategyId, isEnabled) {
   loading.show()
+  profileSaving.begin()
   try {
     await API_CLIENT.put('users/profile/password-login', {
       json: {
@@ -373,6 +377,7 @@ async function setPasswordLogin(strategyId, isEnabled) {
   }
   await fetchAuthMethods()
   loading.hide()
+  profileSaving.end()
 }
 
 function setupTfa(strategyId) {
@@ -395,6 +400,7 @@ function regenerateRecoveryCodes(strategyId) {
     okLabel: t('profile.tfaRecoveryCodesRegenerate')
   }).onOk(async () => {
     loading.show()
+    profileSaving.begin()
     try {
       const resp = await API_CLIENT.post('users/profile/tfa/recovery-codes', {
         json: {
@@ -402,6 +408,7 @@ function regenerateRecoveryCodes(strategyId) {
         }
       }).json()
       loading.hide()
+      profileSaving.end()
       dialog({
         component: RecoveryCodesDialog,
         componentProps: {
@@ -410,6 +417,7 @@ function regenerateRecoveryCodes(strategyId) {
       })
     } catch (err) {
       loading.hide()
+      profileSaving.end()
       notify({
         type: 'negative',
         message: t('profile.tfaRecoveryCodesRegenerateFailed'),
@@ -420,6 +428,7 @@ function regenerateRecoveryCodes(strategyId) {
 }
 
 async function setupPasskey() {
+  profileSaving.begin()
   try {
     if (!browserSupportsWebAuthn()) {
       throw new Error(t('profile.passkeysUnsupported'))
@@ -480,6 +489,7 @@ async function setupPasskey() {
   }
   await fetchAuthMethods()
   loading.hide()
+  profileSaving.end()
 }
 
 async function deactivatePasskey(pkey) {
@@ -491,6 +501,7 @@ async function deactivatePasskey(pkey) {
     okLabel: t('common.actions.delete')
   }).onOk(async () => {
     loading.show()
+    profileSaving.begin()
     try {
       await API_CLIENT.delete(`users/profile/passkeys/${encodeURIComponent(pkey.id)}`)
       notify({
@@ -506,6 +517,7 @@ async function deactivatePasskey(pkey) {
     }
     await fetchAuthMethods()
     loading.hide()
+    profileSaving.end()
   })
 }
 

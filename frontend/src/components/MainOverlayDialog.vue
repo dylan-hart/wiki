@@ -24,6 +24,7 @@
 import { computed, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { pendingProfileSaves } from '../composables/profileSaving'
 import { useSiteStore } from '../stores/site'
 
 import LoadingGeneric from './LoadingGeneric.vue'
@@ -141,9 +142,20 @@ const isDismissible = computed(() => DISMISSIBLE_OVERLAYS.has(siteStore.overlay)
  * `persistent`, so `WDialog` never had a reason to emit `update:model-value` at all. Now that every
  * entry in `DISMISSIBLE_OVERLAYS` above dismisses via backdrop click or Escape, this is reachable,
  * and closing needs the same `overlay: ''` `$patch` every overlay's own Close button already uses.
+ *
+ * OpenProject #3282: refuses the patch specifically when the current overlay is Profile and a
+ * section save/write is still in flight (`pendingProfileSaves`, the same module singleton
+ * `ProfileOverlay.vue`'s own close button reads) -- scoped to Profile alone so Inbox, FileManager
+ * and PageHistory dismiss exactly as before. `isDismissible`/`persistent` above are left untouched:
+ * WDialog's own backdrop-click and Escape handlers still emit `update:model-value(false)` (Profile
+ * stays non-persistent), but since `siteStore.overlay` is never patched here, `overlayIsShown` never
+ * changes and the dialog stays open.
  */
 function onDialogModelUpdate(value) {
   if (!value) {
+    if (siteStore.overlay === 'Profile' && pendingProfileSaves.value > 0) {
+      return
+    }
     siteStore.$patch({ overlay: '' })
   }
 }
