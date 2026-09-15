@@ -1,8 +1,6 @@
-@use 'sass:color';
-@use 'palette';
-@use 'theme';
-
-// app global css in SCSS form
+// app global css — native CSS nesting + custom properties, not SCSS (converted OpenProject #3250;
+// no bare $variable/@use/@mixin ever survives outside this comment, so the three former @use imports
+// of 'sass:color'/'palette'/'theme' are dropped rather than kept as dead weight)
 // ------------------------------------------------------------------
 // SCROLLBAR
 // ------------------------------------------------------------------
@@ -423,11 +421,11 @@ body.body--dark:not(.body--cobalt) {
 // A dialog's action bar. `WCardActions` already rules it off from the body; all this adds is the
 // ground, which is the page tint rather than the card's own white so the bar reads as a footer.
 .card-actions {
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-paper);
     color: var(--color-text-secondary);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     color: var(--color-text-secondary-dark);
   }
@@ -454,11 +452,11 @@ body.body--dark:not(.body--cobalt) {
   // gradient is a background IMAGE, which composites over that colour rather than replacing it -- so
   // on its own it changed nothing at all, the top included. Clearing the colour makes the gradient the
   // only background layer, which is what lets the top be translucent.
-  @at-root .body--light & {
+  .body--light & {
     background-color: transparent;
     background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.8) 0%, #fff 50%);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: transparent;
     background-image: linear-gradient(
       to bottom,

@@ -335,6 +335,33 @@ describe('_base.scss Cobalt overlay-pill scrollbar block', () => {
  * Source-scan rather than a mount/computed-style assertion for the same reason as the rest of this
  * file: jsdom has no `::-webkit-scrollbar` pseudo-element to read a computed style off of at all.
  */
+/**
+ * OpenProject #3250 ("Sass removal 5/9: convert _base.scss"). This file used to `@use 'sass:color'`
+ * / `'palette'` / `'theme'` (all three dead -- no bare `$variable` or `color.*` call ever read them)
+ * and four `@at-root <selector> &` escapes (`.card-actions`, `.translucent-menu`), which at their
+ * actual nesting depth of 1 are mechanically redundant against plain `&` nesting -- see
+ * `docs/frontend-sass-removal-plan.md`'s bucket-1 classification. Source-scan, same rationale as
+ * every other describe in this file: nothing compiles Sass in this test environment, so a
+ * reintroduced `@use`/`@at-root` is only visible by reading the file directly, not by a runtime
+ * failure.
+ */
+describe('_base.scss carries no Sass-specific syntax', () => {
+  const source = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+
+  it('declares no @use import', () => {
+    expect(source).not.toMatch(/^\s*@use\b/m)
+  })
+
+  it('uses no @at-root escape', () => {
+    expect(source).not.toMatch(/@at-root/)
+  })
+
+  it('still themes .card-actions and .translucent-menu via plain & nesting', () => {
+    expect(source).toMatch(/\.card-actions \{\s*\n\s*\.body--light &/)
+    expect(source).toMatch(/\.translucent-menu \{[^]*?\n\s*\.body--light &/)
+  })
+})
+
 describe('WScrollArea.vue carries no scrollbar rule of its own', () => {
   const source = readFileSync(resolve(CSS_DIR, '../components/shared/WScrollArea.vue'), 'utf-8')
 
