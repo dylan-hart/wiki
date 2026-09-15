@@ -26,7 +26,7 @@ describe('classifyUserAuthProvider', () => {
   // -> Confirmed no-destination four (docs/migration/2.5x-settings-auth-storage-field-mapping.md's
   //    "Confirmed no-destination 2.x auth providers" section): 2.x ships these, 3.0 has no matching
   //    module directory for any of them.
-  for (const providerKey of ['azure', 'dropbox', 'firebase', 'rocketchat']) {
+  for (const providerKey of ['azure', 'dropbox', 'firebase']) {
     test(`flags "${providerKey}" as unmappable (unsupported-auth-provider)`, () => {
       const result = classifyUserAuthProvider({ providerKey, email: 'alice@example.com' })
       assert.ok(result)

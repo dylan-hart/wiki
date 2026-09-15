@@ -112,6 +112,7 @@ export const KNOWN_3_0_AUTH_MODULES = new Set([
   'oauth2',
   'oidc',
   'okta',
+  'rocketchat',
   'saml',
   'slack',
   'twitch'
@@ -125,8 +126,10 @@ export const KNOWN_3_0_AUTH_MODULES = new Set([
  * created — and reported as `unsupported-auth-provider` so the operator can decide what to do about
  * it. Every other 2.x provider key, including one this list doesn't recognize at all, passes through
  * unflagged; `importers/users-groups.ts`'s provider fallback is what actually routes those.
+ * (`rocketchat` moved out of this set and into `KNOWN_3_0_AUTH_MODULES` once
+ * `backend/modules/authentication/rocketchat/` shipped — OpenProject #3263.)
  */
-const UNSUPPORTED_AUTH_PROVIDERS = new Set(['azure', 'dropbox', 'firebase', 'rocketchat'])
+const UNSUPPORTED_AUTH_PROVIDERS = new Set(['azure', 'dropbox', 'firebase'])
 
 function stringField(record: SourceRecord, key: string): string | undefined {
   const value = record[key]
