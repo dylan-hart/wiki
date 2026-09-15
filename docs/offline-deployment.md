@@ -250,7 +250,7 @@ This is deliberately narrower in scope than locale/icon sideloading:
 - **It does not touch `CARDINAL.capabilities.semanticSearch`.** That flag
   (`backend/core/pgvectorBootstrap.ts`) reflects whether the `pgvector` Postgres extension provisioned
   successfully and is entirely independent of the embedding model — it can read `true` with or without
-  this pre-seed. What the pre-seed actually changes is whether the *first* page embedded on a genuinely
+  this pre-seed. What the pre-seed actually changes is whether the _first_ page embedded on a genuinely
   air-gapped instance succeeds (a real vector) instead of silently degrading (`embedText()` returning
   `null`, per its own "never throws" contract) for lack of network access.
 
