@@ -476,6 +476,110 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
       }
     })
   })
+
+  /**
+   * OpenProject #3301: `enableTfa()`/`disableTfa()`/`adminInvalidateTfa()` each notify the account
+   * holder by mail. `mail.sendTfaEnabled`/`sendTfaDisabled` are mocked -- same reasoning as
+   * `login.passwordReset.test.ts`'s `sendPasswordResetConfirmed` stub -- so this asserts the
+   * orchestration (which method fires, with what params, and that a send failure never propagates),
+   * not real SMTP delivery or the locale-string resolution mail.ts's own suite already covers.
+   */
+  describe('2FA enable/disable mail notices', () => {
+    let mail: typeof import('./mail.ts').mail
+    let sendTfaEnabledMock: ReturnType<typeof mock.fn>
+    let sendTfaDisabledMock: ReturnType<typeof mock.fn>
+
+    before(async () => {
+      ;({ mail } = await import('./mail.ts'))
+      sendTfaEnabledMock = mock.method(mail, 'sendTfaEnabled', async () => {})
+      sendTfaDisabledMock = mock.method(mail, 'sendTfaDisabled', async () => {})
+    })
+
+    after(() => {
+      sendTfaEnabledMock.mock.restore()
+      sendTfaDisabledMock.mock.restore()
+    })
+
+    test('enableTfa sends sendTfaEnabled once, addressed to the account holder in their own locale', async () => {
+      const strategyId = freshStrategyId()
+      const owner = (await usersModel.getById(fixtures.userId)) as any
+      await fixtures.db
+        .update(usersTable)
+        .set({ prefs: { ...owner.prefs, locale: 'fr' } })
+        .where(eq(usersTable.id, fixtures.userId))
+      const reloadedOwner = await usersModel.getById(fixtures.userId)
+
+      sendTfaEnabledMock.mock.resetCalls()
+      await userCredentials.enableTfa(reloadedOwner, strategyId)
+
+      assert.equal(sendTfaEnabledMock.mock.calls.length, 1)
+      const call = sendTfaEnabledMock.mock.calls[0]!.arguments[0] as any
+      assert.equal(call.to, 'fixture@example.com')
+      assert.equal(call.userId, fixtures.userId)
+      assert.equal(call.locale, 'fr')
+    })
+
+    test('enableTfa does not throw, and still returns the recovery codes, when the notice fails to send', async () => {
+      sendTfaEnabledMock.mock.mockImplementationOnce(async () => {
+        throw new Error('ERR_MAIL_NOT_CONFIGURED')
+      })
+      const strategyId = freshStrategyId()
+      const owner = await usersModel.getById(fixtures.userId)
+
+      const codes = await userCredentials.enableTfa(owner, strategyId)
+      assert.equal(codes.length, 10)
+    })
+
+    test('disableTfa sends sendTfaDisabled once, addressed to the account holder', async () => {
+      const strategyId = freshStrategyId()
+      const owner = await usersModel.getById(fixtures.userId)
+      await userCredentials.enableTfa(owner, strategyId)
+
+      sendTfaDisabledMock.mock.resetCalls()
+      await userCredentials.disableTfa(fixtures.userId, strategyId)
+
+      assert.equal(sendTfaDisabledMock.mock.calls.length, 1)
+      const call = sendTfaDisabledMock.mock.calls[0]!.arguments[0] as any
+      assert.equal(call.to, 'fixture@example.com')
+      assert.equal(call.userId, fixtures.userId)
+    })
+
+    test("adminInvalidateTfa sends sendTfaDisabled once, resolving the account holder's own locale rather than the caller's", async () => {
+      const strategyId = freshStrategyId()
+      const owner = (await usersModel.getById(fixtures.userId)) as any
+      await fixtures.db
+        .update(usersTable)
+        .set({ prefs: { ...owner.prefs, locale: 'fr' } })
+        .where(eq(usersTable.id, fixtures.userId))
+      const reloadedOwner = await usersModel.getById(fixtures.userId)
+      await userCredentials.enableTfa(reloadedOwner, strategyId)
+
+      sendTfaDisabledMock.mock.resetCalls()
+      // -> `adminInvalidateTfa` takes no acting-admin identity at all -- there is nothing here that
+      //    could accidentally resolve an admin's own locale instead of the account holder's, which is
+      //    exactly the property this test is pinning down.
+      await userCredentials.adminInvalidateTfa(fixtures.userId, strategyId)
+
+      assert.equal(sendTfaDisabledMock.mock.calls.length, 1)
+      const call = sendTfaDisabledMock.mock.calls[0]!.arguments[0] as any
+      assert.equal(call.to, 'fixture@example.com')
+      assert.equal(call.locale, 'fr')
+    })
+
+    test('disableTfa does not throw when the notice fails to send', async () => {
+      const strategyId = freshStrategyId()
+      const owner = await usersModel.getById(fixtures.userId)
+      await userCredentials.enableTfa(owner, strategyId)
+
+      sendTfaDisabledMock.mock.mockImplementationOnce(async () => {
+        throw new Error('ERR_MAIL_NOT_CONFIGURED')
+      })
+      await userCredentials.disableTfa(fixtures.userId, strategyId)
+
+      const reloaded = (await usersModel.getById(fixtures.userId)) as any
+      assert.equal(reloaded.auth[strategyId].tfaIsActive, false)
+    })
+  })
 })
 
 /**

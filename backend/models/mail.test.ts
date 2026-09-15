@@ -1491,6 +1491,16 @@ describe('mail send wrappers set their own kind', () => {
           data: {},
           userId: 'u1'
         })
+    ],
+    [
+      'sendTfaEnabled',
+      'tfaEnabled',
+      () => mail.sendTfaEnabled({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    [
+      'sendTfaDisabled',
+      'tfaDisabled',
+      () => mail.sendTfaDisabled({ to: 'a@example.com', name: 'A', userId: 'u1' })
     ]
   ]
 
@@ -1516,6 +1526,8 @@ describe('mail send wrappers set their own kind', () => {
       'watch',
       'digest',
       'notificationEvent',
+      'tfaEnabled',
+      'tfaDisabled',
       'tfaRecoveryCodesGenerated'
     ]
     for (const kind of all) {
