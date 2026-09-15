@@ -862,6 +862,136 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
  * selection check (`opt.value === modelValue`) is false for every segment when `modelValue` is
  * `null`, so no segment should render selected until the real value lands.
  */
+/**
+ * Task #3320 (Feature #3319): the toggle/select fields -- appearance, aesthetic, contentWidth,
+ * timezone, dateFormat, timeFormat, cvd -- save immediately on their own change event, with no
+ * debounce and no dependency on the shared whole-config watcher the text fields still use (Task
+ * #3220/#3321).
+ */
+describe('ProfileInfo toggle/select fields save immediately, no debounce (Task #3320)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function findToggle(wrapper, label) {
+    return wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+  }
+
+  it('saves as soon as a btn-toggle segment is clicked, with no debounce wait', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const appearanceToggle = findToggle(wrapper, 'profile.appearance')
+    const darkSegment = appearanceToggle
+      .findAll('button')
+      .find((btn) => btn.text() === 'profile.appearanceDark')
+    await darkSegment.trigger('click')
+    await flushPromises()
+
+    // -> No `vi.advanceTimersByTimeAsync` at all: this must already have gone out.
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      appearance: 'dark'
+    })
+  })
+
+  it('saves each of the seven toggle/select fields immediately on its own change', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const cases = [
+      { label: 'profile.aesthetic', text: 'profile.aestheticLedger', field: 'aesthetic', value: 'ledger' },
+      { label: 'profile.appearance', text: 'profile.appearanceLight', field: 'appearance', value: 'light' },
+      {
+        label: 'profile.contentWidth',
+        text: 'profile.contentWidthFull',
+        field: 'contentWidth',
+        value: 'full'
+      },
+      { label: 'profile.timeFormat', text: 'admin.general.defaultTimeFormat24h', field: 'timeFormat', value: '24h' },
+      { label: 'profile.cvd', text: 'profile.cvdProtanopia', field: 'cvd', value: 'protanopia' }
+    ]
+
+    for (const { label, text, field, value } of cases) {
+      globalThis.API_CLIENT.put.mockClear()
+      const toggle = findToggle(wrapper, label)
+      const segment = toggle.findAll('button').find((btn) => btn.text() === text)
+      await segment.trigger('click')
+      await flushPromises()
+
+      expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+      expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({ [field]: value })
+    }
+
+    // -> The two `w-select`-backed fields (timezone, dateFormat) emit the same
+    //    `update:model-value` event a real pick would; driving them through the DOM's own dropdown
+    //    is `WSelect.test.js`'s job, not this suite's.
+    globalThis.API_CLIENT.put.mockClear()
+    const dateFormatSelect = wrapper
+      .findAllComponents({ name: 'WSelect' })
+      .find((c) => c.props('ariaLabel') === 'admin.general.defaultDateFormat')
+    await dateFormatSelect.vm.$emit('update:modelValue', 'YYYY-MM-DD')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      dateFormat: 'YYYY-MM-DD'
+    })
+
+    globalThis.API_CLIENT.put.mockClear()
+    const timezoneSelect = wrapper
+      .findAllComponents({ name: 'WSelect' })
+      .find((c) => c.props('ariaLabel') === 'admin.general.defaultTimezone')
+    await timezoneSelect.vm.$emit('update:modelValue', 'America/New_York')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      timezone: 'America/New_York'
+    })
+  })
+
+  it('does not double-save a toggle change through the shared text-field debounce watcher', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const cvdToggle = findToggle(wrapper, 'profile.cvd')
+    const segment = cvdToggle.findAll('button').find((btn) => btn.text() === 'profile.cvdProtanopia')
+    await segment.trigger('click')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+
+    // -> If the toggle field were still (even partially) tracked by the debounced watcher, this
+    //    would fire a second, redundant save once the debounce window elapses.
+    globalThis.API_CLIENT.put.mockClear()
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('still auto-saves a text field on its own debounce, unaffected by the toggle fields going immediate', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      firstName: 'Janet'
+    })
+  })
+})
+
 describe('ProfileInfo theme toggles have no pre-fetch flash (OpenProject #3281)', () => {
   const toggleLabels = [
     'profile.aesthetic',

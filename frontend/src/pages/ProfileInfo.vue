@@ -24,10 +24,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.appearance"
+          :model-value="state.config.appearance"
           :options="appearances"
           :disabled="!canEdit"
-          :aria-label="t(`profile.appearance`)" />
+          :aria-label="t(`profile.appearance`)"
+          @update:model-value="onFieldChange('appearance', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -39,10 +40,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.aesthetic"
+          :model-value="state.config.aesthetic"
           :options="aesthetics"
           :disabled="!canEdit"
-          :aria-label="t(`profile.aesthetic`)" />
+          :aria-label="t(`profile.aesthetic`)"
+          @update:model-value="onFieldChange('aesthetic', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -55,10 +57,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.contentWidth"
+          :model-value="state.config.contentWidth"
           :options="contentWidths"
           :disabled="!canEdit"
-          :aria-label="t(`profile.contentWidth`)" />
+          :aria-label="t(`profile.contentWidth`)"
+          @update:model-value="onFieldChange('contentWidth', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -76,13 +79,14 @@
         -->
         <w-select
           ref="timezoneField"
-          v-model="state.config.timezone"
+          :model-value="state.config.timezone"
           :options="timezones"
           options-dense
           hide-bottom-space
           :aria-label="t(`admin.general.defaultTimezone`)"
           :readonly="!canEdit"
-          :rules="[timezoneRule]" />
+          :rules="[timezoneRule]"
+          @update:model-value="onFieldChange('timezone', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -94,13 +98,14 @@
       </w-item-section>
       <w-item-section>
         <w-select
-          v-model="state.config.dateFormat"
+          :model-value="state.config.dateFormat"
           emit-value
           map-options
           hide-bottom-space
           :aria-label="t(`admin.general.defaultDateFormat`)"
           :options="dateFormats"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @update:model-value="onFieldChange('dateFormat', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -112,10 +117,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.timeFormat"
+          :model-value="state.config.timeFormat"
           :options="timeFormats"
           :disabled="!canEdit"
-          :aria-label="t(`profile.timeFormat`)" />
+          :aria-label="t(`profile.timeFormat`)"
+          @update:model-value="onFieldChange('timeFormat', $event)" />
       </w-item-section>
     </w-item>
     <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
@@ -127,10 +133,11 @@
       </w-item-section>
       <w-item-section>
         <w-btn-toggle
-          v-model="state.config.cvd"
+          :model-value="state.config.cvd"
           :options="cvdChoices"
           :disabled="!canEdit"
-          :aria-label="t(`profile.cvd`)" />
+          :aria-label="t(`profile.cvd`)"
+          @update:model-value="onFieldChange('cvd', $event)" />
       </w-item-section>
     </w-item>
     <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
@@ -399,7 +406,32 @@ const canEdit = computed(() => siteStore.features?.profile)
 */
 const { syncFromStored: syncDisplayName } = useDerivedDisplayName(() => state.config)
 
+/*
+  Task #3320 (Feature #3319): the toggle/select fields -- appearance, aesthetic, contentWidth,
+  timezone, dateFormat, timeFormat, cvd -- save immediately on their own change event rather than
+  through the shared debounce below, which the sibling Task (#3321) is narrowing to the text fields
+  it still covers until it converts them to blur/Enter. There is no intermediate "typing" state for
+  a toggle or a dropdown pick the way there is for a text field, so nothing is gained by waiting.
+*/
+const TOGGLE_SELECT_FIELDS = [
+  'appearance',
+  'aesthetic',
+  'contentWidth',
+  'timezone',
+  'dateFormat',
+  'timeFormat',
+  'cvd'
+]
+
 // METHODS
+
+function onFieldChange(field, value) {
+  state.config[field] = value
+  if (suppressAutoSave || !canEdit.value) {
+    return
+  }
+  save()
+}
 
 /**
  * The profile is read from the server rather than from the user store: the store only holds what the
@@ -547,20 +579,33 @@ async function save() {
 const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)
 
 /*
-  Watches the whole config object rather than any one field, so this keeps working whichever fields
-  a later change adds or however they get reordered in the template -- see Task #3220/#3221's
-  coordination note. `applyProfile()` is the only other writer of `state.config`, and it guards
-  itself with `suppressAutoSave`.
+  Task #3320 pulled the toggle/select fields out of this watcher (they call `save()` directly from
+  `onFieldChange` above, no debounce) -- what is left is every OTHER key in `state.config`, i.e. the
+  text fields (name/firstName/lastName/location/jobTitle/pronouns) plus the read-only `email`, which
+  never changes so watching it is a no-op. Deriving the key list from `state.config` once, rather
+  than hardcoding the text fields, keeps this working whichever ones a later change adds -- the
+  original reasoning behind watching the whole object (Task #3220/#3221's coordination note) minus
+  the fields that now opt out of it by name. Task #3321 (sibling, same Epic) is converting these to
+  blur/Enter and will finish removing `debouncedAutoSave`/`AUTO_SAVE_DEBOUNCE_MS` once nothing
+  references them; until it lands, they still save this way.
+
+  The getter below reads ONLY these keys off `state.config`, rather than `Object.entries`-ing the
+  whole object and filtering after: Vue's watcher tracks whatever properties the getter actually
+  reads, so reading (then discarding) a toggle/select field here would re-subscribe this watcher to
+  it regardless of the filter, and every immediate save from `onFieldChange` would queue a redundant
+  debounced one right behind it.
 */
+const debouncedAutoSaveFields = Object.keys(state.config).filter(
+  (key) => !TOGGLE_SELECT_FIELDS.includes(key)
+)
 watch(
-  () => state.config,
+  () => debouncedAutoSaveFields.map((key) => state.config[key]),
   () => {
     if (suppressAutoSave || !canEdit.value) {
       return
     }
     debouncedAutoSave()
-  },
-  { deep: true }
+  }
 )
 
 // MOUNTED
