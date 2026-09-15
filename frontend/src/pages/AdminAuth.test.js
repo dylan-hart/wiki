@@ -805,17 +805,6 @@ describe('AdminAuth trust-email-for-linking toggle', () => {
  * `WCardSection.vue` always renders its padded div regardless of slot content, so any strategy that
  * DOES have config (the common case) showed a spurious empty section above `module-config-form`'s
  * rendered rows. The fix moves the `v-if` onto the `<w-card-section>` itself.
- *
- * NOTE: as of this writing, every test below (like most of this file's other data-dependent suites)
- * fails locally on an unrelated, pre-existing bug: `composables/adminSettings.js`'s Task #3195
- * stale-response guard snapshots `extraState` before calling this page's own `fetch()`, but
- * `AdminAuth.vue`'s `fetch()` itself flips its own tracked `loadingGroups` extraState field
- * true->false around the request -- so the post-fetch snapshot never matches the pre-fetch one and
- * `onLoaded` is silently dropped every time, regardless of environment. That is a real, separate
- * regression (verified in isolation against the composable directly, independent of this component
- * or of jsdom), reported on OpenProject #3323 for separate triage -- not something this ticket's
- * `w-card-section` fix touches or can route around. These tests are written to the correct, intended
- * behavior and will pass once that is fixed.
  */
 describe('AdminAuth strategy configuration section', () => {
   const LOCAL_MODULE = {
@@ -825,10 +814,26 @@ describe('AdminAuth strategy configuration section', () => {
     description: 'Built-in.',
     useForm: true
   }
+  // -> `buildConfigEditor(mod.props, str.config)` (`helpers/moduleConfig.js`) builds
+  //    `state.strategy.config` from the MODULE's declared prop schema, keyed by raw values off the
+  //    strategy record -- not from a pre-built `{ type, title, value }` shape on the strategy
+  //    itself. A module with no `props` (`LOCAL_MODULE` above) always yields an empty `config`,
+  //    regardless of what the strategy record's own `config` holds -- this variant declares one so
+  //    the "has config" case below actually exercises a non-empty `state.strategy.config`.
+  const LOCAL_MODULE_WITH_CONFIG = {
+    ...LOCAL_MODULE,
+    props: {
+      enforceTfa: {
+        type: 'boolean',
+        title: 'Enforce Two-Factor Authentication',
+        default: false
+      }
+    }
+  }
 
   it('renders no empty w-card-section above the config rows when the strategy has config', async () => {
     stubApi({
-      'authentication/modules': [LOCAL_MODULE],
+      'authentication/modules': [LOCAL_MODULE_WITH_CONFIG],
       'authentication/strategies': [
         {
           id: 's-local',
@@ -837,11 +842,7 @@ describe('AdminAuth strategy configuration section', () => {
           isEnabled: true,
           isNew: false,
           config: {
-            enforceTfa: {
-              type: 'boolean',
-              title: 'Enforce Two-Factor Authentication',
-              value: false
-            }
+            enforceTfa: false
           }
         }
       ],
