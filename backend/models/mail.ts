@@ -33,6 +33,8 @@ export type MailKind =
   | 'notificationEvent'
   | 'notificationEventTemplate'
   | 'approval'
+  | 'tfaEnabled'
+  | 'tfaDisabled'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -571,6 +573,66 @@ class MailModel {
       'passwordChanged',
       { name, link },
       { kind: 'passwordChanged', userId }
+    )
+  }
+
+  /**
+   * Notice sent to the account holder once 2FA has been turned ON for one of their authentication
+   * providers — from `models/userCredentials.ts#enableTfa()`, the moment a fresh secret is confirmed
+   * and made active. A security notice, not a setup-flow email: the recovery codes themselves are
+   * shown to the user in-flow at the moment they're issued (they're never re-displayable, see
+   * `enableTfa()`'s own doc comment) and are never repeated here.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaEnabled({
+    to,
+    name,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaEnabled',
+      { name, link },
+      { kind: 'tfaEnabled', userId }
+    )
+  }
+
+  /**
+   * Notice sent to the account holder once 2FA has been turned OFF for one of their authentication
+   * providers — from `models/userCredentials.ts#disableTfa()` (their own choice) or
+   * `adminInvalidateTfa()` (an administrator's override). Both routes send the identical notice: from
+   * the account holder's point of view, 2FA is off either way and they should know about it, whoever
+   * initiated it.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaDisabled({
+    to,
+    name,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaDisabled',
+      { name, link },
+      { kind: 'tfaDisabled', userId }
     )
   }
 

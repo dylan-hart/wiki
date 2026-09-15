@@ -1615,6 +1615,16 @@ describe('mail send wrappers set their own kind', () => {
           siteId: DEFAULT_SITE_ID,
           userId: 'u1'
         })
+    ],
+    [
+      'sendTfaEnabled',
+      'tfaEnabled',
+      () => mail.sendTfaEnabled({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    [
+      'sendTfaDisabled',
+      'tfaDisabled',
+      () => mail.sendTfaDisabled({ to: 'a@example.com', name: 'A', userId: 'u1' })
     ]
   ]
 
@@ -1641,7 +1651,9 @@ describe('mail send wrappers set their own kind', () => {
       'watch',
       'digest',
       'notificationEvent',
-      'notificationEventTemplate'
+      'notificationEventTemplate',
+      'tfaEnabled',
+      'tfaDisabled'
     ]
     for (const kind of all) {
       assert.ok(covered.has(kind), `MailKind "${kind}" has no wrapper case above`)
