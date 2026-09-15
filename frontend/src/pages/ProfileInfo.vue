@@ -297,10 +297,17 @@ const state = reactive({
     timezone: '',
     dateFormat: '',
     timeFormat: '12h',
-    aesthetic: 'site',
-    appearance: 'site',
-    contentWidth: 'site',
-    cvd: 'none'
+    // -> `null` rather than a hardcoded default: `WBtnToggle`'s selection check (`opt.value ===
+    //    modelValue`) is simply false for every segment when this is `null`, so the control renders
+    //    with nothing selected until `applyProfile()` (fetchProfile's onMounted, below) sets the real
+    //    value -- rather than flashing a guessed default first and then snapping to the real one
+    //    (OpenProject #3281). A failed fetch leaves these `null` on purpose: fetchProfile()'s catch
+    //    already raises the `profile.infoLoadingFailed` toast, and per that WP's own direction the
+    //    toast is the signal -- no silent fallback value here.
+    aesthetic: null,
+    appearance: null,
+    contentWidth: null,
+    cvd: null
   },
   loading: 0,
   /*
