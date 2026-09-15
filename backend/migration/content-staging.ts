@@ -206,6 +206,34 @@ function asString(value: unknown, fallback = ''): string {
   return value === null || value === undefined ? fallback : String(value)
 }
 
+/** Reads a timestamp column off a source row (`createdAt`/`updatedAt`/`publishStartDate`/
+ * `publishEndDate`/`versionDate`) and normalizes it to an ISO string before it reaches
+ * `asString`/`asNullableString`. A live `PostgresSourceConnector` hands back a real `Date` (node-postgres's
+ * own decoding of a `timestamp`/`timestamptz` column, per `checkShape()`'s doc comment on validating
+ * presence, not type); a bundle/JSON-backed connector hands back a string instead. Bare `String(value)`
+ * on a `Date` produces `Date.prototype.toString()`'s locale/timezone-dependent format
+ * ("Wed Jan 15 2020 05:30:45 GMT-0500 (Eastern Standard Time)"), not ISO — which a stricter downstream
+ * consumer than `new Date(...)`'s legacy fallback (`normalizeStagedDate`'s `Date.parse`, or a strict
+ * `Temporal.Instant.from()`) rejects outright. Mirrors `importers/users-groups.ts#readSourceDate`'s
+ * Date-vs-string tolerance, except this returns a string (what `StagedPage`/`StagedPageHistoryEntry`'s
+ * fields are typed as) rather than a `Date`. A malformed value degrades to `fallback` the same way
+ * `asString`/`asNullableString` already do for a missing one, rather than failing the whole row. */
+function asNullableTimestampString(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  return value === null || value === undefined ? null : String(value)
+}
+
+/** Same normalization as `asNullableTimestampString`, for a non-nullable field
+ * (`createdAt`/`updatedAt`/`versionDate`) whose fallback is `asString`'s own `''` rather than `null`. */
+function asTimestampString(value: unknown, fallback = ''): string {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? fallback : value.toISOString()
+  }
+  return value === null || value === undefined ? fallback : String(value)
+}
+
 /** Widened past a strict `=== true` (Task 1850) — see `coerceSourceBoolean`'s doc comment for why a
  * bundle-sourced 0/1 has to coerce the same as the Postgres connector's real boolean. A value this
  * doesn't recognize (missing column, malformed row) falls back to `false` rather than throwing,
@@ -293,10 +321,10 @@ function stagePage(
     isPrivate: asBoolean(raw.isPrivate),
     privateNS: asNullableString(raw.privateNS),
     isPublished: asBoolean(raw.isPublished),
-    publishStartDate: asNullableString(raw.publishStartDate),
-    publishEndDate: asNullableString(raw.publishEndDate),
-    createdAt: asString(raw.createdAt),
-    updatedAt: asString(raw.updatedAt),
+    publishStartDate: asNullableTimestampString(raw.publishStartDate),
+    publishEndDate: asNullableTimestampString(raw.publishEndDate),
+    createdAt: asTimestampString(raw.createdAt),
+    updatedAt: asTimestampString(raw.updatedAt),
     extra: asRecord(raw.extra),
     editorKey: asNullableString(raw.editorKey),
     tags: resolveTags(raw.tags),
@@ -332,11 +360,11 @@ function stageHistoryEntry(
     contentType: asString(raw.contentType),
     isPrivate: asBoolean(raw.isPrivate),
     isPublished: asBoolean(raw.isPublished),
-    publishStartDate: asNullableString(raw.publishStartDate),
-    publishEndDate: asNullableString(raw.publishEndDate),
+    publishStartDate: asNullableTimestampString(raw.publishStartDate),
+    publishEndDate: asNullableTimestampString(raw.publishEndDate),
     editorKey: asNullableString(raw.editorKey),
-    versionDate: asString(raw.versionDate),
-    createdAt: asString(raw.createdAt),
+    versionDate: asTimestampString(raw.versionDate),
+    createdAt: asTimestampString(raw.createdAt),
     extra: asRecord(raw.extra),
     tags: resolveTags(raw.tags),
     authorId: author.actorId
