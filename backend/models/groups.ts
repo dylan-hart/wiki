@@ -77,7 +77,7 @@ export interface GroupRule {
    * Classification level ids this rule addresses -- read only when `match === 'CLASSIFICATION'`, the
    * same way `path` is read as a comma list only for `TAG`/`TAGALL`. A separate field rather than
    * reusing `path`, because a level is an id from the admin-configurable
-   * `WIKI.models.classificationLevels` list, not free text a rule author types.
+   * `CARDINAL.models.classificationLevels` list, not free text a rule author types.
    */
   classifications?: string[]
 }
@@ -236,7 +236,7 @@ class Groups extends ClusterReloaded {
    * the whole of page access, and a revoked permission that waits for a logout is not revoked.
    */
   async reloadCache(): Promise<void> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: groupsTable.id, rules: groupsTable.rules })
       .from(groupsTable)
     rulesCache = {}
@@ -248,7 +248,7 @@ class Groups extends ClusterReloaded {
     //    them here (rather than leaving them to accumulate) is what makes an edited pattern get
     //    recompiled promptly instead of the cache growing across every group edit an instance sees.
     clearPageRuleRegexCache()
-    WIKI.logger.debug('config', 'reloaded the group page rules', { groups: rows.length })
+    CARDINAL.logger.debug('config', 'reloaded the group page rules', { groups: rows.length })
   }
 
   /**
@@ -295,7 +295,7 @@ class Groups extends ClusterReloaded {
     if (req.session?.authenticated && req.session.user?.id) {
       return req.session.groups ?? []
     }
-    return [WIKI.data.systemIds.guestsGroupId]
+    return [CARDINAL.data.systemIds.guestsGroupId]
   }
 
   /** The actor a request speaks for: its groups, and the group-wide permissions it holds. */
@@ -323,7 +323,7 @@ class Groups extends ClusterReloaded {
    * rather than skipping the check entirely.
    */
   guestActor(): AccessActor {
-    return { groupIds: [WIKI.data.systemIds.guestsGroupId], permissions: [] }
+    return { groupIds: [CARDINAL.data.systemIds.guestsGroupId], permissions: [] }
   }
 
   /**
@@ -346,11 +346,11 @@ class Groups extends ClusterReloaded {
    * caller's own narrowing (see `AccessActor`'s doc comment), and a user resolved by id has neither.
    */
   async actorForUserId(userId: string): Promise<AccessActor> {
-    const groupIds = await WIKI.models.users.getUserGroupIds(userId)
+    const groupIds = await CARDINAL.models.users.getUserGroupIds(userId)
     if (groupIds.length < 1) {
       return { groupIds: [], permissions: [] }
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ permissions: groupsTable.permissions })
       .from(groupsTable)
       .where(inArray(groupsTable.id, groupIds))
@@ -412,7 +412,10 @@ class Groups extends ClusterReloaded {
     if (
       actor.allowedClassifications != null &&
       page.classification != null &&
-      !WIKI.models.classificationLevels.isAllowed(page.classification, actor.allowedClassifications)
+      !CARDINAL.models.classificationLevels.isAllowed(
+        page.classification,
+        actor.allowedClassifications
+      )
     ) {
       return false
     }
@@ -614,9 +617,9 @@ class Groups extends ClusterReloaded {
   }
 
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.debug('config', 'seeding the default groups')
+    CARDINAL.logger.debug('config', 'seeding the default groups')
 
-    await WIKI.db.insert(groupsTable).values([
+    await CARDINAL.db.insert(groupsTable).values([
       {
         id: ids.groupAdminId,
         name: 'Administrators',
@@ -681,7 +684,7 @@ class Groups extends ClusterReloaded {
    */
   async createGroup(name: string): Promise<string> {
     const startingPageRoles = ['read:pages', 'read:assets', 'read:comments']
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .insert(groupsTable)
       .values({
         name,
@@ -725,7 +728,7 @@ class Groups extends ClusterReloaded {
     permissions: string[]
     rules: GroupRule[]
   }): Promise<string> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .insert(groupsTable)
       .values({
         name: input.name,
@@ -742,7 +745,7 @@ class Groups extends ClusterReloaded {
    * Fetch all groups, ordered by name
    */
   async getAllGroups(): Promise<GroupWithUserCount[]> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select(groupSelection)
       .from(groupsTable)
       .leftJoin(userGroups, eq(userGroups.groupId, groupsTable.id))
@@ -772,7 +775,7 @@ class Groups extends ClusterReloaded {
     if (wanted.length < 1) {
       return false
     }
-    const found = await WIKI.db
+    const found = await CARDINAL.db
       .select({ id: groupsTable.id })
       .from(groupsTable)
       .where(inArray(groupsTable.id, wanted))
@@ -786,7 +789,7 @@ class Groups extends ClusterReloaded {
    * @returns The group, or null if no such group exists
    */
   async getGroupById(id: string): Promise<GroupWithUserCount | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select(groupSelection)
       .from(groupsTable)
       .leftJoin(userGroups, eq(userGroups.groupId, groupsTable.id))
@@ -804,7 +807,7 @@ class Groups extends ClusterReloaded {
    * @returns Whether a group was updated
    */
   async updateGroup(id: string, patch: GroupPatch): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(groupsTable)
       .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
       .where(eq(groupsTable.id, id))
@@ -848,7 +851,7 @@ class Groups extends ClusterReloaded {
    * granted, instead of a form that cannot be saved and does not say which rule is at fault.
    */
   private clampGuestPatch(id: string, patch: GroupPatch): GroupPatch {
-    if (id !== WIKI.data.systemIds.guestsGroupId || !patch.rules) {
+    if (id !== CARDINAL.data.systemIds.guestsGroupId || !patch.rules) {
       return patch
     }
     let dropped = 0
@@ -858,9 +861,13 @@ class Groups extends ClusterReloaded {
       return { ...rule, roles }
     })
     if (dropped > 0) {
-      WIKI.logger.warn('auth', 'dropped permissions that may not be granted to the guests group', {
-        dropped
-      })
+      CARDINAL.logger.warn(
+        'auth',
+        'dropped permissions that may not be granted to the guests group',
+        {
+          dropped
+        }
+      )
     }
     return { ...patch, rules }
   }
@@ -879,8 +886,8 @@ class Groups extends ClusterReloaded {
    * @returns Whether a group was deleted
    */
   async deleteGroup(id: string): Promise<boolean> {
-    await WIKI.models.sessions.clearSessionsForGroup(id)
-    const result = await WIKI.db.delete(groupsTable).where(eq(groupsTable.id, id))
+    await CARDINAL.models.sessions.clearSessionsForGroup(id)
+    const result = await CARDINAL.db.delete(groupsTable).where(eq(groupsTable.id, id))
     await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
@@ -910,7 +917,7 @@ class Groups extends ClusterReloaded {
    * @returns The reason, or null when the membership is fine
    */
   guestMembershipViolation(groupId: string, user: { isSystem?: boolean } | null): string | null {
-    const isGuestsGroup = groupId === WIKI.data.systemIds.guestsGroupId
+    const isGuestsGroup = groupId === CARDINAL.data.systemIds.guestsGroupId
     // -> The guest account is the only system user; see the seeding in `models/users.ts`
     if (user?.isSystem) {
       return isGuestsGroup
@@ -923,12 +930,12 @@ class Groups extends ClusterReloaded {
   }
 
   async assignUserToGroup(groupId: string, userId: string): Promise<boolean> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     const violation = this.guestMembershipViolation(groupId, user)
     if (violation) {
       throw new CustomError('groupMembershipForbidden', violation)
     }
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .insert(userGroups)
       .values({ userId, groupId })
       .onConflictDoNothing()
@@ -946,8 +953,8 @@ class Groups extends ClusterReloaded {
       group's rules, and the guest account is what resolves it. Removed, every anonymous visitor would
       hold nothing at all — and nothing in the interface puts a system user back into a group.
     */
-    if (groupId === WIKI.data.systemIds.guestsGroupId) {
-      const user = await WIKI.models.users.getById(userId)
+    if (groupId === CARDINAL.data.systemIds.guestsGroupId) {
+      const user = await CARDINAL.models.users.getById(userId)
       if (user?.isSystem) {
         throw new CustomError(
           'groupMembershipForbidden',
@@ -955,7 +962,7 @@ class Groups extends ClusterReloaded {
         )
       }
     }
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(userGroups)
       .where(and(eq(userGroups.groupId, groupId), eq(userGroups.userId, userId)))
     return (result.rowCount ?? 0) > 0
@@ -982,7 +989,7 @@ class Groups extends ClusterReloaded {
 
     const { total, rows } = await paginate({
       rows: () =>
-        WIKI.db
+        CARDINAL.db
           .select(userSelection)
           .from(userGroups)
           .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
@@ -991,7 +998,7 @@ class Groups extends ClusterReloaded {
           .limit(limit)
           .offset((page - 1) * limit),
       total: () =>
-        WIKI.db
+        CARDINAL.db
           .select({ total: count() })
           .from(userGroups)
           .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
@@ -1005,14 +1012,14 @@ class Groups extends ClusterReloaded {
    * Count the users assigned to a group
    */
   async countUsersInGroup(groupId: string): Promise<number> {
-    return WIKI.db.$count(userGroups, eq(userGroups.groupId, groupId))
+    return CARDINAL.db.$count(userGroups, eq(userGroups.groupId, groupId))
   }
 
   /**
    * Whether a user is currently assigned to a group
    */
   async isUserInGroup(groupId: string, userId: string): Promise<boolean> {
-    const total = await WIKI.db.$count(
+    const total = await CARDINAL.db.$count(
       userGroups,
       and(eq(userGroups.groupId, groupId), eq(userGroups.userId, userId))
     )
@@ -1034,14 +1041,14 @@ class Groups extends ClusterReloaded {
 
   /**
    * The ids of every group carrying `manage:system`, plus the root administrators group itself
-   * (`WIKI.config.auth.rootAdminGroupId`) even on the off chance it is ever queried before that
+   * (`CARDINAL.config.auth.rootAdminGroupId`) even on the off chance it is ever queried before that
    * permission is flattened onto it — losing the ability to grant `manage:system` back is
    * unrecoverable, so this list is the single shared definition of "never touch this group without
    * already holding `manage:system`" that both `api/users/admin.ts`'s membership-change guard and
    * `models/users.ts#syncProviderGroups`'s provider-group sync read from.
    */
   async systemGroupIds(): Promise<string[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: groupsTable.id, permissions: groupsTable.permissions })
       .from(groupsTable)
     const ids = new Set(
@@ -1049,7 +1056,7 @@ class Groups extends ClusterReloaded {
         .filter((row) => ((row.permissions ?? []) as string[]).includes(SYSTEM_PERMISSION))
         .map((row) => row.id)
     )
-    const rootAdminGroupId = WIKI.config?.auth?.rootAdminGroupId
+    const rootAdminGroupId = CARDINAL.config?.auth?.rootAdminGroupId
     if (rootAdminGroupId) {
       ids.add(rootAdminGroupId)
     }
@@ -1063,7 +1070,7 @@ class Groups extends ClusterReloaded {
    * is not the caller and may not be logged in at all.
    */
   async userHoldsSystemPermission(userId: string): Promise<boolean> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ permissions: groupsTable.permissions })
       .from(userGroups)
       .innerJoin(groupsTable, eq(groupsTable.id, userGroups.groupId))

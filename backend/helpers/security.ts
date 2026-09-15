@@ -46,7 +46,7 @@ export const SESSION_COOKIE_NAME_INSECURE = 'wikiSession'
  * directly, to stay a pure function with no `WIKI` dependency.
  */
 export function sessionCookieName(): string {
-  return WIKI.config.security?.cookieSecure === false
+  return CARDINAL.config.security?.cookieSecure === false
     ? SESSION_COOKIE_NAME_INSECURE
     : SESSION_COOKIE_NAME
 }
@@ -325,7 +325,7 @@ export function corsOrigin(security: {
         }
         return new RegExp(`^(?:${pattern})$`)
       } catch (err: any) {
-        WIKI.logger.warn(
+        CARDINAL.logger.warn(
           'config',
           'the CORS regex pattern is invalid, falling back to same-origin only',
           { error: err }

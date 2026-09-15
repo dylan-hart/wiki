@@ -119,10 +119,10 @@ async function routes(app: FastifyInstance) {
     },
     async () => {
       return {
-        isEnabled: WIKI.config.replication?.isEnabled === true,
-        sourceUrl: WIKI.config.replication?.sourceUrl ?? '',
-        bearerToken: WIKI.config.replication?.bearerToken?.length > 0 ? TOKEN_MASK : '',
-        cronSchedule: WIKI.config.replication?.cronSchedule ?? ''
+        isEnabled: CARDINAL.config.replication?.isEnabled === true,
+        sourceUrl: CARDINAL.config.replication?.sourceUrl ?? '',
+        bearerToken: CARDINAL.config.replication?.bearerToken?.length > 0 ? TOKEN_MASK : '',
+        cronSchedule: CARDINAL.config.replication?.cronSchedule ?? ''
       }
     }
   )
@@ -193,7 +193,7 @@ async function routes(app: FastifyInstance) {
         delete patch.bearerToken
       }
 
-      const previousConfig = WIKI.config.replication
+      const previousConfig = CARDINAL.config.replication
       const merged = { ...previousConfig, ...patch }
 
       const invalid = validate(merged)
@@ -201,10 +201,10 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest(invalid)
       }
 
-      WIKI.config.replication = merged
+      CARDINAL.config.replication = merged
 
-      if (!(await WIKI.configSvc.saveToDb(['replication']))) {
-        WIKI.config.replication = previousConfig
+      if (!(await CARDINAL.configSvc.saveToDb(['replication']))) {
+        CARDINAL.config.replication = previousConfig
         return reply.internalServerError('Failed to save replication configuration.')
       }
 
@@ -214,7 +214,7 @@ async function routes(app: FastifyInstance) {
       if ('bearerToken' in auditDetail) {
         auditDetail.bearerToken = TOKEN_MASK
       }
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.replicationUpdated',
         actor: actorFromRequest(req),
         detail: auditDetail

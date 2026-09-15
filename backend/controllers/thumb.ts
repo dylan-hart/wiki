@@ -36,12 +36,12 @@ async function routes(app: FastifyInstance) {
       return reply.notFound('Thumbnail not found')
     }
 
-    const thumbnail = await WIKI.models.assets.getThumbnail(assetId)
+    const thumbnail = await CARDINAL.models.assets.getThumbnail(assetId)
     if (!thumbnail) {
       return reply.notFound('Thumbnail not found')
     }
 
-    const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
+    const site = await CARDINAL.models.sites.getSiteByHostname({ hostname: req.hostname })
     // -> Not found rather than forbidden: a mismatched site is indistinguishable from no asset at all
     if (!site || thumbnail.siteId !== site.id) {
       return reply.notFound('Thumbnail not found')

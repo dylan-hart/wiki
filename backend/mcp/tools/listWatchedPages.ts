@@ -14,7 +14,7 @@ export interface ListWatchedPagesArgs {
 
 /**
  * List the pages the caller is watching on a site, most recently watched first. Wraps
- * `WIKI.models.pageWatching.listForUser(siteId, userId)` — the same model method
+ * `CARDINAL.models.pageWatching.listForUser(siteId, userId)` — the same model method
  * `GET /_api/sites/:siteId/watching` (`api/watching.ts`) calls, and, like that route, requires nothing
  * beyond being logged in: everything it returns is the caller's own.
  *
@@ -39,7 +39,7 @@ export async function handleListWatchedPages(
       'Listing watched pages requires a personal access token — an admin-issued key has no user whose watch list this would be.'
     )
   }
-  const pages = await WIKI.models.pageWatching.listForUser(site.id, ctx.userId)
+  const pages = await CARDINAL.models.pageWatching.listForUser(site.id, ctx.userId)
   return toResult(pages)
 }
 

@@ -26,7 +26,7 @@ import type { WebSocket } from 'ws'
  *
  * ## Autosave draft
  *
- * A room's live state is also debounce-persisted to {@link WIKI.models.pageDrafts} as edits happen
+ * A room's live state is also debounce-persisted to {@link CARDINAL.models.pageDrafts} as edits happen
  * ({@link scheduleDraftPersist}) — a *recovery* copy, separate from both the room and the stored page,
  * for exactly the case the paragraph above used to end on: every participant gone (a crash, a closed
  * tab) with nothing saved. {@link initRoom} never seeds a room from it (OpenProject #2957) — a room
@@ -82,7 +82,7 @@ const NOTIFY_CHANNEL = 'wiki_collab'
  * envelope around the chunk fits comfortably in the slack this leaves.
  *
  * Checked against the worst case (task 478's load test): every optional field populated (`to`, `m`,
- * `c`, `n`), `i`/`to` at their real length (a 10-character `nanoid`, see `WIKI.INSTANCE_ID` in
+ * `c`, `n`), `i`/`to` at their real length (a 10-character `nanoid`, see `CARDINAL.INSTANCE_ID` in
  * `index.ts`), `r` a full 36-character page uuid, and `t` at its longest value (`'awareness'`, 9
  * characters) — `JSON.stringify` on that envelope costs ~140 bytes before `p` is even added, so a
  * 5000-character `p` lands the whole envelope at ~5140 bytes: **~2860 bytes of slack (36%) under the
@@ -130,7 +130,7 @@ const PEER_PRESENCE_TTL = 15 * 1000
 
 /**
  * How long a room waits for edits to settle before persisting its Yjs state as the page's autosave
- * draft ({@link WIKI.models.pageDrafts}) — see {@link scheduleDraftPersist}. Short enough that a
+ * draft ({@link CARDINAL.models.pageDrafts}) — see {@link scheduleDraftPersist}. Short enough that a
  * pause of ordinary typing (thinking, re-reading a sentence) is enough to flush, since a crash can
  * land at any moment and the whole point is not losing whatever came before it.
  */
@@ -344,7 +344,7 @@ export function buildSeed(page: {
  * Every one of them starts in a Yjs handler that cannot wait for postgres, and a single edit can
  * produce several — see `publish`.
  */
-const notifier = createNotifier(() => WIKI.collab.listenClient, 'collaboration relay')
+const notifier = createNotifier(() => CARDINAL.collab.listenClient, 'collaboration relay')
 
 /**
  * Cancels a room's pending debounced draft-persist timer, if one is set, and returns a promise that
@@ -400,8 +400,8 @@ export default {
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
     //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
-      pool: WIKI.dbManager.listenerPool!,
-      applicationName: `Cardinal.js - ${WIKI.INSTANCE_ID}:COLLAB`,
+      pool: CARDINAL.dbManager.listenerPool!,
+      applicationName: `Cardinal.js - ${CARDINAL.INSTANCE_ID}:COLLAB`,
       channels: [NOTIFY_CHANNEL],
       label: 'collaboration relay',
       onNotification: (msg) => {
@@ -411,7 +411,7 @@ export default {
         try {
           this.receiveRelay(JSON.parse(msg.payload) as RelayEnvelope)
         } catch (err: any) {
-          WIKI.logger.warn('collab', 'malformed relay message', { error: err })
+          CARDINAL.logger.warn('collab', 'malformed relay message', { error: err })
         }
       },
       getClient: () => this.listenClient,
@@ -437,7 +437,7 @@ export default {
       }
     }, PING_INTERVAL)
 
-    WIKI.logger.debug('collab', 'collaborative editing initialized')
+    CARDINAL.logger.debug('collab', 'collaborative editing initialized')
   },
 
   async shutdown(): Promise<void> {
@@ -488,9 +488,9 @@ export default {
     if (now - this.peerPresence.checkedAt < PEER_PRESENCE_TTL) {
       return this.peerPresence.known
     }
-    const ownName = `Cardinal.js - ${WIKI.INSTANCE_ID}:COLLAB`
+    const ownName = `Cardinal.js - ${CARDINAL.INSTANCE_ID}:COLLAB`
     try {
-      const result = await WIKI.db.execute(
+      const result = await CARDINAL.db.execute(
         sql`SELECT 1 FROM pg_stat_activity WHERE datname = current_database()
               AND application_name LIKE 'Cardinal.js - %:COLLAB'
               AND application_name <> ${ownName} LIMIT 1`
@@ -498,7 +498,7 @@ export default {
       this.peerPresence = { known: result.rows.length > 0, checkedAt: now }
     } catch (err: any) {
       // -> Assume company: waiting 500ms is a far smaller mistake than duplicating a page's text
-      WIKI.logger.warn('collab', 'could not determine whether peer instances are running', {
+      CARDINAL.logger.warn('collab', 'could not determine whether peer instances are running', {
         error: err
       })
       this.peerPresence = { known: true, checkedAt: now }
@@ -543,9 +543,13 @@ export default {
         //    buffering. `terminate()`, not `close()`: this socket has already sent more than a real
         //    y-websocket handshake ever does, so it does not get the closing handshake's grace period
         //    either.
-        WIKI.logger.warn('collab', 'socket exceeded the pre-auth frame buffer cap, terminated', {
-          bytes: session.pendingBytes + bytes.byteLength
-        })
+        CARDINAL.logger.warn(
+          'collab',
+          'socket exceeded the pre-auth frame buffer cap, terminated',
+          {
+            bytes: session.pendingBytes + bytes.byteLength
+          }
+        )
         conn.terminate()
         return
       }
@@ -558,7 +562,7 @@ export default {
       }
     })
     conn.on('error', (err: Error) => {
-      WIKI.logger.debug('collab', 'socket error', { error: err })
+      CARDINAL.logger.debug('collab', 'socket error', { error: err })
     })
     return session
   },
@@ -787,7 +791,7 @@ export default {
       if (fromPeer) {
         Y.applyUpdate(room.doc, fromPeer, RELAYED)
       } else {
-        const page = await WIKI.models.pages.getPage({
+        const page = await CARDINAL.models.pages.getPage({
           siteId: room.siteId,
           id: room.pageId,
           withContent: true
@@ -797,7 +801,7 @@ export default {
         Y.applyUpdate(room.doc, buildSeed(page ?? {}), RELAYED)
       }
     } catch (err: any) {
-      WIKI.logger.warn('collab', 'failed to initialize room', { page: room.pageId, error: err })
+      CARDINAL.logger.warn('collab', 'failed to initialize room', { page: room.pageId, error: err })
     } finally {
       room.provisional = false
       this.awaitingState.delete(room.pageId)
@@ -900,7 +904,10 @@ export default {
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn('collab', 'failed to handle a message', { page: room.pageId, error: err })
+      CARDINAL.logger.warn('collab', 'failed to handle a message', {
+        page: room.pageId,
+        error: err
+      })
     }
   },
 
@@ -970,7 +977,7 @@ export default {
    * it on the next visit. The in-memory room itself needs nothing of its own to discard here — the
    * socket closes and the doc goes with it — but any edit still waiting on the autosave debounce is
    * flushed first ({@link flushDraftPersist}), since this is exactly the "closed without saving" case
-   * {@link WIKI.models.pageDrafts} exists to make recoverable rather than lost outright.
+   * {@link CARDINAL.models.pageDrafts} exists to make recoverable rather than lost outright.
    *
    * Peers are not told. A room elsewhere is a replica in its own right whose participants are still
    * editing; this instance simply asks for their state again next time someone here opens the page.
@@ -988,7 +995,7 @@ export default {
   },
 
   /**
-   * Schedule this room's current Yjs state to be written to {@link WIKI.models.pageDrafts} as the
+   * Schedule this room's current Yjs state to be written to {@link CARDINAL.models.pageDrafts} as the
    * page's autosave draft, debounced ({@link DRAFT_PERSIST_DEBOUNCE}, capped at
    * {@link DRAFT_PERSIST_MAX_DELAY}) so a burst of keystrokes persists once rather than on every one
    * of them. Called from every locally-originated doc update — a relayed one has already been (or is
@@ -1037,10 +1044,10 @@ export default {
     }
     room.draftPersist.timer = null
     room.draftPersist.pendingSince = null
-    const persisting: Promise<void> = WIKI.models.pageDrafts
+    const persisting: Promise<void> = CARDINAL.models.pageDrafts
       .save(room.pageId, room.siteId, Y.encodeStateAsUpdate(room.doc), null, room.lastAuthorName)
       .catch((err: any) => {
-        WIKI.logger.warn('collab', 'failed to persist an autosave draft', {
+        CARDINAL.logger.warn('collab', 'failed to persist an autosave draft', {
           page: room.pageId,
           error: err
         })
@@ -1092,9 +1099,9 @@ export default {
       this.relay({ r: pageId, t: 'saved', p: JSON.stringify(info) })
     }
     clearAfter
-      .then(() => WIKI.models.pageDrafts.clear(pageId))
+      .then(() => CARDINAL.models.pageDrafts.clear(pageId))
       .catch((err: any) => {
-        WIKI.logger.warn('collab', 'failed to clear the draft', { page: pageId, error: err })
+        CARDINAL.logger.warn('collab', 'failed to clear the draft', { page: pageId, error: err })
       })
   },
 
@@ -1110,7 +1117,7 @@ export default {
   discardDraft(pageId: string): Promise<void> {
     const room = this.rooms.get(pageId)
     const clearAfter = room ? cancelPendingDraftPersist(room) : Promise.resolve()
-    return clearAfter.then(() => WIKI.models.pageDrafts.clear(pageId))
+    return clearAfter.then(() => CARDINAL.models.pageDrafts.clear(pageId))
   },
 
   // ----------------------------------------
@@ -1122,7 +1129,7 @@ export default {
     if (!this.listenClient) {
       return
     }
-    const envelope: RelayEnvelope = { ...message, i: WIKI.INSTANCE_ID }
+    const envelope: RelayEnvelope = { ...message, i: CARDINAL.INSTANCE_ID }
     const payload = envelope.p
     if (!payload || payload.length <= RELAY_CHUNK_SIZE) {
       this.publish(envelope)
@@ -1153,10 +1160,10 @@ export default {
   },
 
   receiveRelay(envelope: RelayEnvelope): void {
-    if (envelope.i === WIKI.INSTANCE_ID) {
+    if (envelope.i === CARDINAL.INSTANCE_ID) {
       return
     }
-    if (envelope.to && envelope.to !== WIKI.INSTANCE_ID) {
+    if (envelope.to && envelope.to !== CARDINAL.INSTANCE_ID) {
       return
     }
     if (envelope.m !== undefined && envelope.n !== undefined) {

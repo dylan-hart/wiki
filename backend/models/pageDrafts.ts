@@ -76,7 +76,7 @@ class PageDrafts {
    * caller wanting the plain content/title/description/icon out of it wants instead; `core/collab.ts`
    * deliberately never calls this to reseed a room (OpenProject #2957), only ever `save()`/`clear()`. */
   async get(pageId: string): Promise<PageDraft | undefined> {
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({ state: pageDraftsTable.state, updatedAt: pageDraftsTable.updatedAt })
       .from(pageDraftsTable)
       .where(eq(pageDraftsTable.pageId, pageId))
@@ -88,7 +88,7 @@ class PageDrafts {
    * `undefined` when there is none — what the `GET .../pages/:pageId/draft` route hands the reader
    * once they have chosen to restore it (OpenProject #2455). */
   async getContent(pageId: string): Promise<PageDraftContent | undefined> {
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({
         state: pageDraftsTable.state,
         authorName: pageDraftsTable.authorName,
@@ -108,7 +108,7 @@ class PageDrafts {
    * needs to offer a restore without decoding the draft's Yjs state on every page read.
    */
   async summary(pageId: string): Promise<PageDraftSummary | undefined> {
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({ updatedAt: pageDraftsTable.updatedAt, authorName: pageDraftsTable.authorName })
       .from(pageDraftsTable)
       .where(eq(pageDraftsTable.pageId, pageId))
@@ -133,7 +133,7 @@ class PageDrafts {
     authorName: string | null = null
   ): Promise<void> {
     const buffer = Buffer.from(state)
-    await WIKI.db
+    await CARDINAL.db
       .insert(pageDraftsTable)
       .values({ pageId, siteId, state: buffer, authorId, authorName, updatedAt: new Date() })
       .onConflictDoUpdate({
@@ -145,7 +145,7 @@ class PageDrafts {
   /** Forget a page's draft, e.g. once its content has genuinely been saved. Safe to call for a page
    * with no draft row. */
   async clear(pageId: string): Promise<void> {
-    await WIKI.db.delete(pageDraftsTable).where(eq(pageDraftsTable.pageId, pageId))
+    await CARDINAL.db.delete(pageDraftsTable).where(eq(pageDraftsTable.pageId, pageId))
   }
 
   /**
@@ -156,7 +156,7 @@ class PageDrafts {
    * @returns How many rows were dropped
    */
   async purgeStale(): Promise<number> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(pageDraftsTable)
       .where(lt(pageDraftsTable.updatedAt, sql`now() - make_interval(days => ${STALE_DRAFT_DAYS})`))
     return result.rowCount ?? 0

@@ -101,7 +101,7 @@ interface RelationEntry {
  */
 class PageProblemsModel {
   async scan(): Promise<PageProblemsReport> {
-    const pageRows = await WIKI.db
+    const pageRows = await CARDINAL.db
       .select({
         id: pagesTable.id,
         siteId: pagesTable.siteId,
@@ -183,7 +183,7 @@ class PageProblemsModel {
     //    Fetched for every tree row type (not just `page`), so check 5 below can reuse it rather than
     //    reading the whole table a second time — a root-level FOLDER shadows a locale prefix exactly
     //    as a page does, so it belongs in that check too.
-    const treeRows = await WIKI.db
+    const treeRows = await CARDINAL.db
       .select({
         id: treeTable.id,
         siteId: treeTable.siteId,
@@ -225,7 +225,7 @@ class PageProblemsModel {
     //    (see `models/locales.ts#isReservedLocaleCode`, `models/pages.ts#createPage`/`movePage`,
     //    `models/tree.ts#createFolder`/`renameFolder`) — every code ever installed, not just active
     //    on a given site, since a row shadowed by activation later is exactly the case this guards.
-    const installedLocales = await WIKI.models.locales.getLocales()
+    const installedLocales = await CARDINAL.models.locales.getLocales()
     // -> Keyed by lowercased code (matching is case-insensitive -- a path segment collides
     //    regardless of how it's cased) but valued with the code exactly as installed, so a report
     //    names the real offender (`FR`) rather than an artifact of the matching (`fr`).

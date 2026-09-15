@@ -11,7 +11,7 @@ import type { TaskResult } from '../../core/scheduler.ts'
  * right after it happens), a digest by definition waits and batches, so it has to be driven by the
  * clock rather than by any single page change.
  *
- * `WIKI.models.pageWatchEvents.listPendingForDigest()` already filters to `notifyMode: 'digest'` and
+ * `CARDINAL.models.pageWatchEvents.listPendingForDigest()` already filters to `notifyMode: 'digest'` and
  * `deliveredAt IS NULL` — see that model's own comment on why an `immediate`-mode row can also be
  * pending (a failed send, left for a future in-app inbox) and must never be swept into a digest. A
  * user who owns none of those rows this cycle simply never appears in the grouping below, which is
@@ -27,24 +27,24 @@ import type { TaskResult } from '../../core/scheduler.ts'
  *
  * Grouped by `(userId, siteId)`, not `userId` alone: a watcher's pending events can span more than one
  * site, and each site can have its own locale routing config, so one digest email must never mix
- * events from two sites — `WIKI.models.mail.sendPageWatchDigest` resolves that config once per send
+ * events from two sites — `CARDINAL.models.mail.sendPageWatchDigest` resolves that config once per send
  * from a single `siteId`, which is only ever correct if every item in the send shares it.
  *
- * Composes each line of the digest via `WIKI.models.mail.sendPageWatchDigest`, which itself builds
+ * Composes each line of the digest via `CARDINAL.models.mail.sendPageWatchDigest`, which itself builds
  * every line through the exact same per-event content `sendPageWatchNotification` sends alone — this
  * task supplies the data (grouped events, resolved actor names) but never re-derives the phrasing.
  *
  * OpenProject #2173: a digest is a `read:pages` re-check's worst case for staleness — a `digest`-mode
  * event sits pending for up to a full day (this job's own schedule) between being recorded and being
  * sent, the longest window anywhere in this feature for a watcher's group membership or the page's
- * rules to have changed underneath it. `WIKI.models.pageWatchEvents.filterReadable()` (shared with the
+ * rules to have changed underneath it. `CARDINAL.models.pageWatchEvents.filterReadable()` (shared with the
  * in-app inbox's own read-time re-check, `listForUser`) is applied per `(userId, siteId)` group, right
  * before that group's items are built — an event that fails it is marked delivered anyway (there is
  * nothing further to tell a watcher about a page they can no longer read) but never appears in the
  * mail, and a group left with nothing readable is skipped entirely rather than sending an empty digest.
  */
 export async function task(): Promise<TaskResult | void> {
-  const pending = await WIKI.models.pageWatchEvents.listPendingForDigest()
+  const pending = await CARDINAL.models.pageWatchEvents.listPendingForDigest()
 
   // -> Keyed by `userId\0siteId`, not `userId` alone — see this file's own doc comment on why a
   //    digest must never mix events from two sites into one send.
@@ -62,7 +62,7 @@ export async function task(): Promise<TaskResult | void> {
   if (eventsByUserSite.size < 1) {
     // -> The common case on a quiet wiki, every run: nothing happened, so nothing is said at
     //    `info` (audit X1/X2).
-    WIKI.logger.debug('hooks', 'no page watch digests pending')
+    CARDINAL.logger.debug('hooks', 'no page watch digests pending')
     return
   }
 
@@ -77,7 +77,7 @@ export async function task(): Promise<TaskResult | void> {
     if (cached) {
       return cached
     }
-    const actorUser = await WIKI.models.users.getById(actorId)
+    const actorUser = await CARDINAL.models.users.getById(actorId)
     const name = actorUser?.name ?? 'Someone'
     actorNames.set(actorId, name)
     return name
@@ -93,19 +93,19 @@ export async function task(): Promise<TaskResult | void> {
       //    this group's readable ones -- there is nothing further to tell this watcher about a page
       //    they can no longer read, and leaving it pending would only have it re-evaluated (and
       //    re-filtered out) by every future run indefinitely.
-      const readable = await WIKI.models.pageWatchEvents.filterReadable(userId, events)
+      const readable = await CARDINAL.models.pageWatchEvents.filterReadable(userId, events)
       const unreadable = events.filter((event) => !readable.includes(event))
       if (unreadable.length > 0) {
-        await WIKI.models.pageWatchEvents.markManyDelivered(unreadable.map((event) => event.id))
+        await CARDINAL.models.pageWatchEvents.markManyDelivered(unreadable.map((event) => event.id))
       }
       if (readable.length < 1) {
         continue
       }
 
-      const recipient = await WIKI.models.users.getById(userId)
+      const recipient = await CARDINAL.models.users.getById(userId)
       if (!recipient?.email) {
         // -> `debug`: recurs on every run for the same account.
-        WIKI.logger.debug('hooks', 'watch digest skipped, no email address', { user: userId })
+        CARDINAL.logger.debug('hooks', 'watch digest skipped, no email address', { user: userId })
         continue
       }
 
@@ -119,20 +119,20 @@ export async function task(): Promise<TaskResult | void> {
         })
       }
 
-      await WIKI.models.mail.sendPageWatchDigest({
+      await CARDINAL.models.mail.sendPageWatchDigest({
         to: recipient.email,
         siteId,
         items,
         userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
-      await WIKI.models.pageWatchEvents.markManyDelivered(readable.map((event) => event.id))
+      await CARDINAL.models.pageWatchEvents.markManyDelivered(readable.map((event) => event.id))
       sent++
     } catch (err: any) {
       // -> Logged loudly, not thrown: the pending events survive either way (nothing here marks
       //    them delivered before the send succeeds), which is what keeps one watcher's failed
       //    digest from retrying — and re-sending — every other watcher's digest in this same run.
-      WIKI.logger.error('hooks', 'failed to send watch digest', {
+      CARDINAL.logger.error('hooks', 'failed to send watch digest', {
         user: userId,
         site: siteId,
         error: err
@@ -147,5 +147,5 @@ export async function task(): Promise<TaskResult | void> {
   //    or no address on file). Nothing was sent, so the run says nothing at `info` — but WHY it sent
   //    nothing when it had work in hand is worth a `debug` line of its own, which the scheduler's
   //    generic `finished` cannot carry.
-  WIKI.logger.debug('hooks', 'no page watch digest was sent', { of: eventsByUserSite.size })
+  CARDINAL.logger.debug('hooks', 'no page watch digest was sent', { of: eventsByUserSite.size })
 }

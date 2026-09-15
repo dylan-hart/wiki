@@ -144,8 +144,8 @@ class Locales extends ClusterReloaded {
    */
   sideloadPath(): string {
     // -> Falls back to `base.yml`'s own default rather than requiring every caller (including a
-    //    `WIKI.config` fixture that has no reason to care about paths) to have merged it in.
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath || './data', 'locales')
+    //    `CARDINAL.config` fixture that has no reason to care about paths) to have merged it in.
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath || './data', 'locales')
   }
 
   /**
@@ -176,9 +176,9 @@ class Locales extends ClusterReloaded {
     }
 
     const baseStrings = JSON.parse(
-      await readFile(path.join(WIKI.SERVERPATH, 'locales/en.json'), 'utf8')
+      await readFile(path.join(CARDINAL.SERVERPATH, 'locales/en.json'), 'utf8')
     )
-    const dbLocales = await WIKI.db
+    const dbLocales = await CARDINAL.db
       .select({ code: localesTable.code, updatedAt: localesTable.updatedAt })
       .from(localesTable)
 
@@ -218,7 +218,7 @@ class Locales extends ClusterReloaded {
       //    behavior for that case.
       let storedStrings: Record<string, unknown> = {}
       if (dbLang) {
-        const existingRows = await WIKI.db
+        const existingRows = await CARDINAL.db
           .select({ strings: localesTable.strings })
           .from(localesTable)
           .where(eq(localesTable.code, code))
@@ -236,7 +236,7 @@ class Locales extends ClusterReloaded {
       //    locale down with it; via `POST /sideload`, turning into an opaque 500 instead of the specific
       //    per-file report this endpoint exists to give).
       try {
-        await WIKI.db
+        await CARDINAL.db
           .insert(localesTable)
           .values({ code, ...parsed.pack, strings: mergedStrings, completeness })
           .onConflictDoUpdate({
@@ -249,14 +249,17 @@ class Locales extends ClusterReloaded {
       }
       this.invalidateStringsCache(code)
       loaded.push(code)
-      WIKI.logger.debug('locale', 'sideloaded locale', { locale: code, path: this.sideloadPath() })
+      CARDINAL.logger.debug('locale', 'sideloaded locale', {
+        locale: code,
+        path: this.sideloadPath()
+      })
     }
 
     if (loaded.length > 0) {
       await this.broadcastReload()
     }
     if (skipped.length > 0) {
-      WIKI.logger.warn('locale', 'skipped sideload files', {
+      CARDINAL.logger.warn('locale', 'skipped sideload files', {
         skipped: skipped.length,
         files: skipped.map((s) => `${s.code} (${s.error})`).join(', ')
       })
@@ -271,10 +274,10 @@ class Locales extends ClusterReloaded {
       // -> Base locale for completeness comparisons, read once per call (not per language) and
       //    reused across the whole loop below.
       const baseStrings = JSON.parse(
-        await readFile(path.join(WIKI.SERVERPATH, 'locales/en.json'), 'utf8')
+        await readFile(path.join(CARDINAL.SERVERPATH, 'locales/en.json'), 'utf8')
       )
 
-      const dbLocales = await WIKI.db
+      const dbLocales = await CARDINAL.db
         .select({
           code: localesTable.code,
           updatedAt: localesTable.updatedAt
@@ -291,7 +294,7 @@ class Locales extends ClusterReloaded {
         const dbLang = dbLocales.find((l: any) => l.code === langFilename)
 
         // -> Get File version
-        const flPath = path.join(WIKI.SERVERPATH, `locales/${langFilename}.json`)
+        const flPath = path.join(CARDINAL.SERVERPATH, `locales/${langFilename}.json`)
         try {
           const flStat = await stat(flPath)
           const flUpdatedAt = flStat.mtime.toTemporalInstant()
@@ -308,7 +311,7 @@ class Locales extends ClusterReloaded {
             //    incidental.
             const completeness =
               langFilename === 'en' ? 100 : computeCompleteness(baseStrings, flStrings)
-            await WIKI.db
+            await CARDINAL.db
               .insert(localesTable)
               .values({
                 code: langFilename,
@@ -340,19 +343,21 @@ class Locales extends ClusterReloaded {
                 setWhere: force ? undefined : lt(localesTable.updatedAt, flStat.mtime)
               })
             this.invalidateStringsCache(langFilename)
-            WIKI.logger.debug('locale', 'loaded locale from disk', {
+            CARDINAL.logger.debug('locale', 'loaded locale from disk', {
               locale: langFilename,
               completeness
             })
           } else {
-            WIKI.logger.debug('locale', 'db copy is newer, keeping it', { locale: langFilename })
+            CARDINAL.logger.debug('locale', 'db copy is newer, keeping it', {
+              locale: langFilename
+            })
           }
         } catch {
           missingOnDisk.push(langFilename)
         }
       }
       if (missingOnDisk.length > 0) {
-        WIKI.logger.warn('locale', 'declared in the metadata file but not found on disk', {
+        CARDINAL.logger.warn('locale', 'declared in the metadata file but not found on disk', {
           skipped: missingOnDisk.length,
           locales: missingOnDisk.join(', ')
         })
@@ -362,19 +367,19 @@ class Locales extends ClusterReloaded {
       // -> One line for the whole pass, in place of the two-per-locale announce/complete pairs the
       //    loop above used to write at `info`: 112 boot lines became 56 `debug` ones and this.
       const count = localesMeta.languages.length
-      WIKI.logger.info('locale', `loaded ${count} ${count === 1 ? 'locale' : 'locales'}`, {
+      CARDINAL.logger.info('locale', `loaded ${count} ${count === 1 ? 'locale' : 'locales'}`, {
         sideloaded: sideload.loaded.length,
         skipped: missingOnDisk.length
       })
     } catch (err: any) {
-      WIKI.logger.warn('locale', 'loading locales from disk failed', { error: err })
+      CARDINAL.logger.warn('locale', 'loading locales from disk failed', { error: err })
       return false
     }
   }
 
   async getLocales({ cache = true }: { cache?: boolean } = {}): Promise<any[]> {
-    if (!WIKI.cache.has('locales') || !cache) {
-      const locales = await WIKI.db
+    if (!CARDINAL.cache.has('locales') || !cache) {
+      const locales = await CARDINAL.db
         .select({
           code: localesTable.code,
           isRTL: localesTable.isRTL,
@@ -387,9 +392,9 @@ class Locales extends ClusterReloaded {
         })
         .from(localesTable)
         .orderBy(localesTable.code)
-      WIKI.cache.set('locales', locales)
+      CARDINAL.cache.set('locales', locales)
     }
-    return WIKI.cache.get('locales') as any[]
+    return CARDINAL.cache.get('locales') as any[]
   }
 
   /**
@@ -424,8 +429,8 @@ class Locales extends ClusterReloaded {
    */
   async getStrings(locale: string) {
     const cacheKey = `localeStrings:${locale}`
-    if (!WIKI.cache.has(cacheKey)) {
-      const results = await WIKI.db
+    if (!CARDINAL.cache.has(cacheKey)) {
+      const results = await CARDINAL.db
         .select({ strings: localesTable.strings })
         .from(localesTable)
         .where(eq(localesTable.code, locale))
@@ -433,14 +438,14 @@ class Locales extends ClusterReloaded {
       let strings: unknown = results.length === 1 ? results[0].strings : []
       if (locale === 'en') {
         const bundled = JSON.parse(
-          await readFile(path.join(WIKI.SERVERPATH, 'locales/en.json'), 'utf8')
+          await readFile(path.join(CARDINAL.SERVERPATH, 'locales/en.json'), 'utf8')
         )
         const stored = isPlainObject(strings) ? (strings as Record<string, unknown>) : {}
         strings = mergeLocaleStrings(bundled, stored)
       }
-      WIKI.cache.set(cacheKey, strings)
+      CARDINAL.cache.set(cacheKey, strings)
     }
-    return WIKI.cache.get(cacheKey)
+    return CARDINAL.cache.get(cacheKey)
   }
 
   /**
@@ -450,7 +455,7 @@ class Locales extends ClusterReloaded {
    * was read from.
    */
   private invalidateStringsCache(code: string): void {
-    WIKI.cache.delete(`localeStrings:${code}`)
+    CARDINAL.cache.delete(`localeStrings:${code}`)
   }
 
   /**
@@ -524,7 +529,7 @@ class Locales extends ClusterReloaded {
    * instance including the one that ran the sync.
    */
   async reloadCache(): Promise<void> {
-    const locales = await WIKI.models.locales.getLocales({ cache: false })
+    const locales = await CARDINAL.models.locales.getLocales({ cache: false })
     // -> `getStrings()` caches per code under `localeStrings:<code>` (OpenProject #1915). This is
     //    the single invalidation point for that cache too — called from `sideloadFromDataPath` after
     //    a pack is written, so dropping every known code's entry here (rather than tracking which
@@ -533,7 +538,7 @@ class Locales extends ClusterReloaded {
     for (const locale of locales) {
       this.invalidateStringsCache(locale.code)
     }
-    WIKI.logger.debug('locale', 'reloaded the locales cache', { locales: locales.length })
+    CARDINAL.logger.debug('locale', 'reloaded the locales cache', { locales: locales.length })
   }
 }
 

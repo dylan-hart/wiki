@@ -5,11 +5,11 @@
  * Both are computed inside an entry point (`index.ts`, `worker.ts`) that runs its whole boot
  * sequence at import time and therefore cannot be imported by a test at all. Extracting the
  * derivation is what makes it testable, per this task's own note ("test the id derivation as a pure
- * function it imports"); the entry point keeps only the `WIKI.logger` call it feeds.
+ * function it imports"); the entry point keeps only the `CARDINAL.logger` call it feeds.
  */
 
 /**
- * The one site shape `readyFields` reads. `WIKI.sites` values carry far more; none of it matters
+ * The one site shape `readyFields` reads. `CARDINAL.sites` values carry far more; none of it matters
  * here.
  */
 export interface ReadySite {
@@ -17,11 +17,11 @@ export interface ReadySite {
 }
 
 export interface ReadyFieldsInput {
-  /** `WIKI.sites` — keyed by site id, in the order `models/sites.ts#reloadCache` inserted them. */
+  /** `CARDINAL.sites` — keyed by site id, in the order `models/sites.ts#reloadCache` inserted them. */
   sites: Record<string, ReadySite>
   bindIP: string
   port: number | string
-  /** Milliseconds elapsed since `WIKI.startedAt`. */
+  /** Milliseconds elapsed since `CARDINAL.startedAt`. */
   ms: number
 }
 

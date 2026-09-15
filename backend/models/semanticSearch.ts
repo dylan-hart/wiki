@@ -13,7 +13,7 @@ import type { SearchPagesResult } from './search.ts'
  * concatenation as a single new file can:
  *
  * - #3099: `SEMANTIC_SCAN_CAP` and `annSearch`, the hop-1 ANN-search-plus-`filterVisible`
- *   primitive, plus the `semanticSearch` object registered onto `WIKI.models` below.
+ *   primitive, plus the `semanticSearch` object registered onto `CARDINAL.models` below.
  * - #3100: `HOP2_SEED_COUNT`, `selectHop2Seeds` and `runHop2` — hop-2 seed selection and the
  *   second `annSearch` call off a seed chunk's own embedding, reusing `annSearch` itself
  *   unchanged rather than re-deriving its ANN-plus-`filterVisible` logic with a different input
@@ -33,7 +33,7 @@ import type { SearchPagesResult } from './search.ts'
  * `drizzle-kit generate` — pgvector is an optional extension (not every host permits installing it),
  * and graceful degradation means its absence must never fail a migration or block boot. `core/db.ts`
  * (#3095) creates the extension and this table imperatively, in a try/catch, after the normal
- * migrations run, and records success as the `WIKI.capabilities.semanticSearch` boot-time flag. This
+ * migrations run, and records success as the `CARDINAL.capabilities.semanticSearch` boot-time flag. This
  * model reads the table through a raw `sql` template rather than the schema-DSL query builder for
  * exactly that reason — it isn't part of the generated schema, a deliberate exception to the "all
  * schema changes go through `db/schema.ts`" rule.
@@ -185,7 +185,7 @@ async function queryChunks(
 ): Promise<SemanticChunkMatch[]> {
   const vectorLiteral = toVectorLiteral(embedding)
 
-  const result = await WIKI.db.execute(sql`
+  const result = await CARDINAL.db.execute(sql`
     SELECT
       pec."pageId" AS "pageId",
       pec."chunkIndex" AS "chunkIndex",
@@ -414,10 +414,10 @@ const EMPTY_HOP_OUTCOME: HopOutcome = { scanned: [], visible: [] }
 /**
  * The Feature's public entry point: embed `query`, run both hops, merge/rank/dedupe/paginate.
  *
- * `WIKI.models.semanticSearch.search(...)` is what `api/pages/read.ts`'s semantic search route
+ * `CARDINAL.models.semanticSearch.search(...)` is what `api/pages/read.ts`'s semantic search route
  * (#3102) wraps. Degrades to an empty, non-approximate result set when local embedding inference is
  * unavailable (`embedText` returns `null`) — the same "hide rather than fail" posture
- * `WIKI.capabilities.semanticSearch` gives the rest of this feature (design doc's scope decision 8).
+ * `CARDINAL.capabilities.semanticSearch` gives the rest of this feature (design doc's scope decision 8).
  */
 export async function search(
   query: string,
@@ -440,7 +440,7 @@ export async function search(
 }
 
 /**
- * `WIKI.models.semanticSearch` — an object rather than a class, and grown by adding exports above
+ * `CARDINAL.models.semanticSearch` — an object rather than a class, and grown by adding exports above
  * and a key here, so each Task adds one more line instead of editing a shared class body. Only Task
  * #3099 (the one that created the file) touched `models/index.ts`'s registration.
  */

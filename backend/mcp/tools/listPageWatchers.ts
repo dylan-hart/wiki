@@ -43,7 +43,7 @@ export interface ListPageWatchersArgs {
 }
 
 /**
- * List who is watching a page — wraps `WIKI.models.pageWatching.listForPage(pageId, { limit })`, the
+ * List who is watching a page — wraps `CARDINAL.models.pageWatching.listForPage(pageId, { limit })`, the
  * same model method `GET /_api/sites/:siteId/pages/:pageId/watchers` (`api/watching.ts`) calls.
  *
  * Stays open/no-auth, mirroring that route: who watches a page is readable by anybody who may read
@@ -62,7 +62,7 @@ export async function handleListPageWatchers(
   const site = resolveRequestedSite(ctx, args.siteId)
   const actor = actorFor(ctx)
 
-  const page = await WIKI.models.pages.getPage({
+  const page = await CARDINAL.models.pages.getPage({
     siteId: site.id,
     id: args.pageId,
     // -> Mirrors `actorFrom(req)` on the REST route: no attributable user behind the key means an
@@ -71,19 +71,22 @@ export async function handleListPageWatchers(
     // -> Whoever may write or manage the page is not stopped by its own password — the same
     //    `mayBypassPassword` question `get_page` asks, with no session-based unlock to also honor.
     unlocked: (unlockRef) =>
-      WIKI.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
-      WIKI.models.groups.checkAccess(actor, 'manage:pages', { ...unlockRef, siteId: site.id }),
+      CARDINAL.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
+      CARDINAL.models.groups.checkAccess(actor, 'manage:pages', { ...unlockRef, siteId: site.id }),
     withPassword: false
   })
 
-  if (!page || !WIKI.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
+  if (
+    !page ||
+    !CARDINAL.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })
+  ) {
     throw new McpToolError('This page does not exist.')
   }
   if (page.isLocked) {
     throw new McpToolError('This page is password protected.')
   }
 
-  const watchers = await WIKI.models.pageWatching.listForPage(page.id, {
+  const watchers = await CARDINAL.models.pageWatching.listForPage(page.id, {
     limit: args.limit ?? DEFAULT_WATCHER_LIMIT
   })
   return toResult(watchers)

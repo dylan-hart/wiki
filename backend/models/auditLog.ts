@@ -126,7 +126,7 @@ export const DEFAULT_AUDIT_LOG_RETENTION_DAYS = 365
  * `purge()` reading the retention value live at run time, an operator -- or a compromised
  * `manage:system` session or API key -- could set `retentionDays: 1`, trigger the job, and delete
  * effectively the whole log in one `delete` before restoring a longer window: a de facto wipe with
- * no trace beyond a `WIKI.logger.info` line naming no actor. This floor does not make the log
+ * no trace beyond a `CARDINAL.logger.info` line naming no actor. This floor does not make the log
  * tamper-evident by itself (see `purge()`'s own comment below), but it does mean a single retention
  * change can no longer function as a full wipe.
  */
@@ -213,7 +213,7 @@ class AuditLog {
     siteId = null
   }: RecordEntry): Promise<void> {
     try {
-      await WIKI.db.insert(auditLogTable).values({
+      await CARDINAL.db.insert(auditLogTable).values({
         event,
         actorId: actor.id,
         actorName: actor.name,
@@ -225,7 +225,7 @@ class AuditLog {
         siteId
       })
     } catch (err: any) {
-      WIKI.logger.warn('audit', 'recording the audit log entry failed', { event, error: err })
+      CARDINAL.logger.warn('audit', 'recording the audit log entry failed', { event, error: err })
     }
   }
 
@@ -244,7 +244,7 @@ class AuditLog {
       return
     }
     try {
-      await WIKI.db.insert(auditLogTable).values(
+      await CARDINAL.db.insert(auditLogTable).values(
         entries.map((entry) => ({
           event: entry.event,
           actorId: entry.actor.id,
@@ -258,7 +258,7 @@ class AuditLog {
         }))
       )
     } catch (err: any) {
-      WIKI.logger.warn('audit', 'recording the audit log entries failed', {
+      CARDINAL.logger.warn('audit', 'recording the audit log entries failed', {
         entries: entries.length,
         error: err
       })
@@ -294,7 +294,7 @@ class AuditLog {
 
     const { total, rows } = await paginate({
       rows: () =>
-        WIKI.db
+        CARDINAL.db
           .select({
             id: auditLogTable.id,
             event: auditLogTable.event,
@@ -313,7 +313,7 @@ class AuditLog {
           .orderBy(desc(auditLogTable.createdAt))
           .limit(limit)
           .offset(offset),
-      total: () => WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
+      total: () => CARDINAL.db.select({ total: count() }).from(auditLogTable).where(where)
     })
 
     return {
@@ -343,7 +343,7 @@ class AuditLog {
    * to survive the account being deleted.
    */
   async listActors(): Promise<{ id: string; name: string }[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .selectDistinct({ id: usersTable.id, name: usersTable.name })
       .from(auditLogTable)
       .innerJoin(usersTable, eq(usersTable.id, auditLogTable.actorId))
@@ -361,16 +361,18 @@ class AuditLog {
     const cutoff = new Date(
       Temporal.Now.instant().subtract({ hours: retentionDays * 24 }).epochMilliseconds
     )
-    const result = await WIKI.db.delete(auditLogTable).where(lte(auditLogTable.createdAt, cutoff))
+    const result = await CARDINAL.db
+      .delete(auditLogTable)
+      .where(lte(auditLogTable.createdAt, cutoff))
     const purged = result.rowCount ?? 0
     // -> Silent at `info` when there was nothing to purge; this runs from a scheduled job.
     if (purged > 0) {
-      WIKI.logger.info('audit', 'purged old audit log entries', {
+      CARDINAL.logger.info('audit', 'purged old audit log entries', {
         entries: purged,
         retentionDays
       })
     } else {
-      WIKI.logger.debug('audit', 'no audit log entries to purge', { retentionDays })
+      CARDINAL.logger.debug('audit', 'no audit log entries to purge', { retentionDays })
     }
     // OpenProject #2237: record the purge itself, so a shortened retention window at least leaves a
     // trail of what it did (actor is nobody -- this runs from the `cleanAuditLog` job, not a
@@ -389,7 +391,7 @@ class AuditLog {
 
   /** The configured retention window, in days. */
   getRetentionDays(): number {
-    return WIKI.config.auditLog?.retentionDays ?? DEFAULT_AUDIT_LOG_RETENTION_DAYS
+    return CARDINAL.config.auditLog?.retentionDays ?? DEFAULT_AUDIT_LOG_RETENTION_DAYS
   }
 
   /**
@@ -398,8 +400,8 @@ class AuditLog {
    * @returns Whether the setting was saved
    */
   async setRetentionDays(retentionDays: number): Promise<boolean> {
-    WIKI.config.auditLog = { retentionDays }
-    return WIKI.configSvc.saveToDb(['auditLog'])
+    CARDINAL.config.auditLog = { retentionDays }
+    return CARDINAL.configSvc.saveToDb(['auditLog'])
   }
 }
 

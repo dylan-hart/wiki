@@ -92,7 +92,7 @@ class ContentSync {
     { siteId }: { siteId?: string } = {}
   ): Promise<TargetSyncSummary> {
     const [[syncedRow], [errorRow], outOfDatePagesCount, outOfDateAssetsCount] = await Promise.all([
-      WIKI.db
+      CARDINAL.db
         .select({
           // -> `.mapWith(contentSyncStateTable.lastSyncedAt)` reuses the column's own decoder: a raw
           //    `sql` fragment has no column of its own for drizzle's node-postgres driver to look up a
@@ -105,7 +105,7 @@ class ContentSync {
         })
         .from(contentSyncStateTable)
         .where(eq(contentSyncStateTable.targetId, targetId)),
-      WIKI.db
+      CARDINAL.db
         .select({
           lastError: contentSyncStateTable.lastError,
           updatedAt: contentSyncStateTable.updatedAt
@@ -165,7 +165,7 @@ class ContentSync {
       lastSyncedAt,
       lastError: null
     }
-    await WIKI.db
+    await CARDINAL.db
       .insert(contentSyncStateTable)
       .values({ contentType, contentId, targetId, ...values })
       .onConflictDoUpdate({
@@ -196,7 +196,7 @@ class ContentSync {
     targetId: string
     error: string
   }): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .insert(contentSyncStateTable)
       .values({ contentType, contentId, targetId, lastError: error })
       .onConflictDoUpdate({
@@ -218,7 +218,7 @@ class ContentSync {
    * Covered cheaply by the existing `contentSyncState_content_idx` (`(contentType, contentId)`).
    */
   async forgetContent(contentType: SyncContentType, contentId: string): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .delete(contentSyncStateTable)
       .where(
         and(
@@ -236,7 +236,7 @@ class ContentSync {
     if (contentIds.length < 1) {
       return
     }
-    await WIKI.db
+    await CARDINAL.db
       .delete(contentSyncStateTable)
       .where(
         and(
@@ -267,7 +267,7 @@ class ContentSync {
     const conditions = [siteId ? eq(contentTable.siteId, siteId) : undefined].filter(
       (c) => c != null
     )
-    const outOfDate = WIKI.db
+    const outOfDate = CARDINAL.db
       .select({ id: contentTable.id })
       .from(contentTable)
       .leftJoin(
@@ -288,7 +288,7 @@ class ContentSync {
         )
       )
       .as('out_of_date_content')
-    return WIKI.db.$count(outOfDate)
+    return CARDINAL.db.$count(outOfDate)
   }
 
   /**
@@ -301,12 +301,12 @@ class ContentSync {
    * One bounded `DELETE`, no batching -- mirrors `pageviews.ts#purgeExpired`'s shape.
    */
   async purgeOrphaned(): Promise<number> {
-    const result = await WIKI.db.delete(contentSyncStateTable).where(
+    const result = await CARDINAL.db.delete(contentSyncStateTable).where(
       or(
         and(
           eq(contentSyncStateTable.contentType, 'page'),
           notExists(
-            WIKI.db
+            CARDINAL.db
               .select({ exists: sql`1` })
               .from(pagesTable)
               .where(eq(pagesTable.id, contentSyncStateTable.contentId))
@@ -315,7 +315,7 @@ class ContentSync {
         and(
           eq(contentSyncStateTable.contentType, 'asset'),
           notExists(
-            WIKI.db
+            CARDINAL.db
               .select({ exists: sql`1` })
               .from(assetsTable)
               .where(eq(assetsTable.id, contentSyncStateTable.contentId))

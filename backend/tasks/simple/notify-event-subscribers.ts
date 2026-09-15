@@ -39,17 +39,17 @@ export async function task(payload?: NotifyEventSubscribersPayload): Promise<voi
 
   for (const { userId } of subscribers) {
     try {
-      const recipient = await WIKI.models.users.getById(userId)
+      const recipient = await CARDINAL.models.users.getById(userId)
       if (!recipient?.email) {
         // -> `debug`: the same account with no e-mail address recurs on every run, so this is a
         //    per-item fact rather than something an operator has to act on.
-        WIKI.logger.debug('hooks', 'notification skipped, no email address', {
+        CARDINAL.logger.debug('hooks', 'notification skipped, no email address', {
           user: userId,
           event
         })
         continue
       }
-      await WIKI.models.mail.sendEventNotification({
+      await CARDINAL.models.mail.sendEventNotification({
         to: recipient.email,
         event,
         siteId,
@@ -58,7 +58,7 @@ export async function task(payload?: NotifyEventSubscribersPayload): Promise<voi
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
     } catch (err: any) {
-      WIKI.logger.error('hooks', 'failed to send event notification', {
+      CARDINAL.logger.error('hooks', 'failed to send event notification', {
         user: userId,
         event,
         error: err

@@ -1,4 +1,4 @@
-/* global WIKI */
+/* global CARDINAL */
 import { XMLParser } from 'fast-xml-parser'
 import { splitDisplayName } from '../../../helpers/personName.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
@@ -111,7 +111,7 @@ export default class CasAuthentication {
       const res = await fetch(url)
       text = await res.text()
     } catch (err: any) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `CAS strategy ${this.strategyId}: serviceValidate request failed: ${err.message}`
       )
       throw new Error('ERR_CAS_LOGIN_FAILED')
@@ -144,7 +144,7 @@ export default class CasAuthentication {
   private parseCas1Response(text: string): CasValidation {
     const [status, username] = text.split('\n')
     if (status?.trim() !== 'yes' || !username?.trim()) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `CAS strategy ${this.strategyId}: ticket validation failed (CAS 1.0)`
       )
       throw new Error('ERR_CAS_LOGIN_FAILED')
@@ -157,14 +157,14 @@ export default class CasAuthentication {
     try {
       parsed = xmlParser.parse(text)
     } catch (err: any) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `CAS strategy ${this.strategyId}: could not parse the serviceValidate response: ${err.message}`
       )
       throw new Error('ERR_CAS_LOGIN_FAILED')
     }
     const success = parsed?.serviceResponse?.authenticationSuccess
     if (!success?.user) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `CAS strategy ${this.strategyId}: ticket validation failed (CAS 3.0)`
       )
       throw new Error('ERR_CAS_LOGIN_FAILED')

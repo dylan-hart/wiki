@@ -63,7 +63,7 @@ export interface RegisterResult {
  * — nothing speculative, nothing that no branch can produce.
  *
  * Note what is NOT here. `strategy-disabled` has no branch: a strategy that is turned off is simply
- * absent from `WIKI.auth.strategies`, which is already `unknown-strategy`. And there is no reason
+ * absent from `CARDINAL.auth.strategies`, which is already `unknown-strategy`. And there is no reason
  * distinguishing "no such account" from "wrong password" — both are `bad-credentials`, because the
  * strategy module answers them identically on purpose and inventing the distinction here would
  * publish an account-enumeration oracle into the log.
@@ -143,14 +143,14 @@ function refusalLogKey(ip: string | undefined): string {
 function logLoginRefused(reason: LoginRefusalReason, context: LoginRefusalContext = {}): void {
   const { ip, strategy } = context
   const logInFull = coalesce(refusalLogKey(ip), authRateLimitWindowMs(), (summary) => {
-    WIKI.logger.warn(
+    CARDINAL.logger.warn(
       'auth',
       `login refused ${summary.total} times in ${Math.round(summary.windowMs / 1000)}s`,
       { ip, strategy }
     )
   })
   if (logInFull) {
-    WIKI.logger.warn('auth', 'login refused', { reason, ...context })
+    CARDINAL.logger.warn('auth', 'login refused', { reason, ...context })
   }
 }
 
@@ -170,16 +170,16 @@ class Login {
     { siteId, strategyId, username, password, ip }: LoginOptions,
     req: any
   ): Promise<AfterLoginResult> {
-    if (strategyId in WIKI.auth.strategies) {
-      const str = WIKI.auth.strategies[strategyId] as any
-      const strInfo = WIKI.data.authentication.find((a: any) => a.key === str.module)
+    if (strategyId in CARDINAL.auth.strategies) {
+      const str = CARDINAL.auth.strategies[strategyId] as any
+      const strInfo = CARDINAL.data.authentication.find((a: any) => a.key === str.module)
 
       // -> Defense in depth, not the only guard: the route schema already requires `password` on
       //    the request body, but a form-based module's own verification bind must not depend on
       //    that alone — refuse an empty/missing password here too, before `str.authenticate()` ever
       //    runs, rather than trusting every present and future `useForm` module to check it itself.
       if (strInfo.useForm && !password) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `Login attempt on site ${siteId} using ${str.module} strategy ${strategyId} rejected: no password provided`
         )
         logLoginRefused('no-password', { strategy: strategyId, site: siteId, ip })
@@ -196,7 +196,7 @@ class Login {
       }
 
       // -> Never the password, flag or no flag
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Login attempt on site ${siteId} using ${str.module} strategy ${strategyId}${username ? ` as "${username}"` : ''} from ${ip}`
       )
 
@@ -211,7 +211,7 @@ class Login {
       if (strInfo.useForm && username) {
         const verdict = await consumeAccountAuthAttempt(username)
         if (!verdict.allowed) {
-          WIKI.models.flags.authDebug(
+          CARDINAL.models.flags.authDebug(
             `Rate limit: refused login for account "${username}", ${verdict.retryAfter}s left of its ban.`
           )
           logLoginRefused('account-rate-limited', { strategy: strategyId, site: siteId, ip })
@@ -236,20 +236,20 @@ class Login {
           checked again at this outer layer.
         */
         if (strInfo.useForm && err instanceof ProvisionableLoginError) {
-          const providerStrategy = await WIKI.models.authentication.getStrategyById(strategyId)
+          const providerStrategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
           if (!providerStrategy) {
             throw new Error('ERR_INVALID_STRATEGY')
           }
           user = await this.findOrCreateProviderUser(providerStrategy, err.profile)
         } else {
-          WIKI.models.flags.authDebug(
+          CARDINAL.models.flags.authDebug(
             `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
           )
           logLoginRefused('bad-credentials', { strategy: strategyId, site: siteId, ip })
           // -> Never the password, same as the debug line above. No user id either -- an attempt
           //    that failed authentication is not attributable to an account, only to whatever the
           //    caller claimed to be.
-          await WIKI.models.auditLog.record({
+          await CARDINAL.models.auditLog.record({
             event: 'login.failed',
             actor: { id: null, name: username ?? '', ip },
             targetType: 'user',
@@ -273,7 +273,9 @@ class Login {
         req
       )
     } else {
-      WIKI.models.flags.authDebug(`Login attempt using unknown strategy ${strategyId} from ${ip}`)
+      CARDINAL.models.flags.authDebug(
+        `Login attempt using unknown strategy ${strategyId} from ${ip}`
+      )
       logLoginRefused('unknown-strategy', { strategy: strategyId, site: siteId, ip })
       throw new Error('Invalid Strategy ID')
     }
@@ -366,12 +368,12 @@ class Login {
     const email = profile.email.toLowerCase().trim()
     const firstName = (profile.firstName ?? '').trim()
     const lastName = (profile.lastName ?? '').trim()
-    let user = await WIKI.models.users.getByEmail(email)
+    let user = await CARDINAL.models.users.getByEmail(email)
 
     // -> Checked before anything else: a system account (the seeded Guest row) must never be reachable
     //    through a provider, linked or not -- getByEmail() has no isSystem filter, unlike its siblings.
     if (user?.isSystem) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Provider login for <${email}> refused: address belongs to a system account`
       )
       logLoginRefused('system-account', { strategy: strategy.id })
@@ -389,7 +391,7 @@ class Login {
       const linkedId = auth[strategy.id]?.id
       if (linkedId === undefined) {
         if (!strategy.trustEmailForLinking) {
-          WIKI.models.flags.authDebug(
+          CARDINAL.models.flags.authDebug(
             `Provider login for <${email}> refused: no stored account link for strategy ${strategy.id}, and trustEmailForLinking is off`
           )
           logLoginRefused('account-not-linked', { strategy: strategy.id })
@@ -397,7 +399,7 @@ class Login {
         }
         justRelinkedViaTrustedEmail = true
       } else if (linkedId !== profile.id) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `Provider login for <${email}> refused: profile id does not match the account link stored for strategy ${strategy.id}`
         )
         logLoginRefused('account-not-linked', { strategy: strategy.id })
@@ -408,14 +410,14 @@ class Login {
       this.assertAllowedProviderEmail(strategy, email, { strategy: strategy.id })
     } else {
       if (!strategy.autoProvision) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not accept new users`
         )
         logLoginRefused('registration-disabled', { strategy: strategy.id })
         throw new Error('ERR_REGISTRATION_DISABLED')
       }
       this.assertAllowedProviderEmail(strategy, email, { strategy: strategy.id })
-      const userId = await WIKI.models.users.createUser({
+      const userId = await CARDINAL.models.users.createUser({
         // -> The halves win when the provider issued either: passing them alongside `name` would
         //    mark the row locally edited the moment the provider's display name is not exactly
         //    `first last` ("Dr. Alice Example"), permanently freezing the derivation.
@@ -427,8 +429,8 @@ class Login {
         groups: strategy.autoEnrollGroups ?? [],
         isVerified: true
       })
-      user = await WIKI.models.users.getById(userId)
-      WIKI.models.flags.authDebug(
+      user = await CARDINAL.models.users.getById(userId)
+      CARDINAL.models.flags.authDebug(
         `Created user ${userId} <${email}> from ${strategy.module} strategy ${strategy.id}`
       )
     }
@@ -442,7 +444,7 @@ class Login {
       account at the provider this is, and it is what tells the profile page that this user signs in
       through this strategy.
     */
-    await WIKI.models.userCredentials.patchStrategyAuth(
+    await CARDINAL.models.userCredentials.patchStrategyAuth(
       user.id,
       strategy.id,
       () => ({ id: profile.id, email }),
@@ -501,8 +503,8 @@ class Login {
     if (Object.keys(patch).length === 0) {
       return
     }
-    await WIKI.models.users.updateUser(user.id, patch)
-    const refreshed = await WIKI.models.users.getById(user.id)
+    await CARDINAL.models.users.updateUser(user.id, patch)
+    const refreshed = await CARDINAL.models.users.getById(user.id)
     if (refreshed) {
       Object.assign(user, refreshed)
     }
@@ -533,20 +535,20 @@ class Login {
    * planned as this Feature's third Task).
    */
   private async clearMigratedFallbackLocalAuth(user: { id: string; auth: unknown }): Promise<void> {
-    const localStrategyId = WIKI.data.systemIds.localAuthId
+    const localStrategyId = CARDINAL.data.systemIds.localAuthId
     const localAuth = ((user.auth ?? {}) as Record<string, any>)[localStrategyId]
     if (!localAuth?.migratedFallbackProvider) {
       return
     }
 
-    await WIKI.models.userCredentials.patchStrategyAuth(
+    await CARDINAL.models.userCredentials.patchStrategyAuth(
       user.id,
       localStrategyId,
       () => ({ mustChangePwd: false, migratedFallbackProvider: undefined }),
       { mirrorInto: user }
     )
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Cleared the stale migrated-fallback local auth entry for user ${user.id} after it relinked via a trusted-email provider`
     )
   }
@@ -572,7 +574,7 @@ class Login {
       allowed = new RegExp(strategy.allowedEmailRegex).test(email)
     } catch (err: any) {
       // -> A pattern that will not compile allows nobody, rather than everybody
-      WIKI.logger.warn('auth', 'strategy has an invalid email pattern, refusing', {
+      CARDINAL.logger.warn('auth', 'strategy has an invalid email pattern, refusing', {
         strategy: strategy.id,
         error: err
       })
@@ -602,7 +604,7 @@ class Login {
     }
     const domain = email.slice(email.lastIndexOf('@') + 1).toLowerCase()
     if (!strategy.allowedEmailDomains.includes(domain)) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Registration refused: domain <${domain}> is not on strategy ${strategy.id}'s allowed list`
       )
       throw new Error('ERR_EMAIL_NOT_ALLOWED')
@@ -622,7 +624,7 @@ class Login {
    *     grant there directly, and a provider that has simply stopped mentioning the group should not
    *     silently undo it;
    *   - every group carrying `manage:system` (`groups.systemGroupIds()`) and the configured root
-   *     administrators group (`WIKI.config.auth.rootAdminGroupId`) — an IdP can never grant or revoke
+   *     administrators group (`CARDINAL.config.auth.rootAdminGroupId`) — an IdP can never grant or revoke
    *     wiki-level administrative access, mirroring the same invariant `api/users/admin.ts` enforces for a
    *     human editing group membership directly. This holds unconditionally, independent of the
    *     allow-list below;
@@ -641,9 +643,9 @@ class Login {
     strategy: AuthStrategy,
     reportedGroups: string[]
   ): Promise<void> {
-    const guestsGroupId = WIKI.data.systemIds.guestsGroupId
-    const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
-    const systemGroupIds = await WIKI.models.groups.systemGroupIds()
+    const guestsGroupId = CARDINAL.data.systemIds.guestsGroupId
+    const rootAdminGroupId = CARDINAL.config.auth.rootAdminGroupId
+    const systemGroupIds = await CARDINAL.models.groups.systemGroupIds()
     const neverMapped = new Set([guestsGroupId, rootAdminGroupId, ...systemGroupIds])
     const mappable = new Set(strategy.mappableGroups ?? [])
     // -> Which of the currently-held allow-listed groups this login is allowed to take away --
@@ -656,7 +658,7 @@ class Login {
     const reportedNames = new Set(
       reportedGroups.map((name) => name.trim().toLowerCase()).filter(Boolean)
     )
-    const allGroups = await WIKI.models.groups.getAllGroups()
+    const allGroups = await CARDINAL.models.groups.getAllGroups()
     const matchedGroupIds = new Set(
       allGroups
         .filter(
@@ -668,7 +670,7 @@ class Login {
         .map((g: any) => g.id)
     )
 
-    const currentGroupIds = await WIKI.models.users.getUserGroupIds(user.id)
+    const currentGroupIds = await CARDINAL.models.users.getUserGroupIds(user.id)
     const currentSet = new Set(currentGroupIds)
 
     const toAdd = [...matchedGroupIds].filter((id) => !currentSet.has(id))
@@ -682,13 +684,13 @@ class Login {
     }
 
     for (const groupId of toAdd) {
-      await WIKI.models.groups.assignUserToGroup(groupId, user.id)
+      await CARDINAL.models.groups.assignUserToGroup(groupId, user.id)
     }
     for (const groupId of toRemove) {
-      await WIKI.models.groups.unassignUserFromGroup(groupId, user.id)
+      await CARDINAL.models.groups.unassignUserFromGroup(groupId, user.id)
     }
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Synced provider groups for user ${user.id} via strategy ${strategy.id}: +${toAdd.length} / -${toRemove.length}`
     )
   }
@@ -755,17 +757,17 @@ class Login {
     },
     req: any
   ): Promise<RegisterResult> {
-    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (!strategy || !strategy.isEnabled) {
-      WIKI.models.flags.authDebug(`Registration attempt against unknown strategy ${strategyId}`)
+      CARDINAL.models.flags.authDebug(`Registration attempt against unknown strategy ${strategyId}`)
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
     // -> Resolved the way `login()` resolves it: only a form-based module verifies the credentials it
     //    is handed, so only one may mint a local account through this public form.
-    const authModule = WIKI.data.authentication.find((a: any) => a.key === strategy.module)
+    const authModule = CARDINAL.data.authentication.find((a: any) => a.key === strategy.module)
     if (!authModule?.useForm) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Registration refused: strategy ${strategy.id} (${strategy.module}) is not a form-based module`
       )
       throw new Error('ERR_INVALID_STRATEGY')
@@ -773,19 +775,19 @@ class Login {
 
     // -> A strategy exists globally the moment it is configured, but only accepts requests through
     //    the sites an administrator attached it to.
-    const site = await WIKI.models.sites.getSiteById({ id: siteId })
+    const site = await CARDINAL.models.sites.getSiteById({ id: siteId })
     const attachedToSite = (site?.config?.authStrategies ?? []).some(
       (s: any) => s.id === strategyId
     )
     if (!attachedToSite) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Registration refused: strategy ${strategy.id} is not attached to site ${siteId}`
       )
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
     if (!strategy.selfRegistration) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Registration refused: strategy ${strategy.id} does not accept new users`
       )
       throw new Error('ERR_REGISTRATION_DISABLED')
@@ -799,7 +801,7 @@ class Login {
     this.assertAllowedRegistrationDomain(strategy, normalizedEmail)
 
     const requiresVerification = Boolean(strategy.config?.emailValidation)
-    const existing = await WIKI.models.users.getByEmail(normalizedEmail)
+    const existing = await CARDINAL.models.users.getByEmail(normalizedEmail)
 
     if (existing) {
       if (!requiresVerification) {
@@ -808,14 +810,14 @@ class Login {
         throw new Error('ERR_EMAIL_ALREADY_EXISTS')
       }
       if (!existing.isVerified) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
         )
-        const token = await WIKI.models.userCredentials.generateToken({
+        const token = await CARDINAL.models.userCredentials.generateToken({
           kind: 'verify',
           userId: existing.id
         })
-        await WIKI.models.mail.sendVerifyEmail({
+        await CARDINAL.models.mail.sendVerifyEmail({
           to: existing.email,
           name: existing.name,
           token,
@@ -827,18 +829,18 @@ class Login {
       //    { nextAction: 'verify' } a fresh registration gets -- rather than ERR_EMAIL_ALREADY_EXISTS
       //    -- is what keeps this response from confirming the address is taken; the real owner gets a
       //    notice instead, mirroring forgotPassword()'s design just above.
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Registration for <${normalizedEmail}> matched an existing verified account; notifying instead of confirming`
       )
       try {
-        await WIKI.models.mail.sendRegistrationAttemptNotice({
+        await CARDINAL.models.mail.sendRegistrationAttemptNotice({
           to: existing.email,
           name: existing.name,
           userId: existing.id,
           locale: (existing.prefs as Record<string, any> | undefined)?.locale
         })
       } catch (err: any) {
-        WIKI.logger.warn('auth', 'sending the registration-attempt notice failed', {
+        CARDINAL.logger.warn('auth', 'sending the registration-attempt notice failed', {
           user: existing.id,
           error: err
         })
@@ -854,7 +856,7 @@ class Login {
     //    same one composer (`deriveDisplayName`) answering the same question.
     const displayName = name ?? deriveDisplayName(firstName ?? '', lastName ?? '')
 
-    const userId = await WIKI.models.users.createUser({
+    const userId = await CARDINAL.models.users.createUser({
       name,
       firstName,
       lastName,
@@ -863,13 +865,13 @@ class Login {
       groups: strategy.autoEnrollGroups ?? [],
       isVerified: !requiresVerification
     })
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Registered user ${userId} <${normalizedEmail}> via ${strategy.module} strategy ${strategy.id}, verification ${requiresVerification ? 'required' : 'not required'}`
     )
 
     if (requiresVerification) {
-      const token = await WIKI.models.userCredentials.generateToken({ kind: 'verify', userId })
-      await WIKI.models.mail.sendVerifyEmail({
+      const token = await CARDINAL.models.userCredentials.generateToken({ kind: 'verify', userId })
+      await CARDINAL.models.mail.sendVerifyEmail({
         to: normalizedEmail,
         name: displayName,
         token,
@@ -878,7 +880,7 @@ class Login {
       return { nextAction: 'verify' }
     }
 
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
       throw new Error('ERR_REGISTRATION_FAILED')
     }
@@ -910,7 +912,7 @@ class Login {
       user: user?.id
     }
 
-    const str = WIKI.auth.strategies[strategyId] as any
+    const str = CARDINAL.auth.strategies[strategyId] as any
     if (!str) {
       logLoginRefused('unknown-strategy', refusalContext)
       throw new Error('ERR_INVALID_STRATEGY')
@@ -932,7 +934,7 @@ class Login {
     }
 
     // Get user groups
-    user.groups = await WIKI.db.query.users
+    user.groups = await CARDINAL.db.query.users
       .findFirst({
         columns: {},
         where: {
@@ -974,7 +976,7 @@ class Login {
         secret of its own) would sail straight past a second factor the owner explicitly turned
         on.
       */
-      const localStrategyId = WIKI.data.systemIds.localAuthId
+      const localStrategyId = CARDINAL.data.systemIds.localAuthId
       const localAuthStr =
         strategyId !== localStrategyId ? (user.auth?.[localStrategyId] as any) || {} : authStr
       const usesLocalFallback =
@@ -986,7 +988,7 @@ class Login {
 
       if (tfaAuthStr.tfaIsActive && tfaAuthStr.tfaSecret) {
         try {
-          const tfaToken = await WIKI.models.userCredentials.generateToken({
+          const tfaToken = await CARDINAL.models.userCredentials.generateToken({
             kind: 'tfa',
             userId: user.id,
             meta: {
@@ -994,7 +996,7 @@ class Login {
               tfaStrategyId
             }
           })
-          WIKI.models.flags.authDebug(
+          CARDINAL.models.flags.authDebug(
             `User ${user.id} <${user.email}> authenticated, but a 2FA code is required first`
           )
           return {
@@ -1003,7 +1005,7 @@ class Login {
             redirect
           }
         } catch (errc: any) {
-          WIKI.logger.warn('auth', 'issuing the 2FA continuation failed', {
+          CARDINAL.logger.warn('auth', 'issuing the 2FA continuation failed', {
             user: user.id,
             strategy: strategyId,
             error: errc
@@ -1013,19 +1015,19 @@ class Login {
         }
       } else if (str.config?.enforceTfa || authStr.tfaRequired) {
         try {
-          const { tfaQRImage } = await WIKI.models.userCredentials.startTfaSetup(
+          const { tfaQRImage } = await CARDINAL.models.userCredentials.startTfaSetup(
             user,
             strategyId,
             context.siteId
           )
-          const tfaToken = await WIKI.models.userCredentials.generateToken({
+          const tfaToken = await CARDINAL.models.userCredentials.generateToken({
             kind: 'tfaSetup',
             userId: user.id,
             meta: {
               strategyId
             }
           })
-          WIKI.models.flags.authDebug(
+          CARDINAL.models.flags.authDebug(
             `User ${user.id} <${user.email}> authenticated, but must set up 2FA first`
           )
           return {
@@ -1035,7 +1037,7 @@ class Login {
             redirect
           }
         } catch (errc: any) {
-          WIKI.logger.warn('auth', 'starting the 2FA setup failed', {
+          CARDINAL.logger.warn('auth', 'starting the 2FA setup failed', {
             user: user.id,
             strategy: strategyId,
             error: errc
@@ -1049,7 +1051,7 @@ class Login {
     // Must Change Password?
     if (!skipChangePwd && authStr.mustChangePwd) {
       try {
-        const pwdChangeToken = await WIKI.models.userCredentials.generateToken({
+        const pwdChangeToken = await CARDINAL.models.userCredentials.generateToken({
           kind: 'changePwd',
           userId: user.id,
           meta: {
@@ -1057,7 +1059,7 @@ class Login {
           }
         })
 
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `User ${user.id} <${user.email}> authenticated, but must change their password first`
         )
         return {
@@ -1066,7 +1068,7 @@ class Login {
           redirect
         }
       } catch (errc: any) {
-        WIKI.logger.warn('auth', 'issuing the change-password continuation failed', {
+        CARDINAL.logger.warn('auth', 'issuing the change-password continuation failed', {
           user: user.id,
           strategy: strategyId,
           error: errc
@@ -1077,9 +1079,9 @@ class Login {
     }
 
     // Set Session Data
-    await WIKI.models.users.updateSession(user, req)
+    await CARDINAL.models.users.updateSession(user, req)
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `User ${user.id} <${user.email}> logged in with ${user.groups.length} group(s) and ${req?.session?.permissions?.length ?? 0} permission(s), redirecting to ${redirect}`
     )
 
@@ -1088,14 +1090,14 @@ class Login {
     //    Every login path -- local, provider, passkey, and the 2FA / password-change continuations --
     //    ends up here, so this is the one place the stamp belongs. `updatedAt` is deliberately left
     //    alone: signing in is not an edit of the account.
-    await WIKI.db
+    await CARDINAL.db
       .update(usersTable)
       .set({ lastLoginAt: sql`now()` })
       .where(eq(usersTable.id, user.id))
 
     // -> Same reasoning as `user:join` above: a login has no site context, so a site-scoped hook must
     //    not receive it.
-    await WIKI.models.hooks.emit('user:login', null, {
+    await CARDINAL.models.hooks.emit('user:login', null, {
       userId: user.id,
       strategyId,
       ip: context.ip,
@@ -1110,13 +1112,13 @@ class Login {
     //    cannot answer "did they eventually get in". Never coalesced — a burst of SUCCESSFUL logins
     //    is not noise, it is the thing an operator most wants to see all of. Ids only, as with a
     //    refusal: the address and display name are the audit row's business, not the log's.
-    WIKI.logger.info('auth', 'login', {
+    CARDINAL.logger.info('auth', 'login', {
       user: user.id,
       strategy: strategyId,
       site: context.siteId ?? null
     })
 
-    await WIKI.models.auditLog.record({
+    await CARDINAL.models.auditLog.record({
       event: 'login.success',
       actor: { id: user.id, name: user.name, ip: context.ip },
       targetType: 'user',
@@ -1179,7 +1181,7 @@ class Login {
       user,
       strategyId: expectedStrategyId,
       tfaStrategyId
-    } = await WIKI.models.userCredentials.validateToken({
+    } = await CARDINAL.models.userCredentials.validateToken({
       kind: setup ? 'tfaSetup' : 'tfa',
       token: continuationToken,
       skipDelete: true
@@ -1197,7 +1199,7 @@ class Login {
     //    See `consumeAccountAuthAttempt`'s doc comment.
     const verdict = await consumeAccountAuthAttempt(user.email)
     if (!verdict.allowed) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Rate limit: refused 2FA attempt for user ${user.id} <${user.email}>, ${verdict.retryAfter}s left of its ban.`
       )
       logLoginRefused('account-rate-limited', {
@@ -1220,7 +1222,7 @@ class Login {
 
     let verified: boolean
     if (isTotpShape) {
-      verified = await WIKI.models.userCredentials.verifyTfaCode(
+      verified = await CARDINAL.models.userCredentials.verifyTfaCode(
         user,
         verifyStrategyId,
         securityCode
@@ -1239,7 +1241,7 @@ class Login {
         })
         throw new Error('ERR_TFA_RECOVERY_CODES_EXHAUSTED')
       }
-      verified = await WIKI.models.userCredentials.verifyAndConsumeRecoveryCode(
+      verified = await CARDINAL.models.userCredentials.verifyAndConsumeRecoveryCode(
         user,
         verifyStrategyId,
         securityCode
@@ -1247,7 +1249,9 @@ class Login {
     }
     if (!verified) {
       await countTfaFailure(continuationToken)
-      WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> submitted an incorrect 2FA code`)
+      CARDINAL.models.flags.authDebug(
+        `User ${user.id} <${user.email}> submitted an incorrect 2FA code`
+      )
       logLoginRefused('tfa-incorrect-code', {
         strategy: strategyId,
         site: siteId,
@@ -1257,10 +1261,10 @@ class Login {
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
 
-    await WIKI.models.userCredentials.destroyToken({ token: continuationToken })
+    await CARDINAL.models.userCredentials.destroyToken({ token: continuationToken })
     let recoveryCodes: string[] | undefined
     if (setup) {
-      recoveryCodes = await WIKI.models.userCredentials.enableTfa(user, strategyId)
+      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId)
     }
 
     // -> The remaining checks still apply: a user who owed a password change before 2FA still owes it
@@ -1290,7 +1294,7 @@ class Login {
     strategyId: string
     siteId?: string
   }): Promise<{ continuationToken: string; tfaQRImage: string; tfaSecret: string }> {
-    const { user, entry } = await WIKI.models.userCredentials.requireStrategyAuth(
+    const { user, entry } = await CARDINAL.models.userCredentials.requireStrategyAuth(
       userId,
       strategyId
     )
@@ -1300,12 +1304,12 @@ class Login {
       throw new Error('ERR_TFA_ALREADY_ACTIVE')
     }
 
-    const { secret, tfaQRImage } = await WIKI.models.userCredentials.startTfaSetup(
+    const { secret, tfaQRImage } = await CARDINAL.models.userCredentials.startTfaSetup(
       user,
       strategyId,
       siteId
     )
-    const continuationToken = await WIKI.models.userCredentials.generateToken({
+    const continuationToken = await CARDINAL.models.userCredentials.generateToken({
       kind: 'tfaSetup',
       userId,
       meta: { strategyId }
@@ -1341,7 +1345,7 @@ class Login {
     }
 
     const { user, strategyId: expectedStrategyId } =
-      await WIKI.models.userCredentials.validateToken({
+      await CARDINAL.models.userCredentials.validateToken({
         kind: 'tfaSetup',
         token: continuationToken,
         skipDelete: true
@@ -1353,13 +1357,13 @@ class Login {
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
     }
-    if (!(await WIKI.models.userCredentials.verifyTfaCode(user, strategyId, securityCode))) {
+    if (!(await CARDINAL.models.userCredentials.verifyTfaCode(user, strategyId, securityCode))) {
       await countTfaFailure(continuationToken)
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
 
-    await WIKI.models.userCredentials.destroyToken({ token: continuationToken })
-    const recoveryCodes = await WIKI.models.userCredentials.enableTfa(user, strategyId)
+    await CARDINAL.models.userCredentials.destroyToken({ token: continuationToken })
+    const recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId)
     return { recoveryCodes }
   }
 
@@ -1376,7 +1380,7 @@ class Login {
    */
   async getLogoutRedirect(userId: string | null, siteId?: string): Promise<string> {
     if (userId) {
-      const groups = await WIKI.db.query.users
+      const groups = await CARDINAL.db.query.users
         .findFirst({
           columns: {},
           where: {
@@ -1398,7 +1402,7 @@ class Login {
       }
     }
 
-    const site = siteId ? await WIKI.models.sites.getSiteById({ id: siteId }) : null
+    const site = siteId ? await CARDINAL.models.sites.getSiteById({ id: siteId }) : null
     return site?.config?.auth?.logoutRedirect || '/'
   }
 
@@ -1422,7 +1426,7 @@ class Login {
       throw new Error('ERR_PASSWORD_TOO_SHORT')
     }
     const { user, strategyId: expectedStrategyId } =
-      await WIKI.models.userCredentials.validateToken({
+      await CARDINAL.models.userCredentials.validateToken({
         kind: 'changePwd',
         token: continuationToken
       })
@@ -1433,7 +1437,7 @@ class Login {
 
     if (user) {
       const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-      await WIKI.models.userCredentials.patchStrategyAuth(
+      await CARDINAL.models.userCredentials.patchStrategyAuth(
         user.id,
         strategyId,
         () => ({ password: passwordHash, mustChangePwd: false }),
@@ -1475,36 +1479,36 @@ class Login {
     strategyId: string
     email: string
   }): Promise<void> {
-    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (!strategy?.isEnabled || strategy.config?.allowForgotPassword !== true) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Forgot-password request against strategy ${strategyId}, which does not allow resets`
       )
       return
     }
 
-    const user = await WIKI.models.users.getByEmail(email.toLowerCase().trim())
+    const user = await CARDINAL.models.users.getByEmail(email.toLowerCase().trim())
     const auth = (user?.auth ?? {}) as Record<string, any>
     if (!user || !auth[strategyId]?.password || !user.isActive || auth[strategyId].restrictLogin) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Forgot-password request for an address with no matching, resettable local account under strategy ${strategyId}`
       )
       return
     }
 
-    const token = await WIKI.models.userCredentials.generateToken({
+    const token = await CARDINAL.models.userCredentials.generateToken({
       kind: 'resetPwd',
       userId: user.id,
       meta: { strategyId }
     })
-    await WIKI.models.mail.sendForgotPassword({
+    await CARDINAL.models.mail.sendForgotPassword({
       to: user.email,
       name: user.name,
       token,
       userId: user.id,
       locale: (user.prefs as Record<string, any> | undefined)?.locale
     })
-    WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
+    CARDINAL.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
   }
 
   /**
@@ -1544,7 +1548,7 @@ class Login {
       throw new Error('ERR_PASSWORD_TOO_SHORT')
     }
     const { user, strategyId: expectedStrategyId } =
-      await WIKI.models.userCredentials.validateToken({
+      await CARDINAL.models.userCredentials.validateToken({
         kind: 'resetPwd',
         token
       })
@@ -1557,7 +1561,7 @@ class Login {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-    await WIKI.models.userCredentials.patchStrategyAuth(
+    await CARDINAL.models.userCredentials.patchStrategyAuth(
       user.id,
       strategyId,
       () => ({ password: passwordHash, mustChangePwd: false }),
@@ -1565,7 +1569,7 @@ class Login {
     )
 
     try {
-      await WIKI.models.mail.sendPasswordResetConfirmed({
+      await CARDINAL.models.mail.sendPasswordResetConfirmed({
         to: user.email,
         name: user.name,
         userId: user.id,
@@ -1574,7 +1578,7 @@ class Login {
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a
       //    failed reset
-      WIKI.logger.warn('auth', 'sending the password-reset-confirmed notice failed', {
+      CARDINAL.logger.warn('auth', 'sending the password-reset-confirmed notice failed', {
         user: user.id,
         error: err
       })

@@ -76,17 +76,17 @@ export const assetsPhase = definePhase({
         writeUnlessDryRun(
           ctx.dryRun,
           () => ({ ...placeholderRow(), fileName: input.fileName }),
-          () => WIKI.models.assets.upload(input)
+          () => CARDINAL.models.assets.upload(input)
         )
     }
     const treeModel: TreeFolderModel = {
       getFolder: (input) =>
-        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.tree.getFolder(input))
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => CARDINAL.models.tree.getFolder(input))
     }
     const assetDeps: AssetImportDeps = { assetsModel, treeModel }
     const assetOptions: AssetImportOptions = {
       siteId: ctx.siteId,
-      // -> Read fresh off WIKI.sites (not a ctx.primaryLocale value snapshotted before any phase ran)
+      // -> Read fresh off CARDINAL.sites (not a ctx.primaryLocale value snapshotted before any phase ran)
       //    — see context.ts's resolvePrimaryLocale() doc comment (whole-branch review Critical #1).
       //    Resolved here, at entities()-construction time, rather than deferred into treeModel's own
       //    dry-run-gated closure like content.ts's navigationModel does: resolvePrimaryLocale() already
@@ -101,7 +101,7 @@ export const assetsPhase = definePhase({
 
     const commentsModel: CommentsWriteModel = {
       create: (input) =>
-        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => WIKI.models.comments.create(input))
+        writeUnlessDryRun(ctx.dryRun, placeholderRow, () => CARDINAL.models.comments.create(input))
     }
     const commentDeps: CommentImportDeps = { commentsModel }
     const commentOptions: CommentImportOptions = {

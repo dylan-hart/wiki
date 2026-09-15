@@ -11,7 +11,7 @@ import type { FastifyInstance } from 'fastify'
 /**
  * What is served for each of a site's images while nobody has uploaded one. The keys are the names
  * the images are addressed by, which are the asset kinds themselves; the values are paths relative
- * to `WIKI.SERVERPATH`, i.e. inside `backend/` itself.
+ * to `CARDINAL.SERVERPATH`, i.e. inside `backend/` itself.
  *
  * These used to point into `assets/_assets/`, which is `frontend/`'s `vite build` output and is
  * gitignored — so the backend's own branding depended on a build of another workspace having run,
@@ -107,7 +107,7 @@ async function routes(app: FastifyInstance) {
       // -> The flag lives in the cached site config, so a site that has uploaded nothing — which is
       //    every site until an administrator says otherwise — never touches the database here
       const hash = site.config.assets?.[kind]
-        ? await WIKI.models.sites.getAssetHash(site.id, kind)
+        ? await CARDINAL.models.sites.getAssetHash(site.id, kind)
         : null
       if (!hash) {
         // -> No SVG_CSP here: this file's bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`),
@@ -119,7 +119,7 @@ async function routes(app: FastifyInstance) {
         // -> `SERVERPATH`, not `ROOTPATH`: the fallbacks are backend-owned committed files, so they
         //    are resolved inside `backend/` rather than against a build output directory that may not
         //    exist yet (OpenProject #2611).
-        return replyWithFile(req, reply, path.join(WIKI.SERVERPATH, fallback), {
+        return replyWithFile(req, reply, path.join(CARDINAL.SERVERPATH, fallback), {
           cacheControl: SITE_ASSET_CACHE
         })
       }
@@ -139,7 +139,7 @@ async function routes(app: FastifyInstance) {
       //    read runs would mean it was deleted in between, which the headers already sent above
       //    (built from the now-stale hash) cannot un-send — so this reports the asset as gone rather
       //    than silently serving the unrelated static fallback under those headers.
-      const asset = await WIKI.models.sites.getAsset(site.id, kind)
+      const asset = await CARDINAL.models.sites.getAsset(site.id, kind)
       if (!asset) {
         return reply.notFound('Site Resource not found')
       }

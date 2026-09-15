@@ -7,7 +7,7 @@ import { toResult } from './shared.ts'
  * Rescan `<dataPath>/locales/` for locale-pack JSON files and load them into the DB — the MCP-facing
  * wrapper around `POST /_api/locales/sideload` (`api/locales.ts`), for an agent that needs to trigger
  * an offline locale reload without going through the REST surface directly. Delegates to the exact
- * same model call the REST route makes, `WIKI.models.locales.sideloadFromDataPath({ force: true })` —
+ * same model call the REST route makes, `CARDINAL.models.locales.sideloadFromDataPath({ force: true })` —
  * always force-reloading every file found there, regardless of its last-modified time, same as the
  * route.
  *
@@ -21,7 +21,7 @@ export async function handleSideloadLocales(ctx: McpAuthContext): Promise<CallTo
     throw new McpToolError('You are not allowed to sideload locales.')
   }
 
-  const result = await WIKI.models.locales.sideloadFromDataPath({ force: true })
+  const result = await CARDINAL.models.locales.sideloadFromDataPath({ force: true })
   return toResult(result)
 }
 

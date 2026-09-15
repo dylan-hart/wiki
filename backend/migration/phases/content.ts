@@ -162,7 +162,7 @@ export const contentPhase = definePhase({
     //    only when live" split every other dependency in this phase uses.
     async function insertHistoryVersions(rows: PageHistoryInsertRow[]): Promise<void> {
       if (ctx.dryRun) return
-      await WIKI.db.insert(pageHistoryTable).values(rows)
+      await CARDINAL.db.insert(pageHistoryTable).values(rows)
     }
 
     const pagesModel: PagesWriteModel = {
@@ -173,7 +173,7 @@ export const contentPhase = definePhase({
           //    object cast through `unknown` is safe here — narrow, deliberate, matching this
           //    codebase's cast convention.
           () => placeholderRow() as unknown as Page,
-          () => WIKI.models.pages.createPage(siteId, input, actor)
+          () => CARDINAL.models.pages.createPage(siteId, input, actor)
         )
     }
 
@@ -185,7 +185,12 @@ export const contentPhase = definePhase({
           //    destination even though one is normally live under a CLI dry run.
           return false
         }
-        const entry = await WIKI.models.tree.getEntryAt({ siteId, locale, parentPath, fileName })
+        const entry = await CARDINAL.models.tree.getEntryAt({
+          siteId,
+          locale,
+          parentPath,
+          fileName
+        })
         return entry !== null
       },
       backfillHistory: (staged, newPageId) =>
@@ -218,7 +223,7 @@ export const contentPhase = definePhase({
         writeUnlessDryRun(
           ctx.dryRun,
           () => placeholderRow().id,
-          () => WIKI.models.navigation.ensureSiteNav(siteId, locale)
+          () => CARDINAL.models.navigation.ensureSiteNav(siteId, locale)
         ),
       async setNavItems(siteId, navId, items) {
         // -> See the module doc comment's "Navigation targets are sanitized" section: setNavItems()
@@ -244,7 +249,7 @@ export const contentPhase = definePhase({
           }
         }
         if (ctx.dryRun) return
-        await WIKI.models.navigation.setNavItems(siteId, navId, sanitized)
+        await CARDINAL.models.navigation.setNavItems(siteId, navId, sanitized)
       }
     }
     const navigationDeps: NavigationImportDeps = { navigationModel }

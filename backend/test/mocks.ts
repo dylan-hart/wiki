@@ -1,7 +1,7 @@
 /**
  * Stand-ins for the `WIKI` global members a model test rarely cares about.
  *
- * `WIKI.cache` and `WIKI.events` exist for cross-request and cross-instance concerns — an in-memory
+ * `CARDINAL.cache` and `CARDINAL.events` exist for cross-request and cross-instance concerns — an in-memory
  * cache flushed on demand, an HA propagation bus — that almost no model-layer test is actually
  * exercising. Reaching for the real `LRUCache`/`Emittery` instances the app boots with would work,
  * but it means a test failure two calls deep in a helper this test never meant to touch, and a cache
@@ -18,7 +18,7 @@ import { mock } from 'node:test'
 import { isPlainObject } from 'es-toolkit/predicate'
 
 /**
- * A `WIKI.cache`-shaped stub: enough of `LRUCache`'s surface for code that calls
+ * A `CARDINAL.cache`-shaped stub: enough of `LRUCache`'s surface for code that calls
  * `get`/`set`/`has`/`delete`/`getRemainingTTL`. Note the real surface, not `node-cache`'s: `delete`
  * rather than `del`, and `set(key, value, { ttl })` with milliseconds rather than a positional
  * seconds argument.
@@ -28,7 +28,7 @@ export function createCacheStub(): any {
   // -> Real expiry timestamps (ms since epoch), not just a stored `ttl` option: `getRemainingTTL`
   //    below needs to answer "how much longer does this key have" for real, for any caller that reads
   //    it to keep a fixed window rather than sliding it forward on every request (the rate-limit
-  //    counter this once backed has since moved to `WIKI.models.rateLimits.consume` — OpenProject
+  //    counter this once backed has since moved to `CARDINAL.models.rateLimits.consume` — OpenProject
   //    #1700 — but the surface stays faithful for whatever else calls it).
   const expiresAt = new Map<string, number>()
   return {
@@ -57,7 +57,7 @@ export function createCacheStub(): any {
   }
 }
 
-/** A `WIKI.events`-shaped stub: both buses present, every call a no-op that a test can assert on. */
+/** A `CARDINAL.events`-shaped stub: both buses present, every call a no-op that a test can assert on. */
 export function createEventsStub(): any {
   const bus = () => ({
     emit: mock.fn(),
@@ -70,7 +70,7 @@ export function createEventsStub(): any {
 }
 
 /**
- * A `WIKI.scheduler`-shaped stub: just `addJob`, recording every call rather than touching the real
+ * A `CARDINAL.scheduler`-shaped stub: just `addJob`, recording every call rather than touching the real
  * job queue or worker pool. Enough for model-layer code that queues work (`pages.ts#notifyWatchers`,
  * for one) without a model test having to stand up the scheduler's thread pool and pubsub connection.
  */
@@ -81,7 +81,7 @@ export function createSchedulerStub(): any {
 }
 
 /**
- * A `WIKI.models.groups.checkSiteAdminAccess`-shaped stub, composed from a suite's OWN
+ * A `CARDINAL.models.groups.checkSiteAdminAccess`-shaped stub, composed from a suite's OWN
  * `actorForRequest` and `checkSiteAccess` stubs exactly as the real method composes the real pair
  * (`models/groups.ts`): the global permission, site-blind, OR the delegated `site:*` one.
  *
@@ -92,8 +92,8 @@ export function createSchedulerStub(): any {
  * in which order — single-sourced against the real method, while leaving each suite's own grant
  * semantics exactly where they were.
  *
- * @param actorForRequest The suite's own `WIKI.models.groups.actorForRequest` stand-in
- * @param checkSiteAccess The suite's own `WIKI.models.groups.checkSiteAccess` stand-in
+ * @param actorForRequest The suite's own `CARDINAL.models.groups.actorForRequest` stand-in
+ * @param checkSiteAccess The suite's own `CARDINAL.models.groups.checkSiteAccess` stand-in
  */
 export function createSiteAdminAccessStub(
   actorForRequest: (req: any) => { permissions: string[] },
@@ -113,7 +113,7 @@ export function createSiteAdminAccessStub(
  *
  * Exported (TEST-F1) rather than re-inlined per file: 70 backend test files used to carry their own
  * partial literal (`{ debug }`, `{ warn }`, `{ info, warn, error, debug }`, …), so adding one
- * `WIKI.logger.info()` call to a route broke every suite whose stub happened to omit `info` — and
+ * `CARDINAL.logger.info()` call to a route broke every suite whose stub happened to omit `info` — and
  * failed naming the logger rather than the change.
  *
  * Every level takes the one call shape the real logger does, `(scope, message, fields?)` — the
@@ -123,7 +123,7 @@ export function createSiteAdminAccessStub(
  * stub.
  *
  * A suite that wants to ASSERT on a line replaces the level it cares about
- * (`WIKI.logger.warn = mock.fn()`) and asserts on the scope and the fields, never on a rendered
+ * (`CARDINAL.logger.warn = mock.fn()`) and asserts on the scope and the fields, never on a rendered
  * string — the rendering is `core/logger.ts`'s business.
  */
 export function createSilentLogger(): any {
@@ -171,7 +171,7 @@ function mergeInto(target: any, source: Record<string, any>): any {
  * never reaches for one — so a suite names exactly the model methods its code path calls, and an
  * unexpected reach past them still fails loudly.
  *
- * `data.systemIds` is present but empty, so a read like `WIKI.data.systemIds.guestsGroupId` answers
+ * `data.systemIds` is present but empty, so a read like `CARDINAL.data.systemIds.guestsGroupId` answers
  * `undefined` instead of throwing on `undefined.guestsGroupId`; a suite whose code path actually
  * branches on one of those ids supplies it (the real values live in `base.yml`).
  *
@@ -179,7 +179,7 @@ function mergeInto(target: any, source: Record<string, any>): any {
  * the stubs while replacing only what it names. A nested override therefore MERGES into the default
  * rather than replacing it — `{ events: { … } }`, `{ cache: { … } }` and `{ models: { … } }` all
  * come back as the default object with the named keys written over it, so a test asserting on one
- * must read `WIKI.events` / `WIKI.cache` / `WIKI.models.x` rather than holding on to the object
+ * must read `CARDINAL.events` / `CARDINAL.cache` / `CARDINAL.models.x` rather than holding on to the object
  * literal it passed in. (Arrays, class instances and `mock.fn()`s replace wholesale.)
  */
 export function createWikiStub(overrides: Record<string, any> = {}): WikiGlobal {

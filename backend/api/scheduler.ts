@@ -31,7 +31,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.jobs.getSchedule()
+      return CARDINAL.models.jobs.getSchedule()
     }
   )
 
@@ -85,12 +85,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const entry = await WIKI.models.jobs.getScheduleEntry(req.params.scheduleId)
+      const entry = await CARDINAL.models.jobs.getScheduleEntry(req.params.scheduleId)
       if (!entry) {
         return reply.notFound('Scheduled task does not exist.')
       }
 
-      const id = await WIKI.models.jobs.runScheduledTask(entry)
+      const id = await CARDINAL.models.jobs.runScheduledTask(entry)
       if (!id) {
         return reply.internalServerError('The scheduler could not queue the job.')
       }
@@ -129,7 +129,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.jobs.getUpcoming()
+      return CARDINAL.models.jobs.getUpcoming()
     }
   )
 
@@ -168,7 +168,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const cancelled = await WIKI.models.jobs.cancelUpcoming(req.params.jobId)
+      const cancelled = await CARDINAL.models.jobs.cancelUpcoming(req.params.jobId)
       if (!cancelled) {
         return reply.notFound('No pending job with this ID.')
       }
@@ -232,7 +232,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const { limit } = req.query
-      const { total, jobs } = await WIKI.models.jobs.getHistory({
+      const { total, jobs } = await CARDINAL.models.jobs.getHistory({
         states: req.query.states ?? [],
         limit
       })
@@ -291,7 +291,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      const entry = await CARDINAL.models.jobs.getHistoryEntry(req.params.jobId)
       if (!entry) {
         return reply.notFound('Job does not exist.')
       }
@@ -299,7 +299,7 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('This job is still running.')
       }
 
-      const id = await WIKI.models.jobs.retryJob(entry)
+      const id = await CARDINAL.models.jobs.retryJob(entry)
       if (!id) {
         return reply.internalServerError('The scheduler could not queue the job.')
       }

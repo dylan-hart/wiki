@@ -57,7 +57,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      const draft = await WIKI.models.pageDrafts.getContent(page.id)
+      const draft = await CARDINAL.models.pageDrafts.getContent(page.id)
       if (!draft) {
         return reply.notFound('There is no unsaved draft for this page.')
       }
@@ -101,12 +101,12 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      // -> Not a bare `pageDrafts.clear()`: `WIKI.collab.discardDraft()` (OpenProject #2898) first
+      // -> Not a bare `pageDrafts.clear()`: `CARDINAL.collab.discardDraft()` (OpenProject #2898) first
       //    coordinates with any in-memory room for this page, the same way `pageSaved()` already
       //    does (#2542) -- a debounce timer still pending here would otherwise flush moments after
       //    this call, once the editor's own websocket disconnect empties the room, and resurrect the
       //    draft this route was just asked to drop.
-      await WIKI.collab.discardDraft(page.id)
+      await CARDINAL.collab.discardDraft(page.id)
       return reply.code(204).send()
     }
   )

@@ -1,4 +1,4 @@
-/* global WIKI */
+/* global CARDINAL */
 import bcrypt from 'bcryptjs'
 
 // ------------------------------------
@@ -28,7 +28,7 @@ export default class LocalAuthentication {
   }
 
   async authenticate({ username, password }: { username: string; password: string }): Promise<any> {
-    const user = await WIKI.models.users.getByEmail(username.toLowerCase())
+    const user = await CARDINAL.models.users.getByEmail(username.toLowerCase())
     const authStrategyData = user
       ? ((user.auth as Record<string, any>)[this.strategyId] ?? null)
       : null

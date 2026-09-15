@@ -31,7 +31,7 @@ export async function bootstrapPgvector(db: WikiDb): Promise<boolean> {
     await db.execute('CREATE EXTENSION IF NOT EXISTS vector')
 
     // -> Schema-unqualified, matching every other DDL statement `syncSchemas()` runs: the connection's
-    //    `search_path` (set from `WIKI.config.db.schema` when the pool is built) is what resolves
+    //    `search_path` (set from `CARDINAL.config.db.schema` when the pool is built) is what resolves
     //    this to the right schema, the same way the Drizzle-generated migrations do. `pages` is
     //    likewise unqualified for the same reason -- see `db/schema.ts#pages`.
     await db.execute(`
@@ -51,10 +51,10 @@ export async function bootstrapPgvector(db: WikiDb): Promise<boolean> {
       USING hnsw ("embedding" vector_cosine_ops)
     `)
 
-    WIKI.logger.info('db', 'pgvector capability enabled', { table: 'pageEmbeddingChunks' })
+    CARDINAL.logger.info('db', 'pgvector capability enabled', { table: 'pageEmbeddingChunks' })
     return true
   } catch (err: any) {
-    WIKI.logger.warn('db', 'pgvector capability unavailable, semantic search disabled', {
+    CARDINAL.logger.warn('db', 'pgvector capability unavailable, semantic search disabled', {
       error: err
     })
     return false

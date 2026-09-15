@@ -70,9 +70,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.tags.getTags(req.params.siteId, {
+      return CARDINAL.models.tags.getTags(req.params.siteId, {
         limit: req.query.limit,
-        actor: WIKI.models.groups.actorForRequest(req)
+        actor: CARDINAL.models.groups.actorForRequest(req)
       })
     }
   )
@@ -115,8 +115,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.tags.getPopularTags(req.params.siteId, {
-        actor: WIKI.models.groups.actorForRequest(req)
+      return CARDINAL.models.tags.getPopularTags(req.params.siteId, {
+        actor: CARDINAL.models.groups.actorForRequest(req)
       })
     }
   )
@@ -152,14 +152,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const candidates = await WIKI.models.tags.pagesWithTag(req.params.siteId, req.params.tag)
+      const candidates = await CARDINAL.models.tags.pagesWithTag(req.params.siteId, req.params.tag)
       if (candidates.length < 1) {
         return reply.notFound('This tag does not exist on this site.')
       }
       const allowedIds = candidates
         .filter((page) => mayOnPage(req, 'manage:pages', req.params.siteId, page))
         .map((page) => page.id)
-      const updated = await WIKI.models.tags.renameTag(
+      const updated = await CARDINAL.models.tags.renameTag(
         req.params.siteId,
         req.params.tag,
         req.body.newTag,
@@ -190,14 +190,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const candidates = await WIKI.models.tags.pagesWithTag(req.params.siteId, req.params.tag)
+      const candidates = await CARDINAL.models.tags.pagesWithTag(req.params.siteId, req.params.tag)
       if (candidates.length < 1) {
         return reply.notFound('This tag does not exist on this site.')
       }
       const allowedIds = candidates
         .filter((page) => mayOnPage(req, 'manage:pages', req.params.siteId, page))
         .map((page) => page.id)
-      const updated = await WIKI.models.tags.deleteTag(
+      const updated = await CARDINAL.models.tags.deleteTag(
         req.params.siteId,
         req.params.tag,
         allowedIds

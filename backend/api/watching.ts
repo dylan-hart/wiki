@@ -78,13 +78,13 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      await WIKI.models.pageWatching.watch({
+      await CARDINAL.models.pageWatching.watch({
         siteId: req.params.siteId,
         pageId: page.id,
         userId,
         ...req.body
       })
-      const preference = await WIKI.models.pageWatching.getPreference(page.id, userId)
+      const preference = await CARDINAL.models.pageWatching.getPreference(page.id, userId)
       return { ok: true, isWatching: true, preference }
     }
   )
@@ -120,7 +120,7 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      const existed = await WIKI.models.pageWatching.setPreference({
+      const existed = await CARDINAL.models.pageWatching.setPreference({
         pageId: req.params.pageId,
         userId,
         ...req.body
@@ -128,7 +128,7 @@ async function routes(app: FastifyInstance) {
       if (!existed) {
         return reply.notFound('You are not watching this page.')
       }
-      const preference = await WIKI.models.pageWatching.getPreference(req.params.pageId, userId)
+      const preference = await CARDINAL.models.pageWatching.getPreference(req.params.pageId, userId)
       return { ok: true, preference }
     }
   )
@@ -169,7 +169,7 @@ async function routes(app: FastifyInstance) {
         made unreadable, or the row would be stuck there with nothing in the interface able to remove
         it — and there is nothing to protect anyway: this only ever deletes the caller's own row.
       */
-      await WIKI.models.pageWatching.unwatch({ pageId: req.params.pageId, userId })
+      await CARDINAL.models.pageWatching.unwatch({ pageId: req.params.pageId, userId })
       return { ok: true, isWatching: false }
     }
   )
@@ -202,7 +202,7 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply
       }
-      return WIKI.models.pageWatching.listForUser(req.params.siteId, userId)
+      return CARDINAL.models.pageWatching.listForUser(req.params.siteId, userId)
     }
   )
 
@@ -258,7 +258,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      return WIKI.models.pageWatching.listForPage(page.id, {
+      return CARDINAL.models.pageWatching.listForPage(page.id, {
         // -> The schema's `default` fills this in for a validated request; the `??` is what keeps the
         //    model's `limit` non-optional rather than making every caller of it re-decide a default.
         limit: req.query.limit ?? DEFAULT_WATCHER_LIMIT

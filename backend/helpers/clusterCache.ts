@@ -38,12 +38,12 @@ export abstract class ClusterReloaded {
   /** Reload this instance's own cache, then tell every other instance in the cluster to do the same. */
   async broadcastReload(): Promise<void> {
     await this.reloadCache()
-    WIKI.events.outbound.emit(this.reloadEvent)
+    CARDINAL.events.outbound.emit(this.reloadEvent)
   }
 
   /** Subscribe to HA propagation events. */
   subscribeToEvents(): void {
-    WIKI.events.inbound.on(this.reloadEvent, async () => {
+    CARDINAL.events.inbound.on(this.reloadEvent, async () => {
       await this.reloadCache()
     })
   }

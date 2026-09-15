@@ -33,7 +33,7 @@ async function routes(app: FastifyInstance) {
   //    settings do.
   app.addContentTypeParser(
     '*',
-    { parseAs: 'buffer', bodyLimit: WIKI.config.security?.uploadMaxFileSize ?? 10485760 },
+    { parseAs: 'buffer', bodyLimit: CARDINAL.config.security?.uploadMaxFileSize ?? 10485760 },
     (req, body, done) => {
       done(null, body)
     }
@@ -54,7 +54,7 @@ async function routes(app: FastifyInstance) {
       */
       schema: {
         summary: 'Upload an asset',
-        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The file name is sanitized, so the stored name in the response may differ from the one sent; the type served back later comes from that name's extension rather than from the request. Images get a thumbnail when the Sharp extension is installed.\n\nA file already at that name in that folder is settled by the site's upload conflict behavior: \`overwrite\` (the default) replaces it in place and answers with its existing ID, \`reject\` answers 409, and \`new\` stores the arrival as the next free \`name-1.ext\`. So the name and ID in the response are what to link to — never the ones that were sent. A page or a folder holding the name is answered 409 whichever behavior is set.`,
+        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((CARDINAL.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The file name is sanitized, so the stored name in the response may differ from the one sent; the type served back later comes from that name's extension rather than from the request. Images get a thumbnail when the Sharp extension is installed.\n\nA file already at that name in that folder is settled by the site's upload conflict behavior: \`overwrite\` (the default) replaces it in place and answers with its existing ID, \`reject\` answers 409, and \`new\` stores the arrival as the next free \`name-1.ext\`. So the name and ID in the response are what to link to — never the ones that were sent. A page or a folder holding the name is answered 409 whichever behavior is set.`,
         tags: ['Assets'],
         consumes: ['*/*'],
         params: { $ref: 'SiteIdParams#' },
@@ -124,7 +124,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const locale =
-        req.query.locale ?? WIKI.sites[req.params.siteId]?.config?.locales?.primary ?? 'en'
+        req.query.locale ?? CARDINAL.sites[req.params.siteId]?.config?.locales?.primary ?? 'en'
 
       /*
         `folderId` wins when given, exactly as it did before `parentPath` existed. Otherwise
@@ -144,7 +144,7 @@ async function routes(app: FastifyInstance) {
       //    site must resolve to nothing here, the same as an unknown id, rather than leaking that
       //    other site's folder path/locale into the permission check below.
       const folder = req.query.folderId
-        ? await WIKI.models.tree.getFolderById(req.query.folderId, req.params.siteId)
+        ? await CARDINAL.models.tree.getFolderById(req.query.folderId, req.params.siteId)
         : null
       // -> Only a resolved-but-wrong-site folder is refused outright (matches tree.ts's own folder
       //    routes: GET/RENAME/DELETE FOLDER) -- `getFolderById` is itself already siteId-scoped in
@@ -183,7 +183,7 @@ async function routes(app: FastifyInstance) {
         ? folder?.id
         : parentPath
           ? (
-              await WIKI.models.tree.getFolder({
+              await CARDINAL.models.tree.getFolder({
                 path: parentPath,
                 locale,
                 siteId: req.params.siteId,
@@ -192,7 +192,7 @@ async function routes(app: FastifyInstance) {
             ).id
           : undefined
 
-      const asset = await WIKI.models.assets.upload({
+      const asset = await CARDINAL.models.assets.upload({
         siteId: req.params.siteId,
         locale,
         folderId,
@@ -232,7 +232,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
+      const asset = await CARDINAL.models.assets.getAsset(req.params.siteId, req.params.assetId)
       // -> Not readable is answered as not there, so the endpoint cannot be used to probe for files
       if (!asset || !mayOnAsset(req, 'read:assets', req.params.siteId, asset)) {
         return reply.notFound('This asset does not exist.')
@@ -274,14 +274,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
+      const asset = await CARDINAL.models.assets.getAsset(req.params.siteId, req.params.assetId)
       if (!asset || !mayOnAsset(req, 'read:assets', req.params.siteId, asset)) {
         return reply.notFound('This asset does not exist.')
       }
       // -> Through the same local disk cache `/_files/` serves from, since this is the download
       //    button in the file manager rather than an administrative route: anyone who may read a
       //    file may press it
-      const content = await WIKI.models.assetServing.readContent(asset, req.params.siteId)
+      const content = await CARDINAL.models.assetServing.readContent(asset, req.params.siteId)
       if (!content) {
         return reply.notFound('This asset has no content.')
       }
@@ -364,14 +364,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const existing = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
+      const existing = await CARDINAL.models.assets.getAsset(req.params.siteId, req.params.assetId)
       if (!existing) {
         return reply.notFound('This asset does not exist.')
       }
       if (!mayOnAsset(req, 'manage:assets', req.params.siteId, existing)) {
         return reply.forbidden('You are not allowed to rename this file.')
       }
-      const asset = await WIKI.models.assets.renameAsset(
+      const asset = await CARDINAL.models.assets.renameAsset(
         req.params.siteId,
         req.params.assetId,
         req.body.fileName
@@ -447,7 +447,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const existing = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
+      const existing = await CARDINAL.models.assets.getAsset(req.params.siteId, req.params.assetId)
       if (!existing) {
         return reply.notFound('This asset does not exist.')
       }
@@ -460,7 +460,7 @@ async function routes(app: FastifyInstance) {
       //    explicit user intent, unlike upload's OpenProject #2131 leniency for a merely-suggested
       //    parent.
       const destinationFolder = req.body.folderId
-        ? await WIKI.models.tree.getFolderById(req.body.folderId, req.params.siteId)
+        ? await CARDINAL.models.tree.getFolderById(req.body.folderId, req.params.siteId)
         : null
       if (req.body.folderId && !destinationFolder) {
         return reply.notFound('This folder does not exist.')
@@ -486,7 +486,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to move a file here.')
       }
 
-      const asset = await WIKI.models.assets.moveAsset({
+      const asset = await CARDINAL.models.assets.moveAsset({
         siteId: req.params.siteId,
         id: req.params.assetId,
         folderId: req.body.folderId,
@@ -527,7 +527,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const doomed = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
+      const doomed = await CARDINAL.models.assets.getAsset(req.params.siteId, req.params.assetId)
       if (!doomed) {
         return reply.notFound('This asset does not exist.')
       }
@@ -535,7 +535,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to delete this file.')
       }
       if (
-        !(await WIKI.models.assets.deleteAsset(req.params.siteId, req.params.assetId, {
+        !(await CARDINAL.models.assets.deleteAsset(req.params.siteId, req.params.assetId, {
           authorId: actorFrom(req)?.id
         }))
       ) {

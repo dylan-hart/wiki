@@ -2,7 +2,7 @@ import type { LogFn } from './logger.ts'
 
 /**
  * The subset of `Logger` these guards actually call — kept narrow so a test can pass a bare
- * `{ error: mock.fn() }` instead of a real `WIKI.logger`.
+ * `{ error: mock.fn() }` instead of a real `CARDINAL.logger`.
  */
 export interface BootLogger {
   error: LogFn
@@ -46,7 +46,7 @@ export async function runBootPhaseOrExit(
  * anywhere in the promise chain currently only produces a process warning, easy to miss in a log
  * stream that isn't watching for it, and Node has moved its default `--unhandled-rejections` mode
  * towards terminating the process on this in recent majors, which would otherwise take an instance
- * down with nothing in `WIKI.logger`'s own backlog (`core/logger.ts`, replayed to the admin
+ * down with nothing in `CARDINAL.logger`'s own backlog (`core/logger.ts`, replayed to the admin
  * terminal) to show for it.
  *
  * `exit`, when given, is called with `1` after logging: the process gives up rather than continuing

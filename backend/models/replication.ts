@@ -20,7 +20,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 /**
  * Scheduled clean-slate replication from another instance (OpenProject #2437): wires the
- * instance-level `WIKI.config.replication` schedule into `core/scheduler.ts`'s cron infrastructure
+ * instance-level `CARDINAL.config.replication` schedule into `core/scheduler.ts`'s cron infrastructure
  * (`tick()`, run every 5 minutes by the `replicationTick` seed entry in `models/jobs.ts`) and, once a
  * pull is actually queued, performs it (`pull()`, run by `tasks/simple/replication-pull.ts`).
  *
@@ -36,7 +36,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   `POST .../export` → `{ id }`, then poll `GET .../export/:id/download` for 200/409/404 contract
  *   `api/system/transfer.ts`'s per-site export/download pair already established.
  * - The target-side half is a same-process model call, not HTTP -- `importSnapshot()` below reaches
- *   for `WIKI.models.replicationImport.importSnapshot()` (OpenProject #2490,
+ *   for `CARDINAL.models.replicationImport.importSnapshot()` (OpenProject #2490,
  *   `models/replicationImport.ts`) through a narrow duck-typed lookup rather than a normal import, so
  *   this file stays testable in isolation from that model rather than binding to its exact shape.
  *
@@ -48,7 +48,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 class Replication {
   /** `<dataPath>/replication` -- scratch space for a downloaded snapshot, cleaned up per-pull. */
   private get tempPath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'replication')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'replication')
   }
 
   /**
@@ -65,7 +65,7 @@ class Replication {
    *          scheduler declined to queue it).
    */
   async tick(now: Temporal.Instant = Temporal.Now.instant()): Promise<number> {
-    const cfg = WIKI.config.replication
+    const cfg = CARDINAL.config.replication
     if (!cfg?.isEnabled || !cfg.sourceUrl || !cfg.cronSchedule) {
       return 0
     }
@@ -78,7 +78,7 @@ class Replication {
           tz: 'UTC'
         }).next()
       } catch (err: any) {
-        WIKI.logger.warn('jobs', 'unparseable replication cron expression, skipping', {
+        CARDINAL.logger.warn('jobs', 'unparseable replication cron expression, skipping', {
           schedule: cfg.cronSchedule,
           error: err
         })
@@ -89,7 +89,7 @@ class Replication {
       }
     }
 
-    const added = await WIKI.scheduler.addJob({ task: REPLICATION_PULL_TASK })
+    const added = await CARDINAL.scheduler.addJob({ task: REPLICATION_PULL_TASK })
     if (!added?.id) {
       return 0
     }
@@ -100,11 +100,11 @@ class Replication {
 
   /** Persists `lastRunAt` -- `tick()`'s own due-check reads it back next time it runs. */
   private async recordRun(now: Temporal.Instant): Promise<void> {
-    WIKI.config.replication = {
-      ...WIKI.config.replication,
+    CARDINAL.config.replication = {
+      ...CARDINAL.config.replication,
       lastRunAt: now.toString({ smallestUnit: 'millisecond' })
     }
-    await WIKI.configSvc.saveToDb(['replication'])
+    await CARDINAL.configSvc.saveToDb(['replication'])
   }
 
   /**
@@ -118,13 +118,13 @@ class Replication {
    * rather than trusting the caller.
    */
   async pull(): Promise<void> {
-    const cfg = WIKI.config.replication
+    const cfg = CARDINAL.config.replication
     if (!cfg?.isEnabled) {
-      WIKI.logger.debug('jobs', 'replication pull skipped, replication is disabled')
+      CARDINAL.logger.debug('jobs', 'replication pull skipped, replication is disabled')
       return
     }
     if (!cfg.sourceUrl || !cfg.bearerToken) {
-      WIKI.logger.warn('jobs', 'replication pull skipped, no source URL or token configured')
+      CARDINAL.logger.warn('jobs', 'replication pull skipped, no source URL or token configured')
       return
     }
 
@@ -134,7 +134,7 @@ class Replication {
       // -> Only reached once the restore itself has actually succeeded (OpenProject #2517) -- a
       //    failed/partial import never reloads caches or queues a reindex as though it had landed.
       await this.runPostImportSideEffects()
-      WIKI.logger.info('jobs', 'replication pull complete', { source: cfg.sourceUrl })
+      CARDINAL.logger.info('jobs', 'replication pull complete', { source: cfg.sourceUrl })
     } finally {
       await fs.rm(filePath, { force: true })
     }
@@ -196,11 +196,11 @@ class Replication {
   /**
    * Hands the downloaded archive off to the target-side wipe-and-replace import.
    *
-   * `WIKI.models.replicationImport` (OpenProject #2490) is looked up dynamically rather than
+   * `CARDINAL.models.replicationImport` (OpenProject #2490) is looked up dynamically rather than
    * imported normally -- see this file's class-level doc comment for why.
    */
   private async importSnapshot(filePath: string): Promise<void> {
-    const replicationImport = (WIKI.models as Record<string, any>).replicationImport
+    const replicationImport = (CARDINAL.models as Record<string, any>).replicationImport
     if (typeof replicationImport?.importSnapshot !== 'function') {
       throw new Error('Replication import is not available on this instance (OpenProject #2490).')
     }
@@ -213,16 +213,16 @@ class Replication {
    * shared with `tasks/simple/replication-import.ts` via `helpers/replicationPostImport.ts` (see
    * this class's doc comment). Unlike `importSnapshot()` above, these five models are always
    * registered core models (not a feature-gated one that might not be installed), so a plain typed
-   * `WIKI.models.*` read is used rather than a duck-typed lookup.
+   * `CARDINAL.models.*` read is used rather than a duck-typed lookup.
    */
   private async runPostImportSideEffects(): Promise<void> {
     await runReplicationPostImport({
-      sites: WIKI.models.sites,
-      groups: WIKI.models.groups,
-      classificationLevels: WIKI.models.classificationLevels,
-      glossary: WIKI.models.glossary,
-      assetServing: WIKI.models.assetServing,
-      addJob: (opts) => WIKI.scheduler.addJob(opts)
+      sites: CARDINAL.models.sites,
+      groups: CARDINAL.models.groups,
+      classificationLevels: CARDINAL.models.classificationLevels,
+      glossary: CARDINAL.models.glossary,
+      assetServing: CARDINAL.models.assetServing,
+      addJob: (opts) => CARDINAL.scheduler.addJob(opts)
     })
   }
 }

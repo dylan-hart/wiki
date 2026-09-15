@@ -5,7 +5,7 @@
  * compile step), lazily running `Xenova/all-MiniLM-L6-v2` to turn page text into a 384-dimension
  * sentence embedding for semantic search (Epic #3050). Mirrors `helpers/images.ts`'s Sharp pattern:
  * a lazy dynamic import by specifier (so the type checker never has to resolve it), a load failure
- * recorded on `WIKI.models.extensions` and logged, and `null` returned rather than thrown so a
+ * recorded on `CARDINAL.models.extensions` and logged, and `null` returned rather than thrown so a
  * caller degrades gracefully instead of crashing a page save or a search request.
  *
  * Unlike Sharp, there is no native binary and therefore no per-platform compatibility matrix to
@@ -76,8 +76,8 @@ async function getExtractor(): Promise<FeatureExtractor | null> {
   } catch (err: any) {
     loadFailed = true
     extractorPromise = null
-    WIKI.models.extensions.noteLoadFailure(specifier)
-    WIKI.logger.warn('search', 'could not load the local embedding model', { error: err })
+    CARDINAL.models.extensions.noteLoadFailure(specifier)
+    CARDINAL.logger.warn('search', 'could not load the local embedding model', { error: err })
     return null
   }
 }
@@ -117,7 +117,7 @@ export async function extractEmbedding(
     const output = await extract(text, { pooling: 'mean', normalize: true })
     return Array.from(output.data)
   } catch (err: any) {
-    WIKI.logger.warn('search', 'could not embed text with the local model', { error: err })
+    CARDINAL.logger.warn('search', 'could not embed text with the local model', { error: err })
     return null
   }
 }

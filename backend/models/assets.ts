@@ -35,7 +35,7 @@ export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 
  * its role here is defence in depth for every other extension.
  */
 export function dispositionFor(fileExt: string): boolean {
-  return !INLINE_EXTS.has(fileExt) && Boolean(WIKI.config.security?.forceAssetDownload)
+  return !INLINE_EXTS.has(fileExt) && Boolean(CARDINAL.config.security?.forceAssetDownload)
 }
 
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
@@ -240,7 +240,7 @@ class Assets {
    * next file rather than to the next restart. Anything unrecognized is treated as the default.
    */
   conflictBehaviorFor(siteId: string): UploadConflictBehavior {
-    const configured = WIKI.sites[siteId]?.config?.uploads?.conflictBehavior
+    const configured = CARDINAL.sites[siteId]?.config?.uploads?.conflictBehavior
     return UPLOAD_CONFLICT_BEHAVIORS.has(configured) ? configured : 'overwrite'
   }
 
@@ -284,7 +284,9 @@ class Assets {
     // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
     //    exactly as uploaded, same as before this existed.
     const fileData =
-      resolvedMime === svgMimeType && WIKI.config.security?.uploadScanSVG ? sanitizeSvg(data) : data
+      resolvedMime === svgMimeType && CARDINAL.config.security?.uploadScanSVG
+        ? sanitizeSvg(data)
+        : data
 
     const preview =
       kind === 'image'
@@ -297,7 +299,7 @@ class Assets {
     const occupant =
       behavior === 'new'
         ? null
-        : await WIKI.models.tree.getEntryAt({
+        : await CARDINAL.models.tree.getEntryAt({
             siteId,
             locale,
             parentId: folderId,
@@ -339,7 +341,7 @@ class Assets {
     // -> The tree row goes in first: it owns the name, and it is what settles a collision with
     //    something already in the folder before any bytes are written. What comes back is the name
     //    that was actually free, which is not always the one asked for.
-    const entry = await WIKI.models.tree.addAsset({
+    const entry = await CARDINAL.models.tree.addAsset({
       parentId: folderId,
       fileName: safeName,
       title: safeName,
@@ -354,7 +356,7 @@ class Assets {
     const storedName = entry.fileName
 
     try {
-      await WIKI.db.insert(assetsTable).values({
+      await CARDINAL.db.insert(assetsTable).values({
         id: entry.id,
         fileName: storedName,
         fileExt,
@@ -368,7 +370,7 @@ class Assets {
       })
     } catch (err) {
       // -> Nothing points at the tree row now, and leaving it would show a file the site cannot serve
-      await WIKI.db.delete(treeTable).where(eq(treeTable.id, entry.id))
+      await CARDINAL.db.delete(treeTable).where(eq(treeTable.id, entry.id))
       throw err
     }
 
@@ -393,7 +395,7 @@ class Assets {
     // -> The content lifecycle line (OpenProject #2674), from the model rather than from
     //    `api/assets.ts`, so the file manager, the MCP `uploadAsset` tool, the 2.5.x import and a
     //    git/disk storage import all produce the identical line.
-    WIKI.logger.info('assets', 'uploaded', {
+    CARDINAL.logger.info('assets', 'uploaded', {
       site: siteId,
       asset: entry.id,
       path: assetPath(folderPath, storedName),
@@ -457,7 +459,7 @@ class Assets {
     preview: Buffer | null
     authorId: string
   }): Promise<Asset> {
-    await WIKI.db
+    await CARDINAL.db
       .update(assetsTable)
       .set({
         fileExt,
@@ -471,7 +473,7 @@ class Assets {
       })
       .where(eq(assetsTable.id, id))
     // -> The tree carries its own copy of these, and it is what a folder listing reads
-    await WIKI.db
+    await CARDINAL.db
       .update(treeTable)
       .set({ meta: { fileSize: data.length, fileExt, mimeType }, updatedAt: sql`now()` })
       .where(eq(treeTable.id, id))
@@ -480,8 +482,8 @@ class Assets {
     //    modification time, so a reader holding the old file has to be told to fetch it again. The
     //    cached bytes are keyed by that same time and are unreachable from here on, but are dropped
     //    rather than left for the sweep, since the file they hold is gone for good.
-    WIKI.models.assetServing.forgetPath(siteId, folderPath, fileName)
-    await WIKI.models.assetServing.dropCachedContent([id])
+    CARDINAL.models.assetServing.forgetPath(siteId, folderPath, fileName)
+    await CARDINAL.models.assetServing.dropCachedContent([id])
 
     await announce(
       'asset:edit',
@@ -496,7 +498,7 @@ class Assets {
     // -> Still an upload from the operator's point of view (OpenProject #2674) -- somebody sent a file
     //    and the site now serves those bytes at that path. `overwrite` is what distinguishes it from
     //    a file arriving at a name nothing held.
-    WIKI.logger.info('assets', 'uploaded', {
+    CARDINAL.logger.info('assets', 'uploaded', {
       site: siteId,
       asset: id,
       path: assetPath(folderPath, fileName),
@@ -531,7 +533,7 @@ class Assets {
    * An asset's metadata, without its bytes. Null if there is no such asset on this site.
    */
   async getAsset(siteId: string, id: string): Promise<Asset | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select(assetSelection)
       .from(assetsTable)
       .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
@@ -554,7 +556,7 @@ class Assets {
   ): Promise<
     { id: string; kind: AssetKind; folderPath: string; fileName: string; fileSize: number }[]
   > {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: assetsTable.id,
         kind: assetsTable.kind,
@@ -589,9 +591,9 @@ class Assets {
     if (!fileName) {
       return null
     }
-    const primaryLocale = WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
+    const primaryLocale = CARDINAL.sites[siteId]?.config?.locales?.primary ?? 'en'
 
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select(assetSelection)
       .from(assetsTable)
       .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
@@ -619,7 +621,7 @@ class Assets {
   async getContent(
     id: string
   ): Promise<{ data: Buffer; mimeType: string; fileName: string } | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select({
         data: assetsTable.data,
         mimeType: assetsTable.mimeType,
@@ -655,7 +657,7 @@ class Assets {
   }> {
     let cursor: string | null = null
     for (;;) {
-      const rows = await WIKI.db
+      const rows = await CARDINAL.db
         .select({
           id: assetsTable.id,
           fileName: assetsTable.fileName,
@@ -702,7 +704,7 @@ class Assets {
    * out.
    */
   async getThumbnail(id: string): Promise<AssetThumbnail | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select({
         siteId: assetsTable.siteId,
         preview: assetsTable.preview,
@@ -747,8 +749,8 @@ class Assets {
     }
     const resolvedMime = mime.getType(safeName) ?? asset.mimeType
 
-    await WIKI.models.tree.renameEntry({ id, fileName: safeName, title: safeName })
-    await WIKI.db
+    await CARDINAL.models.tree.renameEntry({ id, fileName: safeName, title: safeName })
+    await CARDINAL.db
       .update(assetsTable)
       .set({
         fileName: safeName,
@@ -759,16 +761,16 @@ class Assets {
       })
       .where(eq(assetsTable.id, id))
     // -> The tree carries its own copy of these, and it is what a folder listing reads
-    await WIKI.db
+    await CARDINAL.db
       .update(treeTable)
       .set({ meta: { fileSize: asset.fileSize, fileExt, mimeType: resolvedMime } })
       .where(eq(treeTable.id, id))
 
     // -> Both ends of the move: the name it left, and the name it took, which something else may have
     //    been resolved at before it was freed up
-    WIKI.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
-    WIKI.models.assetServing.forgetPath(siteId, asset.folderPath, safeName)
-    await WIKI.models.assetServing.dropCachedContent([id])
+    CARDINAL.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
+    CARDINAL.models.assetServing.forgetPath(siteId, asset.folderPath, safeName)
+    await CARDINAL.models.assetServing.dropCachedContent([id])
 
     await announce(
       'asset:rename',
@@ -817,7 +819,7 @@ class Assets {
       return null
     }
 
-    const moved = await WIKI.models.tree.moveEntry({ id, siteId, folderId, parentPath })
+    const moved = await CARDINAL.models.tree.moveEntry({ id, siteId, folderId, parentPath })
     if (!moved) {
       return null
     }
@@ -827,9 +829,9 @@ class Assets {
     }
 
     // -> Both ends of the move: the folder it left, and the folder it arrived in
-    WIKI.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
-    WIKI.models.assetServing.forgetPath(siteId, newFolderPath, asset.fileName)
-    await WIKI.models.assetServing.dropCachedContent([id])
+    CARDINAL.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
+    CARDINAL.models.assetServing.forgetPath(siteId, newFolderPath, asset.fileName)
+    await CARDINAL.models.assetServing.dropCachedContent([id])
 
     await announce(
       'asset:move',
@@ -862,15 +864,15 @@ class Assets {
     if (!asset) {
       return false
     }
-    await WIKI.db.delete(assetsTable).where(eq(assetsTable.id, id))
-    await WIKI.models.tree.deleteEntry(id)
+    await CARDINAL.db.delete(assetsTable).where(eq(assetsTable.id, id))
+    await CARDINAL.models.tree.deleteEntry(id)
 
-    WIKI.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
-    await WIKI.models.assetServing.dropCachedContent([id])
+    CARDINAL.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
+    await CARDINAL.models.assetServing.dropCachedContent([id])
 
     // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
     //    at the db level drops the sync-state rows for this asset on its own.
-    await WIKI.models.contentSync.forgetContent('asset', id)
+    await CARDINAL.models.contentSync.forgetContent('asset', id)
 
     await announce(
       'asset:delete',
@@ -879,7 +881,7 @@ class Assets {
       { dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize } }
     )
 
-    WIKI.logger.info('assets', 'deleted', {
+    CARDINAL.logger.info('assets', 'deleted', {
       site: siteId,
       asset: id,
       path: assetPath(asset.folderPath, asset.fileName),
@@ -907,18 +909,18 @@ class Assets {
     // -> `kind`/`fileSize` are returned rather than dropped with the rows: dispatching a delete needs
     //    them to classify the content type against a target's `contentTypes.activeTypes`, and this is
     //    the last point at which the database still has them
-    const deleted = await WIKI.db
+    const deleted = await CARDINAL.db
       .delete(assetsTable)
       .where(inArray(assetsTable.id, ids))
       .returning({ id: assetsTable.id, kind: assetsTable.kind, fileSize: assetsTable.fileSize })
     const deletedById = new Map(deleted.map((row) => [row.id, row]))
 
     // -> Which paths they sat at is no longer knowable from the tree: those rows went with the folder
-    WIKI.models.assetServing.forgetAllPaths()
-    await WIKI.models.assetServing.dropCachedContent(ids)
+    CARDINAL.models.assetServing.forgetAllPaths()
+    await CARDINAL.models.assetServing.dropCachedContent(ids)
 
     // -> Same reasoning as `deleteAsset`: one batched call rather than one per asset.
-    await WIKI.models.contentSync.forgetContentBatch('asset', ids)
+    await CARDINAL.models.contentSync.forgetContentBatch('asset', ids)
 
     // -> One per file, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each file, not about the folder it happened to sit in
@@ -938,7 +940,7 @@ class Assets {
       // -> One per file, for the same reason the `announce` above is per file (OpenProject #2674):
       //    each of these really is a file leaving the wiki. `cascade` says it was the folder over it
       //    that was deleted, not the file itself.
-      WIKI.logger.info('assets', 'deleted', {
+      CARDINAL.logger.info('assets', 'deleted', {
         site: siteId,
         asset: entry.id,
         path: assetPath(entry.folderPath, entry.fileName),

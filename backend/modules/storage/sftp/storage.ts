@@ -47,7 +47,7 @@ export async function exportAll(
   const runExportPages = deps.runExportPages ?? exportPages
   const runExportAssets = deps.runExportAssets ?? exportAssets
   const config = target.config as SftpTargetConfig
-  const log = WIKI.logger.scope('storage', { module: 'sftp', target: target.id })
+  const log = CARDINAL.logger.scope('storage', { module: 'sftp', target: target.id })
 
   log.info('starting the export', {
     site: target.siteId,

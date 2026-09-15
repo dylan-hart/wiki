@@ -53,7 +53,7 @@ export function createNotifier(client: () => PoolClient | null, label: string): 
         try {
           await client()?.query('SELECT pg_notify($1, $2)', [channel, payload])
         } catch (err: any) {
-          WIKI.logger.warn('db', 'publishing a notification failed', {
+          CARDINAL.logger.warn('db', 'publishing a notification failed', {
             channel: label,
             error: err
           })
@@ -80,7 +80,7 @@ const LISTENER_COUNT = 3
  *
  * They used to `pool.connect()` straight out of the main query pool and hold that client for the
  * process lifetime, one each -- so the effective ceiling for application queries was
- * `WIKI.config.pool.max - 3`, not the configured `max` an operator reads it as. None of the three
+ * `CARDINAL.config.pool.max - 3`, not the configured `max` an operator reads it as. None of the three
  * ever runs an application query, so they do not belong in that pool at all: this gives them a pool
  * of their own, sized for exactly the load they put on it.
  *
@@ -96,11 +96,11 @@ const LISTENER_COUNT = 3
  *
  * Takes the same connection config the query pool is built from (host/user/password/database or
  * `connectionString`, plus SSL) rather than assembling its own: `core/db.ts`'s `init()` already
- * resolves that (env `DATABASE_URL` vs. `WIKI.config.db.*`, SSL cert loading) before constructing
+ * resolves that (env `DATABASE_URL` vs. `CARDINAL.config.db.*`, SSL cert loading) before constructing
  * its own pool, and duplicating that logic here would be two places that can drift apart on how a
  * database is reached.
  *
- * Called once, by `core/db.ts`'s `init()`, and the result stored as `WIKI.dbManager.listenerPool`
+ * Called once, by `core/db.ts`'s `init()`, and the result stored as `CARDINAL.dbManager.listenerPool`
  * for the event bus, the scheduler and collaborative editing to all share -- one small pool for the
  * three of them, not three pools of one.
  */
@@ -124,7 +124,7 @@ export interface ListenerHandle {
 
 export interface ListenerOptions {
   /**
-   * Pool to (re)connect a dedicated client from -- the shared `WIKI.dbManager.listenerPool` built by
+   * Pool to (re)connect a dedicated client from -- the shared `CARDINAL.dbManager.listenerPool` built by
    * {@link createListenerPool}, never the main query pool. See `createListenerPool`'s doc comment
    * for why the two must not be the same pool.
    */
@@ -177,7 +177,7 @@ export async function connectListener(opts: ListenerOptions): Promise<ListenerHa
       if (closed) {
         return
       }
-      WIKI.logger.warn('db', 'lost the listener connection, reconnecting', {
+      CARDINAL.logger.warn('db', 'lost the listener connection, reconnecting', {
         channel: label,
         error: err
       })
@@ -210,7 +210,7 @@ export async function connectListener(opts: ListenerOptions): Promise<ListenerHa
         setClient(client)
         return
       } catch (err: any) {
-        WIKI.logger.warn('db', 'reconnecting the listener failed, retrying', {
+        CARDINAL.logger.warn('db', 'reconnecting the listener failed, retrying', {
           channel: label,
           retryIn: retryDelayMs,
           error: err

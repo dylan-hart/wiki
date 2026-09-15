@@ -1,4 +1,4 @@
-/* global WIKI */
+/* global CARDINAL */
 import fs from 'node:fs'
 import { Client } from 'ldapts'
 import type { Entry, SearchOptions, SearchResult } from 'ldapts'
@@ -154,7 +154,7 @@ export default class LdapAuthentication {
     //    (Active Directory by default) answer with success against any DN that resolves — refuse it
     //    here, before the verification bind is ever attempted.
     if (!password) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `LDAP strategy ${this.strategyId}: refused an empty/missing password for "${username}"`
       )
       throw new Error('ERR_LOGIN_FAILED')
@@ -164,7 +164,7 @@ export default class LdapAuthentication {
     try {
       tlsOptions = this.getTlsOptions()
     } catch (err: any) {
-      WIKI.logger.warn('auth', 'could not read the LDAP strategy TLS certificate', {
+      CARDINAL.logger.warn('auth', 'could not read the LDAP strategy TLS certificate', {
         module: 'ldap',
         strategy: this.strategyId,
         error: err
@@ -179,12 +179,12 @@ export default class LdapAuthentication {
         await adminClient.bind(bindDn, bindCredentials)
       } catch (err: any) {
         if (isCertificateTrustError(err)) {
-          WIKI.models.flags.authDebug(
+          CARDINAL.models.flags.authDebug(
             `LDAP strategy ${this.strategyId}: TLS certificate not trusted: ${err.message}`
           )
           throw new Error('ERR_LDAP_CERTIFICATE_NOT_TRUSTED')
         }
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: admin bind failed: ${err.message}`
         )
         throw new Error('ERR_STRATEGY_MISCONFIGURED')
@@ -197,7 +197,7 @@ export default class LdapAuthentication {
           filter: interpolate(searchFilter, { username: escapeFilterValue(username) })
         })
       } catch (err: any) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: user search failed: ${err.message}`
         )
         throw new Error('ERR_LOGIN_FAILED')
@@ -205,7 +205,7 @@ export default class LdapAuthentication {
 
       const entries = result.searchEntries
       if (entries.length !== 1) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: search for "${username}" returned ${entries.length} entries`
         )
         throw new Error('ERR_LOGIN_FAILED')
@@ -224,7 +224,7 @@ export default class LdapAuthentication {
       try {
         await userClient.bind(dn, password)
       } catch {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: verification bind for "${username}" failed`
         )
         throw new Error('ERR_LOGIN_FAILED')
@@ -246,7 +246,7 @@ export default class LdapAuthentication {
       */
       const [firstName, lastName] = [attrs.givenName?.[0], attrs.sn?.[0]]
       if (!id || !email) {
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: entry for "${username}" has no value for its unique ID or email mapping`
         )
         throw new Error('ERR_LOGIN_FAILED')
@@ -304,7 +304,7 @@ export default class LdapAuthentication {
         .map((groupEntry) => attributesOf(groupEntry)[groupNameField]?.[0])
         .filter((name): name is string => Boolean(name))
     } catch (err: any) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `LDAP strategy ${this.strategyId}: group search failed: ${err.message}`
       )
       return []

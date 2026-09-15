@@ -67,14 +67,17 @@ export async function handleWatchPage(
   }
 
   const actor = actorFor(ctx)
-  const page = await WIKI.models.pages.getPage({ siteId: site.id, id: args.pageId })
+  const page = await CARDINAL.models.pages.getPage({ siteId: site.id, id: args.pageId })
   // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in
   //    `helpers/pageAccess.ts`
-  if (!page || !WIKI.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
+  if (
+    !page ||
+    !CARDINAL.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })
+  ) {
     throw new McpToolError('This page does not exist.')
   }
 
-  await WIKI.models.pageWatching.watch({
+  await CARDINAL.models.pageWatching.watch({
     siteId: site.id,
     pageId: page.id,
     userId: ctx.userId,
@@ -83,7 +86,7 @@ export async function handleWatchPage(
     notifyOnMoved: args.notifyOnMoved,
     notifyOnDeleted: args.notifyOnDeleted
   })
-  const preference = await WIKI.models.pageWatching.getPreference(page.id, ctx.userId)
+  const preference = await CARDINAL.models.pageWatching.getPreference(page.id, ctx.userId)
 
   return toResult({ pageId: page.id, isWatching: true, preference })
 }

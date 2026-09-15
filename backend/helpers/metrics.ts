@@ -1,6 +1,6 @@
 /**
  * The gauge values `/metrics` reports, sourced from data already computed for `GET
- * /_api/system/info`, `WIKI.models.jobs`, and (for the pool fields) `WIKI.dbManager.pool` — this
+ * /_api/system/info`, `CARDINAL.models.jobs`, and (for the pool fields) `CARDINAL.dbManager.pool` — this
  * module invents no new data path, only a text rendering of numbers those already compute.
  */
 export interface MetricsSnapshot {

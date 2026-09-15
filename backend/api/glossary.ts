@@ -55,7 +55,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.listTerms(req.params.siteId)
+      return CARDINAL.models.glossary.listTerms(req.params.siteId)
     }
   )
 
@@ -92,9 +92,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.getCachedTerms(
+      return CARDINAL.models.glossary.getCachedTerms(
         req.params.siteId,
-        WIKI.models.groups.actorForRequest(req)
+        CARDINAL.models.groups.actorForRequest(req)
       )
     }
   )
@@ -124,7 +124,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.getAcronymMap(req.params.siteId)
+      return CARDINAL.models.glossary.getAcronymMap(req.params.siteId)
     }
   )
 
@@ -158,7 +158,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.createTerm(
+      return CARDINAL.models.glossary.createTerm(
         req.params.siteId,
         {
           term: req.body.term!,
@@ -205,7 +205,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.updateTerm(
+      return CARDINAL.models.glossary.updateTerm(
         req.params.siteId,
         req.params.termId,
         {
@@ -254,7 +254,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const deleted = await WIKI.models.glossary.deleteTerm(
+      const deleted = await CARDINAL.models.glossary.deleteTerm(
         req.params.siteId,
         req.params.termId,
         actorFromRequest(req)
@@ -290,7 +290,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.exportTerms(req.params.siteId)
+      return CARDINAL.models.glossary.exportTerms(req.params.siteId)
     }
   )
 
@@ -324,7 +324,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.importTerms(req.params.siteId, req.body)
+      return CARDINAL.models.glossary.importTerms(req.params.siteId, req.body)
     }
   )
 
@@ -363,7 +363,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.saveVersion(
+      return CARDINAL.models.glossary.saveVersion(
         req.params.siteId,
         req.body.terms,
         actorFromRequest(req)
@@ -398,7 +398,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.listVersions(req.params.siteId)
+      return CARDINAL.models.glossary.listVersions(req.params.siteId)
     }
   )
 
@@ -431,7 +431,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const version = await WIKI.models.glossary.getVersion(req.params.siteId, req.params.versionId)
+      const version = await CARDINAL.models.glossary.getVersion(
+        req.params.siteId,
+        req.params.versionId
+      )
       if (!version) {
         return reply.notFound('This glossary version does not exist.')
       }
@@ -470,7 +473,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.glossary.restoreVersion(
+      return CARDINAL.models.glossary.restoreVersion(
         req.params.siteId,
         req.params.versionId,
         actorFromRequest(req)

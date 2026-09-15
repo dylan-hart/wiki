@@ -129,7 +129,7 @@ async function routes(app: FastifyInstance) {
           `Could not detect an import format from '${req.query.fileName}'. Pass 'format' explicitly.`
         )
       }
-      const result = await WIKI.models.pageImport.convertToMarkdown({
+      const result = await CARDINAL.models.pageImport.convertToMarkdown({
         format,
         data
       })
@@ -296,7 +296,7 @@ async function routes(app: FastifyInstance) {
             }
           }
           try {
-            const result = await WIKI.models.pageImport.convertToMarkdown({
+            const result = await CARDINAL.models.pageImport.convertToMarkdown({
               format,
               data: upload.data
             })

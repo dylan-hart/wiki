@@ -35,13 +35,13 @@ const AUTHOR_ROLES = ['write:pages', 'manage:pages']
  * both writing a page and suggesting an edit are granted by rules instead.
  */
 async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boolean> {
-  const actor = WIKI.models.groups.actorForRequest(req)
+  const actor = CARDINAL.models.groups.actorForRequest(req)
   if (LIST_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
   // -> Both of these read cached group rules; only the last resort goes to the database
   if (
-    WIKI.models.groups
+    CARDINAL.models.groups
       .rulesForGroups(actor.groupIds)
       .some(
         (rule) => rule.mode !== 'DENY' && AUTHOR_ROLES.some((role) => rule.roles?.includes(role))
@@ -49,8 +49,8 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
   ) {
     return true
   }
-  const groupIds = WIKI.models.approvals.getActorGroupIds(req)
-  const rules = await WIKI.models.approvalRules.getRules(siteId)
+  const groupIds = CARDINAL.models.approvals.getActorGroupIds(req)
+  const rules = await CARDINAL.models.approvalRules.getRules(siteId)
   return rules.some(
     (rule) => rule.isEnabled && rule.submitterGroups.some((id) => groupIds.includes(id))
   )
@@ -66,7 +66,7 @@ async function routes(app: FastifyInstance) {
   //    to this plugin instance, not global, the same way `assets.ts`'s and `sites.ts`'s each are.
   app.addContentTypeParser(
     '*',
-    { parseAs: 'buffer', bodyLimit: WIKI.config.security?.uploadMaxFileSize ?? 10485760 },
+    { parseAs: 'buffer', bodyLimit: CARDINAL.config.security?.uploadMaxFileSize ?? 10485760 },
     (req, body, done) => {
       done(null, body)
     }
@@ -104,7 +104,7 @@ async function routes(app: FastifyInstance) {
       if (!(await mayListBlocks(req, req.params.siteId))) {
         return reply.forbidden('You are not allowed to list the blocks of this site.')
       }
-      return WIKI.models.blocks.getSiteBlocks(req.params.siteId)
+      return CARDINAL.models.blocks.getSiteBlocks(req.params.siteId)
     }
   )
 
@@ -141,7 +141,7 @@ async function routes(app: FastifyInstance) {
       },
       schema: {
         summary: 'Upload a custom block',
-        description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,
+        description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((CARDINAL.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,
         tags: ['Blocks'],
         consumes: ['*/*'],
         params: { $ref: 'SiteIdParams#' },
@@ -196,13 +196,17 @@ async function routes(app: FastifyInstance) {
         )
       }
 
-      if (await WIKI.models.blocks.isTagTaken(req.params.siteId, definition.block)) {
+      if (await CARDINAL.models.blocks.isTagTaken(req.params.siteId, definition.block)) {
         return reply.conflict(
           `A block already registers the tag "block-${definition.block}" on this site.`
         )
       }
 
-      const block = await WIKI.models.blocks.createCustomBlock(req.params.siteId, definition, data)
+      const block = await CARDINAL.models.blocks.createCustomBlock(
+        req.params.siteId,
+        definition,
+        data
+      )
 
       return {
         ok: true,
@@ -294,7 +298,10 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        const updated = await WIKI.models.blocks.setBlocksState(req.params.siteId, req.body.states)
+        const updated = await CARDINAL.models.blocks.setBlocksState(
+          req.params.siteId,
+          req.body.states
+        )
         return {
           ok: true,
           message: 'Blocks state updated successfully.',
@@ -306,7 +313,7 @@ async function routes(app: FastifyInstance) {
         if (err instanceof CustomError) {
           throw err
         }
-        WIKI.logger.error('blocks', 'updating the blocks state failed', {
+        CARDINAL.logger.error('blocks', 'updating the blocks state failed', {
           error: err,
           reqId: req.id
         })
@@ -359,7 +366,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
 
-      const siteBlocks = await WIKI.models.blocks.getSiteBlocks(req.params.siteId)
+      const siteBlocks = await CARDINAL.models.blocks.getSiteBlocks(req.params.siteId)
       const block = siteBlocks.find((b) => b.id === req.params.blockId)
       if (!block) {
         return reply.notFound('Block does not exist.')
@@ -368,7 +375,7 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('Cannot delete a built-in block.')
       }
 
-      await WIKI.models.blocks.deleteCustomBlock(req.params.siteId, req.params.blockId)
+      await CARDINAL.models.blocks.deleteCustomBlock(req.params.siteId, req.params.blockId)
       return reply.code(204).send()
     }
   )

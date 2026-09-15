@@ -54,7 +54,7 @@ export interface StorageContractOptions {
   stubSdk(): StorageSdkStub
 }
 
-/** One asset, as `WIKI.models.assets.streamAll` yields it to `exportAll`. */
+/** One asset, as `CARDINAL.models.assets.streamAll` yields it to `exportAll`. */
 function streamedAsset(overrides: Record<string, any> = {}) {
   return {
     id: 'a1',
@@ -99,7 +99,7 @@ export function runStorageModuleContract(name: string, options: StorageContractO
 
     /** Stage the one asset body `assetUploaded` will fetch for this test. */
     function stageContent(content: unknown): void {
-      ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => content)
+      ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => content)
     }
 
     test(`${name}: assetUploaded writes the fetched bytes under the site-scoped key`, async () => {
@@ -198,7 +198,7 @@ export function runStorageModuleContract(name: string, options: StorageContractO
       const sdk = stubSdk()
       const target = makeTarget()
       target.contentTypes = { activeTypes: ['images'], largeThreshold: '1MB' }
-      WIKI.models.assets.streamAll = async function* () {
+      CARDINAL.models.assets.streamAll = async function* () {
         yield streamedAsset()
         yield streamedAsset({
           id: 'a2',
@@ -221,7 +221,7 @@ export function runStorageModuleContract(name: string, options: StorageContractO
       const sdk = stubSdk()
       const target = makeTarget()
       target.contentTypes = { activeTypes: ['large'], largeThreshold: '1B' }
-      WIKI.models.assets.streamAll = async function* () {
+      CARDINAL.models.assets.streamAll = async function* () {
         yield streamedAsset({
           fileName: 'huge.bin',
           folderPath: '',

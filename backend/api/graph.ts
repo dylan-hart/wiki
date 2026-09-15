@@ -29,7 +29,7 @@ export interface GraphNode {
   /** The path's first segment — the grouping dimension 874's folder view clusters by. */
   folder: string
   /** The page's classification level display name (OpenProject #1079/#1217), resolved from
-   *  `GraphPageRow.classification` via `WIKI.models.classificationLevels.byId()`. Null when the
+   *  `GraphPageRow.classification` via `CARDINAL.models.classificationLevels.byId()`. Null when the
    *  id no longer resolves to a configured level. */
   classification: string | null
   /** Unique-contributor counts from this page's edit history (OpenProject #1141), the source for
@@ -43,7 +43,7 @@ export interface GraphNode {
    *  frontend's window selector and client-type checkboxes both work client-side against this one
    *  fetched payload. Omitted entirely (OpenProject #1863) unless the request carries `?sizing=`,
    *  same gating as `contributors` above. Present and zeroed (not omitted) for a page with no
-   *  pageviews logged (including while `WIKI.config.pageviews.isEnabled` is off, in which case
+   *  pageviews logged (including while `CARDINAL.config.pageviews.isEnabled` is off, in which case
    *  there is nothing to log in the first place), whenever sizing data was asked for at all. */
   pageviews?: PageviewCountsForGraph
 }
@@ -94,7 +94,7 @@ export function folderOf(path: string): string {
  * wire the route end to end first — Task 5 (#884) fills in the real body.
  *
  * `classificationName` resolves a classification id to its display name (OpenProject #1217) —
- * a separate parameter for the same testability reason as `canRead`: `WIKI.models
+ * a separate parameter for the same testability reason as `canRead`: `CARDINAL.models
  * .classificationLevels.byId()` needs no database either, but a pure-unit test still shouldn't
  * have to stand up the `WIKI` global just to exercise node/edge assembly. Defaults to the
  * identity function so every existing caller that doesn't care about the resolved name keeps
@@ -235,9 +235,9 @@ async function loadGraphData(siteId: string, mayRebuild: boolean): Promise<Graph
     return null
   }
   const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-    WIKI.models.pages.listAllForGraph(siteId),
-    WIKI.models.pageHistory.contributorCountsForGraph(siteId),
-    WIKI.models.pageviews.countsForGraph(siteId)
+    CARDINAL.models.pages.listAllForGraph(siteId),
+    CARDINAL.models.pageHistory.contributorCountsForGraph(siteId),
+    CARDINAL.models.pageviews.countsForGraph(siteId)
   ])
   const data: GraphCacheData = { rows, contributorCounts, pageviewCounts }
   setCachedGraphData(siteId, data)
@@ -289,16 +289,16 @@ async function routes(app: FastifyInstance) {
       // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
       //    on every call, and the graph's input is unbounded (`listAllForGraph()` selects every page
       //    row for the site with no limit). See `tree.ts`'s `visibleTreeItems()` for the same shape.
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       return assembleGraph(
         rows,
         (row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
             ...row,
             classification: row.classification ?? null,
             siteId: req.params.siteId
           }),
-        (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
+        (id) => CARDINAL.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
           data.contributorCounts.get(pageId) ?? {
             editor: 0,

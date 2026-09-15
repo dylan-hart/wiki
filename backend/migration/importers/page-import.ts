@@ -10,11 +10,11 @@ import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
  *
  * Turns each `StagedPage` the staging pass (`../content-staging.ts`'s `extractContentStaging()`
  * generator) produces into a real 3.0 page, exclusively through
- * `WIKI.models.pages.createPage(siteId, input, actor)` — never a raw insert, since `createPage()` is
+ * `CARDINAL.models.pages.createPage(siteId, input, actor)` — never a raw insert, since `createPage()` is
  * also what writes the matching `tree` row, records the first `pageHistory` row and indexes the page
  * for search; duplicating any of that here would drift the moment `createPage()` changes.
  *
- * This module has no db access of its own: `WIKI.models.pages.createPage`, the tree existing-entry
+ * This module has no db access of its own: `CARDINAL.models.pages.createPage`, the tree existing-entry
  * lookup, and the per-page history backfill are all injected (`ImportPagesDeps`), so tests exercise
  * the real mapping/orchestration logic with fakes standing in for each. `phases/content.ts` passes
  * the real implementations (dry-run-gated).
@@ -85,7 +85,7 @@ import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
  * permissions: [], forcedPagePermissions: options.forcedPagePermissions }` — rather than one fixed
  * actor for every call. This actor holds no group membership at all (`groupIds: []`), which means it
  * could never earn `write:scripts`/`write:styles` through the ordinary page-rule engine
- * (`WIKI.models.groups.checkAccess()` resolves those two permissions from `groupIds`-derived rules
+ * (`CARDINAL.models.groups.checkAccess()` resolves those two permissions from `groupIds`-derived rules
  * only, and never from a flat `permissions` list — see `hasPermission()`'s own doc comment in
  * `models/pages.ts`, and the regression test guarding exactly that in `pages.hasPermission.test.ts`).
  * `forcedPagePermissions` is `hasPermission()`'s dedicated escape hatch for a caller in exactly this
@@ -108,7 +108,7 @@ import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
  * Per the feature brief, there are two ways to seed a newly-created page's render/TOC/search index:
  *
  *   - **`'passthrough'` (the default)**: pass 2.x's already-stored `render` HTML straight through as
- *     `input.render`. `createPage()`'s call to `WIKI.models.rendering.postProcess` sanitizes it and
+ *     `input.render`. `createPage()`'s call to `CARDINAL.models.rendering.postProcess` sanitizes it and
  *     extracts `toc`/`searchContent` from it immediately, so the page is fully readable and searchable
  *     the instant it's created — at the cost of that HTML reflecting 2.x's markdown-it plugin output
  *     (2.x's renderer, 2.x's plugin set) until the page is next edited or explicitly re-rendered.
@@ -140,7 +140,7 @@ import { MAX_NAME_ATTEMPTS } from '../../models/tree.ts'
  * rule by hand.
  */
 
-/** The subset of `WIKI.models.pages` this module actually calls — injected so this module (and its
+/** The subset of `CARDINAL.models.pages` this module actually calls — injected so this module (and its
  * tests) never touch `WIKI` or a real database. See the module doc comment for why. */
 export interface PagesWriteModel {
   createPage(siteId: string, input: PageInput, actor: PageActor): Promise<Page>

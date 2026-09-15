@@ -54,7 +54,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.locales.getLocales()
+      return CARDINAL.models.locales.getLocales()
     }
   )
 
@@ -105,7 +105,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const strings = await WIKI.models.locales.getStrings(req.params.code)
+      const strings = await CARDINAL.models.locales.getStrings(req.params.code)
       const etag = `"${crypto.createHash('sha1').update(JSON.stringify(strings)).digest('hex')}"`
       // -> `nosniff: false`: these are this instance's own translation strings, served as JSON —
       //    not the uploaded bytes the `controllers/` users of this helper are guarding
@@ -162,7 +162,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.locales.sideloadFromDataPath({ force: true })
+      return CARDINAL.models.locales.sideloadFromDataPath({ force: true })
     }
   )
 }

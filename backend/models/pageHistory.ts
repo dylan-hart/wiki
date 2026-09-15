@@ -430,10 +430,14 @@ class PageHistory {
     versionDate?: Date
   }): Promise<string | null> {
     try {
-      const rows = await WIKI.db.select().from(pagesTable).where(eq(pagesTable.id, pageId)).limit(1)
+      const rows = await CARDINAL.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, pageId))
+        .limit(1)
       const page = rows[0]
       if (!page) {
-        WIKI.logger.warn('pages', 'cannot record page history, the page is not there', {
+        CARDINAL.logger.warn('pages', 'cannot record page history, the page is not there', {
           page: pageId
         })
         return null
@@ -446,7 +450,7 @@ class PageHistory {
         }
       }
 
-      const inserted = await WIKI.db
+      const inserted = await CARDINAL.db
         .insert(pageHistoryTable)
         .values({
           pageId,
@@ -473,7 +477,10 @@ class PageHistory {
 
       return inserted[0]?.id ?? null
     } catch (err: any) {
-      WIKI.logger.warn('pages', 'recording the page history failed', { page: pageId, error: err })
+      CARDINAL.logger.warn('pages', 'recording the page history failed', {
+        page: pageId,
+        error: err
+      })
       return null
     }
   }
@@ -508,7 +515,7 @@ class PageHistory {
       Math.max(1, Math.trunc(options.limit ?? HISTORY_LIST_DEFAULT_LIMIT)),
       HISTORY_LIST_MAX_LIMIT
     )
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         ...entrySelection,
         authorId: usersTable.id,
@@ -568,7 +575,7 @@ class PageHistory {
     const isEditor = sql`${pageHistoryTable.via} = 'editor'`
     const isMcp = sql`${pageHistoryTable.via} = 'mcp'`
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         pageId: pageHistoryTable.pageId,
         editor: sql<number>`count(distinct ${pageHistoryTable.authorId}) filter (where ${isEditor})::int`,
@@ -613,11 +620,11 @@ class PageHistory {
    */
   async revisionSummary(pageId: string): Promise<PageRevisionSummary> {
     const [totals, newest] = await Promise.all([
-      WIKI.db
+      CARDINAL.db
         .select({ total: sql<number>`count(*)::int` })
         .from(pageHistoryTable)
         .where(eq(pageHistoryTable.pageId, pageId)),
-      WIKI.db
+      CARDINAL.db
         .select({ content: pageHistoryTable.content, via: pageHistoryTable.via })
         .from(pageHistoryTable)
         .where(eq(pageHistoryTable.pageId, pageId))
@@ -651,7 +658,7 @@ class PageHistory {
     pageId: string,
     versionId: string
   ): Promise<PageHistoryVersion | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         ...entrySelection,
         content: pageHistoryTable.content,
@@ -726,7 +733,7 @@ class PageHistory {
   ): Promise<PageHistoryRecoverablePage> {
     const boundedLimit = Math.min(Math.max(1, limit), RECOVERABLE_LIST_MAX_LIMIT)
 
-    const recoverable = WIKI.db
+    const recoverable = CARDINAL.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         ...entrySelection,
         meta: pageHistoryTable.meta,
@@ -738,7 +745,7 @@ class PageHistory {
           eq(pageHistoryTable.siteId, siteId),
           eq(pageHistoryTable.action, 'deleted'),
           notExists(
-            WIKI.db
+            CARDINAL.db
               .select({ exists: sql`1` })
               .from(pagesTable)
               .where(
@@ -754,7 +761,7 @@ class PageHistory {
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
       .as('recoverable')
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: recoverable.id,
         action: recoverable.action,
@@ -833,7 +840,7 @@ class PageHistory {
     classification: string | null
     meta: Record<string, any>
   } | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         path: pageHistoryTable.path,
         locale: pageHistoryTable.locale,
@@ -874,7 +881,7 @@ class PageHistory {
    * {@link listRecoverable} row recovers exactly the version it showed — not whatever happens to be
    * newest by the time the request lands.
    *
-   * The reconstructed input is driven through {@link WIKI.models.pages.createPage}, not written
+   * The reconstructed input is driven through {@link CARDINAL.models.pages.createPage}, not written
    * directly: duplicate-path, empty-title and empty-content checks all belong to `createPage` already,
    * and re-deciding them here would be a second copy of the same rules to keep in sync. `overrides`
    * exists for exactly the cases that check would reject unchanged — a path a newer page has since
@@ -949,16 +956,16 @@ class PageHistory {
     // -> `origin: 'restore'` changes nothing about what is written -- it is the one bit of provenance
     //    `createPage()` cannot infer, and it only decides whether the lifecycle line reads `restored`
     //    or `created` (OpenProject #2674).
-    const page = await WIKI.models.pages.createPage(siteId, input, actor, { origin: 'restore' })
+    const page = await CARDINAL.models.pages.createPage(siteId, input, actor, { origin: 'restore' })
     if (meta.password) {
-      await WIKI.db
+      await CARDINAL.db
         .update(pagesTable)
         .set({ password: meta.password })
         .where(eq(pagesTable.id, page.id))
     }
 
     if (meta.password) {
-      return (await WIKI.models.pages.getPage({ siteId, id: page.id })) as Page
+      return (await CARDINAL.models.pages.getPage({ siteId, id: page.id })) as Page
     }
     return page
   }
@@ -985,7 +992,7 @@ class PageHistory {
    */
   async purge(olderThan: PurgeTimeframe): Promise<number> {
     const interval = purgeTimeframes[olderThan]
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(pageHistoryTable)
       // -> The interval is bound as a parameter and cast, rather than interpolated: the value is off
       //    a closed list, but a raw fragment built from a request is a habit worth not having
@@ -994,12 +1001,12 @@ class PageHistory {
     // -> Silent at `info` when there was nothing to purge: this runs on a schedule, and a line an
     //    operator reads every day saying `0` is what trains them to stop reading the log.
     if (purged > 0) {
-      WIKI.logger.info('pages', 'purged old page versions', {
+      CARDINAL.logger.info('pages', 'purged old page versions', {
         versions: purged,
         olderThan: interval
       })
     } else {
-      WIKI.logger.debug('pages', 'no page versions to purge', { olderThan: interval })
+      CARDINAL.logger.debug('pages', 'no page versions to purge', { olderThan: interval })
     }
     return purged
   }

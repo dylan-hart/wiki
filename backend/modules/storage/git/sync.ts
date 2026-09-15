@@ -1,7 +1,7 @@
 /**
  * Bidirectional sync action: fetch and pull-rebase from origin, push local commits back, then read
- * whatever the pull brought in and reverse-mirror it into the DB via `WIKI.models.pages` /
- * `WIKI.models.assets` — the two-way half of this target that makes it a real sync rather than a
+ * whatever the pull brought in and reverse-mirror it into the DB via `CARDINAL.models.pages` /
+ * `CARDINAL.models.assets` — the two-way half of this target that makes it a real sync rather than a
  * push-only mirror. `created`/`updated`/`renamed`/`deleted` (`content.ts`, task 506) are the forward
  * direction — DB change to file; the diff processing here is deliberately built as the reverse of
  * that same mapping (`pageRelPath`'s `[locale/]path.ext` shape, `getFileExtension`'s content-type ↔
@@ -137,7 +137,7 @@ export function parseLocaleAndPath(
   siteId: string,
   pathNoExt: string
 ): { locale: string; path: string } {
-  const locales = WIKI.sites?.[siteId]?.config?.locales
+  const locales = CARDINAL.sites?.[siteId]?.config?.locales
   const primary = locales?.primary ?? 'en'
   const match = stripLocalePrefix(`/${pathNoExt}`, locales)
   if (match && match.path !== '/') {
@@ -155,7 +155,7 @@ function dirnameOf(relPath: string): string {
 /**
  * A rough content-type-bucket guess for a file nobody has told us the kind of yet — the reverse-sync
  * equivalent of `assets.ts`'s private `kindOf()`, which cannot run before the asset exists in the DB.
- * Only used to check `target.contentTypes.activeTypes` before importing; `WIKI.models.assets.upload`
+ * Only used to check `target.contentTypes.activeTypes` before importing; `CARDINAL.models.assets.upload`
  * computes the real, authoritative kind itself once the row is written.
  */
 function guessAssetBucket(relPath: string): string {
@@ -177,7 +177,7 @@ function guessAssetBucket(relPath: string): string {
 export async function resolveImportActor(target: StorageTarget): Promise<ImportActor | null> {
   const email = target.config?.defaultEmail
   if (!email) return null
-  const user = await WIKI.models.users.getByEmail(email)
+  const user = await CARDINAL.models.users.getByEmail(email)
   if (!user) return null
   // -> Trusted the same way the git remote itself is: only an admin can configure a sync target, so
   //    content it pulls in is accepted at the same trust level an admin's own edit would be.
@@ -257,7 +257,7 @@ async function processPageEntry(
     // -> Renamed by git — matches 2.5.x, which treats any path change on an existing file as a
     //    rename regardless of whether the content also changed in the same commit.
     const oldMeta = parseLocaleAndPath(target.siteId, stripExt(entry.oldPath))
-    const existing = await WIKI.models.pages.getPage({
+    const existing = await CARDINAL.models.pages.getPage({
       siteId: target.siteId,
       hash: generatePathHash(oldMeta.path),
       locale: oldMeta.locale
@@ -266,7 +266,7 @@ async function processPageEntry(
       // -> Locale included, because a locale is a directory in the repo: `git mv en/foo.md fr/foo.md`
       //    is a move into another locale, and passing the path alone would import it as a page that
       //    never left `en`
-      await WIKI.models.pages.movePage(
+      await CARDINAL.models.pages.movePage(
         target.siteId,
         existing.id,
         { path: newMeta.path, locale: newMeta.locale },
@@ -276,31 +276,31 @@ async function processPageEntry(
     }
     // -> Nothing tracked at the old path: fall through and write fresh at the new one.
   } else if (!entry.exists && entry.deletions > 0 && entry.insertions === 0) {
-    const existing = await WIKI.models.pages.getPage({
+    const existing = await CARDINAL.models.pages.getPage({
       siteId: target.siteId,
       hash: generatePathHash(newMeta.path),
       locale: newMeta.locale
     })
     if (existing) {
-      await WIKI.models.pages.deletePage(target.siteId, existing.id, actor)
+      await CARDINAL.models.pages.deletePage(target.siteId, existing.id, actor)
     }
     return
   }
 
   if (!entry.exists) return
   const content = await fs.readFile(entry.absPath, 'utf8')
-  const existing = await WIKI.models.pages.getPage({
+  const existing = await CARDINAL.models.pages.getPage({
     siteId: target.siteId,
     hash: generatePathHash(newMeta.path),
     locale: newMeta.locale
   })
   if (existing) {
-    await WIKI.models.pages.updatePage(target.siteId, existing.id, { content }, actor)
+    await CARDINAL.models.pages.updatePage(target.siteId, existing.id, { content }, actor)
   } else {
     // -> Brand new to the DB. `content.ts` never injects front matter into what it writes (see its
     //    header), so there is none to parse back out either — the title is guessed from the path the
     //    same way 2.5.x falls back when a file it is importing has no front matter of its own.
-    await WIKI.models.pages.createPage(
+    await CARDINAL.models.pages.createPage(
       target.siteId,
       {
         path: newMeta.path,
@@ -324,7 +324,7 @@ async function processAssetEntry(
   if (!covers(target, bucket)) return
 
   if (entry.exists && entry.relPath !== entry.oldPath) {
-    const existing = await WIKI.models.assets.getAssetByPath(target.siteId, entry.oldPath)
+    const existing = await CARDINAL.models.assets.getAssetByPath(target.siteId, entry.oldPath)
     if (existing) {
       // -> `entry.binary` (which `sync()` always knows, from `DiffResultBinaryFile` vs.
       //    `DiffResultTextFile`) is the discriminant, not an OR of both signals: a text entry's
@@ -339,7 +339,7 @@ async function processAssetEntry(
         : entry.deletions === 0 && entry.insertions === 0
       const newFolder = dirnameOf(entry.relPath)
       if (contentUnchanged && newFolder === existing.folderPath) {
-        await WIKI.models.assets.renameAsset(
+        await CARDINAL.models.assets.renameAsset(
           target.siteId,
           existing.id,
           path.basename(entry.relPath)
@@ -349,7 +349,7 @@ async function processAssetEntry(
       // -> Renamed across folders, or renamed AND rewritten in one commit: either way the old row
       //    cannot be updated in place (renameAsset only changes the file name; upload() below keys
       //    on the new path) — delete it so the fresh upload doesn't leave it orphaned.
-      await WIKI.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
+      await CARDINAL.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
     }
     // -> fall through to the upload below
   } else if (
@@ -357,9 +357,9 @@ async function processAssetEntry(
     (((entry.before ?? 0) > 0 && entry.after === 0) ||
       (entry.deletions > 0 && entry.insertions === 0))
   ) {
-    const existing = await WIKI.models.assets.getAssetByPath(target.siteId, entry.relPath)
+    const existing = await CARDINAL.models.assets.getAssetByPath(target.siteId, entry.relPath)
     if (existing) {
-      await WIKI.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
+      await CARDINAL.models.assets.deleteAsset(target.siteId, existing.id, { authorId: actor.id })
     }
     return
   }
@@ -367,9 +367,9 @@ async function processAssetEntry(
   if (!entry.exists) return
   const data = await fs.readFile(entry.absPath)
   const folderPath = dirnameOf(entry.relPath)
-  const primary = WIKI.sites?.[target.siteId]?.config?.locales?.primary ?? 'en'
+  const primary = CARDINAL.sites?.[target.siteId]?.config?.locales?.primary ?? 'en'
   const folder = folderPath
-    ? await WIKI.models.tree.getFolder({
+    ? await CARDINAL.models.tree.getFolder({
         path: folderPath,
         locale: primary,
         siteId: target.siteId,
@@ -379,7 +379,7 @@ async function processAssetEntry(
   // -> `upload()` itself resolves a name already taken in this folder to an overwrite, so this one
   //    call covers both "new asset" and "existing asset's bytes changed" — same as 2.5.x's
   //    `commonDisk.processAsset`, which upserts rather than branching on whether the row exists yet.
-  await WIKI.models.assets.upload({
+  await CARDINAL.models.assets.upload({
     siteId: target.siteId,
     locale: primary,
     folderId: folder?.id ?? null,
@@ -503,7 +503,7 @@ export async function sync(target: StorageTarget, data: Record<string, any> = {}
   const deletedPageCount = entries.filter(isPageDeletionEntry).length
   let holdBackDeletions = false
   if (deletedPageCount > 0 && data.confirmMassDelete !== true) {
-    const totalPages = (await WIKI.models.pages.listAllForSite(target.siteId)).length
+    const totalPages = (await CARDINAL.models.pages.listAllForSite(target.siteId)).length
     if (totalPages >= MIN_PAGES_FOR_DELETE_GUARD) {
       const percentDeleted = (deletedPageCount / totalPages) * 100
       if (percentDeleted >= maxDeletePercentFor(target)) {

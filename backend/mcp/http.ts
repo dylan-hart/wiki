@@ -95,7 +95,9 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
         return
       }
       Promise.resolve(session.transport.close()).catch((err: any) => {
-        WIKI.logger.debug('mcp', "closing an evicted session's transport failed", { error: err })
+        CARDINAL.logger.debug('mcp', "closing an evicted session's transport failed", {
+          error: err
+        })
       })
     }
   })
@@ -116,11 +118,11 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
 
     let identity
     try {
-      identity = await WIKI.models.apiKeys.verify(token)
+      identity = await CARDINAL.models.apiKeys.verify(token)
     } catch (err: any) {
       // -> `warn`, not `debug` (V8): a refused credential is security-relevant, and at `debug` an
       //    operator could not see it at all in a production deployment.
-      WIKI.logger.warn('mcp', 'bearer token refused', { error: err })
+      CARDINAL.logger.warn('mcp', 'bearer token refused', { error: err })
       return reply.unauthorized(err.message)
     }
     // -> Same limiter `/_api/` applies to every bearer-token request; reused as-is rather than
@@ -153,7 +155,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
         return reply.badRequest('Expected an `initialize` request to start a new MCP session.')
       }
 
-      const server = createMcpServer(WIKI.version)
+      const server = createMcpServer(CARDINAL.version)
       const newSession: McpSession = { transport: undefined as any, keyId: ctx.keyId, ctx }
       // -> Tools read the identity through `newSession.ctx`, not the `ctx` captured above, so a later
       //    request on this same session (below) authorizes against ITS OWN fresh verification rather
@@ -166,7 +168,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
           // -> #1118: the one place an MCP session over HTTP actually comes into being. `actorFromRequest`
           //   reads `req.apiKey` (set by the `onRequest` hook above) the same way it does for every other
           //   apiKey-authenticated `/_api/` request, so this entry is attributed identically to those.
-          await WIKI.models.auditLog.record({
+          await CARDINAL.models.auditLog.record({
             event: 'mcp.sessionOpened',
             actor: actorFromRequest(req),
             targetType: 'apiKey',

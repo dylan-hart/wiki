@@ -112,11 +112,11 @@ const SOURCE_SYSTEM_GROUP_GUEST_ID = 2
  * system group onto the equivalent that already exists here.
  *
  * Where these live at runtime is worth flagging, because the obvious guess is wrong:
- * `WIKI.data.systemIds` holds only `localAuthId`/`guestsGroupId`/`usersGroupId` (per `base.yml`) —
+ * `CARDINAL.data.systemIds` holds only `localAuthId`/`guestsGroupId`/`usersGroupId` (per `base.yml`) —
  * `core/config.ts`'s `initDbValues()` generates the admin/guest ids as plain local variables and
  * hands them to each model's `init()` without ever writing them back. The admin *group* id is
  * persisted by `Settings.init()` as `settings.auth.rootAdminGroupId` and reloaded onto
- * `WIKI.config.auth.rootAdminGroupId`; the guest group id is `WIKI.data.systemIds.guestsGroupId`.
+ * `CARDINAL.config.auth.rootAdminGroupId`; the guest group id is `CARDINAL.data.systemIds.guestsGroupId`.
  * This module still takes no `WIKI` dependency of its own (same testability goal as
  * `localStrategyId`) — the CLI resolves both before building the importers. */
 export interface SystemGroupIds {
@@ -384,7 +384,7 @@ export function readSourceDate(source: SourceRecord, column: string): Date | und
 export interface ProviderFallbackConverterOptions {
   /** Target UUID of this install's local authentication strategy. The engine deliberately has no
    * `WIKI` dependency (see the module doc's testability goal), so the caller — the CLI —
-   * supplies this from `WIKI.data.systemIds.localAuthId` at runtime. */
+   * supplies this from `CARDINAL.data.systemIds.localAuthId` at runtime. */
   localStrategyId: string
 }
 
@@ -622,7 +622,7 @@ export interface UsersGroupsWriter {
  * downgrades that record to `conflicted` rather than aborting the whole import.
  *
  * `insertGroup()` is the one exception to "backed by Drizzle": a group is written through
- * `WIKI.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)` —
+ * `CARDINAL.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)` —
  * that model method carries `createGroup()`'s own insert-then-`reloadCache()` shape, which a bare
  * insert here would silently skip (a newly-imported group's rules would not take effect until the
  * next process restart). `insertUser()`/`insertUserGroup()` stay raw inserts; routing those through
@@ -630,7 +630,7 @@ export interface UsersGroupsWriter {
 export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
   return {
     async insertGroup(row) {
-      const id = await WIKI.models.groups.createGroupFromImport({
+      const id = await CARDINAL.models.groups.createGroupFromImport({
         name: row.name,
         permissions: (row.permissions ?? []) as string[],
         rules: (row.rules ?? []) as GroupRule[]
@@ -645,7 +645,7 @@ export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
       await db.insert(userGroupsTable).values({ userId, groupId })
     },
     async assignUserToSystemGroup(userId, groupId) {
-      await WIKI.models.groups.assignUserToGroup(groupId, userId)
+      await CARDINAL.models.groups.assignUserToGroup(groupId, userId)
     }
   }
 }

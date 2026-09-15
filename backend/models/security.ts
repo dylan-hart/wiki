@@ -88,7 +88,7 @@ class Security {
    * on the hot path.
    */
   observeRequest(headers: Record<string, string | string[] | undefined>, protocol: string): void {
-    if (WIKI.config.security?.trustProxy || protocol === 'https') {
+    if (CARDINAL.config.security?.trustProxy || protocol === 'https') {
       // -> Either the header is trusted (so `request.protocol` already reflects it) or this
       //    instance terminated TLS itself (so the cookie is secure regardless of the header) --
       //    neither is the misconfiguration this is watching for.
@@ -115,7 +115,7 @@ class Security {
    * The security configuration as the admin area expects it
    */
   getConfig(): Record<string, any> {
-    const security = WIKI.config.security ?? {}
+    const security = CARDINAL.config.security ?? {}
     const config: Record<string, any> = {}
     for (const field of SECURITY_FIELDS) {
       config[field] = security[field]
@@ -227,7 +227,7 @@ class Security {
     //    does before handing a string `trustProxy` option to `proxyAddr.compile`
     //    (`fastify/lib/request.js`) -- round-tripping through the identical package and shape this
     //    ultimately gets passed to verbatim (`index.ts`'s `trustProxy:
-    //    WIKI.config.security.trustProxy`) is what makes "accepted here" mean "accepted there".
+    //    CARDINAL.config.security.trustProxy`) is what makes "accepted here" mean "accepted there".
     if (typeof merged.trustProxy === 'string' && merged.trustProxy.trim() !== '') {
       const err = validateTrustProxySpec(merged.trustProxy)
       if (err) {
@@ -250,11 +250,11 @@ class Security {
    * @returns Whether the settings were saved
    */
   async updateConfig(patch: Record<string, any>): Promise<boolean> {
-    const previousSecurity = WIKI.config.security
-    WIKI.config.security = { ...previousSecurity, ...patch }
+    const previousSecurity = CARDINAL.config.security
+    CARDINAL.config.security = { ...previousSecurity, ...patch }
 
-    if (!(await WIKI.configSvc.saveToDb(['security']))) {
-      WIKI.config.security = previousSecurity
+    if (!(await CARDINAL.configSvc.saveToDb(['security']))) {
+      CARDINAL.config.security = previousSecurity
       return false
     }
     return true

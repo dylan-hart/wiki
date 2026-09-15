@@ -6,9 +6,9 @@
  *
  * Scoped to the `siteId` carried in the job's payload rather than looping over every site: search
  * configuration (`site.config.search`) is per-site since task #563, so an operator with several sites
- * rebuilds the one whose settings just changed, the same way `WIKI.models.search.rebuild(siteId)`
+ * rebuilds the one whose settings just changed, the same way `CARDINAL.models.search.rebuild(siteId)`
  * itself is already scoped.
  */
 export async function task(payload: { siteId: string }): Promise<void> {
-  await WIKI.models.search.rebuild(payload.siteId)
+  await CARDINAL.models.search.rebuild(payload.siteId)
 }

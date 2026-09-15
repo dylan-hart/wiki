@@ -46,7 +46,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      const granted = await WIKI.collab.claimWysiwygSeed(page.id)
+      const granted = await CARDINAL.collab.claimWysiwygSeed(page.id)
       return { granted }
     }
   )

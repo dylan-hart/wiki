@@ -12,12 +12,12 @@ import type { TaskResult } from '../../core/scheduler.ts'
 export async function task(_payload: unknown = {}, jobId?: string): Promise<TaskResult> {
   // -> Announced at `debug` because a whole instance's assets can take minutes; the failure
   //    propagates to the scheduler, which writes the one record for it.
-  WIKI.logger.debug('storage', 'building instance-wide replication snapshot')
-  const result = await WIKI.models.replicationExport.buildSnapshot()
+  CARDINAL.logger.debug('storage', 'building instance-wide replication snapshot')
+  const result = await CARDINAL.models.replicationExport.buildSnapshot()
   // -> Same split as `export-content.ts`: `{ filePath, fileSize }` goes on the history row for the
   //    download route, the summary below is only this run's `info` line.
   if (jobId) {
-    await WIKI.models.jobs.setResult(jobId, result)
+    await CARDINAL.models.jobs.setResult(jobId, result)
   }
   return { summary: 'built instance-wide replication snapshot', bytes: result.fileSize }
 }

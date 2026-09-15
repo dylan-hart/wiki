@@ -97,7 +97,7 @@ export function registerSeoRedirects(app: FastifyInstance): void {
       // -> Straight off the site caches rather than through the model: this runs on every request, and
       //    both lookups are the ones `getSiteByHostname` would do, minus its optional reload
       const siteId = siteIdForHostname(req.hostname)
-      const siteConfig = siteId ? WIKI.sites[siteId]?.config : undefined
+      const siteConfig = siteId ? CARDINAL.sites[siteId]?.config : undefined
       const withoutExtension = stripPageExtension(trimmed, siteConfig?.pageExtensions)
       if (withoutExtension) {
         // -> Answers a trailing slash as well, rather than sending the client back for a second
@@ -158,8 +158,8 @@ export function registerSiteResolution(app: FastifyInstance): void {
     const resolution = resolveRequestSite({
       firstSegment,
       hostname: req.hostname,
-      sitesMappings: WIKI.sitesMappings,
-      sites: WIKI.sites,
+      sitesMappings: CARDINAL.sitesMappings,
+      sites: CARDINAL.sites,
       exemptSegments: SITE_RESOLUTION_EXEMPT_SEGMENTS
     })
 
@@ -209,7 +209,7 @@ export function registerSiteResolution(app: FastifyInstance): void {
  * already-seen `lang`, only calling it again once the shell file's `mtimeMs` moves.
  */
 export function registerAppShellFallback(app: FastifyInstance): void {
-  const appShellPath = path.join(WIKI.ROOTPATH, 'assets/index.html')
+  const appShellPath = path.join(CARDINAL.ROOTPATH, 'assets/index.html')
 
   app.setNotFoundHandler(async (req, reply) => {
     const [urlPath, urlSearch] = req.raw.url!.split('?')
@@ -226,10 +226,10 @@ export function registerAppShellFallback(app: FastifyInstance): void {
       // -> Same site resolution as the SEO hook above: straight off the caches, since this also
       //    runs on every request that reaches the shell.
       const siteId = siteIdForHostname(req.hostname)
-      const siteConfig = siteId ? WIKI.sites[siteId]?.config : undefined
+      const siteConfig = siteId ? CARDINAL.sites[siteId]?.config : undefined
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
       const templated = await getTemplatedAppShell(appShellPath, lang, async () => {
-        const locales = await WIKI.models.locales.getLocales()
+        const locales = await CARDINAL.models.locales.getLocales()
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
       return reply
@@ -239,7 +239,10 @@ export function registerAppShellFallback(app: FastifyInstance): void {
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
       //    fault of this request: say which one, since a bare 500 sends people looking in the server
-      WIKI.logger.error('http', 'cannot serve the app shell', { path: appShellPath, error: err })
+      CARDINAL.logger.error('http', 'cannot serve the app shell', {
+        path: appShellPath,
+        error: err
+      })
       return reply
         .code(503)
         .type('text/plain; charset=utf-8')

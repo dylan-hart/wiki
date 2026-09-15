@@ -39,12 +39,12 @@ function graphCacheKey(siteId: string): string {
 
 /** The cached bundle for a site, or `undefined` on a cold cache. */
 export function getCachedGraphData(siteId: string): GraphCacheData | undefined {
-  return WIKI.cache.get(graphCacheKey(siteId)) as GraphCacheData | undefined
+  return CARDINAL.cache.get(graphCacheKey(siteId)) as GraphCacheData | undefined
 }
 
 /** Cache an assembled bundle for a site, for `GRAPH_CACHE_TTL_MS`. */
 export function setCachedGraphData(siteId: string, data: GraphCacheData): void {
-  WIKI.cache.set(graphCacheKey(siteId), data, { ttl: GRAPH_CACHE_TTL_MS })
+  CARDINAL.cache.set(graphCacheKey(siteId), data, { ttl: GRAPH_CACHE_TTL_MS })
 }
 
 /**
@@ -61,5 +61,5 @@ export function setCachedGraphData(siteId: string, data: GraphCacheData): void {
  * real traffic is logging views continuously.
  */
 export function invalidateGraphCache(siteId: string): void {
-  WIKI.cache.delete(graphCacheKey(siteId))
+  CARDINAL.cache.delete(graphCacheKey(siteId))
 }

@@ -38,7 +38,7 @@ export async function handleUnwatchPage(
     )
   }
 
-  await WIKI.models.pageWatching.unwatch({ pageId: args.pageId, userId: ctx.userId })
+  await CARDINAL.models.pageWatching.unwatch({ pageId: args.pageId, userId: ctx.userId })
 
   return toResult({ pageId: args.pageId, isWatching: false })
 }

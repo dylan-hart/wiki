@@ -266,7 +266,7 @@ export function resolveNameFields(input: {
  * was written out three times: `createUser()`, `importLocalUser()` and `init()`'s seeded
  * administrator. They cannot call each other (`importLocalUser`'s doc comment explains why reusing
  * `createUser` would double-hash an already-hashed password, and `init` runs before
- * `WIKI.data.systemIds` exists), but they can share the shape they all write.
+ * `CARDINAL.data.systemIds` exists), but they can share the shape they all write.
  *
  * `meta`/`prefs` fall back through the caller's value, then the instance-wide user defaults an
  * administrator can change, then a literal — the chain `createUser` and `importLocalUser` already
@@ -327,9 +327,9 @@ function localUserRow(input: {
       pronouns: meta.pronouns ?? ''
     },
     prefs: {
-      timezone: prefs.timezone ?? WIKI.config.userDefaults?.timezone ?? 'America/New_York',
-      dateFormat: prefs.dateFormat ?? WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
-      timeFormat: prefs.timeFormat ?? WIKI.config.userDefaults?.timeFormat ?? '12h',
+      timezone: prefs.timezone ?? CARDINAL.config.userDefaults?.timezone ?? 'America/New_York',
+      dateFormat: prefs.dateFormat ?? CARDINAL.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
+      timeFormat: prefs.timeFormat ?? CARDINAL.config.userDefaults?.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
       aesthetic: prefs.aesthetic ?? 'site',
       contentWidth: prefs.contentWidth ?? 'site',
@@ -377,11 +377,15 @@ export type ImportLocalUserResult =
  */
 class Users {
   async getByEmail(email: string) {
-    const res = await WIKI.db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1)
+    const res = await CARDINAL.db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, email))
+      .limit(1)
     return res?.[0] ?? null
   }
 
-  async getById(id: string, db: WikiDbOrTx = WIKI.db) {
+  async getById(id: string, db: WikiDbOrTx = CARDINAL.db) {
     const res = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1)
     return res?.[0] ?? null
   }
@@ -401,7 +405,7 @@ class Users {
    * @returns The most recent logins, newest first
    */
   async getRecentLogins({ limit = 10 }: { limit?: number } = {}): Promise<RecentLogin[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: usersTable.id,
         name: usersTable.name,
@@ -436,10 +440,10 @@ class Users {
    *   waiting on a reset the longest surface first)
    */
   async getFallbackAccounts(): Promise<FallbackAccount[]> {
-    const localStrategyId = WIKI.data.systemIds.localAuthId
+    const localStrategyId = CARDINAL.data.systemIds.localAuthId
     const providerKeyExpr = sql<string>`(${usersTable.auth} -> ${localStrategyId} ->> 'migratedFallbackProvider')`
 
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: usersTable.id,
         name: usersTable.name,
@@ -483,7 +487,7 @@ class Users {
       conditions.push(eq(usersTable.isSystem, false))
       conditions.push(
         notExists(
-          WIKI.db
+          CARDINAL.db
             .select({ exists: sql`1` })
             .from(userGroups)
             .where(
@@ -496,14 +500,14 @@ class Users {
 
     const { total, rows } = await paginate({
       rows: () =>
-        WIKI.db
+        CARDINAL.db
           .select(userSelection)
           .from(usersTable)
           .where(where)
           .orderBy(usersTable.name)
           .limit(limit)
           .offset((page - 1) * limit),
-      total: () => WIKI.db.select({ total: count() }).from(usersTable).where(where)
+      total: () => CARDINAL.db.select({ total: count() }).from(usersTable).where(where)
     })
 
     return { total, users: rows }
@@ -520,14 +524,18 @@ class Users {
    * @returns The user, or null if no such user exists
    */
   async getUserDetail(id: string) {
-    const results = await WIKI.db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1)
+    const results = await CARDINAL.db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .limit(1)
     const user = results[0]
     if (!user) {
       return null
     }
 
     const groups = await this.getUserGroups(id)
-    const auth = await WIKI.models.userCredentials.describeLinkedProviders(user)
+    const auth = await CARDINAL.models.userCredentials.describeLinkedProviders(user)
 
     return {
       id: user.id,
@@ -581,7 +589,7 @@ class Users {
      */
     isVerified?: boolean
   }): Promise<string> {
-    const localStrategyId = WIKI.data.systemIds.localAuthId
+    const localStrategyId = CARDINAL.data.systemIds.localAuthId
     // -> Resolved here as well as inside `localUserRow` (the call is idempotent) purely so the
     //    `user:join` hook below reports the display name that was actually stored, rather than the
     //    `undefined` a halves-only caller passed for it.
@@ -594,7 +602,7 @@ class Users {
     //    `setUserGroups` failure after the insert had already committed used to leave a user row with
     //    no memberships behind a 500, and the administrator's retry hit the email-uniqueness conflict
     //    instead of anything informative.
-    const userId = await WIKI.db.transaction(async (tx) => {
+    const userId = await CARDINAL.db.transaction(async (tx) => {
       const result = await tx
         .insert(usersTable)
         // -> `meta`/`prefs` left to `localUserRow`, which seeds them from the instance-wide user
@@ -621,14 +629,14 @@ class Users {
       return newUserId
     })
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Created user ${userId} <${email.toLowerCase()}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}, verified: ${isVerified}`
     )
 
     // -> No site context: an account is a global entity, not one the wiki can attribute to a site. A
     //    hook scoped to one site must not fire on every join instance-wide just because there is no
     //    site to compare against, so `null` here, not the first/current site.
-    await WIKI.models.hooks.emit('user:join', null, {
+    await CARDINAL.models.hooks.emit('user:join', null, {
       userId,
       metadata: {
         name: names.name,
@@ -682,7 +690,7 @@ class Users {
    * particular defaults to `false` (matching the column's own default) rather than `true` when the
    * caller omits it: a 2.x account an administrator deliberately deactivated must not be silently
    * recreated as active. `meta`/`prefs` are merged field-by-field over the pre-existing defaults
-   * (including `WIKI.config.userDefaults`) so a caller — or the existing test suite — that omits
+   * (including `CARDINAL.config.userDefaults`) so a caller — or the existing test suite — that omits
    * some or all of them keeps the prior behavior. The three timestamps are left `undefined` when not
    * given, which drizzle resolves to each column's own default (`defaultNow()` for
    * `createdAt`/`updatedAt`, `NULL` for `lastLoginAt`) rather than inserting a literal `NULL`/`now()`
@@ -748,13 +756,13 @@ class Users {
       return { status: 'skipped', reason: 'email-collision', existingId: existing.id }
     }
 
-    const localStrategyId = WIKI.data.systemIds.localAuthId
+    const localStrategyId = CARDINAL.data.systemIds.localAuthId
     // -> Resolved here as well as inside `localUserRow` (the call is idempotent) so the `user:join`
     //    hook below reports the display name that was actually stored — same reason as `createUser()`.
     const names = resolveNameFields({ name, firstName, lastName })
     let result
     try {
-      result = await WIKI.db
+      result = await CARDINAL.db
         .insert(usersTable)
         .values(
           localUserRow({
@@ -789,11 +797,11 @@ class Users {
       await this.setUserGroups(userId, groups)
     }
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Imported local user ${userId} <${normalizedEmail}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}`
     )
 
-    await WIKI.models.hooks.emit('user:join', null, {
+    await CARDINAL.models.hooks.emit('user:join', null, {
       userId,
       metadata: {
         name: names.name,
@@ -832,7 +840,7 @@ class Users {
    * @param patch Fields to change — must not be empty
    * @returns Whether a user was updated
    */
-  async updateUser(id: string, patch: UserPatch, db: WikiDbOrTx = WIKI.db): Promise<boolean> {
+  async updateUser(id: string, patch: UserPatch, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
     const values: Record<string, any> = { ...patch, updatedAt: sql`now()` }
     if (typeof values.email === 'string') {
       values.email = values.email.toLowerCase()
@@ -1049,7 +1057,7 @@ class Users {
    * scope notes for why that's a known simplification here, not an oversight.
    */
   async listEmailSubscribers(event: HookEvent): Promise<{ id: string }[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({ id: usersTable.id })
       .from(usersTable)
       .where(
@@ -1149,7 +1157,7 @@ class Users {
     //    timezone check in `api/users/profile.ts` — the valid set is only known at runtime. An empty string
     //    clears the preference (falls back to `en` when mail resolves it), so it skips the check.
     if (patch.locale !== undefined && patch.locale !== '') {
-      const known = (await WIKI.models.locales.getLocales()).some(
+      const known = (await CARDINAL.models.locales.getLocales()).some(
         (lc: any) => lc.code === patch.locale
       )
       if (!known) {
@@ -1194,7 +1202,7 @@ class Users {
    * @returns The avatar, or null if this user has none
    */
   async getAvatar(userId: string): Promise<{ data: Buffer; mime: string } | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ data: userAvatars.data })
       .from(userAvatars)
       .where(eq(userAvatars.id, userId))
@@ -1214,7 +1222,7 @@ class Users {
    * @returns The hash, or null if this user has no avatar
    */
   async getAvatarHash(userId: string): Promise<string | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ hash: userAvatars.hash })
       .from(userAvatars)
       .where(eq(userAvatars.id, userId))
@@ -1237,11 +1245,11 @@ class Users {
     //    the same sha1-hex digest `controllers/user.ts` computes from the blob for its ETag, so a
     //    future hash-only reader agrees with what a full blob read would have produced.
     const hash = crypto.createHash('sha1').update(normalized).digest('hex')
-    await WIKI.db
+    await CARDINAL.db
       .insert(userAvatars)
       .values({ id: userId, data: normalized, hash })
       .onConflictDoUpdate({ target: userAvatars.id, set: { data: normalized, hash } })
-    await WIKI.db
+    await CARDINAL.db
       .update(usersTable)
       .set({ hasAvatar: true, updatedAt: sql`now()` })
       .where(eq(usersTable.id, userId))
@@ -1251,8 +1259,8 @@ class Users {
    * Remove a user's avatar, leaving it to be rendered as initials again.
    */
   async clearAvatar(userId: string): Promise<void> {
-    await WIKI.db.delete(userAvatars).where(eq(userAvatars.id, userId))
-    await WIKI.db
+    await CARDINAL.db.delete(userAvatars).where(eq(userAvatars.id, userId))
+    await CARDINAL.db
       .update(usersTable)
       .set({ hasAvatar: false, updatedAt: sql`now()` })
       .where(eq(usersTable.id, userId))
@@ -1263,7 +1271,7 @@ class Users {
    * page rules, which a user has no business reading about itself.
    */
   async getUserGroups(userId: string): Promise<Array<{ id: string; name: string }>> {
-    return WIKI.db
+    return CARDINAL.db
       .select({ id: groupsTable.id, name: groupsTable.name })
       .from(userGroups)
       .innerJoin(groupsTable, eq(groupsTable.id, userGroups.groupId))
@@ -1277,12 +1285,12 @@ class Users {
    * or any other metadata.
    */
   async getNonMemberGroups(userId: string): Promise<Array<{ id: string; name: string }>> {
-    return WIKI.db
+    return CARDINAL.db
       .select({ id: groupsTable.id, name: groupsTable.name })
       .from(groupsTable)
       .where(
         notExists(
-          WIKI.db
+          CARDINAL.db
             .select({ exists: sql`1` })
             .from(userGroups)
             .where(and(eq(userGroups.groupId, groupsTable.id), eq(userGroups.userId, userId)))
@@ -1295,7 +1303,7 @@ class Users {
    * The IDs of the groups a user belongs to
    */
   async getUserGroupIds(userId: string): Promise<string[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ groupId: userGroups.groupId })
       .from(userGroups)
       .where(eq(userGroups.userId, userId))
@@ -1312,16 +1320,20 @@ class Users {
    * sent. Dropping what may not be granted keeps all three honest without any of them having to know
    * about the guests group.
    *
-   * @param db The ambient `WIKI.db`, or a transaction handle to join — e.g. `createUser()` passes its
+   * @param db The ambient `CARDINAL.db`, or a transaction handle to join — e.g. `createUser()` passes its
    * own open transaction so the membership rows commit (or roll back) atomically with the user row.
    */
-  async setUserGroups(userId: string, groupIds: string[], db: WikiDbOrTx = WIKI.db): Promise<void> {
+  async setUserGroups(
+    userId: string,
+    groupIds: string[],
+    db: WikiDbOrTx = CARDINAL.db
+  ): Promise<void> {
     const user = await this.getById(userId, db)
     const allowed = groupIds.filter(
-      (groupId) => !WIKI.models.groups.guestMembershipViolation(groupId, user)
+      (groupId) => !CARDINAL.models.groups.guestMembershipViolation(groupId, user)
     )
     if (allowed.length !== groupIds.length) {
-      WIKI.logger.warn('auth', 'dropped group assignments that may not be granted', {
+      CARDINAL.logger.warn('auth', 'dropped group assignments that may not be granted', {
         user: userId,
         dropped: groupIds.length - allowed.length
       })
@@ -1349,7 +1361,7 @@ class Users {
     //    conflict on the composite primary key fail outright, or a dropped connection could leave the
     //    user in no groups at all -- no admin access, no page rules -- with the caller's error saying
     //    nothing about membership having been wiped. `reassignContent` above draws this same boundary.
-    //    Transacting on `db` (not the ambient `WIKI.db`) is what lets `createUser()`'s own open
+    //    Transacting on `db` (not the ambient `CARDINAL.db`) is what lets `createUser()`'s own open
     //    transaction be joined rather than raced by a second, independent one -- drizzle nests it as a
     //    savepoint when `db` is already a transaction handle.
     await db.transaction(async (tx) => {
@@ -1391,7 +1403,7 @@ class Users {
       authFlags?: Record<string, any>
     }
   ): Promise<void> {
-    await WIKI.db.transaction(async (tx) => {
+    await CARDINAL.db.transaction(async (tx) => {
       if (patch && Object.keys(patch).length > 0) {
         await this.updateUser(id, patch, tx)
       }
@@ -1399,19 +1411,19 @@ class Users {
         await this.setUserGroups(id, groups, tx)
       }
       if (authFlags !== undefined) {
-        await WIKI.models.userCredentials.setUserAuthFlags(id, authFlags, tx)
+        await CARDINAL.models.userCredentials.setUserAuthFlags(id, authFlags, tx)
       }
       // -> Mirrors the route's original condition: a deactivation or a membership change must end any
       //    open session now, the same way `models/sessions.ts#clearSessionsFromUser` documents.
       if (patch?.isActive === false || groups !== undefined) {
-        await WIKI.models.sessions.clearSessionsFromUser(id, tx)
+        await CARDINAL.models.sessions.clearSessionsFromUser(id, tx)
       }
       // -> OpenProject #2094: a `resetPwd` (or other) token minted before deactivation would
       //    otherwise still be redeemable afterwards -- `afterLoginChecks()` refuses the login it
       //    would end in, but not before `resetPassword()` has already rewritten the password hash.
       //    See `clearKeysFromUser`'s own doc comment.
       if (patch?.isActive === false) {
-        await WIKI.models.userCredentials.clearKeysFromUser(id, tx)
+        await CARDINAL.models.userCredentials.clearKeysFromUser(id, tx)
       }
     })
   }
@@ -1451,7 +1463,7 @@ class Users {
       throw new Error('ERR_REASSIGN_TARGET_IS_SYSTEM')
     }
 
-    return WIKI.db.transaction(async (tx) => {
+    return CARDINAL.db.transaction(async (tx) => {
       const pagesResult = await tx
         .update(pagesTable)
         .set({
@@ -1495,7 +1507,7 @@ class Users {
    * @returns Whether a user was deleted
    */
   async deleteUser(id: string): Promise<boolean> {
-    return WIKI.db.transaction(async (tx) => {
+    return CARDINAL.db.transaction(async (tx) => {
       await tx.delete(userKeys).where(eq(userKeys.userId, id))
       await tx.delete(sessionsTable).where(eq(sessionsTable.userId, id))
       await tx.delete(userAvatars).where(eq(userAvatars.id, id))
@@ -1506,12 +1518,12 @@ class Users {
   }
 
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.debug('config', 'seeding the default users')
+    CARDINAL.logger.debug('config', 'seeding the default users')
 
-    await WIKI.db.insert(usersTable).values([
+    await CARDINAL.db.insert(usersTable).values([
       localUserRow({
         id: ids.userAdminId,
-        // -> `WIKI.data.systemIds` is not populated yet at seeding time, so the local strategy's id
+        // -> `CARDINAL.data.systemIds` is not populated yet at seeding time, so the local strategy's id
         //    comes from the ids being seeded rather than from that global
         strategyId: ids.authModuleId,
         email: process.env.ADMIN_EMAIL ?? 'admin@example.com',
@@ -1545,7 +1557,7 @@ class Users {
       }
     ])
 
-    await WIKI.db.insert(userGroups).values([
+    await CARDINAL.db.insert(userGroups).values([
       {
         userId: ids.userAdminId,
         groupId: ids.groupAdminId

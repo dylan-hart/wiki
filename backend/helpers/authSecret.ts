@@ -1,5 +1,5 @@
 /**
- * Boot-time guard for `WIKI.config.auth.secret`.
+ * Boot-time guard for `CARDINAL.config.auth.secret`.
  *
  * The value signs both the session cookie (`@fastify/cookie`) and the session itself
  * (`@fastify/session`), registered in `index.ts#initHTTPServer()` — its entire purpose is
@@ -15,7 +15,7 @@
 export function assertValidAuthSecret(secret: unknown): asserts secret is string {
   if (typeof secret !== 'string' || Buffer.byteLength(secret, 'utf8') < 32) {
     throw new Error(
-      'WIKI.config.auth.secret is missing or shorter than 32 bytes -- refusing to register the session/cookie plugins with an unguessable secret. This should only happen if the settings row failed to load or seed correctly.'
+      'CARDINAL.config.auth.secret is missing or shorter than 32 bytes -- refusing to register the session/cookie plugins with an unguessable secret. This should only happen if the settings row failed to load or seed correctly.'
     )
   }
 }

@@ -25,7 +25,7 @@ export class McpToolError extends Error {}
  * access token that is the owning user's CURRENT group membership, live-resolved on every verify; for
  * an admin-issued key it is the key's own configured groups. Either way, `actorFor()` below checks
  * page-rule permissions (`read:pages`, `read:source`, …) against exactly those groups — the same
- * question `WIKI.models.groups.groupIdsForRequest()` answers for a bearer-token `/_api/` request — so
+ * question `CARDINAL.models.groups.groupIdsForRequest()` answers for a bearer-token `/_api/` request — so
  * an MCP tool call is authorized as the real human (or admin-issued key) behind it, not as a fixed
  * stand-in. `manage:system` still bypasses every page rule everywhere (`checkAccess()`'s first line),
  * exactly as it does for `/_api/`.
@@ -48,7 +48,7 @@ export interface McpAuthContext {
    * The key's own scope narrowing (`ApiKeyIdentity.scope`), unnarrowed by anything above — `groupIds`
    * is still the identity's full, unnarrowed group membership. Carried through to `actorFor()`/
    * `pageActorFor()` so `checkAccess()`/`mayHoldPermissionSomewhere()` narrow an MCP call's page/site
-   * permissions the same way `/_api/`'s `WIKI.models.groups.actorForRequest()` does (OpenProject
+   * permissions the same way `/_api/`'s `CARDINAL.models.groups.actorForRequest()` does (OpenProject
    * #930) — without this, a key scoped to `['read:pages']` still held every page permission its
    * groups' rules granted when reached through an MCP tool call. Optional (defaulting to unscoped
    * when absent) so the many hand-built fixtures across `mcp/*.test.ts` that do not care about
@@ -105,7 +105,7 @@ export function contextFromIdentity(identity: ApiKeyIdentity): McpAuthContext {
  */
 export async function authenticateApiKey(token: string): Promise<McpAuthContext> {
   try {
-    return contextFromIdentity(await WIKI.models.apiKeys.verify(token))
+    return contextFromIdentity(await CARDINAL.models.apiKeys.verify(token))
   } catch (err: any) {
     if (err instanceof ApiKeyError) {
       throw new McpToolError(`The MCP API key is not usable: ${err.message}`)
@@ -170,7 +170,7 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
  *   `true` here (OpenProject #2146/#2162).
  */
 export function maySeeEverything(actor: AccessActor, siteId: string): boolean {
-  return WIKI.models.groups.mayHoldPermissionSomewhere(
+  return CARDINAL.models.groups.mayHoldPermissionSomewhere(
     actor,
     ['write:pages', 'manage:pages'],
     siteId

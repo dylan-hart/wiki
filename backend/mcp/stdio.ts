@@ -84,7 +84,7 @@ async function shutdown(code: number): Promise<never> {
   //    is the one check that is safe to make of a possibly-unset `var` without the type checker
   //    treating it as always true.
   if (typeof WIKI !== 'undefined') {
-    await WIKI.dbManager?.pool?.end()
+    await CARDINAL.dbManager?.pool?.end()
   }
   process.exit(code)
 }
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
   //   one per `initialize` request) -- logged once, right after the one auth check above succeeds, so
   //   it lands in the audit log exactly like an HTTP session's own `mcp.sessionOpened` entry does. No
   //   `req`/IP to read here (this transport has no HTTP request), hence no `actorIp`.
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.sessionOpened',
     actor: auditActorFor(ctx),
     targetType: 'apiKey',
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
     siteId: ctx.siteId
   })
 
-  const server = createMcpServer(WIKI.version)
+  const server = createMcpServer(CARDINAL.version)
   // -> Re-verified on a short timer rather than fixed for the process's whole lifetime — see
   //    `mcp/stdioReverify.ts`'s doc comment and `McpAuthContextGetter`'s in `mcp/auth.ts`. A key that
   //    stops verifying (revoked, expired, or the model call itself errors) shuts this process down

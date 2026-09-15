@@ -40,23 +40,27 @@ export async function task(payload?: NotifyEventSubscriptionSubscribersPayload):
 
   for (const userId of subscriberIds) {
     try {
-      const recipient = await WIKI.models.users.getById(userId)
+      const recipient = await CARDINAL.models.users.getById(userId)
       if (!recipient?.email) {
         // -> `debug`: recurs on every run for the same account (see `notify-event-subscribers.ts`).
-        WIKI.logger.debug('hooks', 'event-subscription notification skipped, no email address', {
-          user: userId,
-          event
-        })
+        CARDINAL.logger.debug(
+          'hooks',
+          'event-subscription notification skipped, no email address',
+          {
+            user: userId,
+            event
+          }
+        )
         continue
       }
-      await WIKI.models.mail.sendEventSubscriptionNotification({
+      await CARDINAL.models.mail.sendEventSubscriptionNotification({
         to: recipient.email,
         event,
         userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
     } catch (err: any) {
-      WIKI.logger.error('hooks', 'failed to send event-subscription notification', {
+      CARDINAL.logger.error('hooks', 'failed to send event-subscription notification', {
         user: userId,
         event,
         error: err

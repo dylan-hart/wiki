@@ -61,7 +61,7 @@ declare global {
      * minimal `WIKI` before that value is ever read -- so `capabilities` DOES reach a worker-thread
      * task, just via a different route than the main process's own `syncSchemas()` write (OpenProject
      * #3124). Still optional because a test `WIKI` stub that never sets it should read `undefined`
-     * rather than throw. Every consumer reads it as `WIKI.capabilities?.semanticSearch`.
+     * rather than throw. Every consumer reads it as `CARDINAL.capabilities?.semanticSearch`.
      */
     capabilities?: {
       semanticSearch: boolean

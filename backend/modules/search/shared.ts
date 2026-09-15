@@ -17,7 +17,7 @@ import type { SearchIndexablePage, SearchPagesResult, SearchResult } from '../..
  * but not between an engine and the shared vocabulary (`SearchIndexablePage`, `SearchPagesResult`)
  * every one of them already imports from `models/search.ts`.
  *
- * Everything in here is either pure or reads only `WIKI.db`/`WIKI.models`, which is what lets the
+ * Everything in here is either pure or reads only `CARDINAL.db`/`CARDINAL.models`, which is what lets the
  * `db` engine — the one engine that stays on the bare `SearchModule` interface rather than extending
  * `externalBase.ts`'s `ExternalSearchModule` — import from it too.
  */
@@ -96,7 +96,7 @@ export const REBUILD_BATCH_SIZE = 500
 export function defaultPageSource(): RebuildPageSource {
   return {
     async locales(siteId) {
-      const rows = await WIKI.db
+      const rows = await CARDINAL.db
         .selectDistinct({ locale: pagesTable.locale })
         .from(pagesTable)
         .where(eq(pagesTable.siteId, siteId))
@@ -104,7 +104,7 @@ export function defaultPageSource(): RebuildPageSource {
       return rows.map((r) => r.locale)
     },
     async pageBatch(siteId, locale, offset, limit) {
-      return WIKI.db
+      return CARDINAL.db
         .select()
         .from(pagesTable)
         .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
@@ -277,8 +277,8 @@ export function buildSearchDocument(page: SearchIndexablePage): SearchDocument {
 /**
  * A site's pages, one window at a time, walked by keyset pagination on `id`.
  *
- * The shape `algolia` and `elasticsearch` both use to feed `rebuild()` (`WIKI.db` queries replacing
- * 2.5.x's `WIKI.models.knex(...).stream()`), previously written out in full in each of them — the
+ * The shape `algolia` and `elasticsearch` both use to feed `rebuild()` (`CARDINAL.db` queries replacing
+ * 2.5.x's `CARDINAL.models.knex(...).stream()`), previously written out in full in each of them — the
  * same column list, the same `cursor`/`gt(id, cursor)` condition, the same two termination checks.
  *
  * A generator rather than a callback so the consumer's own work stays *between* two reads: the next
@@ -300,7 +300,7 @@ export async function* pageStream(
     const condition: SQL = cursor
       ? and(eq(pagesTable.siteId, siteId), gt(pagesTable.id, cursor))!
       : eq(pagesTable.siteId, siteId)
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: pagesTable.id,
         siteId: pagesTable.siteId,
@@ -339,7 +339,7 @@ export async function* pageStream(
  *
  * The shape `azure-search` and `aws-cloudsearch` both use: unlike `pageStream` above they rebuild
  * locale by locale (each reports its own `RebuildResult.locales` entry and its own progress line as
- * it goes), and they read through a `RebuildPageSource` rather than `WIKI.db` directly so a test can
+ * it goes), and they read through a `RebuildPageSource` rather than `CARDINAL.db` directly so a test can
  * exercise the pagination and per-locale counting with no real postgres — see that interface's own
  * doc comment.
  *
@@ -408,7 +408,7 @@ export function filterVisible<T>(
   }
   return rows.filter((row) => {
     const { path, locale, tags, classification } = toRef(row)
-    return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+    return CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
       path,
       locale,
       siteId,

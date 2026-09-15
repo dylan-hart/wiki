@@ -134,7 +134,7 @@ export function stripPageExtension(urlPath: string, extensions?: string[] | null
  *
  * Deliberately just `${protocol}://${hostname}` — Fastify's own `req.protocol`/`req.hostname` are
  * already the right values to pass in, *because* `security.trustProxy` (wired in `index.ts` as
- * `trustProxy: WIKI.config.security.trustProxy`) is what makes Fastify read `X-Forwarded-Proto` /
+ * `trustProxy: CARDINAL.config.security.trustProxy`) is what makes Fastify read `X-Forwarded-Proto` /
  * `X-Forwarded-Host` instead of the raw socket's own scheme/host when the instance sits behind a
  * reverse proxy — and `X-Forwarded-Host` (like `Host` itself) already carries a non-default port when
  * the browser's address bar does. So there is nothing left for this function to compute; its entire
@@ -177,7 +177,7 @@ export function requestOrigin(protocol: string, hostname: string): string {
  *
  * @param origin The raw `Origin` header off the upgrade request, if the client sent one
  * @param host The raw `Host` header off the upgrade request (what `req.host` reads)
- * @param siteHostnames Every hostname a site on this instance answers to (`WIKI.sitesMappings`'
+ * @param siteHostnames Every hostname a site on this instance answers to (`CARDINAL.sitesMappings`'
  *   keys), so a handshake from one of the instance's own other sites is not rejected as foreign
  */
 export function isSameOriginWebSocketHandshake(

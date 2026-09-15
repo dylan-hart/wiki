@@ -8,7 +8,7 @@ import type { SystemIds } from './types.ts'
  * The `security.cspDirectives`/`security.enforceCsp` values `Settings#init` seeds a fresh
  * instance's DB row with (WP #2158/#2166, part of #2154).
  *
- * Pulled from `config`/`data` -- `WIKI.config`/`WIKI.data` at call time, i.e. `base.yml` already
+ * Pulled from `config`/`data` -- `CARDINAL.config`/`CARDINAL.data` at call time, i.e. `base.yml` already
  * merged with any `config.yml` override, since `configSvc.init()` runs before `initDbValues()`
  * ever does -- rather than hardcoded like every other field `Settings#init` seeds. Everywhere but a
  * test config this resolves to exactly `base.yml`'s own default (`enforceCsp: false`, the literal
@@ -18,8 +18,8 @@ import type { SystemIds } from './types.ts'
  * once inserted here so it is a plain function to unit-test, rather than only reachable through a
  * DB-backed `Settings#init` round trip.
  *
- * @param config `WIKI.config` -- `base.yml` merged with any `config.yml` override.
- * @param data `WIKI.data` -- `base.yml`'s own parsed defaults, consulted only as the fallback for
+ * @param config `CARDINAL.config` -- `base.yml` merged with any `config.yml` override.
+ * @param data `CARDINAL.data` -- `base.yml`'s own parsed defaults, consulted only as the fallback for
  * the case nothing upstream set either key at all.
  */
 export function securityCspSeed(
@@ -42,7 +42,7 @@ class Settings {
    * @returns Settings, or `false` when the table is empty
    */
   async getConfig(): Promise<Record<string, any> | false> {
-    const settings = await WIKI.db.select().from(settingsTable)
+    const settings = await CARDINAL.db.select().from(settingsTable)
     if (settings.length > 0) {
       return settings.reduce((res: Record<string, any>, val: any) => {
         res[val.key] = 'v' in val.value ? val.value.v : val.value
@@ -59,7 +59,7 @@ class Settings {
    * @param value Setting value object
    */
   async updateConfig(key: string, value: Record<string, any>): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .insert(settingsTable)
       .values({ key, value })
       .onConflictDoUpdate({ target: settingsTable.key, set: { value } })
@@ -70,11 +70,11 @@ class Settings {
    * @param ids Generated IDs
    */
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.debug('config', 'generating the signing certificates')
+    CARDINAL.logger.debug('config', 'generating the signing certificates')
     const certs = generateSigningCertificates()
 
-    WIKI.logger.debug('config', 'seeding the default settings')
-    await WIKI.db.insert(settingsTable).values([
+    CARDINAL.logger.debug('config', 'seeding the default settings')
+    await CARDINAL.db.insert(settingsTable).values([
       {
         key: 'api',
         value: {
@@ -154,7 +154,7 @@ class Settings {
           corsMode: 'OFF',
           // -> See `securityCspSeed`'s own doc comment above for why these two fields, alone in
           //    this block, are not hardcoded literals.
-          ...securityCspSeed(WIKI.config, WIKI.data),
+          ...securityCspSeed(CARDINAL.config, CARDINAL.data),
           disallowIframe: true,
           disallowOpenRedirect: true,
           enforceHsts: false,
@@ -170,8 +170,8 @@ class Settings {
         key: 'update',
         value: {
           lastCheckedAt: null,
-          version: WIKI.version,
-          versionDate: WIKI.releaseDate
+          version: CARDINAL.version,
+          versionDate: CARDINAL.releaseDate
         }
       },
       {

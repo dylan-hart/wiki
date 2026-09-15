@@ -139,7 +139,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       reply.preventCache()
       const userId = sessionUserId(req)
-      const profile = await WIKI.models.users.getProfile(userId)
+      const profile = await CARDINAL.models.users.getProfile(userId)
       if (!profile) {
         // -> The session outlived the user it points at
         return reply.unauthorized()
@@ -253,7 +253,7 @@ async function routes(app: FastifyInstance) {
 
       let profile: UserProfile | null
       try {
-        profile = await WIKI.models.users.updateProfile(userId, patch)
+        profile = await CARDINAL.models.users.updateProfile(userId, patch)
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }
@@ -335,7 +335,7 @@ async function routes(app: FastifyInstance) {
         )
       }
 
-      await WIKI.models.users.setAvatar(userId, data)
+      await CARDINAL.models.users.setAvatar(userId, data)
       // -> The account menu reads `hasAvatar` off the session on every page load
       req.session.user = { ...req.session.user!, hasAvatar: true }
 
@@ -381,7 +381,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('Profile editing is disabled on this site.')
       }
 
-      await WIKI.models.users.clearAvatar(userId)
+      await CARDINAL.models.users.clearAvatar(userId)
       req.session.user = { ...req.session.user!, hasAvatar: false }
 
       return {
@@ -441,11 +441,11 @@ async function routes(app: FastifyInstance) {
       reply.preventCache()
       const userId = sessionUserId(req)
       if (!(await isShowOtherGroupsEnabled(req))) {
-        return await WIKI.models.users.getUserGroups(userId)
+        return await CARDINAL.models.users.getUserGroups(userId)
       }
       const [groups, otherGroups] = await Promise.all([
-        WIKI.models.users.getUserGroups(userId),
-        WIKI.models.users.getNonMemberGroups(userId)
+        CARDINAL.models.users.getUserGroups(userId),
+        CARDINAL.models.users.getNonMemberGroups(userId)
       ])
       return { groups, otherGroups }
     }
@@ -479,7 +479,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       reply.preventCache()
       const userId = sessionUserId(req)
-      return WIKI.models.apiKeys.listKeysForUser(userId)
+      return CARDINAL.models.apiKeys.listKeysForUser(userId)
     }
   )
 
@@ -635,7 +635,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      const key = await WIKI.models.apiKeys.getKeyById(req.params.keyId)
+      const key = await CARDINAL.models.apiKeys.getKeyById(req.params.keyId)
       if (!key || key.userId !== userId) {
         return reply.notFound('Personal access token does not exist.')
       }
@@ -643,8 +643,8 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('This personal access token is already revoked.')
       }
 
-      await WIKI.models.apiKeys.revokeKeyForUser(key.id, userId)
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.apiKeys.revokeKeyForUser(key.id, userId)
+      await CARDINAL.models.auditLog.record({
         event: 'apiKey.revoked',
         actor: actorFromRequest(req),
         targetType: 'apiKey',
@@ -693,7 +693,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       reply.preventCache()
       const userId = sessionUserId(req)
-      return WIKI.models.users.getEditorSettings(userId, req.params.editor)
+      return CARDINAL.models.users.getEditorSettings(userId, req.params.editor)
     }
   )
 
@@ -734,7 +734,11 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      const config = await WIKI.models.users.setEditorSettings(userId, req.params.editor, req.body)
+      const config = await CARDINAL.models.users.setEditorSettings(
+        userId,
+        req.params.editor,
+        req.body
+      )
       if (config === null) {
         // -> The session outlived the user it points at
         return reply.unauthorized()
@@ -767,7 +771,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       reply.preventCache()
       const userId = sessionUserId(req)
-      const subscriptions = await WIKI.models.users.getNotificationSubscriptions(userId)
+      const subscriptions = await CARDINAL.models.users.getNotificationSubscriptions(userId)
       if (!subscriptions) {
         // -> The session outlived the user it points at
         return reply.unauthorized()
@@ -802,7 +806,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      const subscriptions = await WIKI.models.users.setNotificationSubscriptions(userId, req.body)
+      const subscriptions = await CARDINAL.models.users.setNotificationSubscriptions(
+        userId,
+        req.body
+      )
       if (!subscriptions) {
         // -> The session outlived the user it points at
         return reply.unauthorized()
@@ -884,8 +891,8 @@ async function routes(app: FastifyInstance) {
       reply.preventCache()
       const userId = sessionUserId(req)
       return {
-        authMethods: await WIKI.models.userCredentials.getProfileAuthMethods(userId),
-        passkeys: await WIKI.models.passkeys.list(userId)
+        authMethods: await CARDINAL.models.userCredentials.getProfileAuthMethods(userId),
+        passkeys: await CARDINAL.models.passkeys.list(userId)
       }
     }
   )
@@ -932,7 +939,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        await WIKI.models.userCredentials.changeOwnPassword({
+        await CARDINAL.models.userCredentials.changeOwnPassword({
           userId,
           strategyId: req.body.strategyId,
           currentPassword: req.body.currentPassword,
@@ -991,7 +998,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        await WIKI.models.userCredentials.setPasswordLoginEnabled({
+        await CARDINAL.models.userCredentials.setPasswordLoginEnabled({
           userId,
           strategyId: req.body.strategyId,
           isEnabled: req.body.isEnabled
@@ -1061,7 +1068,7 @@ async function routes(app: FastifyInstance) {
 
       try {
         const { continuationToken, tfaQRImage, tfaSecret } =
-          await WIKI.models.login.startProfileTfaSetup({
+          await CARDINAL.models.login.startProfileTfaSetup({
             userId,
             strategyId: req.body.strategyId,
             siteId: site?.id
@@ -1126,7 +1133,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        const { recoveryCodes } = await WIKI.models.login.confirmTfaSetup({
+        const { recoveryCodes } = await CARDINAL.models.login.confirmTfaSetup({
           userId,
           strategyId: req.body.strategyId,
           continuationToken: req.body.continuationToken,
@@ -1174,7 +1181,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        await WIKI.models.userCredentials.disableTfa(userId, req.params.strategyId)
+        await CARDINAL.models.userCredentials.disableTfa(userId, req.params.strategyId)
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }
@@ -1226,7 +1233,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        const { total, remaining } = await WIKI.models.userCredentials.getRecoveryCodesStatus(
+        const { total, remaining } = await CARDINAL.models.userCredentials.getRecoveryCodesStatus(
           userId,
           req.query.strategyId
         )
@@ -1280,7 +1287,7 @@ async function routes(app: FastifyInstance) {
 
       try {
         const { recoveryCodes, hadUnusedCodes } =
-          await WIKI.models.userCredentials.regenerateRecoveryCodes(userId, req.body.strategyId)
+          await CARDINAL.models.userCredentials.regenerateRecoveryCodes(userId, req.body.strategyId)
         return { ok: true, recoveryCodes, hadUnusedCodes }
       } catch (err: any) {
         rethrowAsBadRequest(err)
@@ -1321,7 +1328,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        const { registrationOptions, pending } = await WIKI.models.passkeys.startRegistration({
+        const { registrationOptions, pending } = await CARDINAL.models.passkeys.startRegistration({
           userId,
           hostname: req.hostname,
           origin: req.headers.origin
@@ -1383,7 +1390,7 @@ async function routes(app: FastifyInstance) {
       const userId = sessionUserId(req)
 
       try {
-        const passkey = await WIKI.models.passkeys.finalizeRegistration({
+        const passkey = await CARDINAL.models.passkeys.finalizeRegistration({
           userId,
           name: req.body.name,
           registrationResponse: req.body.registrationResponse as any,
@@ -1434,7 +1441,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = sessionUserId(req)
-      if (!(await WIKI.models.passkeys.remove(userId, req.params.passkeyId))) {
+      if (!(await CARDINAL.models.passkeys.remove(userId, req.params.passkeyId))) {
         return reply.notFound('You have no passkey with this ID.')
       }
       return reply.code(204).send()

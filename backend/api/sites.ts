@@ -99,19 +99,19 @@ const SITE_IMAGE_KIND_PERMISSIONS: Record<SiteAssetKind, string> = {
  * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
  */
 function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
-  const actor = WIKI.models.groups.actorForRequest(req)
+  const actor = CARDINAL.models.groups.actorForRequest(req)
   if (actor.permissions.includes('manage:system')) {
     return SITE_PERMISSIONS
   }
   return SITE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkSiteAccess(actor, permission, siteId)
+    CARDINAL.models.groups.checkSiteAccess(actor, permission, siteId)
   )
 }
 
 /**
  * Whether semantic (vector) search is actually usable on this site right now -- Task #3103's whole
  * scope. True only when BOTH:
- *   - `WIKI.capabilities.semanticSearch` -- the instance-wide, boot-time flag Task #3095 records
+ *   - `CARDINAL.capabilities.semanticSearch` -- the instance-wide, boot-time flag Task #3095 records
  *     after attempting to provision the pgvector extension and its `pageEmbeddingChunks` table
  *     (`core/db.ts`). Absent entirely on a `WIKI` that hasn't gone through that boot step yet (e.g.
  *     a test stub), which reads as `false` here rather than throwing.
@@ -128,21 +128,22 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  */
 function semanticSearchAvailable(config: Record<string, any>): boolean {
   return (
-    WIKI.capabilities?.semanticSearch === true && config.search?.config?.semanticEnabled === true
+    CARDINAL.capabilities?.semanticSearch === true &&
+    config.search?.config?.semanticEnabled === true
   )
 }
 
 /**
  * Assemble the payload a site's config alone doesn't cover: the row fields (`id`, `hostname`,
  * `isEnabled`) plus `pdfExportAvailable`, which isn't something a site chooses — it's whether this
- * whole instance ever installed the Puppeteer extension, per `WIKI.models.renderQueue.isAvailable()`,
+ * whole instance ever installed the Puppeteer extension, per `CARDINAL.models.renderQueue.isAvailable()`,
  * the same check `renderPdf` itself gates on before ever launching a browser. Surfaced here, on the
  * payload the frontend already loads per-site (`sites/:siteIdorHostname` via `siteStore.loadSite`)
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
  *
  * Also carries `navigationId`: this site's default (locale-scoped) menu row id, resolved via
- * `WIKI.models.navigation.ensureSiteNav()` the same way `GET .../navigation/default` resolves it for
+ * `CARDINAL.models.navigation.ensureSiteNav()` the same way `GET .../navigation/default` resolves it for
  * an admin caller. Unlike that route -- gated behind `manage:navigation`/`site:navigation`, a
  * convenience-route choice rather than a real permission requirement, since `ensureSiteNav()` itself
  * checks nothing -- this is `publicAccess: true`, because the only other way a browser ever learns a
@@ -156,7 +157,7 @@ function semanticSearchAvailable(config: Record<string, any>): boolean {
  * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
  * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
  * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
- * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]` — `models/search.ts:402`/`:535`, Algolia's
+ * (`CARDINAL.sites[siteId]?.config?.search?.engines?.[key]` — `models/search.ts:402`/`:535`, Algolia's
  * `apiKey` and AWS CloudSearch's `secretAccessKey`), seeded under the same top-level `search` key as
  * `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults). It used to stay out of
  * the browser only because `api/schemas/site.ts`'s `Site` schema declared no top-level `search`
@@ -178,10 +179,10 @@ export async function buildSitePayload(site: {
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
-    pdfExportAvailable: await WIKI.models.renderQueue.isAvailable(),
-    docsBase: WIKI.config.docsBase,
-    isReplicationEnabled: WIKI.config.replication?.isEnabled === true,
-    navigationId: await WIKI.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
+    pdfExportAvailable: await CARDINAL.models.renderQueue.isAvailable(),
+    docsBase: CARDINAL.config.docsBase,
+    isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
+    navigationId: await CARDINAL.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
     blocksConfig,
     blocksIndex,
     title: config.title,
@@ -237,7 +238,7 @@ export async function buildSitePayload(site: {
 async function siteBlocksInfoFor(
   siteId: string
 ): Promise<{ blocksConfig: Record<string, object>; blocksIndex: Record<string, object> }> {
-  const siteBlocks = await WIKI.models.blocks.getSiteBlocks(siteId)
+  const siteBlocks = await CARDINAL.models.blocks.getSiteBlocks(siteId)
   const blocksConfig: Record<string, object> = {}
   const blocksIndex: Record<string, object> = {}
   for (const block of siteBlocks) {
@@ -288,7 +289,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      const sites = await WIKI.models.sites.getAllSites()
+      const sites = await CARDINAL.models.sites.getAllSites()
       return sites.map((s: any) => ({
         ...s.config,
         id: s.id,
@@ -449,7 +450,7 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> Check for duplicate hostname
-      if (!(await WIKI.models.sites.isHostnameUnique(req.body.hostname))) {
+      if (!(await CARDINAL.models.sites.isHostnameUnique(req.body.hostname))) {
         if (req.body.hostname === '*') {
           throw new CustomError(
             'siteCreateDuplicateCatchAll',
@@ -469,7 +470,7 @@ async function routes(app: FastifyInstance) {
       // `helpers/errorHandler.ts#apiErrorHandler`, which logs it once at `error` with the
       // `reqId`/`method`/`url`/`siteId`/`userId` context that correlates it to the request. Catching
       // it here logged a bare, uncorrelated line at `warn` and answered the 500 itself.
-      const result = await WIKI.models.sites.createSite(req.body.hostname, {
+      const result = await CARDINAL.models.sites.createSite(req.body.hostname, {
         title: req.body.title
       })
       return {
@@ -646,7 +647,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       if (
         !actor.permissions.includes('manage:system') &&
         !actor.permissions.includes('manage:sites')
@@ -671,7 +672,7 @@ async function routes(app: FastifyInstance) {
             if (!required) {
               return true
             }
-            return !WIKI.models.groups.checkSiteAccess(actor, required, req.params.siteId)
+            return !CARDINAL.models.groups.checkSiteAccess(actor, required, req.params.siteId)
           })
           if (missingPermission) {
             return reply.forbidden()
@@ -704,7 +705,7 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      const site = await CARDINAL.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
@@ -714,7 +715,7 @@ async function routes(app: FastifyInstance) {
       if (
         req.body.isEnabled === false &&
         site.isEnabled &&
-        (await WIKI.models.sites.countEnabledSites()) <= 1
+        (await CARDINAL.models.sites.countEnabledSites()) <= 1
       ) {
         return reply.conflict(
           'Cannot disable the last enabled site. At least 1 site must remain enabled at all times.'
@@ -725,7 +726,7 @@ async function routes(app: FastifyInstance) {
       if (
         req.body.hostname !== undefined &&
         req.body.hostname !== site.hostname &&
-        !(await WIKI.models.sites.isHostnameUnique(req.body.hostname))
+        !(await CARDINAL.models.sites.isHostnameUnique(req.body.hostname))
       ) {
         if (req.body.hostname === '*') {
           throw new CustomError(
@@ -743,7 +744,9 @@ async function routes(app: FastifyInstance) {
       // -> Validate locales against the installed ones, and against what the site ends up with once
       //    the patch is merged, so that a partial update cannot leave the primary locale inactive
       if (req.body.locales) {
-        const installedCodes = (await WIKI.models.locales.getLocales()).map((lc: any) => lc.code)
+        const installedCodes = (await CARDINAL.models.locales.getLocales()).map(
+          (lc: any) => lc.code
+        )
         const active = req.body.locales.active ?? site.config.locales?.active ?? []
         const primary = req.body.locales.primary ?? site.config.locales?.primary
 
@@ -782,7 +785,7 @@ async function routes(app: FastifyInstance) {
           (code: string) => !active.includes(code)
         )
         if (removedLocales.length > 0) {
-          const counts = await WIKI.db
+          const counts = await CARDINAL.db
             .select({ locale: pagesTable.locale, total: count() })
             .from(pagesTable)
             .where(
@@ -816,12 +819,12 @@ async function routes(app: FastifyInstance) {
       //
       // No private try/catch, same reasoning as `POST /` above (Bug #2650): the throw reaches
       // `apiErrorHandler`, which logs it at `error` with the request context attached.
-      await WIKI.models.sites.updateSite(req.params.siteId, {
+      await CARDINAL.models.sites.updateSite(req.params.siteId, {
         hostname: req.body.hostname,
         isEnabled: req.body.isEnabled,
         ...(Object.keys(config).length < 1 ? {} : { config })
       })
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'site.settingsUpdated',
         actor: actorFromRequest(req),
         targetType: 'site',
@@ -891,7 +894,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      const site = await CARDINAL.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
@@ -913,7 +916,7 @@ async function routes(app: FastifyInstance) {
         )
       }
 
-      await WIKI.models.sites.setAsset(req.params.siteId, req.params.kind, data)
+      await CARDINAL.models.sites.setAsset(req.params.siteId, req.params.kind, data)
 
       return {
         ok: true,
@@ -972,7 +975,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      const site = await CARDINAL.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
@@ -981,7 +984,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
 
-      await WIKI.models.sites.clearAsset(req.params.siteId, req.params.kind)
+      await CARDINAL.models.sites.clearAsset(req.params.siteId, req.params.kind)
 
       return {
         ok: true,
@@ -1027,9 +1030,9 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        if ((await WIKI.models.sites.countSites()) <= 1) {
+        if ((await CARDINAL.models.sites.countSites()) <= 1) {
           reply.conflict('Cannot delete the last site. At least 1 site must exist at all times.')
-        } else if (await WIKI.models.sites.deleteSite(req.params.siteId)) {
+        } else if (await CARDINAL.models.sites.deleteSite(req.params.siteId)) {
           reply.code(204)
         } else {
           reply.notFound('Site does not exist.')

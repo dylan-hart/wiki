@@ -236,7 +236,7 @@ export function holdsVisiblePagesUnder(
   const descendantPage = alias(pagesTable, `descendantPage${aliasSuffix}`)
   const childPathPrefix = encodedParentPath ? `${encodedParentPath}.` : ''
   return exists(
-    WIKI.db
+    CARDINAL.db
       .select({ one: sql`1` })
       .from(descendant)
       .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
@@ -276,7 +276,7 @@ export function holdsVisibleChildPages(publicOnly: boolean, aliasSuffix: string)
   const descendant = alias(treeTable, `childTree${aliasSuffix}`)
   const descendantPage = alias(pagesTable, `childPage${aliasSuffix}`)
   return exists(
-    WIKI.db
+    CARDINAL.db
       .select({ one: sql`1` })
       .from(descendant)
       .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
@@ -536,7 +536,7 @@ class Tree {
     }
 
     const direction = orderByDirection === 'desc' ? desc : asc
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         row: treeTable,
         depth: sql<number>`nlevel(${treeTable.folderPath})`.mapWith(Number),
@@ -603,7 +603,7 @@ class Tree {
 
     const direction = orderByDirection === 'desc' ? desc : asc
     const hasChildren = holdsVisibleChildPages(publicOnly, '')
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: treeTable.id,
         folderPath: treeTable.folderPath,
@@ -682,7 +682,7 @@ class Tree {
     let title = ''
     if (encodedPath) {
       const location = splitPath(encodedPath)
-      const folder = await WIKI.db
+      const folder = await CARDINAL.db
         .select({ title: treeTable.title })
         .from(treeTable)
         .where(
@@ -708,7 +708,7 @@ class Tree {
       adjacent: the row after `MAX_BROWSE` is dropped, and only a pair straddling that boundary can
       lose half of itself. Display order is settled below, once the pairs are merged.
     */
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         type: treeTable.type,
         fileName: treeTable.fileName,
@@ -776,7 +776,7 @@ class Tree {
    * required `siteId` closes (OpenProject #2127/#2131). Internal callers pair it with their own
    * site check.
    */
-  private async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  private async getById(id: string, db: WikiDbOrTx = CARDINAL.db): Promise<TreeRow | null> {
     const results = await db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -792,7 +792,7 @@ class Tree {
   async getFolderById(
     id: string,
     siteId: string,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<TreeRow | null> {
     const results = await db
       .select()
@@ -813,7 +813,7 @@ class Tree {
   private async requireFolderById(
     id: string,
     siteId: string,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<TreeRow> {
     const folder = await this.getFolderById(id, siteId, db)
     if (!folder) {
@@ -839,7 +839,7 @@ class Tree {
     folderPath: string,
     name: string,
     exceptId?: string,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<void> {
     const conditions = [
       eq(treeTable.siteId, siteId),
@@ -902,7 +902,7 @@ class Tree {
       path = childPathOf(folder)
     }
 
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select()
       .from(treeTable)
       .where(
@@ -930,7 +930,7 @@ class Tree {
     locale,
     siteId,
     createIfMissing = false,
-    db = WIKI.db
+    db = CARDINAL.db
   }: {
     id?: string | null
     path?: string | null
@@ -939,7 +939,7 @@ class Tree {
     //    scopes `getFolderById()` by it too, both callers already pass it.
     siteId: string
     createIfMissing?: boolean
-    /** Runs against this instead of the ambient `WIKI.db` — a batch import passes its own
+    /** Runs against this instead of the ambient `CARDINAL.db` — a batch import passes its own
      *  transaction here so a folder it has to create is rolled back along with everything else in
      *  the batch, rather than surviving as an orphan when a later item in the batch fails. */
     db?: WikiDbOrTx
@@ -993,7 +993,7 @@ class Tree {
     title,
     locale,
     siteId,
-    db = WIKI.db
+    db = CARDINAL.db
   }: {
     parentId?: string | null
     parentPath?: string | null
@@ -1031,7 +1031,7 @@ class Tree {
 
     // -> Only a root-level folder can shadow a locale prefix: a nested `fr/` never collides with the
     //    URL parser, which only strips a locale code off the FIRST path segment
-    if (path === '' && (await WIKI.models.locales.isReservedLocaleCode(name))) {
+    if (path === '' && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
       throw new CustomError(
         'treeReservedLocaleSegment',
         `"${name}" is an installed locale code and cannot name a root folder.`,
@@ -1076,7 +1076,7 @@ class Tree {
       )
       // -> Shallowest first, so that each one's own parent is already there to be counted against
       for (const ancestor of missing) {
-        WIKI.logger.debug('pages', 'creating a missing parent folder', {
+        CARDINAL.logger.debug('pages', 'creating a missing parent folder', {
           folder: ancestor.fileName,
           path: `/${decodeTreePath(ancestor.folderPath)}`
         })
@@ -1129,9 +1129,9 @@ class Tree {
 
     // -> A new folder can hold visible pages, either now or once populated, which changes what any
     //    ancestor `auto`/`mixed` menu's cached tree walk would return (OpenProject #1825)
-    WIKI.models.navigation.invalidateCache(siteId)
+    CARDINAL.models.navigation.invalidateCache(siteId)
 
-    WIKI.logger.debug('pages', 'created folder', { folder: inserted[0].id })
+    CARDINAL.logger.debug('pages', 'created folder', { folder: inserted[0].id })
     return inserted[0] as TreeRow
   }
 
@@ -1169,13 +1169,13 @@ class Tree {
     }
 
     if (name === folder.fileName) {
-      const updated = await WIKI.db
+      const updated = await CARDINAL.db
         .update(treeTable)
         .set({ title, updatedAt: sql`now()` })
         .where(eq(treeTable.id, folder.id))
         .returning()
       // -> The title alone feeds a generated menu item's label (OpenProject #1825)
-      WIKI.models.navigation.invalidateCache(folder.siteId)
+      CARDINAL.models.navigation.invalidateCache(folder.siteId)
       return updated[0] as TreeRow
     }
 
@@ -1183,7 +1183,7 @@ class Tree {
     //    locale-prefix parser regardless of what it is renamed to. Checked only once the segment is
     //    actually changing (above), so a title-only edit of an already-grandfathered root folder
     //    (one that predates this rule) is not itself blocked.
-    if (!folder.folderPath && (await WIKI.models.locales.isReservedLocaleCode(name))) {
+    if (!folder.folderPath && (await CARDINAL.models.locales.isReservedLocaleCode(name))) {
       throw new CustomError(
         'treeReservedLocaleSegment',
         `"${name}" is an installed locale code and cannot name a root folder.`,
@@ -1203,7 +1203,7 @@ class Tree {
     const oldPath = childPathOf(folder)
     const newPath = folder.folderPath ? `${folder.folderPath}.${name}` : name
 
-    WIKI.logger.debug('pages', 'renaming folder', {
+    CARDINAL.logger.debug('pages', 'renaming folder', {
       folder: folder.id,
       from: oldPath,
       path: newPath
@@ -1215,7 +1215,7 @@ class Tree {
 
     // -> Everything below is one logical move: partway through would leave some descendants renamed
     //    and others not, or a folder row moved but its descendants' paths unrefreshed
-    const updated = await WIKI.db.transaction(async (tx) => {
+    const updated = await CARDINAL.db.transaction(async (tx) => {
       // -> Direct children carry the old path verbatim; deeper ones carry it as a prefix, and keep
       //    whatever they had below it. Scoped to this folder's own locale -- otherwise a same-named
       //    folder in another locale, sharing the same path, would be dragged along with it (bug #932)
@@ -1255,7 +1255,7 @@ class Tree {
 
     // -> Every asset under it is served from a different path now, and nothing about the assets
     //    themselves changed for the file cache to notice
-    WIKI.models.assetServing.forgetAllPaths()
+    CARDINAL.models.assetServing.forgetAllPaths()
 
     // -> Fired after the transaction resolves, never inside `tx` -- `movePage`'s own boundary (writes
     //    inside, I/O outside) is the reference. One `search.renamed`/`storage.dispatch` per descendant
@@ -1265,14 +1265,14 @@ class Tree {
       await this.fireDescendantMoveSideEffects(folder.siteId, moved)
     }
     if (movedPages.length > 0) {
-      WIKI.models.glossary.invalidateCache(folder.siteId)
+      CARDINAL.models.glossary.invalidateCache(folder.siteId)
     }
 
     // -> The renamed folder's own path segment, and its own title, both feed a generated menu item --
     //    the segment through every descendant's `target` too (OpenProject #1825)
-    WIKI.models.navigation.invalidateCache(folder.siteId)
+    CARDINAL.models.navigation.invalidateCache(folder.siteId)
 
-    WIKI.logger.debug('pages', 'renamed folder', { folder: folder.id })
+    CARDINAL.logger.debug('pages', 'renamed folder', { folder: folder.id })
     return updated[0] as TreeRow
   }
 
@@ -1307,7 +1307,7 @@ class Tree {
     siteId: string,
     locale: string,
     path: string,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<MovedDescendantPage[]> {
     const rows = await db
       .select({
@@ -1377,7 +1377,7 @@ class Tree {
     }
 
     if (rows.length > 0) {
-      WIKI.logger.debug('pages', 'refreshed the path of moved pages', { pages: rows.length })
+      CARDINAL.logger.debug('pages', 'refreshed the path of moved pages', { pages: rows.length })
     }
     return movedPages
   }
@@ -1394,8 +1394,8 @@ class Tree {
     siteId: string,
     { page, previousPath, previousLocale }: MovedDescendantPage
   ): Promise<void> {
-    await WIKI.models.search.renamed(siteId, page, previousPath, previousLocale)
-    await WIKI.models.storage.dispatch('page:rename', {
+    await CARDINAL.models.search.renamed(siteId, page, previousPath, previousLocale)
+    await CARDINAL.models.storage.dispatch('page:rename', {
       id: page.id,
       path: page.path,
       previousPath,
@@ -1420,13 +1420,13 @@ class Tree {
    * @param folderId UUID of the folder whose descendants to list.
    * @param siteId The site the folder must belong to (OpenProject #2131) -- passed straight to
    *               `getFolderById`.
-   * @param db Runs against this instead of the ambient `WIKI.db`, so a caller can authorize inside the
+   * @param db Runs against this instead of the ambient `CARDINAL.db`, so a caller can authorize inside the
    *           same transaction that will go on to mutate.
    */
   async listDescendants(
     folderId: string,
     siteId: string,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<{ pages: DescendantPage[]; assets: DescendantAsset[] }> {
     const folder = await this.requireFolderById(folderId, siteId, db)
     const path = childPathOf(folder)
@@ -1495,12 +1495,12 @@ class Tree {
   ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
     const folder = await this.requireFolderById(folderId, siteId)
     const path = childPathOf(folder)
-    WIKI.logger.debug('pages', 'deleting folder', { folder: folder.id, path })
+    CARDINAL.logger.debug('pages', 'deleting folder', { folder: folder.id, path })
 
     // -> The two deletes and the parent's child-count update are one logical delete; wrapped in a
     //    transaction so a failure partway through cannot leave descendants gone but the folder row (or
     //    its parent's count) still there, or vice versa.
-    const deleted = await WIKI.db.transaction(async (tx) => {
+    const deleted = await CARDINAL.db.transaction(async (tx) => {
       // -> `<@` is "at or below", and the folder itself is not under its own child path, so this takes
       //    the descendants and leaves the row that owns them. Scoped to this folder's own locale --
       //    otherwise a same-named folder in another locale, sharing the same path, would be deleted
@@ -1530,12 +1530,15 @@ class Tree {
     })
 
     // -> Any of them may have owned a sidebar menu keyed by its own id, the folder included
-    await WIKI.models.navigation.deleteNavForEntries(folder.siteId, [
+    await CARDINAL.models.navigation.deleteNavForEntries(folder.siteId, [
       ...deleted.map((n) => n.id),
       folder.id
     ])
 
-    WIKI.logger.debug('pages', 'deleted folder', { folder: folder.id, descendants: deleted.length })
+    CARDINAL.logger.debug('pages', 'deleted folder', {
+      folder: folder.id,
+      descendants: deleted.length
+    })
 
     const asEntry = (row: (typeof deleted)[number]): DeletedEntry => ({
       id: row.id,
@@ -1565,7 +1568,7 @@ class Tree {
     siteId,
     tags = [],
     meta = {},
-    db = WIKI.db
+    db = CARDINAL.db
   }: {
     id?: string
     parentId?: string | null
@@ -1577,7 +1580,7 @@ class Tree {
     tags?: string[]
     meta?: Record<string, any>
     /** Runs the folder resolution and the entry insert against this instead of the ambient
-     *  `WIKI.db` — a page move passes its own transaction so this entry shares fate with the
+     *  `CARDINAL.db` — a page move passes its own transaction so this entry shares fate with the
      *  `pages` row update alongside it. */
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
@@ -1600,7 +1603,7 @@ class Tree {
     // -> A new page can change whether an ancestor folder even has visible descendants, which any
     //    ancestor `auto`/`mixed` menu's cached tree walk depends on (OpenProject #1825). Only here,
     //    not in `addAsset`/`addEntry` -- an asset entry is never considered by `generateFromTree`.
-    WIKI.models.navigation.invalidateCache(siteId)
+    CARDINAL.models.navigation.invalidateCache(siteId)
     return entry
   }
 
@@ -1620,7 +1623,7 @@ class Tree {
     siteId,
     tags = [],
     meta = {},
-    db = WIKI.db
+    db = CARDINAL.db
   }: {
     id?: string
     parentId?: string | null
@@ -1632,7 +1635,7 @@ class Tree {
     tags?: string[]
     meta?: Record<string, any>
     /** Runs the folder resolution and the entry insert against this instead of the ambient
-     *  `WIKI.db` — a batch import passes its own transaction so this asset's tree row shares fate
+     *  `CARDINAL.db` — a batch import passes its own transaction so this asset's tree row shares fate
      *  with the `assets` row written alongside it. */
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
@@ -1675,7 +1678,7 @@ class Tree {
       return null
     }
     if (entry.fileName !== fileName) {
-      const existing = await WIKI.db
+      const existing = await CARDINAL.db
         .select({ id: treeTable.id })
         .from(treeTable)
         .where(
@@ -1695,7 +1698,7 @@ class Tree {
       }
     }
 
-    const updated = await WIKI.db
+    const updated = await CARDINAL.db
       .update(treeTable)
       .set({
         fileName,
@@ -1757,7 +1760,7 @@ class Tree {
       return entry
     }
 
-    const collision = await WIKI.db
+    const collision = await CARDINAL.db
       .select({ id: treeTable.id })
       .from(treeTable)
       .where(
@@ -1775,7 +1778,7 @@ class Tree {
       throw duplicateEntryError()
     }
 
-    const updated = await WIKI.db.transaction(async (tx) => {
+    const updated = await CARDINAL.db.transaction(async (tx) => {
       const moved = await tx
         .update(treeTable)
         .set({ folderPath: newPath, updatedAt: sql`now()` })
@@ -1788,16 +1791,16 @@ class Tree {
 
     // -> A moved entry changes what an ancestor `auto`/`mixed` menu's cached tree walk returns
     //    (OpenProject #1825), the same invalidation `deleteEntry`/`createFolder` already fire.
-    WIKI.models.navigation.invalidateCache(siteId)
+    CARDINAL.models.navigation.invalidateCache(siteId)
 
-    WIKI.logger.debug('pages', 'moved entry', { entry: entry.id, path: newPath })
+    CARDINAL.logger.debug('pages', 'moved entry', { entry: entry.id, path: newPath })
     return updated[0] as TreeRow
   }
 
   /**
    * Remove a page or asset entry from the tree, keeping its folder's count straight.
    */
-  async deleteEntry(id: string, db: WikiDbOrTx = WIKI.db): Promise<boolean> {
+  async deleteEntry(id: string, db: WikiDbOrTx = CARDINAL.db): Promise<boolean> {
     const entry = await this.getById(id, db)
     if (!entry) {
       return false
@@ -1809,7 +1812,7 @@ class Tree {
     //    (OpenProject #1825). Unconditional rather than branching on `entry.type`: an asset delete
     //    invalidates a cache that never depended on it, but that is harmless over-invalidation, not a
     //    correctness gap worth a type check here.
-    WIKI.models.navigation.invalidateCache(entry.siteId)
+    CARDINAL.models.navigation.invalidateCache(entry.siteId)
     return true
   }
 
@@ -1828,7 +1831,7 @@ class Tree {
     tags,
     meta,
     onConflict,
-    db = WIKI.db
+    db = CARDINAL.db
   }: {
     id?: string
     type: Exclude<TreeItemType, 'folder'>
@@ -1860,12 +1863,12 @@ class Tree {
     //    locale's site-wide menu when nothing above it says otherwise (`ancestorNavId`). An asset
     //    has no sidebar of its own, so it gets no `navigationId` at all.
     const navigationId =
-      type === 'page' ? await WIKI.models.navigation.ancestorNavId(siteId, locale, path) : null
+      type === 'page' ? await CARDINAL.models.navigation.ancestorNavId(siteId, locale, path) : null
 
     const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict, db })
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
 
-    WIKI.logger.debug('pages', 'adding an entry to the tree', { type, path: fullPath })
+    CARDINAL.logger.debug('pages', 'adding an entry to the tree', { type, path: fullPath })
 
     let inserted
     try {
@@ -1921,7 +1924,7 @@ class Tree {
     type,
     fileName,
     onConflict,
-    db = WIKI.db
+    db = CARDINAL.db
   }: {
     siteId: string
     locale: string
@@ -1985,7 +1988,7 @@ class Tree {
     locale: string,
     path: string,
     delta: number,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<void> {
     if (!path) {
       return

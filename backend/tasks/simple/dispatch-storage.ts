@@ -36,10 +36,10 @@ export interface DispatchStoragePayload {
  * Runs **in-process** (`tasks/simple/`), not in a worker thread — unlike `dispatchWebhook`, this task
  * cannot get away with only the two models it imports directly. The `StorageModule` handlers it calls
  * (`modules/storage/git/*`, `disk/storage.ts`, `sftp/pages.ts`, ...) reach for a good chunk of the app
- * on their own: `WIKI.models.pages`, `.assets`, `.users`, `.tree`, `.extensions`, the `WIKI.sites`
- * site-config cache, and `WIKI.data.systemIds`. A worker thread's `WIKI` (`worker.ts`) carries none of
+ * on their own: `CARDINAL.models.pages`, `.assets`, `.users`, `.tree`, `.extensions`, the `CARDINAL.sites`
+ * site-config cache, and `CARDINAL.data.systemIds`. A worker thread's `WIKI` (`worker.ts`) carries none of
  * that — only `settings`, loaded lazily for the handful of workers that need it — so every one of those
- * reads was a `TypeError` waiting to happen (or, for the `WIKI.sites?.[id]` guarded reads, a silent
+ * reads was a `TypeError` waiting to happen (or, for the `CARDINAL.sites?.[id]` guarded reads, a silent
  * locale mis-resolution to `'en'`), invisible to `tsc` because the worker's `WIKI` is typed as the same
  * full `WikiGlobal` the main process populates. Replicating that much of boot inside a worker just to
  * keep this one task off the main thread would be a second, parallel bootstrap to keep in sync forever;
@@ -102,7 +102,7 @@ export async function task(
   const target = await storageDep.getSiteTargetById(siteId, targetId)
   if (!target) {
     // -> Deleted (or its site was) between queueing and delivery; nothing to do and nothing to retry
-    WIKI.logger.debug('storage', 'target no longer exists, dispatch skipped', {
+    CARDINAL.logger.debug('storage', 'target no longer exists, dispatch skipped', {
       target: targetId,
       handler
     })
@@ -111,7 +111,7 @@ export async function task(
 
   const mod = await storageDep.ensureModule(target.module)
   if (!mod || typeof mod[handler] !== 'function') {
-    WIKI.logger.debug('storage', 'module has no such handler, dispatch skipped', {
+    CARDINAL.logger.debug('storage', 'module has no such handler, dispatch skipped', {
       target: target.id,
       module: target.module,
       handler
@@ -135,7 +135,7 @@ export async function task(
         error: caughtErr.message
       })
     }
-    WIKI.logger.warn('storage', 'dispatch failed', {
+    CARDINAL.logger.warn('storage', 'dispatch failed', {
       target: target.id,
       module: target.module,
       handler,

@@ -30,7 +30,7 @@ async function routes(app: FastifyInstance) {
     ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
     { bodyLimit: importUploadLimit },
     (req: FastifyRequest, payload: NodeJS.ReadableStream) =>
-      WIKI.models.import.saveUpload(payload, importUploadLimit)
+      CARDINAL.models.import.saveUpload(payload, importUploadLimit)
   )
 
   /**
@@ -84,7 +84,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       // -> `siteId` here is a body field, not `req.params.siteId`, and this route is `manage:system`
       //    only -- no `enforceApiKeySite()` call; see `helpers/apiKeySite.ts`'s doc comment for why.
-      const added = await WIKI.scheduler.addJob({
+      const added = await CARDINAL.scheduler.addJob({
         task: 'exportContent',
         payload: { siteId: req.body.siteId }
       })
@@ -92,7 +92,7 @@ async function routes(app: FastifyInstance) {
         return reply.internalServerError('The scheduler could not queue the export.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.contentExported',
         actor: actorFromRequest(req),
         targetType: 'site',
@@ -150,7 +150,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      const entry = await CARDINAL.models.jobs.getHistoryEntry(req.params.jobId)
       if (!entry || entry.task !== 'exportContent') {
         return reply.notFound('No such export job.')
       }
@@ -175,7 +175,7 @@ async function routes(app: FastifyInstance) {
       //    happy path here is what keeps a downloaded export from sitting in `<dataPath>/exports/`
       //    until `purgeExports` gets to it on its own schedule.
       stream.on('close', () => {
-        WIKI.models.export.deleteExport(result.filePath).catch(() => {})
+        CARDINAL.models.export.deleteExport(result.filePath).catch(() => {})
       })
 
       reply.header('Content-Disposition', `attachment; filename="export-${entry.id}.tar.gz"`)
@@ -247,17 +247,17 @@ async function routes(app: FastifyInstance) {
       //    time this runs (the content-type parser above saved it), so a refusal here still has to
       //    clean it up rather than leaving it orphaned, same as every other early return below.
       if (!enforceApiKeySite(req, reply, req.query.targetSiteId)) {
-        await WIKI.models.import.deleteUpload(filePath)
+        await CARDINAL.models.import.deleteUpload(filePath)
         return
       }
 
-      const targetSite = await WIKI.models.sites.getSiteById({ id: req.query.targetSiteId })
+      const targetSite = await CARDINAL.models.sites.getSiteById({ id: req.query.targetSiteId })
       if (!targetSite) {
-        await WIKI.models.import.deleteUpload(filePath)
+        await CARDINAL.models.import.deleteUpload(filePath)
         return reply.notFound('Target site does not exist.')
       }
 
-      const added = await WIKI.scheduler.addJob({
+      const added = await CARDINAL.scheduler.addJob({
         task: 'importContent',
         payload: {
           filePath,
@@ -266,11 +266,11 @@ async function routes(app: FastifyInstance) {
         }
       })
       if (!added?.id) {
-        await WIKI.models.import.deleteUpload(filePath)
+        await CARDINAL.models.import.deleteUpload(filePath)
         return reply.internalServerError('The scheduler could not queue the import.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.contentImported',
         actor: actorFromRequest(req),
         targetType: 'site',
@@ -324,7 +324,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const added = await WIKI.scheduler.addJob({ task: 'scanPageProblems' })
+      const added = await CARDINAL.scheduler.addJob({ task: 'scanPageProblems' })
       if (!added?.id) {
         return reply.internalServerError('The scheduler could not queue the scan.')
       }
@@ -433,7 +433,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      const entry = await CARDINAL.models.jobs.getHistoryEntry(req.params.jobId)
       if (entry) {
         if (entry.task !== 'scanPageProblems') {
           return reply.notFound('No such scan job.')
@@ -446,7 +446,7 @@ async function routes(app: FastifyInstance) {
 
       // -> Not in history yet: it may simply not have been picked up off the queue by any instance
       //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`)
-      const pending = await WIKI.models.jobs.getPendingEntry(req.params.jobId)
+      const pending = await CARDINAL.models.jobs.getPendingEntry(req.params.jobId)
       if (!pending || pending.task !== 'scanPageProblems') {
         return reply.notFound('No such scan job.')
       }

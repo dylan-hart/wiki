@@ -18,7 +18,7 @@ import type { ConfigTransform } from './shared.ts'
  * time, and `(siteId, module)` is a unique index (`backend/db/schema.ts:671`). So this mapper never
  * produces an insert — its output is a `{ siteId, module, values }` **patch**, meant to be applied as
  * `UPDATE storage SET ... WHERE siteId = ? AND module = ?` (or the equivalent
- * `WIKI.models.storage.updateTarget` call, once the caller has that site's already-synced
+ * `CARDINAL.models.storage.updateTarget` call, once the caller has that site's already-synced
  * `StorageTarget` row in hand) against a row that is guaranteed to already exist. Producing an insert
  * here would either race `syncSite` or violate the unique index outright.
  *
@@ -27,7 +27,7 @@ import type { ConfigTransform } from './shared.ts'
  * whose config doesn't fit the target module's declared prop types is never silently miscoerced, it
  * comes back `flagged` — then `Storage.buildConfig(module, incoming, {})` to fill in every declared
  * prop (module defaults for anything 2.x never had). This module never constructs its own copy of
- * that logic; it takes a `StorageModuleResolver` (the real `WIKI.models.storage` singleton satisfies
+ * that logic; it takes a `StorageModuleResolver` (the real `CARDINAL.models.storage` singleton satisfies
  * it structurally) so the mapper and the model can never drift apart on what a "valid" config is.
  *
  * ## Explicit module-directory enumeration, not assumed 1:1 parity
@@ -119,10 +119,10 @@ export interface SourceStorageRow extends SourceRecord {
 }
 
 // ---------------------------------------------------------------------------
-// Model dependency — the real `WIKI.models.storage` singleton satisfies this structurally. Kept as a
+// Model dependency — the real `CARDINAL.models.storage` singleton satisfies this structurally. Kept as a
 // narrow interface (rather than importing the class) so this mapper is unit-testable without a live
-// DB: none of `getDefinition`/`buildConfig`/`validateConfig` touch `WIKI.db`, only
-// `WIKI.models.storage.definitions` (populated from disk by `refreshFromDisk()`), mirroring the
+// DB: none of `getDefinition`/`buildConfig`/`validateConfig` touch `CARDINAL.db`, only
+// `CARDINAL.models.storage.definitions` (populated from disk by `refreshFromDisk()`), mirroring the
 // `authentication` mapper's `AuthModuleResolver` precedent exactly.
 // ---------------------------------------------------------------------------
 

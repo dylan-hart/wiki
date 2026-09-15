@@ -40,7 +40,7 @@ class Tags {
     { limit = 1000, actor }: { limit?: number; actor?: AccessActor } = {}
   ): Promise<Tag[]> {
     if (!actor) {
-      const result = await WIKI.db.execute(sql`
+      const result = await CARDINAL.db.execute(sql`
         SELECT tag, COUNT(*)::int AS "usageCount"
         FROM pages, unnest(tags) AS tag
         WHERE "siteId" = ${siteId}
@@ -59,7 +59,7 @@ class Tags {
       a rule can be a regular expression or a set of tags — neither of which a `GROUP BY` could take
       into account. Only tagged pages are read, and only their path, locale and tags.
     */
-    const result = await WIKI.db.execute(sql`
+    const result = await CARDINAL.db.execute(sql`
       SELECT path, locale, tags, classification
       FROM pages
       WHERE "siteId" = ${siteId} AND array_length(tags, 1) > 0
@@ -73,7 +73,7 @@ class Tags {
         tags: (row.tags ?? []) as string[],
         classification: (row.classification as string | null) ?? null
       }
-      if (!WIKI.models.groups.checkAccess(actor, 'read:pages', page)) {
+      if (!CARDINAL.models.groups.checkAccess(actor, 'read:pages', page)) {
         continue
       }
       for (const tag of page.tags) {
@@ -106,7 +106,7 @@ class Tags {
     { limit = 10, days = 60, actor }: { limit?: number; days?: number; actor?: AccessActor } = {}
   ): Promise<Tag[]> {
     if (!actor) {
-      const result = await WIKI.db.execute(sql`
+      const result = await CARDINAL.db.execute(sql`
         SELECT tag, COUNT(*)::int AS "usageCount"
         FROM pages, unnest(tags) AS tag
         WHERE "siteId" = ${siteId}
@@ -122,7 +122,7 @@ class Tags {
     }
 
     // See `getTags`'s doc comment for why this is aggregated here rather than in postgres.
-    const result = await WIKI.db.execute(sql`
+    const result = await CARDINAL.db.execute(sql`
       SELECT path, locale, tags, classification
       FROM pages
       WHERE "siteId" = ${siteId} AND array_length(tags, 1) > 0
@@ -137,7 +137,7 @@ class Tags {
         tags: (row.tags ?? []) as string[],
         classification: (row.classification as string | null) ?? null
       }
-      if (!WIKI.models.groups.checkAccess(actor, 'read:pages', page)) {
+      if (!CARDINAL.models.groups.checkAccess(actor, 'read:pages', page)) {
         continue
       }
       for (const tag of page.tags) {
@@ -159,7 +159,7 @@ class Tags {
    * result; this just narrows "every page in the site" down to the ones that would actually change.
    */
   async pagesWithTag(siteId: string, tag: string): Promise<TagPageRef[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -183,7 +183,7 @@ class Tags {
    * checked `manage:pages` against, one page at a time (see `pagesWithTag`'s doc comment). `tree.tags`
    * is kept in step alongside `pages.tags` since `models/tree.ts`'s tag-filtered browse reads from
    * there, not from `pages` — the same pairing `models/pages.ts#updatePage` maintains for a single-page
-   * edit. Every page actually touched is handed to `WIKI.models.search.updated` off the same
+   * edit. Every page actually touched is handed to `CARDINAL.models.search.updated` off the same
    * `.returning()`, so the rename is reflected in search results without a separate reindex pass.
    *
    * @returns The rows actually updated
@@ -201,13 +201,13 @@ class Tags {
       SELECT COALESCE(array_agg(DISTINCT t ORDER BY t), ARRAY[]::text[])
       FROM unnest(array_replace(${column}, ${oldTag}, ${newTag})) AS t
     )`
-    const updated = await WIKI.db
+    const updated = await CARDINAL.db
       .update(pagesTable)
       .set({ tags: rewrite(pagesTable.tags), updatedAt: sql`now()` })
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, pageIds)))
       .returning()
     if (updated.length > 0) {
-      await WIKI.db
+      await CARDINAL.db
         .update(treeTable)
         .set({ tags: rewrite(treeTable.tags), updatedAt: sql`now()` })
         .where(
@@ -217,7 +217,7 @@ class Tags {
           )
         )
       for (const page of updated) {
-        await WIKI.models.search.updated(page)
+        await CARDINAL.models.search.updated(page)
       }
     }
     return updated
@@ -236,13 +236,13 @@ class Tags {
     if (pageIds.length < 1) {
       return []
     }
-    const updated = await WIKI.db
+    const updated = await CARDINAL.db
       .update(pagesTable)
       .set({ tags: sql`array_remove(${pagesTable.tags}, ${tag})`, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, pageIds)))
       .returning()
     if (updated.length > 0) {
-      await WIKI.db
+      await CARDINAL.db
         .update(treeTable)
         .set({ tags: sql`array_remove(${treeTable.tags}, ${tag})`, updatedAt: sql`now()` })
         .where(
@@ -252,7 +252,7 @@ class Tags {
           )
         )
       for (const page of updated) {
-        await WIKI.models.search.updated(page)
+        await CARDINAL.models.search.updated(page)
       }
     }
     return updated

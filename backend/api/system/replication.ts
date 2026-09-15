@@ -26,7 +26,7 @@ async function routes(app: FastifyInstance) {
     ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
     { bodyLimit: importUploadLimit },
     (req: FastifyRequest, payload: NodeJS.ReadableStream) =>
-      WIKI.models.replicationImport.saveUpload(payload, importUploadLimit)
+      CARDINAL.models.replicationImport.saveUpload(payload, importUploadLimit)
   )
 
   /**
@@ -70,16 +70,16 @@ async function routes(app: FastifyInstance) {
       //    left here to check. `req.body` is the path it landed at.
       const filePath = req.body
 
-      const added = await WIKI.scheduler.addJob({
+      const added = await CARDINAL.scheduler.addJob({
         task: 'replicationImport',
         payload: { filePath }
       })
       if (!added?.id) {
-        await WIKI.models.replicationImport.deleteUpload(filePath)
+        await CARDINAL.models.replicationImport.deleteUpload(filePath)
         return reply.internalServerError('The scheduler could not queue the import.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.replicationImported',
         actor: actorFromRequest(req),
         detail: { jobId: added.id }
@@ -152,7 +152,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      const entry = await CARDINAL.models.jobs.getHistoryEntry(req.params.jobId)
       if (entry) {
         if (entry.task !== 'replicationImport') {
           return reply.notFound('No such import job.')
@@ -165,7 +165,7 @@ async function routes(app: FastifyInstance) {
 
       // -> Not in history yet: it may simply not have been picked up off the queue by any instance
       //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`).
-      const pending = await WIKI.models.jobs.getPendingEntry(req.params.jobId)
+      const pending = await CARDINAL.models.jobs.getPendingEntry(req.params.jobId)
       if (!pending || pending.task !== 'replicationImport') {
         return reply.notFound('No such import job.')
       }

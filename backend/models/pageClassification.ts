@@ -50,7 +50,7 @@ class PageClassification {
     for (const parent of parentOf.values()) {
       distinctParents.set(keyOf(parent.locale, parent.parentPath), parent)
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         locale: pagesTable.locale,
         path: pagesTable.path,
@@ -92,7 +92,7 @@ class PageClassification {
     siteId: string,
     locale: string,
     path: string,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<string | null> {
     const parentPath = path.split('/').slice(0, -1).join('/')
     if (!parentPath) {
@@ -130,7 +130,7 @@ class PageClassification {
       this.assertClassificationMeetsFloor(requested, floorId)
       return requested
     }
-    return floorId ?? WIKI.models.classificationLevels.defaultLevel().id
+    return floorId ?? CARDINAL.models.classificationLevels.defaultLevel().id
   }
 
   /**
@@ -144,14 +144,14 @@ class PageClassification {
    * @throws CustomError `classificationInvalid` or `classificationBelowFloor`, both 400
    */
   assertClassificationMeetsFloor(requested: string, floorId: string | null): void {
-    if (!WIKI.models.classificationLevels.byId(requested)) {
+    if (!CARDINAL.models.classificationLevels.byId(requested)) {
       throw new CustomError(
         'classificationInvalid',
         'This classification level does not exist.',
         400
       )
     }
-    if (floorId && !WIKI.models.classificationLevels.meetsFloor(requested, floorId)) {
+    if (floorId && !CARDINAL.models.classificationLevels.meetsFloor(requested, floorId)) {
       throw new CustomError(
         'classificationBelowFloor',
         "A page's classification cannot be more open than its parent page's.",
@@ -172,7 +172,7 @@ class PageClassification {
     floorId: string
   ): Promise<{ id: string; path: string; title: string; classification: string }[]> {
     const prefix = `${parentPath}/`
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -188,7 +188,7 @@ class PageClassification {
         )
       )
     return rows.filter(
-      (row) => !WIKI.models.classificationLevels.meetsFloor(row.classification, floorId)
+      (row) => !CARDINAL.models.classificationLevels.meetsFloor(row.classification, floorId)
     )
   }
 
@@ -200,7 +200,7 @@ class PageClassification {
    * `updatePage`'s own caller (`api/pages/write.ts`) already follows for the declassification guardrail.
    *
    * `.returning()` gets the raw rows for free off the same write -- exactly what
-   * `WIKI.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
+   * `CARDINAL.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
    * explains why), and without it every external search module keeps indexing the old
    * classification, so a raise leaves those pages searchable at their prior, more open level (an
    * external module decides `read:pages` visibility per-hit off the indexed copy -- see
@@ -217,16 +217,16 @@ class PageClassification {
     if (ids.length < 1) {
       return 0
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .update(pagesTable)
       .set({ classification, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
       .returning()
     for (const row of rows) {
-      await WIKI.models.search.updated(row)
+      await CARDINAL.models.search.updated(row)
     }
     if (rows.length > 0) {
-      WIKI.models.glossary.invalidateCache(siteId)
+      CARDINAL.models.glossary.invalidateCache(siteId)
     }
     return rows.length
   }
@@ -242,13 +242,13 @@ class PageClassification {
   async classificationReport(
     siteId?: string
   ): Promise<{ levelId: string; name: string; sortOrder: number; count: number }[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ classification: pagesTable.classification, count: sql<number>`count(*)::int` })
       .from(pagesTable)
       .where(siteId ? eq(pagesTable.siteId, siteId) : undefined)
       .groupBy(pagesTable.classification)
     const counts = new Map(rows.map((row) => [row.classification, row.count]))
-    return WIKI.models.classificationLevels.list().map((level) => ({
+    return CARDINAL.models.classificationLevels.list().map((level) => ({
       levelId: level.id,
       name: level.name,
       sortOrder: level.sortOrder,
@@ -276,7 +276,7 @@ class PageClassification {
     const where = and(...conditions)
     const { total, rows } = await paginate({
       rows: () =>
-        WIKI.db
+        CARDINAL.db
           .select({
             id: pagesTable.id,
             path: pagesTable.path,
@@ -289,7 +289,7 @@ class PageClassification {
           .orderBy(desc(pagesTable.updatedAt))
           .limit(limit)
           .offset(offset),
-      total: () => WIKI.db.select({ total: count() }).from(pagesTable).where(where)
+      total: () => CARDINAL.db.select({ total: count() }).from(pagesTable).where(where)
     })
     return { total, entries: rows }
   }

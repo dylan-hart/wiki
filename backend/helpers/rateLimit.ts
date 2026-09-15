@@ -5,7 +5,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { RateLimitPolicy, RateLimitVerdict } from '../models/rateLimits.ts'
 /**
  * In-process memo of currently-banned keys, so a request from a key that is already serving a ban
- * can be refused without the round trip `WIKI.models.rateLimits.consume()` would otherwise make to
+ * can be refused without the round trip `CARDINAL.models.rateLimits.consume()` would otherwise make to
  * Postgres for every single request — an UPDATE against the same hot row, on the pool every other
  * request shares, purely to re-confirm a ban that was already established.
  *
@@ -37,7 +37,7 @@ export const activeBanMemo = new LRUCache<string, number>({
 })
 
 /**
- * `WIKI.models.rateLimits.consume()`, fronted by {@link activeBanMemo}.
+ * `CARDINAL.models.rateLimits.consume()`, fronted by {@link activeBanMemo}.
  *
  * A key already in the memo is refused immediately, with `retryAfter` recomputed from the memo
  * entry's own remaining TTL (so it counts down correctly across repeated refused requests, rather
@@ -55,7 +55,7 @@ async function consumeWithBanMemo(key: string, policy: RateLimitPolicy): Promise
     const retryAfter = Math.max(1, Math.ceil(activeBanMemo.getRemainingTTL(key) / 1000))
     return { allowed: false, hits: memoizedHits, retryAfter }
   }
-  const verdict = await WIKI.models.rateLimits.consume(key, policy)
+  const verdict = await CARDINAL.models.rateLimits.consume(key, policy)
   if (!verdict.allowed && verdict.retryAfter > 0) {
     activeBanMemo.set(key, verdict.hits, { ttl: verdict.retryAfter * 1000 })
   }
@@ -86,7 +86,7 @@ function logRefusal(
   logIndividual: () => void
 ): void {
   const logInFull = coalesce(coalesceKey, windowMs, (summary) => {
-    WIKI.logger.warn(
+    CARDINAL.logger.warn(
       'auth',
       `${message} ${summary.total} times in ${Math.round(summary.windowMs / 1000)}s`,
       { ...clientFields, count: summary.total }
@@ -132,7 +132,7 @@ const API_DEFAULTS: RateLimitPolicy = {
  * anything could drain it. Ten in five minutes is far more than re-rendering a stale page takes.
  *
  * Exported so `mcp/tools/renderDiagram.ts` can consume it directly against
- * `WIKI.models.rateLimits` — an MCP tool call has no Fastify `req`/`reply` to hang the
+ * `CARDINAL.models.rateLimits` — an MCP tool call has no Fastify `req`/`reply` to hang the
  * {@link limitRenders} `preHandler` off of, but it is the same expensive, Puppeteer-backed operation
  * this policy exists to bound, so it shares the exact same numbers rather than inventing its own.
  */
@@ -150,7 +150,7 @@ export const RENDER_LIMIT: RateLimitPolicy = {
  * stored as an operator wrote them (`5m`, `15m`, `1d`), the way the JWT settings beside them are.
  */
 function authPolicy(): RateLimitPolicy {
-  const security = WIKI.config.security ?? {}
+  const security = CARDINAL.config.security ?? {}
   const max = Number(security.authRateLimitMax)
   return {
     max: Number.isFinite(max) && max > 0 ? Math.floor(max) : AUTH_DEFAULTS.max,
@@ -164,7 +164,7 @@ function authPolicy(): RateLimitPolicy {
  *
  * Exported for `models/login.ts`, whose own refusal lines are coalesced over the same window this
  * limiter counts in — one bucket of noise, one window, and one place the operator's configured
- * `security.authRateLimitWindow` is read. Re-deriving it there from `WIKI.config` would be a second
+ * `security.authRateLimitWindow` is read. Re-deriving it there from `CARDINAL.config` would be a second
  * copy of {@link authPolicy}'s fallback rules that could silently drift out of step with this one.
  */
 export function authRateLimitWindowMs(): number {
@@ -199,7 +199,7 @@ function banLogKey(ip: string): string {
  * does not come close to them.
  */
 export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (WIKI.config.security?.authRateLimitEnabled === false) {
+  if (CARDINAL.config.security?.authRateLimitEnabled === false) {
     return
   }
   const verdict = await consumeWithBanMemo(`auth:${req.ip}`, authPolicy())
@@ -219,14 +219,14 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   const ip = req.ip
   const windowMs = authRateLimitWindowMs()
   const logInFull = coalesce(banLogKey(ip), windowMs, (summary) => {
-    WIKI.logger.warn(
+    CARDINAL.logger.warn(
       'auth',
       `rate limit banned ${summary.total} times in ${Math.round(summary.windowMs / 1000)}s`,
       { ip }
     )
   })
   if (logInFull) {
-    WIKI.logger.warn('auth', 'rate limit banned', {
+    CARDINAL.logger.warn('auth', 'rate limit banned', {
       method: req.method,
       url: req.url,
       ip,
@@ -271,11 +271,11 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
  *   share one bucket.
  */
 export async function consumeAccountAuthAttempt(identifier: string): Promise<RateLimitVerdict> {
-  if (WIKI.config.security?.authRateLimitEnabled === false) {
+  if (CARDINAL.config.security?.authRateLimitEnabled === false) {
     return { allowed: true, hits: 0, retryAfter: 0 }
   }
   const key = `auth:user:${identifier.trim().toLowerCase()}`
-  return WIKI.models.rateLimits.consume(key, authPolicy())
+  return CARDINAL.models.rateLimits.consume(key, authPolicy())
 }
 
 /**
@@ -302,7 +302,7 @@ export class AccountRateLimitedError extends Error {
  * different fields.
  */
 function apiPolicy(): RateLimitPolicy {
-  const security = WIKI.config.security ?? {}
+  const security = CARDINAL.config.security ?? {}
   const max = Number(security.apiRateLimitMax)
   return {
     max: Number.isFinite(max) && max > 0 ? Math.floor(max) : API_DEFAULTS.max,
@@ -343,7 +343,7 @@ function apiPolicy(): RateLimitPolicy {
  * spreading abusive traffic across many different endpoints, auth included.
  */
 export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (WIKI.config.security?.apiRateLimitEnabled === false) {
+  if (CARDINAL.config.security?.apiRateLimitEnabled === false) {
     return
   }
   if (
@@ -368,7 +368,7 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
     'rate limit refused',
     { key },
     () => {
-      WIKI.logger.warn('auth', 'rate limit refused', {
+      CARDINAL.logger.warn('auth', 'rate limit refused', {
         method: req.method,
         url: req.url,
         key,
@@ -414,14 +414,14 @@ const PUBLIC_DEFAULTS: RateLimitPolicy = {
  * root-mounted public route never carries one to ask about.
  */
 export async function limitPublicRequests(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (WIKI.config.security?.apiRateLimitEnabled === false) {
+  if (CARDINAL.config.security?.apiRateLimitEnabled === false) {
     return
   }
   if (req.session?.permissions?.includes('manage:system')) {
     return
   }
   const key = req.session?.authenticated ? `user:${req.session.user!.id}` : `ip:${req.ip}`
-  const verdict = await WIKI.models.rateLimits.consume(`public:${key}`, PUBLIC_DEFAULTS)
+  const verdict = await CARDINAL.models.rateLimits.consume(`public:${key}`, PUBLIC_DEFAULTS)
   if (verdict.allowed) {
     return
   }
@@ -431,7 +431,7 @@ export async function limitPublicRequests(req: FastifyRequest, reply: FastifyRep
     'rate limit refused',
     { key },
     () => {
-      WIKI.logger.warn('auth', 'rate limit refused', {
+      CARDINAL.logger.warn('auth', 'rate limit refused', {
         method: req.method,
         url: req.url,
         key,
@@ -486,7 +486,7 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
     'rate limit refused',
     { ip: req.ip },
     () => {
-      WIKI.logger.warn('auth', 'rate limit refused', {
+      CARDINAL.logger.warn('auth', 'rate limit refused', {
         method: req.method,
         url: req.url,
         ip: req.ip,
@@ -554,7 +554,7 @@ export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Pro
     'rate limit refused',
     { apiKey: apiKeyId },
     () => {
-      WIKI.logger.warn('auth', 'rate limit refused', {
+      CARDINAL.logger.warn('auth', 'rate limit refused', {
         method: req.method,
         url: req.url,
         apiKey: apiKeyId,
@@ -587,7 +587,7 @@ const COMMENT_GUEST_LIMIT: RateLimitPolicy = {
  *
  * This is the abuse-tracking use `req.ip` (stored per-comment as `guestIp` — see
  * `models/comments.ts#create`) was captured for: `api/comments.ts`'s POST handler calls this
- * directly, only on the anonymous branch, immediately before `WIKI.models.comments.create()` — an
+ * directly, only on the anonymous branch, immediately before `CARDINAL.models.comments.create()` — an
  * authenticated poster is excluded, both because they already sit behind {@link limitApiRequests}'s
  * broader per-user ceiling and because their identity is already known, unlike an anonymous poster's
  * (OpenProject #2256).
@@ -597,7 +597,7 @@ const COMMENT_GUEST_LIMIT: RateLimitPolicy = {
  * it targets.
  */
 export async function limitGuestComments(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const verdict = await WIKI.models.rateLimits.consume(
+  const verdict = await CARDINAL.models.rateLimits.consume(
     `comment-guest:${req.ip}`,
     COMMENT_GUEST_LIMIT
   )
@@ -610,7 +610,7 @@ export async function limitGuestComments(req: FastifyRequest, reply: FastifyRepl
     'rate limit refused a guest comment',
     { ip: req.ip },
     () => {
-      WIKI.logger.warn('auth', 'rate limit refused a guest comment', {
+      CARDINAL.logger.warn('auth', 'rate limit refused a guest comment', {
         method: req.method,
         url: req.url,
         ip: req.ip,

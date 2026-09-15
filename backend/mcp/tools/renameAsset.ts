@@ -48,7 +48,7 @@ export async function handleRenameAsset(
 ): Promise<CallToolResult> {
   const site = resolveRequestedSite(ctx, args.siteId)
 
-  const existing = await WIKI.models.assets.getAsset(site.id, args.assetId)
+  const existing = await CARDINAL.models.assets.getAsset(site.id, args.assetId)
   if (!existing) {
     throw new McpToolError('This asset does not exist.')
   }
@@ -56,7 +56,7 @@ export async function handleRenameAsset(
     ? `${existing.folderPath}/${existing.fileName}`
     : existing.fileName
   if (
-    !WIKI.models.groups.checkAccess(actorFor(ctx), 'manage:assets', {
+    !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'manage:assets', {
       path,
       siteId: site.id,
       locale: existing.locale,
@@ -70,7 +70,7 @@ export async function handleRenameAsset(
 
   let asset
   try {
-    asset = await WIKI.models.assets.renameAsset(site.id, args.assetId, args.fileName)
+    asset = await CARDINAL.models.assets.renameAsset(site.id, args.assetId, args.fileName)
   } catch (err: any) {
     throw new McpToolError(err.message)
   }
@@ -80,7 +80,7 @@ export async function handleRenameAsset(
 
   // -> #1118-style instrumentation, mirroring `update_page`'s own: instance-wide visibility that an
   //    agent renamed this file, separate from any per-asset history (assets keep none today).
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),
     targetType: 'asset',

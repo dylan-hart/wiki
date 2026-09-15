@@ -12,13 +12,13 @@ import type { TaskResult } from '../../core/scheduler.ts'
 export async function task(_payload: unknown = {}, jobId?: string): Promise<TaskResult> {
   // -> Announced at `debug` because a full scan of `pages` and `tree` is not instant on a large
   //    wiki; the five counts are fields on the outcome line rather than a sentence built from them.
-  WIKI.logger.debug('pages', 'scanning for page problems')
-  const report = await WIKI.models.pageProblems.scan()
+  CARDINAL.logger.debug('pages', 'scanning for page problems')
+  const report = await CARDINAL.models.pageProblems.scan()
   // -> Two different things, and both are needed: the full report goes on the job's own history row
   //    for `GET /_api/system/pages/scan/:jobId` to poll, while the five counts returned below are
   //    what the scheduler writes as this run's one `info` line.
   if (jobId) {
-    await WIKI.models.jobs.setResult(jobId, report as unknown as Record<string, any>)
+    await CARDINAL.models.jobs.setResult(jobId, report as unknown as Record<string, any>)
   }
   return {
     summary: 'scanned for page problems',

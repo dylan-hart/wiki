@@ -134,9 +134,9 @@ class Sites extends ClusterReloaded {
 
   async getSiteById({ id, forceReload = false }: { id: string; forceReload?: boolean }) {
     if (forceReload) {
-      await WIKI.models.sites.reloadCache()
+      await CARDINAL.models.sites.reloadCache()
     }
-    return WIKI.sites[id]
+    return CARDINAL.sites[id]
   }
 
   async getSiteByHostname({
@@ -149,38 +149,38 @@ class Sites extends ClusterReloaded {
     strict?: boolean
   }) {
     if (forceReload) {
-      await WIKI.models.sites.reloadCache()
+      await CARDINAL.models.sites.reloadCache()
     }
     const siteId = siteIdForHostname(hostname, { strict })
     if (siteId) {
-      return WIKI.sites[siteId]
+      return CARDINAL.sites[siteId]
     }
     return null
   }
 
   async isHostnameUnique(hostname: string): Promise<boolean> {
-    return (await WIKI.db.$count(sitesTable, eq(sitesTable.hostname, hostname))) === 0
+    return (await CARDINAL.db.$count(sitesTable, eq(sitesTable.hostname, hostname))) === 0
   }
 
   async getAllSites() {
-    return WIKI.db.select().from(sitesTable).orderBy(sitesTable.hostname)
+    return CARDINAL.db.select().from(sitesTable).orderBy(sitesTable.hostname)
   }
 
   async reloadCache(): Promise<void> {
-    const sites = await WIKI.db.select().from(sitesTable).orderBy(sitesTable.id)
-    WIKI.sites = keyBy(sites, (s) => s.id)
-    WIKI.sitesMappings = {}
+    const sites = await CARDINAL.db.select().from(sitesTable).orderBy(sitesTable.id)
+    CARDINAL.sites = keyBy(sites, (s) => s.id)
+    CARDINAL.sitesMappings = {}
     for (const site of sites) {
       // -> Belt and braces: the write side is already lowercase by construction (site
       //    create/update schemas constrain `hostname` to `^(\*|[a-z0-9.-]+)$`), but routing every
       //    key through the same normalizer as every read keeps both sides provably in lockstep.
-      WIKI.sitesMappings[normalizeHostname(site.hostname)] = site.id
+      CARDINAL.sitesMappings[normalizeHostname(site.hostname)] = site.id
     }
-    WIKI.logger.debug('config', 'reloaded the site configurations', { sites: sites.length })
+    CARDINAL.logger.debug('config', 'reloaded the site configurations', { sites: sites.length })
   }
 
   async createSite(hostname: string, config: Record<string, any> = {}) {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .insert(sitesTable)
       .values({
         hostname,
@@ -226,7 +226,9 @@ class Sites extends ClusterReloaded {
               follow: true
             },
             // -> Local authentication is the only strategy guaranteed to exist at this point
-            authStrategies: [{ id: WIKI.data.systemIds.localAuthId, order: 0, isVisible: true }],
+            authStrategies: [
+              { id: CARDINAL.data.systemIds.localAuthId, order: 0, isVisible: true }
+            ],
             auth: {
               autoLogin: false,
               bypassUnauthorized: false,
@@ -276,7 +278,7 @@ class Sites extends ClusterReloaded {
                 //    semantic search on when the instance-wide capability (pgvector present, Task
                 //    #3095) is itself true. An operator can still flip it off per site afterwards;
                 //    this is only the first-boot default.
-                semanticEnabled: WIKI.capabilities?.semanticSearch ?? false
+                semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false
               }
             }
           },
@@ -289,23 +291,23 @@ class Sites extends ClusterReloaded {
 
     // -> The menu every page of the site's primary locale inherits by default. Empty to begin with,
     //    but it has to exist before a page can point at it
-    WIKI.logger.debug('nav', 'creating the root navigation', { site: newSite.id })
+    CARDINAL.logger.debug('nav', 'creating the root navigation', { site: newSite.id })
     const newSiteConfig = newSite.config as { locales: { primary: string } }
-    await WIKI.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
+    await CARDINAL.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
 
     // -> Site lookups by id / hostname are served from cache, which must know about the new site —
     //    on every instance, not just this one
-    await WIKI.models.sites.broadcastReload()
+    await CARDINAL.models.sites.broadcastReload()
 
     // -> Otherwise the new site would have no blocks until the next restart
-    await WIKI.models.blocks.syncSite(newSite.id)
+    await CARDINAL.models.blocks.syncSite(newSite.id)
 
     // -> Same for storage: the site needs its database target from the moment it can hold content
-    await WIKI.models.storage.syncSite(newSite.id)
+    await CARDINAL.models.storage.syncSite(newSite.id)
 
     // -> Same for comment providers: the site needs a row per module from the moment it can be
     //    configured, even though none of them are enabled yet
-    await WIKI.models.commentProviders.syncSite(newSite.id)
+    await CARDINAL.models.commentProviders.syncSite(newSite.id)
 
     return newSite
   }
@@ -328,7 +330,7 @@ class Sites extends ClusterReloaded {
       // object equivalent of that same problem -- a locale -> dictionary map with no fixed keys, where
       // removing an entry must actually remove it rather than leave it merged back in from the
       // previous value -- so it is replaced wholesale by key name, the same way an array is.
-      const current = await WIKI.db
+      const current = await CARDINAL.db
         .select({ config: sitesTable.config })
         .from(sitesTable)
         .where(eq(sitesTable.id, id))
@@ -346,12 +348,15 @@ class Sites extends ClusterReloaded {
       return false
     }
 
-    const updatedResult = await WIKI.db.update(sitesTable).set(values).where(eq(sitesTable.id, id))
+    const updatedResult = await CARDINAL.db
+      .update(sitesTable)
+      .set(values)
+      .where(eq(sitesTable.id, id))
     if ((updatedResult.rowCount ?? 0) < 1) {
       return false
     }
 
-    await WIKI.models.sites.broadcastReload()
+    await CARDINAL.models.sites.broadcastReload()
     return true
   }
 
@@ -366,7 +371,7 @@ class Sites extends ClusterReloaded {
     siteId: string,
     kind: SiteAssetKind
   ): Promise<{ data: Buffer; mime: string } | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ data: siteAssetsTable.data })
       .from(siteAssetsTable)
       .where(and(eq(siteAssetsTable.siteId, siteId), eq(siteAssetsTable.kind, kind)))
@@ -388,7 +393,7 @@ class Sites extends ClusterReloaded {
    * @returns The hash, or null if this kind has never been uploaded for this site
    */
   async getAssetHash(siteId: string, kind: SiteAssetKind): Promise<string | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ hash: siteAssetsTable.hash })
       .from(siteAssetsTable)
       .where(and(eq(siteAssetsTable.siteId, siteId), eq(siteAssetsTable.kind, kind)))
@@ -423,7 +428,7 @@ class Sites extends ClusterReloaded {
     // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
     //    exactly as uploaded, same as before this existed.
     const normalized = detectSvg(data)
-      ? WIKI.config.security?.uploadScanSVG
+      ? CARDINAL.config.security?.uploadScanSVG
         ? sanitizeSvg(data)
         : data
       : ((await normalizeImage(data, SITE_ASSET_NORMALIZATION[kind])) ?? data)
@@ -431,7 +436,7 @@ class Sites extends ClusterReloaded {
     //    the same sha1-hex digest `controllers/site.ts` computes from the blob for its ETag, so a
     //    future hash-only reader agrees with what a full blob read would have produced.
     const hash = crypto.createHash('sha1').update(normalized).digest('hex')
-    await WIKI.db
+    await CARDINAL.db
       .insert(siteAssetsTable)
       .values({ siteId, kind, data: normalized, hash })
       .onConflictDoUpdate({
@@ -439,17 +444,17 @@ class Sites extends ClusterReloaded {
         set: { data: normalized, hash }
       })
     // -> Serving reads this flag off the cached site config before it looks for any bytes
-    await WIKI.models.sites.updateSite(siteId, { config: { assets: { [kind]: true } } })
+    await CARDINAL.models.sites.updateSite(siteId, { config: { assets: { [kind]: true } } })
   }
 
   /**
    * Remove one of a site's images, leaving the built-in default to be served again.
    */
   async clearAsset(siteId: string, kind: SiteAssetKind): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .delete(siteAssetsTable)
       .where(and(eq(siteAssetsTable.siteId, siteId), eq(siteAssetsTable.kind, kind)))
-    await WIKI.models.sites.updateSite(siteId, { config: { assets: { [kind]: false } } })
+    await CARDINAL.models.sites.updateSite(siteId, { config: { assets: { [kind]: false } } })
   }
 
   /**
@@ -492,8 +497,8 @@ class Sites extends ClusterReloaded {
     //    final delete's FK violation happen is what makes the refusal atomic: nothing this method does
     //    can be observed to have happened when it returns/throws a refusal.
     const [pageCount, assetCount] = await Promise.all([
-      WIKI.db.$count(pagesTable, eq(pagesTable.siteId, id)),
-      WIKI.db.$count(assetsTable, eq(assetsTable.siteId, id))
+      CARDINAL.db.$count(pagesTable, eq(pagesTable.siteId, id)),
+      CARDINAL.db.$count(assetsTable, eq(assetsTable.siteId, id))
     ])
     if (pageCount + assetCount > 0) {
       throw new CustomError(
@@ -513,7 +518,7 @@ class Sites extends ClusterReloaded {
     //    against a race where content is inserted between the count and here) so a FK violation on the
     //    final delete rolls every one of these back instead of leaving the site's non-content settings
     //    destroyed while the site row itself survives.
-    const deleted = await WIKI.db.transaction(async (tx) => {
+    const deleted = await CARDINAL.db.transaction(async (tx) => {
       await tx.delete(blocksTable).where(eq(blocksTable.siteId, id))
       await tx.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
       await tx.delete(storageTable).where(eq(storageTable.siteId, id))
@@ -548,23 +553,23 @@ class Sites extends ClusterReloaded {
     if (deleted) {
       // -> Outside the transaction, after commit: other instances should only be told to reload once
       //    the delete is actually durable.
-      await WIKI.models.sites.broadcastReload()
+      await CARDINAL.models.sites.broadcastReload()
     }
     return deleted
   }
 
   async countSites() {
-    return WIKI.db.$count(sitesTable)
+    return CARDINAL.db.$count(sitesTable)
   }
 
   async countEnabledSites() {
-    return WIKI.db.$count(sitesTable, eq(sitesTable.isEnabled, true))
+    return CARDINAL.db.$count(sitesTable, eq(sitesTable.isEnabled, true))
   }
 
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.debug('config', 'seeding the default site')
+    CARDINAL.logger.debug('config', 'seeding the default site')
 
-    await WIKI.db.insert(sitesTable).values({
+    await CARDINAL.db.insert(sitesTable).values({
       id: ids.siteId,
       hostname: '*',
       isEnabled: true,
@@ -645,7 +650,7 @@ class Sites extends ClusterReloaded {
           engine: 'db',
           config: {
             dictOverrides: {},
-            semanticEnabled: WIKI.capabilities?.semanticSearch ?? false
+            semanticEnabled: CARDINAL.capabilities?.semanticSearch ?? false
           }
         }
       }

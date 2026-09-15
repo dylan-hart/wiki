@@ -113,7 +113,7 @@ async function commandExists(command: string): Promise<boolean> {
  */
 async function moduleExists(specifier: string): Promise<boolean> {
   try {
-    await fs.access(path.join(WIKI.SERVERPATH, 'node_modules', specifier, 'package.json'))
+    await fs.access(path.join(CARDINAL.SERVERPATH, 'node_modules', specifier, 'package.json'))
     return true
   } catch {
     return false
@@ -189,17 +189,17 @@ class Extensions {
    * Load the extension definitions from disk.
    */
   async refreshFromDisk(): Promise<void> {
-    const extensionsPath = path.join(WIKI.SERVERPATH, 'modules/extensions')
+    const extensionsPath = path.join(CARDINAL.SERVERPATH, 'modules/extensions')
     try {
       // -> No `parseProps`: an extension declares how to detect and install itself, not a config form
       const definitions = await readModuleDefinitions<ExtensionDefinition>(extensionsPath)
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
-      WIKI.logger.debug('ext', 'loaded extension definitions', {
+      CARDINAL.logger.debug('ext', 'loaded extension definitions', {
         extensions: this.definitions.length
       })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.warn('ext', 'reading the extension definitions failed', {
+      CARDINAL.logger.warn('ext', 'reading the extension definitions failed', {
         path: extensionsPath,
         error: err
       })
@@ -249,7 +249,7 @@ class Extensions {
       case 'module':
         return moduleExists(definition.detect.value)
       default:
-        WIKI.logger.warn('ext', 'no usable detection method', { extension: definition.key })
+        CARDINAL.logger.warn('ext', 'no usable detection method', { extension: definition.key })
         return false
     }
   }
@@ -344,7 +344,7 @@ class Extensions {
         process.platform === 'win32' ? 'npm.cmd' : 'npm',
         buildInstallArgs(definition),
         {
-          cwd: WIKI.SERVERPATH,
+          cwd: CARDINAL.SERVERPATH,
           timeout: installTimeout,
           windowsHide: true,
           // -> `npm.cmd` is a batch file, which Node will not run without a shell. Nothing here comes
@@ -352,7 +352,7 @@ class Extensions {
           shell: process.platform === 'win32'
         }
       )
-      WIKI.logger.debug('ext', 'npm output', {
+      CARDINAL.logger.debug('ext', 'npm output', {
         extension: definition.key,
         package: request,
         output: stdout.trim()
@@ -360,7 +360,7 @@ class Extensions {
     } catch (err: any) {
       // -> npm says what went wrong on stderr, and the tail of it is the part worth passing on
       const detail: string = (err.stderr || err.stdout || err.message || '').toString().trim()
-      WIKI.logger.warn('ext', 'installing the extension failed', {
+      CARDINAL.logger.warn('ext', 'installing the extension failed', {
         extension: definition.key,
         package: request,
         ...(detail ? { detail } : {}),
@@ -376,7 +376,7 @@ class Extensions {
         `npm reported success but ${specifier} is still not present in node_modules. Check the server logs.`
       )
     }
-    WIKI.logger.info('ext', 'installed extension', {
+    CARDINAL.logger.info('ext', 'installed extension', {
       extension: definition.key,
       package: request
     })
@@ -423,7 +423,7 @@ class Extensions {
     }
     // -> One line for the whole set rather than one per extension: which extensions are present is a
     //    single fact about the instance, and the keys are what an operator reads it for.
-    WIKI.logger.info('ext', 'extensions detected', {
+    CARDINAL.logger.info('ext', 'extensions detected', {
       installed: installed.join(', ') || 'none',
       missing: missing.join(', ') || 'none',
       incompatible: incompatible.join(', ') || 'none'

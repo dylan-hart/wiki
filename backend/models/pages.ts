@@ -84,7 +84,7 @@ const reAlias = /^[a-zA-Z0-9-_]*$/
  */
 export const SITEMAP_CACHE_TTL_MS = 5 * 60 * 1000
 
-/** `WIKI.cache` key for a site's cached sitemap page list. */
+/** `CARDINAL.cache` key for a site's cached sitemap page list. */
 function sitemapCacheKey(siteId: string): string {
   return `sitemap:${siteId}`
 }
@@ -288,7 +288,7 @@ export interface TranslationStatusRow {
  *
  * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones,
  * so deciding them takes more than the flat `permissions` list:
- * `groupIds` is what `WIKI.models.groups.checkAccess()` resolves a page rule against. See
+ * `groupIds` is what `CARDINAL.models.groups.checkAccess()` resolves a page rule against. See
  * `hasPermission()`.
  *
  * `scope`, when present, is an API key's own scope narrowing (`ApiKeyIdentity.scope`,
@@ -323,7 +323,7 @@ export interface PageActor {
   via?: PageHistoryVia
   /**
    * A closed set of page-rule permission names this actor is force-granted on every page,
-   * bypassing `WIKI.models.groups.checkAccess()`'s group-rule engine entirely for exactly the names
+   * bypassing `CARDINAL.models.groups.checkAccess()`'s group-rule engine entirely for exactly the names
    * listed here (OpenProject #3054). `checkAccess()` only ever resolves a page-rule permission from
    * `groupIds`-derived rules, or from a `manage:system` grant in `permissions` -- it never reads
    * `permissions` for a page-rule-scoped name like `write:scripts`/`write:styles` even when
@@ -368,7 +368,7 @@ function actorFields(actor: { id?: string | null; via?: PageHistoryVia }): LogFi
  * Whether this actor may embed scripts/styles ON THIS PAGE.
  *
  * `write:scripts`/`write:styles` are granted by a group's page rules, not by the group-wide
- * permission list (`PageActor.permissions` alone), so this asks `WIKI.models.groups.checkAccess()` —
+ * permission list (`PageActor.permissions` alone), so this asks `CARDINAL.models.groups.checkAccess()` —
  * the same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — rather than scanning
  * `actor.permissions`, which a page-rule-only grant would never appear in.
  *
@@ -382,7 +382,7 @@ export function hasPermission(actor: PageActor, permission: string, page: RulePa
   if (actor.forcedPagePermissions?.includes(permission)) {
     return true
   }
-  return WIKI.models.groups.checkAccess(actor, permission, page)
+  return CARDINAL.models.groups.checkAccess(actor, permission, page)
 }
 
 /**
@@ -612,7 +612,7 @@ class Pages {
     //    other payload (see `toPage`), so its content comes back even when `withContent` is off --
     //    decided in SQL rather than after the fact, since the row's `editor` isn't known until the
     //    query has already run.
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -699,7 +699,7 @@ class Pages {
     if (ids.length < 1) {
       return new Map()
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -725,7 +725,7 @@ class Pages {
   async listAllForSite(
     siteId: string
   ): Promise<{ id: string; path: string; locale: string; contentType: string }[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -760,7 +760,7 @@ class Pages {
    * function only ever needs to be a safe superset of what SOME caller could read, not this one.
    */
   async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -787,7 +787,7 @@ class Pages {
    * against `apiKeys.allowedClassifications`. The route filters each row through `mayOnPage`.
    */
   async listBacklinks(siteId: string, targetPath: string): Promise<BacklinkRow[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -816,7 +816,7 @@ class Pages {
    * applies no visibility narrowing of its own.
    */
   async listTranslationStatusRows(siteId: string, path: string): Promise<TranslationStatusRow[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -872,7 +872,7 @@ class Pages {
     if (!page?.isLocked) {
       return null
     }
-    const stored = await WIKI.db
+    const stored = await CARDINAL.db
       .select({ password: pagesTable.password })
       .from(pagesTable)
       .where(eq(pagesTable.id, page.id))
@@ -906,7 +906,7 @@ class Pages {
     actor: PageActor,
     { origin }: { origin?: PageWriteOrigin } = {}
   ): Promise<Page> {
-    if (!WIKI.sites[siteId]) {
+    if (!CARDINAL.sites[siteId]) {
       throw new CustomError('pageInvalidSite', 'This site does not exist.', 404)
     }
 
@@ -934,7 +934,7 @@ class Pages {
     await this.assertNoPageAt(siteId, locale, path)
 
     const alias = await this.validateAlias(siteId, input.alias)
-    const classification = await WIKI.models.pageClassification.resolveCreateClassification(
+    const classification = await CARDINAL.models.pageClassification.resolveCreateClassification(
       siteId,
       locale,
       path,
@@ -956,10 +956,10 @@ class Pages {
     */
     const hasRenderInput = input.render !== undefined
     if (!hasRenderInput) {
-      await WIKI.models.renderQueue.ensureCanRender(editor)
+      await CARDINAL.models.renderQueue.ensureCanRender(editor)
     }
 
-    const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+    const { render, toc, text, links } = await CARDINAL.models.rendering.postProcess(
       siteId,
       input.render ?? '',
       {
@@ -972,7 +972,7 @@ class Pages {
     const pathParts = path.split('/')
     let inserted
     try {
-      inserted = await WIKI.db
+      inserted = await CARDINAL.db
         .insert(pagesTable)
         .values({
           alias,
@@ -1021,7 +1021,7 @@ class Pages {
     const page = inserted[0]
 
     try {
-      await WIKI.models.tree.addPage({
+      await CARDINAL.models.tree.addPage({
         id: page.id,
         parentPath: pathParts.slice(0, -1).join('/'),
         fileName: pathParts.at(-1)!,
@@ -1034,11 +1034,11 @@ class Pages {
     } catch (err) {
       // -> A page with no tree entry is invisible to navigation and to the file manager, which is
       //    worse than not having saved it at all
-      await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, page.id))
+      await CARDINAL.db.delete(pagesTable).where(eq(pagesTable.id, page.id))
       throw err
     }
 
-    await WIKI.models.pageHistory.record({
+    await CARDINAL.models.pageHistory.record({
       siteId,
       pageId: page.id,
       action: 'created',
@@ -1051,7 +1051,7 @@ class Pages {
     //    nothing to resolve. See that method's own comment for the one case (restore) that would
     //    change this, and why it doesn't apply yet.
 
-    await WIKI.models.search.created(page)
+    await CARDINAL.models.search.created(page)
     if (hasRenderInput) {
       // -> No render-queue path here: when it fires below instead, `storeRender()` is what queues
       //    the embed job, once the real content actually lands
@@ -1073,7 +1073,7 @@ class Pages {
     //    `api/pages/write.ts`, so the editor, the MCP `createPage` tool, the 2.5.x import and a
     //    git/disk storage import all produce the identical line. A page's *edits* stay at `debug`
     //    (the history table already records every one of them); its appearance does not.
-    WIKI.logger.info('pages', origin === 'restore' ? 'restored' : 'created', {
+    CARDINAL.logger.info('pages', origin === 'restore' ? 'restored' : 'created', {
       site: siteId,
       page: page.id,
       path: page.path,
@@ -1112,7 +1112,7 @@ class Pages {
     actor: PageActor,
     renderPermissions?: RenderPermissions
   ): Promise<Page | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select()
       .from(pagesTable)
       .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
@@ -1196,12 +1196,15 @@ class Pages {
     const classificationChanged =
       patch.classification !== undefined && patch.classification !== existing.classification
     if (patch.classification !== undefined) {
-      const floorId = await WIKI.models.pageClassification.parentClassification(
+      const floorId = await CARDINAL.models.pageClassification.parentClassification(
         siteId,
         existing.locale,
         existing.path
       )
-      WIKI.models.pageClassification.assertClassificationMeetsFloor(patch.classification, floorId)
+      CARDINAL.models.pageClassification.assertClassificationMeetsFloor(
+        patch.classification,
+        floorId
+      )
       values.classification = patch.classification
     }
 
@@ -1222,7 +1225,7 @@ class Pages {
     const hasRenderInput = patch.render !== undefined
     const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
     if (needsRerenderQueue) {
-      await WIKI.models.renderQueue.ensureCanRender(existing.editor)
+      await CARDINAL.models.renderQueue.ensureCanRender(existing.editor)
     }
 
     // -> A render only means anything next to the content it came from, so the two move together --
@@ -1231,7 +1234,7 @@ class Pages {
     //    or outbound links the new content no longer has. `queueRerender()` below is what actually
     //    catches `render`/`toc`/`searchContent`/`links` up to the real thing once its job drains.
     if (hasRenderInput || needsRerenderQueue) {
-      const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+      const { render, toc, text, links } = await CARDINAL.models.rendering.postProcess(
         siteId,
         patch.render ?? '',
         renderPermissions ?? {
@@ -1255,12 +1258,12 @@ class Pages {
 
     // -> Worked out before the write, against the row as it stands: the editor sends every field on
     //    every save, so the patch alone would report a change to all of them
-    const changedFields = WIKI.models.pageHistory.changedFields(existing, values)
+    const changedFields = CARDINAL.models.pageHistory.changedFields(existing, values)
 
-    // -> `.returning()` gets the raw row for free off the same write: `WIKI.models.search.updated`
+    // -> `.returning()` gets the raw row for free off the same write: `CARDINAL.models.search.updated`
     //    wants the full `pages` row (`SearchIndexablePage`), not the flattened `Page` shape `getPage`
     //    below produces
-    const rawRows = await WIKI.db
+    const rawRows = await CARDINAL.db
       .update(pagesTable)
       .set(values)
       .where(eq(pagesTable.id, id))
@@ -1281,7 +1284,7 @@ class Pages {
     if (values.publishState !== undefined && values.publishState !== existing.publishState) {
       const published = values.publishState === 'published'
       if (published || existing.publishState === 'published') {
-        WIKI.logger.info('pages', published ? 'published' : 'unpublished', {
+        CARDINAL.logger.info('pages', published ? 'published' : 'unpublished', {
           site: siteId,
           page: id,
           path: updated.path,
@@ -1292,7 +1295,7 @@ class Pages {
       }
     }
 
-    await WIKI.models.pageHistory.record({
+    await CARDINAL.models.pageHistory.record({
       siteId,
       pageId: id,
       action: 'updated',
@@ -1320,7 +1323,7 @@ class Pages {
     //    description-only edit (handled above, touching nothing tree-side) leaves the tree row's
     //    `meta` (which the file manager reads `description` out of) and sort-by-`updatedAt` ordering
     //    stale. Matches `movePage` (:1223) and `createPage` (:896), which write `meta` unconditionally.
-    await WIKI.db
+    await CARDINAL.db
       .update(treeTable)
       .set({
         ...(treeTitle !== null ? { title: treeTitle } : {}),
@@ -1341,10 +1344,10 @@ class Pages {
       patch.isBrowsable !== undefined ||
       patch.publishState !== undefined
     ) {
-      WIKI.models.navigation.invalidateCache(siteId)
+      CARDINAL.models.navigation.invalidateCache(siteId)
     }
 
-    await WIKI.models.search.updated(rawUpdated)
+    await CARDINAL.models.search.updated(rawUpdated)
     if (hasRenderInput) {
       // -> No render-queue path here: when `needsRerenderQueue` fires instead, `storeRender()` is
       //    what queues the embed job, once the real content actually lands
@@ -1357,9 +1360,9 @@ class Pages {
     //    resolve to a page whose access just changed (OpenProject #1706). Path/locale are covered by
     //    `movePage`, not here.
     if (patch.classification !== undefined || patch.tags !== undefined) {
-      WIKI.models.glossary.invalidateCache(siteId)
+      CARDINAL.models.glossary.invalidateCache(siteId)
     }
-    await WIKI.models.hooks.emit('page:edit', siteId, {
+    await CARDINAL.models.hooks.emit('page:edit', siteId, {
       id,
       path: updated.path,
       locale: updated.locale,
@@ -1371,7 +1374,7 @@ class Pages {
     //    classification change emits its own webhook (with no storage dispatch of its own) BETWEEN
     //    the edit's emit and its dispatch, and that ordering is what a subscriber sees.
     if (classificationChanged) {
-      await WIKI.models.hooks.emit('page:classification-changed', siteId, {
+      await CARDINAL.models.hooks.emit('page:classification-changed', siteId, {
         id,
         path: updated.path,
         locale: updated.locale,
@@ -1381,7 +1384,7 @@ class Pages {
         classification: updated.classification
       })
     }
-    await WIKI.models.storage.dispatch('page:edit', {
+    await CARDINAL.models.storage.dispatch('page:edit', {
       id,
       path: updated.path,
       locale: updated.locale,
@@ -1416,7 +1419,7 @@ class Pages {
    * move/rename UI to offer it.
    */
   async getTranslations(siteId: string, path: string, excludeId: string): Promise<Page[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: pagesTable.id })
       .from(pagesTable)
       .where(
@@ -1441,14 +1444,14 @@ class Pages {
     siteId: string,
     paths?: string[]
   ): Promise<TranslationStalenessEntry[]> {
-    const localesConfig = WIKI.sites[siteId]?.config?.locales
+    const localesConfig = CARDINAL.sites[siteId]?.config?.locales
     const primaryLocale = defaultLocale(siteId)
     const activeLocales: string[] = localesConfig?.active ?? [primaryLocale]
     if (activeLocales.length < 2) {
       return []
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         path: pagesTable.path,
         locale: pagesTable.locale,
@@ -1485,15 +1488,20 @@ class Pages {
       under a stricter parent auto-bumps it rather than refusing the move outright -- "no separate
       confirmation step for a move" is the spec's own words. `stricterOf` is a no-op when the page is
       already at or above the new floor (its own classification IS the stricter of the two already).
-      Read inside the transaction (`tx`, not `WIKI.db`) so a concurrent move of the parent cannot land
+      Read inside the transaction (`tx`, not `CARDINAL.db`) so a concurrent move of the parent cannot land
       between this read and the write below.
     */
     const newFloorId =
       newPath !== current.path || destLocale !== current.locale
-        ? await WIKI.models.pageClassification.parentClassification(siteId, destLocale, newPath, tx)
+        ? await CARDINAL.models.pageClassification.parentClassification(
+            siteId,
+            destLocale,
+            newPath,
+            tx
+          )
         : null
     const classification = newFloorId
-      ? WIKI.models.classificationLevels.stricterOf(current.classification, newFloorId)
+      ? CARDINAL.models.classificationLevels.stricterOf(current.classification, newFloorId)
       : current.classification
 
     const rawMovedRows = await tx
@@ -1513,8 +1521,8 @@ class Pages {
     // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
     //    dropping and re-adding would create the destination folders but leave the old ones counted
     const pathParts = newPath.split('/')
-    await WIKI.models.tree.deleteEntry(current.id, tx)
-    await WIKI.models.tree.addPage({
+    await CARDINAL.models.tree.deleteEntry(current.id, tx)
+    await CARDINAL.models.tree.addPage({
       id: current.id,
       parentPath: pathParts.slice(0, -1).join('/'),
       fileName: pathParts.at(-1)!,
@@ -1680,7 +1688,7 @@ class Pages {
    * once per page in a large batch would be wasteful the same way `deleteOrphaned` calling it once per
    * entry would be. Instead this reports whether THIS page's move requires it, via the returned
    * `glossaryInvalidate` flag, and leaves the caller to OR that across the whole batch and call
-   * `WIKI.models.glossary.invalidateCache(siteId)` at most once -- `deleteOrphaned`'s
+   * `CARDINAL.models.glossary.invalidateCache(siteId)` at most once -- `deleteOrphaned`'s
    * one-call-covers-the-batch pattern is the reference.
    */
   private async recordPageMoveSideEffects(
@@ -1693,7 +1701,7 @@ class Pages {
     actor: PageActor
   ): Promise<{ moved: Page; glossaryInvalidate: boolean }> {
     const moved = (await this.getPage({ siteId, id: pageId })) as Page
-    await WIKI.models.pageHistory.record({
+    await CARDINAL.models.pageHistory.record({
       siteId,
       pageId,
       action: 'moved',
@@ -1715,7 +1723,7 @@ class Pages {
       },
       changedFields
     )
-    await WIKI.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
+    await CARDINAL.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
     // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
     //    also affects the glossary's canonical-page cache -- has to drop the cached sitemap list. Its
     //    path is also what every edge pointing at it is keyed by (`assembleGraph` matches
@@ -1737,7 +1745,7 @@ class Pages {
     //    named in the request and once more per `includeTranslations` twin, and a twin's move is a
     //    move of its own, not a detail of somebody else's. `fromLocale` appears only for a re-homing,
     //    where `from`/`to` can otherwise be the same path.
-    WIKI.logger.info('pages', 'moved', {
+    CARDINAL.logger.info('pages', 'moved', {
       site: siteId,
       page: pageId,
       from: previousPath,
@@ -1843,7 +1851,7 @@ class Pages {
     }
     let results: MoveResult[]
     try {
-      results = await WIKI.db.transaction(async (tx) => {
+      results = await CARDINAL.db.transaction(async (tx) => {
         const primary = await this.moveOnePageInTx(
           tx,
           siteId,
@@ -1885,8 +1893,8 @@ class Pages {
     const relinkedPageIds = new Set(results.flatMap((result) => result.relinkedPageIds))
     await Promise.all(
       [...relinkedPageIds].map((relinkedPageId) =>
-        WIKI.models.pageDrafts.clear(relinkedPageId).catch((err: any) => {
-          WIKI.logger.warn('pages', 'clearing the draft failed', {
+        CARDINAL.models.pageDrafts.clear(relinkedPageId).catch((err: any) => {
+          CARDINAL.logger.warn('pages', 'clearing the draft failed', {
             page: relinkedPageId,
             error: err
           })
@@ -1914,7 +1922,7 @@ class Pages {
       }
     }
     if (glossaryInvalidate) {
-      WIKI.models.glossary.invalidateCache(siteId)
+      CARDINAL.models.glossary.invalidateCache(siteId)
     }
     return primaryMoved!
   }
@@ -1930,7 +1938,7 @@ class Pages {
       return false
     }
     // -> Before the row goes, and this version is what recovering the page would be built from
-    await WIKI.models.pageHistory.record({
+    await CARDINAL.models.pageHistory.record({
       siteId,
       pageId: id,
       action: 'deleted',
@@ -1953,15 +1961,15 @@ class Pages {
     //    that no longer exists -- still rendering in the file manager, 404ing when opened, and
     //    permanently blocking a future page at the same path via `tree_composite_page_idx`
     //    (OpenProject #1739). Passing `tx` into `deleteEntry` is why its `db` parameter defaults to
-    //    `WIKI.db` but accepts a `tx`. `movePage` draws the same boundary for its own
+    //    `CARDINAL.db` but accepts a `tx`. `movePage` draws the same boundary for its own
     //    delete-and-reinsert of the tree entry.
-    await WIKI.db.transaction(async (tx) => {
+    await CARDINAL.db.transaction(async (tx) => {
       await tx.delete(pagesTable).where(eq(pagesTable.id, id))
-      await WIKI.models.tree.deleteEntry(id, tx)
+      await CARDINAL.models.tree.deleteEntry(id, tx)
     })
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
-    await WIKI.models.navigation.deleteNavForEntries(siteId, [id])
+    await CARDINAL.models.navigation.deleteNavForEntries(siteId, [id])
     // -> The FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term canonically
     //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
     //    link needs the same drop or it would keep pointing at a page that no longer exists
@@ -1972,9 +1980,9 @@ class Pages {
 
     // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
     //    at the db level drops the sync-state rows for this page on its own.
-    await WIKI.models.contentSync.forgetContent('page', id)
+    await CARDINAL.models.contentSync.forgetContent('page', id)
 
-    await WIKI.models.search.deleted(siteId, id)
+    await CARDINAL.models.search.deleted(siteId, id)
     await announce('page:delete', siteId, {
       id,
       path: page.path,
@@ -1982,7 +1990,7 @@ class Pages {
       siteId,
       authorId: actor.id
     })
-    WIKI.logger.info('pages', 'deleted', {
+    CARDINAL.logger.info('pages', 'deleted', {
       site: siteId,
       page: id,
       path: page.path,
@@ -2018,7 +2026,7 @@ class Pages {
     //    for the whole batch, not one per entry, before the rows go.
     const pageInfo = new Map(
       (
-        await WIKI.db
+        await CARDINAL.db
           .select({
             id: pagesTable.id,
             tags: pagesTable.tags,
@@ -2034,7 +2042,7 @@ class Pages {
       ).map((row) => [row.id, row])
     )
     for (const entry of entries) {
-      await WIKI.models.pageHistory.record({
+      await CARDINAL.models.pageHistory.record({
         siteId,
         pageId: entry.id,
         action: 'deleted',
@@ -2053,7 +2061,7 @@ class Pages {
         tags: info?.tags ?? []
       })
     }
-    await WIKI.db.delete(pagesTable).where(
+    await CARDINAL.db.delete(pagesTable).where(
       inArray(
         pagesTable.id,
         entries.map((entry) => entry.id)
@@ -2065,7 +2073,7 @@ class Pages {
     this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> Same reasoning as `deletePage`: one batched call rather than one per page.
-    await WIKI.models.contentSync.forgetContentBatch(
+    await CARDINAL.models.contentSync.forgetContentBatch(
       'page',
       entries.map((entry) => entry.id)
     )
@@ -2074,7 +2082,7 @@ class Pages {
     //    wiki has to hear about each page, not about the folder it happened to sit in
     for (const entry of entries) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
-      await WIKI.models.search.deleted(siteId, entry.id)
+      await CARDINAL.models.search.deleted(siteId, entry.id)
       await announce('page:delete', siteId, {
         id: entry.id,
         path,
@@ -2087,7 +2095,7 @@ class Pages {
       //    existing is content leaving the wiki, whether it was named directly or swept up by the
       //    folder over it. `cascade` is what tells the two apart in the log; the `debug` summary
       //    below still carries the batch size.
-      WIKI.logger.info('pages', 'deleted', {
+      CARDINAL.logger.info('pages', 'deleted', {
         site: siteId,
         page: entry.id,
         path,
@@ -2096,7 +2104,7 @@ class Pages {
         ...actorFields(actor)
       })
     }
-    WIKI.logger.debug('pages', 'deleted the pages that went with a deleted folder', {
+    CARDINAL.logger.debug('pages', 'deleted the pages that went with a deleted folder', {
       pages: entries.length
     })
   }
@@ -2132,7 +2140,7 @@ class Pages {
     if (!page) {
       return false
     }
-    await WIKI.models.renderQueue.ensureCanRender(page.editor)
+    await CARDINAL.models.renderQueue.ensureCanRender(page.editor)
     await this.enqueueRerender(siteId, page, actor, renderPermissions)
     return true
   }
@@ -2149,7 +2157,7 @@ class Pages {
     actor: PageActor,
     renderPermissions?: RenderPermissions
   ): Promise<void> {
-    await WIKI.models.renderQueue.queuePage({
+    await CARDINAL.models.renderQueue.queuePage({
       siteId,
       pageId: page.id,
       permissions: renderPermissions ?? {
@@ -2174,14 +2182,14 @@ class Pages {
     permissions: RenderPermissions,
     pagePath: string
   ): Promise<void> {
-    const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+    const { render, toc, text, links } = await CARDINAL.models.rendering.postProcess(
       siteId,
       html,
       permissions,
       pagePath
     )
 
-    const updated = await WIKI.db
+    const updated = await CARDINAL.db
       .update(pagesTable)
       .set({ render, toc, searchContent: text, links, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
@@ -2189,7 +2197,7 @@ class Pages {
 
     // -> Nothing was updated when the page went while it sat in the queue
     if (updated[0]) {
-      await WIKI.models.search.updated(updated[0])
+      await CARDINAL.models.search.updated(updated[0])
       // -> The one place a render-queue-drained save's real content lands, so this is the only
       //    embed-job enqueue the queued path needs -- `createPage`/`updatePage` skip it themselves
       //    when they queued a render rather than post-processing one directly
@@ -2205,11 +2213,11 @@ class Pages {
    * save -- never once per chunk, and never for a save that only queued a render without yet
    * producing one (the render-queue drain, `storeRender()`, is what calls this once that render is
    * ready instead). The job itself no-ops when semantic search is unavailable
-   * (`WIKI.capabilities.semanticSearch`) and always fully replaces a page's chunks rather than
+   * (`CARDINAL.capabilities.semanticSearch`) and always fully replaces a page's chunks rather than
    * appending to them -- see `embedPage()`'s own doc comment.
    */
   private async enqueueEmbedJob(pageId: string): Promise<void> {
-    await WIKI.scheduler.addJob({ task: 'embedPage', payload: { pageId } })
+    await CARDINAL.scheduler.addJob({ task: 'embedPage', payload: { pageId } })
   }
 
   /**
@@ -2223,7 +2231,7 @@ class Pages {
     siteId: string,
     alias: string
   ): Promise<{ id: string; path: string; locale: string; tags: string[] } | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -2257,14 +2265,14 @@ class Pages {
     siteId: string
   ): Promise<Array<{ path: string; locale: string; updatedAt: Date }>> {
     const key = sitemapCacheKey(siteId)
-    const cached = WIKI.cache.get(key) as
+    const cached = CARDINAL.cache.get(key) as
       | Array<{ path: string; locale: string; updatedAt: Date }>
       | undefined
     if (cached) {
       return cached
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         path: pagesTable.path,
         locale: pagesTable.locale,
@@ -2283,7 +2291,9 @@ class Pages {
       .orderBy(pagesTable.path)
       .limit(SITEMAP_QUERY_CAP)
 
-    const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
+    const guestRules = CARDINAL.models.groups.rulesForGroups([
+      CARDINAL.data.systemIds.guestsGroupId
+    ])
     const result = rows
       .filter((row) =>
         rulesAllow(guestRules, 'read:pages', {
@@ -2296,7 +2306,7 @@ class Pages {
       )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
 
-    WIKI.cache.set(key, result, { ttl: SITEMAP_CACHE_TTL_MS })
+    CARDINAL.cache.set(key, result, { ttl: SITEMAP_CACHE_TTL_MS })
     return result
   }
 
@@ -2307,7 +2317,7 @@ class Pages {
    * an unpublish, a move or a delete — since any of those can add or remove a row from the list.
    */
   invalidateSitemapCache(siteId: string): void {
-    WIKI.cache.delete(sitemapCacheKey(siteId))
+    CARDINAL.cache.delete(sitemapCacheKey(siteId))
   }
 
   /**
@@ -2328,7 +2338,7 @@ class Pages {
     if (paths.length < 1) {
       return []
     }
-    return WIKI.db
+    return CARDINAL.db
       .select({
         path: pagesTable.path,
         locale: pagesTable.locale,
@@ -2350,7 +2360,7 @@ class Pages {
    */
   private invalidateSiteCaches(siteId: string, opts: { glossary?: boolean } = {}): void {
     if (opts.glossary) {
-      WIKI.models.glossary.invalidateCache(siteId)
+      CARDINAL.models.glossary.invalidateCache(siteId)
     }
     this.invalidateSitemapCache(siteId)
     invalidateGraphCache(siteId)
@@ -2383,7 +2393,7 @@ class Pages {
     if (opts.exceptId) {
       conditions.unshift(ne(pagesTable.id, opts.exceptId))
     }
-    const duplicate = await WIKI.db
+    const duplicate = await CARDINAL.db
       .select({ id: pagesTable.id })
       .from(pagesTable)
       .where(and(...conditions))
@@ -2419,7 +2429,7 @@ class Pages {
     if (exceptPageId) {
       conditions.push(ne(pagesTable.id, exceptPageId))
     }
-    const duplicate = await WIKI.db
+    const duplicate = await CARDINAL.db
       .select({ id: pagesTable.id })
       .from(pagesTable)
       .where(and(...conditions))
@@ -2438,7 +2448,7 @@ class Pages {
     siteId: string,
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const defaults = WIKI.sites[siteId]?.config?.defaults ?? {}
+    const defaults = CARDINAL.sites[siteId]?.config?.defaults ?? {}
     return {
       allowComments: input.allowComments ?? existing.allowComments ?? true,
       allowContributions: input.allowContributions ?? existing.allowContributions ?? true,
@@ -2499,11 +2509,16 @@ class Pages {
     changedFields: string[] = []
   ): Promise<void> {
     try {
-      const watchers = await WIKI.models.pageWatching.listWatchers(siteId, pageId, actorId, action)
+      const watchers = await CARDINAL.models.pageWatching.listWatchers(
+        siteId,
+        pageId,
+        actorId,
+        action
+      )
       if (watchers.length < 1) {
         return
       }
-      await WIKI.scheduler.addJob({
+      await CARDINAL.scheduler.addJob({
         task: 'notifyPageWatchers',
         payload: {
           siteId,
@@ -2518,7 +2533,7 @@ class Pages {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn('pages', 'queueing the watch notifications failed', {
+      CARDINAL.logger.warn('pages', 'queueing the watch notifications failed', {
         page: pageId,
         error: err
       })

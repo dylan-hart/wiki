@@ -68,7 +68,7 @@ export async function handleSetPageWatchPreference(
     preference.notifyOnDeleted = args.notifyOnDeleted
   }
 
-  const existed = await WIKI.models.pageWatching.setPreference({
+  const existed = await CARDINAL.models.pageWatching.setPreference({
     pageId: args.pageId,
     userId: ctx.userId,
     ...preference
@@ -76,7 +76,7 @@ export async function handleSetPageWatchPreference(
   if (!existed) {
     throw new McpToolError('You are not watching this page.')
   }
-  const resolved = await WIKI.models.pageWatching.getPreference(args.pageId, ctx.userId)
+  const resolved = await CARDINAL.models.pageWatching.getPreference(args.pageId, ctx.userId)
 
   return toResult({ pageId: args.pageId, preference: resolved })
 }

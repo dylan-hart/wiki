@@ -2,9 +2,9 @@ import { assertSiteInScope, McpToolError } from './auth.ts'
 import type { McpAuthContext } from './auth.ts'
 
 /**
- * A site as `WIKI.sites` caches it. Untyped upstream (`types/global.d.ts` has `sites: Record<string,
+ * A site as `CARDINAL.sites` caches it. Untyped upstream (`types/global.d.ts` has `sites: Record<string,
  * any>` with a standing TODO to tighten it against the Drizzle row type) — narrowed to the fields
- * `mcp/` actually reads, the same way callers elsewhere in `backend/` read off `WIKI.sites[id]`
+ * `mcp/` actually reads, the same way callers elsewhere in `backend/` read off `CARDINAL.sites[id]`
  * without a shared type for the whole row.
  */
 export interface McpSite {
@@ -27,7 +27,7 @@ export interface McpSite {
  * unknown id as "not my problem" the way that preHandler does.
  */
 export function resolveSite(siteId: string): McpSite {
-  const site = WIKI.sites[siteId] as McpSite | undefined
+  const site = CARDINAL.sites[siteId] as McpSite | undefined
   if (!site) {
     throw new McpToolError('This site does not exist.')
   }
@@ -47,7 +47,9 @@ export function resolveDefaultSiteId(ctx: McpAuthContext): string | null {
   if (ctx.siteId) {
     return ctx.siteId
   }
-  const enabled = Object.values(WIKI.sites as Record<string, McpSite>).filter((s) => s.isEnabled)
+  const enabled = Object.values(CARDINAL.sites as Record<string, McpSite>).filter(
+    (s) => s.isEnabled
+  )
   return enabled.length === 1 ? enabled[0].id : null
 }
 

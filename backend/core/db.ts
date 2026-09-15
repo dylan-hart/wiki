@@ -28,15 +28,15 @@ import { bootstrapPgvector } from './pgvectorBootstrap.ts'
  * listener and so has no `this` to reach it through. The client is read per send for the same reason
  * it is elsewhere: it does not exist until `subscribeToNotifications`.
  *
- * The getter is defensive (`WIKI.dbManager?.pubsubClient`) rather than a bare dereference: this module
+ * The getter is defensive (`CARDINAL.dbManager?.pubsubClient`) rather than a bare dereference: this module
  * is also imported from `worker.ts` (transitively, as part of the task-loading import graph), whose own
  * minimal `WIKI` never sets `dbManager` at all — no worker task currently emits an outbound event, so
- * this getter has never actually been invoked from a worker thread, but a bare `WIKI.dbManager.pubsubClient`
+ * this getter has never actually been invoked from a worker thread, but a bare `CARDINAL.dbManager.pubsubClient`
  * would throw `TypeError: Cannot read properties of undefined` the moment one did, rather than degrading
  * to the silent no-op `createNotifier`'s own contract already documents for "nobody currently has a live
  * LISTEN client".
  */
-const notifier = createNotifier(() => WIKI.dbManager?.pubsubClient ?? null, 'event bus')
+const notifier = createNotifier(() => CARDINAL.dbManager?.pubsubClient ?? null, 'event bus')
 
 /**
  * Postgres extensions the schema depends on, installed before the migrations run.
@@ -95,7 +95,7 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
  */
 export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
-    WIKI.logger.debug(
+    CARDINAL.logger.debug(
       'sql',
       query,
       params.length > 0 ? { params: describeQueryParams(params) } : undefined
@@ -157,11 +157,11 @@ const SLOW_QUERY_INSTRUMENTED = Symbol('wiki:slowQueryInstrumented')
  * Read per call rather than captured when the pool is built: `slowQueryMs` is a FILE setting with no
  * live toggle (see `base.yml`), so this is not there to support a runtime change — it is there so
  * that reading it is one expression with one owner, and so a test can drive the wrapper by setting
- * `WIKI.config.slowQueryMs` rather than by rebuilding a pool. Anything non-numeric, negative or
+ * `CARDINAL.config.slowQueryMs` rather than by rebuilding a pool. Anything non-numeric, negative or
  * absent reads as off, which is also what an operator who never touched the key gets.
  */
 function slowQueryThresholdMs(): number {
-  const configured = Number(WIKI.config.slowQueryMs)
+  const configured = Number(CARDINAL.config.slowQueryMs)
   return Number.isFinite(configured) && configured > 0 ? configured : 0
 }
 
@@ -217,7 +217,7 @@ function reportSlowQuery(
   ms: number,
   rows: number | undefined
 ): void {
-  WIKI.logger.warn('sql', 'slow query', {
+  CARDINAL.logger.warn('sql', 'slow query', {
     ...(rows === undefined ? {} : { rows }),
     query: text.length > SLOW_QUERY_TEXT_LIMIT ? `${text.slice(0, SLOW_QUERY_TEXT_LIMIT)}…` : text,
     ...(values.length > 0 ? { params: describeQueryParams(values) } : {}),
@@ -325,11 +325,11 @@ function createDb(client: Pool) {
   return drizzle({ client, relations, logger: queryLogger })
 }
 
-/** The Drizzle instance, as returned by `init()` and exposed as `WIKI.db`. */
+/** The Drizzle instance, as returned by `init()` and exposed as `CARDINAL.db`. */
 export type WikiDb = ReturnType<typeof createDb>
 
 /**
- * The transaction handle `WIKI.db.transaction(async (tx) => ...)` hands its callback — the same
+ * The transaction handle `CARDINAL.db.transaction(async (tx) => ...)` hands its callback — the same
  * query-builder surface as `WikiDb` (`.select()`/`.insert()`/`.update()`/`.delete()`), but bound to one
  * checked-out connection for the life of the `BEGIN`/`COMMIT`. Derived from `WikiDb['transaction']`
  * itself rather than imported from `drizzle-orm/node-postgres` so it always matches whatever
@@ -338,9 +338,9 @@ export type WikiDb = ReturnType<typeof createDb>
 export type WikiTx = Parameters<Parameters<WikiDb['transaction']>[0]>[0]
 
 /**
- * Either the ambient `WIKI.db` or a transaction handle carved out of it. A model method that writes
+ * Either the ambient `CARDINAL.db` or a transaction handle carved out of it. A model method that writes
  * more than one row and wants those writes to share a caller-controlled transaction takes this as an
- * optional `db` parameter, defaulting to the ambient `WIKI.db` — see `models/tree.ts`'s `addAsset`
+ * optional `db` parameter, defaulting to the ambient `CARDINAL.db` — see `models/tree.ts`'s `addAsset`
  * call chain for the worked example.
  */
 export type WikiDbOrTx = WikiDb | WikiTx
@@ -374,7 +374,7 @@ export default {
   /**
    * Dedicated pool the three permanently-held LISTEN/NOTIFY clients (event bus, scheduler,
    * collaborative editing) check out from -- never the main query pool `pool` above, so holding
-   * them for the process lifetime never eats into `WIKI.config.pool.max`. Built once in `init()`, by
+   * them for the process lifetime never eats into `CARDINAL.config.pool.max`. Built once in `init()`, by
    * `helpers/pubsub.ts`'s `createListenerPool` -- see its doc comment for the sizing rationale.
    */
   listenerPool: null as Pool | null,
@@ -400,11 +400,11 @@ export default {
       this.dbName = parse(process.env.DATABASE_URL).database
     } else {
       this.config = {
-        host: WIKI.config.db.host.toString(),
-        user: WIKI.config.db.user.toString(),
-        password: WIKI.config.db.pass.toString(),
-        database: WIKI.config.db.db.toString(),
-        port: WIKI.config.db.port
+        host: CARDINAL.config.db.host.toString(),
+        user: CARDINAL.config.db.user.toString(),
+        password: CARDINAL.config.db.pass.toString(),
+        database: CARDINAL.config.db.db.toString(),
+        port: CARDINAL.config.db.port
       }
       this.dbName = this.config.database
     }
@@ -412,29 +412,32 @@ export default {
     // Handle SSL Options
 
     let dbUseSSL =
-      WIKI.config.db.ssl === true ||
-      WIKI.config.db.ssl === 'true' ||
-      WIKI.config.db.ssl === 1 ||
-      WIKI.config.db.ssl === '1'
+      CARDINAL.config.db.ssl === true ||
+      CARDINAL.config.db.ssl === 'true' ||
+      CARDINAL.config.db.ssl === 1 ||
+      CARDINAL.config.db.ssl === '1'
     let sslOptions: any = null
-    if (dbUseSSL && isPlainObject(this.config) && WIKI.config.db?.sslOptions?.auto === false) {
-      sslOptions = WIKI.config.db.sslOptions
+    if (dbUseSSL && isPlainObject(this.config) && CARDINAL.config.db?.sslOptions?.auto === false) {
+      sslOptions = CARDINAL.config.db.sslOptions
       sslOptions.rejectUnauthorized = sslOptions.rejectUnauthorized !== false
       if (sslOptions.ca && sslOptions.ca.indexOf('-----') !== 0) {
-        sslOptions.ca = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.ca), 'utf-8')
+        sslOptions.ca = await fs.readFile(path.resolve(CARDINAL.ROOTPATH, sslOptions.ca), 'utf-8')
       }
       if (sslOptions.cert) {
-        sslOptions.cert = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.cert), 'utf-8')
+        sslOptions.cert = await fs.readFile(
+          path.resolve(CARDINAL.ROOTPATH, sslOptions.cert),
+          'utf-8'
+        )
       }
       if (sslOptions.key) {
-        sslOptions.key = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.key), 'utf-8')
+        sslOptions.key = await fs.readFile(path.resolve(CARDINAL.ROOTPATH, sslOptions.key), 'utf-8')
       }
       if (sslOptions.pfx) {
         // -> PKCS#12 is binary DER, unlike `ca`/`cert`/`key` (PEM, text) above -- reading it as
         //    'utf-8' corrupts the bundle and fails the TLS handshake with a confusing error
         //    (OpenProject #940). No encoding argument means `readFile` returns the raw `Buffer` node-
         //    postgres expects for `pfx`.
-        sslOptions.pfx = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.pfx))
+        sslOptions.pfx = await fs.readFile(path.resolve(CARDINAL.ROOTPATH, sslOptions.pfx))
       }
     } else {
       sslOptions = true
@@ -460,7 +463,7 @@ export default {
 
     // Initialize Postgres Pool
 
-    // -> `WIKI.config.pool` carries operator-tunable `max`/`connectionTimeoutMillis`/
+    // -> `CARDINAL.config.pool` carries operator-tunable `max`/`connectionTimeoutMillis`/
     //    `statementTimeoutMillis` (defaulted in base.yml, sized above `scheduler.workers` so the
     //    scheduler's own claim query is never the thing starved). `connectionTimeoutMillis` bounds
     //    how long `pool.connect()` waits for a checkout on a saturated pool -- unset, pg-pool waits
@@ -471,13 +474,13 @@ export default {
     //    same way. `statement_timeout` has to travel via the `options` connection string -- pg-pool
     //    has no dedicated config key for it -- so Postgres itself cancels a runaway query rather than
     //    leaving it to run unbounded once a connection is checked out.
-    const poolConfig = WIKI.config.pool ?? {}
+    const poolConfig = CARDINAL.config.pool ?? {}
     this.pool = new Pool({
-      application_name: `Cardinal.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
+      application_name: `Cardinal.js - ${CARDINAL.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
       connectionTimeoutMillis: poolConfig.connectionTimeoutMillis,
-      ...resolvePoolSizeOptions(workerMode, WIKI.config.pool),
-      options: `-c search_path=${WIKI.config.db.schema} -c statement_timeout=${poolConfig.statementTimeoutMillis}`
+      ...resolvePoolSizeOptions(workerMode, CARDINAL.config.pool),
+      options: `-c search_path=${CARDINAL.config.db.schema} -c statement_timeout=${poolConfig.statementTimeoutMillis}`
     })
 
     // -> node-postgres emits 'error' on the pool whenever a checked-in, idle client's connection
@@ -489,7 +492,7 @@ export default {
     //    returns so worker mode (`worker.ts`'s `ensureDb()`, which also calls `init(true)`) is
     //    covered too.
     this.pool.on('error', (err: any, client: any) => {
-      WIKI.logger.error('db', 'pool error', {
+      CARDINAL.logger.error('db', 'pool error', {
         ...(err.code ? { code: err.code } : {}),
         ...(client?.processID ? { pid: client.processID } : {}),
         error: err
@@ -510,7 +513,7 @@ export default {
     if (!workerMode) {
       this.listenerPool = createListenerPool({
         ...this.config,
-        options: `-c search_path=${WIKI.config.db.schema}`
+        options: `-c search_path=${CARDINAL.config.db.schema}`
       })
     }
 
@@ -524,7 +527,7 @@ export default {
     const dbVersion = semver.coerce(resVersion.rows[0].server_version as string, { loose: true })!
     this.VERSION = dbVersion.version
     if (dbVersion.major < 16) {
-      WIKI.logger.error('db', 'postgres version is unsupported', {
+      CARDINAL.logger.error('db', 'postgres version is unsupported', {
         postgres: dbVersion.version,
         minimum: '16'
       })
@@ -550,9 +553,9 @@ export default {
     //    replaced (OpenProject #2665): connecting, the server version, the schema, the extensions and
     //    the migrations are all just "did the database come up", and an operator wants the answer and
     //    what it cost, not the commentary.
-    WIKI.logger.info('db', 'connected', {
+    CARDINAL.logger.info('db', 'connected', {
       postgres: this.VERSION,
-      schema: WIKI.config.db.schema,
+      schema: CARDINAL.config.db.schema,
       ...(workerMode ? {} : { migrations: migrationsApplied }),
       ms: Date.now() - startedAt
     })
@@ -569,7 +572,7 @@ export default {
   async countAppliedMigrations(db: WikiDb): Promise<number> {
     try {
       const res = await db.execute(
-        `SELECT count(*)::int AS total FROM ${WIKI.config.db.schema}.migrations`
+        `SELECT count(*)::int AS total FROM ${CARDINAL.config.db.schema}.migrations`
       )
       return (res.rows[0]?.total as number) ?? 0
     } catch {
@@ -577,7 +580,7 @@ export default {
     }
   },
   /**
-   * DEV - Drop schema, gated on `WIKI.IS_DEBUG` (OpenProject task 2270).
+   * DEV - Drop schema, gated on `CARDINAL.IS_DEBUG` (OpenProject task 2270).
    *
    * `dev.dropSchema` is presented in `config.sample.yml` under a "Dev Mode" heading, but the config
    * value alone used to be trusted in every mode: `config.yml` is merged over `base.yml` with no
@@ -586,7 +589,7 @@ export default {
    * would be wrong. Left ungated, a config carried into production intact -- or an env var aimed at
    * the wrong layer -- drops the schema, total and irreversible, on the very next boot.
    *
-   * `WIKI.IS_DEBUG` (`index.ts`) is derived solely from `NODE_ENV === 'development'`, not from any
+   * `CARDINAL.IS_DEBUG` (`index.ts`) is derived solely from `NODE_ENV === 'development'`, not from any
    * wiki config or `dev.*` env var, so it cannot be flipped by the same misconfiguration this guards
    * against. When the key is set but the guard blocks it, an explicit refusal is logged instead of
    * silently doing nothing, so a developer running with the wrong `NODE_ENV` is not left wondering
@@ -598,17 +601,17 @@ export default {
    * switch too many (OpenProject #2663).
    */
   async dropSchemaIfDev(db: WikiDb): Promise<void> {
-    if (!WIKI.config.dev?.dropSchema) {
+    if (!CARDINAL.config.dev?.dropSchema) {
       return
     }
-    if (!WIKI.IS_DEBUG) {
-      WIKI.logger.warn('db', 'dev.dropSchema refused, not a debug boot', {
-        schema: WIKI.config.db.schema
+    if (!CARDINAL.IS_DEBUG) {
+      CARDINAL.logger.warn('db', 'dev.dropSchema refused, not a debug boot', {
+        schema: CARDINAL.config.db.schema
       })
       return
     }
-    WIKI.logger.warn('db', 'dev mode, dropping schema', { schema: WIKI.config.db.schema })
-    await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
+    CARDINAL.logger.warn('db', 'dev mode, dropping schema', { schema: CARDINAL.config.db.schema })
+    await db.execute(`DROP SCHEMA IF EXISTS ${CARDINAL.config.db.schema} CASCADE;`)
   },
   /**
    * Subscribe to database LISTEN / NOTIFY for multi-instances events
@@ -650,14 +653,14 @@ export default {
    *    ever redelivers.
    *  - `glossary.subscribeToEvents()`'s `invalidateGlossaryCache` handler (OpenProject #2038) is the
    *    seventh, and needs no boot-time re-sync at all to close the same gap: its cache is lazily
-   *    populated per site on first read rather than warmed at boot, so a fresh `WIKI.cache` (a new
+   *    populated per site on first read rather than warmed at boot, so a fresh `CARDINAL.cache` (a new
    *    `LRUCache` every process start, `index.ts`) simply has nothing stale to miss-invalidate right
    *    after a restart. The residual reconnect-window gap above still applies while the instance
    *    stays up, which is what `models/glossary.ts`'s bounded `CACHE_TTL_MS` on each cache entry is
    *    the belt for — see its own doc comment.
    */
   async subscribeToNotifications(): Promise<void> {
-    const connectionAppName = `Cardinal.js - ${WIKI.INSTANCE_ID}:EVENTS`
+    const connectionAppName = `Cardinal.js - ${CARDINAL.INSTANCE_ID}:EVENTS`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
@@ -673,12 +676,12 @@ export default {
         }
         try {
           const decoded = JSON.parse(msg.payload!)
-          if ('event' in decoded && decoded.source !== WIKI.INSTANCE_ID) {
-            WIKI.logger.debug('cluster', 'event received', {
+          if ('event' in decoded && decoded.source !== CARDINAL.INSTANCE_ID) {
+            CARDINAL.logger.debug('cluster', 'event received', {
               event: decoded.event,
               instance: decoded.source
             })
-            WIKI.events.inbound.emit(decoded.event, decoded.value)
+            CARDINAL.events.inbound.emit(decoded.event, decoded.value)
           }
         } catch {}
       },
@@ -690,30 +693,30 @@ export default {
 
     // -> Cast because `onAny` types the event as every pair the map allows plus Emittery's own meta
     //    events, and this listener is written to the one shape they have in common
-    WIKI.events.outbound.onAny(this.notifyViaDB as any)
+    CARDINAL.events.outbound.onAny(this.notifyViaDB as any)
 
     // -> Listen to inbound events
 
-    // WIKI.auth.subscribeToEvents()
-    WIKI.configSvc.subscribeToEvents()
+    // CARDINAL.auth.subscribeToEvents()
+    CARDINAL.configSvc.subscribeToEvents()
     maintenance.subscribeToEvents()
-    WIKI.models.groups.subscribeToEvents()
-    WIKI.models.sites.subscribeToEvents()
-    WIKI.models.approvalRules.subscribeToEvents()
-    WIKI.models.classificationLevels.subscribeToEvents()
-    WIKI.models.glossary.subscribeToEvents()
-    WIKI.models.locales.subscribeToEvents()
-    // WIKI.db.pages.subscribeToEvents()
+    CARDINAL.models.groups.subscribeToEvents()
+    CARDINAL.models.sites.subscribeToEvents()
+    CARDINAL.models.approvalRules.subscribeToEvents()
+    CARDINAL.models.classificationLevels.subscribeToEvents()
+    CARDINAL.models.glossary.subscribeToEvents()
+    CARDINAL.models.locales.subscribeToEvents()
+    // CARDINAL.db.pages.subscribeToEvents()
 
-    WIKI.logger.debug('cluster', 'event listener subscribed')
+    CARDINAL.logger.debug('cluster', 'event listener subscribed')
   },
   /**
    * Unsubscribe from database LISTEN / NOTIFY
    */
   async unsubscribeFromNotifications(): Promise<void> {
     if (this.listenerHandle) {
-      WIKI.events.outbound.offAny(this.notifyViaDB as any)
-      WIKI.events.inbound.clearListeners()
+      CARDINAL.events.outbound.offAny(this.notifyViaDB as any)
+      CARDINAL.events.inbound.clearListeners()
       // -> Whatever the last events queued goes out before the client goes: releasing it from under a
       //    notification in flight would fail that one for no reason
       await notifier.drained()
@@ -752,7 +755,7 @@ export default {
     notifier.send(
       'wiki',
       JSON.stringify({
-        source: WIKI.INSTANCE_ID,
+        source: CARDINAL.INSTANCE_ID,
         event: name,
         value: data ?? null
       })
@@ -768,7 +771,7 @@ export default {
       if (this.connectAttempts < 10) {
         // -> One record per failed attempt, at `warn`: this is the self-healing case, and the
         //    `error` an operator has to act on is the throw below once the attempts run out.
-        WIKI.logger.warn('db', 'connection failed, retrying', {
+        CARDINAL.logger.warn('db', 'connection failed, retrying', {
           attempt: `${++this.connectAttempts}/10`,
           ...(err.code ? { code: err.code, address: `${err.address}:${err.port}` } : {}),
           error: err
@@ -791,16 +794,16 @@ export default {
   async checkForLegacyInstall(db: WikiDb): Promise<void> {
     const res = await db.execute(sql`
       SELECT table_name FROM information_schema.tables
-      WHERE table_schema = ${WIKI.config.db.schema} AND table_name IN ${LEGACY_TABLES}
+      WHERE table_schema = ${CARDINAL.config.db.schema} AND table_name IN ${LEGACY_TABLES}
       LIMIT 1
     `)
     if (res.rows.length > 0) {
-      WIKI.logger.error(
+      CARDINAL.logger.error(
         'db',
         'refusing to boot, upgrading from a 2.x installation is unsupported',
         {
           table: res.rows[0].table_name,
-          schema: WIKI.config.db.schema
+          schema: CARDINAL.config.db.schema
         }
       )
       process.exit(1)
@@ -811,8 +814,8 @@ export default {
    *
    * Holds a session-scoped advisory lock (`MIGRATION_LOCK_KEY`) across the legacy-install check,
    * `CREATE SCHEMA`, `CREATE EXTENSION` and `migrate()` below — see `MIGRATION_LOCK_KEY`'s own doc
-   * comment for why. Taken off `this.pool` rather than `WIKI.db.$client`/`withAdvisoryLock`: `WIKI.db`
-   * is only assigned from this method's caller's return value (`index.ts` does `WIKI.db =
+   * comment for why. Taken off `this.pool` rather than `CARDINAL.db.$client`/`withAdvisoryLock`: `CARDINAL.db`
+   * is only assigned from this method's caller's return value (`index.ts` does `CARDINAL.db =
    * await dbManager.init()`), so it does not exist yet at this point in boot.
    *
    * Returns the still-held lock handle rather than releasing it itself, so a wider caller can go on
@@ -825,7 +828,7 @@ export default {
     try {
       await this.checkForLegacyInstall(db)
 
-      await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
+      await db.execute(`CREATE SCHEMA IF NOT EXISTS ${CARDINAL.config.db.schema}`)
 
       /*
         Here rather than at the top of the first migration, for the same reason the schema itself is:
@@ -843,8 +846,8 @@ export default {
       }
 
       await migrate(db, {
-        migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
-        migrationsSchema: WIKI.config.db.schema,
+        migrationsFolder: path.join(CARDINAL.SERVERPATH, 'db/migrations'),
+        migrationsSchema: CARDINAL.config.db.schema,
         migrationsTable: 'migrations'
       })
 
@@ -854,7 +857,7 @@ export default {
       //    `migrate()` above do -- `bootstrapPgvector()` itself never throws, and its own doc
       //    comment carries the full reasoning. Runs under the same advisory lock as everything else
       //    here, so two instances booting cold at once still serialize through it.
-      WIKI.capabilities = { semanticSearch: await bootstrapPgvector(db) }
+      CARDINAL.capabilities = { semanticSearch: await bootstrapPgvector(db) }
 
       return lock
     } catch (err) {

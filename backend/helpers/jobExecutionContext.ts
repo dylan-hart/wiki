@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 /**
- * Fences `WIKI.models.jobs.setResult()` against a stale, previously-timed-out in-process task
+ * Fences `CARDINAL.models.jobs.setResult()` against a stale, previously-timed-out in-process task
  * clobbering a later, legitimately-completed retry's result (OpenProject #2351).
  *
  * `core/scheduler.ts#executeInProcess()` cannot actually cancel an in-process task once its

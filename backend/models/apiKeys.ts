@@ -186,8 +186,8 @@ class ApiKeys {
    */
   private privateKey(): crypto.KeyObject {
     return crypto.createPrivateKey({
-      key: WIKI.config.auth.certs.private,
-      passphrase: WIKI.config.auth.certs.passphrase
+      key: CARDINAL.config.auth.certs.private,
+      passphrase: CARDINAL.config.auth.certs.passphrase
     })
   }
 
@@ -205,27 +205,27 @@ class ApiKeys {
    * @returns How many keys were still usable and no longer are, or null if the settings failed to save
    */
   async regenerateCertificates(): Promise<number | null> {
-    const previousAuth = WIKI.config.auth
-    const usable = await WIKI.db.$count(
+    const previousAuth = CARDINAL.config.auth
+    const usable = await CARDINAL.db.$count(
       apiKeysTable,
       and(eq(apiKeysTable.isRevoked, false), gt(apiKeysTable.expiration, sql`now()`))
     )
 
-    WIKI.config.auth = { ...previousAuth, certs: generateSigningCertificates() }
+    CARDINAL.config.auth = { ...previousAuth, certs: generateSigningCertificates() }
     // -> Propagates as `reloadConfig`, which is how the other instances pick up the new public key
     //    rather than going on trusting tokens this one has just disowned. `verify()` below reads
-    //    `WIKI.config.auth.certs.public` fresh on every call rather than a value handed to a plugin at
+    //    `CARDINAL.config.auth.certs.public` fresh on every call rather than a value handed to a plugin at
     //    boot, so `reloadConfig`'s `loadFromDb()` is enough on its own — no restart needed. The session
     //    secret rotation in `models/sessions.ts#rotateSecret()` now works the same way
     //    (`helpers/authSecretSigner.ts`, OpenProject #2172). Verified live across a real two-instance
     //    setup for task 589 — a second instance picked up the new `generatedAt` within a second of this
     //    call, with no restart.
-    if (!(await WIKI.configSvc.saveToDb(['auth']))) {
-      WIKI.config.auth = previousAuth
+    if (!(await CARDINAL.configSvc.saveToDb(['auth']))) {
+      CARDINAL.config.auth = previousAuth
       return null
     }
 
-    WIKI.logger.info('auth', 'regenerated the API key certificates', { invalidated: usable })
+    CARDINAL.logger.info('auth', 'regenerated the API key certificates', { invalidated: usable })
     return usable
   }
 
@@ -239,8 +239,11 @@ class ApiKeys {
    * chose to revoke.
    */
   async getKeys(): Promise<ApiKeyListEntry[]> {
-    const results = await WIKI.db.select().from(apiKeysTable).orderBy(desc(apiKeysTable.createdAt))
-    const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
+    const results = await CARDINAL.db
+      .select()
+      .from(apiKeysTable)
+      .orderBy(desc(apiKeysTable.createdAt))
+    const generatedAt = Temporal.Instant.from(CARDINAL.config.auth.certs.generatedAt)
     return results.map((key) => ({
       ...key,
       isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
@@ -249,7 +252,7 @@ class ApiKeys {
 
   /** When the keypair keys are signed with came into being. */
   certificatesGeneratedAt(): string {
-    return WIKI.config.auth.certs.generatedAt
+    return CARDINAL.config.auth.certs.generatedAt
   }
 
   /**
@@ -257,12 +260,12 @@ class ApiKeys {
    * `getKeys()`, which lists every key on the instance and is admin-only. Same `isInvalidated` marking.
    */
   async listKeysForUser(userId: string): Promise<ApiKeyListEntry[]> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select()
       .from(apiKeysTable)
       .where(eq(apiKeysTable.userId, userId))
       .orderBy(desc(apiKeysTable.createdAt))
-    const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
+    const generatedAt = Temporal.Instant.from(CARDINAL.config.auth.certs.generatedAt)
     return results.map((key) => ({
       ...key,
       isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
@@ -319,7 +322,7 @@ class ApiKeys {
       this.privateKey()
     )
 
-    await WIKI.db.insert(apiKeysTable).values({
+    await CARDINAL.db.insert(apiKeysTable).values({
       id,
       name,
       keyShort: key.slice(-8),
@@ -339,7 +342,7 @@ class ApiKeys {
    * A single key, or null if there is no such key
    */
   async getKeyById(id: string): Promise<ApiKey | null> {
-    const results = await WIKI.db
+    const results = await CARDINAL.db
       .select()
       .from(apiKeysTable)
       .where(eq(apiKeysTable.id, id))
@@ -353,7 +356,7 @@ class ApiKeys {
    * @returns Whether a key was revoked
    */
   async revokeKey(id: string): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(apiKeysTable)
       .set({ isRevoked: true, updatedAt: sql`now()` })
       .where(eq(apiKeysTable.id, id))
@@ -371,7 +374,7 @@ class ApiKeys {
    * @returns Whether a key owned by this user was revoked
    */
   async revokeKeyForUser(id: string, userId: string): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(apiKeysTable)
       .set({ isRevoked: true, updatedAt: sql`now()` })
       .where(and(eq(apiKeysTable.id, id), eq(apiKeysTable.userId, userId)))
@@ -397,13 +400,13 @@ class ApiKeys {
    * @returns How many keys were deleted
    */
   async purgeRevoked(): Promise<number> {
-    const result = await WIKI.db.delete(apiKeysTable).where(eq(apiKeysTable.isRevoked, true))
+    const result = await CARDINAL.db.delete(apiKeysTable).where(eq(apiKeysTable.isRevoked, true))
     const purged = result.rowCount ?? 0
     // -> Silent at `info` when there was nothing to purge; this runs from a scheduled job.
     if (purged > 0) {
-      WIKI.logger.info('auth', 'purged revoked API keys', { keys: purged })
+      CARDINAL.logger.info('auth', 'purged revoked API keys', { keys: purged })
     } else {
-      WIKI.logger.debug('auth', 'no revoked API keys to purge')
+      CARDINAL.logger.debug('auth', 'no revoked API keys to purge')
     }
     return purged
   }
@@ -419,7 +422,7 @@ class ApiKeys {
     if (groupIds.length < 1) {
       return []
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ permissions: groupsTable.permissions })
       .from(groupsTable)
       .where(inArray(groupsTable.id, groupIds))
@@ -437,7 +440,7 @@ class ApiKeys {
   private async resolveOwner(
     userId: string
   ): Promise<{ isActive: boolean; groupIds: string[]; permissions: string[] } | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         isActive: usersTable.isActive,
         groupId: userGroupsTable.groupId,
@@ -463,13 +466,13 @@ class ApiKeys {
    * @throws ApiKeyError with a reason suitable for a 401 response
    */
   async verify(token: string): Promise<ApiKeyIdentity> {
-    if (WIKI.config.api.isEnabled !== true) {
+    if (CARDINAL.config.api.isEnabled !== true) {
       throw new ApiKeyError('The API is disabled.')
     }
 
     let claims
     try {
-      claims = verifyJwt(token, WIKI.config.auth.certs.public, {
+      claims = verifyJwt(token, CARDINAL.config.auth.certs.public, {
         audience: TOKEN_AUDIENCE
       })
     } catch (err: any) {
@@ -559,13 +562,13 @@ export function validateApiKeyInput(body: ApiKeyCreateInput, label: string): str
   }
   // -> null pins nothing (instance-wide, today's only behavior); any other value must name a real
   //    site, the same way every entry in an admin key's `groups` must name a real group
-  if (body.siteId != null && !WIKI.sites[body.siteId]) {
+  if (body.siteId != null && !CARDINAL.sites[body.siteId]) {
     return 'This site does not exist.'
   }
   // -> null is unrestricted; any other value must be a list naming only real classification levels
   if (
     body.allowedClassifications != null &&
-    body.allowedClassifications.some((id) => !WIKI.models.classificationLevels.byId(id))
+    body.allowedClassifications.some((id) => !CARDINAL.models.classificationLevels.byId(id))
   ) {
     return 'One of the classification levels does not exist.'
   }
@@ -585,8 +588,8 @@ export async function issueKey(
   input: Parameters<ApiKeys['createKey']>[0],
   audit: { actor: AuditActor; detail: Record<string, unknown> }
 ): Promise<{ id: string; key: string }> {
-  const { id, key } = await WIKI.models.apiKeys.createKey(input)
-  await WIKI.models.auditLog.record({
+  const { id, key } = await CARDINAL.models.apiKeys.createKey(input)
+  await CARDINAL.models.auditLog.record({
     event: 'apiKey.issued',
     actor: audit.actor,
     targetType: 'apiKey',

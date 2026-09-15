@@ -39,7 +39,7 @@ async function main(): Promise<void> {
 
   // -> No `source` field: `args.source` is a whole `ParsedSource`, credentials included. The source
   //    is described (kind and location only) by `runAgainstDestination` below.
-  WIKI.logger.info('migrate', '2.5.x -> 3.0 migration cli', {
+  CARDINAL.logger.info('migrate', '2.5.x -> 3.0 migration cli', {
     site: args.siteId,
     dryRun: args.dryRun
   })
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   try {
     await runAgainstDestination(WIKI, args)
   } finally {
-    await WIKI.dbManager.pool?.end()
+    await CARDINAL.dbManager.pool?.end()
   }
 }
 
@@ -80,9 +80,9 @@ async function resolveRenderMode(
   if (requested !== 'auto') {
     return requested
   }
-  const available = await WIKI.models.renderQueue.isAvailable()
+  const available = await CARDINAL.models.renderQueue.isAvailable()
   if (!available) {
-    WIKI.logger.info(
+    CARDINAL.logger.info(
       'migrate',
       'render-mode auto: no Puppeteer extension on this destination, so imported pages will carry ' +
         "2.x's stored render through unchanged (2.x's own asset-URL convention, not 3.0's " +
@@ -90,7 +90,7 @@ async function resolveRenderMode(
     )
     return 'passthrough'
   }
-  WIKI.logger.info(
+  CARDINAL.logger.info(
     'migrate',
     'render-mode auto: this destination can render pages natively, so imported markdown pages will ' +
       "be queued for a real 3.0 render instead of carrying 2.x's stored render through unchanged"
@@ -99,9 +99,9 @@ async function resolveRenderMode(
 }
 
 async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs): Promise<void> {
-  const site = await WIKI.models.sites.getSiteById({ id: args.siteId, forceReload: true })
+  const site = await CARDINAL.models.sites.getSiteById({ id: args.siteId, forceReload: true })
   if (!site) {
-    WIKI.logger.error('migrate', 'destination site was not found', { site: args.siteId })
+    CARDINAL.logger.error('migrate', 'destination site was not found', { site: args.siteId })
     process.exitCode = 1
     return
   }
@@ -110,21 +110,21 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
   await source.connect()
   try {
     const description = await source.describe()
-    WIKI.logger.info('migrate', 'source connected', {
+    CARDINAL.logger.info('migrate', 'source connected', {
       kind: description.kind,
       location: description.location,
       ...(description.version ? { detectedVersion: description.version } : {})
     })
     for (const note of description.notes) {
-      WIKI.logger.info('migrate', note)
+      CARDINAL.logger.info('migrate', note)
     }
 
     const ctx: MigrationContext = {
-      db: WIKI.db,
+      db: CARDINAL.db,
       source,
       siteId: args.siteId,
       dryRun: args.dryRun,
-      log: (message) => WIKI.logger.info('migrate', message),
+      log: (message) => CARDINAL.logger.info('migrate', message),
       renderMode: await resolveRenderMode(WIKI, args.renderMode),
       ...resolveUsersImportContext(WIKI)
     }
@@ -132,7 +132,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
     const results = await runMigration(MIGRATION_PHASES, ctx, { only: args.only })
 
     for (const result of results) {
-      WIKI.logger.info('migrate', `phase ${result.phase} ${result.status}`, {
+      CARDINAL.logger.info('migrate', `phase ${result.phase} ${result.status}`, {
         ...result.counts,
         ...(result.notImplemented?.length
           ? { notImplemented: result.notImplemented.join(',') }
@@ -140,7 +140,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       })
       if (result.errors?.length) {
         for (const message of result.errors) {
-          WIKI.logger.error('migrate', message, { phase: result.phase })
+          CARDINAL.logger.error('migrate', message, { phase: result.phase })
         }
       }
     }
@@ -153,7 +153,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
     process.stdout.write(`\n${formatReportTable(reports)}\n`)
     if (args.reportFile) {
       await fs.writeFile(args.reportFile, `${reportsToJson(reports)}\n`, 'utf8')
-      WIKI.logger.info('migrate', 'report written', { path: args.reportFile })
+      CARDINAL.logger.info('migrate', 'report written', { path: args.reportFile })
     }
 
     // -> Whole-branch review Important #4: a live (non-dry-run) run must exit non-zero, with a clear
@@ -162,7 +162,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
     //    bundle source's still-stubbed phases used to silently exit 0 on a real, partial migration).
     const notImplementedPhases = notImplementedPhaseIds(results)
     if (!args.dryRun && notImplementedPhases.length > 0) {
-      WIKI.logger.error(
+      CARDINAL.logger.error(
         'migrate',
         `live migration incomplete: these phases had no real write path against this source and ` +
           `wrote nothing. Whatever phases DID write above already made real changes to the ` +

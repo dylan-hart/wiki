@@ -19,7 +19,7 @@ import type { ConfigTransform } from './shared.ts'
  * miscoerced, it comes back `flagged` — then `Authentication.buildConfig(module, incoming, {})` to
  * fill in every declared prop (module defaults for anything 2.x never had). This module never
  * constructs its own copy of that logic; it takes an `AuthModuleResolver` (the real
- * `WIKI.models.authentication` singleton satisfies it structurally) so the mapper and the model can
+ * `CARDINAL.models.authentication` singleton satisfies it structurally) so the mapper and the model can
  * never drift apart on what a "valid" config is.
  *
  * ---
@@ -96,10 +96,10 @@ export interface SourceAuthenticationRow extends SourceRecord {
 export type NewAuthenticationRow = typeof authenticationTable.$inferInsert
 
 // ---------------------------------------------------------------------------
-// Model dependency — the real `WIKI.models.authentication` singleton satisfies this structurally.
+// Model dependency — the real `CARDINAL.models.authentication` singleton satisfies this structurally.
 // Kept as a narrow interface (rather than importing the class) so this mapper is unit-testable
-// without a live DB: `getModule`/`buildConfig`/`validateConfig` never touch `WIKI.db`, only
-// `WIKI.data.authentication` (populated from disk by `refreshStrategiesFromDisk()`), so a test can
+// without a live DB: `getModule`/`buildConfig`/`validateConfig` never touch `CARDINAL.db`, only
+// `CARDINAL.data.authentication` (populated from disk by `refreshStrategiesFromDisk()`), so a test can
 // wire the real singleton against the real `backend/modules/authentication/*/definition.yml` files
 // with no database at all.
 // ---------------------------------------------------------------------------

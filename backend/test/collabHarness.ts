@@ -47,7 +47,7 @@ export class FakeSocket extends EventEmitter {
  * No database and no second `node backend` process: `hasPeers()`'s one query is bypassed by presetting
  * its cache, and "two instances" are two independent clones of the exported object (same methods,
  * independent `rooms`/`partials`/`awaitingState`) wired together by overriding `publish` to hand the
- * envelope straight to the other clone's `receiveRelay` — toggling the module-global `WIKI.INSTANCE_ID`
+ * envelope straight to the other clone's `receiveRelay` — toggling the module-global `CARDINAL.INSTANCE_ID`
  * around each hop exactly as two real processes would each carry their own id. This is relay/room
  * bookkeeping with no SQL in it, so a real two-process harness (as built for task 704's scheduler work)
  * would mostly be re-proving the same logic slower and flakier, per this repo's guidance to prefer a
@@ -75,7 +75,7 @@ export function makeInstance(id: string): any {
 
 /**
  * Wire two instance clones' relay together: a publish from one hands the envelope straight to the
- * other's `receiveRelay`, toggling `WIKI.INSTANCE_ID` to whichever side is "currently running" for the
+ * other's `receiveRelay`, toggling `CARDINAL.INSTANCE_ID` to whichever side is "currently running" for the
  * length of that one synchronous call — mirroring what a real NOTIFY delivery would look like from a
  * second process with its own instance id, without needing one.
  */
@@ -87,19 +87,19 @@ export function wire(a: any, b: any): void {
         if (target.__id === envelope.i) {
           continue
         }
-        const previous = (globalThis as any).WIKI.INSTANCE_ID
-        ;(globalThis as any).WIKI.INSTANCE_ID = target.__id
+        const previous = (globalThis as any).CARDINAL.INSTANCE_ID
+        ;(globalThis as any).CARDINAL.INSTANCE_ID = target.__id
         try {
           target.receiveRelay(envelope)
         } finally {
-          ;(globalThis as any).WIKI.INSTANCE_ID = previous
+          ;(globalThis as any).CARDINAL.INSTANCE_ID = previous
         }
       }
     }
   }
 }
 
-/** The page row `WIKI.models.pages.getPage` answers with, when a room has to fall back to storage. */
+/** The page row `CARDINAL.models.pages.getPage` answers with, when a room has to fall back to storage. */
 export const STORED_PAGE = {
   content: 'STORED PAGE CONTENT',
   title: 'Stored title',
@@ -113,9 +113,9 @@ export interface CollabHarness {
   openRoom(inst: any, page: { id: string; siteId: string }): Promise<any>
   /** Register a room a test opened by other means, so the same teardown applies. */
   trackRoom(room: any): void
-  /** This test's `WIKI.models.pages.getPage` mock, rebuilt fresh before every test. */
+  /** This test's `CARDINAL.models.pages.getPage` mock, rebuilt fresh before every test. */
   getPage(): any
-  /** This test's `WIKI.models.pageDrafts` mocks (`get`/`save`/`clear`), rebuilt fresh before every
+  /** This test's `CARDINAL.models.pageDrafts` mocks (`get`/`save`/`clear`), rebuilt fresh before every
    *  test — see `core/collab.draftPersist.test.ts`. */
   pageDrafts(): { get: any; save: any; clear: any }
 }
@@ -142,7 +142,7 @@ export function installCollabHarness(): CollabHarness {
 
   beforeEach(() => {
     getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
-    // -> `WIKI.models.pageDrafts` (OpenProject #2454): `initRoom()` itself never reads `get` (OpenProject
+    // -> `CARDINAL.models.pageDrafts` (OpenProject #2454): `initRoom()` itself never reads `get` (OpenProject
     //    #2957 — a persisted draft is never a room-seeding source), but `save`/`clear` are still
     //    exercised by the debounced-persist/pageSaved/discardDraft paths, and a suite that wants to
     //    assert on any of the three reads them back through `pageDrafts()`.
@@ -161,7 +161,7 @@ export function installCollabHarness(): CollabHarness {
     // -> Only `core/collab.draftPersist.test.ts` opens rooms on the real singleton rather than a
     //    `makeInstance()` clone (everything else in this harness's other callers builds its own, and
     //    sets its own `peerPresence`) — freshening this here is what keeps `hasPeers()` reading its
-    //    cache (`known: false`) instead of falling through to a real `WIKI.db` query (undefined in
+    //    cache (`known: false`) instead of falling through to a real `CARDINAL.db` query (undefined in
     //    this stub) followed by a genuine `PEER_STATE_TIMEOUT` wait for every room it opens.
     collab.peerPresence = { known: false, checkedAt: Date.now() }
     createdRooms = []

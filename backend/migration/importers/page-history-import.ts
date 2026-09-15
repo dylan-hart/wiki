@@ -10,7 +10,7 @@ import { derivePublishState, mapEditor } from './page-import.ts'
 /**
  * Page history backfill via a direct `pageHistory` insert
  *
- * `WIKI.models.pageHistory.record()` (`backend/models/pageHistory.ts:143`) only ever snapshots the
+ * `CARDINAL.models.pageHistory.record()` (`backend/models/pageHistory.ts:143`) only ever snapshots the
  * CURRENT `pages` row — it reads the row fresh from `pagesTable` and writes exactly that. Its only
  * concession to a caller who isn't editing *right now* is `versionDate` (added alongside this task, to
  * carry `PageInput.updatedAt` through so that row is dated the source's real last-modified time rather
@@ -54,7 +54,7 @@ import { derivePublishState, mapEditor } from './page-import.ts'
  *
  * ## Chunked inserts
  *
- * `PageHistoryInsertRow` has 12 fields, and a single `WIKI.db.insert(pageHistoryTable).values(rows)`
+ * `PageHistoryInsertRow` has 12 fields, and a single `CARDINAL.db.insert(pageHistoryTable).values(rows)`
  * call binds every field of every row as its own parameter — Postgres refuses more than 65535 bind
  * parameters per statement, a ceiling a mature 2.x install's most-edited page can cross alone at
  * around 5461 revisions. `backfillPageHistoryForPage()` (called once per page, immediately after that
@@ -71,7 +71,7 @@ import { derivePublishState, mapEditor } from './page-import.ts'
  * whose `pageId` matched no page among the source's current `pages` (almost always a 2.x page that
  * was deleted and never recreated). `pageHistory.pageId` is a non-FK plain column on both 2.x and
  * 3.0 *by design* (`db/schema.ts`'s comment on the column, `docs/migration/2.5x-to-3.0-mapping.md`)
- * specifically so history outlives the page it belonged to — every `WIKI.models.pageHistory` reader
+ * specifically so history outlives the page it belonged to — every `CARDINAL.models.pageHistory` reader
  * (`list`, `getVersion`, `listRecoverable`, `getDeletedVersion`, `recoverDeletedPage`) keys off
  * `siteId`+`pageId` or `siteId`+`locale`+`path`, never a join back to `pages`, so a `pageId` that
  * names no live page is exactly the shape `listRecoverable`'s "recoverable" query already expects
@@ -116,8 +116,8 @@ export interface PageHistoryImportDeps {
    * DELIBERATE EXCEPTION to "always go through the model" (see the module doc comment above for
    * why `record()` cannot do this instead): the real implementation — wired up by
    * `phases/content.ts`, same as every other injected dependency here — does exactly one thing per
-   * call, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more.
-   * It must NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this
+   * call, `CARDINAL.db.insert(pageHistoryTable).values(rows)`, and nothing more.
+   * It must NOT call `CARDINAL.models.pageHistory.record()`, because `record()` ignores every field this
    * module computed and re-derives its own from the current `pages` row instead — the opposite of
    * what a historical backfill needs.
    *

@@ -13,7 +13,7 @@ import { corsOptions, inlineScriptHashSources, parseCspDirectives } from '../../
  * change takes effect on the next restart — the view says as much.
  */
 export function registerSecurity(app: FastifyInstance): void {
-  const security = WIKI.config.security
+  const security = CARDINAL.config.security
 
   /*
     The app shell (`assets/index.html`, served by `helpers/appShell.ts`) always ships two inline
@@ -33,7 +33,7 @@ export function registerSecurity(app: FastifyInstance): void {
       ? parseCspDirectives(security.cspDirectives)
       : null
   if (cspDirectives?.['script-src']) {
-    const cspAppShellPath = path.join(WIKI.ROOTPATH, 'assets/index.html')
+    const cspAppShellPath = path.join(CARDINAL.ROOTPATH, 'assets/index.html')
     if (existsSync(cspAppShellPath)) {
       const appShellHtml = readFileSync(cspAppShellPath, 'utf8')
       cspDirectives['script-src'] = [

@@ -111,7 +111,7 @@ const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
  * the two durations are stored as an operator wrote them (`1m`, `5m`) rather than as raw seconds.
  */
 function webhookRateLimitPolicy(): RateLimitPolicy {
-  const scheduler = WIKI.config.scheduler ?? {}
+  const scheduler = CARDINAL.config.scheduler ?? {}
   const max = Number(scheduler.webhookRateLimitMax)
   return {
     max: Number.isFinite(max) && max > 0 ? Math.floor(max) : WEBHOOK_RATE_LIMIT_DEFAULTS.max,
@@ -158,7 +158,7 @@ export function postJson(
         headers: {
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(body),
-          'user-agent': `Cardinal.js/${WIKI.version}`,
+          'user-agent': `Cardinal.js/${CARDINAL.version}`,
           ...(authHeader ? { authorization: authHeader } : {})
         },
         timeout: DELIVERY_TIMEOUT,
@@ -190,7 +190,7 @@ class Hooks {
    * Every webhook, newest first
    */
   async getHooks(): Promise<Hook[]> {
-    const results = await WIKI.db.select().from(hooksTable).orderBy(desc(hooksTable.createdAt))
+    const results = await CARDINAL.db.select().from(hooksTable).orderBy(desc(hooksTable.createdAt))
     return results
   }
 
@@ -198,7 +198,11 @@ class Hooks {
    * A single webhook, or null if there is no such webhook
    */
   async getHookById(id: string): Promise<Hook | null> {
-    const results = await WIKI.db.select().from(hooksTable).where(eq(hooksTable.id, id)).limit(1)
+    const results = await CARDINAL.db
+      .select()
+      .from(hooksTable)
+      .where(eq(hooksTable.id, id))
+      .limit(1)
     return results[0] ?? null
   }
 
@@ -232,7 +236,7 @@ class Hooks {
     )
     const { total, rows } = await paginate({
       rows: () =>
-        WIKI.db
+        CARDINAL.db
           .select({
             event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
             state: jobHistoryTable.state,
@@ -246,7 +250,7 @@ class Hooks {
           .where(where)
           .orderBy(desc(jobHistoryTable.startedAt))
           .limit(limit),
-      total: () => WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+      total: () => CARDINAL.db.select({ total: count() }).from(jobHistoryTable).where(where)
     })
 
     return { total, deliveries: rows }
@@ -268,7 +272,7 @@ class Hooks {
     // -> Null (or omitted) means "all sites" — see the column comment in `db/schema.ts`
     siteId?: string | null
   }): Promise<string> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .insert(hooksTable)
       .values({
         name: values.name,
@@ -299,7 +303,7 @@ class Hooks {
       values.state = 'pending'
       values.lastErrorMessage = null
     }
-    const result = await WIKI.db.update(hooksTable).set(values).where(eq(hooksTable.id, id))
+    const result = await CARDINAL.db.update(hooksTable).set(values).where(eq(hooksTable.id, id))
     return (result.rowCount ?? 0) > 0
   }
 
@@ -309,7 +313,7 @@ class Hooks {
    * @returns Whether a webhook was deleted
    */
   async deleteHook(id: string): Promise<boolean> {
-    const result = await WIKI.db.delete(hooksTable).where(eq(hooksTable.id, id))
+    const result = await CARDINAL.db.delete(hooksTable).where(eq(hooksTable.id, id))
     return (result.rowCount ?? 0) > 0
   }
 
@@ -342,7 +346,7 @@ class Hooks {
       const siteFilter = siteId
         ? sql`(${hooksTable.siteId} IS NULL OR ${hooksTable.siteId} = ${siteId})`
         : sql`${hooksTable.siteId} IS NULL`
-      const subscribed = await WIKI.db
+      const subscribed = await CARDINAL.db
         .select({
           id: hooksTable.id,
           includeMetadata: hooksTable.includeMetadata,
@@ -353,18 +357,22 @@ class Hooks {
 
       const policy = webhookRateLimitPolicy()
       for (const hook of subscribed) {
-        const verdict = await WIKI.models.rateLimits.consume(`webhook:${hook.id}`, policy)
+        const verdict = await CARDINAL.models.rateLimits.consume(`webhook:${hook.id}`, policy)
         if (!verdict.allowed) {
           // -> Admission decision, not a delivery outcome: the hook's persisted `state` describes
           //    what happened to an attempted delivery (pending/success/error), and this delivery was
           //    never attempted. A warn line is the only trace of it, same as the queueing failure
           //    below.
-          WIKI.logger.warn('hooks', 'webhook is over its delivery rate limit, skipping delivery', {
-            hook: hook.id,
-            event,
-            hits: verdict.hits,
-            max: policy.max
-          })
+          CARDINAL.logger.warn(
+            'hooks',
+            'webhook is over its delivery rate limit, skipping delivery',
+            {
+              hook: hook.id,
+              event,
+              hits: verdict.hits,
+              max: policy.max
+            }
+          )
           continue
         }
         const { metadata, content, ...rest } = data
@@ -373,19 +381,19 @@ class Hooks {
           ...(hook.includeMetadata && metadata !== undefined ? { metadata } : {}),
           ...(hook.includeContent && content !== undefined ? { content } : {})
         }
-        const added = await WIKI.scheduler.addJob({
+        const added = await CARDINAL.scheduler.addJob({
           task: 'dispatchWebhook',
           // -> The instance travels with the job because the delivery does not happen here: it runs
           //    in a worker thread, whose `INSTANCE_ID` names the thread rather than the wiki, and
           //    what a subscriber wants to know is which instance the event came from
-          payload: { hookId: hook.id, event, data: payload, instance: WIKI.INSTANCE_ID }
+          payload: { hookId: hook.id, event, data: payload, instance: CARDINAL.INSTANCE_ID }
         })
         if (added?.id) {
           queued++
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn('hooks', 'queueing the webhook deliveries failed', { event, error: err })
+      CARDINAL.logger.warn('hooks', 'queueing the webhook deliveries failed', { event, error: err })
     }
 
     // -> Two further, independent fan-outs for the same event — see `notifyEmailSubscribers`'s and
@@ -398,7 +406,7 @@ class Hooks {
   }
 
   /**
-   * Queue an email notification job for every user subscribed (`WIKI.models.users
+   * Queue an email notification job for every user subscribed (`CARDINAL.models.users
    * .listEmailSubscribers`) to this event type — the email half of `emit()`'s fan-out, alongside the
    * webhook queueing above. Independent of it on purpose: a broken webhook lookup must not stop a
    * subscribed user from being emailed, and vice versa, so each has its own `try`/`catch` rather than
@@ -416,11 +424,11 @@ class Hooks {
     data: Record<string, any>
   ): Promise<void> {
     try {
-      const subscribers = await WIKI.models.users.listEmailSubscribers(event)
+      const subscribers = await CARDINAL.models.users.listEmailSubscribers(event)
       if (subscribers.length < 1) {
         return
       }
-      await WIKI.scheduler.addJob({
+      await CARDINAL.scheduler.addJob({
         task: 'notifyEventSubscribers',
         payload: {
           event,
@@ -430,7 +438,10 @@ class Hooks {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn('hooks', 'queueing the email notifications failed', { event, error: err })
+      CARDINAL.logger.warn('hooks', 'queueing the email notifications failed', {
+        event,
+        error: err
+      })
     }
   }
 
@@ -456,16 +467,16 @@ class Hooks {
     data: Record<string, any>
   ): Promise<void> {
     try {
-      const subscriberIds = await WIKI.models.eventSubscriptions.listSubscribers(event)
+      const subscriberIds = await CARDINAL.models.eventSubscriptions.listSubscribers(event)
       if (subscriberIds.length < 1) {
         return
       }
-      await WIKI.scheduler.addJob({
+      await CARDINAL.scheduler.addJob({
         task: 'notifyEventSubscriptionSubscribers',
         payload: { event, data, subscriberIds }
       })
     } catch (err: any) {
-      WIKI.logger.warn('hooks', 'queueing the event-subscriber notifications failed', {
+      CARDINAL.logger.warn('hooks', 'queueing the event-subscriber notifications failed', {
         event,
         error: err
       })
@@ -495,7 +506,7 @@ class Hooks {
     const hook = await this.getHookById(hookId)
     if (!hook) {
       // -> Deleted between queueing and delivery; nothing to do and nothing to retry
-      WIKI.logger.debug('hooks', 'webhook no longer exists, skipping delivery', {
+      CARDINAL.logger.debug('hooks', 'webhook no longer exists, skipping delivery', {
         hook: hookId,
         event
       })
@@ -517,17 +528,17 @@ class Hooks {
       if (statusCode < 200 || statusCode > 299) {
         throw new Error(`The endpoint answered with HTTP ${statusCode}.`)
       }
-      await WIKI.db
+      await CARDINAL.db
         .update(hooksTable)
         .set({ state: 'success', lastErrorMessage: null })
         .where(eq(hooksTable.id, hook.id))
-      WIKI.logger.debug('hooks', 'delivered to webhook', { hook: hook.id, event })
+      CARDINAL.logger.debug('hooks', 'delivered to webhook', { hook: hook.id, event })
     } catch (err: any) {
-      await WIKI.db
+      await CARDINAL.db
         .update(hooksTable)
         .set({ state: 'error', lastErrorMessage: err.message })
         .where(eq(hooksTable.id, hook.id))
-      WIKI.logger.warn('hooks', 'delivering to the webhook failed', {
+      CARDINAL.logger.warn('hooks', 'delivering to the webhook failed', {
         hook: hook.id,
         event,
         error: err
@@ -551,9 +562,9 @@ export const hooks = new Hooks()
  * columns a target needs to classify the content (`kind`/`fileSize`).
  *
  * A module function rather than a method on `Hooks`, because both call sites are other models and
- * both of their test suites stand `WIKI.models.hooks` up as a bare `{ emit }` stub — a method here
- * would not exist on those stubs, while this reads `WIKI.models.hooks.emit` and
- * `WIKI.models.storage.dispatch` at call time, exactly as the inlined copies did.
+ * both of their test suites stand `CARDINAL.models.hooks` up as a bare `{ emit }` stub — a method here
+ * would not exist on those stubs, while this reads `CARDINAL.models.hooks.emit` and
+ * `CARDINAL.models.storage.dispatch` at call time, exactly as the inlined copies did.
  *
  * Both calls are awaited in this order, deliberately: `assets.test.ts` asserts that an upload does
  * not resolve until both have. The payloads are what external consumers actually receive, so they are
@@ -574,12 +585,12 @@ export async function announce(
     dispatchExtra?: Record<string, unknown>
   } = {}
 ): Promise<void> {
-  await WIKI.models.hooks.emit(
+  await CARDINAL.models.hooks.emit(
     event,
     siteId,
     extra.metadata ? { ...data, metadata: extra.metadata } : data
   )
-  await WIKI.models.storage.dispatch(
+  await CARDINAL.models.storage.dispatch(
     event,
     extra.dispatchExtra ? { ...data, ...extra.dispatchExtra } : data
   )

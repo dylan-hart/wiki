@@ -15,8 +15,8 @@
  * No database access, no Fastify route, no Drizzle import — `models/comments.ts` is expected to
  * dynamically import this file's default export the same way `models/storage.ts` loads
  * `modules/storage/<key>/storage.ts`. `checkSpam` does read the ambient `WIKI` global
- * (`WIKI.config.host`, `WIKI.logger`), same as `modules/authentication/local/authentication.ts`
- * reads it for `WIKI.models` — that global is available everywhere in the backend without importing
+ * (`CARDINAL.config.host`, `CARDINAL.logger`), same as `modules/authentication/local/authentication.ts`
+ * reads it for `CARDINAL.models` — that global is available everywhere in the backend without importing
  * (a standing project convention); it's just never the database/Fastify/Drizzle layer this
  * module otherwise stays out of.
  */
@@ -137,7 +137,7 @@ export interface CommentProviderModule {
 /*
   A markdown-it instance scoped to comment content, wholly separate from `frontend/src/renderers/
   markdown.js` (that one drives the page editor and its preview, imports nothing this file can see,
-  and is configured per-site out of `WIKI.sites`). This one is fixed and comment-only, matching how
+  and is configured per-site out of `CARDINAL.sites`). This one is fixed and comment-only, matching how
   2.5.x's `server/modules/comments/default/comment.js` configured its own instance:
 
    - `html: false` — raw HTML in a comment is never allowed. This is the load-bearing setting: it is
@@ -254,7 +254,7 @@ async function postAkismetForm(url: string, body: URLSearchParams): Promise<stri
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       // -> Akismet's docs ask every client to identify itself, e.g. "WordPress/4.6 | Akismet/3.1.9".
-      'User-Agent': `Cardinal.js/${WIKI.version} | akismet-http-client`
+      'User-Agent': `Cardinal.js/${CARDINAL.version} | akismet-http-client`
     },
     body,
     signal: AbortSignal.timeout(AKISMET_REQUEST_TIMEOUT_MS)
@@ -356,13 +356,13 @@ function isAkismetKeyValid(key: string, blog: string): Promise<boolean> {
       try {
         const isValid = await verifyAkismetKey(key, blog)
         if (!isValid) {
-          WIKI.logger.warn('ext', 'akismet key rejected, spam checking disabled', {
+          CARDINAL.logger.warn('ext', 'akismet key rejected, spam checking disabled', {
             module: 'default'
           })
         }
         return isValid
       } catch (err: any) {
-        WIKI.logger.warn('ext', 'verifying the akismet key failed', {
+        CARDINAL.logger.warn('ext', 'verifying the akismet key failed', {
           module: 'default',
           error: err
         })
@@ -384,15 +384,15 @@ async function checkSpam(
 ): Promise<SpamCheckResult> {
   const key = typeof conf?.akismet === 'string' ? conf.akismet.trim() : ''
   // -> Empty key: the configured no-op, per `definition.yml`'s "Leave empty to disable" hint. No
-  //    request is made and no `WIKI.logger.warn` is emitted — this is not a failure, it is the
+  //    request is made and no `CARDINAL.logger.warn` is emitted — this is not a failure, it is the
   //    documented way to turn spam checking off.
   if (!key) {
     return { isSpam: false }
   }
 
-  const blog = WIKI.config?.host
+  const blog = CARDINAL.config?.host
   if (!blog) {
-    WIKI.logger.warn('ext', 'no site host configured, akismet spam checking disabled', {
+    CARDINAL.logger.warn('ext', 'no site host configured, akismet spam checking disabled', {
       module: 'default'
     })
     return { isSpam: false, reason: 'Akismet is not configured (missing site host).' }
@@ -407,7 +407,7 @@ async function checkSpam(
     const isSpam = await submitAkismetCommentCheck(key, blog, params)
     return { isSpam }
   } catch (err: any) {
-    WIKI.logger.warn('ext', 'akismet spam check failed', { module: 'default', error: err })
+    CARDINAL.logger.warn('ext', 'akismet spam check failed', { module: 'default', error: err })
     return { isSpam: false, reason: `Akismet check failed: ${err.message}` }
   }
 }

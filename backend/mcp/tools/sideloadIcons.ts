@@ -8,7 +8,7 @@ import { toResult } from './shared.ts'
  * the MCP-facing wrapper around `POST /_api/icons/sideload` (`api/icons.ts`), for an agent that
  * needs to trigger an offline icon-set reload without going through the REST surface directly.
  * Delegates to the exact same model call the REST route makes,
- * `WIKI.models.icons.sideloadFromDataPath()` — no arguments, unlike `sideload_locales`'s
+ * `CARDINAL.models.icons.sideloadFromDataPath()` — no arguments, unlike `sideload_locales`'s
  * `{ force: true }`: icon sideload has no freshness gate to force past in the first place (see that
  * method's own doc comment in `models/icons.ts`), so every file found there is always re-loaded.
  *
@@ -20,7 +20,7 @@ export async function handleSideloadIcons(ctx: McpAuthContext): Promise<CallTool
     throw new McpToolError('You are not allowed to sideload icon sets.')
   }
 
-  const result = await WIKI.models.icons.sideloadFromDataPath()
+  const result = await CARDINAL.models.icons.sideloadFromDataPath()
   return toResult(result)
 }
 

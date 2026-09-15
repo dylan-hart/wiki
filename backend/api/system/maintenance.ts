@@ -48,7 +48,7 @@ async function routes(app: FastifyInstance) {
     },
     async () => {
       const count = maintenance.disconnectWebsockets()
-      WIKI.events.outbound.emit('disconnectWebsockets')
+      CARDINAL.events.outbound.emit('disconnectWebsockets')
       return {
         ok: true,
         message: `Closed ${count} websocket connection(s) on this instance.`,
@@ -91,7 +91,7 @@ async function routes(app: FastifyInstance) {
     },
     async () => {
       await maintenance.flushCaches()
-      WIKI.events.outbound.emit('flushCaches')
+      CARDINAL.events.outbound.emit('flushCaches')
       return {
         ok: true,
         message: 'The cache has been flushed.'
@@ -131,7 +131,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return { generatedAt: WIKI.models.apiKeys.certificatesGeneratedAt() }
+      return { generatedAt: CARDINAL.models.apiKeys.certificatesGeneratedAt() }
     }
   )
 
@@ -174,12 +174,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const invalidatedKeys = await WIKI.models.apiKeys.regenerateCertificates()
+      const invalidatedKeys = await CARDINAL.models.apiKeys.regenerateCertificates()
       if (invalidatedKeys === null) {
         return reply.internalServerError('Failed to save the new certificates.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.certificatesRegenerated',
         actor: actorFromRequest(req),
         detail: { invalidatedKeys }
@@ -230,7 +230,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      const count = await WIKI.models.apiKeys.purgeRevoked()
+      const count = await CARDINAL.models.apiKeys.purgeRevoked()
       return {
         ok: true,
         message: `Purged ${count} revoked API key(s).`,
@@ -277,13 +277,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const count = await WIKI.models.sessions.rotateSecret()
+      const count = await CARDINAL.models.sessions.rotateSecret()
       if (count === null) {
         return reply.internalServerError('Failed to save the new session secret.')
       }
 
       // -> Resolved before `req.session.destroy()` below, which clears `req.session.user` this reads.
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.sessionsInvalidated',
         actor: actorFromRequest(req),
         detail: { count }
@@ -354,9 +354,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      const count = await WIKI.models.pageHistory.purge(req.body.olderThan)
+      const count = await CARDINAL.models.pageHistory.purge(req.body.olderThan)
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.pageHistoryPurged',
         actor: actorFromRequest(req),
         detail: { olderThan: req.body.olderThan, count }

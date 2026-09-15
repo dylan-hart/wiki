@@ -771,7 +771,7 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
    *
    * Read through `models/search.ts`'s `getEngineConfig`, the same path every other engine uses — see
    * `azure-search`'s own `configFor` for the reasoning that replaced both modules' earlier
-   * read-straight-off-`WIKI.sites`: `index.ts` calls `refreshFromDisk()` before
+   * read-straight-off-`CARDINAL.sites`: `index.ts` calls `refreshFromDisk()` before
    * `initActiveEngines()`, so the definitions `getEngineConfig` completes against are always
    * populated by the time any hook here runs, and `definition.yml` gets to be the single place
    * `region` and `analysisSchemeLang`'s defaults are written down.
@@ -832,13 +832,13 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
 
     if (changed) {
       await client.indexDocuments(domain)
-      WIKI.logger.info('search', 'domain schema changed, reindex requested', {
+      CARDINAL.logger.info('search', 'domain schema changed, reindex requested', {
         engine: MODULE_KEY,
         domain,
         site: siteId
       })
     } else {
-      WIKI.logger.info('search', 'domain already provisioned', {
+      CARDINAL.logger.info('search', 'domain already provisioned', {
         engine: MODULE_KEY,
         domain,
         site: siteId
@@ -1120,7 +1120,7 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
-    WIKI.logger.debug('search', 'rebuilding the domain', {
+    CARDINAL.logger.debug('search', 'rebuilding the domain', {
       engine: MODULE_KEY,
       site: siteId,
       locales: locales.length
@@ -1141,7 +1141,7 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
-      WIKI.logger.debug('search', 'locale reindexed', {
+      CARDINAL.logger.debug('search', 'locale reindexed', {
         engine: MODULE_KEY,
         locale,
         pages: localePages
@@ -1155,14 +1155,14 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
         siteId,
         staleIds.map((id) => ({ type: 'delete' as const, id }))
       )
-      WIKI.logger.info('search', 'purged stale documents', {
+      CARDINAL.logger.info('search', 'purged stale documents', {
         engine: MODULE_KEY,
         site: siteId,
         documents: staleIds.length
       })
     }
 
-    WIKI.logger.info('search', 'index rebuild completed', {
+    CARDINAL.logger.info('search', 'index rebuild completed', {
       engine: MODULE_KEY,
       site: siteId,
       pages: result.pages,

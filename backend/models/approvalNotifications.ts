@@ -23,11 +23,11 @@ class ApprovalNotifications {
    * entry.
    */
   async resolveReviewers(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
-    const groupIds = await WIKI.models.approvalRules.reviewerGroupIdsForPage(siteId, page)
+    const groupIds = await CARDINAL.models.approvalRules.reviewerGroupIdsForPage(siteId, page)
     if (groupIds.length < 1) {
       return []
     }
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .selectDistinct({ id: usersTable.id })
       .from(userGroupsTable)
       .innerJoin(usersTable, eq(usersTable.id, userGroupsTable.userId))
@@ -62,7 +62,7 @@ class ApprovalNotifications {
       }
       await this.sendSubmissionNotification(siteId, page, submissionId, reviewerIds)
     } catch (err: any) {
-      WIKI.logger.warn('hooks', 'notifying the reviewers of a submission failed', {
+      CARDINAL.logger.warn('hooks', 'notifying the reviewers of a submission failed', {
         submission: submissionId,
         error: err
       })
@@ -85,22 +85,22 @@ class ApprovalNotifications {
     submissionId: string,
     reviewerIds: string[]
   ): Promise<void> {
-    const link = WIKI.models.mail.buildLink(
+    const link = CARDINAL.models.mail.buildLink(
       '/_admin/approvals',
-      WIKI.models.mail.resolveMailBaseURL(siteId)
+      CARDINAL.models.mail.resolveMailBaseURL(siteId)
     )
     for (const reviewerId of reviewerIds) {
       try {
-        const reviewer = await WIKI.models.users.getById(reviewerId)
+        const reviewer = await CARDINAL.models.users.getById(reviewerId)
         if (!reviewer?.email) {
-          WIKI.logger.warn('hooks', 'no email address on file, skipping the reviewer', {
+          CARDINAL.logger.warn('hooks', 'no email address on file, skipping the reviewer', {
             reviewer: reviewerId,
             submission: submissionId
           })
           continue
         }
         const safePath = escapeHtml(page.path)
-        await WIKI.models.mail.send({
+        await CARDINAL.models.mail.send({
           to: reviewer.email,
           kind: 'approval',
           userId: reviewerId,
@@ -109,7 +109,7 @@ class ApprovalNotifications {
           html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`
         })
       } catch (err: any) {
-        WIKI.logger.warn('hooks', 'sending the submission notification failed', {
+        CARDINAL.logger.warn('hooks', 'sending the submission notification failed', {
           reviewer: reviewerId,
           submission: submissionId,
           error: err
@@ -150,8 +150,8 @@ class ApprovalNotifications {
         if (!author.guestEmail) {
           return
         }
-        const actorUser = await WIKI.models.users.getById(actorId)
-        await WIKI.models.mail.sendPageWatchNotification({
+        const actorUser = await CARDINAL.models.users.getById(actorId)
+        await CARDINAL.models.mail.sendPageWatchNotification({
           to: author.guestEmail,
           siteId,
           page: { title: page.title, path: page.path, locale: page.locale },
@@ -162,11 +162,14 @@ class ApprovalNotifications {
         return
       }
 
-      if (skipIfWatching && (await WIKI.models.pageWatching.isWatching(page.id, author.authorId))) {
+      if (
+        skipIfWatching &&
+        (await CARDINAL.models.pageWatching.isWatching(page.id, author.authorId))
+      ) {
         return
       }
 
-      await WIKI.scheduler.addJob({
+      await CARDINAL.scheduler.addJob({
         task: 'notifyPageWatchers',
         payload: {
           siteId,
@@ -181,7 +184,7 @@ class ApprovalNotifications {
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn('hooks', 'notifying the submission author failed', {
+      CARDINAL.logger.warn('hooks', 'notifying the submission author failed', {
         page: page.id,
         error: err
       })

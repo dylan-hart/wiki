@@ -165,7 +165,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
   //    would see an empty level list and fail `defaultLevel()`'s guard.
   await models.classificationLevels.reloadCache()
 
-  WIKI.sites[site!.id] = {
+  CARDINAL.sites[site!.id] = {
     id: site!.id,
     config: { locales: { primary: 'en', active: ['en', 'fr'] } }
   }
@@ -336,7 +336,7 @@ function installDbTestWiki(db: WikiDb, models: typeof import('../models/index.ts
   wikiHandle = installTestWiki({
     db,
     // -> `helpers/advisoryLock.ts#getLockPool()` lazily builds its dedicated lock pool from
-    //    `WIKI.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
+    //    `CARDINAL.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
     //    a suite that exercises the real `withAdvisoryLock` (not the dependency-injected fakes
     //    most task-level tests use) needs this present, or it crashes reading `.config` off
     //    `undefined` (OpenProject #2347). Only `config.connectionString` is provided: nothing
