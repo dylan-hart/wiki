@@ -7,7 +7,8 @@ import {
   deriveFilterOptions,
   deriveMaxFolderDepth,
   MAX_DEPTH,
-  nodeId
+  nodeId,
+  resolveFocusNode
 } from './graphFilters.js'
 
 const NODES = [
@@ -169,6 +170,41 @@ describe('computeTitleMatchNodeIds (OpenProject #2533)', () => {
   it('trims the query before matching, same as searchKeyword’s own watcher', () => {
     const ids = computeTitleMatchNodeIds(TITLED_NODES, '  onboard  ')
     expect(ids).toEqual(new Set(['en:guides/onboarding']))
+  })
+})
+
+describe('resolveFocusNode (OpenProject #3312)', () => {
+  const FOCUS_NODES = [
+    { path: 'guides/onboarding', locale: 'en', title: 'Onboarding Guide' },
+    { path: 'guides/onboarding', locale: 'fr', title: 'Guide d’intégration' },
+    { path: 'reference/api', locale: 'en', title: 'API Reference' },
+    { path: 'guides', locale: 'en', title: 'Guides', synthetic: true }
+  ]
+
+  it('returns the node whose path AND locale both match', () => {
+    expect(resolveFocusNode(FOCUS_NODES, 'reference/api', 'en')).toBe(FOCUS_NODES[2])
+  })
+
+  it('scopes the match to the given locale -- a path match in a DIFFERENT locale is not returned', () => {
+    // -> `guides/onboarding` exists in both `en` and `fr`; asking for `de` (neither) matches nothing,
+    //    and asking for `fr` returns the `fr` node specifically, not whichever the array lists first.
+    expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'de')).toBeNull()
+    expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'fr')).toBe(FOCUS_NODES[1])
+    expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'en')).toBe(FOCUS_NODES[0])
+  })
+
+  it('never matches a synthetic folder/root node, even when its path/locale both match', () => {
+    expect(resolveFocusNode(FOCUS_NODES, 'guides', 'en')).toBeNull()
+  })
+
+  it('returns null for a path nothing matches, without throwing', () => {
+    expect(resolveFocusNode(FOCUS_NODES, 'nonexistent/page', 'en')).toBeNull()
+  })
+
+  it('returns null for an empty, null or undefined path -- no query param present', () => {
+    expect(resolveFocusNode(FOCUS_NODES, '', 'en')).toBeNull()
+    expect(resolveFocusNode(FOCUS_NODES, null, 'en')).toBeNull()
+    expect(resolveFocusNode(FOCUS_NODES, undefined, 'en')).toBeNull()
   })
 })
 

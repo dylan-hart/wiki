@@ -77,6 +77,26 @@ export function nodeId(node) {
 }
 
 /**
+ * The real node named by a `path`/`locale` pair, or `null` when nothing matches (OpenProject #3312,
+ * Feature #3311) -- `Graph.vue`'s resolution for the `/_graph?path=` query param that centers and
+ * highlights the page the reader arrived from. `path` alone is ambiguous on a multi-locale site (see
+ * `nodeId()`'s own doc comment above: two locales' translations of a page share a `path` by design),
+ * so this always scopes the match to the given `locale` too, rather than returning the first node
+ * whose `path` happens to match. A synthetic folder/root node (`node.synthetic`) is never a valid
+ * match: it has no page of its own for a reader to have arrived from, the same reasoning
+ * `navigateToNode()`/`fallbackNodes` already apply. `path` falsy (no query param at all) or `nodes`
+ * empty (the graph hasn't loaded yet) both return `null` with no further work, same as "no match."
+ */
+export function resolveFocusNode(nodes, path, locale) {
+  if (!path) {
+    return null
+  }
+  return (
+    nodes.find((node) => !node.synthetic && node.path === path && node.locale === locale) ?? null
+  )
+}
+
+/**
  * An edge's endpoint as fetched is already the composite id string above, but `d3-force`'s
  * `forceLink` mutates `edge.source`/`edge.target` in place into a reference to the actual node
  * object the moment `.links()` resolves ids against `.nodes()` (Task 26 feeds `Graph.vue`'s live

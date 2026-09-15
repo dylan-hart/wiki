@@ -208,7 +208,7 @@ import {
   watch
 } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { forceCenter, forceCollide } from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { zoomIdentity } from 'd3-zoom'
@@ -216,6 +216,7 @@ import { debounce } from 'es-toolkit/function'
 import { log } from '@/helpers/log'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
@@ -225,7 +226,9 @@ import {
   computeTitleMatchNodeIds,
   computeVisibleSubset,
   deriveFilterOptions,
-  deriveMaxFolderDepth
+  deriveMaxFolderDepth,
+  nodeId,
+  resolveFocusNode
 } from './graphFilters.js'
 import { paintGraph } from './graphDraw.js'
 import { lerpRadius, sqrtRangeOf } from './graphNodeSize.js'
@@ -246,7 +249,9 @@ import {
 
 const siteStore = useSiteStore()
 const userStore = useUserStore()
+const pageStore = usePageStore()
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 const dark = useDark()
 
@@ -434,6 +439,13 @@ function clearFilters() {
  *  array (never a mutation), or the `watch(keywordMatches, repaint)` further down won't fire. */
 const keywordMatches = shallowRef([])
 
+/** The composite `${locale}:${path}` id of the node resolved from the `?path=` query param
+ *  (OpenProject #3312, Feature #3311), or `null` when there is none/no match -- set once by
+ *  `applyRouteFocus()` (see that function's own doc comment) and read only by `highlightedNodeIds`
+ *  below, which folds it into the same highlight-ring rendering a keyword match already gets. A
+ *  plain `ref` (not `shallowRef`): it only ever holds a primitive string or `null`, never an object. */
+const focusNodeId = ref(null)
+
 /** OpenProject #2533: a second, thin, purely CLIENT-SIDE highlight pass alongside the backend
  *  full-text search above -- a case-insensitive substring check of `keywordQuery` against every
  *  currently-loaded node's `title` (`allNodes`, already in memory, no extra request). The backend's
@@ -451,10 +463,22 @@ const titleMatchNodeIds = computed(() =>
  *  matched -- the union of both, deduped via `Set`. See `graphFilters.js#computeHighlightedNodeIds`.
  *  Empty whenever both sources are (no search active yet, or a search that matched nothing by
  *  either method), which is also what tells `repaint()`'s `paintGraph()` call to draw every node at
- *  full strength with no highlight ring, same as before this WP existed. */
-const highlightedNodeIds = computed(
-  () => new Set([...computeHighlightedNodeIds(keywordMatches.value), ...titleMatchNodeIds.value])
-)
+ *  full strength with no highlight ring, same as before this WP existed.
+ *
+ *  A third source, unioned the same way (OpenProject #3312): `focusNodeId`, the `?path=` query-param
+ *  target `applyRouteFocus()` resolves once on load -- see that function's own doc comment. Like the
+ *  other two, this never narrows `computeVisibleSubset`'s own node set; it only marks an
+ *  already-visible node for the highlight ring below. */
+const highlightedNodeIds = computed(() => {
+  const ids = new Set([
+    ...computeHighlightedNodeIds(keywordMatches.value),
+    ...titleMatchNodeIds.value
+  ])
+  if (focusNodeId.value) {
+    ids.add(focusNodeId.value)
+  }
+  return ids
+})
 
 /** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
  *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
@@ -1132,6 +1156,48 @@ function attachZoom() {
   zoomTransform.value = zoomIdentity
 }
 
+/** Centers and highlights the page the reader arrived from, addressed by the `path` query param on
+ *  `/_graph` (OpenProject #3312, Feature #3311) -- e.g. the header's Graph button, or a
+ *  bookmarked/shared link. Called once, from `loadGraph()`'s initial fetch only (mount-only, same
+ *  "read once" framing `loadGraph()`'s own `activeFilters.folderDepth` default already uses just
+ *  above its call site below) -- a later filter or keyword change must not re-home the focus.
+ *
+ *  Locale resolution rule: `route.query.path` is a bare, un-prefixed path -- the same raw form nav
+ *  tree items carry (`item.path`, per sibling WP #3313's `composables/navSidebarDestination.js`) --
+ *  and a bare path is ambiguous on a multi-locale site (`graphFilters.js#nodeId`'s own doc comment:
+ *  two locales' translations of the same page share a `path` by design). `/_graph`
+ *  (`router/routes.js`) carries no locale segment of its own to resolve against, so this scopes the
+ *  match to `pageStore.locale` -- the locale of whichever page the reader was actually reading
+ *  before navigating here, set by `pageLoad()` on every page navigation. That is the same field
+ *  `navSidebarDestination.js` already documents as "the right locale to build a nav link in," for
+ *  the identical "no per-row/per-param locale of its own" reason, which is what keeps this
+ *  consistent with #3313's nav-tree-sourced `path`. A guest who lands on `/_graph` with no page ever
+ *  loaded this session reads `pageStore`'s own default (`'en'`).
+ *
+ *  No match -- a missing/blank param, a stale path, or one in the wrong locale -- is a silent no-op:
+ *  no pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
+ *  query param) takes the first entry, same convention a `<w-select>`-less bare query reader would.
+ *
+ *  Centering reuses the hover pin's own `fx`/`fy` mechanic (`onCanvasMouseMove` below): the resolved
+ *  node is pinned to the exact `(width/2, height/2)` point `startSimulation()`'s own `forceCenter`
+ *  already targets, so d3-force settles the rest of the layout around it -- anchored at the viewport
+ *  center rather than the node's own current position, and never released (unlike the hover pin,
+ *  which clears on hover-end). Highlighting folds the node's composite id into `focusNodeId`, which
+ *  `highlightedNodeIds` above unions in alongside a keyword match, so it draws with the identical
+ *  highlight ring `graphDraw.js` already renders -- no draw-layer change needed. */
+function applyRouteFocus() {
+  const rawPath = route.query.path
+  const path = Array.isArray(rawPath) ? rawPath[0] : rawPath
+  const focusNode = resolveFocusNode(allNodes.value, path, pageStore.locale)
+  if (!focusNode) {
+    return
+  }
+  focusNodeId.value = nodeId(focusNode)
+  const { width, height } = containerRef.value.getBoundingClientRect()
+  focusNode.fx = width / 2
+  focusNode.fy = height / 2
+}
+
 /** `sizing` (OpenProject #1863) asks the backend to attach each node's `contributors`/`pageviews`
  *  count objects, which otherwise dominate the payload and go unused by most of a page's readers.
  *  Sent as the currently-active `sizeBy` mode, but the backend gates on presence alone and always
@@ -1156,6 +1222,11 @@ async function loadGraph() {
     //    so this is a real one-time default rather than a reset on every reload.
     activeFilters.folderDepth = actualMaxFolderDepth.value
     applyFilters()
+    // -> Before `startSimulation()` (OpenProject #3312): `initializeNodes()` (d3-force) seeds a
+    //    node's initial `x`/`y` from its `fx`/`fy` when set, so resolving/pinning the focus node
+    //    here is what lets it spawn already at center instead of jittering in from d3-force's
+    //    default phyllotaxis placement over the first several ticks.
+    applyRouteFocus()
     sizeCanvas()
     startSimulation()
     attachZoom()
