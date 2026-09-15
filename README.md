@@ -200,15 +200,6 @@ pinned patch to run this locally; a newer 26.x is fine.
 > then restart. Only needed for a non-HTTPS local/dev setup — leave it on for anything reachable
 > over the network.
 
-> **Plain HTTP gotcha:** the session cookie's `secure` flag defaults to on
-> (`security.cookieSecure`), so a login over plain HTTP (no TLS) will return
-> `{"ok":true,"authenticated":true}` but send **no `Set-Cookie` header at all** — every request
-> after that is silently anonymous. This is a database-owned setting (`config.yml`'s value only
-> applies at first boot), so fix it by updating the row directly once the server has booted once:
-> `update wiki.settings set value = value || '{"cookieSecure": false}'::jsonb where key='security'`,
-> then restart. Only needed for a non-HTTPS local/dev setup — leave it on for anything reachable
-> over the network.
-
 > **DO NOT** report bugs. This build is **VERY** buggy and **VERY** incomplete. Absolutely **NO** support is provided either.
 
 There is also an `e2e/` workspace holding the Playwright end-to-end suite, which drives a full build
