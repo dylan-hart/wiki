@@ -149,7 +149,7 @@ describe('_page-contents.scss logical properties (whole file)', () => {
    */
   it('rounds the admonition corners opposite the accent bar via logical corner properties, scoped to Cobalt only', () => {
     expect(source).toMatch(
-      /@at-root body\.body--cobalt & \{\s*border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/
+      /body\.body--cobalt & \{\s*border-start-end-radius:\s*6px;\s*border-end-end-radius:\s*6px;/
     )
   })
 
@@ -263,9 +263,9 @@ describe('_page-contents.scss admonition corners -- square by default, rounded u
   const block = admonitionBlock()
 
   it('sets no border-radius of its own at the top level of the block (Ledger draws it square)', () => {
-    // -> Only the nested `@at-root body.body--cobalt &` sub-block may declare these -- captured
+    // -> Only the nested `body.body--cobalt &` sub-block may declare these -- captured
     //    separately below -- so strip that sub-block out before scanning the rest.
-    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = block.indexOf('body.body--cobalt &')
     expect(cobaltStart).toBeGreaterThan(-1)
     const outsideCobalt = block.slice(0, cobaltStart)
     expect(outsideCobalt).not.toMatch(/border-radius/)
@@ -274,13 +274,13 @@ describe('_page-contents.scss admonition corners -- square by default, rounded u
   })
 
   it('carries no `&::after { content: none }` at the top level, letting the plain blockquote corner marks cascade through', () => {
-    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = block.indexOf('body.body--cobalt &')
     const outsideCobalt = block.slice(0, cobaltStart)
     expect(outsideCobalt).not.toMatch(/&::after\s*\{\s*content:\s*none;\s*\}/)
   })
 
   it('re-rounds the two corners and re-suppresses the marks, but only inside an explicit body.body--cobalt scope', () => {
-    const cobaltStart = block.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = block.indexOf('body.body--cobalt &')
     const cobaltBlock = block.slice(cobaltStart)
     expect(cobaltBlock).toMatch(/border-start-end-radius:\s*6px;/)
     expect(cobaltBlock).toMatch(/border-end-end-radius:\s*6px;/)
@@ -655,8 +655,10 @@ describe(
     /*
       The two stylesheets that between them own every token in the chain: `tailwind.css` declares
       the Cardinal palette, `_page-contents.scss` maps it onto the article's own properties. Sass
-      compiles the partial directly rather than through `app.scss`, with the same load path
-      `vite.config.js` gives it -- `@use 'palette'` is the one module it reaches for.
+      compiles the partial directly rather than through `app.scss`; `loadPaths` is passed for
+      parity with that direct-compile pattern used throughout this file, though the partial itself
+      no longer `@use`s anything (OpenProject #3253 converted its one `$breakpoint-xs-max` need to
+      a literal, alongside every `@at-root` at nesting depth 1 in this file).
     */
     let stylesheets
 
@@ -1007,8 +1009,8 @@ describe(
 describe('_page-contents.scss Cobalt table-head swap stays sentence-case with no tracking (§4.1)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt &')
-  const cobaltBlockEnd = source.indexOf('@at-root body.body--cobalt.body--dark &')
+  const cobaltBlockStart = source.indexOf('body.body--cobalt &')
+  const cobaltBlockEnd = source.indexOf('body.body--cobalt.body--dark &')
   const cobaltBlock = source.slice(cobaltBlockStart, cobaltBlockEnd)
 
   it('sets the Barlow sans head font, normal tracking and no case transform under Cobalt', () => {
@@ -2344,13 +2346,13 @@ describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
   })
 
   it('never re-scopes any of this to `body.body--cobalt` -- the design handoff draws one ramp for both aesthetics', () => {
-    const cobaltStart = source.indexOf('@at-root body.body--cobalt &')
+    const cobaltStart = source.indexOf('body.body--cobalt &')
     expect(cobaltStart).toBeGreaterThan(-1)
     // -> None of the type-scale properties this WP owns appear inside a Cobalt-scoped block anywhere
     //    in the file; a real per-block parse would be needed to prove a NEGATIVE precisely, but every
     //    `body.body--cobalt` block in this file is a short, self-contained token/color override (see
     //    #2964's own `--content-h1`/`--content-h2` block), never a font-size declaration.
-    const cobaltBlocks = [...source.matchAll(/@at-root body\.body--cobalt & \{/g)]
+    const cobaltBlocks = [...source.matchAll(/body\.body--cobalt & \{/g)]
     expect(cobaltBlocks.length).toBeGreaterThan(0)
   })
 
@@ -2493,8 +2495,8 @@ describe('_page-contents.scss article type scale (OpenProject #2963)', () => {
 describe('_page-contents.scss cobalt h1 ink (OpenProject #2964)', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
   const source = readFileSync(join(dir, '_page-contents.scss'), 'utf-8')
-  const cobaltBlockStart = source.indexOf('@at-root body.body--cobalt & {')
-  const cobaltDarkBlockStart = source.indexOf('@at-root body.body--cobalt.body--dark & {')
+  const cobaltBlockStart = source.indexOf('body.body--cobalt & {')
+  const cobaltDarkBlockStart = source.indexOf('body.body--cobalt.body--dark & {')
   if (cobaltBlockStart === -1 || cobaltDarkBlockStart === -1) {
     throw new Error(
       'body.body--cobalt block(s) not found in _page-contents.scss -- have they moved?'
