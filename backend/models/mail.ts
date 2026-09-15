@@ -33,6 +33,7 @@ export type MailKind =
   | 'notificationEvent'
   | 'notificationEventTemplate'
   | 'approval'
+  | 'tfaRecoveryCodesGenerated'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -571,6 +572,36 @@ class MailModel {
       'passwordChanged',
       { name, link },
       { kind: 'passwordChanged', userId }
+    )
+  }
+
+  /**
+   * Notice sent whenever a user's 2FA recovery/backup codes are (re)generated -- both the initial
+   * issuance (`userCredentials.ts#enableTfa()`) and a later re-issuance
+   * (`userCredentials.ts#regenerateRecoveryCodes()`) -- so the account holder has a record of it even
+   * if the action wasn't theirs. Deliberately NOT sent by `adminInvalidateTfa()`, which wipes recovery
+   * codes rather than issuing a fresh set.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaRecoveryCodesGenerated({
+    to,
+    name,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaRecoveryCodesGenerated',
+      { name, link },
+      { kind: 'tfaRecoveryCodesGenerated', userId }
     )
   }
 
