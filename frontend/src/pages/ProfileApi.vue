@@ -24,7 +24,17 @@
     </div>
     <w-separator inset />
     <div class="p-4">
-      <div v-if="state.keys.length < 1 && state.loading < 1">
+      <!--
+        Three branches, not two: while the initial fetch is in flight (`state.loading > 0` and no
+        keys yet), render neither card -- only the `w-inner-loading` overlay below. Without this
+        branch, the loading guard on the empty-state `v-if` fell through to the `v-else` tokens card
+        for that entire window, flashing its "Access Tokens" header before the real state (empty or
+        populated) was known (OpenProject #3283). A refresh of an already-populated list
+        (`state.loading` incrementing while `state.keys.length >= 1`) stays on the final branch
+        throughout, so it keeps rendering the tokens card with no flicker of its own.
+      -->
+      <div v-if="state.loading > 0 && state.keys.length < 1" />
+      <div v-else-if="state.keys.length < 1">
         <w-card
           class="rounded"
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
