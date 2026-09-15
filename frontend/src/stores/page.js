@@ -1055,7 +1055,12 @@ export const usePageStore = defineStore('page', {
         editorStore.markClean({ reasonForChange: '' })
 
         if (editorStore.mode === 'create') {
-          editorStore.$patch({ mode: 'edit' })
+          /*
+            OpenProject #3317: this create session is committing, so `originPageId` (set by
+            `pageCreate()`) must not outlive it -- left set, a later, unrelated edit-mode discard's
+            `cancelPageEdit()` would load this stale origin page instead of the page being edited.
+          */
+          editorStore.$patch({ mode: 'edit', originPageId: '' })
           /*
             Awaited, because the caller closes the editor the moment this resolves. An unawaited
             navigation leaves one render of the page view at the route the EDITOR was on -- which for

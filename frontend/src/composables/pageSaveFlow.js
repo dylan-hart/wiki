@@ -60,7 +60,15 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
         isActive: false,
         editor: '',
         lastSaveTimestamp: discardedAt,
-        lastChangeTimestamp: discardedAt
+        lastChangeTimestamp: discardedAt,
+        /*
+          OpenProject #3317: this create session is the one that set `originPageId` (or inherited it
+          from an outer one, per `pageCreate()`'s own "don't replace if already in edit mode" rule) --
+          either way, it is the outermost create session ending here, so nothing downstream should
+          still read it. Left set, a later, unrelated edit-mode discard's `cancelPageEdit()` would load
+          THIS stale origin page instead of the page actually being edited.
+        */
+        originPageId: ''
       })
 
       // Is it the home page in create mode?
@@ -121,7 +129,15 @@ export function usePageSaveFlow({ isSuggesting, processPendingAssets }) {
     } catch (err) {
       // -> The editor closes either way: the reader asked to leave it, and a page that would not
       //    reload is not a reason to keep them in it
-      editorStore.$patch({ isActive: false, editor: '', mode: 'edit' })
+      editorStore.$patch({
+        isActive: false,
+        editor: '',
+        mode: 'edit',
+        // -> OpenProject #3317: same reasoning as the create-mode branch above -- the editor is
+        //    closing regardless of what caused the failure, so any stale create-session origin it
+        //    was still carrying must not survive to be picked up by a later, unrelated session
+        originPageId: ''
+      })
       notify({
         type: 'negative',
         message: t('common.page.reloadFailed')
