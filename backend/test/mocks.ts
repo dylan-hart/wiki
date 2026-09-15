@@ -81,6 +81,18 @@ export function createSchedulerStub(): any {
 }
 
 /**
+ * A `CARDINAL.server`-shaped stub: just `isReady`, defaulting to `true` — a fully booted instance,
+ * which is the state every route test other than `helpers/apiReadiness.test.ts`'s own actually cares
+ * about. A suite exercising the `postBoot()`-window readiness gate itself overrides this with `{
+ * server: { isReady: () => false } }`.
+ */
+export function createServerStub(): any {
+  return {
+    isReady: mock.fn(() => true)
+  }
+}
+
+/**
  * A `CARDINAL.models.groups.checkSiteAdminAccess`-shaped stub, composed from a suite's OWN
  * `actorForRequest` and `checkSiteAccess` stubs exactly as the real method composes the real pair
  * (`models/groups.ts`): the global permission, site-blind, OR the delegated `site:*` one.
@@ -165,7 +177,7 @@ function mergeInto(target: any, source: Record<string, any>): any {
 /**
  * The `CARDINAL` global a test needs, with every member a test rarely cares about already stubbed.
  *
- * Defaults: a silent logger, the `cache`/`events`/`scheduler` stubs above, and `{}` for `config`,
+ * Defaults: a silent logger, the `cache`/`events`/`scheduler`/`server` stubs above, and `{}` for `config`,
  * `sites`, `sitesMappings` and `models`. `models` is deliberately EMPTY rather than a populated set —
  * `modules/storage/disk/storage.test.ts` relies on an absent member throwing to prove the module
  * never reaches for one — so a suite names exactly the model methods its code path calls, and an
@@ -205,6 +217,7 @@ export function createWikiStub(overrides: Record<string, any> = {}): CardinalGlo
     cache: createCacheStub(),
     events: createEventsStub(),
     scheduler: createSchedulerStub(),
+    server: createServerStub(),
     sites: {},
     sitesMappings: {},
     models: {}
