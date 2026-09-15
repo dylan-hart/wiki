@@ -26,9 +26,9 @@ import type { ConfigTransform } from './shared.ts'
  *
  * ## Unsupported source modules (mirrors Feature 414's provider-fallback precedent)
  *
- * 3.0 ships sixteen authentication modules (`backend/modules/authentication/*`, see
+ * 3.0 ships seventeen authentication modules (`backend/modules/authentication/*`, see
  * `../report.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
- * `strategyKey` isn't one of the sixteen survivors — resolved via `resolver.getModule()` returning
+ * `strategyKey` isn't one of the seventeen survivors — resolved via `resolver.getModule()` returning
  * `null`, not a hardcoded list, so this mapper tracks whichever modules actually exist on disk rather
  * than a snapshot of them — has nowhere to land: not just its `config` (a remap target that exists),
  * but the row itself. Exactly like Feature 414's `needsProviderFallback()`/`ProviderFallbackFlag` for
@@ -41,8 +41,8 @@ import type { ConfigTransform } from './shared.ts'
  * `resolver.getModule()` resolving is necessary but not sufficient for a `config` blob to be safe to
  * carry across: `CONFIG_TRANSFORMS` below only has a real key-by-key remap for `local`/`google`/
  * `github`/`oidc` (`MODULES_WITH_VERIFIED_CONFIG_MAPPING`). A row for any other module — `ldap`/`saml`/
- * `cas`/`auth0`/`okta`/`gitlab`/`keycloak`/`microsoft`/`discord`/`slack`/`twitch`/`oauth2`, all real
- * 3.0 modules with no verified prop-name check yet — that carried a non-empty `config` comes back
+ * `cas`/`auth0`/`okta`/`gitlab`/`keycloak`/`microsoft`/`discord`/`slack`/`twitch`/`oauth2`/`facebook`,
+ * all real 3.0 modules with no verified prop-name check yet — that carried a non-empty `config` comes back
  * `status: 'flagged'` instead of silently importing as an **enabled** strategy with an empty config
  * (no server URL, no bind DN, no certificate, no client secret): a broken login option an operator
  * would otherwise see reported as successfully created. A row with an *empty* config for one of these
