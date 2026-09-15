@@ -37,6 +37,7 @@ const SITE_CONFIG_KEYS = [
   'features',
   'locales',
   'robots',
+  'security',
   'theme',
   'uploads'
 ] as const
@@ -69,6 +70,7 @@ const SITE_FIELD_PERMISSIONS: Partial<
   defaults: 'site:general',
   features: 'site:general',
   robots: 'site:general',
+  security: 'site:general',
   uploads: 'site:general',
   auth: 'site:login',
   authStrategies: 'site:login',
@@ -202,6 +204,7 @@ export async function buildSitePayload(site: {
     sitemap: config.sitemap,
     pathDisplayCase: config.pathDisplayCase,
     robots: config.robots,
+    security: config.security,
     auth: config.auth,
     authStrategies: config.authStrategies,
     locales: config.locales,
@@ -513,6 +516,7 @@ async function routes(app: FastifyInstance) {
         showMenu?: boolean
       }
       robots?: Record<string, any>
+      security?: { embedAllowedOrigins?: string[] }
       theme?: Record<string, any>
       uploads?: Record<string, any>
     }
@@ -529,7 +533,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update a site',
         description:
-          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
+          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`security`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -609,6 +613,9 @@ async function routes(app: FastifyInstance) {
             },
             robots: {
               $ref: 'Site#/properties/robots'
+            },
+            security: {
+              $ref: 'Site#/properties/security'
             },
             theme: {
               $ref: 'Site#/properties/theme'

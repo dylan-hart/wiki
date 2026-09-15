@@ -84,6 +84,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
       sitemap: true,
       pathDisplayCase: 'off',
       robots: { index: true, follow: true },
+      security: { embedAllowedOrigins: ['https://intranet.example.com'] },
       auth: { autoLogin: false },
       authStrategies: [],
       locales: { primary: 'en', active: ['en'] },
@@ -130,6 +131,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'pathDisplayCase',
     'pdfExportAvailable',
     'robots',
+    'security',
     'sitemap',
     'theme',
     'title',
@@ -141,6 +143,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     true,
     'isReplicationEnabled should reflect WIKI.config.replication.isEnabled'
   )
+  assert.deepEqual(payload.security, { embedAllowedOrigins: ['https://intranet.example.com'] })
 
   wikiHandle.restore()
 })

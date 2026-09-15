@@ -225,6 +225,14 @@ class Sites extends ClusterReloaded {
               index: true,
               follow: true
             },
+            // -> Feature #3267 / Task #3274: origins permitted to embed this site's pages via
+            //    iframe. Empty by default -- no embedding allowed until an admin opts a specific
+            //    origin in (Task #3275 reads this to compute a per-request `frame-ancestors` CSP
+            //    directive). Distinct from the instance-wide `security.disallowIframe`/
+            //    `xFrameOptions` config, which this does not touch.
+            security: {
+              embedAllowedOrigins: []
+            },
             // -> Local authentication is the only strategy guaranteed to exist at this point
             authStrategies: [{ id: WIKI.data.systemIds.localAuthId, order: 0, isVisible: true }],
             auth: {
@@ -598,6 +606,9 @@ class Sites extends ClusterReloaded {
         robots: {
           index: true,
           follow: true
+        },
+        security: {
+          embedAllowedOrigins: []
         },
         authStrategies: [{ id: ids.authModuleId, order: 0, isVisible: true }],
         auth: {

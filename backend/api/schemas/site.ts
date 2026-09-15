@@ -183,6 +183,24 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
+      security: {
+        type: 'object',
+        description:
+          'Per-site security settings stored on the general surface (Feature #3267). Distinct from the instance-wide `security.disallowIframe`/`xFrameOptions` config, which this does not touch.',
+        properties: {
+          embedAllowedOrigins: {
+            type: 'array',
+            description:
+              "Origins (`scheme://host[:port]`, lowercase, no path/query/fragment) permitted to embed this site's pages via iframe -- relaxes `frame-ancestors` CSP for exactly these origins (Task #3275 reads this array; enforcement lives there, not here). Empty (the default) means no embedding is allowed, i.e. today's unchanged behavior.",
+            items: {
+              type: 'string',
+              maxLength: 255,
+              pattern:
+                '^https?:\\/\\/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?$'
+            }
+          }
+        }
+      },
       auth: {
         type: 'object',
         description: 'Login experience for this site. Redirects can be overridden per group.',
