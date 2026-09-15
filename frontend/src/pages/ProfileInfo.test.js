@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 import ProfileInfo from './ProfileInfo.vue'
 import ProfileOverlay from '@/components/ProfileOverlay.vue'
@@ -807,5 +808,72 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Not a recognized IANA time zone.')
+  })
+})
+
+/**
+ * OpenProject #3281: `aesthetic`/`appearance`/`contentWidth`/`cvd` used to mount pre-selected on a
+ * hardcoded default (`'site'`/`'none'`), then flash to the real saved value once `users/profile`
+ * resolved. `state.config`'s initial value for all four is now `null`, and `WBtnToggle`'s own
+ * selection check (`opt.value === modelValue`) is false for every segment when `modelValue` is
+ * `null`, so no segment should render selected until the real value lands.
+ */
+describe('ProfileInfo theme toggles have no pre-fetch flash (OpenProject #3281)', () => {
+  const toggleLabels = [
+    'profile.aesthetic',
+    'profile.appearance',
+    'profile.contentWidth',
+    'profile.cvd'
+  ]
+
+  function expectNoSegmentSelected(wrapper) {
+    for (const label of toggleLabels) {
+      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
+      expect(toggle.exists()).toBe(true)
+      expect(toggle.find('[aria-checked="true"]').exists()).toBe(false)
+    }
+  }
+
+  it('renders every theme toggle with no segment selected before the profile fetch resolves', async () => {
+    let resolveProfile
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () =>
+        new Promise((resolve) => {
+          resolveProfile = resolve
+        })
+    })
+
+    const wrapper = mountPage()
+    await nextTick()
+
+    expectNoSegmentSelected(wrapper)
+
+    // -> Once the fetch resolves, the real values take over -- confirming this isn't merely a
+    //    permanently-blank control, but genuinely a race that now resolves the right way.
+    resolveProfile({
+      ...FULL_PROFILE,
+      aesthetic: 'cobalt',
+      contentWidth: 'full',
+      cvd: 'protanopia'
+    })
+    await flushPromises()
+
+    const aestheticToggle = wrapper.find('[role="radiogroup"][aria-label="profile.aesthetic"]')
+    expect(aestheticToggle.find('[aria-checked="true"]').exists()).toBe(true)
+  })
+
+  it('leaves every theme toggle blank, with the load-failed toast, when the profile fetch fails', async () => {
+    notifyQueue.splice(0, notifyQueue.length)
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () => Promise.reject(new Error('network'))
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expectNoSegmentSelected(wrapper)
+    expect(
+      notifyQueue.some((n) => n.type === 'negative' && n.message === 'profile.infoLoadingFailed')
+    ).toBe(true)
   })
 })
