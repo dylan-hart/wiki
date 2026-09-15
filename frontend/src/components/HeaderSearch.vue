@@ -943,7 +943,8 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   cursor: pointer;
   transition:
     background-color 0.2s var(--ease-standard),
-    color 0.2s var(--ease-standard);
+    color 0.2s var(--ease-standard),
+    border-color 0.2s var(--ease-standard);
 
   &:hover,
   &:focus-visible {
