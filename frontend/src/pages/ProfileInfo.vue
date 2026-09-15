@@ -28,7 +28,10 @@
           hide-bottom-space
           :aria-label="t(`profile.firstName`)"
           :readonly="!canEdit"
-          :rules="[firstNameRule]" />
+          :rules="[firstNameRule]"
+          @blur="commitTextField('firstName')"
+          @keyup:enter="commitTextField('firstName')"
+          @keydown.esc="revertTextField('firstName', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -45,7 +48,10 @@
           hide-bottom-space
           :aria-label="t(`profile.lastName`)"
           :readonly="!canEdit"
-          :rules="[lastNameRule]" />
+          :rules="[lastNameRule]"
+          @blur="commitTextField('lastName')"
+          @keyup:enter="commitTextField('lastName')"
+          @keydown.esc="revertTextField('lastName', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -68,7 +74,10 @@
           hide-bottom-space
           :aria-label="t(`profile.displayName`)"
           :readonly="!canEdit"
-          :rules="[nameRule]" />
+          :rules="[nameRule]"
+          @blur="commitTextField('name')"
+          @keyup:enter="commitTextField('name')"
+          @keydown.esc="revertTextField('name', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -98,7 +107,10 @@
           v-model="state.config.location"
           hide-bottom-space
           :aria-label="t(`profile.location`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @blur="commitTextField('location')"
+          @keyup:enter="commitTextField('location')"
+          @keydown.esc="revertTextField('location', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -113,7 +125,10 @@
           v-model="state.config.jobTitle"
           hide-bottom-space
           :aria-label="t(`profile.jobTitle`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @blur="commitTextField('jobTitle')"
+          @keyup:enter="commitTextField('jobTitle')"
+          @keydown.esc="revertTextField('jobTitle', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -128,7 +143,10 @@
           v-model="state.config.pronouns"
           hide-bottom-space
           :aria-label="t(`profile.pronouns`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @blur="commitTextField('pronouns')"
+          @keyup:enter="commitTextField('pronouns')"
+          @keydown.esc="revertTextField('pronouns', $event)" />
       </w-item-section>
     </w-item>
   </w-page>
@@ -207,10 +225,35 @@ const state = reactive({
 })
 
 /*
+  OpenProject #3321: the text fields' last-saved snapshot, for Esc to revert to. `state.config` only
+  ever holds the in-progress edit -- there was previously nothing to revert TO -- so this is a
+  parallel, deliberately shallow record of what the server last confirmed for each of them.
+  `snapshotTextFields()` (below) is the only writer, called once a profile fetch or a save response
+  has actually landed in `state.config`.
+*/
+const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'location', 'jobTitle', 'pronouns']
+const lastSaved = reactive({
+  firstName: '',
+  lastName: '',
+  name: '',
+  location: '',
+  jobTitle: '',
+  pronouns: ''
+})
+
+function snapshotTextFields() {
+  for (const field of TEXT_FIELDS) {
+    lastSaved[field] = state.config[field]
+  }
+}
+
+/*
   Task #3220: auto-save is ambient, so its debounce has to run per keystroke rather than per
   explicit click -- 800ms gives a reader a real pause to keep typing before a request goes out,
   longer than the ~350-400ms this codebase uses for a typeahead search (there is nothing to react to
-  as fast as a dropdown of results here).
+  as fast as a dropdown of results here). OpenProject #3321: the text fields below no longer go
+  through this debounce at all -- they commit on blur/Enter instead (see `commitTextField`) -- so
+  this now only backs the toggle/select fields' watch further down.
 */
 const AUTO_SAVE_DEBOUNCE_MS = 800
 
@@ -293,6 +336,9 @@ function applyProfile(profile) {
   state.config.cvd = profile.cvd || 'none'
   // -> After the whole record is in the fields, not per-field: the answer depends on all three.
   syncDisplayName()
+  // -> OpenProject #3321: re-baseline Esc's revert target to what the server just confirmed, after
+  //    derivation above has had its say on `name`.
+  snapshotTextFields()
   nextTick(() => {
     suppressAutoSave = false
   })
@@ -380,23 +426,63 @@ async function save() {
   profileSaving.end()
 }
 
+/**
+ * OpenProject #3321: commits one text field on blur or Enter -- a discrete save, not a per-keystroke
+ * one, and not the debounced auto-save the toggle/select fields still use below. Skips the request
+ * entirely when the field is back to (or still at) its last-saved value, which is also what makes an
+ * Esc-then-blur a no-op rather than a redundant round-trip: `revertTextField` writes the old value
+ * back before blurring, so by the time this runs the two already match.
+ */
+function commitTextField(field) {
+  if (!canEdit.value) {
+    return
+  }
+  if (state.config[field] === lastSaved[field]) {
+    return
+  }
+  save()
+}
+
+/**
+ * OpenProject #3321: Esc reverts the field to its last-saved value and blurs it, cancelling the
+ * in-progress edit. The explicit `blur()` is what makes this a *cancel* rather than merely a revert
+ * the reader could still type back over -- and it routes back through `commitTextField` via the
+ * field's own `@blur` handler above, which no-ops once the values already match rather than this
+ * function needing its own duplicate skip-save logic.
+ */
+function revertTextField(field, event) {
+  state.config[field] = lastSaved[field]
+  event.target.blur()
+}
+
 const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)
 
 /*
-  Watches the whole config object rather than any one field, so this keeps working whichever fields
-  a later change adds or however they get reordered in the template -- see Task #3220/#3221's
-  coordination note. `applyProfile()` is the only other writer of `state.config`, and it guards
-  itself with `suppressAutoSave`.
+  OpenProject #3321: narrowed to the toggle/select fields alone -- the text fields above now save
+  through `commitTextField` on blur/Enter, not through this debounced whole-object watch, and
+  including them here would mean a debounced save alongside their own discrete one. Still an
+  explicit field list rather than a single object the way the old whole-`state.config` watch was
+  (see Task #3220/#3221's coordination note for that prior shape): `#3320` owns this remaining half
+  and is expected to remove the debounce here entirely, so this list -- not the array literal's
+  identity -- is what future field churn should update. `applyProfile()` is the only other writer of
+  `state.config`, and it guards itself with `suppressAutoSave`.
 */
 watch(
-  () => state.config,
+  () => [
+    state.config.aesthetic,
+    state.config.appearance,
+    state.config.contentWidth,
+    state.config.cvd,
+    state.config.timezone,
+    state.config.dateFormat,
+    state.config.timeFormat
+  ],
   () => {
     if (suppressAutoSave || !canEdit.value) {
       return
     }
     debouncedAutoSave()
-  },
-  { deep: true }
+  }
 )
 
 // MOUNTED

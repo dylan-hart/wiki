@@ -536,12 +536,19 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
     expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
   })
 
-  it('saves automatically, debounced, once a field is edited -- with no explicit trigger', async () => {
+  /*
+    OpenProject #3321: firstName no longer drives this -- the text fields now save on blur/Enter, not
+    on a debounce (see the dedicated describe block below). The toggle/select fields are #3320's
+    remaining scope and still go through this same debounced watch, so `aesthetic` demonstrates it
+    here instead. `wrapper.vm.state` is the same escape hatch `UserCreateDialog.test.js` already
+    uses for a plain `<script setup>` reactive object with no template control worth driving by hand.
+  */
+  it('saves automatically, debounced, once a toggle/select field is edited -- with no explicit trigger', async () => {
     const wrapper = mountProfile(FULL_PROFILE)
     await flushPromises()
     globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
 
-    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    wrapper.vm.state.config.aesthetic = 'cobalt'
     await flushPromises()
     expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
 
@@ -550,7 +557,7 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
 
     expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
     expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
-      firstName: 'Janet'
+      aesthetic: 'cobalt'
     })
   })
 
@@ -559,17 +566,17 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
     await flushPromises()
     globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
 
-    await wrapper.find('input[aria-label="First Name"]').setValue('Ja')
+    wrapper.vm.state.config.aesthetic = 'cobalt'
     await vi.advanceTimersByTimeAsync(400)
-    await wrapper.find('input[aria-label="First Name"]').setValue('Jan')
+    wrapper.vm.state.config.aesthetic = 'ledger'
     await vi.advanceTimersByTimeAsync(400)
-    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    wrapper.vm.state.config.aesthetic = 'cobalt'
     await vi.advanceTimersByTimeAsync(800)
     await flushPromises()
 
     expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
     expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
-      firstName: 'Janet'
+      aesthetic: 'cobalt'
     })
   })
 
@@ -579,7 +586,7 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
     globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
     notifyQueue.splice(0, notifyQueue.length)
 
-    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    wrapper.vm.state.config.aesthetic = 'cobalt'
     await vi.advanceTimersByTimeAsync(800)
     await flushPromises()
 
@@ -596,11 +603,160 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
     })
     notifyQueue.splice(0, notifyQueue.length)
 
-    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    wrapper.vm.state.config.aesthetic = 'cobalt'
     await vi.advanceTimersByTimeAsync(800)
     await flushPromises()
 
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
+  })
+})
+
+/**
+ * OpenProject #3321: the text fields (firstName, lastName, displayName, location, jobTitle,
+ * pronouns) save on blur or Enter -- a discrete commit, not the per-keystroke debounce the
+ * describe block above still exercises for the toggle/select fields. Esc reverts the field to its
+ * last-saved value and blurs it, and an unchanged blur/Enter fires no redundant save.
+ */
+describe('ProfileInfo text field blur/Enter save, Esc revert (OpenProject #3321)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('does not save merely from typing -- no debounce for text fields', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('saves on blur once the value has changed', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find('input[aria-label="First Name"]')
+    await input.setValue('Janet')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      firstName: 'Janet'
+    })
+  })
+
+  it('fires no redundant save on blur when the value is unchanged', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find('input[aria-label="First Name"]')
+    await input.trigger('focus')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('saves on Enter as a discrete commit', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find('input[aria-label="First Name"]')
+    await input.setValue('Janet')
+    await input.trigger('keyup.enter')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      firstName: 'Janet'
+    })
+  })
+
+  it('fires no redundant save on Enter when the value is unchanged', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    await wrapper.find('input[aria-label="First Name"]').trigger('keyup.enter')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('reverts to the last-saved value and blurs the field on Escape, firing no save', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find('input[aria-label="First Name"]')
+    input.element.focus()
+    await input.setValue('Janet')
+    expect(input.element.value).toBe('Janet')
+
+    input.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+
+    expect(input.element.value).toBe('Jane')
+    expect(document.activeElement).not.toBe(input.element)
+    expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('reverts to the newest saved value, not the originally-loaded one, once a save has landed', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    // -> Realistic response, echoing the saved profile back -- see "re-reads the server's derived
+    //    display name out of the save response" above: this is what re-baselines `lastSaved` for
+    //    Esc, via `applyProfile()`.
+    globalThis.API_CLIENT.put.mockReturnValue({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          profile: { ...FULL_PROFILE, firstName: 'Janet', name: 'Janet Doe' }
+        })
+    })
+
+    const input = wrapper.find('input[aria-label="First Name"]')
+    await input.setValue('Janet')
+    await input.trigger('blur')
+    await flushPromises()
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+
+    input.element.focus()
+    await input.setValue('Janice')
+    input.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+
+    expect(input.element.value).toBe('Janet')
+    // -> Still just the one save from the blur above -- the revert-then-blur fired no second request.
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies the same blur-save behaviour to a field with no validation rules', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const input = wrapper.find('input[aria-label="profile.location"]')
+    await input.setValue('Berlin')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(1)
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      location: 'Berlin'
+    })
   })
 })
 
