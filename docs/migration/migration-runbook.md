@@ -181,14 +181,15 @@ comment):
 reasons are defined; two are actually emitted by this branch's phases:
 
 - **`unsupported-auth-provider`** — a 2.x `users` row, or a 2.x `authentication` (strategy) row, whose
-  provider/module is one of the five 3.0 genuinely has no module directory for at all: `azure`,
-  `dropbox`, `facebook`, `firebase`, `rocketchat` (`backend/migration/report.ts`'s
+  provider/module is one of the four 3.0 genuinely has no module directory for at all: `azure`,
+  `dropbox`, `firebase`, `rocketchat` (`backend/migration/report.ts`'s
   `UNSUPPORTED_AUTH_PROVIDERS`, cross-checked live against `backend/modules/authentication/` by
-  `report.test.ts`). 3.0 now ships sixteen authentication modules — `auth0`, `cas`, `discord`,
-  `github`, `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`, `okta`,
-  `saml`, `slack`, `twitch` — so a 2.x user or strategy on `ldap`/`saml`/`cas`/`auth0`/`okta` is **not**
-  in this unmappable bucket any more; those five providers do have a 3.0 module. A user/strategy row
-  reported this way is dropped entirely: **no account or strategy is created for it at all.** Before
+  `report.test.ts`). 3.0 now ships seventeen authentication modules — `auth0`, `cas`, `discord`,
+  `facebook`, `github`, `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`,
+  `okta`, `saml`, `slack`, `twitch` — so a 2.x user or strategy on `ldap`/`saml`/`cas`/`auth0`/`okta`/
+  `facebook` is **not** in this unmappable bucket any more; those six providers do have a 3.0 module. A
+  user/strategy row reported this way is dropped entirely: **no account or strategy is created for it
+  at all.** Before
   proceeding, get the list of affected users from this section of the report and decide, per your own
   deployment, whether they get manual account recreation after cutover, or nothing.
 - **`unsupported-storage-module`** — a 2.x `storage` row whose `key` names a module 3.0 has no

@@ -7,7 +7,7 @@ import type { SourceRecord } from './connector.ts'
  * `unsupported-auth-provider`: a 2.x user (`classifyUserAuthProvider` below) or a 2.x
  * `authentication` row (`mappers/authentication.ts`) on an auth strategy 3.0 has no module
  * for (LDAP/SAML/CAS/Auth0/Okta and friends — see `KNOWN_3_0_AUTH_MODULES` below for the
- * sixteen modules 3.0 actually ships, `backend/modules/authentication/`).
+ * seventeen modules 3.0 actually ships, `backend/modules/authentication/`).
  *
  * `unsupported-storage-module`: a 2.x `storage` row (`mappers/storage.ts`) whose `key` names
  * a module 3.0 has no directory for at all (`box`/`digitalocean`/`dropbox`/`gdrive`/`onedrive`/
@@ -101,6 +101,7 @@ export const KNOWN_3_0_AUTH_MODULES = new Set([
   'auth0',
   'cas',
   'discord',
+  'facebook',
   'github',
   'gitlab',
   'google',
@@ -119,19 +120,13 @@ export const KNOWN_3_0_AUTH_MODULES = new Set([
 /**
  * 2.x auth strategy keys with **no** matching 3.0 authentication module — confirmed by
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s "Confirmed no-destination 2.x auth
- * providers" section: 2.x's 21 providers minus 3.0's 16 `KNOWN_3_0_AUTH_MODULES` leaves exactly these
- * five with nowhere to land. A user or strategy on one of them is dropped entirely — no account is
+ * providers" section: 2.x's 21 providers minus 3.0's 17 `KNOWN_3_0_AUTH_MODULES` leaves exactly these
+ * four with nowhere to land. A user or strategy on one of them is dropped entirely — no account is
  * created — and reported as `unsupported-auth-provider` so the operator can decide what to do about
  * it. Every other 2.x provider key, including one this list doesn't recognize at all, passes through
  * unflagged; `importers/users-groups.ts`'s provider fallback is what actually routes those.
  */
-const UNSUPPORTED_AUTH_PROVIDERS = new Set([
-  'azure',
-  'dropbox',
-  'facebook',
-  'firebase',
-  'rocketchat'
-])
+const UNSUPPORTED_AUTH_PROVIDERS = new Set(['azure', 'dropbox', 'firebase', 'rocketchat'])
 
 function stringField(record: SourceRecord, key: string): string | undefined {
   const value = record[key]
