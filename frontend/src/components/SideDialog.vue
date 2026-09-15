@@ -78,8 +78,6 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
 </script>
 
 <style lang="scss">
-@use 'sass:color';
-
 /*
   The rules that used to sit here hung off `.q-dialog__inner` and `.w-card__section`, neither of which
   this app renders any more -- so the inset, the radius and the panel's minimum width had all silently

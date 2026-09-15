@@ -785,8 +785,6 @@ onMounted(async () => {
 </script>
 
 <style lang="scss">
-@use 'sass:color';
-
 /*
   The admin header: a white plate ruled off from the page, matching the site header. The black bar
   it replaces was the one place in the app that carried its own colour rather than the site's, and
