@@ -1,7 +1,7 @@
 /**
- * Ambient declarations for the `WIKI` global singleton.
+ * Ambient declarations for the `CARDINAL` global singleton.
  *
- * `WIKI` is assembled in `backend/index.ts` (and a minimal subset in `backend/worker.ts`) and is
+ * `CARDINAL` is assembled in `backend/index.ts` (and a minimal subset in `backend/worker.ts`) and is
  * reachable from every module without importing it. Members that come from typed dependencies are
  * typed properly here; the ones backed by our own not-yet-converted modules are left loose and
  * should be replaced with `typeof import('...')` as each module moves to TypeScript.
@@ -13,7 +13,7 @@ import type { LRUCache } from 'lru-cache'
 import type { ShutdownController } from '../core/http/shutdown.ts'
 
 declare global {
-  interface WikiGlobal {
+  interface CardinalGlobal {
     IS_DEBUG: boolean
     ROOTPATH: string
     SERVERPATH: string
@@ -58,10 +58,11 @@ declare global {
      * to compute it, so `worker.ts` instead reads it out of piscina's `workerData`
      * (`core/scheduler.ts`'s pool construction, forwarded once at pool-creation time, the same
      * transport `INSTANCE_ID`'s `parentInstanceId` uses) and assigns it onto its own
-     * minimal `WIKI` before that value is ever read -- so `capabilities` DOES reach a worker-thread
-     * task, just via a different route than the main process's own `syncSchemas()` write (OpenProject
-     * #3124). Still optional because a test `WIKI` stub that never sets it should read `undefined`
-     * rather than throw. Every consumer reads it as `WIKI.capabilities?.semanticSearch`.
+     * minimal `CARDINAL` before that value is ever read -- so `capabilities` DOES reach a
+     * worker-thread task, just via a different route than the main process's own `syncSchemas()`
+     * write (OpenProject #3124). Still optional because a test `CARDINAL` stub that never sets it
+     * should read `undefined` rather than throw. Every consumer reads it as
+     * `CARDINAL.capabilities?.semanticSearch`.
      */
     capabilities?: {
       semanticSearch: boolean
@@ -97,5 +98,5 @@ declare global {
     ensureDb?: () => Promise<boolean | void>
   }
 
-  var WIKI: WikiGlobal
+  var CARDINAL: CardinalGlobal
 }

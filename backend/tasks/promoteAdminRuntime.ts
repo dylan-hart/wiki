@@ -42,8 +42,8 @@ function buildWikiShell(): Pick<
  * same principle `worker.ts` and `migration/bootstrap.ts#loadModels()` already follow.
  */
 export async function bootstrapPromoteAdminRuntime(): Promise<WikiGlobal> {
-  const WIKI = buildWikiShell() as unknown as WikiGlobal
-  global.WIKI = WIKI
+  const CARDINAL = buildWikiShell() as unknown as CardinalGlobal
+  global.CARDINAL = CARDINAL
 
   await WIKI.configSvc.init()
   WIKI.logger = logger.init()

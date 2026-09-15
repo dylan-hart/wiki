@@ -38,7 +38,7 @@ import type { PhaseReport } from '../migration/report.ts'
 async function main(): Promise<void> {
   const args = parseVerifyArgs(process.argv.slice(2))
 
-  const WIKI = await bootstrapMigrationRuntime('verify-migration-cli')
+  const CARDINAL = await bootstrapMigrationRuntime('verify-migration-cli')
 
   WIKI.logger.info('migrate', '2.5.x -> 3.0 migration verify', { site: args.siteId })
 

@@ -151,7 +151,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const WIKI = await bootstrapMcpRuntime('mcp-stdio')
+  const CARDINAL = await bootstrapMcpRuntime('mcp-stdio')
 
   let ctx: McpAuthContext
   try {

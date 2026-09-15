@@ -13,7 +13,7 @@ import { workerInstanceId } from './helpers/bootSummary.ts'
 
 await ensureTemporal()
 
-const WIKI = {
+const CARDINAL = {
   IS_DEBUG: process.env.NODE_ENV === 'development',
   ROOTPATH: process.cwd(),
   // -> Settled before the logger below is built, so every line this thread ever emits — its boot
@@ -60,8 +60,8 @@ const WIKI = {
       process.exit(1)
     }
   }
-} as unknown as WikiGlobal
-global.WIKI = WIKI
+} as unknown as CardinalGlobal
+global.CARDINAL = CARDINAL
 
 await WIKI.configSvc.init(true)
 

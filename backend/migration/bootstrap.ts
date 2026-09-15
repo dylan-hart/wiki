@@ -315,8 +315,8 @@ export function buildWikiShell(
  * either needing to know about the other.
  */
 export async function bootstrapMigrationRuntime(instanceId: string): Promise<WikiGlobal> {
-  const WIKI = buildWikiShell(instanceId) as unknown as WikiGlobal
-  global.WIKI = WIKI
+  const CARDINAL = buildWikiShell(instanceId) as unknown as CardinalGlobal
+  global.CARDINAL = CARDINAL
 
   await WIKI.configSvc.init()
   WIKI.logger = logger.init()
