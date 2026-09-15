@@ -16,7 +16,7 @@ import {
 } from '../../test/migrationFixtures.ts'
 
 /** A minimal `SourceConnector` for seeding one real page through `contentPhase` — reusing Task 13's own
- * write path (`WIKI.models.pages.createPage()`) rather than hand-building a raw `pages`/`tree` row,
+ * write path (`CARDINAL.models.pages.createPage()`) rather than hand-building a raw `pages`/`tree` row,
  * per this task's own "reuse Task 13's integration test's page import as a fixture" instruction. */
 function fakeContentConnector(): SourceConnector {
   return stubSourceConnector({

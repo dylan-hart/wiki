@@ -14,12 +14,12 @@ import { installTestWiki } from '../../test/mocks.ts'
 /**
  * `mapStorageRow(s)` (task 767) tests.
  *
- * The resolver under test is the *real* `WIKI.models.storage` singleton, not a hand-rolled fake —
+ * The resolver under test is the *real* `CARDINAL.models.storage` singleton, not a hand-rolled fake —
  * same reasoning as the `authentication` mapper's test (task 765): this suite boots the minimal
- * slice of `WIKI` that `getDefinition`/`buildConfig`/`validateConfig` actually touch
- * (`WIKI.SERVERPATH`, `WIKI.logger`), populated by the real `refreshFromDisk()` reading the real
+ * slice of `CARDINAL` that `getDefinition`/`buildConfig`/`validateConfig` actually touch
+ * (`CARDINAL.SERVERPATH`, `CARDINAL.logger`), populated by the real `refreshFromDisk()` reading the real
  * `backend/modules/storage/*\/definition.yml` files straight off disk. None of the three methods
- * this mapper calls touches `WIKI.db`, so this needs no database.
+ * this mapper calls touches `CARDINAL.db`, so this needs no database.
  */
 
 let wikiHandle: { restore(): void }

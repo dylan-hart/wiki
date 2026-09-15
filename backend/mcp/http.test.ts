@@ -17,8 +17,8 @@ let wikiHandle: { restore(): void }
  * internals directly — the thing actually worth proving here is the wiring: per-request bearer auth,
  * the rate limiter, and the session lifecycle the MCP SDK's `StreamableHTTPServerTransport` expects,
  * all glued into Fastify's request/reply cycle including `reply.hijack()`. The transport's own
- * protocol-framing correctness is the SDK's problem, not this suite's; `WIKI.models.apiKeys.verify`
- * and `WIKI.models.rateLimits.consume` are stubbed so no database is touched.
+ * protocol-framing correctness is the SDK's problem, not this suite's; `CARDINAL.models.apiKeys.verify`
+ * and `CARDINAL.models.rateLimits.consume` are stubbed so no database is touched.
  */
 describe('mcp/http', () => {
   let app: FastifyInstance

@@ -193,7 +193,7 @@ describe('sanitizeSvg', () => {
 
 /**
  * `resizeImageToSquareJpeg`/`normalizeImage`/`makeImageThumbnail` all consult
- * `WIKI.models.extensions` before ever touching Sharp, so this installs a minimal fake of just that
+ * `CARDINAL.models.extensions` before ever touching Sharp, so this installs a minimal fake of just that
  * surface rather than the full `test/db.ts` fixture — none of the three needs a database.
  */
 describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Sharp unavailable', () => {
@@ -246,7 +246,7 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
   })
 
   /**
-   * The "not installed" tests above stub `WIKI.models.extensions.isInstalled` directly, which is
+   * The "not installed" tests above stub `CARDINAL.models.extensions.isInstalled` directly, which is
    * exactly what `moduleExists()` (the real implementation) reports for a package genuinely absent
    * from `node_modules`. This test instead covers the other half of the task description — Sharp
    * *reported* installed (`isInstalled` says yes, matching what a present-but-broken native binary

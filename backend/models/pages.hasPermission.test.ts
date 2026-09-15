@@ -12,9 +12,9 @@ import { hasPermission } from './pages.ts'
  * `<style>` HTML survives sanitization, not merely a global toggle: `createPage`, `updatePage`, and
  * `queueRerender`.
  *
- * `hasPermission()` now takes the page in question and asks `WIKI.models.groups.checkAccess()` — the
+ * `hasPermission()` now takes the page in question and asks `CARDINAL.models.groups.checkAccess()` — the
  * same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — via the actor's new `groupIds` field
- * (populated by `actorFrom()` from `WIKI.models.groups.groupIdsForRequest(req)`). This stubs
+ * (populated by `actorFrom()` from `CARDINAL.models.groups.groupIdsForRequest(req)`). This stubs
  * `checkAccess` to behave like a real page rule: it grants `write:scripts` only to a specific group,
  * only under a specific path prefix, and ignores the actor's global `permissions` list entirely —
  * mirroring how a page rule actually works — so a session with the string in its global list but no
@@ -25,8 +25,8 @@ import { hasPermission } from './pages.ts'
 let previousWiki: any
 
 before(() => {
-  previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  previousWiki = (globalThis as any).CARDINAL
+  ;(globalThis as any).CARDINAL = {
     models: {
       groups: {
         // -> Stands in for a real page rule: `write:scripts` is granted to `rule-group` only under
@@ -52,7 +52,7 @@ before(() => {
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  ;(globalThis as any).CARDINAL = previousWiki
 })
 
 test('hasPermission: a page-rule write:scripts grant with no global permissions takes effect on a page the rule covers', () => {

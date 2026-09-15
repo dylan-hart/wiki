@@ -18,19 +18,19 @@ import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionSc
  * regardless of what groups the key actually carried, so every page-rule check made for a request
  * authenticated by an API key (`checkAccess()`/`mayOnPage()`, both built on this) was silently deciding
  * against the PUBLIC's rules instead of the key's own. Pure request/response, no DB involved, so this
- * runs unconditionally rather than gated on `hasTestDatabase()` — only the guest fallback needs a WIKI
- * stub at all, for `WIKI.data.systemIds.guestsGroupId`.
+ * runs unconditionally rather than gated on `hasTestDatabase()` — only the guest fallback needs a CARDINAL
+ * stub at all, for `CARDINAL.data.systemIds.guestsGroupId`.
  */
 describe('groups.groupIdsForRequest', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test("an API-key-authenticated request resolves to the key's own groupIds", () => {
@@ -88,12 +88,12 @@ describe('groups.actorForRequest', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test("carries a scoped API key's scope through onto the actor", () => {
@@ -234,12 +234,12 @@ describe('groups.guestActor', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('resolves to the guests group with no group-wide permissions', () => {
@@ -1153,7 +1153,7 @@ describe('groups.rulesForGroups memoisation (DB-backed)', { skip: !hasTestDataba
       .where(eq(groupsTable.id, fixtures.groupId))
 
     groupsModel.subscribeToEvents()
-    const onCalls = (WIKI.events.inbound.on as any).mock.calls
+    const onCalls = (CARDINAL.events.inbound.on as any).mock.calls
     const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadGroups')?.arguments[1]
     assert.ok(handler, 'expected subscribeToEvents to register a reloadGroups handler')
     await handler()
@@ -1449,7 +1449,7 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
  * (or a newly-granted one) took effect on the instance that handled the write, but every other
  * instance in a cluster kept serving its stale copy until an admin ran "Flush Caches" or the
  * instance restarted. `broadcastReload()` is the fix: every write path now goes through it instead
- * of `reloadCache()` directly, and it emits on `WIKI.events.outbound` (which `core/db.ts`'s real
+ * of `reloadCache()` directly, and it emits on `CARDINAL.events.outbound` (which `core/db.ts`'s real
  * NOTIFY-based bus, unused here, is what actually carries to other instances — see
  * `dev/multi-instance-verify/README.md` §8).
  */
@@ -1460,9 +1460,9 @@ describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ groups: groupsModel } = await import('./groups.ts'))
-    // -> `updateGroup()` -> `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId`
-    //    unconditionally; the minimal `WIKI` from `setupTestDb()` leaves `WIKI.data` empty.
-    WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+    // -> `updateGroup()` -> `clampGuestPatch()` reads `CARDINAL.data.systemIds.guestsGroupId`
+    //    unconditionally; the minimal `CARDINAL` from `setupTestDb()` leaves `CARDINAL.data` empty.
+    CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
   })
 
   after(async () => {
@@ -1470,24 +1470,24 @@ describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   test('createGroup broadcasts reloadGroups after refreshing this instance', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await groupsModel.createGroup('Broadcast Test Group')
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
   })
 
   test('updateGroup broadcasts reloadGroups after refreshing this instance', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await groupsModel.updateGroup(fixtures.groupId, { rules: [] })
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
   })
 
   test('deleteGroup broadcasts reloadGroups after refreshing this instance', async () => {
     const id = await groupsModel.createGroup('Broadcast Delete Target')
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await groupsModel.deleteGroup(id)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
   })
 
@@ -1500,7 +1500,7 @@ describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () 
     }
     try {
       groupsModel.subscribeToEvents()
-      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const onCalls = (CARDINAL.events.inbound.on as any).mock.calls
       const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadGroups')?.arguments[1]
       assert.ok(handler, 'expected subscribeToEvents to register a reloadGroups handler')
       await handler()

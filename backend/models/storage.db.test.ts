@@ -30,7 +30,7 @@ describe(
       //    correct when the process is launched from the repo root but not from `backend/` itself —
       //    this repo's convention (run backend commands from backend/) is the latter.
       //    Repointed here rather than in the shared fixture, which is owned by a different feature.
-      WIKI.SERVERPATH = path.join(import.meta.dirname, '..')
+      CARDINAL.SERVERPATH = path.join(import.meta.dirname, '..')
       await storage.refreshFromDisk()
       await storage.syncSite(fixtures.siteId)
     })

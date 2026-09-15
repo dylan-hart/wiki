@@ -23,7 +23,7 @@ if (typeof (globalThis as any).Temporal === 'undefined') {
 /**
  * Two independently-built test suites over `models/comments.ts`, merged into one file at
  * merge-review time (see the model file's own header for the merge story). Kept as two separate,
- * self-scoped `describe` blocks rather than interleaved: the first mocks `WIKI.db` to unit-test
+ * self-scoped `describe` blocks rather than interleaved: the first mocks `CARDINAL.db` to unit-test
  * `create`/`update`/`delete`/`listForPage`/`countForPage` with no real database; the second runs
  * `pageRefsForSite`/`listForAdmin`/`getWithPage`/`delete` against a real throwaway Postgres. Each
  * block's `before`/`beforeEach`/`after` are scoped to its own `describe` so the mock-db setup in the
@@ -31,7 +31,7 @@ if (typeof (globalThis as any).Temporal === 'undefined') {
  */
 describe('comments model — mocked', () => {
   /**
-   * Fake `WIKI.db` — just enough of the drizzle chain shape for `create`/`update`/`delete` to run
+   * Fake `CARDINAL.db` — just enough of the drizzle chain shape for `create`/`update`/`delete` to run
    * against, with no real postgres involved. Each call is recorded so the assertions below can check
    * what the model handed to the query builder.
    */
@@ -145,8 +145,8 @@ describe('comments model — mocked', () => {
 
   /**
    * `create`/`update`/`delete` each queue a hook themselves now (OpenProject #1923, moved out of
-   * `api/comments.ts`) — `hookEmits` records every `WIKI.models.hooks.emit()` call so a test can
-   * assert on the payload directly, and `usersById` is `WIKI.models.users.getById`'s backing store for
+   * `api/comments.ts`) — `hookEmits` records every `CARDINAL.models.hooks.emit()` call so a test can
+   * assert on the payload directly, and `usersById` is `CARDINAL.models.users.getById`'s backing store for
    * the `authorName` resolution that payload needs.
    */
   let hookEmits: { event: string; siteId: string | null; data: Record<string, any> }[]
@@ -155,7 +155,7 @@ describe('comments model — mocked', () => {
   before(async () => {
     hookEmits = []
     usersById = {}
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       db: makeFakeDb(),
       models: {
         hooks: {
@@ -180,7 +180,7 @@ describe('comments model — mocked', () => {
     calls.counts.length = 0
     hookEmits.length = 0
     usersById = {}
-    ;(globalThis as any).WIKI.db = makeFakeDb()
+    ;(globalThis as any).CARDINAL.db = makeFakeDb()
   })
 
   /** A minimal row shaped exactly like `listForPage`'s `SELECT ... LEFT JOIN users` projection. */
@@ -321,7 +321,7 @@ describe('comments model — mocked', () => {
 
     it('emits comment:edit with the updated row and the resolved author name (OpenProject #1923)', async () => {
       usersById['u2'] = { name: 'Bob' }
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         updateRow: { siteId: 's1', pageId: 'p1', authorId: 'u2', guestName: null, replyTo: null }
       })
 
@@ -363,7 +363,7 @@ describe('comments model — mocked', () => {
       'fetches the row first and emits comment:delete with only the base identity fields, no ' +
         'content or metadata (OpenProject #1923)',
       async () => {
-        ;(globalThis as any).WIKI.db = makeFakeDb({
+        ;(globalThis as any).CARDINAL.db = makeFakeDb({
           getRows: [
             {
               id: 'c1',
@@ -394,7 +394,7 @@ describe('comments model — mocked', () => {
     )
 
     it('emits comment:delete with isGuest true and a null authorId for a guest comment', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         getRows: [
           {
             id: 'c2',
@@ -417,14 +417,14 @@ describe('comments model — mocked', () => {
 
   describe('listForPage', () => {
     it('returns [] for a page with zero comments, rather than throwing', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({ selectRows: [] })
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({ selectRows: [] })
       const result = await comments.listForPage('p1')
       assert.deepEqual(result, [])
       assert.equal(calls.selects.length, 1, 'expected a single flat query, not per-comment lookups')
     })
 
     it('nests a reply under its parent instead of returning it as a sibling top-level comment', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         selectRows: [
           row({ id: 'c1', authorId: 'u1', authorName: 'Alice', replyTo: null, content: 'root' }),
           row({
@@ -448,7 +448,7 @@ describe('comments model — mocked', () => {
     })
 
     it('nests a reply-to-a-reply two levels deep', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         selectRows: [
           row({ id: 'c1', replyTo: null }),
           row({ id: 'c2', replyTo: 'c1', createdAt: new Date('2026-08-16T00:01:00.000Z') }),
@@ -464,7 +464,7 @@ describe('comments model — mocked', () => {
     })
 
     it("uses the joined author's name when authorId is set", async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         selectRows: [row({ id: 'c1', authorId: 'u1', authorName: 'Alice', guestName: null })]
       })
       const result = await comments.listForPage('p1')
@@ -472,7 +472,7 @@ describe('comments model — mocked', () => {
     })
 
     it('falls back to guestName when authorId is null, matching pageEditSubmissions-style rows', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         selectRows: [
           row({ id: 'c1', authorId: null, authorName: null, guestName: 'Casual Visitor' })
         ]
@@ -482,7 +482,7 @@ describe('comments model — mocked', () => {
     })
 
     it('drops a reply whose replyTo points at a comment absent from the result set, rather than surfacing it as an orphaned top-level comment', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
         // Simulates the state a deleted-and-cascaded parent would leave behind IF the cascade somehow
         // hadn't already removed this row too — it never should reach this method in practice, but the
         // tree-builder must not misrepresent it as a fresh top-level comment or throw.
@@ -497,12 +497,12 @@ describe('comments model — mocked', () => {
 
   describe('countForPage', () => {
     it('returns 0 for a page with zero comments', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({ countValue: 0 })
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({ countValue: 0 })
       assert.equal(await comments.countForPage('p1'), 0)
     })
 
     it('returns the count from the db, replies included', async () => {
-      ;(globalThis as any).WIKI.db = makeFakeDb({ countValue: 5 })
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({ countValue: 5 })
       const total = await comments.countForPage('p1')
       assert.equal(total, 5)
       assert.equal(calls.counts.length, 1)
@@ -766,7 +766,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     // -> chunkSize 1 against 3 page ids forces the chunked path (3 chunks), never a single query
     // binding all three ids into one `IN (...)`. `fixtures.db` is the exact instance installed as
-    // `WIKI.db`, so spying on it observes every query `listForAdmin` actually issues.
+    // `CARDINAL.db`, so spying on it observes every query `listForAdmin` actually issues.
     const selectSpy = mock.method(fixtures.db, 'select')
     let firstPage
     try {

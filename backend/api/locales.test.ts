@@ -98,7 +98,7 @@ test('GET /:code/strings serializes an empty array for an unknown locale', async
 /**
  * ETag/304 (OpenProject #1920): the ~190 KB translation map should not be re-sent on every cold
  * page load — a browser holding a matching `ETag` from a prior response should get an empty `304`
- * instead. `#1915` (caching `getStrings()` in `WIKI.cache`) is separate, out-of-scope work; these
+ * instead. `#1915` (caching `getStrings()` in `CARDINAL.cache`) is separate, out-of-scope work; these
  * tests only cover the route's header/revalidation behavior against whatever the model returns.
  */
 test('GET /:code/strings carries a quoted ETag and a revalidation Cache-Control', async () => {
@@ -238,7 +238,7 @@ test('GET /:code/strings sends its 304 exactly once, behind an async onSend hook
 
 /**
  * `POST /sideload` (OpenProject #820): a `manage:system`-only trigger for
- * `WIKI.models.locales.sideloadFromDataPath`, letting an admin rescan `<dataPath>/locales/` for a
+ * `CARDINAL.models.locales.sideloadFromDataPath`, letting an admin rescan `<dataPath>/locales/` for a
  * dropped-in locale pack against a running instance without a restart.
  */
 test('POST /sideload requires manage:system', async () => {

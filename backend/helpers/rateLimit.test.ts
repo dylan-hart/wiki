@@ -24,7 +24,7 @@ let wikiHandle: { restore(): void }
  * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
  * `index.ts` (not a per-route hook like `limitAuthAttempts`/`limitRenders`), so it is exercised here
  * the way `api/apiKeys.test.ts` exercises route wiring: a real fastify instance with `@fastify/
- * sensible` registered (for the real `reply.tooManyRequests()`), `WIKI.models.rateLimits.consume`
+ * sensible` registered (for the real `reply.tooManyRequests()`), `CARDINAL.models.rateLimits.consume`
  * stubbed so no database is touched, and an inline route standing in for "any `/_api/` route with a
  * verified key attached".
  */
@@ -160,7 +160,7 @@ describe('limitApiKey', () => {
 /**
  * Unit tests for `limitApiRequests` (task 635, feature 398): the general `/_api/*` rate-limit hook.
  *
- * `WIKI.models.rateLimits.consume` is stubbed rather than exercised against a real database — the
+ * `CARDINAL.models.rateLimits.consume` is stubbed rather than exercised against a real database — the
  * database-backed fixed-window logic itself belongs to `models/rateLimits.ts`, not this helper. What
  * this file covers is the hook's own job: which key it builds for a given request, which requests it
  * exempts, and how it turns a refused verdict into a 429 with `Retry-After` — matching
@@ -256,7 +256,7 @@ describe('limitApiRequests', () => {
   })
 
   test('reads the configured policy from security.apiRateLimit* settings', async () => {
-    ;(globalThis as any).WIKI.config.security = {
+    ;(globalThis as any).CARDINAL.config.security = {
       apiRateLimitEnabled: true,
       apiRateLimitMax: 42,
       apiRateLimitWindow: '10m',
@@ -299,7 +299,7 @@ describe('limitApiRequests', () => {
   })
 
   test('does nothing while apiRateLimitEnabled is false', async () => {
-    ;(globalThis as any).WIKI.config.security.apiRateLimitEnabled = false
+    ;(globalThis as any).CARDINAL.config.security.apiRateLimitEnabled = false
     const req = makeReq()
     const reply = makeReply()
     await limitApiRequests(req, reply)
@@ -321,7 +321,7 @@ describe('limitApiRequests', () => {
   })
 
   test('two different API keys get independent counters', async () => {
-    // -> A stateful stand-in for `WIKI.models.rateLimits.consume`: a real per-key counter (not just a
+    // -> A stateful stand-in for `CARDINAL.models.rateLimits.consume`: a real per-key counter (not just a
     //    fixed verdict), so this exercises what the task asks for directly — that two different
     //    `req.apiKey.id` values never share a bucket — rather than just asserting the key strings
     //    differ (which the "keys by ..." tests above already do).
@@ -331,7 +331,7 @@ describe('limitApiRequests', () => {
       hits.set(key, n)
       return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
     })
-    ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
+    ;(globalThis as any).CARDINAL.config.security.apiRateLimitMax = 2
 
     const keyA = {
       id: 'key-a',
@@ -372,7 +372,7 @@ describe('limitApiRequests', () => {
       hits.set(key, n)
       return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
     })
-    ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
+    ;(globalThis as any).CARDINAL.config.security.apiRateLimitMax = 2
 
     const apiKeyReq = () =>
       makeReq({
@@ -480,7 +480,7 @@ describe('consumeAccountAuthAttempt', () => {
   })
 
   test('reads the configured policy from security.authRateLimit* settings', async () => {
-    ;(globalThis as any).WIKI.config.security = {
+    ;(globalThis as any).CARDINAL.config.security = {
       authRateLimitEnabled: true,
       authRateLimitMax: 5,
       authRateLimitWindow: '2m',
@@ -494,14 +494,14 @@ describe('consumeAccountAuthAttempt', () => {
   })
 
   test('does nothing (always allowed, no consume call) while authRateLimitEnabled is false', async () => {
-    ;(globalThis as any).WIKI.config.security.authRateLimitEnabled = false
+    ;(globalThis as any).CARDINAL.config.security.authRateLimitEnabled = false
     const verdict = await consumeAccountAuthAttempt('person@example.com')
     assert.equal(verdict.allowed, true)
     assert.equal(consume.mock.calls.length, 0)
   })
 
   test('repeated attempts against one account are refused once the policy limit is reached, regardless of what req.ip each attempt would have carried', async () => {
-    // -> A stateful stand-in for `WIKI.models.rateLimits.consume`, the same pattern
+    // -> A stateful stand-in for `CARDINAL.models.rateLimits.consume`, the same pattern
     //    `limitApiRequests`'s "two different API keys get independent counters" test uses: a real
     //    per-key counter rather than a fixed verdict, so this exercises the actual bound rather than
     //    just asserting the key string.
@@ -511,7 +511,7 @@ describe('consumeAccountAuthAttempt', () => {
       hits.set(key, n)
       return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
     })
-    ;(globalThis as any).WIKI.config.security.authRateLimitMax = 3
+    ;(globalThis as any).CARDINAL.config.security.authRateLimitMax = 3
 
     // Three attempts against "victim@example.com" succeed (are allowed through); a fourth — even
     // though nothing here ever passed an ip for any of them — is refused.
@@ -530,7 +530,7 @@ describe('consumeAccountAuthAttempt', () => {
       hits.set(key, n)
       return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
     })
-    ;(globalThis as any).WIKI.config.security.authRateLimitMax = 1
+    ;(globalThis as any).CARDINAL.config.security.authRateLimitMax = 1
 
     const first = await consumeAccountAuthAttempt('victim@example.com')
     assert.equal(first.allowed, true)
@@ -571,7 +571,7 @@ describe('isPublicRateLimitedPath', () => {
 
 /**
  * Unit tests for `limitPublicRequests` (OpenProject #2274): the root-mounted public-surface rate
- * limit hook. Same `WIKI.models.rateLimits.consume` stubbing approach as `limitApiRequests` above —
+ * limit hook. Same `CARDINAL.models.rateLimits.consume` stubbing approach as `limitApiRequests` above —
  * what this covers is the hook's own key-building, exemption and 429 shape, not the database-backed
  * fixed-window logic in `models/rateLimits.ts`.
  */
@@ -634,7 +634,7 @@ describe('limitPublicRequests', () => {
   })
 
   test('does nothing while apiRateLimitEnabled is false, the same shared toggle limitApiRequests uses', async () => {
-    ;(globalThis as any).WIKI.config.security.apiRateLimitEnabled = false
+    ;(globalThis as any).CARDINAL.config.security.apiRateLimitEnabled = false
     const reply = makeReply()
     await limitPublicRequests(makeReq(), reply)
     assert.equal(consume.mock.calls.length, 0)
@@ -664,7 +664,10 @@ describe('limitPublicRequests', () => {
       hits.set(key, n)
       return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
     })
-    ;(globalThis as any).WIKI.config.security = { apiRateLimitEnabled: true, apiRateLimitMax: 2 }
+    ;(globalThis as any).CARDINAL.config.security = {
+      apiRateLimitEnabled: true,
+      apiRateLimitMax: 2
+    }
 
     // Exhaust the /_api/ counter for this IP.
     const apiReq = {
@@ -708,7 +711,7 @@ describe('limitPublicRequests', () => {
 
 /**
  * Task 2222: an in-process memo of active bans fronts every call `helpers/rateLimit.ts` makes to
- * `WIKI.models.rateLimits.consume()`, so a request from a key already serving a ban is refused
+ * `CARDINAL.models.rateLimits.consume()`, so a request from a key already serving a ban is refused
  * without a second database write. Exercised through `limitApiRequests` — the shared
  * `consumeWithBanMemo` wrapper it (and `limitAuthAttempts`/`limitRenders`/`limitApiKey`) calls into
  * is the thing actually under test here, not anything specific to this one hook.
@@ -855,7 +858,7 @@ describe('rate-limit ban memo', () => {
 })
 
 /**
- * Unit tests for `limitRenders`: the per-route render-request limiter. `WIKI.models.rateLimits.consume`
+ * Unit tests for `limitRenders`: the per-route render-request limiter. `CARDINAL.models.rateLimits.consume`
  * is stubbed the same way as the other hooks in this file — the fixed-window logic itself belongs to
  * `models/rateLimits.ts`.
  */

@@ -12,8 +12,8 @@ import commentsDefaultModule, {
 import type { CheckSpamParams } from './comments.ts'
 
 /**
- * `checkSpam` reads `WIKI.config.host` (the Akismet "blog" identity, matching 2.5.x) and
- * `WIKI.logger.warn` (fail-open logging) — a minimal stub of just those two, not the full
+ * `checkSpam` reads `CARDINAL.config.host` (the Akismet "blog" identity, matching 2.5.x) and
+ * `CARDINAL.logger.warn` (fail-open logging) — a minimal stub of just those two, not the full
  * `test/db.ts` fixture, since nothing here touches the database. `warnLog` collects every warning so
  * tests can assert on the fail-open line without asserting on real log formatting.
  *
@@ -282,7 +282,7 @@ describe('modules/comments/default', () => {
         })
       })
 
-      it('POSTs the verify-key request with the akismet key and WIKI.config.host as the blog', async () => {
+      it('POSTs the verify-key request with the akismet key and CARDINAL.config.host as the blog', async () => {
         const fetchMock = mockAkismetFetch()
 
         await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'my-key' })
@@ -445,7 +445,7 @@ describe('modules/comments/default', () => {
 
     it('resolves via fs.access, matching the exact check models/storage.ts runs for storage.ts', async () => {
       // -> models/storage.ts's hasImplementation() runs:
-      //      fs.access(path.join(WIKI.SERVERPATH, 'modules/storage', key, 'storage.ts'))
+      //      fs.access(path.join(CARDINAL.SERVERPATH, 'modules/storage', key, 'storage.ts'))
       //    which resolves to <repo-root>/backend/modules/storage/<key>/storage.ts. Once
       //    models/comments.ts exists it is expected to run the same check against
       //    'modules/comments'; this asserts the equivalent path for this module resolves today.

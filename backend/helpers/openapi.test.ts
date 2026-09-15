@@ -7,7 +7,7 @@ import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES, swaggerTransform } from './
  *
  * The Swagger doc used to declare two auth options (`apiKeyAuth` reading an `X-API-Key` header, and
  * `bearerAuth`), but the only real auth path — the `onRequest` hook in `index.ts` — has only ever read
- * `Authorization: Bearer <token>` and verified it via `WIKI.models.apiKeys.verify()`. Nothing in the
+ * `Authorization: Bearer <token>` and verified it via `CARDINAL.models.apiKeys.verify()`. Nothing in the
  * codebase reads an `X-API-Key` header, so `apiKeyAuth` documented a credential style that could never
  * authenticate a request: picking it in the Swagger UI Authorize dialog produced requests the server
  * silently ignored (the `onRequest` hook only inspects `req.headers.authorization`), which is worse

@@ -19,7 +19,7 @@
  * a sibling next to `core/scheduler.ts`) should additionally cover the cron trigger itself.
  *
  * Two real "instances" are stood up as two independent, randomly-named schemas against the SAME
- * `DATABASE_URL` -- not `setupTestDb()` twice: that fixture keeps its schema/pool/`WIKI` handle in
+ * `DATABASE_URL` -- not `setupTestDb()` twice: that fixture keeps its schema/pool/`CARDINAL` handle in
  * module-level singletons (see its own doc comment — "one `setupTestDb()` for the whole file"), so a
  * second call would clobber the first's bookkeeping rather than run alongside it. This file instead
  * open-codes the same schema-per-run approach `test/db.ts#setupTestDb()` uses internally, reusing its
@@ -262,9 +262,9 @@ describe(
       targetContent = await seedContent(target.db, 'target')
 
       dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-replication-round-trip-'))
-      // -> A single WIKI global is installed for the whole suite; each step below reassigns `.db`
-      //    immediately before the call that needs it, rather than juggling two WIKI stubs. Nothing
-      //    under test reads `WIKI.db` outside the two calls this suite makes.
+      // -> A single CARDINAL global is installed for the whole suite; each step below reassigns `.db`
+      //    immediately before the call that needs it, rather than juggling two CARDINAL stubs. Nothing
+      //    under test reads `CARDINAL.db` outside the two calls this suite makes.
       wikiHandle = installTestWiki({ db: source.db, config: { dataPath } })
     })
 
@@ -280,7 +280,7 @@ describe(
       const { replicationImportModel } = await import('../models/replicationImport.ts')
 
       // -> Source side: build a real snapshot tarball off `source.db`.
-      WIKI.db = source.db
+      CARDINAL.db = source.db
       const exportResult = await replicationExport.buildSnapshot()
       assert.match(exportResult.filePath, /\.tar\.gz$/)
       const stat = await fs.stat(exportResult.filePath)
@@ -289,7 +289,7 @@ describe(
 
       // -> Target side: feed that exact file straight into the real importer against `target.db`,
       //    exactly as a same-process pull would once WP #2492 exists to have downloaded it first.
-      WIKI.db = target.db
+      CARDINAL.db = target.db
       const report = await replicationImportModel.importSnapshot(exportResult.filePath)
 
       assert.deepEqual(report, {

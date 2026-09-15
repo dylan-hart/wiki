@@ -18,7 +18,7 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * / `BlockBlobClient` instance this module constructs is a real instance of those classes, so patching
  * the prototype catches every call. `generateSasUrl` is exercised for real (unmocked): it's pure local
  * signing against the `StorageSharedKeyCredential`, no network call — see `storage.ts`'s doc comment.
- * `WIKI.logger`/`WIKI.models.assets` are the only `WIKI` members `storage.ts` touches — matching the
+ * `CARDINAL.logger`/`CARDINAL.models.assets` are the only `CARDINAL` members `storage.ts` touches — matching the
  * pure-unit-test convention this repo's backend testing follows.
  */
 
@@ -41,7 +41,7 @@ beforeEach(() => {
   uploadMock = mock.method(BlockBlobClient.prototype, 'upload', async () => ({}) as any)
   deleteMock = mock.method(BlockBlobClient.prototype, 'delete', async () => ({}) as any)
   syncCopyMock = mock.method(BlockBlobClient.prototype, 'syncCopyFromURL', async () => ({}) as any)
-  ;(WIKI.models.assets.getContent as any).mock.resetCalls()
+  ;(CARDINAL.models.assets.getContent as any).mock.resetCalls()
 })
 
 afterEach(() => {
@@ -136,7 +136,7 @@ describe('azure storage / ensureContainer (activation)', () => {
  */
 describe('azure storage / per-asset lifecycle', () => {
   test('assetUploaded passes the byte length as upload()’s second, positional argument', async () => {
-    ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
+    ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
       data: Buffer.from('hello'),
       mimeType: 'text/plain',
       fileName: 'notes.txt'
@@ -177,7 +177,7 @@ describe('azure storage / exportAll', () => {
       })
     })
     const target = makeTarget({ containerName: 'forbidden-container' })
-    WIKI.models.assets.streamAll = async function* () {} as any
+    CARDINAL.models.assets.streamAll = async function* () {} as any
 
     await assert.rejects(
       () => storageModule.exportAll(target),

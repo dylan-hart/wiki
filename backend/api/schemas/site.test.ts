@@ -39,7 +39,7 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
  * computed fields, so any key that ever landed in a site's config blob reached the response the
  * moment this schema also declared it — nothing stated or tested that the two had to be kept in sync.
  * `search` is the load-bearing case: it's where active search-engine credentials live
- * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]`, e.g. Algolia's `apiKey` and AWS CloudSearch's
+ * (`CARDINAL.sites[siteId]?.config?.search?.engines?.[key]`, e.g. Algolia's `apiKey` and AWS CloudSearch's
  * `secretAccessKey` — see `models/search.ts:402`/`:535`), seeded under the same top-level `search` key
  * as `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults), and it stayed out of
  * a reader's browser only because the `Site` schema above declares no top-level `search` property.
@@ -139,14 +139,14 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
   assert.equal(
     payload.isReplicationEnabled,
     true,
-    'isReplicationEnabled should reflect WIKI.config.replication.isEnabled'
+    'isReplicationEnabled should reflect CARDINAL.config.replication.isEnabled'
   )
 
   wikiHandle.restore()
 })
 
 /**
- * Task 2851: `isReplicationEnabled` is a strict boolean derived off `WIKI.config.replication?.isEnabled
+ * Task 2851: `isReplicationEnabled` is a strict boolean derived off `CARDINAL.config.replication?.isEnabled
  * === true`, not a bare truthy passthrough -- a missing `replication` config block (an older/minimal
  * config shape) must answer `false`, not `undefined`, since the field is declared `type: 'boolean'` on
  * the `Site` schema.
@@ -175,7 +175,7 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
 
 /**
  * Task #3103: `features.semanticSearch` on the site-info response is true only when BOTH the
- * instance-wide boot-time capability flag (`WIKI.capabilities.semanticSearch`, Task #3095) and this
+ * instance-wide boot-time capability flag (`CARDINAL.capabilities.semanticSearch`, Task #3095) and this
  * site's own `search.config.semanticEnabled` admin setting (Task #3104) are true -- all four
  * combinations, per the work package's own acceptance criteria.
  *
@@ -229,11 +229,11 @@ for (const { capability, siteSetting, expected } of semanticSearchCombinations) 
 }
 
 /**
- * The capability flag is absent entirely on a `WIKI` that hasn't gone through the Task #3095 boot
+ * The capability flag is absent entirely on a `CARDINAL` that hasn't gone through the Task #3095 boot
  * step (the default test stub, and any real instance that hasn't been rebuilt with that change yet)
  * -- must read as unavailable, not throw.
  */
-test('buildSitePayload reports features.semanticSearch: false when WIKI.capabilities is entirely absent', async () => {
+test('buildSitePayload reports features.semanticSearch: false when CARDINAL.capabilities is entirely absent', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },
     models: {

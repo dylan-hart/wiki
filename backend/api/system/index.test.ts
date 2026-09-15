@@ -8,12 +8,12 @@ import configSvc from '../../core/config.ts'
 
 /**
  * OpenProject #2231: every write route in `system.ts` now records an audit entry. DB-backed rather
- * than a stubbed `WIKI.models.auditLog` -- `PUT /security` and `POST /history/purge` are the two
+ * than a stubbed `CARDINAL.models.auditLog` -- `PUT /security` and `POST /history/purge` are the two
  * cases the task calls out by name, and what actually has to be verified is what lands in the real
  * `auditLog` table (actor, changed keys, and -- the point of the task -- that no `auth`/`mail`
  * secret value ever reaches `detail`), not just that `record()` was called with some argument.
- * `WIKI.configSvc` is the real `core/config.ts` singleton (not part of `setupTestDb()`'s minimal
- * `WIKI`): `Security#updateConfig` writes through it to the real `settings` table this fixture's
+ * `CARDINAL.configSvc` is the real `core/config.ts` singleton (not part of `setupTestDb()`'s minimal
+ * `CARDINAL`): `Security#updateConfig` writes through it to the real `settings` table this fixture's
  * migration created.
  */
 describe(
@@ -27,14 +27,14 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       ;({ auditLog: auditLogModel } = await import('../../models/auditLog.ts'))
-      ;(globalThis as any).WIKI.configSvc = configSvc
-      // -> `setupTestDb()`'s minimal `WIKI.config` is a bare `{}` -- `Security#getConfig()` reads
-      //    `WIKI.config.security ?? {}`, so without this, `Security#validate()`'s
+      ;(globalThis as any).CARDINAL.configSvc = configSvc
+      // -> `setupTestDb()`'s minimal `CARDINAL.config` is a bare `{}` -- `Security#getConfig()` reads
+      //    `CARDINAL.config.security ?? {}`, so without this, `Security#validate()`'s
       //    `CORS_MODES.includes(merged.corsMode)` check fails on `undefined` and `PUT /security`
       //    below 400s instead of exercising the asserted 200 path (OpenProject #2346). `'OFF'` is
       //    the same default `base.yml` ships; the test's own payload never touches CSP/hostname/regex
       //    so nothing else in `security` needs seeding.
-      ;(globalThis as any).WIKI.config.security = { corsMode: 'OFF' }
+      ;(globalThis as any).CARDINAL.config.security = { corsMode: 'OFF' }
 
       // -> `buildTestApp` brings the REAL error handler: without one that shapes a thrown
       //    `reply.badRequest()` into `ApiError#`, Fastify's default handler tries to serialize the

@@ -1,13 +1,13 @@
 /**
  * Unit tests for `repo.ts` — the git storage module's repo lifecycle and auth wiring leaf.
  *
- * `resolveRepoPath`/`buildAuthenticatedUrl` are tested as pure functions with no `WIKI` global and
+ * `resolveRepoPath`/`buildAuthenticatedUrl` are tested as pure functions with no `CARDINAL` global and
  * no I/O, made straightforward precisely because `repo.ts` has no sibling imports to stand in the
  * way. `ensureRepo` itself is not pure — it shells out to a real `git` binary via `simple-git`
  * against throwaway temp directories, since the behavior under test — init, remote add/update,
  * branch checkout, SSH config wiring — genuinely is that shelling-out, and a mock of `simple-git`
  * would mostly just be re-describing the code rather than verifying it. No `test/db.ts` fixture:
- * nothing here touches Postgres. `WIKI` is a minimal stub: only `ROOTPATH` and `models.extensions`
+ * nothing here touches Postgres. `CARDINAL` is a minimal stub: only `ROOTPATH` and `models.extensions`
  * (git-detection) are read by this file.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
@@ -19,7 +19,7 @@ import { simpleGit } from 'simple-git'
 import { ensureRepo, resolveRepoPath, buildAuthenticatedUrl } from './repo.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 
-/** Installs a `WIKI` stub with git detection reporting `installed`, and ROOTPATH under a temp dir. */
+/** Installs a `CARDINAL` stub with git detection reporting `installed`, and ROOTPATH under a temp dir. */
 function installWiki(rootPath: string, { installed = true }: { installed?: boolean } = {}): void {
   installTestWiki({
     ROOTPATH: rootPath,
@@ -50,7 +50,7 @@ function baseConfig(overrides: Record<string, any> = {}): Record<string, any> {
 }
 
 describe('git storage: resolveRepoPath', () => {
-  test('resolves a relative path against WIKI.ROOTPATH', () => {
+  test('resolves a relative path against CARDINAL.ROOTPATH', () => {
     installWiki('/srv/wiki')
     assert.equal(resolveRepoPath('./data/repo'), path.join('/srv/wiki', './data/repo'))
   })

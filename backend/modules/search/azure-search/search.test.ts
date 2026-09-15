@@ -43,9 +43,9 @@ before(() => ensureTemporal())
  * #381's description), so every suite here builds a fake client that records what it was called with
  * and resolves/returns canned data, the same way a real one would.
  *
- * A stub `WIKI.logger` is required because several hooks log — the same reason `test/mocks.ts` exists
+ * A stub `CARDINAL.logger` is required because several hooks log — the same reason `test/mocks.ts` exists
  * for model-layer tests, just inlined here rather than imported, since this suite needs nothing else
- * off the `WIKI` global besides `sites` (per-site engine config), `SERVERPATH` (so
+ * off the `CARDINAL` global besides `sites` (per-site engine config), `SERVERPATH` (so
  * `search.refreshFromDisk()` below can read this engine's own `definition.yml`) and
  * `models.groups.checkAccess` (page-permission filtering in `query()`).
  */
@@ -79,7 +79,7 @@ installTestWiki({
  *
  * Registered here rather than beside the `ensureTemporal()` hook above, and this is load-bearing: a
  * root-level `before()` in `node:test` runs before the top-level statements that FOLLOW it, so a hook
- * declared above the `WIKI` assignment would run with no `WIKI.SERVERPATH` to read from.
+ * declared above the `CARDINAL` assignment would run with no `CARDINAL.SERVERPATH` to read from.
  */
 before(() => search.refreshFromDisk())
 
@@ -469,7 +469,7 @@ describe('azure-search module: query client caching', () => {
       factoryCalls++
       return client
     })
-    const engines = (globalThis as any).WIKI.sites['site-1'].config.search.engines
+    const engines = (globalThis as any).CARDINAL.sites['site-1'].config.search.engines
     const originalConfig = engines['azure-search']
 
     try {
@@ -622,7 +622,7 @@ describe('azure-search module: query()', () => {
     ])
     const azureSearch = new AzureSearchModule(undefined, () => client)
     const actor = { groupIds: [], permissions: [] }
-    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
+    ;(CARDINAL.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
       p.path !== 'docs/secret'
 
     try {
@@ -637,7 +637,7 @@ describe('azure-search module: query()', () => {
       assert.equal(result.results.length, 1)
       assert.equal(result.results[0]!.id, 'open')
     } finally {
-      WIKI.models.groups.checkAccess = () => true
+      CARDINAL.models.groups.checkAccess = () => true
     }
   })
 

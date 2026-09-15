@@ -7,7 +7,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * DB-backed route test (OpenProject #1079): a real Fastify instance with `app.inject`, gating
- * verified through the real `preHandler` hook rather than a stub of `WIKI.models.classificationLevels`
+ * verified through the real `preHandler` hook rather than a stub of `CARDINAL.models.classificationLevels`
  * -- what this proves is the CRUD routes actually reach the real model and are gated by
  * `manage:system` (create/update/reorder/delete) while listing is public-access, matching
  * `api/groups.test.ts`'s own DB-backed pattern for the same reason.

@@ -30,7 +30,7 @@ await ensureTemporal()
 /**
  * `refreshFromDisk` (see `locales.ts`) warns at boot -- `locale  declared in the metadata file but
  * not found on disk` -- naming every language declared in `locales/metadata.js` that has no matching
- * `backend/locales/<code>.json` file on disk. This is a pure, no-`WIKI`, no-database check of that
+ * `backend/locales/<code>.json` file on disk. This is a pure, no-`CARDINAL`, no-database check of that
  * exact invariant: every declared language resolves to a real file. It is what "a fresh boot
  * produces zero skipped-locale warnings" (task 690's stated done-condition) reduces to, without
  * needing to actually boot.
@@ -250,7 +250,7 @@ describe('mergeLocaleStrings()', () => {
  * leaves the previously-computed value in place rather than resetting it — the "intentionally left as
  * the last-computed value" option task 692 explicitly allows for a run that does no disk/DB work.
  *
- * Uses a scratch `locales/` directory (not the real vendored files) pointed to via `WIKI.SERVERPATH`,
+ * Uses a scratch `locales/` directory (not the real vendored files) pointed to via `CARDINAL.SERVERPATH`,
  * with `metadata.js`'s real `de` entry (filename `de.json`, no region/script) as the one language
  * under test — every other real declared language simply misses its `stat()` and is skipped, exactly
  * like `locales.test.ts`'s existing coverage of that path.
@@ -284,7 +284,7 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
     )
     await writeFile(path.join(scratchDir, 'locales/de.json'), JSON.stringify(deStrings))
 
-    WIKI.SERVERPATH = scratchDir
+    CARDINAL.SERVERPATH = scratchDir
   })
 
   after(async () => {
@@ -462,9 +462,9 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     )
     await writeFile(path.join(scratchDir, 'server/locales/en.json'), JSON.stringify(baseStrings))
 
-    WIKI.SERVERPATH = path.join(scratchDir, 'server')
-    WIKI.ROOTPATH = scratchDir
-    WIKI.config.dataPath = path.join(scratchDir, 'data')
+    CARDINAL.SERVERPATH = path.join(scratchDir, 'server')
+    CARDINAL.ROOTPATH = scratchDir
+    CARDINAL.config.dataPath = path.join(scratchDir, 'data')
     sideloadDir = path.join(scratchDir, 'data/locales')
   })
 
@@ -670,13 +670,13 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
 
   test('a missing sideload directory is not an error', async () => {
     const missingRoot = await mkdtemp(path.join(tmpdir(), 'wiki-sideload-missing-'))
-    const previousDataPath = WIKI.config.dataPath
-    WIKI.config.dataPath = path.join(missingRoot, 'never-created')
+    const previousDataPath = CARDINAL.config.dataPath
+    CARDINAL.config.dataPath = path.join(missingRoot, 'never-created')
 
     const result = await localesModel.sideloadFromDataPath({ force: true })
     assert.deepEqual(result, { loaded: [], skipped: [] })
 
-    WIKI.config.dataPath = previousDataPath
+    CARDINAL.config.dataPath = previousDataPath
     await rm(missingRoot, { recursive: true, force: true })
   })
 })
@@ -703,10 +703,10 @@ describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('writes only the "locales" cache key, no per-locale entries', async () => {
-    const cacheSetCalls = (WIKI.cache.set as any).mock.calls.length
+    const cacheSetCalls = (CARDINAL.cache.set as any).mock.calls.length
     await localesModel.getLocales({ cache: false })
 
-    const newCalls = (WIKI.cache.set as any).mock.calls.slice(cacheSetCalls)
+    const newCalls = (CARDINAL.cache.set as any).mock.calls.slice(cacheSetCalls)
     assert.deepEqual(
       newCalls.map((call: any) => call.arguments[0]),
       ['locales']
@@ -720,7 +720,7 @@ describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
  * refreshed on instance A stayed invisible to instance B (e.g. `api/sites.ts`'s `installedCodes`
  * check) until B happened to restart. `broadcastReload()` mirrors `models/groups.ts`'s /
  * `models/sites.ts`'s fix exactly: every write path goes through it instead of `reloadCache()`
- * directly, and it emits on `WIKI.events.outbound` (which `core/db.ts`'s real NOTIFY-based bus,
+ * directly, and it emits on `CARDINAL.events.outbound` (which `core/db.ts`'s real NOTIFY-based bus,
  * unused here, is what actually carries to other instances).
  */
 describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -739,16 +739,16 @@ describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, ()
       JSON.stringify({ key0: 'value0' })
     )
 
-    WIKI.SERVERPATH = path.join(scratchDir, 'server')
-    WIKI.ROOTPATH = scratchDir
-    WIKI.config.dataPath = path.join(scratchDir, 'data')
+    CARDINAL.SERVERPATH = path.join(scratchDir, 'server')
+    CARDINAL.ROOTPATH = scratchDir
+    CARDINAL.config.dataPath = path.join(scratchDir, 'data')
     sideloadDir = path.join(scratchDir, 'data/locales')
   })
 
   beforeEach(async () => {
     await rm(sideloadDir, { recursive: true, force: true })
     await mkdir(sideloadDir, { recursive: true })
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
   })
 
   after(async () => {
@@ -765,7 +765,7 @@ describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, ()
     const result = await localesModel.sideloadFromDataPath({ force: true })
     assert.deepEqual(result.loaded, ['tlh'])
 
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     const reloadCalls = calls.filter((c: any) => c.arguments[0] === 'reloadLocales')
     assert.equal(reloadCalls.length, 1, 'expected exactly one reloadLocales broadcast')
   })
@@ -774,7 +774,7 @@ describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, ()
     const result = await localesModel.sideloadFromDataPath({ force: true })
     assert.deepEqual(result.loaded, [])
 
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.equal(calls.filter((c: any) => c.arguments[0] === 'reloadLocales').length, 0)
   })
 
@@ -787,14 +787,14 @@ describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, ()
     }
     try {
       localesModel.subscribeToEvents()
-      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const onCalls = (CARDINAL.events.inbound.on as any).mock.calls
       const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadLocales')?.arguments[1]
       assert.ok(handler, 'expected subscribeToEvents to register a reloadLocales handler')
 
       await handler()
       assert.equal(reloaded, true)
 
-      const outboundCalls = (WIKI.events.outbound.emit as any).mock.calls
+      const outboundCalls = (CARDINAL.events.outbound.emit as any).mock.calls
       assert.equal(
         outboundCalls.filter((c: any) => c.arguments[0] === 'reloadLocales').length,
         0,
@@ -808,7 +808,7 @@ describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, ()
   test('boot-time reloadCache() emits nothing', async () => {
     await localesModel.reloadCache()
 
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.equal(calls.filter((c: any) => c.arguments[0] === 'reloadLocales').length, 0)
   })
 })
@@ -1016,7 +1016,7 @@ describe('resolveString / resolvePluralString (DB-backed)', { skip: !hasTestData
 })
 
 /**
- * `getStrings()` caching (OpenProject #1915): mirrors `getLocales()`'s existing `WIKI.cache` shape —
+ * `getStrings()` caching (OpenProject #1915): mirrors `getLocales()`'s existing `CARDINAL.cache` shape —
  * keyed `localeStrings:<code>` — so a cold page load doesn't pay a fresh ~190 KB JSONB read on every
  * visit. `reloadCache()` is the single invalidation point (already called from
  * `sideloadFromDataPath`), so a sideloaded pack must be visible on the next `getStrings()` call.
@@ -1044,11 +1044,11 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
     const first = await localesModel.getStrings('ja')
     assert.deepEqual(first, { hello: 'Konnichiwa' })
 
-    const getCallsBefore = (WIKI.cache.get as any).mock.callCount()
+    const getCallsBefore = (CARDINAL.cache.get as any).mock.callCount()
     const second = await localesModel.getStrings('ja')
 
     assert.deepEqual(second, { hello: 'Konnichiwa' })
-    assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
+    assert.equal((CARDINAL.cache.get as any).mock.callCount(), getCallsBefore + 1)
   })
 
   test('a different code gets its own cache entry', async () => {
@@ -1070,8 +1070,8 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
     assert.deepEqual(await localesModel.getStrings('nl'), { hello: 'Hallo' })
     assert.deepEqual(await localesModel.getStrings('fr'), { hello: 'Bonjour' })
 
-    assert.equal(WIKI.cache.has('localeStrings:nl'), true)
-    assert.equal(WIKI.cache.has('localeStrings:fr'), true)
+    assert.equal(CARDINAL.cache.has('localeStrings:nl'), true)
+    assert.equal(CARDINAL.cache.has('localeStrings:fr'), true)
   })
 
   test('reloadCache() drops the per-code key, so a sideloaded pack is visible next call', async () => {
@@ -1082,7 +1082,7 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
       .where(eq(localesTable.code, 'de'))
 
     await localesModel.getStrings('de')
-    assert.equal(WIKI.cache.has('localeStrings:de'), true)
+    assert.equal(CARDINAL.cache.has('localeStrings:de'), true)
 
     // Simulate what sideloadFromDataPath does: write new strings straight to the DB row, then rely
     // on reloadCache() (its own invalidation point) to make them visible.
@@ -1092,7 +1092,7 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
       .where(eq(localesTable.code, 'de'))
 
     await localesModel.reloadCache()
-    assert.equal(WIKI.cache.has('localeStrings:de'), false)
+    assert.equal(CARDINAL.cache.has('localeStrings:de'), false)
 
     assert.deepEqual(await localesModel.getStrings('de'), { hello: 'Hallo (updated)' })
   })
@@ -1100,12 +1100,12 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
   test('an unknown code caches the empty-array miss too', async () => {
     const result = await localesModel.getStrings('zz-nonexistent')
     assert.deepEqual(result, [])
-    assert.equal(WIKI.cache.has('localeStrings:zz-nonexistent'), true)
+    assert.equal(CARDINAL.cache.has('localeStrings:zz-nonexistent'), true)
   })
 
   /**
    * OpenProject #2433: `en`'s hard fallback floor. This describe block does not override
-   * `WIKI.SERVERPATH`, so `getStrings('en')` reads the REAL `backend/locales/en.json` (3,472 keys as
+   * `CARDINAL.SERVERPATH`, so `getStrings('en')` reads the REAL `backend/locales/en.json` (3,472 keys as
    * of this writing, `common.actions.apply` = "Apply" — a stable, unlikely-to-be-renamed key used
    * purely as a "some real bundled key survived the merge" probe, not asserted as the literal source
    * of truth for its own value). The "no row at all" case runs BEFORE any `en` row is seeded, since

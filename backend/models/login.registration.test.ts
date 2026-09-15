@@ -66,10 +66,10 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .returning({ id: authenticationTable.id })
     const strategyId = row!.id
     // -> `register()` now also checks the strategy is attached to the site the request came in on
-    //    (`site.config.authStrategies`) -- `getSiteById()` reads the in-memory `WIKI.sites` cache, not
+    //    (`site.config.authStrategies`) -- `getSiteById()` reads the in-memory `CARDINAL.sites` cache, not
     //    the database, so the fixture site installed by `setupTestDb()` is what needs updating here.
     if (attachToSite) {
-      const site = (WIKI.sites as any)[fixtures.siteId]
+      const site = (CARDINAL.sites as any)[fixtures.siteId]
       site.config.authStrategies = [
         ...(site.config.authStrategies ?? []),
         { id: strategyId, order: 0, isVisible: true }
@@ -80,23 +80,23 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   /**
    * `afterLoginChecks()` (reached only when `emailValidation` is off) looks the strategy up in
-   * `WIKI.auth.strategies`, not the database -- that is where a strategy's live module instance
+   * `CARDINAL.auth.strategies`, not the database -- that is where a strategy's live module instance
    * lives, and `enforceTfa` is read off it. A bare stand-in is enough: nothing under test needs it to
    * be a real module instance, just present.
    */
   function registerLiveStrategy(strategyId: string, config: Record<string, any> = {}): void {
-    ;(WIKI.auth.strategies as any)[strategyId] = { config }
+    ;(CARDINAL.auth.strategies as any)[strategyId] = { config }
   }
 
   /**
-   * `register()` reads the site's attached-strategies list off `WIKI.sites[siteId].config`, the same
+   * `register()` reads the site's attached-strategies list off `CARDINAL.sites[siteId].config`, the same
    * in-memory cache `getSiteById()` reads without `forceReload` -- `setupTestDb()` seeds that cache
    * once with no `authStrategies` key, so a strategy created by `createStrategy()` starts out
    * unattached to `fixtures.siteId` and every test that expects a strategy to actually work has to
    * attach it here first.
    */
   function attachStrategyToSite(strategyId: string): void {
-    ;(WIKI.sites[fixtures.siteId].config as Record<string, any>).authStrategies = [
+    ;(CARDINAL.sites[fixtures.siteId].config as Record<string, any>).authStrategies = [
       { id: strategyId, order: 0, isVisible: true }
     ]
   }
@@ -115,7 +115,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       async () => {}
     )
 
-    WIKI.data.authentication = [
+    CARDINAL.data.authentication = [
       {
         key: MODULE_KEY,
         title: 'Test Local',
@@ -140,7 +140,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> `getActiveStrategies()` reads this unconditionally (to sort the built-in local strategy
     //    first), regardless of which test strategy is under test; the creation tests below override it
     //    to their own strategy id, since that is the key `createUser()` stores the password blob under.
-    WIKI.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
+    CARDINAL.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
   })
 
   after(async () => {
@@ -309,7 +309,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       allowedEmailDomains: ['allowed.example'],
       emailValidation: true
     })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
 
     const result = await login.register(
@@ -331,7 +331,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('an empty allowedEmailDomains list leaves registration unrestricted', async () => {
     const strategyId = await createStrategy({ allowedEmailDomains: [], emailValidation: true })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
 
     const result = await login.register(
@@ -354,7 +354,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       allowedEmailRegex: '^[^@]+@allowed\\.example$',
       emailValidation: false
     })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
@@ -388,7 +388,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       allowedEmailRegex: '^[^@]+@allowed\\.example$',
       emailValidation: false
     })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
@@ -411,7 +411,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('a duplicate of an already-verified address, with emailValidation on, answers the same generic result a fresh registration would and notifies the real owner instead of confirming the address is taken', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     const request = req()
 
     const result = await login.register(
@@ -441,7 +441,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('a duplicate address on a strategy with emailValidation off still refuses as a duplicate -- no email step to route secrecy through', async () => {
     const strategyId = await createStrategy({ emailValidation: false })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     registerLiveStrategy(strategyId)
 
     await login.register(
@@ -473,7 +473,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('emailValidation on: creates an unverified account and emails a verification link, without logging in', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
     const request = req()
 
@@ -512,7 +512,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('emailValidation off: logs the new account straight in, like every other successful auth path', async () => {
     const strategyId = await createStrategy({ emailValidation: false })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
     const request = req()
@@ -543,7 +543,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       emailValidation: false,
       autoEnrollGroups: [fixtures.groupId]
     })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
@@ -565,7 +565,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('re-registering a still-unverified address resends the link for the same account instead of creating a duplicate', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
-    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: strategyId } as any
     attachStrategyToSite(strategyId)
 
     const first = await login.register(

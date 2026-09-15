@@ -2,7 +2,7 @@
  * Tests for the write-path content-dispatch handlers: page/asset to git file mapping and commits.
  *
  * Same approach as `storage.test.ts`: a real `git` binary via `simple-git` against a throwaway temp
- * directory, and a minimal `WIKI` stub covering only what these handlers read (`models.pages`,
+ * directory, and a minimal `CARDINAL` stub covering only what these handlers read (`models.pages`,
  * `models.assets`, `models.users`, `sites`) — a mock of `simple-git` itself would mostly just
  * re-describe the code under test rather than verify it.
  */
@@ -29,7 +29,7 @@ import type { StorageTarget } from '../../../models/storage.ts'
 const SITE_ID = 'site-1'
 const PRIMARY_LOCALE = 'en'
 
-/** Installs a `WIKI` stub. `pages`/`assets`/`users` are keyed by id and overridable per test. */
+/** Installs a `CARDINAL` stub. `pages`/`assets`/`users` are keyed by id and overridable per test. */
 function installWiki(
   rootPath: string,
   {

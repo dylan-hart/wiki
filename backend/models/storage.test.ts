@@ -9,10 +9,10 @@ import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
 
 // -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
-//    minimal `WIKI` global pointing at this checkout's `backend/` directory — no database involved.
+//    minimal `CARDINAL` global pointing at this checkout's `backend/` directory — no database involved.
 before(async () => {
   await ensureTemporal()
-  global.WIKI = {
+  global.CARDINAL = {
     SERVERPATH: path.join(import.meta.dirname, '..'),
     logger: {
       info: () => {},
@@ -20,7 +20,7 @@ before(async () => {
       warn: () => {},
       debug: () => {}
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
   await storage.refreshFromDisk()
 })
 
@@ -225,7 +225,7 @@ test('validateTarget skips the deep disk path check when neither config nor isEn
 
 /**
  * Builds a raw `storage` table row for one real module (`git`/`disk` on disk in this checkout), as
- * `WIKI.db.select().from(storageTable)` would return it — i.e. what `getSiteTargets` merges with the
+ * `CARDINAL.db.select().from(storageTable)` would return it — i.e. what `getSiteTargets` merges with the
  * module's definition to build a `StorageTarget`.
  */
 function makeRow(
@@ -256,14 +256,14 @@ function makeRow(
 }
 
 /**
- * Points `WIKI.db` at a fake that answers `getSiteTargets`'s `select().from().where()` chain with
- * `rows`, and `WIKI.scheduler.addJob` at a fake that records calls instead of touching a real queue.
+ * Points `CARDINAL.db` at a fake that answers `getSiteTargets`'s `select().from().where()` chain with
+ * `rows`, and `CARDINAL.scheduler.addJob` at a fake that records calls instead of touching a real queue.
  * Neither is used by anything else `dispatch()` calls, so this is the whole surface it needs mocked.
  */
 function fakeDispatchDeps(rows: object[]) {
   const jobs: { task: string; payload: Record<string, any> }[] = []
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     db: {
       select: () => ({ from: () => ({ where: () => Promise.resolve(rows) }) })
     },
@@ -273,7 +273,7 @@ function fakeDispatchDeps(rows: object[]) {
         return { id: `job-${jobs.length}` }
       }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
   return jobs
 }
 
@@ -482,9 +482,9 @@ function makeTickRow(
 }
 
 /**
- * Points `WIKI.db` at a fake answering `getTargets`'s `select().from().where()` chain with `rows`,
+ * Points `CARDINAL.db` at a fake answering `getTargets`'s `select().from().where()` chain with `rows`,
  * and a fake `update().set().where()` that records what it was asked to set instead of touching a
- * real row. `WIKI.scheduler.addJob` records calls and, unless told to fail, succeeds.
+ * real row. `CARDINAL.scheduler.addJob` records calls and, unless told to fail, succeeds.
  */
 function fakeTickDeps(
   rows: object[],
@@ -492,8 +492,8 @@ function fakeTickDeps(
 ) {
   const jobs: { task: string; payload: Record<string, any> }[] = []
   const updates: { values: Record<string, any> }[] = []
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     db: {
       select: () => ({ from: () => ({ where: () => Promise.resolve(rows) }) }),
       update: () => ({
@@ -511,7 +511,7 @@ function fakeTickDeps(
         return addJobSucceeds ? { id: `job-${jobs.length}` } : undefined
       }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
   return { jobs, updates }
 }
 
@@ -666,15 +666,15 @@ test('tickScheduledSyncs logs and skips a target with an unparseable schedule ov
 const silentLogger = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} }
 
 describe('storage / validateConfig, validateTarget (pure, real s3 definition read from disk)', () => {
-  let previousWiki: WikiGlobal
+  let previousWiki: CardinalGlobal
 
   before(async () => {
     // -> A plain `fs.readdir`/`fs.readFile` under `modules/storage`, no database — the one thing it
-    //    needs from `WIKI` is `SERVERPATH` pointed at this checkout's real `backend/` directory.
+    //    needs from `CARDINAL` is `SERVERPATH` pointed at this checkout's real `backend/` directory.
     // -> Captured here, not at describe-body-eval time: `describe()` bodies run during test
-    //    collection, before the file-level `before()` above has set `global.WIKI` at all.
-    previousWiki = global.WIKI
-    ;(globalThis as any).WIKI = {
+    //    collection, before the file-level `before()` above has set `global.CARDINAL` at all.
+    previousWiki = global.CARDINAL
+    ;(globalThis as any).CARDINAL = {
       SERVERPATH: path.join(import.meta.dirname, '..'),
       logger: silentLogger
     }
@@ -682,10 +682,10 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
   })
 
   after(() => {
-    // -> Restores the file-level `WIKI` (set in the top-level `before()` above) rather than deleting
+    // -> Restores the file-level `CARDINAL` (set in the top-level `before()` above) rather than deleting
     //    it outright -- the bare `runDailyBackups` tests below this describe run against that same
     //    global and need it back in place, not gone.
-    global.WIKI = previousWiki
+    global.CARDINAL = previousWiki
   })
 
   test('the s3 definition loaded for real, with its declared props intact', () => {
@@ -841,7 +841,7 @@ function makeDiskRow(
 }
 
 /**
- * Points `WIKI.db` at fakes answering both queries `runDailyBackups()` makes: the sites list (via
+ * Points `CARDINAL.db` at fakes answering both queries `runDailyBackups()` makes: the sites list (via
  * `.from(sitesTable)`), and each site's storage rows in turn (via `getSiteTargets` -> `getTargets` ->
  * `.from(storageTable).where(...)`) — matched by call order rather than by inspecting the drizzle
  * `where()` expression, since `runDailyBackups()` is known to query one site right after another, in
@@ -850,8 +850,8 @@ function makeDiskRow(
 function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
   const warnings: { message: string; fields?: Record<string, any> }[] = []
   let call = 0
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     db: {
       select: () => ({
         from: (table: any) => {
@@ -865,11 +865,11 @@ function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
       })
     },
     logger: {
-      ...global.WIKI.logger,
+      ...global.CARDINAL.logger,
       warn: (_scope: string, message: string, fields?: Record<string, any>) =>
         warnings.push({ message, fields })
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
   return { warnings }
 }
 

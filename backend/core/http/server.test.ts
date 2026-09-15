@@ -27,19 +27,19 @@ import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
  * `registerStaticAssets()` is the other half: the root favicon route plus two static mounts, whose
  * ORDER relative to `registerSecurity`/`registerSession` is behaviour (Fastify registers plugins in
  * call order), and whose `/_assets/` mount carries the immutable-cache rule
- * `helpers/common.ts#isHashedAssetFilename` decides. Driven here against a throwaway `WIKI.ROOTPATH`/
- * `WIKI.SERVERPATH` laid out the way a built checkout is, since the favicon route needs a real file
+ * `helpers/common.ts#isHashedAssetFilename` decides. Driven here against a throwaway `CARDINAL.ROOTPATH`/
+ * `CARDINAL.SERVERPATH` laid out the way a built checkout is, since the favicon route needs a real file
  * under `assets/branding/` to serve (`helpers/common.ts#replyWithFile` `fsp.stat`s it).
  */
 
-/** The minimum `WIKI` global `createHttpApp()` and `registerStaticAssets()` actually read. */
+/** The minimum `CARDINAL` global `createHttpApp()` and `registerStaticAssets()` actually read. */
 function installWikiStub({
   rootPath = process.cwd(),
   serverPath = rootPath,
   logger,
   ...config
 }: { rootPath?: string; serverPath?: string; logger?: any } & Record<string, any> = {}) {
-  const previous = (globalThis as any).WIKI
+  const previous = (globalThis as any).CARDINAL
   installTestWiki({
     INSTANCE_ID: 'test-instance',
     ROOTPATH: rootPath,
@@ -54,11 +54,11 @@ function installWikiStub({
     }
   })
   return () => {
-    ;(globalThis as any).WIKI = previous
+    ;(globalThis as any).CARDINAL = previous
   }
 }
 
-/** One captured `WIKI.logger` call, in whichever of the two shapes the caller used. */
+/** One captured `CARDINAL.logger` call, in whichever of the two shapes the caller used. */
 interface RecordedLine {
   level: 'error' | 'warn' | 'info' | 'debug'
   /** The new shape's scope — or, for a legacy `(msg, context?)` call, the message itself. */
@@ -69,7 +69,7 @@ interface RecordedLine {
 }
 
 /**
- * A `WIKI.logger` that keeps what it was told rather than printing it.
+ * A `CARDINAL.logger` that keeps what it was told rather than printing it.
  *
  * `createSilentLogger()` throws each call away, which is right for a suite that only needs the
  * logger to exist; the access line IS what is under test here, so it has to be readable back.
@@ -117,9 +117,9 @@ describe('createHttpApp', () => {
     restoreWiki()
   })
 
-  test('assigns WIKI.app and WIKI.server, so the boot script can listen and flip readiness', () => {
-    assert.equal((globalThis as any).WIKI.app, app)
-    assert.equal(typeof (globalThis as any).WIKI.server.setReady, 'function')
+  test('assigns CARDINAL.app and CARDINAL.server, so the boot script can listen and flip readiness', () => {
+    assert.equal((globalThis as any).CARDINAL.app, app)
+    assert.equal(typeof (globalThis as any).CARDINAL.server.setReady, 'function')
   })
 
   test('registers @fastify/sensible, so reply.notFound() is available to every route', async () => {
@@ -270,7 +270,7 @@ for (const { format, accept, reject } of HAND_REGISTERED_FORMATS) {
  * Pino used to write `incoming request` / `request completed` per request straight to stdout, in its
  * own JSON shape, reaching neither the terminal backlog nor the app's own format. `createHttpApp()`
  * now sets `disableRequestLogging` and registers one `onResponse` hook instead, so every request
- * produces exactly one `http`-scoped line on `WIKI.logger` — and pino keeps only Fastify's own
+ * produces exactly one `http`-scoped line on `CARDINAL.logger` — and pino keeps only Fastify's own
  * diagnostics, re-emitted through the same logger by the sidecar stream below.
  */
 describe('createHttpApp: the http access line', () => {
@@ -378,7 +378,7 @@ describe('createHttpApp: pino no longer reaches stdout', () => {
   /**
    * Captures `process.stdout.write` while still forwarding it, so the runner's own output survives.
    *
-   * "Nothing reaches stdout" would be false — `WIKI.logger` itself prints there. What the acceptance
+   * "Nothing reaches stdout" would be false — `CARDINAL.logger` itself prints there. What the acceptance
    * criterion actually means is that no PINO record does, which is what the `{"level":<n>` prefix
    * of pino's default JSON line identifies.
    */
@@ -555,7 +555,7 @@ describe('registerStaticAssets', () => {
  * them in step; this is what notices if it didn't.
  */
 describe('ROOT_FAVICON_PATH — the backend owns its own favicon.ico', () => {
-  /** The real `backend/`, i.e. what `WIKI.SERVERPATH` resolves to in a running instance. */
+  /** The real `backend/`, i.e. what `CARDINAL.SERVERPATH` resolves to in a running instance. */
   const serverPath = path.join(import.meta.dirname, '..', '..')
 
   test('resolves to a real file inside backend/', () => {
@@ -663,7 +663,7 @@ describe('registerShutdownLogging', () => {
   })
 
   test('a programmatic stop, which carries no Error at all, is reported but not warned about', () => {
-    // -> `WIKI.server.stop()` passes graceful-server neither a `type` nor a `body`, so it emits
+    // -> `CARDINAL.server.stop()` passes graceful-server neither a `type` nor a `body`, so it emits
     //    both events with `undefined`. That is a deliberate shutdown, not an unexpected signal.
     const { info, warn } = emitShutdown(undefined)
     assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: 'programmatic' }])

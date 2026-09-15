@@ -18,7 +18,7 @@ import { makeStagedPage } from '../../test/migrationFixtures.ts'
 
 const buildStagedPage = makeStagedPage
 
-/** In-memory fake standing in for `WIKI.models.pages` — records every call so tests can assert on
+/** In-memory fake standing in for `CARDINAL.models.pages` — records every call so tests can assert on
  * what the importer actually sent it, without touching a database. */
 class FakePagesModel implements PagesWriteModel {
   created: { siteId: string; input: PageInput; actor: PageActor }[] = []

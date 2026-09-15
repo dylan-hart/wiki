@@ -7,8 +7,8 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 describe('watch preference routes (task 530)', () => {
   /**
    * Task 530's API surface: `PATCH /sites/:siteId/pages/:pageId/watch` (the new preference-setting
-   * route) and the preference now threaded through `PUT` on the same path. `WIKI.models.pageWatching`
-   * and the permission chain (`WIKI.models.pages.getPage` / `WIKI.models.groups`) are stubbed — the
+   * route) and the preference now threaded through `PUT` on the same path. `CARDINAL.models.pageWatching`
+   * and the permission chain (`CARDINAL.models.pages.getPage` / `CARDINAL.models.groups`) are stubbed — the
    * model's own persistence and default-resolution behavior is `models/pageWatching.test.ts`'s
    * DB-backed coverage; this is only the route's request/response wiring and its 404-vs-200 branching.
    */

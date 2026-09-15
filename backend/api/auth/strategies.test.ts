@@ -62,12 +62,12 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> `validateStrategy()` (`models/authentication.ts`) reads `WIKI.data.systemIds.localAuthId`
+      // -> `validateStrategy()` (`models/authentication.ts`) reads `CARDINAL.data.systemIds.localAuthId`
       //    unconditionally to decide whether the strategy being saved is the un-disableable built-in
-      //    one -- `setupTestDb()` leaves `WIKI.data` empty, so this has to be set before any save can
+      //    one -- `setupTestDb()` leaves `CARDINAL.data` empty, so this has to be set before any save can
       //    run at all. Deliberately not the fixture strategy's own id, so it is treated as an
       //    ordinary (not built-in) strategy, matching what this test is actually saving.
-      ;(globalThis as any).WIKI.data.systemIds = { localAuthId: 'not-this-strategy' }
+      ;(globalThis as any).CARDINAL.data.systemIds = { localAuthId: 'not-this-strategy' }
 
       const [strategy] = await fixtures.db
         .insert(authenticationTable)
@@ -107,7 +107,7 @@ describe(
       assert.equal(res.statusCode, 200)
       assert.equal(res.json().ok, true)
 
-      const { entries } = await WIKI.models.auditLog.list({ event: 'auth.strategyUpdated' })
+      const { entries } = await CARDINAL.models.auditLog.list({ event: 'auth.strategyUpdated' })
       assert.equal(entries.length, 1)
       const entry = entries[0]!
       assert.equal(entry.actor.id, fixtures.userId)
@@ -294,11 +294,11 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      ;(globalThis as any).WIKI.data.systemIds = { localAuthId: 'not-this-strategy' }
+      ;(globalThis as any).CARDINAL.data.systemIds = { localAuthId: 'not-this-strategy' }
       // -> `createStrategy()`/`validateStrategy()` resolve the module through `getModule()`, which
-      //    reads `WIKI.data.authentication` -- populated from real on-disk `definition.yml` files
+      //    reads `CARDINAL.data.authentication` -- populated from real on-disk `definition.yml` files
       //    the same way `models/authentication.test.ts`'s own suites do.
-      await WIKI.models.authentication.refreshStrategiesFromDisk()
+      await CARDINAL.models.authentication.refreshStrategiesFromDisk()
 
       app = await buildTestApp({ routes: authenticationRoutes, ajv: true })
     })
@@ -332,7 +332,7 @@ describe(
       })
       assert.equal(res.statusCode, 200)
 
-      const saved = await WIKI.models.authentication.getStrategyById(strategyId)
+      const saved = await CARDINAL.models.authentication.getStrategyById(strategyId)
       assert.deepEqual([...saved!.allowedEmailDomains].sort(), ['example.com', 'other.org'])
     })
   }

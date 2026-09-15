@@ -23,8 +23,8 @@ import {
 
 import { installTestWiki } from '../test/mocks.ts'
 
-// -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
-//    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
+// -> corsOrigin()'s REGEX branch logs through the CARDINAL global on an invalid pattern; stub just
+//    enough of it, the same way rateLimit.test.ts does for its own CARDINAL-touching helpers.
 //    `config.security` is here for `sessionCookieName()` -- most describes never touch it, but it has
 //    to exist so a bare read doesn't throw.
 installTestWiki({ logger: { warn: mock.fn() }, config: { security: {} } })
@@ -361,17 +361,17 @@ describe('SESSION_COOKIE_NAME', () => {
  */
 describe('sessionCookieName', () => {
   test('defaults to the hardened __Host- name when security.cookieSecure is unset', () => {
-    ;(globalThis as any).WIKI.config.security = {}
+    ;(globalThis as any).CARDINAL.config.security = {}
     assert.equal(sessionCookieName(), SESSION_COOKIE_NAME)
   })
 
   test('stays hardened when security.cookieSecure is explicitly true', () => {
-    ;(globalThis as any).WIKI.config.security = { cookieSecure: true }
+    ;(globalThis as any).CARDINAL.config.security = { cookieSecure: true }
     assert.equal(sessionCookieName(), SESSION_COOKIE_NAME)
   })
 
   test('drops the __Host- prefix when security.cookieSecure is false', () => {
-    ;(globalThis as any).WIKI.config.security = { cookieSecure: false }
+    ;(globalThis as any).CARDINAL.config.security = { cookieSecure: false }
     assert.equal(sessionCookieName(), SESSION_COOKIE_NAME_INSECURE)
   })
 })

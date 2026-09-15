@@ -1,14 +1,14 @@
 /**
- * `WIKI.capabilities` reaching a worker thread (OpenProject #3124, triaged from Issue #3117).
+ * `CARDINAL.capabilities` reaching a worker thread (OpenProject #3124, triaged from Issue #3117).
  *
- * `core/db.ts#syncSchemas()` sets `WIKI.capabilities` once, on the main process, at boot.
- * `worker.ts` builds its own minimal `WIKI` and never called `syncSchemas()` itself, so
- * `WIKI.capabilities` always read `undefined` on a worker thread -- which made
- * `tasks/workers/embed-page.ts#embedPage()`'s `if (!WIKI.capabilities?.semanticSearch) return` guard
+ * `core/db.ts#syncSchemas()` sets `CARDINAL.capabilities` once, on the main process, at boot.
+ * `worker.ts` builds its own minimal `CARDINAL` and never called `syncSchemas()` itself, so
+ * `CARDINAL.capabilities` always read `undefined` on a worker thread -- which made
+ * `tasks/workers/embed-page.ts#embedPage()`'s `if (!CARDINAL.capabilities?.semanticSearch) return` guard
  * always true in production, silently no-opping the scheduled per-page embedding job regardless of
  * whether pgvector was actually installed and enabled.
  *
- * The fix forwards `WIKI.capabilities` through the same `workerData` object `INSTANCE_ID`'s
+ * The fix forwards `CARDINAL.capabilities` through the same `workerData` object `INSTANCE_ID`'s
  * `parentInstanceId` already travels on (`core/scheduler.ts`'s `poolOptions`), at pool-creation
  * time -- after the db boot phase that populates it. Own file rather than a describe inside
  * `core/schedulerWorkerIdentity.test.ts`, matching that file's own reasoning for being separate from
@@ -28,28 +28,28 @@ const workerTs = readFileSync(path.join(backendDir, 'worker.ts'), 'utf8')
 const globalDts = readFileSync(path.join(backendDir, 'types/global.d.ts'), 'utf8')
 
 describe('worker thread capabilities', () => {
-  test("the pool's workerOptions carry WIKI.capabilities alongside parentInstanceId", () => {
+  test("the pool's workerOptions carry CARDINAL.capabilities alongside parentInstanceId", () => {
     assert.match(
       schedulerTs,
-      /workerOptions: \{\s*workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID, capabilities: WIKI\.capabilities \}/
+      /workerOptions: \{\s*workerData: \{ parentInstanceId: CARDINAL\.INSTANCE_ID, capabilities: CARDINAL\.capabilities \}/
     )
   })
 
-  test('worker.ts reads capabilities out of workerData and assigns it onto its own WIKI', () => {
+  test('worker.ts reads capabilities out of workerData and assigns it onto its own CARDINAL', () => {
     assert.match(
       workerTs,
-      /capabilities: \(workerData as \{ capabilities\?: WikiGlobal\['capabilities'\] \} \| null\)\?\.capabilities/
+      /capabilities: \(workerData as \{ capabilities\?: CardinalGlobal\['capabilities'\] \} \| null\)\?\.capabilities/
     )
     // -> Settled in the same object literal as INSTANCE_ID, so it exists before anything on this
     //    thread (including the logger and any later-imported task) could read it.
     const idIdx = workerTs.indexOf('INSTANCE_ID: workerInstanceId(')
     const capIdx = workerTs.indexOf('capabilities: (workerData as')
-    const loggerIdx = workerTs.indexOf('WIKI.logger = logger.init()')
+    const loggerIdx = workerTs.indexOf('CARDINAL.logger = logger.init()')
     assert.notEqual(idIdx, -1)
     assert.notEqual(capIdx, -1)
     assert.ok(
       idIdx < capIdx,
-      'capabilities should be assigned in the same WIKI literal as INSTANCE_ID'
+      'capabilities should be assigned in the same CARDINAL literal as INSTANCE_ID'
     )
     assert.ok(capIdx < loggerIdx, 'capabilities must be settled before the logger is built')
   })

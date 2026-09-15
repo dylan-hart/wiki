@@ -7,8 +7,8 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 /**
  * `POST /_api/api-keys`'s `scope` field is validated against the closed permission vocabulary
  * (`helpers/permissions.ts`) via the `ApiKeyScopePermission` schema, the same way `groups` is
- * validated against a UUID shape. This is a self-contained test of that wiring: `WIKI.models.groups`
- * and `WIKI.models.apiKeys.createKey` are stubbed so the request never touches the database, keeping
+ * validated against a UUID shape. This is a self-contained test of that wiring: `CARDINAL.models.groups`
+ * and `CARDINAL.models.apiKeys.createKey` are stubbed so the request never touches the database, keeping
  * the assertion on the route's schema and body-handling rather than on model/SQL behavior (covered
  * separately in `models/apiKeys.test.ts`).
  */
@@ -246,7 +246,7 @@ test('omitting siteId creates an instance-wide key (null)', async () => {
  */
 test('creating a key records an apiKey.issued audit log entry, never the key value', async () => {
   createKeyCalls = []
-  ;(globalThis as any).WIKI.models.auditLog.record.mock.resetCalls()
+  ;(globalThis as any).CARDINAL.models.auditLog.record.mock.resetCalls()
   const res = await app.inject({
     method: 'POST',
     url: '/',
@@ -257,7 +257,7 @@ test('creating a key records an apiKey.issued audit log entry, never the key val
     }
   })
   assert.equal(res.statusCode, 200)
-  const calls = (globalThis as any).WIKI.models.auditLog.record.mock.calls
+  const calls = (globalThis as any).CARDINAL.models.auditLog.record.mock.calls
   assert.equal(calls.length, 1)
   const call = calls[0].arguments[0]
   assert.equal(call.event, 'apiKey.issued')

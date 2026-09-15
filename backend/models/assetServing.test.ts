@@ -7,7 +7,7 @@ import type { StorageTarget } from './storage.ts'
 
 /**
  * Exercises `readContent()`'s target-awareness — `governingTarget`, `directUrlFor`, and the
- * `assetDelivery.streaming` branch itself — with `WIKI.db` / `WIKI.models.storage` stubbed rather
+ * `assetDelivery.streaming` branch itself — with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather
  * than a real Postgres instance. What this has to get right is which path gets taken (disk cache vs.
  * buffered read vs. redirect) for a given target configuration, not SQL, so a stub answering exactly
  * the calls each path makes is enough to drive it — and, crucially, lets a test assert a path was
@@ -72,7 +72,7 @@ function makeDbTarget(
   }
 }
 
-/** Stubs the pieces of `WIKI.models.storage` that `readContent()`'s target-aware path calls. */
+/** Stubs the pieces of `CARDINAL.models.storage` that `readContent()`'s target-aware path calls. */
 function stubStorage({
   targets = [],
   ensureModule = async () => null
@@ -80,22 +80,22 @@ function stubStorage({
   targets?: StorageTarget[]
   ensureModule?: (key: string) => Promise<any>
 } = {}) {
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       storage: {
         getSiteTargets: async () => targets,
         ensureModule
       }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 }
 
-/** Stubs `WIKI.db`'s `getContent()` chain to answer with (or without) a row. */
+/** Stubs `CARDINAL.db`'s `getContent()` chain to answer with (or without) a row. */
 function stubDb(row: { data: Buffer; mimeType: string; fileName: string } | undefined) {
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     db: {
       select: () => ({
         from: () => ({
@@ -105,7 +105,7 @@ function stubDb(row: { data: Buffer; mimeType: string; fileName: string } | unde
         })
       })
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 }
 
 /** Fails the test if called — for asserting a path was never taken. */
@@ -264,20 +264,20 @@ test('readContent, streaming on (the default), reads the disk cache first and ne
   stubStorage({ targets: [target] })
   stubDb(undefined) // -> getContent() would fail the test if this test path reaches it
   const originalReadCache = assetServing.readContentCache
-  const originalGetContent = WIKI.models.assets.getContent
+  const originalGetContent = CARDINAL.models.assets.getContent
   let cacheHit = false
   assetServing.readContentCache = async () => {
     cacheHit = true
     return { body: 'stream-stand-in' as any, size: 42 }
   }
-  WIKI.models.assets.getContent = unreachable('getContent') as any
+  CARDINAL.models.assets.getContent = unreachable('getContent') as any
   try {
     const result = await assetServing.readContent(testAsset, 'site-1')
     assert.ok(cacheHit)
     assert.deepEqual(result, { body: 'stream-stand-in', size: 42 })
   } finally {
     assetServing.readContentCache = originalReadCache
-    WIKI.models.assets.getContent = originalGetContent
+    CARDINAL.models.assets.getContent = originalGetContent
   }
 })
 

@@ -36,13 +36,13 @@ import { installTestWiki } from '../test/mocks.ts'
  * not merely slow them down.
  *
  * `withAdvisoryLock`'s own dedicated lock pool (`getLockPool()`, `helpers/advisoryLock.ts`) normally
- * clones a *separate*, small pool from `WIKI.dbManager.config` specifically so the lock-holding
+ * clones a *separate*, small pool from `CARDINAL.dbManager.config` specifically so the lock-holding
  * connection can never contend with request-serving traffic (OpenProject #2246) — which would decouple
  * the outer lock connection from an inner query issued against a different pool entirely, and this
  * reproduction wants both on the *same* pool, exactly as `dispatchStorage`'s handler-plus-recordSuccess
- * sequence draws both from `WIKI.db`. `runConcurrentDispatches` below deliberately supplies only
- * `WIKI.db.$client`, no `WIKI.dbManager` — `getLockPool()`'s documented fallback for that shape reuses
- * `WIKI.db.$client` itself as the lock pool, rather than cloning a new one, so the outer connection and
+ * sequence draws both from `CARDINAL.db`. `runConcurrentDispatches` below deliberately supplies only
+ * `CARDINAL.db.$client`, no `CARDINAL.dbManager` — `getLockPool()`'s documented fallback for that shape reuses
+ * `CARDINAL.db.$client` itself as the lock pool, rather than cloning a new one, so the outer connection and
  * the inner "recordSuccess" query genuinely share the one pool this reproduction constructs and
  * measures. `_resetLockPoolForTests()` clears that module-cached pool between the two tests below, each
  * of which supplies its own differently-sized pool.

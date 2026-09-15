@@ -5,7 +5,7 @@ import { assetServing } from './assetServing.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * The write half of the assets model, with `WIKI.db` / `WIKI.models.storage` stubbed rather than a
+ * The write half of the assets model, with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather than a
  * real Postgres instance: what an upload does to an SVG, what `dispositionFor()` answers for a given
  * extension and setting, and that every write awaits its `hooks.emit` / `storage.dispatch` pair
  * rather than detaching it. The serving half — `governingTarget`, `directUrlFor`, `readContent` and
@@ -39,16 +39,16 @@ const testAsset = {
  * `dispositionFor()` is the single predicate `controllers/files.ts` and `api/assets.ts`'s `/content`
  * route both call, replacing two expressions that used to disagree (OpenProject #2164). What matters
  * here is that it answers the SAME way for the same inputs regardless of which route asks — this is
- * a pure function of `fileExt` plus `WIKI.config.security.forceAssetDownload`, no I/O, so both
+ * a pure function of `fileExt` plus `CARDINAL.config.security.forceAssetDownload`, no I/O, so both
  * "routes" are just calling it directly with the same arguments.
  */
 function withSecurityConfig<T>(security: Record<string, unknown>, fn: () => T): T {
-  const original = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = { ...original, config: { security } }
+  const original = (globalThis as any).CARDINAL
+  ;(globalThis as any).CARDINAL = { ...original, config: { security } }
   try {
     return fn()
   } finally {
-    ;(globalThis as any).WIKI = original
+    ;(globalThis as any).CARDINAL = original
   }
 }
 
@@ -80,17 +80,17 @@ test('dispositionFor: a non-inline extension downloads only when forceAssetDownl
 
 /**
  * Stubs everything `upload()` touches on a fresh-name (no conflict) path: no existing tree entry,
- * `addAsset` echoing back a synthesized row, and no-op hooks/dispatch/extensions. `WIKI.db.insert`
+ * `addAsset` echoing back a synthesized row, and no-op hooks/dispatch/extensions. `CARDINAL.db.insert`
  * captures what was actually handed to it, which is what these tests assert against.
  */
 function stubUploadPath(uploadScanSVG: boolean) {
   let inserted: any
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     config: { security: { uploadScanSVG } },
     sites: {},
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         getEntryAt: async () => null,
         addAsset: async ({ fileName, siteId }: any) => ({
@@ -115,7 +115,7 @@ function stubUploadPath(uploadScanSVG: boolean) {
       }),
       delete: () => ({ where: async () => {} })
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
   return {
     getInserted: () => inserted
   }
@@ -160,7 +160,7 @@ test('upload stores an SVG untouched when security.uploadScanSVG is off', async 
 // ---------------------------------------------------------------------------------------------
 
 /**
- * A `WIKI.db`-shaped stub sufficient for the tests below: every `select(...)` chain terminates at
+ * A `CARDINAL.db`-shaped stub sufficient for the tests below: every `select(...)` chain terminates at
  * `.limit()` with a fixed asset row (what `getAsset()` reads), and every `update()`/`delete()`/
  * `insert()` chain resolves to itself — none of the four methods under test reads back an
  * update/delete/insert result, only whether the row-mutating call was awaited in sequence.
@@ -195,7 +195,7 @@ function delayedDispatchMock(order: string[], label: string) {
   })
 }
 
-/** Minimal filesystem-adjacent `WIKI` bits `dropCachedContent()` needs — a cache dir that never
+/** Minimal filesystem-adjacent `CARDINAL` bits `dropCachedContent()` needs — a cache dir that never
  *  exists, so its `fs.readdir` throws ENOENT and is silently caught, same as a fresh instance. */
 const cacheFsStubs = {
   ROOTPATH: '/tmp',
@@ -204,13 +204,13 @@ const cacheFsStubs = {
 
 test('upload (new file) awaits both asset:upload hooks.emit and storage.dispatch before resolving', async () => {
   const order: string[] = []
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     sites: { 'site-1': { config: { uploads: { conflictBehavior: 'new' } } } },
     db: makeAssetsDbStub(undefined),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         addAsset: async () => ({
           id: 'asset-1',
@@ -224,7 +224,7 @@ test('upload (new file) awaits both asset:upload hooks.emit and storage.dispatch
       hooks: { emit: delayedDispatchMock(order, 'hooks') },
       storage: { dispatch: delayedDispatchMock(order, 'storage') }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   await assets.upload({
     siteId: 'site-1',
@@ -236,19 +236,19 @@ test('upload (new file) awaits both asset:upload hooks.emit and storage.dispatch
   })
 
   assert.deepEqual(order.sort(), ['hooks', 'storage'])
-  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
-  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
 })
 
 test('upload (overwrite of an existing asset) awaits both asset:edit hooks.emit and storage.dispatch before resolving', async () => {
   const order: string[] = []
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
     db: makeAssetsDbStub(undefined),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         getEntryAt: async () => ({
           type: 'asset',
@@ -264,7 +264,7 @@ test('upload (overwrite of an existing asset) awaits both asset:edit hooks.emit 
       hooks: { emit: delayedDispatchMock(order, 'hooks') },
       storage: { dispatch: delayedDispatchMock(order, 'storage') }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   await assets.upload({
     siteId: 'site-1',
@@ -276,30 +276,30 @@ test('upload (overwrite of an existing asset) awaits both asset:edit hooks.emit 
   })
 
   assert.deepEqual(order.sort(), ['hooks', 'storage'])
-  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
-  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
 })
 
 test('renameAsset awaits both asset:rename hooks.emit and storage.dispatch before resolving', async () => {
   const order: string[] = []
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     db: makeAssetsDbStub({ ...testAsset, mimeType: 'image/png' }),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: { renameEntry: async () => undefined },
       hooks: { emit: delayedDispatchMock(order, 'hooks') },
       storage: { dispatch: delayedDispatchMock(order, 'storage') }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   const result = await assets.renameAsset('site-1', 'asset-1', 'y.png')
 
   assert.ok(result)
   assert.deepEqual(order.sort(), ['hooks', 'storage'])
-  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
-  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
 })
 
 test('moveAsset awaits both asset:move hooks.emit and storage.dispatch before resolving, and busts both cached paths', async (t) => {
@@ -308,26 +308,26 @@ test('moveAsset awaits both asset:move hooks.emit and storage.dispatch before re
   //    latter drops every other prototype method (`dropCachedContent` included), which corrupted
   //    shared test state for whichever test ran next. `t.mock` restores this automatically.
   const forgetPathSpy = t.mock.method(assetServing, 'forgetPath')
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     db: makeAssetsDbStub({ ...testAsset, folderPath: '', mimeType: 'image/png' }),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         moveEntry: async () => ({ id: 'asset-1', folderPath: 'new-folder', fileName: 'x.png' })
       },
       hooks: { emit: delayedDispatchMock(order, 'hooks') },
       storage: { dispatch: delayedDispatchMock(order, 'storage') }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   const result = await assets.moveAsset({ siteId: 'site-1', id: 'asset-1', folderId: 'folder-1' })
 
   assert.ok(result)
   assert.deepEqual(order.sort(), ['hooks', 'storage'])
-  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
-  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
   // -> Both ends of the move: the folder it left ('') and the folder it arrived in ('new-folder')
   assert.deepEqual(
     forgetPathSpy.mock.calls.map((call) => call.arguments[1]),
@@ -339,12 +339,12 @@ test('moveAsset is a no-op — no hooks.emit, no storage.dispatch, no cache-bust
   const forgetPathSpy = t.mock.method(assetServing, 'forgetPath')
   const emit = mock.fn(async () => {})
   const dispatch = mock.fn(async () => {})
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     db: makeAssetsDbStub({ ...testAsset, folderPath: 'same-folder', mimeType: 'image/png' }),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         // -> Mirrors `Tree#moveEntry`'s own no-op branch: the entry comes back unchanged
         moveEntry: async () => ({ id: 'asset-1', folderPath: 'same-folder', fileName: 'x.png' })
@@ -352,7 +352,7 @@ test('moveAsset is a no-op — no hooks.emit, no storage.dispatch, no cache-bust
       hooks: { emit },
       storage: { dispatch }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   const result = await assets.moveAsset({ siteId: 'site-1', id: 'asset-1', folderId: 'folder-1' })
 
@@ -364,25 +364,25 @@ test('moveAsset is a no-op — no hooks.emit, no storage.dispatch, no cache-bust
 
 test('deleteAsset awaits both asset:delete hooks.emit and storage.dispatch before resolving', async () => {
   const order: string[] = []
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     db: makeAssetsDbStub({ ...testAsset, mimeType: 'image/png' }),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: { deleteEntry: async () => undefined },
       contentSync: { forgetContent: async () => undefined },
       hooks: { emit: delayedDispatchMock(order, 'hooks') },
       storage: { dispatch: delayedDispatchMock(order, 'storage') }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   const result = await assets.deleteAsset('site-1', 'asset-1')
 
   assert.equal(result, true)
   assert.deepEqual(order.sort(), ['hooks', 'storage'])
-  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
-  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -412,14 +412,14 @@ function collectingLogger() {
 
 test('upload logs one "uploaded" line naming the site, asset, path, bytes, kind and user', async () => {
   const { logger, assetLines } = collectingLogger()
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     logger,
     sites: { 'site-1': { config: { uploads: { conflictBehavior: 'new' } } } },
     db: makeAssetsDbStub(undefined),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         addAsset: async () => ({
           id: 'asset-9',
@@ -433,7 +433,7 @@ test('upload logs one "uploaded" line naming the site, asset, path, bytes, kind 
       hooks: { emit: async () => {} },
       storage: { dispatch: async () => {} }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   await assets.upload({
     siteId: 'site-1',
@@ -459,14 +459,14 @@ test('upload logs one "uploaded" line naming the site, asset, path, bytes, kind 
 
 test('an overwrite is still one "uploaded" line, marked as such rather than logged as a new file', async () => {
   const { logger, assetLines } = collectingLogger()
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     logger,
     sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
     db: makeAssetsDbStub(undefined),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: {
         getEntryAt: async () => ({
           type: 'asset',
@@ -482,7 +482,7 @@ test('an overwrite is still one "uploaded" line, marked as such rather than logg
       hooks: { emit: async () => {} },
       storage: { dispatch: async () => {} }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   await assets.upload({
     siteId: 'site-1',
@@ -509,19 +509,19 @@ test('an overwrite is still one "uploaded" line, marked as such rather than logg
 
 test('deleteAsset logs one "deleted" line, falling back to user=system with no actor', async () => {
   const { logger, assetLines } = collectingLogger()
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     logger,
     db: makeAssetsDbStub({ ...testAsset, mimeType: 'image/png' }),
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       tree: { deleteEntry: async () => undefined },
       contentSync: { forgetContent: async () => undefined },
       hooks: { emit: async () => {} },
       storage: { dispatch: async () => {} }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   await assets.deleteAsset('site-1', 'asset-1')
   await assets.deleteAsset('site-1', 'asset-1', { authorId: 'user-1' })
@@ -540,8 +540,8 @@ test('deleteAsset logs one "deleted" line, falling back to user=system with no a
 
 test('deleteOrphaned logs one line per asset, marked as a folder cascade', async () => {
   const { logger, assetLines } = collectingLogger()
-  global.WIKI = {
-    ...global.WIKI,
+  global.CARDINAL = {
+    ...global.CARDINAL,
     ...cacheFsStubs,
     logger,
     db: {
@@ -556,12 +556,12 @@ test('deleteOrphaned logs one line per asset, marked as a folder cascade', async
       })
     },
     models: {
-      ...(global.WIKI as any).models,
+      ...(global.CARDINAL as any).models,
       contentSync: { forgetContentBatch: async () => undefined },
       hooks: { emit: async () => {} },
       storage: { dispatch: async () => {} }
     }
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   await assets.deleteOrphaned(
     'site-1',

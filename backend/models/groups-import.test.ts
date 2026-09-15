@@ -8,21 +8,21 @@ import { createEventsStub } from '../test/mocks.ts'
  * creation path that takes already-converted `permissions`/`rules` instead of seeding the same
  * starting defaults every brand-new group gets.
  *
- * `Groups` reads the ambient `WIKI` global for DB access, so each test installs a minimal fake on
- * `globalThis.WIKI` and restores whatever was there before — same approach as
+ * `Groups` reads the ambient `CARDINAL` global for DB access, so each test installs a minimal fake on
+ * `globalThis.CARDINAL` and restores whatever was there before — same approach as
  * `models/users-import.test.ts`. `reloadCache()` is a real method on the same singleton and is left
- * to run for real against the faked `WIKI.db.select` chain, rather than being stubbed out, since
+ * to run for real against the faked `CARDINAL.db.select` chain, rather than being stubbed out, since
  * asserting it actually ran (not just that the insert happened) is part of what this test covers.
  * `events` is `test/mocks.ts`'s stub: `createGroupFromImport()`'s write path also calls
- * `broadcastReload()`, which emits `reloadGroups` on `WIKI.events.outbound` after reloading — a real
- * `WIKI.events` is never needed here since no test in this file asserts on the emitted event.
+ * `broadcastReload()`, which emits `reloadGroups` on `CARDINAL.events.outbound` after reloading — a real
+ * `CARDINAL.events` is never needed here since no test in this file asserts on the emitted event.
  */
 
 function installFakeWiki() {
-  const previous = (globalThis as any).WIKI
+  const previous = (globalThis as any).CARDINAL
   const insertedRows: any[] = []
   let selectCalls = 0
-  ;(globalThis as any).WIKI = {
+  ;(globalThis as any).CARDINAL = {
     logger: { info: () => {}, warn: () => {}, debug: () => {} },
     events: createEventsStub(),
     db: {
@@ -52,7 +52,7 @@ function installFakeWiki() {
     insertedRows,
     selectCallCount: () => selectCalls,
     restore: () => {
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
     }
   }
 }

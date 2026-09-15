@@ -8,8 +8,8 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * `POST /` (create user)'s `sendWelcomeEmail` handling (OpenProject #961): the route used to refuse
  * the flag unconditionally, with a comment claiming no mail transport existed — `models/mail.ts` has
  * been a full SMTP transport since well before this fix, used by registration and password reset.
- * `WIKI.models.users`/`auditLog`/`mail` are stubbed so the request never touches the database or a
- * real SMTP connection; `WIKI.data.systemIds.localAuthId` is exercised for real since the route reads
+ * `CARDINAL.models.users`/`auditLog`/`mail` are stubbed so the request never touches the database or a
+ * real SMTP connection; `CARDINAL.data.systemIds.localAuthId` is exercised for real since the route reads
  * it directly.
  */
 

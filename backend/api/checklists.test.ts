@@ -6,9 +6,9 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Route-level tests for `api/checklists.ts` (OpenProject #869): permission gating and status-code
- * wiring. `WIKI.models.checklists` is stubbed with an in-memory fake — `models/checklists.test.ts`
- * covers the model's own SQL logic against a real database. `WIKI.models.pages.getPage` and
- * `WIKI.models.groups.{actorForRequest,checkAccess}` are stubbed too, standing in for page-rule
+ * wiring. `CARDINAL.models.checklists` is stubbed with an in-memory fake — `models/checklists.test.ts`
+ * covers the model's own SQL logic against a real database. `CARDINAL.models.pages.getPage` and
+ * `CARDINAL.models.groups.{actorForRequest,checkAccess}` are stubbed too, standing in for page-rule
  * resolution, matching `api/comments.test.ts`'s own approach for the same kind of route.
  *
  * Auth is simulated per request via `x-test-user-id` / `x-test-permissions` headers, read by a

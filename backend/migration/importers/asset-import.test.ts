@@ -23,7 +23,7 @@ function buildFile(overrides: Partial<SourceAssetFile> = {}): SourceAssetFile {
   }
 }
 
-/** In-memory fake standing in for `WIKI.models.assets` — records every call so tests can assert on
+/** In-memory fake standing in for `CARDINAL.models.assets` — records every call so tests can assert on
  * what `importAsset` actually sent it. */
 class FakeAssetsModel implements AssetsWriteModel {
   uploaded: Parameters<AssetsWriteModel['upload']>[0][] = []
@@ -41,7 +41,7 @@ class FakeAssetsModel implements AssetsWriteModel {
   }
 }
 
-/** In-memory fake standing in for `WIKI.models.tree`'s `getFolder()` — records every call so tests can
+/** In-memory fake standing in for `CARDINAL.models.tree`'s `getFolder()` — records every call so tests can
  * assert `createIfMissing: true` was actually passed. */
 class FakeTreeModel implements TreeFolderModel {
   calls: Parameters<TreeFolderModel['getFolder']>[0][] = []

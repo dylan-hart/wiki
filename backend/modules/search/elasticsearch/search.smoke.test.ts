@@ -26,7 +26,7 @@ const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../.
  * reports skipped rather than failing. Bring up a cluster to point it at with
  * `dev/docker-compose.search-test.yml` (see that file's own header comment for the exact commands).
  *
- * Permission filtering itself (`WIKI.models.groups.checkAccess`'s rule resolution) is not re-tested
+ * Permission filtering itself (`CARDINAL.models.groups.checkAccess`'s rule resolution) is not re-tested
  * here -- that's already covered on its own terms, DB-backed, in `models/groups.test.ts`. What this
  * suite adds on top of `search.test.ts`'s equivalent mocked case is that the *real* hits a real
  * cluster returns survive the same per-row `checkAccess` post-filter this module applies to a fake
@@ -241,8 +241,8 @@ describe(
     test('a page denied by checkAccess is filtered out of real Elasticsearch hits, and totalHits follows', async () => {
       const denyVault = (_actor: AccessActor, _permission: string, page: { path: string }) =>
         page.path !== 'secret/vault'
-      const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-      ;(globalThis as any).WIKI.models.groups.checkAccess = denyVault
+      const previousCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = denyVault
 
       try {
         const result = await mod.query({
@@ -258,7 +258,7 @@ describe(
         assert.deepEqual(paths, ['docs/alpha', 'docs/beta', 'docs/delta'])
         assert.equal(result.totalHits, 3)
       } finally {
-        ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
+        ;(globalThis as any).CARDINAL.models.groups.checkAccess = previousCheckAccess
       }
     })
 

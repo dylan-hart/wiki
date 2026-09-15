@@ -7,7 +7,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 /**
  * Route-wiring tests for `GET`/`DELETE /sites/:siteId/pages/:pageId/draft` (OpenProject #2455).
  *
- * `WIKI.models.pageDrafts` is stubbed rather than backed by a real database -- the model itself
+ * `CARDINAL.models.pageDrafts` is stubbed rather than backed by a real database -- the model itself
  * already has its own DB-backed coverage in `models/pageDrafts.db.test.ts`. What this file checks is
  * the route's own logic: that both need `write:pages` on the page (never a route-level permission,
  * since this is a page-scoped one granted by a rule), that a missing page or a missing draft both
@@ -47,7 +47,7 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
           getContent: async (_pageId: string) => draftResult
         }
       },
-      // -> The DELETE route hands the clear off to `WIKI.collab.discardDraft()` (OpenProject #2898)
+      // -> The DELETE route hands the clear off to `CARDINAL.collab.discardDraft()` (OpenProject #2898)
       //    rather than calling `pageDrafts.clear()` directly, so it can coordinate with any
       //    in-memory room for the page first -- `core/collab.draftPersist.test.ts` covers that
       //    coordination itself; this file only checks that the route calls it at all.

@@ -47,7 +47,7 @@ describe(
       // -> `taskTimeout: 1`: short enough to keep the new "in-process task that never settles" test
       //    below fast, and otherwise unused by every other test in this block (none of them exercise
       //    `executeInProcess()`'s ceiling, only `staleJobTimeout`/`retryBackoff`/`maxRetries`).
-      WIKI.config = {
+      CARDINAL.config = {
         scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2, taskTimeout: 1 }
       }
     })
@@ -184,13 +184,13 @@ describe(
       const row = await insertActiveHistory({ attempt: 3, maxRetries: 2 })
       historyIds.push(row.id)
       const warn = mock.fn()
-      const originalWarn = WIKI.logger.warn
-      WIKI.logger.warn = warn as any
+      const originalWarn = CARDINAL.logger.warn
+      CARDINAL.logger.warn = warn as any
 
       try {
         await scheduler.reapStaleJobs()
       } finally {
-        WIKI.logger.warn = originalWarn
+        CARDINAL.logger.warn = originalWarn
       }
 
       const abandoned = warn.mock.calls
@@ -211,10 +211,10 @@ describe(
     test('a sweep that found nothing says so at debug, and says nothing at warn', async () => {
       const warn = mock.fn()
       const debug = mock.fn()
-      const originalWarn = WIKI.logger.warn
-      const originalDebug = WIKI.logger.debug
-      WIKI.logger.warn = warn as any
-      WIKI.logger.debug = debug as any
+      const originalWarn = CARDINAL.logger.warn
+      const originalDebug = CARDINAL.logger.debug
+      CARDINAL.logger.warn = warn as any
+      CARDINAL.logger.debug = debug as any
 
       try {
         // -> Nothing inserted by this test, and every other test in this file cleans up its own rows
@@ -222,8 +222,8 @@ describe(
         //    nothing to find.
         await scheduler.reapStaleJobs()
       } finally {
-        WIKI.logger.warn = originalWarn
-        WIKI.logger.debug = originalDebug
+        CARDINAL.logger.warn = originalWarn
+        CARDINAL.logger.debug = originalDebug
       }
 
       const idle = debug.mock.calls
@@ -245,9 +245,9 @@ describe(
      * for exactly this case, or the only thing standing between an `addJob({ promise: true })` caller
      * and hanging forever is `expireCompletionPromises()`'s much longer ceiling.
      *
-     * `WIKI.scheduler` here is `createSchedulerStub()`'s plain object (`test/db.ts`), not the real
+     * `CARDINAL.scheduler` here is `createSchedulerStub()`'s plain object (`test/db.ts`), not the real
      * `scheduler` module under test -- `notifier` (module-scope in `scheduler.ts`) reads
-     * `WIKI.scheduler.pubsubClient` on every send, so handing that stub object a fake `query()` is what
+     * `CARDINAL.scheduler.pubsubClient` on every send, so handing that stub object a fake `query()` is what
      * lets a NOTIFY attempt be observed without a second, real LISTEN/NOTIFY client.
      */
     test('sends a jobCompleted NOTIFY for a job it abandons, since nothing else ever will', async () => {
@@ -258,7 +258,7 @@ describe(
       })
       historyIds.push(row.id)
       const query = mock.fn(async (_sql: string, _params?: any[]) => ({}) as any)
-      WIKI.scheduler.pubsubClient = { query } as any
+      CARDINAL.scheduler.pubsubClient = { query } as any
 
       try {
         await scheduler.reapStaleJobs()
@@ -267,7 +267,7 @@ describe(
         //    `query()` call to actually run before it can be asserted against.
         await new Promise((resolve) => setTimeout(resolve, 50))
       } finally {
-        WIKI.scheduler.pubsubClient = null
+        CARDINAL.scheduler.pubsubClient = null
       }
 
       assert.equal(query.mock.callCount(), 1)
@@ -349,7 +349,7 @@ describe(
      * stranding every job after it in the array (marked `interrupted` in history, absent from `jobs`,
      * and invisible to a later sweep, which only ever looks at `state = 'active'` rows).
      *
-     * `WIKI.db.insert` is temporarily wrapped to reject only the middle job's insert, modelling
+     * `CARDINAL.db.insert` is temporarily wrapped to reject only the middle job's insert, modelling
      * whatever real failure (a constraint violation, a dropped connection) the outer catch used to
      * treat as fatal for the whole batch.
      */
@@ -360,8 +360,8 @@ describe(
       historyIds.push(rowA.id, rowB.id, rowC.id)
       jobIds.push(rowA.id, rowB.id, rowC.id)
 
-      const originalInsert = WIKI.db.insert.bind(WIKI.db)
-      ;(WIKI.db as any).insert = (table: any) => {
+      const originalInsert = CARDINAL.db.insert.bind(CARDINAL.db)
+      ;(CARDINAL.db as any).insert = (table: any) => {
         if (table !== jobsTable) return originalInsert(table)
         return {
           values: (vals: any) => {
@@ -381,8 +381,8 @@ describe(
       //    error are FIELDS on a scoped record, not text pasted into the message, so a stub that
       //    keeps only the first argument keeps the scope (`'jobs'`) and can never match either.
       const warnCalls: any[][] = []
-      const originalWarn = WIKI.logger.warn
-      WIKI.logger.warn = ((...args: any[]) => {
+      const originalWarn = CARDINAL.logger.warn
+      CARDINAL.logger.warn = ((...args: any[]) => {
         warnCalls.push(args)
       }) as any
 
@@ -390,8 +390,8 @@ describe(
       try {
         requeued = await scheduler.reapStaleJobs()
       } finally {
-        WIKI.db.insert = originalInsert
-        WIKI.logger.warn = originalWarn
+        CARDINAL.db.insert = originalInsert
+        CARDINAL.logger.warn = originalWarn
       }
 
       assert.equal(requeued, 2, 'only the two successful inserts should count toward the total')
@@ -419,7 +419,7 @@ describe(
      * wedged jobs, the instance stopped claiming any further job at all. `executeInProcess()` gives
      * the in-process branch the same race-against-a-timer shape, so `runJob()` always settles and
      * this bookkeeping always completes. This is a DB-backed integration test of that fix through the
-     * full `processJob()` claim path, complementing the pure-unit `executeInProcess (fake WIKI)` suite
+     * full `processJob()` claim path, complementing the pure-unit `executeInProcess (fake CARDINAL)` suite
      * above, which exercises the same ceiling in isolation.
      */
     test('an in-process task whose promise never settles is recorded failed and returns activeWorkers to 0', async () => {
@@ -709,7 +709,7 @@ describe(
       scheduler.tasks = {}
       scheduler.maxWorkers = 1
       scheduler.activeWorkers = 0
-      WIKI.config = { scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2 } }
+      CARDINAL.config = { scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2 } }
     })
 
     after(async () => {

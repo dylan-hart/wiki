@@ -38,7 +38,7 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
     ;({ pages: pagesModel } = await import('./pages.ts'))
 
     dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-replication-export-test-'))
-    WIKI.config.dataPath = dataPath
+    CARDINAL.config.dataPath = dataPath
 
     const [secondSite] = await fixtures.db
       .insert(sitesTable)
@@ -49,10 +49,10 @@ describe('replicationExport.buildSnapshot (DB-backed)', { skip: !hasTestDatabase
       })
       .returning({ id: sitesTable.id })
     secondSiteId = secondSite!.id
-    // -> `pages.ts#createPage` checks the in-memory `WIKI.sites` cache, not the DB row directly --
+    // -> `pages.ts#createPage` checks the in-memory `CARDINAL.sites` cache, not the DB row directly --
     //    `setupTestDb()` already registers the fixture site there; this second one needs the same
     //    registration or `createPage(secondSiteId, ...)` below 404s as an unknown site.
-    WIKI.sites[secondSiteId] = {
+    CARDINAL.sites[secondSiteId] = {
       id: secondSiteId,
       config: { locales: { primary: 'en', active: ['en'] } }
     }

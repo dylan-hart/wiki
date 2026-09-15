@@ -11,7 +11,7 @@ let wikiHandle: { restore(): void }
 /**
  * Regression coverage for task 1842: `/metrics` used to build its snapshot from `await`
  * expressions inside one object literal, so each round trip waited on the previous one instead of
- * running concurrently. `WIKI.db.$count`/`WIKI.db.execute`/`WIKI.models.jobs.*` are stubbed to each
+ * running concurrently. `CARDINAL.db.$count`/`CARDINAL.db.execute`/`CARDINAL.models.jobs.*` are stubbed to each
  * record when they were *called* and when they *resolved* into a shared `events` array, with a fixed
  * artificial delay before resolving — chosen so the assertion is deterministic either way rather than
  * racy: concurrent (`Promise.all`) calls every stub synchronously before any of them resolves, so
@@ -21,9 +21,9 @@ let wikiHandle: { restore(): void }
  * simply hang forever on a serial regression instead of failing cleanly), this fixed-delay approach
  * fails fast and with a readable assertion either way.
  *
- * Task 1939 added `jobsFailed` (via `WIKI.models.jobs.countFailed()`, so it joins the same
+ * Task 1939 added `jobsFailed` (via `CARDINAL.models.jobs.countFailed()`, so it joins the same
  * `Promise.all` and the concurrency assertion below) and the three `dbPoolTotal`/`dbPoolIdle`/
- * `dbPoolWaiting` gauges (read synchronously off `WIKI.dbManager.pool`, not awaited, so they don't
+ * `dbPoolWaiting` gauges (read synchronously off `CARDINAL.dbManager.pool`, not awaited, so they don't
  * join the concurrency count).
  */
 describe('GET /metrics', () => {

@@ -160,7 +160,7 @@ describe('DiagramRender.render', () => {
   let extractDiagramScript: typeof import('./diagramRender.ts').extractDiagramScript
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: { port: 3000 },
       logger: { debug: () => {} },
       models: {
@@ -181,12 +181,12 @@ describe('DiagramRender.render', () => {
     ;({ diagramRender, importBlockScript, mountBlockElementScript, extractDiagramScript } =
       await import('./diagramRender.ts'))
     ;({ blockSettleScript } = await import('./pdfExport.ts'))
-    isInstalled = (globalThis as any).WIKI.models.extensions.isInstalled
-    getSiteBlocks = (globalThis as any).WIKI.models.blocks.getSiteBlocks
+    isInstalled = (globalThis as any).CARDINAL.models.extensions.isInstalled
+    getSiteBlocks = (globalThis as any).CARDINAL.models.blocks.getSiteBlocks
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   function fakeBrowser(extractResult: { svg: string | null; error: string | null }) {
@@ -638,7 +638,7 @@ describe('DiagramRender.render', () => {
     test('refuses to reach a PlantUML server at all when the instance is in offline mode (OpenProject #820)', async () => {
       const fetchMock = mock.fn(async () => new Response(new Uint8Array(), { status: 200 }))
       ;(globalThis as any).fetch = fetchMock
-      ;(globalThis as any).WIKI.config.offline = true
+      ;(globalThis as any).CARDINAL.config.offline = true
 
       try {
         await assert.rejects(
@@ -651,7 +651,7 @@ describe('DiagramRender.render', () => {
         )
         assert.equal(fetchMock.mock.callCount(), 0)
       } finally {
-        ;(globalThis as any).WIKI.config.offline = false
+        ;(globalThis as any).CARDINAL.config.offline = false
       }
     })
   })

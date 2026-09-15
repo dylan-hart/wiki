@@ -45,7 +45,7 @@ test('JOB_SCHEDULE_SEED registers purgePageviews on a valid daily cron', () => {
 
 test('JOB_SCHEDULE_SEED never claims two tasks on the same cron expression (OpenProject #2059)', () => {
   // -> Two entries sharing a cron are claimed in the same `processJob` batch; checkVersion and
-  //    updateLocales sharing '0 0 * * *' was how `WIKI.config.update.locales` got silently dropped.
+  //    updateLocales sharing '0 0 * * *' was how `CARDINAL.config.update.locales` got silently dropped.
   const crons = JOB_SCHEDULE_SEED.map((e) => e.cron)
   assert.deepEqual(crons, [...new Set(crons)], 'expected every JOB_SCHEDULE_SEED cron to be unique')
 })
@@ -259,7 +259,7 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   describe('cleanHistory (retention cutoff)', () => {
     test('selects the same rows for deletion as it would under UTC', async () => {
-      WIKI.config = { scheduler: { historyExpiration: 3600 } } // 1 hour retention
+      CARDINAL.config = { scheduler: { historyExpiration: 3600 } } // 1 hour retention
 
       await fixtures.db.insert(jobHistoryTable).values({
         task: 'staleHistoryTask',
@@ -353,7 +353,7 @@ describe('countFailed (DB-backed)', { skip: !hasTestDatabase() }, () => {
 /**
  * OpenProject #2351: `setResult()` fences its write against `helpers/jobExecutionContext.ts`'s
  * attempt number so a stale, timed-out `executeInProcess` task's late call cannot clobber a later
- * retry's result. See `core/scheduler.test.ts`'s `executeInProcess (fake WIKI)` suite for coverage
+ * retry's result. See `core/scheduler.test.ts`'s `executeInProcess (fake CARDINAL)` suite for coverage
  * of the context itself surviving a stale continuation; this suite covers the actual `UPDATE`
  * fencing against the database.
  */

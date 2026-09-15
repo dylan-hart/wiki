@@ -8,7 +8,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/backlinks` (OpenProject #1914).
  *
  * Follows the same lightweight fastify-`inject` harness as `pages-export.test.ts`: a fake
- * `WIKI.models.pages`/`WIKI.models.groups` stand in for the real Drizzle-backed models, so this
+ * `CARDINAL.models.pages`/`CARDINAL.models.groups` stand in for the real Drizzle-backed models, so this
  * exercises the route's wiring -- target-page gating via `loadReadablePage`, and the per-row
  * `mayOnPage('read:pages', ...)` filter over `listBacklinks` -- without a database.
  */

@@ -29,14 +29,14 @@ before(async () => {
  * disagreed with the admin "Upcoming" ordering (`models/jobs.ts#getUpcoming()`:
  * `waitUntil ASC NULLS FIRST, createdAt ASC`).
  *
- * This drives the real `processJob()` against a fake `WIKI.db.transaction`/`trx.delete` and inspects
+ * This drives the real `processJob()` against a fake `CARDINAL.db.transaction`/`trx.delete` and inspects
  * the literal SQL text of the claim subquery's `inArray(...)` condition -- the thing actually sent to
  * postgres -- rather than re-implementing the ordering logic to compare against. `extractSqlText`
  * walks a drizzle `SQL` object's `queryChunks` (each a `{ value: string[] }` literal chunk, a nested
  * `SQL` chunk, or a bound param contributing no literal text) and concatenates the literal chunks, so
  * what it produces is exactly the query string drizzle would send.
  */
-describe('processJob claim ordering (fake WIKI)', () => {
+describe('processJob claim ordering (fake CARDINAL)', () => {
   let capturedCondition: any
   let wikiHandle: { restore(): void }
 
@@ -94,11 +94,11 @@ describe('processJob claim ordering (fake WIKI)', () => {
  * that metric alone. A still-retryable failure must keep logging at `warn`, and says so in its own
  * message (`, retrying`) rather than in a second line.
  *
- * Drives the real `runJob()` against a fake `WIKI.db`/`notifier`-reachable state, not a live
+ * Drives the real `runJob()` against a fake `CARDINAL.db`/`notifier`-reachable state, not a live
  * Postgres connection -- there is no SQL orchestration worth a real database here, just a branch on
  * `job.retries` vs. `job.maxRetries` deciding which logger method gets called.
  */
-describe('runJob log level on failure (fake WIKI)', () => {
+describe('runJob log level on failure (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
   let logCalls: { level: string; args: any[] }[]
 
@@ -135,7 +135,7 @@ describe('runJob log level on failure (fake WIKI)', () => {
           values: async () => ({})
         })
       }
-      // -> No `WIKI.scheduler.pubsubClient`: `notifier.send()` reads it fresh on each call, catches the
+      // -> No `CARDINAL.scheduler.pubsubClient`: `notifier.send()` reads it fresh on each call, catches the
       //    resulting `TypeError` internally, and logs a `warn` of its own -- fire-and-forget, so it
       //    never surfaces synchronously here. See `helpers/pubsub.ts#createNotifier`.
     })
@@ -212,7 +212,7 @@ describe('runJob log level on failure (fake WIKI)', () => {
  * exhausted-retries failure to `error`, not `warn`) since this test's own concern is the field
  * payload, not which level a given retry count picks.
  */
-describe('runJob failure logging (fake WIKI)', () => {
+describe('runJob failure logging (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
   let failureMock: ReturnType<typeof mock.fn>
 
@@ -221,7 +221,7 @@ describe('runJob failure logging (fake WIKI)', () => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { retryBackoff: 0 } },
-      // -> `notifier.send()` (module scope in scheduler.ts) reads `WIKI.scheduler.pubsubClient` on
+      // -> `notifier.send()` (module scope in scheduler.ts) reads `CARDINAL.scheduler.pubsubClient` on
       //    every send; `null` is a valid, silently-discarded target (`helpers/pubsub.ts`), so this
       //    exercises the catch branch with no real LISTEN/NOTIFY client needed.
       scheduler: { pubsubClient: null },
@@ -364,7 +364,7 @@ describe('executeOnWorker (real worker pool)', () => {
  * scheduler's own bookkeeping to keep finite, so a task whose promise simply never resolves is
  * enough to exercise it.
  */
-describe('executeInProcess (fake WIKI)', () => {
+describe('executeInProcess (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
 
   before(() => {
@@ -459,7 +459,7 @@ describe('executeInProcess (fake WIKI)', () => {
  * level + the fields object rather than on a rendered string: the rendering is `core/logger.ts`'s
  * business.
  */
-describe('runJob outcome logging (fake WIKI)', () => {
+describe('runJob outcome logging (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
   let logCalls: { level: string; args: any[] }[]
   let inserted: any[]

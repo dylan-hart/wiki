@@ -22,7 +22,7 @@ import { ensureTemporal } from '../test/temporal.ts'
  *    (naming only `user:*` as emitted, or saying comments "are not implemented yet").
  * 2. The response's `isEmitted` flags actually agree with {@link EMITTED_EVENTS} for every event.
  *
- * `WIKI` is not stubbed because `GET /events` reads only the two plain exports above — no model,
+ * `CARDINAL` is not stubbed because `GET /events` reads only the two plain exports above — no model,
  * cache or db access.
  */
 
@@ -243,8 +243,8 @@ test('a connection failure is reported as ok:false with statusCode 0 rather than
 
 /**
  * `POST /hooks` and `PUT /hooks/:hookId` thread the new `siteId` field through to
- * `WIKI.models.hooks.createHook()`/`updateHook()`, and reject one that names a site the instance
- * doesn't have -- against a fake `WIKI.models.hooks` rather than a real one, since what these tests
+ * `CARDINAL.models.hooks.createHook()`/`updateHook()`, and reject one that names a site the instance
+ * doesn't have -- against a fake `CARDINAL.models.hooks` rather than a real one, since what these tests
  * cover is the route's own validation and field-forwarding, not the model (which has its own
  * DB-backed coverage in `models/hooks.test.ts`).
  */

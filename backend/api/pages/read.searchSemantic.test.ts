@@ -9,7 +9,7 @@ import { ensureTemporal } from '../../test/temporal.ts'
 /**
  * Route-wiring tests for `GET /sites/:siteId/pages/search/semantic` (Epic #3050, Task #3102).
  *
- * `WIKI.models.semanticSearch.search()` is stubbed outright -- the real multi-hop retrieval/ranking
+ * `CARDINAL.models.semanticSearch.search()` is stubbed outright -- the real multi-hop retrieval/ranking
  * logic has its own coverage in `models/semanticSearch.test.ts` (Feature #3092). This suite covers
  * only what `read.ts` itself does: the unknown-site 404, the `features.semanticSearch` 503 gate (both
  * halves — the boot-time capability flag AND the site's own admin setting, so neither alone can turn

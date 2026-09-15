@@ -26,7 +26,7 @@ import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
 /**
- * `toVectorLiteral` is pure — no `WIKI`, no database — so it gets its own always-on describe rather
+ * `toVectorLiteral` is pure — no `CARDINAL`, no database — so it gets its own always-on describe rather
  * than living only inside the DB-backed section below.
  */
 describe('semanticSearch: toVectorLiteral', () => {
@@ -85,7 +85,7 @@ function makeRow(overrides: Partial<SemanticChunkMatch> = {}): SemanticChunkMatc
 }
 
 /**
- * `selectHop2Seeds` is pure — no `WIKI`, no database — same reasoning as `toVectorLiteral` above.
+ * `selectHop2Seeds` is pure — no `CARDINAL`, no database — same reasoning as `toVectorLiteral` above.
  */
 describe('semanticSearch: selectHop2Seeds', () => {
   test("picks the top HOP2_SEED_COUNT distinct pages by each page's own best (lowest-distance) chunk", () => {
@@ -655,7 +655,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
           config: { locales: { primary: 'en', active: ['en'] } }
         })
         .returning({ id: sitesTable.id })
-      WIKI.sites[otherSite!.id] = {
+      CARDINAL.sites[otherSite!.id] = {
         id: otherSite!.id,
         config: { locales: { primary: 'en', active: ['en'] } }
       }

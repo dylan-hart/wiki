@@ -45,7 +45,7 @@ after(async () => {
  * an assertion helper is what it actually was, so it lives here now rather than on the model.
  */
 async function countOpenSubmissions(pageId: string): Promise<number> {
-  return WIKI.db.$count(
+  return CARDINAL.db.$count(
     submissionsTable,
     and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.status, 'open'))
   )
@@ -654,7 +654,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
    * and `storage.dispatch('page:edit', ...)` are both called exactly once per `updatePage` call (see
    * `models/pages.ts#updatePage`), so a single history row is sufficient evidence that neither of
    * those ran twice either, without this test also having to stand up a real storage target (which
-   * needs `WIKI.SERVERPATH` and the on-disk module definitions -- out of scope for this fix). A
+   * needs `CARDINAL.SERVERPATH` and the on-disk module definitions -- out of scope for this fix). A
    * subscribed webhook is cheap to set up, though, and gives an independent, direct check on top.
    */
   test('two concurrent approve calls from the same reviewer at minApprovals:1 finalize exactly once', async () => {
@@ -691,7 +691,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
       url: 'https://example.com/concurrent-finalize',
       siteId: fixtures.siteId
     })
-    const addJob = WIKI.scheduler.addJob as unknown as {
+    const addJob = CARDINAL.scheduler.addJob as unknown as {
       mock: { calls: { arguments: [{ task: string; payload: any }] }[]; resetCalls: () => void }
     }
     addJob.mock.resetCalls()
@@ -904,7 +904,7 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
       id: page.id,
       withContent: true
     })
-    const finalRows = await WIKI.db
+    const finalRows = await CARDINAL.db
       .select({ status: submissionsTable.status })
       .from(submissionsTable)
       .where(eq(submissionsTable.id, submission.id))
@@ -988,7 +988,7 @@ describe(
       await fixtures.db
         .insert(userGroupsTable)
         .values({ userId: scriptedAuthorId, groupId: scriptsGroup!.id })
-      await WIKI.models.groups.reloadCache()
+      await CARDINAL.models.groups.reloadCache()
     })
 
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
@@ -1129,7 +1129,7 @@ describe(
         authorId: fixtures.userId
       })
 
-      const rows = await WIKI.db
+      const rows = await CARDINAL.db
         .select({
           status: submissionsTable.status,
           resolvedReason: submissionsTable.resolvedReason,
@@ -1531,7 +1531,7 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
 /**
  * OpenProject #1932: `saveSubmission`/`approveSubmission`/`rejectSubmission` each now fire an
  * `approval:*` webhook event beside their primary write, the same convention `models/pages.ts` uses
- * for `page:*`. `WIKI.models.hooks.emit` is replaced with a `mock.fn()` after `setupTestDb()` installs
+ * for `page:*`. `CARDINAL.models.hooks.emit` is replaced with a `mock.fn()` after `setupTestDb()` installs
  * the real models, so every call this suite makes is captured directly rather than inferred from a
  * queued job -- `Hooks.emit()`'s own SQL/queuing behaviour is already covered by `Hooks.emit (unit)`
  * above and does not need re-proving here.
@@ -1559,7 +1559,7 @@ describe('approvals webhook events (DB-backed)', { skip: !hasTestDatabase() }, (
 
   beforeEach(() => {
     emit = mock.fn(async () => 0)
-    ;(WIKI.models as any).hooks = { ...WIKI.models.hooks, emit }
+    ;(CARDINAL.models as any).hooks = { ...CARDINAL.models.hooks, emit }
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {

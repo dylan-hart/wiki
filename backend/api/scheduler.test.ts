@@ -11,7 +11,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * destructively (`DELETE /upcoming/:jobId`, `POST /jobs/:jobId/retry`) and were, until now, covered
  * only indirectly via `e2e/tests/scheduler.spec.js` driving the admin UI. This suite builds a real
  * Fastify instance and drives every route through `app.inject()`, following `api/system.test.ts`
- * and `api/hooks.test.ts` as structural templates: `WIKI.models.jobs` is stubbed with `mock.fn()`
+ * and `api/hooks.test.ts` as structural templates: `CARDINAL.models.jobs` is stubbed with `mock.fn()`
  * per method (no database), and `setErrorHandler` mirrors `index.ts`'s real one so a thrown
  * `reply.notFound()`/`conflict()`/`internalServerError()` comes back shaped as the `ApiError` the
  * schemas declare, exactly as it would in the running app.

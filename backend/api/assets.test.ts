@@ -328,7 +328,7 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   /*
     UPLOAD/RENAME/DELETE carried no guard at all before OpenProject #1587/#1593 -- a disabled site's
     file manager stayed fully writable to anyone still holding its siteId. All three now answer 403
-    through the shared preHandler wired above, before the handler ever touches `WIKI.models.assets`.
+    through the shared preHandler wired above, before the handler ever touches `CARDINAL.models.assets`.
   */
 
   test('UPLOAD asset: answers 403 for a disabled site, without ever calling upload', async () => {
@@ -386,14 +386,14 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
    * `RulePageRef` passed to `checkAccess`, so a page rule scoped to one site (task 671) is enforced
    * for assets, not just pages. Exercised directly, plus one route wiring check per call site that
    * can reach `mayOnAsset` without extra session setup (upload requires an authenticated session and
-   * is covered indirectly by the direct `mayOnAsset` test instead). Sharing this describe's app/WIKI
+   * is covered indirectly by the direct `mayOnAsset` test instead). Sharing this describe's app/CARDINAL
    * setup rather than standing up its own, since both cover the same siteId-scoped asset routes.
    */
 
   test('mayOnAsset: threads siteId into the RulePageRef passed to checkAccess', () => {
     const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -413,20 +413,20 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
       assert.equal(calls[0].path, 'foo/bar.png')
       assert.equal(calls[0].locale, 'en')
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 
   test('GET asset metadata route: passes the route siteId through to checkAccess', async () => {
     const calls: any[] = []
-    const originalGetAsset = (globalThis as any).WIKI.models.assets.getAsset
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.assets.getAsset = async () => ({
+    const originalGetAsset = (globalThis as any).CARDINAL.models.assets.getAsset
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    ;(globalThis as any).CARDINAL.models.assets.getAsset = async () => ({
       folderPath: 'foo',
       fileName: 'bar.png',
       locale: 'en'
     })
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -443,22 +443,22 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
       assert.equal(calls.length, 1)
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
     } finally {
-      ;(globalThis as any).WIKI.models.assets.getAsset = originalGetAsset
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.assets.getAsset = originalGetAsset
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 
   test('DELETE asset route: passes the route siteId through to checkAccess', async () => {
     const calls: any[] = []
-    const originalGetAsset = (globalThis as any).WIKI.models.assets.getAsset
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    const originalDeleteAsset = (globalThis as any).WIKI.models.assets.deleteAsset
-    ;(globalThis as any).WIKI.models.assets.getAsset = async () => ({
+    const originalGetAsset = (globalThis as any).CARDINAL.models.assets.getAsset
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    const originalDeleteAsset = (globalThis as any).CARDINAL.models.assets.deleteAsset
+    ;(globalThis as any).CARDINAL.models.assets.getAsset = async () => ({
       folderPath: 'foo',
       fileName: 'bar.png',
       locale: 'en'
     })
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -466,7 +466,7 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
       calls.push(page)
       return false
     }
-    ;(globalThis as any).WIKI.models.assets.deleteAsset = async () => true
+    ;(globalThis as any).CARDINAL.models.assets.deleteAsset = async () => true
     try {
       const res = await app.inject({
         method: 'DELETE',
@@ -476,9 +476,9 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
       assert.equal(calls.length, 1)
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
     } finally {
-      ;(globalThis as any).WIKI.models.assets.getAsset = originalGetAsset
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
-      ;(globalThis as any).WIKI.models.assets.deleteAsset = originalDeleteAsset
+      ;(globalThis as any).CARDINAL.models.assets.getAsset = originalGetAsset
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.assets.deleteAsset = originalDeleteAsset
     }
   })
 })
@@ -603,8 +603,8 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
     getFolderByIdCalls = []
     // -> Allow the first (source, manage:assets) check and deny the second (destination,
     //    write:assets) -- the split this route checks in order.
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -627,7 +627,7 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
       assert.equal(getFolderByIdCalls.length, 1)
       assert.equal(moveAssetCalls.length, 0)
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 
@@ -688,8 +688,8 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
 
   test('a nonexistent asset 404s before any permission check', async () => {
     checkAccessCalls = []
-    const originalGetAsset = (globalThis as any).WIKI.models.assets.getAsset
-    ;(globalThis as any).WIKI.models.assets.getAsset = async () => null
+    const originalGetAsset = (globalThis as any).CARDINAL.models.assets.getAsset
+    ;(globalThis as any).CARDINAL.models.assets.getAsset = async () => null
     try {
       const res = await app.inject({
         method: 'PUT',
@@ -699,13 +699,13 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
       assert.equal(res.statusCode, 404)
       assert.equal(checkAccessCalls.length, 0)
     } finally {
-      ;(globalThis as any).WIKI.models.assets.getAsset = originalGetAsset
+      ;(globalThis as any).CARDINAL.models.assets.getAsset = originalGetAsset
     }
   })
 
   test('moveAsset resolving to null (a race with a concurrent delete) answers 404', async () => {
-    const originalMoveAsset = (globalThis as any).WIKI.models.assets.moveAsset
-    ;(globalThis as any).WIKI.models.assets.moveAsset = async () => null
+    const originalMoveAsset = (globalThis as any).CARDINAL.models.assets.moveAsset
+    ;(globalThis as any).CARDINAL.models.assets.moveAsset = async () => null
     try {
       const res = await app.inject({
         method: 'PUT',
@@ -714,7 +714,7 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
       })
       assert.equal(res.statusCode, 404)
     } finally {
-      ;(globalThis as any).WIKI.models.assets.moveAsset = originalMoveAsset
+      ;(globalThis as any).CARDINAL.models.assets.moveAsset = originalMoveAsset
     }
   })
 })
@@ -878,8 +878,8 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     getFolderByIdCalls = []
     uploadCalls = []
     const explicitFolderId = '77777777-7777-4777-8777-777777777777'
-    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
-    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+    const originalGetFolderById = (globalThis as any).CARDINAL.models.tree.getFolderById
+    ;(globalThis as any).CARDINAL.models.tree.getFolderById = async (id: string) => {
       getFolderByIdCalls.push(id)
       return { id, siteId: SITE_ID, fileName: 'sub', folderPath: '', locale: 'en' }
     }
@@ -895,7 +895,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
       assert.equal(getFolderCalls.length, 0)
       assert.equal(uploadCalls[0].folderId, explicitFolderId)
     } finally {
-      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+      ;(globalThis as any).CARDINAL.models.tree.getFolderById = originalGetFolderById
     }
   })
 
@@ -911,8 +911,8 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     uploadCalls = []
     const FOREIGN_SITE_ID = '99999999-9999-4999-8999-999999999999'
     const foreignFolderId = '88888888-8888-4888-8888-888888888888'
-    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
-    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+    const originalGetFolderById = (globalThis as any).CARDINAL.models.tree.getFolderById
+    ;(globalThis as any).CARDINAL.models.tree.getFolderById = async (id: string) => {
       getFolderByIdCalls.push(id)
       return { id, siteId: FOREIGN_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en' }
     }
@@ -928,7 +928,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
       assert.equal(checkAccessCalls.length, 0, 'must be refused before the permission check runs')
       assert.equal(uploadCalls.length, 0)
     } finally {
-      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+      ;(globalThis as any).CARDINAL.models.tree.getFolderById = originalGetFolderById
     }
   })
 
@@ -962,8 +962,8 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     uploadCalls = []
     checkAccessCalls = []
     const foreignFolderId = '99999999-9999-4999-8999-999999999999'
-    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
-    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+    const originalGetFolderById = (globalThis as any).CARDINAL.models.tree.getFolderById
+    ;(globalThis as any).CARDINAL.models.tree.getFolderById = async (id: string) => {
       getFolderByIdCalls.push(id)
       return null
     }
@@ -981,7 +981,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
       assert.equal(checkAccessCalls[0].path, 'photo.png')
       assert.equal(uploadCalls[0].folderId, undefined)
     } finally {
-      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+      ;(globalThis as any).CARDINAL.models.tree.getFolderById = originalGetFolderById
     }
   })
 

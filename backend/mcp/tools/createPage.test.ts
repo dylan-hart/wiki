@@ -174,7 +174,7 @@ test('handleCreatePage: an empty-string locale falls back to the site default to
 
 test('handleCreatePage: wraps a model validation failure as an McpToolError', async () => {
   const c = ctx({ access: ['write:pages'] })
-  ;(globalThis as any).WIKI.models.pages.createPage = async () => {
+  ;(globalThis as any).CARDINAL.models.pages.createPage = async () => {
     throw new Error('A page already exists at this path.')
   }
   await assert.rejects(
@@ -195,7 +195,7 @@ test('handleCreatePage: wraps a model validation failure as an McpToolError', as
  */
 test('handleCreatePage: renderPuppeteerMissing becomes an McpToolError naming the extension and pointing at the web editor', async () => {
   const c = ctx({ access: ['write:pages'] })
-  ;(globalThis as any).WIKI.models.pages.createPage = async () => {
+  ;(globalThis as any).CARDINAL.models.pages.createPage = async () => {
     throw new CustomError(
       'renderPuppeteerMissing',
       'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
@@ -215,7 +215,7 @@ test('handleCreatePage: renderPuppeteerMissing becomes an McpToolError naming th
 
 test('handleCreatePage: renderUnsupportedEditor becomes an McpToolError naming the editor and pointing at markdown', async () => {
   const c = ctx({ access: ['write:pages'] })
-  ;(globalThis as any).WIKI.models.pages.createPage = async () => {
+  ;(globalThis as any).CARDINAL.models.pages.createPage = async () => {
     throw new CustomError(
       'renderUnsupportedEditor',
       'Server-side rendering is not implemented for the ckeditor editor.'

@@ -5,7 +5,7 @@ import { users } from './users.ts'
 /**
  * `updateSession` is the one place a login turns a user row into session state — permissions
  * flattened across every group the user belongs to, and the group ids kept alongside them since
- * navigation is filtered per group. It touches neither `WIKI` nor the database, so this is a pure
+ * navigation is filtered per group. It touches neither `CARDINAL` nor the database, so this is a pure
  * unit test: no fixture from `test/db.ts` needed.
  *
  * Task 2115 / WP 2105 §4: `updateSession` also has to regenerate the session id before writing the
@@ -195,12 +195,12 @@ describe('users.reassignContent validation', () => {
 /**
  * OpenProject #1849: `getAvatarHash` exists specifically so a conditional avatar request never pulls
  * the blob out of the database. A real Postgres round trip only proves the returned value is correct,
- * not that the column list sent to it actually shrank — so this spies on `WIKI.db.select` instead,
+ * not that the column list sent to it actually shrank — so this spies on `CARDINAL.db.select` instead,
  * following the precedent set by `models/pages.test.ts`'s `getPage selection (pure unit, OpenProject
  * #1834)` describe block.
  */
 describe('getAvatarHash selection (pure unit, OpenProject #1849)', () => {
-  let previousWiki: typeof globalThis.WIKI
+  let previousWiki: typeof globalThis.CARDINAL
 
   function stubSelect(row?: Record<string, unknown>) {
     const calls: Record<string, unknown>[] = []
@@ -216,16 +216,16 @@ describe('getAvatarHash selection (pure unit, OpenProject #1849)', () => {
   }
 
   beforeEach(() => {
-    previousWiki = globalThis.WIKI
+    previousWiki = globalThis.CARDINAL
   })
 
   afterEach(() => {
-    globalThis.WIKI = previousWiki
+    globalThis.CARDINAL = previousWiki
   })
 
   test('the emitted selection asks only for hash, never data', async () => {
     const { select, calls } = stubSelect({ hash: 'deadbeef' })
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    globalThis.CARDINAL = { db: { select } } as unknown as typeof globalThis.CARDINAL
     const { users: usersModel } = await import('./users.ts')
 
     const hash = await usersModel.getAvatarHash('user-1')
@@ -238,7 +238,7 @@ describe('getAvatarHash selection (pure unit, OpenProject #1849)', () => {
 
   test('returns null rather than throwing when no row matches', async () => {
     const { select } = stubSelect(undefined)
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    globalThis.CARDINAL = { db: { select } } as unknown as typeof globalThis.CARDINAL
     const { users: usersModel } = await import('./users.ts')
 
     assert.equal(await usersModel.getAvatarHash('missing-user'), null)

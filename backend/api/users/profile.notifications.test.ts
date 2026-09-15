@@ -8,7 +8,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 /**
  * Feature #2425: the self-service `/profile/notifications` routes — a user's own per-event-type
  * email subscription toggles. Mirrors `profile.apiKeys.test.ts`'s harness: a minimal fastify app with
- * `req.session` simulated via the `x-test-session` header, and `WIKI.models.users` mocked rather than
+ * `req.session` simulated via the `x-test-session` header, and `CARDINAL.models.users` mocked rather than
  * hitting a real database — the DB-backed round trip through `prefs` itself is covered in
  * `models/users.profile.test.ts`. What belongs here is the routing: session-gating, and that the
  * session user id (never a client-supplied one) is what reaches the model.

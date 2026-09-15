@@ -4,7 +4,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 
 /**
  * DB-backed: `classificationLevels` is a small admin-configurable list, same shape as `groups`, and
- * every method here reads/writes through `WIKI.db` plus the in-memory `levelsCache` `reloadCache()`
+ * every method here reads/writes through `CARDINAL.db` plus the in-memory `levelsCache` `reloadCache()`
  * fills -- there is no meaningful pure-function slice to peel off the way `helpers/pageRules.ts` has
  * (a real Postgres instance earns its keep here over a mock).
  */
@@ -309,7 +309,7 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
  * `rulesCache`, that mis-write lands in `pages.classification` and does not heal on restart).
  * `broadcastReload()` is the fix, the same shape `groups.ts`'s own broadcast-vs-`reloadCache()` split
  * uses (see `models/groups.test.ts`'s `groups.broadcastReload` suite, this one's model): every write
- * path now goes through it instead of `reloadCache()` directly, and it emits on `WIKI.events.outbound`
+ * path now goes through it instead of `reloadCache()` directly, and it emits on `CARDINAL.events.outbound`
  * (which `setupTestDb()` installs as `test/mocks.ts`'s `createEventsStub()`).
  */
 describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -327,18 +327,18 @@ describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDat
   })
 
   test('create broadcasts reloadClassificationLevels after refreshing this instance', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     const created = await levelsModel.create({ name: 'Broadcast Test Level' })
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
     await levelsModel.delete(created.id)
   })
 
   test('update broadcasts reloadClassificationLevels after refreshing this instance', async () => {
     const level = await levelsModel.create({ name: 'Broadcast Update Target' })
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await levelsModel.update(level.id, { name: 'Broadcast Updated' })
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
     await levelsModel.delete(level.id)
   })
@@ -347,9 +347,9 @@ describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDat
     const a = await levelsModel.create({ name: 'Broadcast Reorder A' })
     const b = await levelsModel.create({ name: 'Broadcast Reorder B' })
     const order = levelsModel.list().map((l) => l.id)
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await levelsModel.reorder(order)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
     await levelsModel.delete(a.id)
     await levelsModel.delete(b.id)
@@ -357,14 +357,14 @@ describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDat
 
   test('delete broadcasts reloadClassificationLevels after refreshing this instance', async () => {
     const level = await levelsModel.create({ name: 'Broadcast Delete Target' })
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await levelsModel.delete(level.id)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
   })
 
   test('init() seeds/reloads without broadcasting -- first-run seeding has no cluster peers to notify', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await levelsModel.init({
       classificationPublicId: fixtures.classificationId,
       // -> The real fixed ids the migration seeds (`db/migrations/20260822152223_main`), matching
@@ -374,7 +374,7 @@ describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDat
       classificationInternalId: '30000000-0000-4000-8000-000000000002',
       classificationRestrictedId: '30000000-0000-4000-8000-000000000003'
     } as any)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(!calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
   })
 
@@ -387,17 +387,17 @@ describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDat
     }
     try {
       levelsModel.subscribeToEvents()
-      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const onCalls = (CARDINAL.events.inbound.on as any).mock.calls
       const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadClassificationLevels')
         ?.arguments[1]
       assert.ok(
         handler,
         'expected subscribeToEvents to register a reloadClassificationLevels handler'
       )
-      ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+      ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
       await handler()
       assert.equal(reloaded, true)
-      const calls = (WIKI.events.outbound.emit as any).mock.calls
+      const calls = (CARDINAL.events.outbound.emit as any).mock.calls
       assert.ok(!calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
     } finally {
       levelsModel.reloadCache = originalReloadCache

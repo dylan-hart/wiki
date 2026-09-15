@@ -13,7 +13,7 @@ import type { RenderPermissions } from './htmlSanitizePolicy.ts'
 /*
  * The policy half of what a save runs through: `sanitizeOptions()` fed straight to `sanitize-html`,
  * with no `postProcess` pipeline around it (that half lives in `models/rendering.test.ts`). Nothing
- * here reaches the database, and the one real dependency is `WIKI.models.blocks.definitions` --
+ * here reaches the database, and the one real dependency is `CARDINAL.models.blocks.definitions` --
  * `blockAllowances()` reads it to widen the allowlist per enabled block. None of these cases is about
  * a block, so the manifest is empty and every call passes an empty enabled set: what they are about is
  * the static tag/attribute/style allowlists underneath it.

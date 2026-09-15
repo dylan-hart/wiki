@@ -11,7 +11,7 @@ import type { GroupRule } from '../../models/groups.ts'
  * OpenProject #1720: once `models/pages.ts#createPage()`/`updatePage()` refuse a render-less write up
  * front via `ensureCanRender()` (#1716), the two named errors it throws --
  * `renderUnsupportedEditor`/`renderPuppeteerMissing` -- must reach a REST caller as an actionable
- * `@fastify/sensible` error (400/503 with a message naming the cause), not an opaque 500. `WIKI.models
+ * `@fastify/sensible` error (400/503 with a message naming the cause), not an opaque 500. `CARDINAL.models
  * .pages.createPage`/`updatePage` are stubbed to throw directly, standing in for a render-less write
  * against a lean/non-markdown-unsupported instance without needing a real Puppeteer-less environment.
  */
@@ -256,7 +256,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
 
   beforeEach(() => {
     movePageCalls = []
-    ;(globalThis as any).WIKI.models.groups.checkAccess = realCheckAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = realCheckAccess
   })
 
   test('a move within the locale the caller manages is allowed, and carries no locale', async () => {
@@ -285,7 +285,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
   })
 
   test('the requested locale reaches the model when the caller may manage the destination', async () => {
-    ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
 
     const res = await app.inject({
       method: 'PUT',
@@ -314,7 +314,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
       locales: ['fr'],
       sites: []
     }
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       actor: unknown,
       permission: string,
       page: RulePageRef
@@ -426,7 +426,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
   beforeEach(() => {
     movePageCalls = []
     translations = []
-    ;(globalThis as any).WIKI.models.groups.checkAccess = realCheckAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = realCheckAccess
   })
 
   test('no twins: includeTranslations reaches the model with nothing to permission-check', async () => {
@@ -477,7 +477,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
       locales: ['fr'],
       sites: []
     }
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       actor: unknown,
       permission: string,
       page: RulePageRef
@@ -515,7 +515,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
 
   test('includeTranslations is ignored on a locale-only move: getTranslations is never consulted', async () => {
     let getTranslationsCalled = false
-    ;(globalThis as any).WIKI.models.pages.getTranslations = async () => {
+    ;(globalThis as any).CARDINAL.models.pages.getTranslations = async () => {
       getTranslationsCalled = true
       return []
     }

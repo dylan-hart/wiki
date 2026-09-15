@@ -12,7 +12,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * Same shape as `transfer.test.ts`'s own `POST /import` coverage — the real `replicationRoutes`
  * plugin with the real `replicationImportModel` against a throwaway `dataPath`, so this proves the
  * archive actually lands on disk streamed (not buffered) and that `req.body` resolves to that path.
- * `WIKI.scheduler.addJob` and `WIKI.models.jobs` are mocked; a real restore is
+ * `CARDINAL.scheduler.addJob` and `CARDINAL.models.jobs` are mocked; a real restore is
  * `replicationImport.db.test.ts`'s concern.
  */
 describe('POST /replication/import (streamed upload)', () => {

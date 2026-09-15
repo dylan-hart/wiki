@@ -65,10 +65,10 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     ;({ sites: sitesModel } = await import('./sites.ts'))
-    // -> `createSite()` reads `WIKI.data.systemIds.localAuthId` to seed the default auth strategy —
+    // -> `createSite()` reads `CARDINAL.data.systemIds.localAuthId` to seed the default auth strategy —
     //    real values come from `base.yml` via `core/config.ts`, neither of which the minimal test
-    //    `WIKI` global in `test/db.ts` populates.
-    WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+    //    `CARDINAL` global in `test/db.ts` populates.
+    CARDINAL.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
   })
 
   after(async () => {
@@ -134,7 +134,7 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       ;({ sites: sitesModel } = await import('./sites.ts'))
-      WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+      CARDINAL.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
     })
 
     after(async () => {
@@ -195,7 +195,7 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       ;({ sites: sitesModel } = await import('./sites.ts'))
-      WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+      CARDINAL.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
     })
 
     after(async () => {
@@ -305,7 +305,7 @@ describe('seed_theme_aesthetic migration (DB-backed)', { skip: !hasTestDatabase(
  *
  * What's being verified is the no-Sharp fallback path: `helpers/images.ts#normalizeImage` returns
  * null when the Sharp extension isn't usable, and `Sites.setAsset` falls back to storing the raw
- * uploaded bytes (`?? data`) in that case. `WIKI.models.extensions.isInstalled` is stubbed to force
+ * uploaded bytes (`?? data`) in that case. `CARDINAL.models.extensions.isInstalled` is stubbed to force
  * that branch on every call, so the suite is deterministic regardless of whether Sharp happens to be
  * present on the machine actually running it.
  */
@@ -319,7 +319,7 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       ;({ sites: sitesModel } = await import('./sites.ts'))
-      mock.method(WIKI.models.extensions, 'isInstalled', async () => false)
+      mock.method(CARDINAL.models.extensions, 'isInstalled', async () => false)
     })
 
     after(async () => {
@@ -476,7 +476,7 @@ test('models/sites.ts default markdown editor config still omits kroki, plantuml
 
 /**
  * `models/sites.ts`'s `createSite()` and `init()` per-site default config, task #563: search
- * configuration moved from the instance-wide `WIKI.config.search` to a `search: { engine, config }`
+ * configuration moved from the instance-wide `CARDINAL.config.search` to a `search: { engine, config }`
  * block seeded alongside the other per-site defaults (`authStrategies`, `uploads`, `defaults`, ...)
  * this suite otherwise leaves untested — the seeded shape is what `models/search.ts`'s `getConfig()`
  * and `engineFor()` read back, so a wrong default here is a silent fallback everywhere else.
@@ -489,7 +489,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
     ;({ sites: sitesModel } = await import('./sites.ts'))
     // -> `createSite()` reads this directly for the default `authStrategies` entry, same as the real
     //    boot sequence does through `core/config.ts`'s `initDbValues()`
-    ;(globalThis as any).WIKI.data.systemIds = { localAuthId: randomUUID() }
+    ;(globalThis as any).CARDINAL.data.systemIds = { localAuthId: randomUUID() }
   })
 
   after(async () => {
@@ -521,9 +521,9 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('createSite() seeds semanticEnabled: true when the instance capability is available', async () => {
-    ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+    ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
     const created = await sitesModel.createSite('sites-test-create-semantic.localhost')
-    ;(globalThis as any).WIKI.capabilities = undefined
+    ;(globalThis as any).CARDINAL.capabilities = undefined
 
     const site = await sitesModel.getSiteById({ id: created.id })
 
@@ -562,10 +562,10 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
  * `*` catch-all, and `strict: true` excludes the catch-all fallback entirely -- is what the
  * `api/sites.test.ts` "strict=true does not fall back" tests exercise end-to-end through a stubbed
  * copy of this same logic. This describe exercises the real model method directly instead, against a
- * fake `WIKI.sites` / `WIKI.sitesMappings` (exactly what `reloadCache` populates), with no database:
+ * fake `CARDINAL.sites` / `CARDINAL.sitesMappings` (exactly what `reloadCache` populates), with no database:
  * `getSiteByHostname` with `forceReload: false` (the default) touches nothing but those two in-memory
  * maps. Scoped to its own describe with a local before/after (rather than top-level hooks) so its fake
- * WIKI stub cannot race the DB-backed describes above, which set up their own real WIKI via
+ * CARDINAL stub cannot race the DB-backed describes above, which set up their own real CARDINAL via
  * `setupTestDb()`.
  */
 describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
@@ -575,8 +575,8 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
       sites: {
         [EXACT_SITE_ID]: { id: EXACT_SITE_ID, hostname: 'wiki.example.com', isEnabled: true },
         [WILDCARD_SITE_ID]: { id: WILDCARD_SITE_ID, hostname: '*', isEnabled: true }
@@ -589,7 +589,7 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('an exact hostname match beats the catch-all', async () => {
@@ -623,7 +623,7 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
   })
 
   test('strict: true also folds case', async () => {
-    const site = await sites.getSiteByHostname({ hostname: 'WIKI.EXAMPLE.COM', strict: true })
+    const site = await sites.getSiteByHostname({ hostname: 'CARDINAL.EXAMPLE.COM', strict: true })
     assert.equal(site?.id, EXACT_SITE_ID)
   })
 })
@@ -677,7 +677,7 @@ describe(
  * it. A raw `db.insert(sitesTable)` fixture never runs that seeding, so a suite built on one can pass
  * with `deleteSite()` still broken. `commentProviders.refreshFromDisk()` / `storage.refreshFromDisk()`
  * in `before()` load the real module definitions off disk — the same ones a real boot would — since
- * `setupTestDb()`'s minimal `WIKI` global otherwise leaves both empty.
+ * `setupTestDb()`'s minimal `CARDINAL` global otherwise leaves both empty.
  *
  * Since #990 (locale-scoped site menus), `ensureSiteNav`'s row is addressed by its own
  * `defaultRandom()` `id` and by the `siteId` column the FK constraint actually checks — `id` is
@@ -702,13 +702,13 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
-    // -> `createSite()` reads `WIKI.data.systemIds.localAuthId` to seed the default auth strategy —
+    // -> `createSite()` reads `CARDINAL.data.systemIds.localAuthId` to seed the default auth strategy —
     //    real values come from `base.yml` via `core/config.ts`, neither of which the minimal test
-    //    `WIKI` global in `test/db.ts` populates. Only the cases below that call `createSite()` need
+    //    `CARDINAL` global in `test/db.ts` populates. Only the cases below that call `createSite()` need
     //    this; `makeSite()`'s direct insert doesn't.
-    WIKI.data.systemIds = { localAuthId: randomUUID() }
-    await WIKI.models.commentProviders.refreshFromDisk()
-    await WIKI.models.storage.refreshFromDisk()
+    CARDINAL.data.systemIds = { localAuthId: randomUUID() }
+    await CARDINAL.models.commentProviders.refreshFromDisk()
+    await CARDINAL.models.storage.refreshFromDisk()
   })
 
   after(async () => {
@@ -1048,7 +1048,7 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
 
   before(async () => {
     fixtures = await setupTestDb()
-    WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+    CARDINAL.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
   })
 
   after(async () => {
@@ -1056,16 +1056,16 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 
   test('createSite broadcasts reloadSites after refreshing this instance', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await sites.createSite(`broadcast-create-${randomBytes(6).toString('hex')}.localhost`)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
   })
 
   test('updateSite broadcasts reloadSites after refreshing this instance', async () => {
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await sites.updateSite(fixtures.siteId, { isEnabled: false })
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
   })
 
@@ -1080,9 +1080,9 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
       .insert(sitesTable)
       .values({ hostname, isEnabled: true, config: { locales: { primary: 'en' } } })
       .returning({ id: sitesTable.id })
-    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    ;(CARDINAL.events.outbound.emit as any).mock.resetCalls()
     await sites.deleteSite(created!.id)
-    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const calls = (CARDINAL.events.outbound.emit as any).mock.calls
     assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
   })
 
@@ -1095,7 +1095,7 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
     }
     try {
       sites.subscribeToEvents()
-      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const onCalls = (CARDINAL.events.inbound.on as any).mock.calls
       const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadSites')?.arguments[1]
       assert.ok(handler, 'expected subscribeToEvents to register a reloadSites handler')
       await handler()
@@ -1107,26 +1107,26 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
 })
 
 /**
- * OpenProject #2140: `reloadCache()` used to key `WIKI.sitesMappings` exactly as `hostname` was
+ * OpenProject #2140: `reloadCache()` used to key `CARDINAL.sitesMappings` exactly as `hostname` was
  * stored, and every lookup indexed it with `req.hostname` exactly as received — so a client or proxy
  * that preserved `Host` case (`Wiki.Example.Com`) missed a site stored as `wiki.example.com` and fell
  * through to the catch-all, or to not-found with none configured. Both sides now go through
- * `normalizeHostname()` (`helpers/siteResolution.ts`). No `WIKI.db`/database needed for any of this: each
- * test installs its own minimal `WIKI` stub, restored afterward.
+ * `normalizeHostname()` (`helpers/siteResolution.ts`). No `CARDINAL.db`/database needed for any of this: each
+ * test installs its own minimal `CARDINAL` stub, restored afterward.
  */
 describe('sites hostname normalization (pure unit)', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
+    previousWiki = (globalThis as any).CARDINAL
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('reloadCache lowercases sitesMappings keys', async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       db: {
         select: () => ({
           from: () => ({
@@ -1144,16 +1144,16 @@ describe('sites hostname normalization (pure unit)', () => {
 
     await sites.reloadCache()
 
-    assert.deepEqual(Object.keys((globalThis as any).WIKI.sitesMappings).sort(), [
+    assert.deepEqual(Object.keys((globalThis as any).CARDINAL.sitesMappings).sort(), [
       'other.example.com',
       'wiki.example.com'
     ])
-    assert.equal((globalThis as any).WIKI.sitesMappings['wiki.example.com'], 'site-1')
-    assert.equal((globalThis as any).WIKI.sitesMappings['other.example.com'], 'site-2')
+    assert.equal((globalThis as any).CARDINAL.sitesMappings['wiki.example.com'], 'site-1')
+    assert.equal((globalThis as any).CARDINAL.sitesMappings['other.example.com'], 'site-2')
   })
 
   test('a mixed-case hostname resolves to the same site as its lowercase form, including a disabled site', async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sitesMappings: {
         'wiki.example.com': 'site-1',
         'disabled.example.com': 'site-2',
@@ -1181,7 +1181,7 @@ describe('sites hostname normalization (pure unit)', () => {
   })
 
   test('an unknown hostname still falls through to the catch-all site, case notwithstanding', async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sitesMappings: {
         'wiki.example.com': 'site-1',
         '*': 'catch-all-site'
@@ -1197,7 +1197,7 @@ describe('sites hostname normalization (pure unit)', () => {
   })
 
   test('an unknown hostname with no catch-all resolves to null', async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sitesMappings: {
         'wiki.example.com': 'site-1'
       },
@@ -1284,12 +1284,12 @@ describe('sites.setAsset / getAssetHash (DB-backed)', { skip: !hasTestDatabase()
 /**
  * OpenProject #1849: `getAssetHash` exists specifically so a conditional site-asset request never
  * pulls the blob out of the database. A real Postgres round trip only proves the returned value is
- * correct, not that the column list sent to it actually shrank — so this spies on `WIKI.db.select`
+ * correct, not that the column list sent to it actually shrank — so this spies on `CARDINAL.db.select`
  * instead, following the precedent set by `models/pages.test.ts`'s `getPage selection (pure unit,
  * OpenProject #1834)` describe block.
  */
 describe('getAssetHash selection (pure unit, OpenProject #1849)', () => {
-  let previousWiki: typeof globalThis.WIKI
+  let previousWiki: typeof globalThis.CARDINAL
 
   function stubSelect(row?: Record<string, unknown>) {
     const calls: Record<string, unknown>[] = []
@@ -1305,16 +1305,16 @@ describe('getAssetHash selection (pure unit, OpenProject #1849)', () => {
   }
 
   beforeEach(() => {
-    previousWiki = globalThis.WIKI
+    previousWiki = globalThis.CARDINAL
   })
 
   afterEach(() => {
-    globalThis.WIKI = previousWiki
+    globalThis.CARDINAL = previousWiki
   })
 
   test('the emitted selection asks only for hash, never data', async () => {
     const { select, calls } = stubSelect({ hash: 'deadbeef' })
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    globalThis.CARDINAL = { db: { select } } as unknown as typeof globalThis.CARDINAL
     const { sites: sitesModel } = await import('./sites.ts')
 
     const hash = await sitesModel.getAssetHash('site-1', 'logo')
@@ -1327,7 +1327,7 @@ describe('getAssetHash selection (pure unit, OpenProject #1849)', () => {
 
   test('returns null rather than throwing when no row matches', async () => {
     const { select } = stubSelect(undefined)
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    globalThis.CARDINAL = { db: { select } } as unknown as typeof globalThis.CARDINAL
     const { sites: sitesModel } = await import('./sites.ts')
 
     assert.equal(await sitesModel.getAssetHash('site-1', 'logo'), null)

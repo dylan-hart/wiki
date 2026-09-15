@@ -6,7 +6,7 @@ import type { RecoveryCodeEntry } from './userCredentials.ts'
 
 /**
  * `matchRecoveryCode` is the constant-time-discipline core of recovery-code verification, split out
- * of `verifyAndConsumeRecoveryCode` precisely so it can be tested without `WIKI` or a database: given
+ * of `verifyAndConsumeRecoveryCode` precisely so it can be tested without `CARDINAL` or a database: given
  * a set of stored entries and a normalized code, which one (if any) matches. Hashed with a low
  * `bcrypt` cost here purely for test speed — the function itself takes whatever cost is baked into
  * each stored hash, same as production.

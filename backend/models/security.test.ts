@@ -24,7 +24,7 @@ await ensureTemporal()
  * wrong scheme, not a weakened cookie) -- this suite still just needs to prove the detector itself
  * keeps firing on exactly the same evidence it always did.
  *
- * Exercises the model directly against a minimal `WIKI.config.security` stand-in rather than a
+ * Exercises the model directly against a minimal `CARDINAL.config.security` stand-in rather than a
  * real Fastify request, since `observeRequest` only ever reads two things: the raw header bag and
  * the `protocol` string Fastify's own `request.protocol` getter would have produced.
  */
@@ -32,7 +32,7 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
   let security: typeof import('./security.ts').security
 
   beforeEach(async () => {
-    ;(globalThis as any).WIKI = { config: { security: { trustProxy: false } } }
+    ;(globalThis as any).CARDINAL = { config: { security: { trustProxy: false } } }
     // -> Fresh module instance per test: the class holds `insecureCookieRiskAt` as private
     //    instance state on the one exported singleton, so re-importing (Node's ESM cache would
     //    normally hand back the same module) is defeated with a cache-busting query string.
@@ -60,7 +60,7 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
   })
 
   test('does not record anything when trustProxy is already on', () => {
-    ;(globalThis as any).WIKI.config.security.trustProxy = true
+    ;(globalThis as any).CARDINAL.config.security.trustProxy = true
     security.observeRequest({ 'x-forwarded-proto': 'https' }, 'http')
     assert.equal(security.getInsecureCookieRiskAt(), null)
   })
@@ -141,7 +141,7 @@ describe("Security#validate — the widened 'trustProxy' field", () => {
     //    `security` blob, and checks every field it owns -- `corsMode` a valid enum member being
     //    the first. A base config with nothing else wrong is what isolates each test below to
     //    `trustProxy` alone.
-    ;(globalThis as any).WIKI = { config: { security: { corsMode: 'OFF' } } }
+    ;(globalThis as any).CARDINAL = { config: { security: { corsMode: 'OFF' } } }
     ;({ security } = await import(`./security.ts?t=${Math.random()}`))
   })
 
@@ -178,7 +178,7 @@ describe("Security#validate — the widened 'trustProxy' field", () => {
 
 /**
  * Unit test for WP #2161 (part of #2154): `Security#validate` is what stands between an admin-area
- * save and `WIKI.config.security` -- an unknown CSP directive name must be refused here, with a
+ * save and `CARDINAL.config.security` -- an unknown CSP directive name must be refused here, with a
  * message naming the offending token, rather than reaching `parseCspDirectives` for the first time
  * at request-serving time in `index.ts`. Directive names are validated regardless of `enforceCsp`:
  * a typo'd or invented directive stored while enforcement is off would otherwise resurface,
@@ -190,7 +190,7 @@ describe('Security#validate CSP directive checks', () => {
   beforeEach(async () => {
     // -> A baseline that passes every OTHER validate() check (CORS off, no rate limiting), so each
     //    test's patch only has to touch the CSP fields it actually cares about.
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: {
         security: {
           corsMode: 'OFF',

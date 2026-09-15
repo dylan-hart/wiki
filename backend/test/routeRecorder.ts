@@ -137,13 +137,13 @@ export function referencesApiError(entry: any): boolean {
 }
 
 /**
- * The one `WIKI` member a route file may touch while REGISTERING rather than inside a handler
- * closure: `assets.ts`'s upload content-type parser reads `WIKI.config.security?.uploadMaxFileSize`
+ * The one `CARDINAL` member a route file may touch while REGISTERING rather than inside a handler
+ * closure: `assets.ts`'s upload content-type parser reads `CARDINAL.config.security?.uploadMaxFileSize`
  * to size its body limit. Nothing here executes a handler, so no other member is ever reached.
  *
  * Deliberately `??=`, not an install/restore pair: a scan runs at module scope, before any
- * `before()`, and must not clobber a `WIKI` a co-resident suite in the same file already installed.
+ * `before()`, and must not clobber a `CARDINAL` a co-resident suite in the same file already installed.
  */
 export function stubWikiForRegistration(): void {
-  ;(globalThis as any).WIKI ??= { config: {} }
+  ;(globalThis as any).CARDINAL ??= { config: {} }
 }

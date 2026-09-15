@@ -2,12 +2,12 @@
  * Worker-thread body for the multi-instance `core/collab.ts` races exercised by
  * `core/collab.crossInstance.db.test.ts`.
  *
- * Each worker is a genuinely separate `WIKI` global — a worker thread gets its own V8 isolate and its
+ * Each worker is a genuinely separate `CARDINAL` global — a worker thread gets its own V8 isolate and its
  * own module registry, so this is the smallest way to run two real `collab.ts` instances (own `rooms`,
  * `partials`, `awaitingState`, own postgres LISTEN/NOTIFY client, own `INSTANCE_ID`) against the same
  * database without paying for two full `node backend` processes and their HTTP/websocket stacks, which
- * is infrastructure this module's races do not touch. `WIKI.collab` is set to this worker's own
- * `collab.ts` import, since `relay`/`publish` close over `WIKI.collab.listenClient` rather than a
+ * is infrastructure this module's races do not touch. `CARDINAL.collab` is set to this worker's own
+ * `collab.ts` import, since `relay`/`publish` close over `CARDINAL.collab.listenClient` rather than a
  * reference captured at import time.
  *
  * Driven by postMessage: the parent sends `{ id, cmd, ...args }`, this replies `{ id, ok, ...result }`
@@ -67,7 +67,7 @@ async function boot(): Promise<void> {
   const models = (await import('../models/index.ts')).default
   const noop = () => {}
 
-  global.WIKI = {
+  global.CARDINAL = {
     IS_DEBUG: false,
     ROOTPATH: process.cwd(),
     SERVERPATH: process.cwd(),
@@ -80,7 +80,7 @@ async function boot(): Promise<void> {
     config: {},
     data: {},
     db,
-    // -> `collab.init()` LISTENs on `WIKI.dbManager.listenerPool`, a dedicated pool kept separate
+    // -> `collab.init()` LISTENs on `CARDINAL.dbManager.listenerPool`, a dedicated pool kept separate
     //    from the main `pool` (`core/db.ts`'s own `init()`) -- not present here without this, so
     //    `helpers/pubsub.ts#connectListener`'s `pool.connect()` throws on `undefined`, gets caught by
     //    its own resilience loop (`reconnect()`'s `while (!closed)`, meant for a genuinely dropped
@@ -96,10 +96,10 @@ async function boot(): Promise<void> {
     sites: { [siteId]: { id: siteId, config: { locales: { primary: 'en' } } } },
     sitesMappings: {},
     models
-  } as unknown as WikiGlobal
+  } as unknown as CardinalGlobal
 
   const collab = (await import('../core/collab.ts')).default
-  WIKI.collab = collab
+  CARDINAL.collab = collab
   await collab.init()
 
   parentPort!.on('message', async (msg: { id: number; cmd: string; [key: string]: unknown }) => {
@@ -351,7 +351,7 @@ async function handle(
       }
       sessions.clear()
       await collab.shutdown()
-      await (WIKI.dbManager as { pool: Pool }).pool.end()
+      await (CARDINAL.dbManager as { pool: Pool }).pool.end()
       return {}
     }
     default:

@@ -4,7 +4,7 @@ import { describe, test } from 'node:test'
 import { createSilentLogger, createWikiStub, installTestWiki } from './mocks.ts'
 
 /**
- * The `WIKI`-stub half of the harness (TEST-F1). What matters here is the two defaults the rest of
+ * The `CARDINAL`-stub half of the harness (TEST-F1). What matters here is the two defaults the rest of
  * the suite depends on being exactly what they are: an EMPTY `models` (so an unexpected model reach
  * still throws), and a deep merge that keeps the stubbed members a suite did not name.
  */
@@ -49,21 +49,21 @@ describe('createWikiStub', () => {
 
 describe('installTestWiki', () => {
   test('installs the stub and puts back an absent global on restore', () => {
-    assert.equal('WIKI' in globalThis, false)
+    assert.equal('CARDINAL' in globalThis, false)
     const handle = installTestWiki({ config: { marker: 1 } })
-    assert.equal(WIKI.config.marker, 1)
+    assert.equal(CARDINAL.config.marker, 1)
     handle.restore()
-    assert.equal('WIKI' in globalThis, false)
+    assert.equal('CARDINAL' in globalThis, false)
   })
 
   test('puts back a pre-existing global on restore', () => {
     const sentinel = { marker: 'outer' } as any
-    ;(globalThis as any).WIKI = sentinel
+    ;(globalThis as any).CARDINAL = sentinel
     const handle = installTestWiki()
-    assert.notEqual((globalThis as any).WIKI, sentinel)
+    assert.notEqual((globalThis as any).CARDINAL, sentinel)
     handle.restore()
-    assert.equal((globalThis as any).WIKI, sentinel)
-    delete (globalThis as any).WIKI
+    assert.equal((globalThis as any).CARDINAL, sentinel)
+    delete (globalThis as any).CARDINAL
   })
 })
 

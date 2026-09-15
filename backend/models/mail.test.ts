@@ -14,8 +14,8 @@ import { interpolate } from './locales.ts'
 import { HOOK_EVENTS } from './hooks.ts'
 
 /**
- * `mail` builds its nodemailer transport straight from `WIKI.config.mail` and never touches the
- * database, so this is a pure unit test: no `test/db.ts` fixture needed, just a stand-in `WIKI`
+ * `mail` builds its nodemailer transport straight from `CARDINAL.config.mail` and never touches the
+ * database, so this is a pure unit test: no `test/db.ts` fixture needed, just a stand-in `CARDINAL`
  * global (same convention as `core/config.test.ts` / `api/sites.test.ts`).
  */
 
@@ -24,7 +24,7 @@ const originalGetTransporter = mail.getTransporter.bind(mail)
 const originalSend = mail.send.bind(mail)
 
 /**
- * `mail.ts`'s templates resolve every subject/body through `WIKI.models.locales.resolveString` /
+ * `mail.ts`'s templates resolve every subject/body through `CARDINAL.models.locales.resolveString` /
  * `resolvePluralString` (#1611/#1623). The real implementation reads the `locales` DB table, which
  * this file deliberately does not stand up (see the file header comment) — instead this stub
  * re-implements the same lookup/fallback/plural-form contract `models/locales.ts` documents,
@@ -70,7 +70,7 @@ function makeLocalesStub(catalogues: Record<string, Record<string, string>> = {}
 
 /** The default site a `siteId` in these tests resolves to — one non-primary locale (`fr`) active
  *  alongside the primary (`en`), so `sendPageWatchNotification`/`sendPageWatchDigest` have a real
- *  `locales` config to resolve `WIKI.sites[siteId]?.config?.locales` against. Its `hostname` is
+ *  `locales` config to resolve `CARDINAL.sites[siteId]?.config?.locales` against. Its `hostname` is
  *  deliberately distinct from `defaultBaseURL`'s host, so a test asserting on the per-site host
  *  cannot pass by accident from the global fallback leaking through unnoticed. */
 const DEFAULT_SITE_ID = 'site-1'
@@ -86,7 +86,7 @@ function setMailConfig(
   sites: Record<string, any> = DEFAULT_SITES,
   localeCatalogues: Record<string, Record<string, string>> = {}
 ) {
-  ;(globalThis as any).WIKI = {
+  ;(globalThis as any).CARDINAL = {
     config: { mail: cfg },
     sites,
     models: { locales: makeLocalesStub(localeCatalogues) },
@@ -100,11 +100,11 @@ function setMailConfig(
 }
 
 before(() => {
-  previousWiki = (globalThis as any).WIKI
+  previousWiki = (globalThis as any).CARDINAL
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  ;(globalThis as any).CARDINAL = previousWiki
 })
 
 beforeEach(() => {
@@ -227,7 +227,7 @@ describe('mail.getTransporter', () => {
     assert.throws(() => mail.getTransporter('digest'), /ERR_MAIL_NOT_CONFIGURED/)
     // -> The whole point of coalescing: an unconfigured instance refuses EVERY send, so the
     //    per-attempt line is the noise, not the signal.
-    assert.equal((WIKI.logger.warn as any).mock.calls.length, 0)
+    assert.equal((CARDINAL.logger.warn as any).mock.calls.length, 0)
   })
 
   test('does not throw once a host is set', () => {
@@ -238,7 +238,7 @@ describe('mail.getTransporter', () => {
   test('logs the settings actually in force when it builds a transport', () => {
     setMailConfig({ host: 'smtp.example.com', port: 2525, secure: false })
     mail.getTransporter('test')
-    const debugCalls = (WIKI.logger.debug as any).mock.calls
+    const debugCalls = (CARDINAL.logger.debug as any).mock.calls
     assert.equal(debugCalls.length, 1)
     const [scope, , fields] = debugCalls[0].arguments
     assert.equal(scope, 'mail')
@@ -249,13 +249,13 @@ describe('mail.getTransporter', () => {
     setMailConfig({ host: 'smtp.example.com', port: 2525, secure: false })
     mail.getTransporter('test')
     mail.getTransporter('test')
-    assert.equal((WIKI.logger.debug as any).mock.calls.length, 1)
+    assert.equal((CARDINAL.logger.debug as any).mock.calls.length, 1)
 
     // -> A live config edit through the admin area rebuilds the transport, and the new settings
     //    are exactly what an operator diagnosing the edit wants to see.
-    WIKI.config.mail.port = 587
+    CARDINAL.config.mail.port = 587
     mail.getTransporter('test')
-    const debugCalls = (WIKI.logger.debug as any).mock.calls
+    const debugCalls = (CARDINAL.logger.debug as any).mock.calls
     assert.equal(debugCalls.length, 2)
     assert.equal(debugCalls[1].arguments[2].port, 587)
   })
@@ -269,11 +269,11 @@ describe('mail unconfigured coalescing', () => {
     for (let i = 0; i < 5; i++) {
       assert.throws(() => mail.getTransporter('digest'), /ERR_MAIL_NOT_CONFIGURED/)
     }
-    assert.equal((WIKI.logger.warn as any).mock.calls.length, 0)
+    assert.equal((CARDINAL.logger.warn as any).mock.calls.length, 0)
 
     mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
 
-    const warnCalls = (WIKI.logger.warn as any).mock.calls
+    const warnCalls = (CARDINAL.logger.warn as any).mock.calls
     assert.equal(warnCalls.length, 1)
     const [scope, , fields] = warnCalls[0].arguments
     assert.equal(scope, 'mail')
@@ -289,7 +289,7 @@ describe('mail unconfigured coalescing', () => {
     }
     mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
 
-    const [, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    const [, , fields] = (CARDINAL.logger.warn as any).mock.calls[0].arguments
     assert.equal(fields.kinds, 'digest,watch,verify')
     assert.equal(fields.dropped, 4)
   })
@@ -300,7 +300,7 @@ describe('mail unconfigured coalescing', () => {
     assert.throws(() => mail.getTransporter('test'))
     mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
 
-    const [, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    const [, , fields] = (CARDINAL.logger.warn as any).mock.calls[0].arguments
     assert.equal(fields.dropped, 1)
     assert.equal(fields.kinds, 'test')
   })
@@ -314,7 +314,7 @@ describe('mail unconfigured coalescing', () => {
     assert.throws(() => mail.getTransporter('verify'))
     mock.timers.tick(MAIL_UNCONFIGURED_LOG_WINDOW_MS)
 
-    const warnCalls = (WIKI.logger.warn as any).mock.calls
+    const warnCalls = (CARDINAL.logger.warn as any).mock.calls
     assert.equal(warnCalls.length, 2)
     assert.equal(warnCalls[0].arguments[2].kinds, 'digest')
     assert.equal(warnCalls[1].arguments[2].kinds, 'verify')
@@ -398,8 +398,8 @@ describe('mail.send', () => {
       /connection refused/
     )
     // -> An uncoded error classifies as `unknown`, which a retry cannot help, so it is an `error`.
-    assert.equal((WIKI.logger.error as any).mock.calls.length, 1)
-    assert.equal((WIKI.logger.info as any).mock.calls.length, 0)
+    assert.equal((CARDINAL.logger.error as any).mock.calls.length, 1)
+    assert.equal((CARDINAL.logger.info as any).mock.calls.length, 0)
   })
 
   test('logs a connection-classified message when sendMail fails with a transport-level code', async () => {
@@ -420,11 +420,11 @@ describe('mail.send', () => {
         kind: 'test'
       })
     )
-    const [scope, , fields] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    const [scope, , fields] = (CARDINAL.logger.warn as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
     assert.equal(fields.failure, 'connection')
     // -> `warn`, not `error`: a refused socket may well answer on the scheduler's next attempt.
-    assert.equal((WIKI.logger.error as any).mock.calls.length, 0)
+    assert.equal((CARDINAL.logger.error as any).mock.calls.length, 0)
   })
 
   test('logs an auth-classified message when sendMail fails with EAUTH', async () => {
@@ -445,7 +445,7 @@ describe('mail.send', () => {
         kind: 'test'
       })
     )
-    const [scope, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    const [scope, , fields] = (CARDINAL.logger.error as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
     assert.equal(fields.failure, 'auth')
   })
@@ -468,7 +468,7 @@ describe('mail.send', () => {
         kind: 'test'
       })
     )
-    const [scope, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    const [scope, , fields] = (CARDINAL.logger.error as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
     assert.equal(fields.failure, 'send')
   })
@@ -491,7 +491,7 @@ describe('mail.send', () => {
         kind: 'test'
       })
     )
-    const [scope, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    const [scope, , fields] = (CARDINAL.logger.error as any).mock.calls[0].arguments
     assert.equal(scope, 'mail')
     assert.equal(fields.failure, 'tls')
   })
@@ -518,7 +518,7 @@ describe('mail.send', () => {
     )
     // -> `core/logger.ts` renders the message inline and the stack on following lines; handing it a
     //    string would throw both of those away.
-    const [, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    const [, , fields] = (CARDINAL.logger.error as any).mock.calls[0].arguments
     assert.equal(fields.error, err)
   })
 
@@ -535,7 +535,7 @@ describe('mail.send', () => {
       userId: 'user-42'
     })
 
-    const infoCalls = (WIKI.logger.info as any).mock.calls
+    const infoCalls = (CARDINAL.logger.info as any).mock.calls
     assert.equal(infoCalls.length, 1)
     const [scope, , fields] = infoCalls[0].arguments
     assert.equal(scope, 'mail')
@@ -554,7 +554,7 @@ describe('mail.send', () => {
       kind: 'test'
     })
 
-    const [, , fields] = (WIKI.logger.info as any).mock.calls[0].arguments
+    const [, , fields] = (CARDINAL.logger.info as any).mock.calls[0].arguments
     assert.equal(fields.to, recipientRef('ada@example.com'))
     assert.doesNotMatch(JSON.stringify(fields), /ada@example\.com/)
   })
@@ -580,7 +580,7 @@ describe('mail.send', () => {
         userId: 'user-7'
       })
     )
-    const [, , fields] = (WIKI.logger.error as any).mock.calls[0].arguments
+    const [, , fields] = (CARDINAL.logger.error as any).mock.calls[0].arguments
     assert.equal(fields.kind, 'welcome')
     assert.equal(fields.to, 'user-7')
   })
@@ -1335,7 +1335,7 @@ describe('mail.sendEventNotification', () => {
 
 /**
  * #1611/#1623/#1627: every template subject/body now resolves through
- * `WIKI.models.locales.resolveString`/`resolvePluralString` (`mail.*` keys in `en.json`) instead of
+ * `CARDINAL.models.locales.resolveString`/`resolvePluralString` (`mail.*` keys in `en.json`) instead of
  * a hardcoded English template literal. These tests exercise that resolver contract directly —
  * `mail template senders` above already proves the six templates still render usable
  * subjects/bodies against the real production keys.

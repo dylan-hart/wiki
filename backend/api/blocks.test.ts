@@ -11,7 +11,7 @@ describe('POST /sites/:siteId/blocks (custom block upload)', () => {
   /**
    * `POST /sites/:siteId/blocks` — a unit-level test of the route's own wiring (site lookup, raw-body
    * handling, validator plumbing, tag-collision check, response shape), the same way `sites.test.ts`
-   * covers `GET /:siteIdorHostname` without a real database: `WIKI.models.sites`/`blocks` are stubbed
+   * covers `GET /:siteIdorHostname` without a real database: `CARDINAL.models.sites`/`blocks` are stubbed
    * rather than pulling in Drizzle. `models/blocks.test.ts` is what proves `isTagTaken()` and
    * `createCustomBlock()` themselves against a real database.
    *
@@ -218,14 +218,14 @@ export class BlockWidget extends HTMLElement {
 
   /**
    * The upload size cap (task 660): `addContentTypeParser`'s `bodyLimit` is read from
-   * `WIKI.config.security.uploadMaxFileSize` once, at plugin-registration time, exactly like
+   * `CARDINAL.config.security.uploadMaxFileSize` once, at plugin-registration time, exactly like
    * `assets.ts`'s own upload route reuses the same key. A separate app instance is registered here with
    * a tiny configured limit so the test can prove the cap is actually wired up and enforced — rather
    * than only asserting the source line reads the config key — without allocating a real multi-megabyte
    * buffer.
    */
   test('rejects a payload larger than the configured upload size cap with 413', async () => {
-    WIKI.config.security.uploadMaxFileSize = 16
+    CARDINAL.config.security.uploadMaxFileSize = 16
     // -> No `wiki`: this app has to be built against the SAME global the enclosing describe
     //    installed, with only the cap above changed.
     const smallApp = await buildTestApp({ routes: blocksRoutes })
@@ -240,7 +240,7 @@ export class BlockWidget extends HTMLElement {
       assert.equal(createCustomBlockCalls.length, 0)
     } finally {
       await closeTestApp(smallApp)
-      WIKI.config.security.uploadMaxFileSize = 10485760
+      CARDINAL.config.security.uploadMaxFileSize = 10485760
     }
   })
 })
@@ -418,8 +418,8 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
   /**
    * Regression coverage for `PUT /sites/:siteId/blocks` threading a per-block `config` object through
-   * to `WIKI.models.blocks.setBlocksState` — the wiring a site-wide "Server" default for block-kroki and
-   * block-plantuml depends on. `WIKI.models.blocks` is stubbed rather than backed by a real database:
+   * to `CARDINAL.models.blocks.setBlocksState` — the wiring a site-wide "Server" default for block-kroki and
+   * block-plantuml depends on. `CARDINAL.models.blocks` is stubbed rather than backed by a real database:
    * the model's own write behavior has its own unit coverage in `models/blocks.test.ts`, and this test
    * is only about whether the route passes the request body through correctly.
    */
@@ -440,7 +440,7 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
     app = await buildTestApp({
       routes: guardedRoutes,
       ajv: true,
-      // -> The upload route's `addContentTypeParser` reads `WIKI.config.security.uploadMaxFileSize`
+      // -> The upload route's `addContentTypeParser` reads `CARDINAL.config.security.uploadMaxFileSize`
       //    at plugin-registration time, before `beforeEach`'s own (fuller) stub is in place.
       wiki: { config: { security: { uploadMaxFileSize: 10485760 } } }
     })
@@ -511,7 +511,7 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
   })
 
   test('a CustomError from the model (e.g. an invalid block-plantuml "server") surfaces its own status code, not a generic 500', async () => {
-    ;(globalThis as any).WIKI.models.blocks.setBlocksState = async () => {
+    ;(globalThis as any).CARDINAL.models.blocks.setBlocksState = async () => {
       const { CustomError } = await import('../helpers/common.ts')
       throw new CustomError('blocksInvalidConfig', '"not a url" is not a valid URL.', 400)
     }

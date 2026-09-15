@@ -1,10 +1,10 @@
 /**
  * `core/collab.ts`'s autosave-draft persistence (OpenProject #2454): a room's live Yjs state is
- * debounce-written to `WIKI.models.pageDrafts` as real edits happen, `initRoom()` never reads it back
+ * debounce-written to `CARDINAL.models.pageDrafts` as real edits happen, `initRoom()` never reads it back
  * to seed a room (OpenProject #2957 -- doing so used to make the recovery-restore dialog's diff empty
  * and its Discard a no-op, since the room would already hold the draft by the time either ran), and
  * `pageSaved()`/`discardDraft()` clear the draft once a real save, or an explicit Cancel (OpenProject
- * #2898), supersedes it. Pure -- `test/collabHarness.ts` stubs `WIKI.models.pageDrafts`, so this
+ * #2898), supersedes it. Pure -- `test/collabHarness.ts` stubs `CARDINAL.models.pageDrafts`, so this
  * needs no database; `models/pageDrafts.db.test.ts` covers the storage layer itself. Split out of
  * `core/collab.test.ts` (TEST-F14) alongside its three siblings.
  */

@@ -5,7 +5,7 @@
  * Three gates enforce the conventions between them, and they cover different things:
  *
  * - **The type checker** covers the scope vocabulary at a *scoped child*'s declaration
- *   (`WIKI.logger.scope('storage', …)` — `LogScope` is a union, so a typo is a compile error) and,
+ *   (`CARDINAL.logger.scope('storage', …)` — `LogScope` is a union, so a typo is a compile error) and,
  *   once #2668 deleted the legacy `(msg, context?)` overload, the shape of every direct call too.
  * - **`no-console` in `backend/.oxlintrc.json`** covers the other direction: a line that never
  *   reached the logger at all.
@@ -36,7 +36,7 @@ const BACKEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
  * What the scan is NOT about.
  *
  * `test/` and `*.test.ts` log deliberately odd things to prove the renderer handles them;
- * `scripts/` and `db/migrations/` are one-off/generated code that runs outside a booted `WIKI`
+ * `scripts/` and `db/migrations/` are one-off/generated code that runs outside a booted `CARDINAL`
  * (`scripts/` carries a file-level `no-console` disable for the same reason).
  */
 const SKIP_DIRS = ['node_modules', 'compiled', 'test', 'scripts', 'migrations']
@@ -56,7 +56,7 @@ const ALLOWED_LEADING_ACRONYMS = ['HTTP', 'HTTPS', 'SQL', 'DB', 'API', 'MCP', 'T
 
 /**
  * Message arguments that are an error and nothing else — the pre-Phase-2 call shape
- * (`WIKI.logger.error(err)`, and the `err.message` variant that at least kept the line readable).
+ * (`CARDINAL.logger.error(err)`, and the `err.message` variant that at least kept the line readable).
  *
  * The audit's finding (§4.1) is that both throw away the situation: an operator gets
  * `ENOENT: no such file or directory` with nothing saying what the instance was trying to do. The
@@ -118,7 +118,7 @@ const REGEX_PRECEDERS = new Set([
  *
  * Every rule below is a text match, and a text match over raw source finds the sample calls in doc
  * comments as readily as the real thing — `helpers/errorHandler.ts`'s own comment contains the
- * literal text `WIKI.logger.error(error)` while explaining why that shape was wrong, and would
+ * literal text `CARDINAL.logger.error(error)` while explaining why that shape was wrong, and would
  * otherwise fail the very rule it documents. Template literals re-enter code inside `${…}`, so an
  * interpolated call is still seen.
  */
@@ -273,7 +273,7 @@ interface LoggerCall {
 
 /** Which receivers this scan claims: the global logger, and anything named as a logger. */
 function isLoggerReceiver(receiver: string): boolean {
-  if (receiver === 'WIKI.logger') {
+  if (receiver === 'CARDINAL.logger') {
     return true
   }
   const last = receiver.split('.').pop() ?? ''
@@ -415,7 +415,7 @@ const ALL_CALLS = listSourceFiles(BACKEND_ROOT, {
 
 /** The message argument, wherever it sits: second on a parent call, first on a scoped child's. */
 function messageArgument(call: LoggerCall): string | undefined {
-  return call.receiver === 'WIKI.logger' ? call.args[1] : call.args[0]
+  return call.receiver === 'CARDINAL.logger' ? call.args[1] : call.args[0]
 }
 
 /**
@@ -433,7 +433,7 @@ function retiredLevelFailure(call: LoggerCall): string | null {
 }
 
 function scopeFailure(call: LoggerCall): string | null {
-  if (call.receiver !== 'WIKI.logger') {
+  if (call.receiver !== 'CARDINAL.logger') {
     return null
   }
   if (call.args.length === 0) {
@@ -457,7 +457,7 @@ function errorAsMessageFailure(call: LoggerCall): string | null {
   //    holding what used to be the whole message. `scopeFailure` refuses it too, but only as "not a
   //    string literal"; this says what to do about it.
   const message =
-    messageArgument(call) ?? (call.receiver === 'WIKI.logger' ? call.args[0] : undefined)
+    messageArgument(call) ?? (call.receiver === 'CARDINAL.logger' ? call.args[0] : undefined)
   if (message === undefined) {
     return null
   }
@@ -473,7 +473,7 @@ function messageShapeFailure(call: LoggerCall): string | null {
   }
   const text = messageText(argument)
   if (text === null) {
-    // -> A variable message (`WIKI.logger.info('migrate', note)`) is assembled elsewhere; the rules
+    // -> A variable message (`CARDINAL.logger.info('migrate', note)`) is assembled elsewhere; the rules
     //    still apply, this scan just cannot read it.
     return null
   }
@@ -494,7 +494,7 @@ function messageShapeFailure(call: LoggerCall): string | null {
   return null
 }
 
-/** `file:line  WIKI.logger.info(…)` — enough to jump straight to the offender. */
+/** `file:line  CARDINAL.logger.info(…)` — enough to jump straight to the offender. */
 function describeCall(call: LoggerCall): string {
   return `${call.file}:${call.line}  ${call.receiver}.${call.level}(${call.args.join(', ').slice(0, 90)})`
 }
@@ -522,11 +522,11 @@ function assertNoFailures(found: string[], remedy: string): void {
 }
 
 /**
- * OpenProject #2723: the four rules above only ever look at `WIKI.logger`/scoped-child receivers
+ * OpenProject #2723: the four rules above only ever look at `CARDINAL.logger`/scoped-child receivers
  * (`isLoggerReceiver`) -- a bare status word passed straight to `console.<level>()` is invisible to
  * all of them, which is exactly how `core/config.ts`'s pre-logger boot window
  * (`console.info(styleText(['green', 'bold'], 'OK'))`) survived every gate this file polices. A
- * `console.*` call before `WIKI.logger` exists is a documented sink exception (`core/config.ts`
+ * `console.*` call before `CARDINAL.logger` exists is a documented sink exception (`core/config.ts`
  * named explicitly) -- that exception covers *where* the line goes, not
  * the 2.x-style tag, which the conventions ban regardless of sink.
  *
@@ -597,7 +597,7 @@ const ALL_CONSOLE_CALLS = listSourceFiles(BACKEND_ROOT, {
 describe('logging conventions (OpenProject #2668)', () => {
   test('the scan actually found the logger call sites it is meant to police', () => {
     // -> A scanner that silently matches nothing passes every rule below. `backend/` had 339 direct
-    //    `WIKI.logger.*` calls when this was written, so a floor of 200 catches a regex or a mask
+    //    `CARDINAL.logger.*` calls when this was written, so a floor of 200 catches a regex or a mask
     //    bug without turning the count itself into something to keep updated.
     assert.ok(
       ALL_CALLS.length >= 200,
@@ -618,7 +618,7 @@ describe('logging conventions (OpenProject #2668)', () => {
     )
   })
 
-  test('every `WIKI.logger.<level>` call names a scope from LOG_SCOPES', () => {
+  test('every `CARDINAL.logger.<level>` call names a scope from LOG_SCOPES', () => {
     // -> A scoped child gets this from the type checker (`LogScope` is a union at `.scope()`), but a
     //    direct call's first argument is only checked here when the value is spelled inline — and
     //    the vocabulary being CLOSED is the whole point: a new subsystem is a field on an existing
@@ -630,12 +630,12 @@ describe('logging conventions (OpenProject #2668)', () => {
   })
 
   test('no call passes an error where the message belongs', () => {
-    // -> §4.1: `WIKI.logger.error(err)` renders `ENOENT: no such file or directory` and nothing about
+    // -> §4.1: `CARDINAL.logger.error(err)` renders `ENOENT: no such file or directory` and nothing about
     //    what the instance was doing. The message names the operation; the error goes in
     //    `fields.error`, which is what puts the situation and the stack on one record.
     assertNoFailures(
       failures(errorAsMessageFailure),
-      'Pattern: `WIKI.logger.error(scope, "fetching locale metadata failed", { error: err })`.'
+      'Pattern: `CARDINAL.logger.error(scope, "fetching locale metadata failed", { error: err })`.'
     )
   })
 
@@ -666,11 +666,11 @@ describe('logging conventions (OpenProject #2668)', () => {
     //    annotation has to actually work — including the "and only that one" half, or one exemption
     //    would quietly cover a whole file.
     const source = [
-      "WIKI.logger.info('boot', 'Capitalised And Ends.')",
+      "CARDINAL.logger.info('boot', 'Capitalised And Ends.')",
       '// log-conventions: allow a fixture proving the annotation is read',
-      "WIKI.logger.info('boot', 'Capitalised And Ends.')",
+      "CARDINAL.logger.info('boot', 'Capitalised And Ends.')",
       '',
-      "WIKI.logger.info('boot', 'Capitalised And Ends.')"
+      "CARDINAL.logger.info('boot', 'Capitalised And Ends.')"
     ].join('\n')
     const calls = collectCalls('fixture.ts', source)
 
@@ -692,12 +692,12 @@ describe('logging conventions (OpenProject #2668)', () => {
     //    a mask bug either invents failures out of doc comments (`helpers/errorHandler.ts` quotes
     //    the very shape the rules refuse) or hides real calls after a regex literal.
     const src = [
-      '// WIKI.logger.error(err)',
-      'const sample = \'WIKI.logger.info("nope")\'',
+      '// CARDINAL.logger.error(err)',
+      'const sample = \'CARDINAL.logger.info("nope")\'',
       'const re = /[\\s"]/',
-      "WIKI.logger.info('boot', 'real call')",
-      '/** WIKI.logger.warn(error) */',
-      'WIKI.logger.debug(`sql`, `also real`)'
+      "CARDINAL.logger.info('boot', 'real call')",
+      '/** CARDINAL.logger.warn(error) */',
+      'CARDINAL.logger.debug(`sql`, `also real`)'
     ].join('\n')
     const mask = classifySource(src)
     const seen: string[] = []
@@ -708,7 +708,7 @@ describe('logging conventions (OpenProject #2668)', () => {
         seen.push(`${match[1]}.${match[2]}`)
       }
     }
-    assert.deepEqual(seen, ['WIKI.logger.info', 'WIKI.logger.debug'])
+    assert.deepEqual(seen, ['CARDINAL.logger.info', 'CARDINAL.logger.debug'])
   })
 
   test('the rules actually reject the shapes they name', () => {
@@ -736,39 +736,42 @@ describe('logging conventions (OpenProject #2668)', () => {
     const failing = (source: string, rule: (call: LoggerCall) => string | null) =>
       collectCalls('fixture.ts', source).filter((call) => rule(call) !== null).length
 
-    assert.equal(failing("WIKI.logger.verbose('db', 'connected')", retiredLevelFailure), 1)
-    assert.equal(failing("WIKI.logger.debug('db', 'connected')", retiredLevelFailure), 0)
+    assert.equal(failing("CARDINAL.logger.verbose('db', 'connected')", retiredLevelFailure), 1)
+    assert.equal(failing("CARDINAL.logger.debug('db', 'connected')", retiredLevelFailure), 0)
 
-    assert.equal(failing("WIKI.logger.info('comments', 'posted')", scopeFailure), 1)
-    assert.equal(failing('WIKI.logger.info(scope, `posted`)', scopeFailure), 1)
-    assert.equal(failing("WIKI.logger.info('db')", scopeFailure), 1)
-    assert.equal(failing("WIKI.logger.info('db', 'connected')", scopeFailure), 0)
+    assert.equal(failing("CARDINAL.logger.info('comments', 'posted')", scopeFailure), 1)
+    assert.equal(failing('CARDINAL.logger.info(scope, `posted`)', scopeFailure), 1)
+    assert.equal(failing("CARDINAL.logger.info('db')", scopeFailure), 1)
+    assert.equal(failing("CARDINAL.logger.info('db', 'connected')", scopeFailure), 0)
 
-    assert.equal(failing('WIKI.logger.error(err)', errorAsMessageFailure), 1)
-    assert.equal(failing("WIKI.logger.error('db', err.message)", errorAsMessageFailure), 1)
+    assert.equal(failing('CARDINAL.logger.error(err)', errorAsMessageFailure), 1)
+    assert.equal(failing("CARDINAL.logger.error('db', err.message)", errorAsMessageFailure), 1)
     assert.equal(failing('log.error(error)', errorAsMessageFailure), 1)
     assert.equal(
       failing(
-        "WIKI.logger.error('db', 'connecting failed', { error: err })",
+        "CARDINAL.logger.error('db', 'connecting failed', { error: err })",
         errorAsMessageFailure
       ),
       0
     )
 
-    assert.equal(failing("WIKI.logger.info('db', 'connected [ OK ]')", messageShapeFailure), 1)
-    assert.equal(failing("WIKI.logger.info('db', 'connecting...')", messageShapeFailure), 1)
-    assert.equal(failing("WIKI.logger.info('db', 'Connected to postgres')", messageShapeFailure), 1)
+    assert.equal(failing("CARDINAL.logger.info('db', 'connected [ OK ]')", messageShapeFailure), 1)
+    assert.equal(failing("CARDINAL.logger.info('db', 'connecting...')", messageShapeFailure), 1)
     assert.equal(
-      failing("WIKI.logger.info('db', 'connected successfully.')", messageShapeFailure),
+      failing("CARDINAL.logger.info('db', 'Connected to postgres')", messageShapeFailure),
+      1
+    )
+    assert.equal(
+      failing("CARDINAL.logger.info('db', 'connected successfully.')", messageShapeFailure),
       1
     )
     // -> The allow-list, and the interpolated first token, both of which real call sites use.
     assert.equal(
-      failing("WIKI.logger.warn('http', 'HTTP server failed to bind')", messageShapeFailure),
+      failing("CARDINAL.logger.warn('http', 'HTTP server failed to bind')", messageShapeFailure),
       0
     )
     assert.equal(
-      failing('WIKI.logger.info(`migrate`, `${phase} finished`)', messageShapeFailure),
+      failing('CARDINAL.logger.info(`migrate`, `${phase} finished`)', messageShapeFailure),
       0
     )
     // -> A scoped child's message is its FIRST argument, so the rule has to read the right one.
@@ -783,7 +786,7 @@ describe('logging conventions (OpenProject #2668)', () => {
     assert.deepEqual(
       found.map((call) => `${call.file}:${call.line}`),
       [],
-      'A console call before WIKI.logger exists is a documented sink exception, not an exemption from the tag-free convention -- write the fact into the message instead of a bare OK/FAILED/SKIPPED/COMPLETED.'
+      'A console call before CARDINAL.logger exists is a documented sink exception, not an exemption from the tag-free convention -- write the fact into the message instead of a bare OK/FAILED/SKIPPED/COMPLETED.'
     )
   })
 

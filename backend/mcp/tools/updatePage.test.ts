@@ -139,7 +139,7 @@ test('handleUpdatePage: refused calls never reach the audit log', async () => {
 
 test('handleUpdatePage: wraps a model validation failure as an McpToolError', async () => {
   const c = ctx({ access: ['write:pages'] })
-  ;(globalThis as any).WIKI.models.pages.updatePage = async () => {
+  ;(globalThis as any).CARDINAL.models.pages.updatePage = async () => {
     throw new Error('A page needs a title.')
   }
   await assert.rejects(
@@ -160,7 +160,7 @@ test('handleUpdatePage: wraps a model validation failure as an McpToolError', as
  */
 test('handleUpdatePage: renderPuppeteerMissing becomes an McpToolError naming the extension and pointing at the web editor', async () => {
   const c = ctx({ access: ['write:pages'] })
-  ;(globalThis as any).WIKI.models.pages.updatePage = async () => {
+  ;(globalThis as any).CARDINAL.models.pages.updatePage = async () => {
     throw new CustomError(
       'renderPuppeteerMissing',
       'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
@@ -180,7 +180,7 @@ test('handleUpdatePage: renderPuppeteerMissing becomes an McpToolError naming th
 
 test('handleUpdatePage: renderUnsupportedEditor becomes an McpToolError naming the editor and pointing at markdown', async () => {
   const c = ctx({ access: ['write:pages'] })
-  ;(globalThis as any).WIKI.models.pages.updatePage = async () => {
+  ;(globalThis as any).CARDINAL.models.pages.updatePage = async () => {
     throw new CustomError(
       'renderUnsupportedEditor',
       'Server-side rendering is not implemented for the ckeditor editor.'

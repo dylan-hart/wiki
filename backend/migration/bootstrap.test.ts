@@ -12,8 +12,8 @@ import {
 import { installTestWiki } from '../test/mocks.ts'
 import type { TestFixtures } from '../test/db.ts'
 
-/** A minimal `WikiGlobal`-shaped fake for `resolveUsersImportContext()` — a pure function of
- * `WIKI.data`/`WIKI.config`, so no real bootstrap/db/models are needed to exercise it. */
+/** A minimal `CardinalGlobal`-shaped fake for `resolveUsersImportContext()` — a pure function of
+ * `CARDINAL.data`/`CARDINAL.config`, so no real bootstrap/db/models are needed to exercise it. */
 function fakeWiki(overrides: { data?: any; config?: any } = {}): any {
   return {
     data: { systemIds: { localAuthId: 'local-auth-uuid', guestsGroupId: 'guest-group-uuid' } },
@@ -24,7 +24,7 @@ function fakeWiki(overrides: { data?: any; config?: any } = {}): any {
 
 /**
  * Every model name a built migration importer reaches, directly or transitively, through
- * `WIKI.models`. Kept as an explicit list rather than asserting against a snapshot of whatever
+ * `CARDINAL.models`. Kept as an explicit list rather than asserting against a snapshot of whatever
  * `loadModels()` currently returns, so a write path gaining a new model call (the way `createPage()`
  * already reaches `locales`/`rendering`/`search`/`hooks`/`flags`/`classificationLevels`) fails this
  * test loudly instead of silently passing because the snapshot moved with it. See `loadModels()`'s
@@ -58,24 +58,24 @@ const EXPECTED_MODEL_NAMES = [
 ]
 
 describe('migration bootstrap', () => {
-  test('loadModels() resolves every model a built importer calls through WIKI.models', async () => {
+  test('loadModels() resolves every model a built importer calls through CARDINAL.models', async () => {
     const models = await loadModels()
     for (const name of EXPECTED_MODEL_NAMES) {
       assert.ok(
         (models as Record<string, unknown>)[name],
-        `expected WIKI.models.${name} to be loaded`
+        `expected CARDINAL.models.${name} to be loaded`
       )
     }
   })
 
   /**
-   * Task 15 review-round Critical #1: `bootstrapMigrationRuntime()`'s `WIKI` literal used to omit
+   * Task 15 review-round Critical #1: `bootstrapMigrationRuntime()`'s `CARDINAL` literal used to omit
    * `auth` entirely, which `models/authentication.ts#activateStrategies()` (called unconditionally at
    * the end of every `createStrategy()`/`updateStrategy()`/`deleteStrategy()`) needs unconditionally
-   * — `WIKI.auth.strategies = {}` throws `TypeError: Cannot set properties of undefined` against a
-   * `WIKI` missing it. This is a fast, DB-free unit test of the exact shape that bug lived in;
+   * — `CARDINAL.auth.strategies = {}` throws `TypeError: Cannot set properties of undefined` against a
+   * `CARDINAL` missing it. This is a fast, DB-free unit test of the exact shape that bug lived in;
    * `bootstrap.test.ts`'s own DB-backed `describe` below additionally proves `createStrategy()` itself
-   * succeeds end-to-end against a `WIKI` built from this shape.
+   * succeeds end-to-end against a `CARDINAL` built from this shape.
    */
   test('buildWikiShell() seeds auth: { groups: {}, strategies: {} }, matching index.ts/test/db.ts', () => {
     const shell = buildWikiShell('test-instance')
@@ -87,7 +87,7 @@ describe('migration bootstrap', () => {
     const events = createEventsStub()
     assert.equal(typeof events.inbound.emit, 'function')
     assert.equal(typeof events.outbound.emit, 'function')
-    // -> models/groups.ts#broadcastReload's WIKI.events.outbound.emit('reloadGroups') must not throw
+    // -> models/groups.ts#broadcastReload's CARDINAL.events.outbound.emit('reloadGroups') must not throw
     assert.doesNotThrow(() => events.outbound.emit('reloadGroups'))
   })
 
@@ -107,7 +107,7 @@ describe('migration bootstrap', () => {
     assert.equal(cache.has('key'), false)
   })
 
-  test('createSchedulerStub() warns and never touches WIKI.db for an unsupported task', async () => {
+  test('createSchedulerStub() warns and never touches CARDINAL.db for an unsupported task', async () => {
     const warnings: { scope: string; message: string; fields?: Record<string, unknown> }[] = []
     const wikiHandle = installTestWiki({
       logger: {
@@ -150,7 +150,7 @@ describe('migration bootstrap', () => {
  * captured once here before any phase had run. See that function's own doc comment.
  */
 describe('resolveUsersImportContext (Task 14 review fix)', () => {
-  test('resolves all three fields from a fully-populated WIKI', () => {
+  test('resolves all three fields from a fully-populated CARDINAL', () => {
     const result = resolveUsersImportContext(fakeWiki())
     assert.deepEqual(result, {
       localStrategyId: 'local-auth-uuid',
@@ -159,14 +159,14 @@ describe('resolveUsersImportContext (Task 14 review fix)', () => {
     })
   })
 
-  test('throws when WIKI.config.auth.rootAdminGroupId is missing (e.g. loadFromDb() was never called, or found an empty settings table)', () => {
+  test('throws when CARDINAL.config.auth.rootAdminGroupId is missing (e.g. loadFromDb() was never called, or found an empty settings table)', () => {
     assert.throws(
       () => resolveUsersImportContext(fakeWiki({ config: { auth: {} } })),
       /rootAdminGroupId|adminGroupId/
     )
   })
 
-  test('throws when WIKI.config.auth.rootAdminUserId is missing', () => {
+  test('throws when CARDINAL.config.auth.rootAdminUserId is missing', () => {
     assert.throws(
       () =>
         resolveUsersImportContext(
@@ -176,7 +176,7 @@ describe('resolveUsersImportContext (Task 14 review fix)', () => {
     )
   })
 
-  test('throws when WIKI.data.systemIds is missing/malformed', () => {
+  test('throws when CARDINAL.data.systemIds is missing/malformed', () => {
     assert.throws(() => resolveUsersImportContext(fakeWiki({ data: { systemIds: {} } })))
   })
 })
@@ -184,26 +184,26 @@ describe('resolveUsersImportContext (Task 14 review fix)', () => {
 /**
  * Task 15 review-round Critical #1, behavioral half: the settings phase's own integration test
  * (`phases/settings.integration.test.ts`) runs `createStrategy()` against `setupTestDb()`'s
- * `installTestWiki()`-built `WIKI` — which, unlike `bootstrapMigrationRuntime()`'s real result before
+ * `installTestWiki()`-built `CARDINAL` — which, unlike `bootstrapMigrationRuntime()`'s real result before
  * this fix, has always seeded `auth` (see `test/db.ts`'s own `installTestWiki()`). That is exactly why
- * that test could not have caught this bug on its own — it exercises `WIKI` shaped like `test/db.ts`,
- * not shaped like `bootstrap.ts`. This suite instead assembles `WIKI` directly from `buildWikiShell()`
+ * that test could not have caught this bug on its own — it exercises `CARDINAL` shaped like `test/db.ts`,
+ * not shaped like `bootstrap.ts`. This suite instead assembles `CARDINAL` directly from `buildWikiShell()`
  * (the function `bootstrapMigrationRuntime()` itself now delegates to for this exact shape), so a
  * regression here — `auth` dropped from `buildWikiShell()`, or `activateStrategies()` gaining a new
  * unconditional dependency `buildWikiShell()` doesn't provide — fails this suite instead of only
  * surfacing on a real, live migration run.
  *
  * `dbManager.init()`/`configSvc.init()` themselves are deliberately NOT exercised here: both need a
- * real `config.yml` on disk at `WIKI.ROOTPATH` (`process.cwd()`) and would `process.exit(1)` if one
+ * real `config.yml` on disk at `CARDINAL.ROOTPATH` (`process.cwd()`) and would `process.exit(1)` if one
  * isn't found there — `backend/`'s own test convention is to run `npm test` from `backend/` itself,
  * where no `config.yml` exists (the real one lives at the repo root). Reusing `setupTestDb()`'s
  * already-migrated, already-connected `db` (and its real `models`, captured before this suite
- * overwrites `global.WIKI`) sidesteps that without weakening what's actually under test: neither
- * `dbManager`/`configSvc.init()`'s own config-file plumbing nor `WIKI.auth`'s presence have anything to
+ * overwrites `global.CARDINAL`) sidesteps that without weakening what's actually under test: neither
+ * `dbManager`/`configSvc.init()`'s own config-file plumbing nor `CARDINAL.auth`'s presence have anything to
  * do with each other.
  */
 describe(
-  'bootstrapMigrationRuntime WIKI shape: createStrategy() against a real bootstrap-shaped WIKI (Task 15 review fix, Critical #1)',
+  'bootstrapMigrationRuntime CARDINAL shape: createStrategy() against a real bootstrap-shaped CARDINAL (Task 15 review fix, Critical #1)',
   { skip: !hasTestDatabase() },
   () => {
     let fixtures: TestFixtures
@@ -216,12 +216,12 @@ describe(
       await teardownTestDb()
     })
 
-    test('createStrategy() succeeds — and actually activates the new strategy — against a WIKI built from buildWikiShell()', async () => {
-      // -> Captured before `global.WIKI` is replaced below: the same real model singletons
+    test('createStrategy() succeeds — and actually activates the new strategy — against a CARDINAL built from buildWikiShell()', async () => {
+      // -> Captured before `global.CARDINAL` is replaced below: the same real model singletons
       //    `setupTestDb()` already loaded (`loadModels()` would just re-`import()` the identical
       //    cached module instances anyway, since ES modules are singletons).
-      const models = WIKI.models
-      const logger = WIKI.logger
+      const models = CARDINAL.models
+      const logger = CARDINAL.logger
 
       // -> `refreshStrategiesFromDisk()` only touches `SERVERPATH`/`logger`/`data`, and
       //    `createWikiStub` supplies the `data`/`cache`/`events` members `buildWikiShell()`
@@ -236,7 +236,7 @@ describe(
       })
 
       try {
-        await WIKI.models.authentication.refreshStrategiesFromDisk()
+        await CARDINAL.models.authentication.refreshStrategiesFromDisk()
 
         // -> Before Task 15's review fix, this throws `TypeError: Cannot set properties of undefined
         //    (setting 'strategies')` from inside `activateStrategies()`, after the row has already
@@ -244,18 +244,18 @@ describe(
         //    throw is gone, and the row insert that precedes it in `createStrategy()` still ran.
         let id: string | undefined
         await assert.doesNotReject(async () => {
-          id = await WIKI.models.authentication.createStrategy({
+          id = await CARDINAL.models.authentication.createStrategy({
             module: 'local',
             displayName: 'Bootstrap Shape Regression Test'
           })
         })
         assert.equal(typeof id, 'string')
         assert.ok(
-          WIKI.auth.strategies[id!],
-          'activateStrategies() actually ran and populated WIKI.auth.strategies for the new strategy, not merely avoided throwing'
+          CARDINAL.auth.strategies[id!],
+          'activateStrategies() actually ran and populated CARDINAL.auth.strategies for the new strategy, not merely avoided throwing'
         )
       } finally {
-        // -> Puts `setupTestDb()`'s own WIKI back, so `teardownTestDb()` in `after()` tears down the
+        // -> Puts `setupTestDb()`'s own CARDINAL back, so `teardownTestDb()` in `after()` tears down the
         //    global it actually installed.
         wikiHandle.restore()
       }

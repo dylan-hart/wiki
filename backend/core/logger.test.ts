@@ -6,7 +6,7 @@ import type { LogFrame } from './logger.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * Pure unit test: `logger.ts` reads only `WIKI.config.{logFormat,logLevel}` and `WIKI.INSTANCE_ID`,
+ * Pure unit test: `logger.ts` reads only `CARDINAL.config.{logFormat,logLevel}` and `CARDINAL.INSTANCE_ID`,
  * so a minimal stand-in global is enough — no database, no other model.
  */
 function setWiki(config: { logFormat?: unknown; logLevel?: unknown; logScopes?: unknown }) {
@@ -857,7 +857,7 @@ describe('logger backlog', () => {
 
 /**
  * The two renderers, driven directly off a hand-built frame — which is the payoff of #2679's split:
- * neither needs a logger instance, a `WIKI` global or a `console.log` spy any more.
+ * neither needs a logger instance, a `CARDINAL` global or a `console.log` spy any more.
  */
 describe('logger renderers', () => {
   const frame: LogFrame = {

@@ -178,9 +178,9 @@ describe('site-scoped route surface (covered by the shared preHandler)', () => {
   let wikiHandle: { restore(): void }
 
   before(async () => {
-    // -> A handful of route files touch `WIKI.config` at registration time (`assets.ts`'s upload
+    // -> A handful of route files touch `CARDINAL.config` at registration time (`assets.ts`'s upload
     //    content-type parser), not just inside a handler. Installed fresh here rather than at module
-    //    scope: this describe runs after two earlier ones that each restore `globalThis.WIKI` in
+    //    scope: this describe runs after two earlier ones that each restore `globalThis.CARDINAL` in
     //    their own `after()`.
     wikiHandle = installTestWiki()
     const found: string[] = []

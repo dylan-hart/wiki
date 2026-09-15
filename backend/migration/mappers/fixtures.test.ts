@@ -53,7 +53,7 @@ before(async () => {
   await authentication.refreshStrategiesFromDisk()
   const { storage } = await import('../../models/storage.ts')
   await storage.refreshFromDisk()
-  assert.ok(WIKI.data.authentication?.length > 0)
+  assert.ok(CARDINAL.data.authentication?.length > 0)
   assert.ok(storage.definitions.length > 0)
 })
 

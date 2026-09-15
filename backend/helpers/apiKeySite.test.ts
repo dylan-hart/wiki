@@ -236,7 +236,7 @@ describe('apiKeySitePinHook — global coverage, no per-route wiring required', 
  * the global hook actually reaches production routes ahead of any model call, now that neither route
  * calls `enforceApiKeySite` itself any more.
  *
- * `WIKI.models.pages.getPage` / `WIKI.models.pages.deletePage` are stubbed to return `null`, so a
+ * `CARDINAL.models.pages.getPage` / `CARDINAL.models.pages.deletePage` are stubbed to return `null`, so a
  * request that clears the site-pin gate falls through to the ordinary "page does not exist" 404 --
  * proof the gate was passed without needing a full `Page#`-shaped stand-in. The asset upload route
  * needs no equivalent stub: `actorFrom`'s session check is what stops it next, well before any model
@@ -411,7 +411,7 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
  * reads it off an `x-test-api-key` test header, the same shape `models/apiKeys.ts#verify()` produces
  * at runtime — nothing about the routes themselves is test-specific.
  *
- * `WIKI.models.pages.getPage` is stubbed to return `null` so a request that clears the site-scope gate
+ * `CARDINAL.models.pages.getPage` is stubbed to return `null` so a request that clears the site-scope gate
  * falls through to the ordinary "page does not exist" 404 — which needs no `Page#` response payload —
  * rather than requiring a full page object satisfying that schema just to prove the gate was passed.
  *

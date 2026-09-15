@@ -41,7 +41,7 @@ import defaultAwsCloudSearchModule from './search.ts'
  */
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
-/** The engine config this file's own suite, the WIKI stub and the shared contract all run against. */
+/** The engine config this file's own suite, the CARDINAL stub and the shared contract all run against. */
 const BASE_CONFIG = {
   domain: 'wiki-demo',
   endpoint: 'https://doc-wiki-demo.us-east-1.cloudsearch.amazonaws.com',
@@ -90,7 +90,7 @@ installTestWiki({
  *
  * Registered here rather than beside the `ensureTemporal()` hook above, and this is load-bearing: a
  * root-level `before()` in `node:test` runs before the top-level statements that FOLLOW it, so a hook
- * declared above the `WIKI` assignment would run with no `WIKI.SERVERPATH` to read from.
+ * declared above the `CARDINAL` assignment would run with no `CARDINAL.SERVERPATH` to read from.
  */
 before(() => search.refreshFromDisk())
 
@@ -746,7 +746,7 @@ describe('aws-cloudsearch module: query client caching', () => {
       factoryCalls++
       return client
     })
-    const engines = (globalThis as any).WIKI.sites['site-1'].config.search.engines
+    const engines = (globalThis as any).CARDINAL.sites['site-1'].config.search.engines
     const originalConfig = engines['aws-cloudsearch']
 
     try {
@@ -783,7 +783,7 @@ describe('aws-cloudsearch module: query()', () => {
    * set.
    */
   test('totalHits never exceeds the number of readable matches, at limit=1, on the split (hideProtectedContent) path', async () => {
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _perm: string,
       page: { path: string }
@@ -810,7 +810,7 @@ describe('aws-cloudsearch module: query()', () => {
       assert.equal(result.results.length, 1)
       assert.equal(result.results[0].id, 'open')
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = () => true
     }
   })
 

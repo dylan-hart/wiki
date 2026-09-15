@@ -308,7 +308,7 @@ describe('guardSiteEnabled', () => {
  * `resolveRequestSite` itself takes an already-resolved `hostname` string -- it has no header of its
  * own to distrust. What actually decides whether `X-Forwarded-Host` gets to be that string is
  * Fastify's own `request.hostname` getter (`fastify/lib/request.js`), gated on the same `trustProxy`
- * option `backend/index.ts` passes straight through from `WIKI.config.security.trustProxy`. So this
+ * option `backend/index.ts` passes straight through from `CARDINAL.config.security.trustProxy`. So this
  * spins up a real (unlistened) Fastify instance wired exactly the way `index.ts`'s site-resolution
  * hook is -- `trustProxy` from config, an `onRequest`-time `resolveRequestSite({ hostname: req.hostname,
  * ... })` -- and proves the mechanism end to end via `inject()`, rather than re-describing Fastify's

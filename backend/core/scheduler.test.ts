@@ -36,11 +36,11 @@ before(async () => {
  *    `waitUntil` an ISO string where `AddJobOptions.waitUntil` — and the `timestamp()` column it is
  *    written to — expect a `Date`.
  *
- * This drives the real `addScheduled()` against lightweight fakes for `WIKI.db`, rather than a live
+ * This drives the real `addScheduled()` against lightweight fakes for `CARDINAL.db`, rather than a live
  * Postgres connection or a re-implementation of the loop's logic, so it fails under the pre-fix code
  * and passes only once the actual fix is in place.
  */
-describe('addScheduled (fake WIKI)', () => {
+describe('addScheduled (fake CARDINAL)', () => {
   let insertedJobs: any[]
   let scheduleJobsMock: any[]
   let existingJobsMock: any[]
@@ -53,7 +53,7 @@ describe('addScheduled (fake WIKI)', () => {
   before(() => {
     // -> Shared by both `db.select` and `trx.select` below: OpenProject #1998 requires
     //    `addScheduled()` to read `scheduledJobs`/`existingJobs` through its own transaction (`trx`),
-    //    not the ambient `WIKI.db` handle, so the fake `trx` handed to the `transaction()` callback
+    //    not the ambient `CARDINAL.db` handle, so the fake `trx` handed to the `transaction()` callback
     //    must expose `select()` too, not just `update().set().where()`.
     const selectImpl = () => ({
       from: (table: any) => {
@@ -78,8 +78,8 @@ describe('addScheduled (fake WIKI)', () => {
               })
             }),
             // -> `addScheduled()` now reads both selects through `trx` rather than the ambient
-            //    `WIKI.db` pool handle (OpenProject #1998) -- shared `selectImpl`, same fake data,
-            //    same table-dispatch shape as `WIKI.db.select()` below.
+            //    `CARDINAL.db` pool handle (OpenProject #1998) -- shared `selectImpl`, same fake data,
+            //    same table-dispatch shape as `CARDINAL.db.select()` below.
             select: selectImpl
           }),
         select: selectImpl,
@@ -245,10 +245,10 @@ describe('addScheduled (fake WIKI)', () => {
  * ever otherwise settled was a `jobCompleted` NOTIFY -- and postgres NOTIFY is not durable, so one
  * missed during a LISTEN reconnect left the deferred, and everything awaiting it, pending forever. This
  * sweep rejects (and stops tracking) any entry older than its ceiling, driven entirely by
- * `completionPromises`/`WIKI.config` -- no database or real timers involved, so it runs as a fast fake-
- * WIKI unit test rather than needing the DB-backed fixture below.
+ * `completionPromises`/`CARDINAL.config` -- no database or real timers involved, so it runs as a fast fake-
+ * CARDINAL unit test rather than needing the DB-backed fixture below.
  */
-describe('expireCompletionPromises (fake WIKI)', () => {
+describe('expireCompletionPromises (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
 
   after(() => {
@@ -347,7 +347,7 @@ describe('expireCompletionPromises (fake WIKI)', () => {
 
 /**
  * OpenProject #1993: `addJob({ promise: true })` used to push the `completionPromises` entry
- * *before* `WIKI.db.insert(...)`. If the insert then rejected, the outer `catch` logged and
+ * *before* `CARDINAL.db.insert(...)`. If the insert then rejected, the outer `catch` logged and
  * returned `undefined` -- the caller never received `jobDefer.promise`, so nothing was ever
  * attached to it, but the entry stayed tracked in `completionPromises` regardless. Roughly two
  * hours later (`staleJobTimeout` * `COMPLETION_PROMISE_TTL_MULTIPLIER`),
@@ -358,7 +358,7 @@ describe('expireCompletionPromises (fake WIKI)', () => {
  * The fix moves the push to after a successful insert, so a rejecting insert leaves nothing in
  * `completionPromises` for `expireCompletionPromises()` to ever reject.
  */
-describe('addJob (fake WIKI, rejecting insert)', () => {
+describe('addJob (fake CARDINAL, rejecting insert)', () => {
   let wikiHandle: { restore(): void }
 
   before(() => {
@@ -428,7 +428,7 @@ describe('addJob (fake WIKI, rejecting insert)', () => {
  * Drives the real `stop()` against a fake `workerPool`/`listenerHandle` (no real pool, no pubsub) so
  * only the drain behavior itself is under test.
  */
-describe('stop (fake WIKI)', () => {
+describe('stop (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
   let destroyCalls: number
 

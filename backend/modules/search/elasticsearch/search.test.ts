@@ -373,11 +373,11 @@ describe('ElasticsearchSearchModule', () => {
     let previousDb: any
 
     before(() => {
-      previousDb = (globalThis as any).WIKI.db
+      previousDb = (globalThis as any).CARDINAL.db
     })
 
     after(() => {
-      ;(globalThis as any).WIKI.db = previousDb
+      ;(globalThis as any).CARDINAL.db = previousDb
     })
 
     /**
@@ -389,7 +389,7 @@ describe('ElasticsearchSearchModule', () => {
      */
     test("deletes only this site's documents, and bulk-sends meta/document pairs", async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+      ;(globalThis as any).CARDINAL.db = stubPageStreamDb([
         fakePage({ id: 'p1', locale: 'en' }),
         fakePage({ id: 'p2', locale: 'en' }),
         fakePage({ id: 'p3', locale: 'fr' })
@@ -412,7 +412,7 @@ describe('ElasticsearchSearchModule', () => {
     /** That an empty site sends no batches is the contract's; that it still purges is this engine's. */
     test('an empty site still deletes its documents', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = stubPageStreamDb([])
+      ;(globalThis as any).CARDINAL.db = stubPageStreamDb([])
 
       const result = await mod.rebuild(siteId)
 
@@ -451,7 +451,7 @@ describe('ElasticsearchSearchModule', () => {
       )
       const secondPage = [fakePage({ id: 'p0500', locale: 'en' })]
       let selectCall = 0
-      ;(globalThis as any).WIKI.db = {
+      ;(globalThis as any).CARDINAL.db = {
         select: () => ({
           from: () => ({
             where: () => ({
@@ -530,7 +530,7 @@ runSearchModuleContract('elasticsearch', {
       lastIndexedPath: () => calls.index!.at(-1)?.document.path,
       removedIds: () => calls.delete!.map((call: any) => call.id),
       setPages(pages) {
-        ;(globalThis as any).WIKI.db = stubPageStreamDb(pages)
+        ;(globalThis as any).CARDINAL.db = stubPageStreamDb(pages)
       },
       rebuiltIds: () =>
         calls.bulk!.flatMap((call: any) =>

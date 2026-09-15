@@ -26,7 +26,7 @@ let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
 /**
  * Fixtures for the OpenProject #1603 group-validation tests: `knownGroupsFixture` is what
- * `WIKI.models.groups.hasUnknownGroupIds()` answers against, and the two call-log arrays let a test
+ * `CARDINAL.models.groups.hasUnknownGroupIds()` answers against, and the two call-log arrays let a test
  * assert that an unknown group id short-circuits before either write path (`createUser` /
  * `setUserGroups`) runs.
  */

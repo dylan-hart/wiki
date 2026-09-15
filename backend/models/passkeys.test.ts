@@ -7,7 +7,7 @@ import { resolveOrigin } from './passkeys.ts'
  * to the hostname the request was addressed to (see `docs/security-reviews/` for the full review this
  * grew out of — task 435, feature 356).
  *
- * These are pure-function tests: no `WIKI` global, no db. `resolveOrigin` never touches either.
+ * These are pure-function tests: no `CARDINAL` global, no db. `resolveOrigin` never touches either.
  */
 describe('models/passkeys resolveOrigin', () => {
   test('a matching https origin is echoed back verbatim', () => {

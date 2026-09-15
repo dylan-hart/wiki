@@ -1,7 +1,7 @@
 /**
  * Worker thread identity (OpenProject #2671, audit N8).
  *
- * `worker.ts` used to boot as the literal `'worker'` and overwrite `WIKI.INSTANCE_ID` with the
+ * `worker.ts` used to boot as the literal `'worker'` and overwrite `CARDINAL.INSTANCE_ID` with the
  * parent's id on its first job, so its own boot lines and its job lines were filed under two
  * different identities. The parent id now travels on poolifier's `workerData` (`core/scheduler.ts`'s
  * `poolOptions`) and the id is settled before the worker's logger exists.
@@ -29,20 +29,20 @@ describe('worker thread identity', () => {
     //    on the same object, not that it's the only key.
     assert.match(
       schedulerTs,
-      /workerOptions: \{\s*workerData: \{ parentInstanceId: WIKI\.INSTANCE_ID,/
+      /workerOptions: \{\s*workerData: \{ parentInstanceId: CARDINAL\.INSTANCE_ID,/
     )
   })
 
   test('no job payload carries an INSTANCE_ID any more, in either direction', () => {
     // -> The two halves of the removed per-job overwrite: the sender in `executeOnWorker` and the
     //    receiver at the top of `worker.ts`'s ThreadWorker callback.
-    assert.doesNotMatch(schedulerTs, /INSTANCE_ID: `\$\{WIKI\.INSTANCE_ID\}:WKR`/)
-    assert.doesNotMatch(workerTs, /WIKI\.INSTANCE_ID = job\.INSTANCE_ID/)
+    assert.doesNotMatch(schedulerTs, /INSTANCE_ID: `\$\{CARDINAL\.INSTANCE_ID\}:WKR`/)
+    assert.doesNotMatch(workerTs, /CARDINAL\.INSTANCE_ID = job\.INSTANCE_ID/)
   })
 
   test('worker.ts settles its id at module scope, before its logger is built', () => {
     const idIdx = workerTs.indexOf('INSTANCE_ID: workerInstanceId(')
-    const loggerIdx = workerTs.indexOf('WIKI.logger = logger.init()')
+    const loggerIdx = workerTs.indexOf('CARDINAL.logger = logger.init()')
     assert.notEqual(idIdx, -1, 'expected worker.ts to derive its id through workerInstanceId')
     assert.ok(idIdx < loggerIdx, 'the id must be settled before the logger reads it')
     assert.match(workerTs, /workerData as \{ parentInstanceId\?: unknown \} \| null/)

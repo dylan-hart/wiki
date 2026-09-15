@@ -19,7 +19,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * the route calls a function, not that per-page scoping actually works.
  *
  * There is no real session plugin here — `req.session` is set directly by an `onRequest` hook from a
- * per-test-mutable `testSession` variable, which is all `WIKI.models.groups.actorForRequest` reads.
+ * per-test-mutable `testSession` variable, which is all `CARDINAL.models.groups.actorForRequest` reads.
  */
 describe('PATCH/DELETE /sites/:siteId/tags/:tag (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures

@@ -1,6 +1,6 @@
 /**
  * `core/collab.ts#participantInfo()`: the "someone else has this page open" accessor, read straight
- * off whatever room already exists. Pure — no `WIKI` global, no database.
+ * off whatever room already exists. Pure — no `CARDINAL` global, no database.
  *
  * The rest of this module's coverage lives in three siblings, split out of one 1,433-line file
  * (TEST-F14) so the pure/DB boundary is a filename property rather than something a reader has to
@@ -24,7 +24,7 @@ import collab from './collab.ts'
  *
  * Reaches into `collab.rooms` directly instead of going through the websocket handshake in
  * `controllers/collab.ts`, so this is a pure unit test of the accessor rather than of the socket
- * lifecycle — and needs no `WIKI` global, since `participantInfo` touches nothing but the room map and
+ * lifecycle — and needs no `CARDINAL` global, since `participantInfo` touches nothing but the room map and
  * the awareness instance already inside it.
  *
  * Every `Awareness` created here is `.destroy()`ed once the test is done with it, exactly as

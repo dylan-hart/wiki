@@ -11,8 +11,8 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * classification-resolution-dialog flow (raising a page's own classification surfaces descendants
  * that now sit below the new floor, resolved via a dedicated endpoint rather than cascaded silently).
  *
- * Route-level only: a real Fastify instance with `WIKI.models.pages`/`WIKI.models.groups`/
- * `WIKI.models.classificationLevels` stubbed to the smallest surface each test needs, rather than a
+ * Route-level only: a real Fastify instance with `CARDINAL.models.pages`/`CARDINAL.models.groups`/
+ * `CARDINAL.models.classificationLevels` stubbed to the smallest surface each test needs, rather than a
  * database. The floor-invariant math
  * itself (`meetsFloor`/`isLowerThan`) is covered directly in `models/classificationLevels.test.ts`;
  * this file is about who may reach it and what the route does with the model's answer.
@@ -76,7 +76,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
   let auditLogCalls: any[] = []
   let getPagesByIdsCalls: any[] = []
   let parentClassificationsCalls: any[] = []
-  /** `WIKI.models.pageClassification.parentClassification`'s stubbed return -- null (no parent) by default. */
+  /** `CARDINAL.models.pageClassification.parentClassification`'s stubbed return -- null (no parent) by default. */
   let parentClassificationFloor: string | null = null
 
   let app: FastifyInstance

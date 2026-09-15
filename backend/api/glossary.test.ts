@@ -7,7 +7,7 @@ import glossaryRoutes from './glossary.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * Route-level coverage for `api/glossary.ts` (OpenProject #870), against a fake `WIKI.models.glossary`
+ * Route-level coverage for `api/glossary.ts` (OpenProject #870), against a fake `CARDINAL.models.glossary`
  * rather than a real one — what these tests cover is the route's own site-existence guard and
  * field-forwarding, not the model itself (DB-backed coverage lives in `models/glossary.test.ts`).
  * Mirrors `hooks.test.ts`'s own recording-fake pattern.

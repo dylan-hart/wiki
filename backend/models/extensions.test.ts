@@ -17,7 +17,7 @@ import type { ExtensionDefinition } from './extensions.ts'
  * the "not compatible" case: instead of a bare refusal, it says which architecture/platform the
  * extension needs versus what `os.arch()`/`process.platform` actually report here.
  *
- * `WIKI.SERVERPATH` is pointed at an empty temp dir so `moduleExists()` (used by `isInstalled()`) has
+ * `CARDINAL.SERVERPATH` is pointed at an empty temp dir so `moduleExists()` (used by `isInstalled()`) has
  * somewhere real to `fs.access` against — every specifier below is fictional, so it always resolves to
  * "not installed", which these tests don't otherwise care about.
  */
@@ -28,8 +28,8 @@ let extensionsModel: typeof import('./extensions.ts').extensions
 
 before(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-extensions-test-'))
-  previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  previousWiki = (globalThis as any).CARDINAL
+  ;(globalThis as any).CARDINAL = {
     SERVERPATH: dir,
     logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} }
   }
@@ -37,7 +37,7 @@ before(async () => {
 })
 
 after(async () => {
-  ;(globalThis as any).WIKI = previousWiki
+  ;(globalThis as any).CARDINAL = previousWiki
   await rm(dir, { recursive: true, force: true })
 })
 

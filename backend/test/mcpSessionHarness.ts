@@ -30,7 +30,7 @@ interface HarnessOptions {
  * exactly which sessions are live at a given moment, which a store shared across tests would make
  * order- and timing-dependent.
  *
- * The caller owns the returned `close()`, which shuts the app down and restores the `WIKI` global.
+ * The caller owns the returned `close()`, which shuts the app down and restores the `CARDINAL` global.
  */
 export async function createMcpSessionHarness({ sessionIdleTtlMs, sessionCap }: HarnessOptions) {
   const wikiHandle = installTestWiki({
