@@ -43,13 +43,22 @@ const CARDINAL = {
 
     CARDINAL.db = await dbManager.init(true)
     /*
-      Only the settings model, which is what `loadFromDb` reads through — not the whole registry.
-      A worker thread pays the import cost of everything it pulls in, and importing all of them
-      brings cheerio, sanitize-html, bcrypt and the rest into a thread that wanted one `select`.
-      A task that needs another model imports that model itself.
+      Only the models a worker thread's tasks actually need, not the whole registry. A worker thread
+      pays the import cost of everything it pulls in, and importing all of them brings cheerio,
+      sanitize-html, bcrypt and the rest into a thread that wanted one `select`. A task that needs
+      another model imports that model itself.
+
+      `extensions` is here (mirroring `backend/migration/bootstrap.ts#loadModels()`, which includes it
+      deliberately for its own Sharp/Puppeteer checks) because `helpers/embeddings.ts#getExtractor()`'s
+      failure path calls `CARDINAL.models.extensions.noteLoadFailure()` to record a failed local
+      embedding-model load — without it that call throws `Cannot read properties of undefined` before
+      the intended warn log ever runs, turning a job meant to degrade gracefully into a hard crash
+      (OpenProject #3295). It only touches an in-memory `Set` (`noteLoadFailure`/`hasLoadFailed`), so
+      no `refreshFromDisk()` call is needed here.
     */
     CARDINAL.models = {
-      settings: (await import('./models/settings.ts')).settings
+      settings: (await import('./models/settings.ts')).settings,
+      extensions: (await import('./models/extensions.ts')).extensions
     } as CardinalGlobal['models']
 
     try {
