@@ -116,10 +116,12 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
       (Task #3220) for one to sit on.
 
       OpenProject #3315: down from 3 to 1 -- PREFERENCES/ACCESSIBILITY's two bands moved to
-      `ProfilePreferences.vue` with the rows they headed, leaving only MY INFO's here.
+      `ProfilePreferences.vue` with the rows they headed, leaving only MY INFO's here. OpenProject
+      #3316 then removed that last band too: the page itself (titled "About Me" in the sidenav) is
+      the only section the identity fields need, so this page draws no `.w-section-header` at all.
     */
     const bands = wrapper.findAll('.w-section-header')
-    expect(bands.length).toBe(1)
+    expect(bands.length).toBe(0)
     for (const band of bands) {
       expect(band.classes().some((cls) => cls.startsWith('mt-'))).toBe(false)
     }
