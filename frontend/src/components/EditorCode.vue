@@ -251,8 +251,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style lang="scss">
-@use 'sass:color';
-
 .editor-code {
   /*
     Percentage heights all the way down rather than a viewport calc, which had to grow a new
