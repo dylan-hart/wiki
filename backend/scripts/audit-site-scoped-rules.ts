@@ -76,14 +76,14 @@ export function formatReportLines(report: SiteScopedRuleReport[]): string[] {
 
 /** Standalone entrypoint — not exercised by the test file, which drives the two functions above directly. */
 async function main() {
-  const WIKI = {
+  const CARDINAL = {
     IS_DEBUG: process.env.NODE_ENV === 'development',
     ROOTPATH: process.cwd(),
     SERVERPATH: path.join(process.cwd(), 'backend'),
     INSTANCE_ID: 'audit-site-scoped-rules',
     configSvc
-  } as unknown as WikiGlobal
-  global.WIKI = WIKI
+  } as unknown as CardinalGlobal
+  global.CARDINAL = CARDINAL
 
   await WIKI.configSvc.init(true)
   WIKI.logger = logger.init()

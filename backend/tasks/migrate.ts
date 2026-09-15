@@ -35,7 +35,7 @@ import type { ParsedMigrationArgs } from '../migration/cli.ts'
 async function main(): Promise<void> {
   const args = parseMigrationArgs(process.argv.slice(2))
 
-  const WIKI = await bootstrapMigrationRuntime('migrate-cli')
+  const CARDINAL = await bootstrapMigrationRuntime('migrate-cli')
 
   // -> No `source` field: `args.source` is a whole `ParsedSource`, credentials included. The source
   //    is described (kind and location only) by `runAgainstDestination` below.

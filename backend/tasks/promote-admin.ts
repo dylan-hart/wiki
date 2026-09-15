@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const WIKI = await bootstrapPromoteAdminRuntime()
+  const CARDINAL = await bootstrapPromoteAdminRuntime()
 
   // Same reasoning as `migrate.ts`'s own `finally`: nothing else keeps the event loop alive once this
   // is done, but an open pg Pool does -- without closing it, the CLI would finish its own logic but

@@ -88,14 +88,14 @@ async function loadModels(): Promise<WikiGlobal['models']> {
  * `verify-migration-cli` do for the migration CLI.
  */
 export async function bootstrapMcpRuntime(instanceId: string): Promise<WikiGlobal> {
-  const WIKI = {
+  const CARDINAL = {
     IS_DEBUG: process.env.NODE_ENV === 'development',
     ROOTPATH: process.cwd(),
     INSTANCE_ID: instanceId,
     SERVERPATH: path.join(process.cwd(), 'backend'),
     configSvc
-  } as unknown as WikiGlobal
-  global.WIKI = WIKI
+  } as unknown as CardinalGlobal
+  global.CARDINAL = CARDINAL
 
   // -> `silent: true` — the stdio transport (`mcp/stdio.ts`) needs stdout free for JSON-RPC frames
   //    only; `configSvc.init()`'s own error path still writes to stderr via `console.error`, which is

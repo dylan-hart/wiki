@@ -54,7 +54,7 @@ await ensureTemporal()
 
 // The global is assembled progressively: the literal below holds what is known at startup, and
 // preBoot()/initHTTPServer() fill in db, models, cache, scheduler, events, app and server.
-const WIKI = {
+const CARDINAL = {
   IS_DEBUG: process.env.NODE_ENV === 'development',
   ROOTPATH: process.cwd(),
   INSTANCE_ID: nanoid(10),
@@ -68,8 +68,8 @@ const WIKI = {
   sites: {},
   sitesMappings: {},
   startedAt: Temporal.Now.instant()
-} as unknown as WikiGlobal
-global.WIKI = WIKI
+} as unknown as CardinalGlobal
+global.CARDINAL = CARDINAL
 
 if (WIKI.IS_DEBUG) {
   process.on('warning', (warning: Error) => {
