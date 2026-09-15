@@ -66,22 +66,13 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   (the same merge-then-`saveToDb()` path `api/system/settings.ts` uses), not a raw
  *   `CARDINAL.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
  *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
- * - `eventSubscriptions` — reached transitively via `models/hooks.ts`'s
- *   `notifyEventSubscriptionSubscribers()` (`CARDINAL.models.eventSubscriptions.listSubscribers(event)`),
- *   itself called unconditionally by `createPage()`'s own `announce('page:create', ...)`. Unreachable
- *   on a migration into a fresh site in practice (no subscriber rows exist yet to notify), but
- *   `hooks.ts` calls `.listSubscribers()` before checking whether any exist, so the unloaded-model
- *   `TypeError` fired on every single page anyway — caught by `hooks.ts`'s own try/catch (a warning
- *   per page, not a failed import), but 158 warnings is still worth not shipping.
  *
- * `pageClassification`, `extensions`, `blocks` and `eventSubscriptions` were each omitted here once —
- * every one threw `Cannot read properties of undefined` on every real (non-dry-run) write that reached
- * it, while a dry run stayed silent, since `--dry-run` never reaches the real `createPage()`/
- * `upload()` paths. `pageClassification`/`blocks`/`extensions`(Puppeteer) failed the whole page;
- * `eventSubscriptions` only warned, since `hooks.ts` already wraps that call — the reason a live
- * migration run is the only thing that can prove this model set is actually complete; a dry run
- * cannot, and neither can a clean phase report alone, since a caught-and-logged failure like this one
- * leaves `wouldCreate` looking correct.
+ * `pageClassification`, `extensions` and `blocks` were each omitted here once — every one threw
+ * `Cannot read properties of undefined` on every real (non-dry-run) write that reached it, while a
+ * dry run stayed silent, since `--dry-run` never reaches the real `createPage()`/`upload()` paths —
+ * the reason a live migration run is the only thing that can prove this model set is actually
+ * complete; a dry run cannot, and neither can a clean phase report alone, since a caught-and-logged
+ * failure like this one leaves `wouldCreate` looking correct.
  *
  * `glossary` is deliberately NOT included: it is only reached through `pages.ts`'s `updatePage`/
  * `movePage`/`deletePage`, and no importer built so far calls any of those. Add it here the moment
@@ -113,8 +104,7 @@ export async function loadModels(): Promise<CardinalGlobal['models']> {
     { flags },
     { classificationLevels },
     { navigation },
-    { security },
-    { eventSubscriptions }
+    { security }
   ] = await Promise.all([
     import('../models/sites.ts'),
     import('../models/settings.ts'),
@@ -139,8 +129,7 @@ export async function loadModels(): Promise<CardinalGlobal['models']> {
     import('../models/flags.ts'),
     import('../models/classificationLevels.ts'),
     import('../models/navigation.ts'),
-    import('../models/security.ts'),
-    import('../models/eventSubscriptions.ts')
+    import('../models/security.ts')
   ])
   return {
     sites,
@@ -166,8 +155,7 @@ export async function loadModels(): Promise<CardinalGlobal['models']> {
     flags,
     classificationLevels,
     navigation,
-    security,
-    eventSubscriptions
+    security
   } as CardinalGlobal['models']
 }
 

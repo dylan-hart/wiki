@@ -396,11 +396,9 @@ class Hooks {
       CARDINAL.logger.warn('hooks', 'queueing the webhook deliveries failed', { event, error: err })
     }
 
-    // -> Two further, independent fan-outs for the same event — see `notifyEmailSubscribers`'s and
-    //    `queueEventSubscriberNotifications`'s own doc comments for why each is separate from (and
-    //    cannot affect) the webhook queueing above, or each other.
+    // -> A further, independent fan-out for the same event — see `notifyEmailSubscribers`'s own doc
+    //    comment for why it is separate from (and cannot affect) the webhook queueing above.
     await this.notifyEmailSubscribers(event, siteId, data)
-    await this.queueEventSubscriberNotifications(event, data)
 
     return queued
   }
@@ -439,44 +437,6 @@ class Hooks {
       })
     } catch (err: any) {
       CARDINAL.logger.warn('hooks', 'queueing the email notifications failed', {
-        event,
-        error: err
-      })
-    }
-  }
-
-  /**
-   * Queue one batched notification job for every user subscribed to this event
-   * (`models/eventSubscriptions.ts`) -- the per-user counterpart to the webhook fan-out `emit()`
-   * already does above, added for OpenProject #2484. A single job carrying every subscriber's id,
-   * mirroring `models/pages.ts#notifyWatchers`'s own one-job-per-change batching, rather than one job
-   * per subscriber.
-   *
-   * A separate task (`notifyEventSubscriptionSubscribers`, not `notifyEventSubscribers`) from
-   * {@link notifyEmailSubscribers}'s job above on purpose: the two read from different subscription
-   * stores (`models/eventSubscriptions.ts`'s dedicated table here, vs. `users.prefs.notifications
-   * .events` there) and hand their task a differently-shaped payload, so sharing one task name would
-   * mean one task guessing which shape it received.
-   *
-   * Never throws, matching `emit()`'s own "safe to call from anywhere" contract: a failure here must
-   * not affect `emit()`'s webhook-queued count, which is why this is a separate try/catch from the
-   * webhook loop above rather than folded into it.
-   */
-  private async queueEventSubscriberNotifications(
-    event: HookEvent,
-    data: Record<string, any>
-  ): Promise<void> {
-    try {
-      const subscriberIds = await CARDINAL.models.eventSubscriptions.listSubscribers(event)
-      if (subscriberIds.length < 1) {
-        return
-      }
-      await CARDINAL.scheduler.addJob({
-        task: 'notifyEventSubscriptionSubscribers',
-        payload: { event, data, subscriberIds }
-      })
-    } catch (err: any) {
-      CARDINAL.logger.warn('hooks', 'queueing the event-subscriber notifications failed', {
         event,
         error: err
       })

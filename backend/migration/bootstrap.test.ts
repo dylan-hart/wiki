@@ -53,8 +53,7 @@ const EXPECTED_MODEL_NAMES = [
   'flags',
   'classificationLevels',
   'navigation',
-  'security',
-  'eventSubscriptions'
+  'security'
 ]
 
 describe('migration bootstrap', () => {

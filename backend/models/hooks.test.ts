@@ -5,8 +5,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import {
   hooks as hooksTable,
   jobHistory as jobHistoryTable,
-  sites as sitesTable,
-  users as usersTable
+  sites as sitesTable
 } from '../db/schema.ts'
 import { EMITTED_EVENTS, HOOK_EVENTS } from './hooks.ts'
 
@@ -40,7 +39,6 @@ test('HOOK_EVENTS and EMITTED_EVENTS stay in parity', () => {
 describe('Hooks.emit (unit)', () => {
   let hooksModule: typeof import('./hooks.ts')
   let subscribed: { id: string; includeMetadata: boolean; includeContent: boolean }[]
-  let subscribers: string[]
   let queuedJobs: any[]
   let emailSubscribers: { id: string }[]
 
@@ -57,9 +55,6 @@ describe('Hooks.emit (unit)', () => {
         //    the webhook-only tests above see no extra job queued.
         users: {
           listEmailSubscribers: async () => emailSubscribers
-        },
-        eventSubscriptions: {
-          listSubscribers: async () => subscribers
         }
       },
       db: {
@@ -81,7 +76,6 @@ describe('Hooks.emit (unit)', () => {
 
   beforeEach(() => {
     subscribed = []
-    subscribers = []
     queuedJobs = []
     emailSubscribers = []
   })
@@ -199,10 +193,7 @@ describe('Hooks.emit email fan-out (unit)', () => {
         rateLimits: {
           consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
         },
-        users: { listEmailSubscribers },
-        // -> `emit()`'s event-subscriber fan-out (`queueEventSubscriberNotifications`) also queries
-        //    this on every call; empty by default so it never queues a job this suite doesn't expect.
-        eventSubscriptions: { listSubscribers: async () => [] }
+        users: { listEmailSubscribers }
       },
       db: {
         select: () => ({
@@ -296,100 +287,6 @@ describe('Hooks.emit email fan-out (unit)', () => {
         where: () => Promise.resolve(subscribed)
       })
     })
-  })
-})
-
-/**
- * `emit()`'s event-subscriber fan-out (OpenProject #2484), independent of the webhook fan-out above:
- * whether a subscribed user gets queued a `notifyEventSubscriptionSubscribers` job, an unsubscribed
- * one does not, several subscribers are batched into a single job rather than one job each, and the
- * webhook-queued return value stays exactly what it was before this feature existed either way.
- */
-describe('Hooks.emit event-subscriber fan-out (unit)', () => {
-  let hooksModule: typeof import('./hooks.ts')
-  let subscribed: { id: string; includeMetadata: boolean; includeContent: boolean }[]
-  let subscribers: string[]
-  let queuedJobs: any[]
-
-  before(async () => {
-    ;(globalThis as any).CARDINAL = {
-      logger: { warn: mock.fn(), debug: mock.fn(), info: mock.fn() },
-      INSTANCE_ID: 'test-instance',
-      config: { scheduler: {} },
-      models: {
-        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) },
-        eventSubscriptions: { listSubscribers: async () => subscribers },
-        // -> `emit()`'s email fan-out (`notifyEmailSubscribers`) also queries this on every call;
-        //    empty by default so it never queues a job this suite doesn't expect.
-        users: { listEmailSubscribers: async () => [] }
-      },
-      db: {
-        select: () => ({
-          from: () => ({
-            where: () => Promise.resolve(subscribed)
-          })
-        })
-      },
-      scheduler: {
-        addJob: mock.fn(async (job: any) => {
-          queuedJobs.push(job)
-          return { id: `job-${queuedJobs.length}` }
-        })
-      }
-    }
-    hooksModule = await import('./hooks.ts')
-  })
-
-  beforeEach(() => {
-    subscribed = []
-    subscribers = []
-    queuedJobs = []
-  })
-
-  test('an event with a subscriber queues a batched notifyEventSubscriptionSubscribers job carrying their id', async () => {
-    subscribers = ['user-subscribed']
-
-    await hooksModule.hooks.emit('page:edit', 'site-1', { id: 'page-1' })
-
-    const notifyJobs = queuedJobs.filter((job) => job.task === 'notifyEventSubscriptionSubscribers')
-    assert.equal(notifyJobs.length, 1)
-    assert.deepEqual(notifyJobs[0].payload.subscriberIds, ['user-subscribed'])
-    assert.equal(notifyJobs[0].payload.event, 'page:edit')
-  })
-
-  test('an event with no subscribers queues no notifyEventSubscriptionSubscribers job', async () => {
-    subscribers = []
-
-    await hooksModule.hooks.emit('page:edit', 'site-1', { id: 'page-1' })
-
-    assert.equal(
-      queuedJobs.filter((job) => job.task === 'notifyEventSubscriptionSubscribers').length,
-      0
-    )
-  })
-
-  test('several subscribers are batched into one job, not one job each', async () => {
-    subscribers = ['user-a', 'user-b', 'user-c']
-
-    await hooksModule.hooks.emit('page:edit', 'site-1', { id: 'page-1' })
-
-    const notifyJobs = queuedJobs.filter((job) => job.task === 'notifyEventSubscriptionSubscribers')
-    assert.equal(notifyJobs.length, 1)
-    assert.deepEqual(notifyJobs[0].payload.subscriberIds.sort(), ['user-a', 'user-b', 'user-c'])
-  })
-
-  test('the webhook-queued return value is unaffected by whether the event has subscribers', async () => {
-    subscribed = [{ id: 'hook-1', includeMetadata: true, includeContent: true }]
-    subscribers = ['user-subscribed']
-
-    const queued = await hooksModule.hooks.emit('page:edit', 'site-1', { id: 'page-1' })
-
-    assert.equal(queued, 1)
-    assert.equal(queuedJobs.filter((job) => job.task === 'dispatchWebhook').length, 1)
-    assert.equal(
-      queuedJobs.filter((job) => job.task === 'notifyEventSubscriptionSubscribers').length,
-      1
-    )
   })
 })
 
@@ -703,10 +600,9 @@ describe('hooks emit rate limiting (mocked)', () => {
       },
       models: {
         rateLimits: createFakeRateLimits(),
-        // -> `emit()`'s email/event-subscriber fan-outs query these too; empty and warn-free so
-        //    `warnCalls` only ever captures the rate-limit warnings this describe actually tests.
-        users: { listEmailSubscribers: async () => [] },
-        eventSubscriptions: { listSubscribers: async () => [] }
+        // -> `emit()`'s email fan-out queries this too; empty and warn-free so `warnCalls` only ever
+        //    captures the rate-limit warnings this describe actually tests.
+        users: { listEmailSubscribers: async () => [] }
       },
       scheduler: {
         // -> No `update`/`insert` stub exists on the fake `CARDINAL.db` below: if a throttled delivery
@@ -874,84 +770,3 @@ describe('HOOK_EVENTS / EMITTED_EVENTS declared/emitted parity', () => {
     )
   })
 })
-
-/**
- * OpenProject #2484: end-to-end proof, against a real database and the real `models/eventSubscriptions.ts`
- * (installed by `setupTestDb()` via the real `models/index.ts`, not a mock), that a user subscribed to
- * an event gets queued a notification when it fires and an unsubscribed user does not — the WP's own
- * literal claim, verified at the layer `emit()` actually controls (which job gets queued for whom).
- * `tasks/simple/notify-event-subscription-subscribers.test.ts` covers the next step, the queued job
- * actually resulting in a sent email, with the model layer mocked instead.
- */
-describe(
-  'hooks emit event-subscriber fan-out (DB-backed, OpenProject #2484)',
-  {
-    skip: !hasTestDatabase()
-  },
-  () => {
-    let fixtures: TestFixtures
-    let hooksModel: typeof import('./hooks.ts').hooks
-    let unsubscribedUserId: string
-    let addJob: ReturnType<typeof mock.fn>
-
-    before(async () => {
-      fixtures = await setupTestDb()
-      ;({ hooks: hooksModel } = await import('./hooks.ts'))
-
-      const [otherUser] = await fixtures.db
-        .insert(usersTable)
-        .values({ email: 'unsubscribed@example.com', name: 'Unsubscribed User', isActive: true })
-        .returning({ id: usersTable.id })
-      unsubscribedUserId = otherUser!.id
-    })
-
-    after(async () => {
-      await teardownTestDb()
-    })
-
-    // -> `emit()` never throws, but it does queue through `CARDINAL.scheduler.addJob` — the piece of the
-    //    real scheduler `test/db.ts`'s minimal `CARDINAL` does not install (same reasoning as the sibling
-    //    DB-backed describes above).
-    beforeEach(() => {
-      addJob = mock.fn(async () => ({ id: 'job-id' }))
-      ;(globalThis as any).CARDINAL.scheduler = { addJob }
-    })
-
-    test('a subscribed user is queued a notification; an unsubscribed user is not', async () => {
-      await CARDINAL.models.eventSubscriptions.subscribe(fixtures.userId, 'page:edit')
-      // -> `unsubscribedUserId` deliberately has no `eventSubscriptions` row at all.
-
-      await hooksModel.emit('page:edit', fixtures.siteId, { id: 'page-1' })
-
-      const notifyJobs = addJob.mock.calls
-        .map((call) => call.arguments[0] as { task: string; payload: any })
-        .filter((job) => job.task === 'notifyEventSubscriptionSubscribers')
-      assert.equal(notifyJobs.length, 1)
-      assert.deepEqual(notifyJobs[0]!.payload.subscriberIds, [fixtures.userId])
-      assert.ok(!notifyJobs[0]!.payload.subscriberIds.includes(unsubscribedUserId))
-    })
-
-    test('unsubscribing removes the user from future fan-outs', async () => {
-      await CARDINAL.models.eventSubscriptions.subscribe(fixtures.userId, 'page:delete')
-      await CARDINAL.models.eventSubscriptions.unsubscribe(fixtures.userId, 'page:delete')
-
-      await hooksModel.emit('page:delete', fixtures.siteId, { id: 'page-2' })
-
-      const notifyJobs = addJob.mock.calls
-        .map((call) => call.arguments[0] as { task: string })
-        .filter((job) => job.task === 'notifyEventSubscriptionSubscribers')
-      assert.equal(notifyJobs.length, 0)
-    })
-
-    test('a subscription to a different event does not fire for this one', async () => {
-      await CARDINAL.models.eventSubscriptions.subscribe(fixtures.userId, 'page:rename')
-
-      await hooksModel.emit('page:create', fixtures.siteId, { id: 'page-3' })
-
-      const notifyJobs = addJob.mock.calls
-        .map((call) => call.arguments[0] as { task: string })
-        .filter((job) => job.task === 'notifyEventSubscriptionSubscribers')
-      assert.equal(notifyJobs.length, 0)
-    })
-  }
-)
