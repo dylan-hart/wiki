@@ -593,3 +593,144 @@ describe('extractContentStaging', () => {
     assert.equal(history.isPublished, false)
   })
 })
+
+// OpenProject #3294: a live PostgresSourceConnector hands back a real `Date` for a `timestamp`/
+// `timestamptz` column (node-postgres's own default decoding), not a string -- `checkShape()` only
+// validates column presence, not type. Staging must normalize either shape to the same ISO string a
+// bundle/JSON-backed connector already hands back, rather than bare `String(value)`-ing a `Date` into
+// `Date.prototype.toString()`'s locale/timezone-dependent format.
+describe('timestamp normalization (Date vs string ambiguity)', () => {
+  test('stagePage normalizes real Date objects to ISO strings', async () => {
+    const datePage: SourceRecord = {
+      id: 6,
+      path: 'date-sourced',
+      localeCode: 'en',
+      title: 'Date Sourced',
+      description: null,
+      content: 'body',
+      render: '<p>body</p>',
+      toc: [],
+      contentType: 'markdown',
+      isPrivate: false,
+      privateNS: null,
+      isPublished: true,
+      publishStartDate: new Date('2020-03-01T12:00:00.000Z'),
+      publishEndDate: new Date('2020-04-01T12:00:00.000Z'),
+      createdAt: new Date('2019-12-01T00:00:00.000Z'),
+      updatedAt: new Date('2020-01-02T00:00:00.000Z'),
+      extra: {},
+      editorKey: 'markdown',
+      authorId: 10,
+      creatorId: 10,
+      tags: []
+    }
+
+    const connector = new FixtureSourceConnector([datePage], [], [])
+    const result = await stageAll(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    const page = result.pages.find((p) => p.oldId === 6)!
+    assert.equal(page.createdAt, '2019-12-01T00:00:00.000Z')
+    assert.equal(page.updatedAt, '2020-01-02T00:00:00.000Z')
+    assert.equal(page.publishStartDate, '2020-03-01T12:00:00.000Z')
+    assert.equal(page.publishEndDate, '2020-04-01T12:00:00.000Z')
+  })
+
+  test('stageHistoryEntry normalizes real Date objects, including versionDate, to ISO strings', async () => {
+    const datePage: SourceRecord = {
+      id: 7,
+      path: 'date-sourced-history',
+      localeCode: 'en',
+      title: 'Date Sourced History',
+      description: null,
+      content: 'body',
+      render: '<p>body</p>',
+      toc: [],
+      contentType: 'markdown',
+      isPrivate: false,
+      privateNS: null,
+      isPublished: true,
+      publishStartDate: null,
+      publishEndDate: null,
+      createdAt: new Date('2019-12-01T00:00:00.000Z'),
+      updatedAt: new Date('2019-12-01T00:00:00.000Z'),
+      extra: {},
+      editorKey: 'markdown',
+      authorId: 10,
+      creatorId: 10,
+      tags: []
+    }
+    const dateHistory: SourceRecord = {
+      id: 700,
+      pageId: 7,
+      action: 'created',
+      path: 'date-sourced-history',
+      localeCode: 'en',
+      title: 'Date Sourced History',
+      description: null,
+      content: 'body',
+      contentType: 'markdown',
+      isPrivate: false,
+      isPublished: true,
+      publishStartDate: new Date('2020-03-01T12:00:00.000Z'),
+      publishEndDate: new Date('2020-04-01T12:00:00.000Z'),
+      editorKey: 'markdown',
+      versionDate: new Date('2019-12-01T00:00:00.000Z'),
+      createdAt: new Date('2019-12-01T00:00:00.000Z'),
+      extra: {},
+      authorId: 10,
+      tags: []
+    }
+
+    const connector = new FixtureSourceConnector([datePage], [dateHistory], [])
+    const result = await stageAll(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    const page = result.pages.find((p) => p.oldId === 7)!
+    const history = page.history[0]
+    assert.equal(history.versionDate, '2019-12-01T00:00:00.000Z')
+    assert.equal(history.createdAt, '2019-12-01T00:00:00.000Z')
+    assert.equal(history.publishStartDate, '2020-03-01T12:00:00.000Z')
+    assert.equal(history.publishEndDate, '2020-04-01T12:00:00.000Z')
+  })
+
+  test('a null publishStartDate/publishEndDate stays null regardless of connector shape', async () => {
+    const datePage: SourceRecord = {
+      id: 8,
+      path: 'null-dates',
+      localeCode: 'en',
+      title: 'Null Dates',
+      description: null,
+      content: 'body',
+      render: '<p>body</p>',
+      toc: [],
+      contentType: 'markdown',
+      isPrivate: false,
+      privateNS: null,
+      isPublished: false,
+      publishStartDate: null,
+      publishEndDate: null,
+      createdAt: new Date('2019-12-01T00:00:00.000Z'),
+      updatedAt: new Date('2019-12-01T00:00:00.000Z'),
+      extra: {},
+      editorKey: 'markdown',
+      authorId: 10,
+      creatorId: 10,
+      tags: []
+    }
+
+    const connector = new FixtureSourceConnector([datePage], [], [])
+    const result = await stageAll(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    const page = result.pages.find((p) => p.oldId === 8)!
+    assert.equal(page.publishStartDate, null)
+    assert.equal(page.publishEndDate, null)
+  })
+})
