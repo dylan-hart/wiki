@@ -338,10 +338,10 @@
         <!-- Configuration -->
         <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.auth.strategyConfiguration')">
-          <w-card-section>
+          <w-card-section
+            v-if="!state.strategy.config || Object.keys(state.strategy.config).length < 1">
             <w-banner
               class="mt-4"
-              v-if="!state.strategy.config || Object.keys(state.strategy.config).length < 1"
               :class="dark.isActive ? `bg-dark-4 text-grey-5` : `bg-grey-2 text-grey-7`">
               <em>{{ t('admin.auth.noConfigOption') }}</em>
             </w-banner>

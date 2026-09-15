@@ -799,6 +799,99 @@ describe('AdminAuth trust-email-for-linking toggle', () => {
   })
 })
 
+/**
+ * OpenProject #3323: the "Configuration" `w-settings-card`'s wrapping `<w-card-section>` around the
+ * "no config options" banner was unconditional even though the banner itself was gated by `v-if` --
+ * `WCardSection.vue` always renders its padded div regardless of slot content, so any strategy that
+ * DOES have config (the common case) showed a spurious empty section above `module-config-form`'s
+ * rendered rows. The fix moves the `v-if` onto the `<w-card-section>` itself.
+ *
+ * NOTE: as of this writing, every test below (like most of this file's other data-dependent suites)
+ * fails locally on an unrelated, pre-existing bug: `composables/adminSettings.js`'s Task #3195
+ * stale-response guard snapshots `extraState` before calling this page's own `fetch()`, but
+ * `AdminAuth.vue`'s `fetch()` itself flips its own tracked `loadingGroups` extraState field
+ * true->false around the request -- so the post-fetch snapshot never matches the pre-fetch one and
+ * `onLoaded` is silently dropped every time, regardless of environment. That is a real, separate
+ * regression (verified in isolation against the composable directly, independent of this component
+ * or of jsdom), reported on OpenProject #3323 for separate triage -- not something this ticket's
+ * `w-card-section` fix touches or can route around. These tests are written to the correct, intended
+ * behavior and will pass once that is fixed.
+ */
+describe('AdminAuth strategy configuration section', () => {
+  const LOCAL_MODULE = {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  }
+
+  it('renders no empty w-card-section above the config rows when the strategy has config', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          config: {
+            enforceTfa: {
+              type: 'boolean',
+              title: 'Enforce Two-Factor Authentication',
+              value: false
+            }
+          }
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
+    await flushPromises()
+
+    // -> No "no config options" banner text, and no empty `.w-card-section` sitting in the
+    //    Configuration card -- every `.w-card-section` present has actual content.
+    expect(wrapper.text()).not.toContain('noConfigOption')
+    const emptySections = wrapper
+      .findAll('.w-card-section')
+      .filter((section) => section.text().trim().length < 1)
+    expect(emptySections).toHaveLength(0)
+
+    wrapper.unmount()
+  })
+
+  it('still shows the "no config options" banner, inside its section, when the strategy has none', async () => {
+    stubApi({
+      'authentication/modules': [LOCAL_MODULE],
+      'authentication/strategies': [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          config: {}
+        }
+      ],
+      groups: []
+    })
+    const { wrapper } = mountWithApp(AdminAuth, {
+      attachTo: document.body,
+      messages: {
+        admin: { auth: { ...MESSAGES.admin.auth, noConfigOption: 'No configuration options.' } }
+      }
+    })
+    await flushPromises()
+
+    const banner = wrapper.find('.w-card-section .w-banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('No configuration options.')
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminAuth configured-strategy list', () => {
   it("renders each active strategy's icon from its resolved module, keyed by module key", async () => {
     const activeStrategies = [
