@@ -27,6 +27,7 @@ export type UserCore = Pick<
   | 'name'
   | 'email'
   | 'hasAvatar'
+  | 'avatarProviderUrl'
   | 'isSystem'
   | 'isActive'
   | 'isVerified'
@@ -125,6 +126,12 @@ export interface UserProfile {
   lastName: string
   email: string
   hasAvatar: boolean
+  /**
+   * The provider-reported avatar URL cached by {@link Users.syncAvatarFromProvider}, or `null` when
+   * none has ever been synced. Only a fallback: `hasAvatar` wins whenever both are set, per that
+   * method's own precedence rule.
+   */
+  avatarProviderUrl: string | null
   location: string
   jobTitle: string
   pronouns: string
@@ -355,6 +362,7 @@ export const userSelection = {
   lastName: usersTable.lastName,
   email: usersTable.email,
   hasAvatar: usersTable.hasAvatar,
+  avatarProviderUrl: usersTable.avatarProviderUrl,
   isSystem: usersTable.isSystem,
   isActive: usersTable.isActive,
   isVerified: usersTable.isVerified,
@@ -915,6 +923,7 @@ class Users {
       lastName: user.lastName,
       email: user.email,
       hasAvatar: user.hasAvatar,
+      avatarProviderUrl: user.avatarProviderUrl ?? null,
       location: meta.location ?? '',
       jobTitle: meta.jobTitle ?? '',
       pronouns: meta.pronouns ?? '',
@@ -1656,6 +1665,7 @@ class Users {
       email: user.email,
       name: user.name,
       hasAvatar: user.hasAvatar,
+      avatarProviderUrl: user.avatarProviderUrl ?? null,
       timezone: user.prefs?.timezone,
       dateFormat: user.prefs?.dateFormat,
       timeFormat: user.prefs?.timeFormat,

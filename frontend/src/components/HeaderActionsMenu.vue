@@ -26,6 +26,10 @@
               <w-avatar v-if="userStore.hasAvatar" size="32px">
                 <img :src="`/_user/current/avatar`" :alt="userStore.name" />
               </w-avatar>
+              <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+              <w-avatar v-else-if="userStore.avatarProviderUrl" size="32px">
+                <img :src="userStore.avatarProviderUrl" :alt="userStore.name" />
+              </w-avatar>
               <w-icon v-else name="tabler:user-circle" />
             </w-item-section>
             <w-item-section>

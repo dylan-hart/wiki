@@ -169,6 +169,7 @@ export function startCollabSession({ siteId, pageId }) {
     id: userStore.id,
     name: userStore.name,
     hasAvatar: userStore.hasAvatar,
+    avatarProviderUrl: userStore.avatarProviderUrl,
     color: collabUserColor(userStore.id)
   })
 
@@ -557,6 +558,7 @@ function refreshParticipants() {
       id: state.user.id,
       name: state.user.name || '',
       hasAvatar: Boolean(state.user.hasAvatar),
+      avatarProviderUrl: state.user.avatarProviderUrl || null,
       color: state.user.color || collabUserColor(state.user.id),
       typing: Boolean(state.typing),
       isSelf: clientId === doc.clientID

@@ -27,14 +27,14 @@ const MESSAGES = {
   }
 }
 
-function mountPage({ canEdit = true, hasAvatar = false } = {}) {
+function mountPage({ canEdit = true, hasAvatar = false, avatarProviderUrl = null } = {}) {
   return mountWithApp(ProfileAvatar, {
     messages: MESSAGES,
     stores: {
       site: (store) => {
         store.features = { profile: canEdit }
       },
-      user: { hasAvatar, name: 'Ada Lovelace' }
+      user: { hasAvatar, avatarProviderUrl, name: 'Ada Lovelace' }
     }
   }).wrapper
 }
@@ -76,6 +76,41 @@ describe('ProfileAvatar', () => {
 
     const clear = control.findAll('button').find((btn) => btn.text().includes('Clear'))
     expect(clear.attributes('disabled')).toBeDefined()
+  })
+
+  /**
+   * Task #3264: a manual upload always wins; the provider-synced picture is only a fallback for
+   * the reader's own preview here, same precedence as every other avatar-rendering call site.
+   */
+  it('falls back to the provider avatar when there is no manual upload', async () => {
+    const wrapper = mountPage({
+      hasAvatar: false,
+      avatarProviderUrl: 'https://provider.example/photo.jpg'
+    })
+    await flushPromises()
+
+    const preview = wrapper.find('.w-settings-row__preview')
+    expect(preview.find('img').attributes('src')).toBe('https://provider.example/photo.jpg')
+  })
+
+  it('prefers the manual upload over a provider avatar when both are present', async () => {
+    const wrapper = mountPage({
+      hasAvatar: true,
+      avatarProviderUrl: 'https://provider.example/photo.jpg'
+    })
+    await flushPromises()
+
+    const preview = wrapper.find('.w-settings-row__preview')
+    expect(preview.find('img').attributes('src')).toContain('/_user/current/avatar?')
+  })
+
+  it('falls back to the generic glyph when neither avatar exists', async () => {
+    const wrapper = mountPage({ hasAvatar: false, avatarProviderUrl: null })
+    await flushPromises()
+
+    const preview = wrapper.find('.w-settings-row__preview')
+    expect(preview.find('img').exists()).toBe(false)
+    expect(preview.find('.w-icon').exists()).toBe(true)
   })
 
   it('says why there is nothing to press when the site has profile editing turned off', async () => {

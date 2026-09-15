@@ -394,6 +394,7 @@ async function swapToCollabEditor(ytext, awareness) {
         id: userStore.id,
         name: userStore.name,
         hasAvatar: userStore.hasAvatar,
+        avatarProviderUrl: userStore.avatarProviderUrl,
         color: collabUserColor(userStore.id)
       }
     }),

@@ -51,8 +51,8 @@ const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy:
  * (OpenProject #3045). `models/users.ts#updateProfile` only refreshes `req.session.user` for the
  * session that made the save, so a different session (a different browser or device, logged in
  * separately) kept serving what it had at login until it logged in again — this is deliberately
- * scoped to just those fields, not `id`/`email`/`name`/`hasAvatar`, which stay off the session
- * snapshot as before. Falls back to the session's own (possibly stale) snapshot when the account row
+ * scoped to just those fields, not `id`/`email`/`name`/`hasAvatar`/`avatarProviderUrl`, which stay
+ * off the session snapshot as before. Falls back to the session's own (possibly stale) snapshot when the account row
  * is gone by the time this runs — deleted mid-request, an edge case that already exists today and is
  * not this fix's to solve — rather than a hard failure serving `whoami`/`bootstrap`.
  */

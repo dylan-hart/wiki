@@ -9,6 +9,10 @@
     <w-avatar v-if="userStore.authenticated && userStore.hasAvatar" size="30px" square>
       <img :src="`/_user/current/avatar`" :alt="userStore.name" />
     </w-avatar>
+    <!-- -> A manual upload always wins; the provider-synced picture is only a fallback (Task #3264) -->
+    <w-avatar v-else-if="userStore.authenticated && userStore.avatarProviderUrl" size="30px" square>
+      <img :src="userStore.avatarProviderUrl" :alt="userStore.name" />
+    </w-avatar>
     <span v-else-if="userStore.authenticated" class="account-initials">{{ initials }}</span>
     <w-icon v-else name="tabler:user-circle" />
     <w-menu class="translucent-menu" auto-close>

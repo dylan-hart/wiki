@@ -482,6 +482,26 @@ describe('users.syncAvatarFromProvider (DB-backed)', { skip: !hasTestDatabase() 
 
     assert.equal(applied, false)
   })
+
+  /**
+   * Task #3264: this is the read half `syncAvatarFromProvider`'s own doc comment calls out as not
+   * yet built -- `getProfile()` is what `GET /users/profile` and `whoAmI`'s prefs refresh both read,
+   * so a synced URL has to actually surface there for the frontend fallback to have anything to
+   * render.
+   */
+  test('surfaces through getProfile() once synced', async () => {
+    await usersModel.syncAvatarFromProvider(fixtures.userId, 'https://provider.example/photo.jpg')
+
+    const profile = await usersModel.getProfile(fixtures.userId)
+
+    assert.equal(profile?.avatarProviderUrl, 'https://provider.example/photo.jpg')
+  })
+
+  test('getProfile() reports null when nothing has ever been synced', async () => {
+    const profile = await usersModel.getProfile(fixtures.userId)
+
+    assert.equal(profile?.avatarProviderUrl, null)
+  })
 })
 
 /**
