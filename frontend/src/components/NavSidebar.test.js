@@ -1654,3 +1654,37 @@ describe('NavSidebar shared folder expansion state (OpenProject #2846)', () => {
     expect(headerFor(wrapper, 'Folder A').attributes('aria-expanded')).toBe('true')
   })
 })
+
+/*
+  OpenProject #3252 (Sass removal, hand-converting the genuine `@at-root`-as-escape sites).
+  `body.body--cobalt .sidebar-nav .w-item--clickable`'s hover/press tint (OpenProject #3011, light
+  and dark-Cobalt variants) used to read `@at-root body.body--cobalt[.body--dark] .sidebar-nav
+  .w-item--clickable { ... }`, deliberately WITHOUT `&` so it would NOT inherit the surrounding
+  `.sidebar-nav .w-list .w-item.is-active` nesting -- exactly the shape a source-scan of the compiled
+  stylesheet can confirm without a real browser: that the selector is still the flat, literal one
+  `@at-root` used to produce, not accidentally re-nested under an ancestor it never had.
+*/
+describe('NavSidebar Cobalt hover/press tint, hand-converted from @at-root (OpenProject #3011/#3252)', () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'NavSidebar.vue'),
+    'utf-8'
+  )
+  const styleStart = source.indexOf('<style')
+  const scss = source.slice(source.indexOf('>', styleStart) + 1, source.lastIndexOf('</style>'))
+  const css = sass.compileString(scss).css
+
+  it('emits the hover/press tint as flat, literal rules -- never nested under .sidebar-nav .w-list .w-item.is-active, which they were written to escape', () => {
+    expect(css).toContain(
+      'body.body--cobalt .sidebar-nav .w-item--clickable:hover {\n  background-color: rgba(31, 79, 214, 0.12) !important;\n}'
+    )
+    expect(css).toContain(
+      'body.body--cobalt .sidebar-nav .w-item--clickable:active {\n  background-color: rgba(31, 79, 214, 0.2) !important;\n}'
+    )
+    expect(css).toContain(
+      'body.body--cobalt.body--dark .sidebar-nav .w-item--clickable:hover {\n  background-color: rgba(143, 176, 255, 0.16) !important;\n}'
+    )
+    expect(css).toContain(
+      'body.body--cobalt.body--dark .sidebar-nav .w-item--clickable:active {\n  background-color: rgba(143, 176, 255, 0.26) !important;\n}'
+    )
+  })
+})

@@ -61,8 +61,15 @@ describe('GroupRulesEditor.vue .is-forceallow uses color-mix(), matching .is-all
 
 describe('EditorMarkdown.vue teal callout dark-mode tint uses color-mix()', () => {
   const source = readFileSync(resolve(SRC_ROOT, 'components/EditorMarkdown.vue'), 'utf-8')
+  /*
+   * OpenProject #3252 (a later, sibling WP) hand-converted this rule's `@at-root .theme--dark &`
+   * escape to a flat, unnested rule at the bottom of the same style block -- and corrected its
+   * class from the never-applied `.theme--dark` to the app's real `.body--dark` in the same move
+   * (see EditorMarkdown.vue's own "Hand-converted @at-root escapes" comment). This scan follows the
+   * rule to its new selector; the color-mix() value this WP (#3247) set is unchanged.
+   */
   const darkContentRule = source.match(
-    /@at-root \.theme--dark & \{\s*background-color:\s*([^;]+);\s*\}/
+    /\.body--dark \.editor-markdown-preview-content \.tabset-content \{\s*background-color:\s*([^;]+);\s*\}/
   )
 
   it('finds the callout content dark-mode rule', () => {

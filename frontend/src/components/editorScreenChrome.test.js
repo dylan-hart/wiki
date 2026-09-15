@@ -201,6 +201,27 @@ describe('the markdown editor’s own chrome', () => {
       color: token('--color-text-caption', '#57668a')
     })
   })
+
+  /*
+    OpenProject #3252 (Sass removal, hand-converting the genuine `@at-root`-as-escape sites).
+    `.tabset-content`'s dark-mode tint used to read `@at-root .theme--dark & { ... }` -- `.theme--dark`
+    is a class nothing in this app (or upstream's `scarlett` branch) has ever applied to anything
+    (`composables/dark.js` is the single source of truth for dark mode, and it toggles `.body--dark`
+    on `<body>`), so the rule was permanently dead: this tint never painted in dark mode regardless of
+    theme. The hand-conversion corrects the class to `.body--dark`, the one every other dark-mode
+    override in this file actually reads, rather than silently carrying the dead selector forward.
+  */
+  it('tints the tabset panel teal in dark mode via the app’s real .body--dark class, not the dead .theme--dark one', () => {
+    // -> `declarations()` throws if this exact selector isn't emitted -- were the rule still keyed
+    //    off `.theme--dark`, this selector would not exist in the compiled stylesheet at all.
+    expect(
+      declarations(css, '.body--dark .editor-markdown-preview-content .tabset-content')
+    ).toEqual({
+      // -> OpenProject #3247 converted this rule's value from `rgba($teal-5, 0.1)` to the
+      //    equivalent `color-mix()` form before this WP hand-converted the rule's selector.
+      'background-color': `color-mix(in srgb, ${token('--color-teal-5', '#26a69a')} 10%, transparent)`
+    })
+  })
 })
 
 describe('the page actions rail while a page is being written', () => {

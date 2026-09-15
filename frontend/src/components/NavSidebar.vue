@@ -320,26 +320,11 @@ watch(
       generic black/8 treatment stays correct, so scoping through `.sidebar-nav` in the selector is
       what confines this to the sidebar's own rows. The active-row fill just above
       (`--color-sidebar-active-bg`) is untouched -- this only changes the tint on non-active rows.
+
+      OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this pair (and its
+      `.body--dark` sibling) is hand-converted to plain, unnested rules at the bottom of this style
+      block rather than nested here -- see "Hand-converted @at-root escapes" below.
     */
-    @at-root body.body--cobalt .sidebar-nav .w-item--clickable {
-      &:hover {
-        background-color: rgba(31, 79, 214, 0.12) !important;
-      }
-
-      &:active {
-        background-color: rgba(31, 79, 214, 0.2) !important;
-      }
-    }
-
-    @at-root body.body--cobalt.body--dark .sidebar-nav .w-item--clickable {
-      &:hover {
-        background-color: rgba(143, 176, 255, 0.16) !important;
-      }
-
-      &:active {
-        background-color: rgba(143, 176, 255, 0.26) !important;
-      }
-    }
 
     /*
       Cobalt's rows are plates rather than full-bleed bands: `Page View 3x - Cobalt` insets the whole
@@ -503,6 +488,36 @@ watch(
     .body--dark:not(.body--cobalt) & {
       color: var(--color-text-caption-dark) !important;
     }
+  }
+}
+
+/*
+  Hand-converted @at-root escapes (OpenProject #3252). Both rules below used to read
+  `@at-root body.body--cobalt[.body--dark] .sidebar-nav .w-item--clickable { ... }` deliberately
+  WITHOUT `&`, nested inside `.sidebar-nav .w-list .w-item.is-active` above -- see that block's own
+  comment for why the full literal selector (rather than `&`) is what confines the rule to the
+  sidebar's own rows without inheriting the surrounding `.w-list` scope. Native CSS nesting has no
+  `@at-root`; a plain nested rule here would compile to `.sidebar-nav .w-list .w-item.is-active
+  body.body--cobalt .sidebar-nav .w-item--clickable`, which cannot match anything (`body` is never a
+  descendant of `.sidebar-nav`) -- so these stay flat, top-level rules instead.
+*/
+body.body--cobalt .sidebar-nav .w-item--clickable {
+  &:hover {
+    background-color: rgba(31, 79, 214, 0.12) !important;
+  }
+
+  &:active {
+    background-color: rgba(31, 79, 214, 0.2) !important;
+  }
+}
+
+body.body--cobalt.body--dark .sidebar-nav .w-item--clickable {
+  &:hover {
+    background-color: rgba(143, 176, 255, 0.16) !important;
+  }
+
+  &:active {
+    background-color: rgba(143, 176, 255, 0.26) !important;
   }
 }
 </style>
