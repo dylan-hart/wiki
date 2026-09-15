@@ -9,8 +9,10 @@ import fastifyCookie from '@fastify/cookie'
 import fastifySession from '@fastify/session'
 import { load } from 'js-yaml'
 import {
+  appendCspDirective,
   corsOrigin,
   corsOptions,
+  frameAncestorsDirective,
   inlineScriptHashSources,
   isSameOriginHeader,
   needsSvgCsp,
@@ -559,5 +561,49 @@ describe('shouldBlockCrossOriginApiRequest', () => {
 
   test('never blocks a request carrying no session cookie at all', () => {
     assert.equal(shouldBlockCrossOriginApiRequest(req({ cookies: {} })), false)
+  })
+})
+
+/**
+ * OpenProject #3275: the per-request `frame-ancestors` directive built from a resolved site's
+ * `embedAllowedOrigins` allowlist.
+ */
+describe('frameAncestorsDirective', () => {
+  test('an empty allowlist (the default) produces no directive', () => {
+    assert.equal(frameAncestorsDirective([]), null)
+  })
+
+  test('always includes the self keyword alongside the configured origins', () => {
+    assert.equal(
+      frameAncestorsDirective(['https://tools.example.com']),
+      "frame-ancestors 'self' https://tools.example.com"
+    )
+  })
+
+  test('joins several origins with a single space', () => {
+    assert.equal(
+      frameAncestorsDirective(['https://a.example.com', 'https://b.example.com']),
+      "frame-ancestors 'self' https://a.example.com https://b.example.com"
+    )
+  })
+})
+
+describe('appendCspDirective', () => {
+  test('becomes the whole header value when nothing is set yet (CSP enforcement off instance-wide)', () => {
+    assert.equal(appendCspDirective(undefined, "frame-ancestors 'self'"), "frame-ancestors 'self'")
+  })
+
+  test('appends onto an existing string header without disturbing it', () => {
+    assert.equal(
+      appendCspDirective("default-src 'self'", "frame-ancestors 'self' https://tools.example.com"),
+      "default-src 'self'; frame-ancestors 'self' https://tools.example.com"
+    )
+  })
+
+  test('joins an array header value (multiple setHeader calls coalesced) before appending', () => {
+    assert.equal(
+      appendCspDirective(["default-src 'self'", "script-src 'self'"], "frame-ancestors 'self'"),
+      "default-src 'self'; script-src 'self'; frame-ancestors 'self'"
+    )
   })
 })

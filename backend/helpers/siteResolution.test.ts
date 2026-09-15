@@ -1,7 +1,10 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
+import fastifyHelmet from '@fastify/helmet'
 import {
+  applyEmbedFrameAncestors,
+  embedAllowedOrigins,
   guardSiteEnabled,
   normalizeHostname,
   resolveRequestSite,
@@ -454,5 +457,174 @@ describe('siteEnabledPreHandler', () => {
     assert.deepEqual(replyCalls.notFound, [SITE_MISSING_MESSAGE])
     assert.deepEqual(replyCalls.forbidden, [])
     assert.equal(doneCalls.length, 0)
+  })
+})
+
+/**
+ * OpenProject #3275: reading the per-site iframe-embed allowlist #3274 owns
+ * (`site.config.security.embedAllowedOrigins`) defensively.
+ */
+describe('embedAllowedOrigins', () => {
+  test('reads the configured allowlist', () => {
+    const site = { config: { security: { embedAllowedOrigins: ['https://tools.example.com'] } } }
+    assert.deepEqual(embedAllowedOrigins(site), ['https://tools.example.com'])
+  })
+
+  test('defaults to empty for a site with no security config at all (every site today)', () => {
+    assert.deepEqual(embedAllowedOrigins({ config: {} }), [])
+  })
+
+  test('defaults to empty for a site with no config at all', () => {
+    assert.deepEqual(embedAllowedOrigins({}), [])
+  })
+
+  test('defaults to empty for null/undefined', () => {
+    assert.deepEqual(embedAllowedOrigins(null), [])
+    assert.deepEqual(embedAllowedOrigins(undefined), [])
+  })
+
+  test('defaults to empty when the field is present but not an array (defensive against a shape drift)', () => {
+    assert.deepEqual(
+      embedAllowedOrigins({ config: { security: { embedAllowedOrigins: 'not-an-array' } } }),
+      []
+    )
+  })
+})
+
+/** A stand-in for `FastifyReply` recording only the header get/set `applyEmbedFrameAncestors` uses. */
+function fakeCspReply(existing?: string | string[]) {
+  const headers = new Map<string, string | string[]>()
+  if (existing !== undefined) {
+    headers.set('content-security-policy', existing)
+  }
+  const reply: any = {
+    getHeader(name: string) {
+      return headers.get(name)
+    },
+    header(name: string, value: string) {
+      headers.set(name, value)
+      return reply
+    }
+  }
+  return { reply, headers }
+}
+
+describe('applyEmbedFrameAncestors', () => {
+  test('leaves an unset CSP header alone for the default empty allowlist (unchanged behavior)', () => {
+    const { reply, headers } = fakeCspReply()
+    applyEmbedFrameAncestors({ config: {} }, reply)
+    assert.equal(headers.has('content-security-policy'), false)
+  })
+
+  test('leaves an existing CSP header untouched for a site with an empty allowlist', () => {
+    const { reply, headers } = fakeCspReply("default-src 'self'")
+    applyEmbedFrameAncestors({ config: { security: { embedAllowedOrigins: [] } } }, reply)
+    assert.equal(headers.get('content-security-policy'), "default-src 'self'")
+  })
+
+  test('sets a fresh CSP header for a non-empty allowlist when CSP enforcement is off instance-wide', () => {
+    const { reply, headers } = fakeCspReply()
+    applyEmbedFrameAncestors(
+      { config: { security: { embedAllowedOrigins: ['https://tools.example.com'] } } },
+      reply
+    )
+    assert.equal(
+      headers.get('content-security-policy'),
+      "frame-ancestors 'self' https://tools.example.com"
+    )
+  })
+
+  test('appends onto the instance-wide CSP header without disturbing its other directives', () => {
+    const { reply, headers } = fakeCspReply("default-src 'self'; script-src 'self'")
+    applyEmbedFrameAncestors(
+      { config: { security: { embedAllowedOrigins: ['https://tools.example.com'] } } },
+      reply
+    )
+    assert.equal(
+      headers.get('content-security-policy'),
+      "default-src 'self'; script-src 'self'; frame-ancestors 'self' https://tools.example.com"
+    )
+  })
+
+  test('does nothing for a null/undefined site', () => {
+    const { reply, headers } = fakeCspReply("default-src 'self'")
+    applyEmbedFrameAncestors(null, reply)
+    applyEmbedFrameAncestors(undefined, reply)
+    assert.equal(headers.get('content-security-policy'), "default-src 'self'")
+  })
+})
+
+/**
+ * OpenProject #3275 acceptance: exercised end to end against a real Fastify app with a real
+ * `@fastify/helmet` registration (mirroring `core/http/security.ts#registerSecurity`) and the same
+ * `resolveRequestSite` + `applyEmbedFrameAncestors` pairing `core/http/siteRouting.ts#registerSiteResolution`
+ * wires together, in the same hook order `index.ts` boots them in (security before site resolution) —
+ * proving the two compose into one header rather than one clobbering the other.
+ */
+describe('frame-ancestors CSP header via a real Fastify app + @fastify/helmet (OpenProject #3275)', () => {
+  const EMBEDDABLE_SITE_ID = 'embeddable-site-id'
+  const embedSites: Record<string, any> = {
+    ...sites,
+    [EMBEDDABLE_SITE_ID]: {
+      id: EMBEDDABLE_SITE_ID,
+      hostname: 'embed.example.com',
+      isEnabled: true,
+      config: { security: { embedAllowedOrigins: ['https://tools.example.com'] } }
+    }
+  }
+  const embedSitesMappings: Record<string, string> = {
+    ...sitesMappings,
+    'embed.example.com': EMBEDDABLE_SITE_ID
+  }
+
+  async function buildApp() {
+    const app = fastify()
+    // -> Same directives shape `core/http/security.ts` builds from a non-empty `cspDirectives`
+    //    setting, so this proves appending doesn't disturb an existing instance-wide policy.
+    await app.register(fastifyHelmet, {
+      contentSecurityPolicy: { directives: { 'default-src': ["'self'"] }, useDefaults: false }
+    })
+    app.decorateRequest('site', null)
+    app.addHook('onRequest', (req: any, reply, done) => {
+      const resolution = resolveRequestSite({
+        firstSegment: 'some-page',
+        hostname: req.hostname,
+        sitesMappings: embedSitesMappings,
+        sites: embedSites,
+        exemptSegments: NO_EXEMPT_SEGMENTS
+      })
+      if (resolution.outcome === 'ok') {
+        req.site = resolution.site
+        applyEmbedFrameAncestors(resolution.site, reply)
+      }
+      done()
+    })
+    app.get('/some-page', async () => ({ ok: true }))
+    return app
+  }
+
+  test('a site with a non-empty allowlist serves frame-ancestors alongside the instance-wide CSP', async () => {
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/some-page',
+      headers: { host: 'embed.example.com' }
+    })
+    assert.equal(
+      res.headers['content-security-policy'],
+      "default-src 'self'; frame-ancestors 'self' https://tools.example.com"
+    )
+    await app.close()
+  })
+
+  test('a site with the default empty allowlist serves the current unchanged CSP header', async () => {
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/some-page',
+      headers: { host: 'wiki.example.com' }
+    })
+    assert.equal(res.headers['content-security-policy'], "default-src 'self'")
+    await app.close()
   })
 })
