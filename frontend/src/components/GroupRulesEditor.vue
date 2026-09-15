@@ -700,8 +700,8 @@ async function importRules() {
         border-bottom: 1px solid color-mix(in srgb, var(--color-negative) 30%, transparent);
       }
       &.is-forceallow {
-        background-color: rgba($blue, 0.1);
-        border-bottom: 1px solid rgba($blue, 0.3);
+        background-color: color-mix(in srgb, var(--color-blue) 10%, transparent);
+        border-bottom: 1px solid color-mix(in srgb, var(--color-blue) 30%, transparent);
       }
     }
 
