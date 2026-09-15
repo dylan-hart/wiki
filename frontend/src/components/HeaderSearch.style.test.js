@@ -115,3 +115,24 @@ describe('HeaderSearch.vue search mode button cursor', () => {
     expect(body).toContain('cursor: pointer;')
   })
 })
+
+/**
+ * Regression test for OpenProject #3291: the tags/semantic-toggle buttons' focused border-color
+ * change (`.header-search-row-inline.is-focused .header-search-tags-btn`/`.header-search-mode-btn`,
+ * light/dark/Cobalt variants) snapped instantly instead of easing, because the shared
+ * `.header-search-tags-btn, .header-search-mode-btn` base rule's own `transition` list only named
+ * `background-color` and `color` -- `border-color` was never added, unlike the adjacent search
+ * field's own transition list, which already eases its `border-color` change on the same
+ * `.is-focused` state. The two are meant to read as one continuous "lit ring" (see the comment
+ * above the focused-border rules), so their border transitions need to match too.
+ */
+describe('HeaderSearch.vue tags/mode button border-color transition', () => {
+  const componentDir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(componentDir, 'HeaderSearch.vue'), 'utf8')
+  const styleBlock = source.slice(source.indexOf('<style>'))
+
+  it('eases border-color on the shared tags/mode button rule, matching the search field', () => {
+    const body = ruleBody(styleBlock, '.header-search-tags-btn,\n.header-search-mode-btn')
+    expect(body).toContain('border-color 0.2s var(--ease-standard)')
+  })
+})

@@ -33,7 +33,7 @@ const messages = {
       enabledNoProviderHint: 'Comments are enabled in General, but no provider is active yet.',
       goToGeneral: 'Go to General',
       externalProviderNotice:
-        'This is an external, client-embedded comment provider and is not rendered on pages yet.',
+        'This is an external, client-embedded comment provider, rendered on page views for readers with read:comments.',
       moderation: 'Moderation',
       moderationUnavailableHint:
         'Comments are not active for this site, so there is nothing to moderate yet.',
@@ -199,8 +199,10 @@ describe('AdminComments', () => {
   })
 
   it('renders a non-available provider as a disabled row that cannot be selected', async () => {
-    // OpenProject #1958: Disqus/Commento/Artalk ship with `isAvailable: false` -- prove that carries
-    // through to a disabled, unselectable row, same as any other unavailable module.
+    // A provider forced unavailable/unselectable (a module removed from disk, or one an admin
+    // disables) must render as a disabled row nobody can click into -- true of any module, not
+    // specific to Disqus/Commento/Artalk (which, since #3303, ship `isAvailable`/`isSelectable: true`
+    // by default -- see the `PROVIDERS` fixture above).
     const providers = PROVIDERS.map((p) =>
       p.module === 'disqus'
         ? { ...p, isEnabled: false, isAvailable: false, isSelectable: false }
@@ -253,7 +255,7 @@ describe('AdminComments', () => {
 
     // -> Defaults to the enabled provider (Disqus, codeTemplate: true)
     expect(wrapper.text()).toContain(
-      'This is an external, client-embedded comment provider and is not rendered on pages yet.'
+      'This is an external, client-embedded comment provider, rendered on page views for readers with read:comments.'
     )
 
     const items = wrapper.findAll('.w-item')
@@ -262,7 +264,7 @@ describe('AdminComments', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain(
-      'This is an external, client-embedded comment provider and is not rendered on pages yet.'
+      'This is an external, client-embedded comment provider, rendered on page views for readers with read:comments.'
     )
   })
 

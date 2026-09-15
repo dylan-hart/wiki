@@ -46,6 +46,13 @@ props:
     order: 5
     if:
       - { key: 'mapGroups', eq: true }
+  allowUnverifiedEmail:
+    type: Boolean
+    title: Accept Unverified Addresses
+    hint: Off by default. A Rocket.Chat account whose address is unverified proves nothing about the mailbox, and an account here is matched on the address.
+    icon: received
+    default: false
+    order: 6
 refs:
   callbackUrl:
     title: OAuth2 Redirect URL

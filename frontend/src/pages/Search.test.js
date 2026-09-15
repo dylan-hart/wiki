@@ -1135,4 +1135,43 @@ describe('Search.vue similarity match badge (OpenProject #3223)', () => {
 
     expect(wrapper.find('.search-result-similarity-badge').exists()).toBe(false)
   })
+
+  /*
+    OpenProject #3293: the badge used to sit on the title line, wrapping with `item.title` inside
+    `.layout-search-rowtitle`, with an icon and a `w-chip` pill border. It now lives in the top-right
+    meta column, as plain text, in the date's own place.
+  */
+  it('renders the badge inside the top-right meta column, not on the title line', async () => {
+    const { wrapper } = await mountSearchWithSimilarityResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, distance: 0.13, hop: 1 }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    const title = wrapper.find('.layout-search-rowtitle')
+    expect(title.find('.search-result-similarity-badge').exists()).toBe(false)
+    expect(title.text()).not.toContain('match')
+
+    const dateSlot = wrapper.find('.layout-search-rowdate')
+    const badge = dateSlot.find('.search-result-similarity-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('87% match')
+  })
+
+  /*
+    A semantic result carries no `updatedAt` at all (`SemanticSearchResult`'s wire schema has no such
+    field), so the keyword-mode "no date" `'---'` fallback must not leak into the meta column behind
+    the badge -- it should show only the match percentage, nothing else.
+  */
+  it('shows the match percentage rather than the "---" no-date placeholder for a semantic row', async () => {
+    const { wrapper } = await mountSearchWithSimilarityResponse({
+      results: [{ ...FIXTURE_RICH_RESULT, updatedAt: null, distance: 0.13, hop: 1 }],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.find('.layout-search-rowdate').text()).toBe('87% match')
+  })
 })

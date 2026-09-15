@@ -247,6 +247,10 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           //    imported strategy picks up the OpenID Connect standard claim names).
           firstNameClaim: 'given_name',
           lastNameClaim: 'family_name',
+          // -> Not part of the 2.x source row either (Feature #3208 added this default as part of
+          //    avatar-sync) -- an imported OIDC strategy gets it at its definition.yml default, same
+          //    as a freshly-created one.
+          pictureClaim: 'picture',
           logoutURL: '',
           // -> Not part of the 2.x source row at all (OpenProject #826 added these props after this
           //    fixture was authored) -- an imported OIDC strategy gets them at their definition.yml

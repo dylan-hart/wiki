@@ -47,6 +47,9 @@ describe('pdfExportAvailable exposure (task 500)', () => {
           },
           navigation: {
             ensureSiteNav: async () => 'nav-id'
+          },
+          commentProviders: {
+            getActiveProvider: async () => null
           }
         },
         config: {
@@ -149,6 +152,9 @@ describe('navigationId exposure (OpenProject #2526/#2527)', () => {
               ensureSiteNavCalls.push({ siteId, locale })
               return 'default-nav-id'
             }
+          },
+          commentProviders: {
+            getActiveProvider: async () => null
           }
         },
         config: {
@@ -225,7 +231,8 @@ describe('isEnabled guard (task 699)', () => {
           flags: { getFlags: () => ({ experimental: false }) },
           renderQueue: { isAvailable: async () => false },
           blocks: { getSiteBlocks: async () => [] },
-          navigation: { ensureSiteNav: async () => 'nav-id' }
+          navigation: { ensureSiteNav: async () => 'nav-id' },
+          commentProviders: { getActiveProvider: async () => null }
         },
         config: {
           docsBase: 'https://test.docs.example/docs'

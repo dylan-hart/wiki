@@ -150,6 +150,20 @@ describe('RocketChatAuthentication', () => {
       )
     })
 
+    test('allowUnverifiedEmail re-permits an explicitly-false emails[0].verified claim', async () => {
+      fetchMock = mockTokenExchange({
+        _id: 'abc123',
+        name: 'Ada Lovelace',
+        emails: [{ address: 'ada@example.com', verified: false }]
+      })
+      const rocketchat = new RocketChatAuthentication('strategy-1', {
+        ...baseConf,
+        allowUnverifiedEmail: true
+      })
+      const profile = await rocketchat.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.email, 'ada@example.com')
+    })
+
     test('signs in normally when emails[0].verified is true', async () => {
       fetchMock = mockTokenExchange({
         _id: 'abc123',
@@ -265,6 +279,11 @@ describe('rocketchat/definition.yml', () => {
   test('declares mapGroups/groupsClaim props for group-claim mapping (OpenProject #826), consistent with every other preset even though stock Rocket.Chat reports no such field', () => {
     assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
     assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+  })
+
+  test('declares an allowUnverifiedEmail prop, matching the shape google/definition.yml uses (OpenProject #3304)', () => {
+    assert.equal(def.props.allowUnverifiedEmail.type, 'Boolean')
+    assert.equal(def.props.allowUnverifiedEmail.default, false)
   })
 
   test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {

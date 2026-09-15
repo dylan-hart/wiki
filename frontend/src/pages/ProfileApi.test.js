@@ -259,6 +259,48 @@ describe('ProfileApi', () => {
    * separate container below it (the shared `.actions-bar` treatment `ProfileOverlay.vue` styles),
    * not squeezed into the same flex row.
    */
+  /**
+   * OpenProject #3283: the empty-state card's `v-if` used to guard on `state.keys.length < 1 &&
+   * state.loading < 1`, so while the initial fetch was still in flight (`loading` already
+   * incremented, `keys` still `[]`) that guard read false and the `v-else` branch -- the
+   * "Access Tokens" tokens card and its header -- rendered immediately with zero rows, then
+   * disappeared once the real (empty or populated) state resolved. Neither card should render
+   * during that window; only the existing `w-inner-loading` spinner should.
+   */
+  it('renders neither the empty-state card nor the tokens card while the initial fetch is in flight', async () => {
+    let resolveKeys
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'users/profile/api-keys') {
+        return {
+          json: () =>
+            new Promise((resolve) => {
+              resolveKeys = resolve
+            })
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+
+    // -> Fetch is still in flight (`state.loading > 0`, `state.keys` still `[]`) -- neither the
+    //    empty-state card nor the "Access Tokens" tokens card (and its header) should be present.
+    expect(wrapper.vm.state.loading).toBeGreaterThan(0)
+    expect(wrapper.vm.state.keys).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('Access Tokens')
+    expect(wrapper.text()).not.toContain('You have not created any personal access tokens yet.')
+
+    resolveKeys([])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    // -> Fetch resolved with zero tokens -- now the empty-state card is the correct, and only,
+    //    branch to render.
+    expect(wrapper.text()).toContain('You have not created any personal access tokens yet.')
+    expect(wrapper.text()).not.toContain('Access Tokens')
+  })
+
   it('runs the header band full width as the page root’s first child, with the actions below it', async () => {
     stubApi({ 'users/profile/api-keys': [], sites: [] }, { fallback: [] })
 

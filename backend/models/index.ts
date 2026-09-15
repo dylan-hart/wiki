@@ -16,7 +16,6 @@ import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
 import { diagramProxy } from './diagramProxy.ts'
 import { diagramRender } from './diagramRender.ts'
-import { eventSubscriptions } from './eventSubscriptions.ts'
 import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
@@ -79,7 +78,6 @@ export default {
   contentSync,
   diagramProxy,
   diagramRender,
-  eventSubscriptions,
   export: exportModel,
   extensions,
   flags,

@@ -9,14 +9,14 @@ import { fileURLToPath } from 'node:url'
  * ({.links-list}, the three table-* classes, the three align-* classes) used to exist only as SCSS
  * comments, with zero documentation anywhere an author would look. This asserts the reference doc
  * exists, names every one of those classes, and stays cross-checked against the actual class
- * selectors in `frontend/src/css/_page-contents.scss` so the doc can't silently drift from the
+ * selectors in `frontend/src/css/_page-contents.css` so the doc can't silently drift from the
  * styling it describes.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.join(HERE, '../..')
 const DOC_PATH = path.join(REPO_ROOT, 'docs', 'markdown-syntax.md')
-const SCSS_PATH = path.join(REPO_ROOT, 'frontend', 'src', 'css', '_page-contents.scss')
+const SCSS_PATH = path.join(REPO_ROOT, 'frontend', 'src', 'css', '_page-contents.css')
 
 const BUILT_IN_CLASSES = [
   'links-list',
@@ -39,12 +39,12 @@ describe('markdown-syntax reference doc (work package #2432)', () => {
     }
   })
 
-  test('each documented class still exists as a real selector in _page-contents.scss', async () => {
+  test('each documented class still exists as a real selector in _page-contents.css', async () => {
     const scss = await readFile(SCSS_PATH, 'utf8')
     for (const cls of BUILT_IN_CLASSES) {
       assert.ok(
         scss.includes(`.${cls}`),
-        `frontend/src/css/_page-contents.scss no longer defines .${cls} — docs/markdown-syntax.md is now stale`
+        `frontend/src/css/_page-contents.css no longer defines .${cls} — docs/markdown-syntax.md is now stale`
       )
     }
   })

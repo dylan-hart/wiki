@@ -65,8 +65,15 @@ export function buildClient(config: Record<string, any>): S3Client {
   if (config.mode === 'custom') {
     return new S3Client({
       // -> SigV4 signing needs a region even against a non-AWS endpoint; the SDK has no "regionless"
-      //    mode, and every S3-compatible provider accepts an arbitrary value here.
-      region: 'us-east-1',
+      //    mode. Unlike AWS/DO, this isn't an arbitrary routing hint — the signature is cryptographically
+      //    bound to it, and a self-hosted S3-compatible server (Garage's `s3_region`, for example)
+      //    validates the signed region against its own configured one, so this must be user-configurable
+      //    rather than a fixed literal. The `|| 'us-east-1'` fallback (not just `definition.yml`'s own
+      //    default) matters here too: `models/storage.ts#buildConfig` fills it for any config read
+      //    through the model layer, but this function is also called directly (tests, and any future
+      //    caller) with a bare config object, and the SDK throws "Region is missing" outright rather
+      //    than resolving anything on its own when the field is undefined.
+      region: config.region || 'us-east-1',
       endpoint: resolveCustomEndpoint(config),
       forcePathStyle: Boolean(config.s3ForcePathStyle),
       // -> Whether `endpoint` already addresses this one bucket rather than the provider's root API —

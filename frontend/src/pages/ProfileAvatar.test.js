@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import ProfileAvatar from './ProfileAvatar.vue'
 import { mountWithApp } from '../../test/mount.js'
+import { pendingProfileSaves } from '@/composables/profileSaving'
 
 /**
  * OpenProject #2701 -- the avatar section on the settings pattern.
@@ -40,6 +41,78 @@ function mountPage({ canEdit = true, hasAvatar = false, avatarProviderUrl = null
 }
 
 describe('ProfileAvatar', () => {
+  beforeEach(() => {
+    pendingProfileSaves.value = 0
+  })
+
+  /**
+   * OpenProject #3282: both write actions count themselves on the shared `pendingProfileSaves`
+   * module singleton (what gates the Profile dialog's close button/dismiss guard), alongside their
+   * own local `state.loading`. `uploadImage()` builds its own detached `<input type="file">` rather
+   * than reading one from the template, so `document.createElement` is stubbed to hand back a plain
+   * object standing in for it -- a real DOM input's `files` cannot be assigned in a test, but nothing
+   * here reads more of the input than `.onchange`/`.click()`, so a plain object suffices.
+   */
+  describe('pendingProfileSaves (OpenProject #3282)', () => {
+    let realCreateElement
+    let fakeInput
+
+    beforeEach(() => {
+      realCreateElement = document.createElement.bind(document)
+      fakeInput = { click: vi.fn() }
+      vi.spyOn(document, 'createElement').mockImplementation((tag) =>
+        tag === 'input' ? fakeInput : realCreateElement(tag)
+      )
+    })
+
+    afterEach(() => {
+      document.createElement.mockRestore()
+    })
+
+    it('counts uploadImage() while the PUT is in flight', async () => {
+      const wrapper = mountPage()
+      await flushPromises()
+      let resolvePut
+      globalThis.API_CLIENT.put.mockReturnValue({
+        json: () =>
+          new Promise((resolve) => {
+            resolvePut = resolve
+          })
+      })
+
+      wrapper.vm.uploadImage()
+      await flushPromises()
+      const file = new File(['x'], 'avatar.png', { type: 'image/png' })
+      const changePromise = fakeInput.onchange({ target: { files: [file] } })
+      await flushPromises()
+      expect(pendingProfileSaves.value).toBe(1)
+
+      resolvePut({})
+      await changePromise
+      expect(pendingProfileSaves.value).toBe(0)
+    })
+
+    it('counts clearImage() while the DELETE is in flight', async () => {
+      const wrapper = mountPage({ hasAvatar: true })
+      await flushPromises()
+      let resolveDelete
+      globalThis.API_CLIENT.delete.mockReturnValue({
+        json: () =>
+          new Promise((resolve) => {
+            resolveDelete = resolve
+          })
+      })
+
+      const clearPromise = wrapper.vm.clearImage()
+      await flushPromises()
+      expect(pendingProfileSaves.value).toBe(1)
+
+      resolveDelete({})
+      await clearPromise
+      expect(pendingProfileSaves.value).toBe(0)
+    })
+  })
+
   it('draws one settings card whose single row carries the plate, the label and the hint', async () => {
     const wrapper = mountPage()
     await flushPromises()

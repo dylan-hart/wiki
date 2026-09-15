@@ -66,22 +66,13 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   (the same merge-then-`saveToDb()` path `api/system/settings.ts` uses), not a raw
  *   `CARDINAL.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
  *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
- * - `eventSubscriptions` — reached transitively via `models/hooks.ts`'s
- *   `notifyEventSubscriptionSubscribers()` (`CARDINAL.models.eventSubscriptions.listSubscribers(event)`),
- *   itself called unconditionally by `createPage()`'s own `announce('page:create', ...)`. Unreachable
- *   on a migration into a fresh site in practice (no subscriber rows exist yet to notify), but
- *   `hooks.ts` calls `.listSubscribers()` before checking whether any exist, so the unloaded-model
- *   `TypeError` fired on every single page anyway — caught by `hooks.ts`'s own try/catch (a warning
- *   per page, not a failed import), but 158 warnings is still worth not shipping.
  *
- * `pageClassification`, `extensions`, `blocks` and `eventSubscriptions` were each omitted here once —
- * every one threw `Cannot read properties of undefined` on every real (non-dry-run) write that reached
- * it, while a dry run stayed silent, since `--dry-run` never reaches the real `createPage()`/
- * `upload()` paths. `pageClassification`/`blocks`/`extensions`(Puppeteer) failed the whole page;
- * `eventSubscriptions` only warned, since `hooks.ts` already wraps that call — the reason a live
- * migration run is the only thing that can prove this model set is actually complete; a dry run
- * cannot, and neither can a clean phase report alone, since a caught-and-logged failure like this one
- * leaves `wouldCreate` looking correct.
+ * `pageClassification`, `extensions` and `blocks` were each omitted here once — every one threw
+ * `Cannot read properties of undefined` on every real (non-dry-run) write that reached it, while a
+ * dry run stayed silent, since `--dry-run` never reaches the real `createPage()`/`upload()` paths —
+ * the reason a live migration run is the only thing that can prove this model set is actually
+ * complete; a dry run cannot, and neither can a clean phase report alone, since a caught-and-logged
+ * failure like this one leaves `wouldCreate` looking correct.
  *
  * `glossary` is deliberately NOT included: it is only reached through `pages.ts`'s `updatePage`/
  * `movePage`/`deletePage`, and no importer built so far calls any of those. Add it here the moment
@@ -113,8 +104,7 @@ export async function loadModels(): Promise<CardinalGlobal['models']> {
     { flags },
     { classificationLevels },
     { navigation },
-    { security },
-    { eventSubscriptions }
+    { security }
   ] = await Promise.all([
     import('../models/sites.ts'),
     import('../models/settings.ts'),
@@ -139,8 +129,7 @@ export async function loadModels(): Promise<CardinalGlobal['models']> {
     import('../models/flags.ts'),
     import('../models/classificationLevels.ts'),
     import('../models/navigation.ts'),
-    import('../models/security.ts'),
-    import('../models/eventSubscriptions.ts')
+    import('../models/security.ts')
   ])
   return {
     sites,
@@ -166,8 +155,7 @@ export async function loadModels(): Promise<CardinalGlobal['models']> {
     flags,
     classificationLevels,
     navigation,
-    security,
-    eventSubscriptions
+    security
   } as CardinalGlobal['models']
 }
 
@@ -229,9 +217,23 @@ export function createCacheStub(): CardinalGlobal['cache'] {
  * which this stub has none of, so guessing wrong for an unlisted task would misroute it on whichever
  * live server picks the row up; logging and skipping is the safe default for anything else, matching
  * `CARDINAL.events`/`CARDINAL.cache`'s own "reached transitively, never actually needed yet" stub philosophy.
+ *
+ * `'embedPage'` gets its own branch rather than falling into that generic one (OpenProject #3296):
+ * migration's default `renderBootstrap: 'passthrough'` makes `hasRenderInput` true for essentially
+ * every migrated page, so `models/pages.ts#createPage()` calls `enqueueEmbedJob()` once per page —
+ * thousands of identical `addJob({ task: 'embedPage' })` calls on a real corpus, which used to warn
+ * once each and flood the log. Nothing here changes `createPage()`/`enqueueEmbedJob()` themselves;
+ * this stub just answers each of those calls the same no-op way the generic branch would, but logs
+ * only once for the whole run, and never inserts a job row for it: worker.ts's `embedPage` handler
+ * has its own bug against a fresh migration destination (Bug #3295, out of scope here), and even
+ * fixed, one job per page is not what an operator wants — the admin area's "Rebuild embeddings
+ * index" action (`POST /sites/:siteId/search/rebuild-embeddings`, task `rebuildEmbeddingsIndex`)
+ * already re-embeds a whole site in one pass and is the supported way to populate semantic search
+ * after a migration.
  */
 export function createSchedulerStub(): CardinalGlobal['scheduler'] {
   const USE_WORKER: Record<string, boolean> = { renderPages: false }
+  let notedDeferredEmbed = false
   return {
     async addJob({
       task,
@@ -246,6 +248,18 @@ export function createSchedulerStub(): CardinalGlobal['scheduler'] {
       isScheduled?: boolean
       waitUntil?: Date
     }) {
+      if (task === 'embedPage') {
+        if (!notedDeferredEmbed) {
+          notedDeferredEmbed = true
+          CARDINAL.logger.info(
+            'migrate',
+            "migrated pages are not individually queued for embedding — run the admin area's " +
+              '"rebuild embeddings index" action for this site after the migration completes to ' +
+              'populate semantic search'
+          )
+        }
+        return undefined
+      }
       if (!(task in USE_WORKER)) {
         CARDINAL.logger.warn(
           'migrate',

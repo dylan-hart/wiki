@@ -106,6 +106,17 @@ export const useSiteStore = defineStore('site', {
      */
     blocksIndex: {},
     /**
+     * Non-null only when this site's active comment provider is a `codeTemplate` one
+     * (Disqus/Commento/Artalk) -- `backend/api/sites.ts`'s `buildSitePayload()`, carried on the same
+     * public site-info response `blocksIndex` above travels on. `{ module, title, config, origin }`;
+     * `origin` is computed server-side from the request that served this payload
+     * (`requestOrigin(req.protocol, req.hostname)`, `helpers/common.ts`), never re-derived here.
+     * `PageCommentsEmbed.vue` reads this off `Index.vue` to decide whether to render a vendor embed
+     * at all, in place of `PageComments.vue`'s native list -- see `models/commentProviders.ts`'s
+     * permission/canonical-URL boundary doc comments for the full contract.
+     */
+    commentsProvider: null,
+    /**
      * The extensions this site's content is written in, lowercase and without the dot. A path ending
      * in one of them addresses the page underneath it — `/foo/bar.md` is `/foo/bar` — which the
      * router acts on for links inside pages and the server acts on for requests that reach it.
@@ -332,6 +343,7 @@ export const useSiteStore = defineStore('site', {
         isReplicationEnabled: siteInfo.isReplicationEnabled ?? false,
         navigationId: siteInfo.navigationId ?? null,
         blocksIndex: siteInfo.blocksIndex ?? {},
+        commentsProvider: siteInfo.commentsProvider ?? null,
         pageExtensions: siteInfo.pageExtensions ?? [],
         pathDisplayCase: siteInfo.pathDisplayCase ?? 'off',
         company: siteInfo.company,

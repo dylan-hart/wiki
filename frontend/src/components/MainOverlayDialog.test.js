@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { mountWithApp } from '../../test/mount.js'
+import { pendingProfileSaves } from '../composables/profileSaving.js'
 
 import WDialog from './shared/WDialog.vue'
 
@@ -31,6 +32,10 @@ vi.mock('./PageHistoryOverlay.vue', () => ({
 vi.mock('./NavEditOverlay.vue', () => ({
   __esModule: true,
   default: { template: '<div class="nav-edit-overlay-stub" />' }
+}))
+vi.mock('./ProfileOverlay.vue', () => ({
+  __esModule: true,
+  default: { template: '<div class="profile-overlay-stub" />' }
 }))
 
 const source = readFileSync(join(import.meta.dirname, 'MainOverlayDialog.vue'), 'utf-8')
@@ -202,7 +207,7 @@ describe('MainOverlayDialog dismissible overlays', () => {
     expect(source).toContain(':model-value="siteStore.overlayIsShown"')
     expect(source).toContain('@update:model-value="onDialogModelUpdate"')
     expect(source).toMatch(
-      /function onDialogModelUpdate\(value\) \{\s*if \(!value\) \{\s*siteStore\.\$patch\(\{ overlay: '' \}\)/
+      /function onDialogModelUpdate\(value\) \{\s*if \(!value\) \{\s*if \(siteStore\.overlay === 'Profile' && pendingProfileSaves\.value > 0\) \{\s*return\s*\}\s*siteStore\.\$patch\(\{ overlay: '' \}\)/
     )
   })
 })
@@ -305,6 +310,75 @@ describe('MainOverlayDialog Escape dismissal', () => {
     await nextTick()
 
     await pressEscape()
+    expect(siteStore.overlay).toBe('')
+  })
+})
+
+/**
+ * OpenProject #3282: Profile is one of the four `DISMISSIBLE_OVERLAYS`, but must not actually
+ * dismiss while a section's save/write is still in flight -- `onDialogModelUpdate` reads the shared
+ * `pendingProfileSaves` module singleton (the same one `ProfileOverlay.vue`'s own close button
+ * reads) and refuses the `overlay: ''` patch specifically for Profile, so `DISMISSIBLE_OVERLAYS`/
+ * `isDismissible`/`persistent` themselves stay untouched and every other entry in the set keeps
+ * dismissing exactly as before -- the second test below is what proves that.
+ */
+describe('MainOverlayDialog Profile close-while-saving guard (OpenProject #3282)', () => {
+  const mounted = []
+
+  beforeEach(() => {
+    pendingProfileSaves.value = 0
+  })
+
+  afterEach(() => {
+    while (mounted.length) {
+      mounted.pop().unmount()
+    }
+    pendingProfileSaves.value = 0
+  })
+
+  async function openOverlay(overlay) {
+    const result = mountWithApp(MainOverlayDialog, {
+      stores: { site: { overlay } }
+    })
+    mounted.push(result.wrapper)
+    await flushPromises()
+    return result
+  }
+
+  function pressEscape() {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    return nextTick()
+  }
+
+  it('refuses to close Profile on Escape while a save is pending', async () => {
+    const { siteStore } = await openOverlay('Profile')
+    pendingProfileSaves.value = 1
+
+    await pressEscape()
+
+    expect(siteStore.overlay).toBe('Profile')
+    expect(siteStore.overlayIsShown).toBe(true)
+  })
+
+  it('closes Profile on Escape once the pending count drops back to zero', async () => {
+    const { siteStore } = await openOverlay('Profile')
+    pendingProfileSaves.value = 1
+
+    await pressEscape()
+    expect(siteStore.overlay).toBe('Profile')
+
+    pendingProfileSaves.value = 0
+    await pressEscape()
+
+    expect(siteStore.overlay).toBe('')
+  })
+
+  it('leaves PageHistory dismissible on Escape even while pendingProfileSaves is nonzero', async () => {
+    const { siteStore } = await openOverlay('PageHistory')
+    pendingProfileSaves.value = 1
+
+    await pressEscape()
+
     expect(siteStore.overlay).toBe('')
   })
 })

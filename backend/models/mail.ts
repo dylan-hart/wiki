@@ -27,12 +27,14 @@ export type MailKind =
   | 'passwordChanged'
   | 'registrationAttempt'
   | 'test'
-  | 'eventSubscription'
   | 'watch'
   | 'digest'
   | 'notificationEvent'
-  | 'notificationEventTemplate'
   | 'approval'
+  | 'tfaEnabled'
+  | 'tfaDisabled'
+  | 'tfaRecoveryCodesGenerated'
+  | 'tfaNewDeviceLogin'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -575,6 +577,130 @@ class MailModel {
   }
 
   /**
+   * Notice sent to the account holder once 2FA has been turned ON for one of their authentication
+   * providers — from `models/userCredentials.ts#enableTfa()`, the moment a fresh secret is confirmed
+   * and made active. A security notice, not a setup-flow email: the recovery codes themselves are
+   * shown to the user in-flow at the moment they're issued (they're never re-displayable, see
+   * `enableTfa()`'s own doc comment) and are never repeated here.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaEnabled({
+    to,
+    name,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaEnabled',
+      { name, link },
+      { kind: 'tfaEnabled', userId }
+    )
+  }
+
+  /**
+   * Notice sent to the account holder once 2FA has been turned OFF for one of their authentication
+   * providers — from `models/userCredentials.ts#disableTfa()` (their own choice) or
+   * `adminInvalidateTfa()` (an administrator's override). Both routes send the identical notice: from
+   * the account holder's point of view, 2FA is off either way and they should know about it, whoever
+   * initiated it.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaDisabled({
+    to,
+    name,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaDisabled',
+      { name, link },
+      { kind: 'tfaDisabled', userId }
+    )
+  }
+
+  /**
+   * Notice sent whenever a user's 2FA recovery/backup codes are (re)generated -- both the initial
+   * issuance (`userCredentials.ts#enableTfa()`) and a later re-issuance
+   * (`userCredentials.ts#regenerateRecoveryCodes()`) -- so the account holder has a record of it even
+   * if the action wasn't theirs. Deliberately NOT sent by `adminInvalidateTfa()`, which wipes recovery
+   * codes rather than issuing a fresh set.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaRecoveryCodesGenerated({
+    to,
+    name,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaRecoveryCodesGenerated',
+      { name, link },
+      { kind: 'tfaRecoveryCodesGenerated', userId }
+    )
+  }
+
+  /**
+   * Notice sent when a 2FA-gated login completes from a device/IP address `models/login.ts`'s
+   * fingerprint check has not seen before for this account (OpenProject #3302). Fired from
+   * `loginTFA()` right after the code is verified, alongside recording the new fingerprint — never on
+   * a login from an already-known fingerprint.
+   *
+   * @param ip The client IP the login came from, shown so the recipient has something concrete to
+   *   judge the notice against. Passed through as-is (may be `undefined` behind a proxy that strips
+   *   it) rather than blocking the notice on having one.
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendTfaNewDeviceLogin({
+    to,
+    name,
+    ip,
+    userId,
+    locale
+  }: {
+    to: string
+    name: string
+    ip?: string
+    userId?: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.sendTemplate(
+      to,
+      locale,
+      'tfaNewDeviceLogin',
+      { name, ip: ip || '(unknown)', link },
+      { kind: 'tfaNewDeviceLogin', userId }
+    )
+  }
+
+  /**
    * Notice sent to an address's real, already-verified owner when someone else attempts to register
    * a new account with it. `models/users.ts#register()` sends this -- and answers the attempt itself
    * with the same generic `{ nextAction: 'verify' }` a genuinely new registration gets -- instead of
@@ -645,37 +771,6 @@ class MailModel {
         baseURLHtml
       })
     })
-  }
-
-  /**
-   * Minimal, generic notification sent by `tasks/simple/notify-event-subscription-subscribers.ts`
-   * for one user subscribed to an event (`models/eventSubscriptions.ts`), whenever
-   * `models/hooks.ts#emit()` fires it — the per-user counterpart to the site-configured webhook
-   * `hooks` deliver instead. Deliberately
-   * a single generic template rather than one per event: richer, per-event-type copy is separately-
-   * tracked follow-on work (Feature #2425's "email transport/templating" child), and this exists to
-   * prove the subscribe → trigger → send path end to end, not to be the final reader-facing copy.
-   *
-   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
-   */
-  async sendEventSubscriptionNotification({
-    to,
-    event,
-    userId,
-    locale
-  }: {
-    to: string
-    event: string
-    userId?: string
-    locale?: string | null
-  }): Promise<void> {
-    await this.sendTemplate(
-      to,
-      locale,
-      'eventSubscription',
-      { event },
-      { kind: 'eventSubscription', userId }
-    )
   }
 
   /**
@@ -933,151 +1028,6 @@ class MailModel {
           link
         })) +
         `<p>${await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.footer', { label })}</p>`
-    })
-  }
-
-  /**
-   * Notification-event email — the templating half of Feature #2425's per-user, per-event-type
-   * subscriptions (OpenProject #2483). `event` is one of `models/hooks.ts#HOOK_EVENTS`, the same
-   * vocabulary webhooks already dispatch on: the Feature's own scope is to extend that existing
-   * trigger infrastructure to also emit email rather than invent a parallel one, so this template
-   * reuses it too instead of declaring its own event names. Nothing calls this yet — resolving which
-   * users are subscribed to which event (per-user storage) and firing this from the trigger points
-   * themselves is #2481/#2482's job, not this template's. #2481/#2482 landed their own, simpler
-   * {@link sendEventNotification} (wired from `tasks/simple/notify-event-subscribers.ts`) before this
-   * method's branch merged, rather than waiting on this richer templating — so this method has no
-   * caller yet, and its own `mail.notificationEvent.templateFooter` locale key is deliberately
-   * distinct from {@link sendEventNotification}'s `mail.notificationEvent.footer` (different call
-   * signature, different wording) to avoid colliding with it in `en.json`.
-   *
-   * Deliberately takes structured fields (`title`/`path`/`pageLocale`/`actorName`) rather than the
-   * raw webhook payload `models/hooks.ts#emit()` receives: what identifies "the thing this happened
-   * to" differs per event (a page carries `path`, an asset carries `folderPath`+`fileName`, a comment
-   * carries a `pageId`, a user event carries neither), so the caller — which already knows which
-   * event it's resolving — picks the human-facing title/link path, keeping this template decoupled
-   * from every event's own payload shape.
-   *
-   * `title`/`path` are coupled in practice (both come from "is there a page/thing to point at"), so
-   * there are only two body variants: with a target (title + link) or without one (`user:join`/
-   * `user:login`/`user:logout`, which have neither) — not a combinatorial set per optional field.
-   *
-   * @param path A page-relative path (e.g. a page's `path`) to link at, when there is one. Routed
-   *   through `localizedPagePath` exactly like {@link sendPageWatchNotification}'s link, so a
-   *   non-primary-locale page still links with its locale prefix.
-   * @param pageLocale The linked page's own locale, required to build a correct link when `locales`
-   *   has more than one active locale — see `pageLocale` on {@link WatchEventItem.page}.
-   * @param actorName Who did it, if the caller resolved one (e.g. from `data.authorId`). Falls back
-   *   to `mail.notificationEvent.unknownActor` ("Someone") rather than an empty subject/body — every
-   *   event this covers has an actor in principle, but a caller may not always have resolved a name
-   *   for one (a deleted account, a guest with no display name captured).
-   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
-   */
-  async sendNotificationEvent({
-    to,
-    event,
-    siteId,
-    title,
-    path,
-    pageLocale,
-    actorName,
-    userId,
-    locale
-  }: {
-    to: string
-    event: HookEvent
-    siteId?: string | null
-    title?: string | null
-    path?: string | null
-    pageLocale?: string | null
-    actorName?: string | null
-    userId?: string
-    locale?: string | null
-  }): Promise<void> {
-    const label = await CARDINAL.models.locales.resolveString(
-      locale,
-      `mail.notificationEvent.${event}.label`
-    )
-    const actor =
-      actorName ||
-      (await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.unknownActor'))
-    const target = title ?? path ?? null
-
-    let link: string | null = null
-    if (path) {
-      const locales = siteId ? CARDINAL.sites[siteId]?.config?.locales : null
-      const baseURL = this.resolveMailBaseURL(siteId ?? undefined)
-      link = this.buildLink(
-        pageLocale ? localizedPagePath(path, pageLocale, locales) : path,
-        baseURL
-      )
-    }
-
-    const subject = target
-      ? await CARDINAL.models.locales.resolveString(
-          locale,
-          'mail.notificationEvent.subjectWithTarget',
-          {
-            label,
-            target
-          }
-        )
-      : await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.subjectPlain', {
-          label
-        })
-
-    const footer = await CARDINAL.models.locales.resolveString(
-      locale,
-      'mail.notificationEvent.templateFooter'
-    )
-    let text: string
-    let html: string
-    if (target && link) {
-      text = await CARDINAL.models.locales.resolveString(
-        locale,
-        'mail.notificationEvent.bodyWithTarget.text',
-        {
-          actor,
-          label,
-          target,
-          link
-        }
-      )
-      html = await CARDINAL.models.locales.resolveString(
-        locale,
-        'mail.notificationEvent.bodyWithTarget.html',
-        {
-          actor: escapeHtml(actor),
-          label,
-          target: escapeHtml(target),
-          link
-        }
-      )
-    } else {
-      text = await CARDINAL.models.locales.resolveString(
-        locale,
-        'mail.notificationEvent.bodyPlain.text',
-        {
-          actor,
-          label
-        }
-      )
-      html = await CARDINAL.models.locales.resolveString(
-        locale,
-        'mail.notificationEvent.bodyPlain.html',
-        {
-          actor: escapeHtml(actor),
-          label
-        }
-      )
-    }
-
-    await this.send({
-      to,
-      kind: 'notificationEventTemplate',
-      userId,
-      subject,
-      text: `${text}\n\n${footer}`,
-      html: `<p>${html}</p><p>${footer}</p>`
     })
   }
 }

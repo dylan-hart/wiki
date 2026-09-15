@@ -53,8 +53,7 @@ const EXPECTED_MODEL_NAMES = [
   'flags',
   'classificationLevels',
   'navigation',
-  'security',
-  'eventSubscriptions'
+  'security'
 ]
 
 describe('migration bootstrap', () => {
@@ -129,6 +128,81 @@ describe('migration bootstrap', () => {
       assert.equal(warnings.length, 1)
       assert.equal(warnings[0]!.scope, 'migrate')
       assert.match(warnings[0]!.message, /cannot queue this task/)
+      assert.equal(warnings[0]!.fields?.task, 'dispatchWebhook')
+    } finally {
+      wikiHandle.restore()
+    }
+  })
+
+  /**
+   * OpenProject #3296: a bulk migration's default `renderBootstrap: 'passthrough'` makes
+   * `models/pages.ts#createPage()` fire `enqueueEmbedJob()` — one `WIKI.scheduler.addJob({ task:
+   * 'embedPage' })` — for essentially every migrated page, which used to hit the generic
+   * "unsupported task" branch above and warn once per page: thousands of identical lines on a real
+   * corpus. `embedPage` gets its own branch instead: one `info` notice total, however many pages
+   * triggered it, and no `jobs` row inserted (nothing would ever pick it up correctly anyway — Bug
+   * #3295, out of scope here) — the admin area's "Rebuild embeddings index" action is the supported
+   * way to populate semantic search for a freshly migrated site.
+   */
+  test('createSchedulerStub() logs one embedPage notice total, not one per page, and inserts no job row', async () => {
+    const infos: { scope: string; message: string; fields?: Record<string, unknown> }[] = []
+    const warnings: unknown[] = []
+    const wikiHandle = installTestWiki({
+      logger: {
+        info: (scope: string, message: string, fields?: Record<string, unknown>) =>
+          infos.push({ scope, message, fields }),
+        warn: (...args: unknown[]) => warnings.push(args)
+      },
+      // -> Throws if addJob() ever reaches for it — proving embedPage is skipped before any insert
+      //    attempt, not merely that the insert itself was a no-op.
+      db: {
+        insert: () => {
+          throw new Error('should not be called for embedPage')
+        }
+      }
+    })
+    try {
+      const scheduler = createSchedulerStub()
+      const results = await Promise.all(
+        Array.from({ length: 50 }, (_, i) =>
+          scheduler.addJob({ task: 'embedPage', payload: { pageId: `page-${i}` } } as any)
+        )
+      )
+      assert.deepEqual(
+        results,
+        Array.from({ length: 50 }, () => undefined)
+      )
+      assert.equal(warnings.length, 0)
+      assert.equal(infos.length, 1)
+      assert.equal(infos[0]!.scope, 'migrate')
+      assert.match(infos[0]!.message, /rebuild embeddings index/i)
+    } finally {
+      wikiHandle.restore()
+    }
+  })
+
+  test('createSchedulerStub() keeps embedPage and the generic unsupported-task branch independent', async () => {
+    const infos: unknown[] = []
+    const warnings: { fields?: Record<string, unknown> }[] = []
+    const wikiHandle = installTestWiki({
+      logger: {
+        info: (...args: unknown[]) => infos.push(args),
+        warn: (_scope: string, _message: string, fields?: Record<string, unknown>) =>
+          warnings.push({ fields })
+      },
+      db: {
+        insert: () => {
+          throw new Error('should not be called for either task')
+        }
+      }
+    })
+    try {
+      const scheduler = createSchedulerStub()
+      await scheduler.addJob({ task: 'embedPage' } as any)
+      await scheduler.addJob({ task: 'dispatchWebhook' } as any)
+      await scheduler.addJob({ task: 'embedPage' } as any)
+      assert.equal(infos.length, 1)
+      assert.equal(warnings.length, 1)
       assert.equal(warnings[0]!.fields?.task, 'dispatchWebhook')
     } finally {
       wikiHandle.restore()

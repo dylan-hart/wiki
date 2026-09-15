@@ -155,6 +155,28 @@ async function issueRecoveryCodes(): Promise<{
 }
 
 /**
+ * Send the recovery-codes-generated notice for `enableTfa()`/`regenerateRecoveryCodes()`, swallowing
+ * any failure so an unconfigured/unreachable mail transport never blocks the 2FA action itself that
+ * already succeeded (matching `models/login.ts`'s existing swallow-and-log pattern for its own
+ * login-adjacent notices, e.g. `sendPasswordResetConfirmed`).
+ */
+async function notifyRecoveryCodesGenerated(user: any): Promise<void> {
+  try {
+    await CARDINAL.models.mail.sendTfaRecoveryCodesGenerated({
+      to: user.email,
+      name: user.name,
+      userId: user.id,
+      locale: user.prefs?.locale
+    })
+  } catch (err: any) {
+    CARDINAL.logger.warn('auth', 'sending the tfa-recovery-codes-generated notice failed', {
+      user: user.id,
+      error: err
+    })
+  }
+}
+
+/**
  * Which stored recovery code entry (if any) a normalized code matches. Every unconsumed entry is
  * checked, not just until the first hit — mirroring the constant-time discipline `verifyTotpCode`
  * uses for its drift window, so how long this takes does not depend on which one (if any) matched.
@@ -571,6 +593,27 @@ class UserCredentials {
       { mirrorInto: user }
     )
     CARDINAL.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
+
+    // -> Recovery-codes-generated notice (OpenProject #3300). A sibling notice for 2FA itself being
+    //    enabled (#3301) belongs beside this as its own independent call, not folded into one.
+    await notifyRecoveryCodesGenerated(user)
+
+    // -> A mail-send failure must not turn a successful 2FA enable into a failed one, matching
+    //    `models/login.ts#resetPassword()`'s own swallow-and-log pattern for login-adjacent notices.
+    try {
+      await CARDINAL.models.mail.sendTfaEnabled({
+        to: user.email,
+        name: user.name,
+        userId: user.id,
+        locale: user.prefs?.locale
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('auth', 'sending the 2FA-enabled notice failed', {
+        user: user.id,
+        error: err
+      })
+    }
+
     return plaintext
   }
 
@@ -591,6 +634,7 @@ class UserCredentials {
 
     await this.patchStrategyAuth(userId, strategyId, clearedTfa)
     CARDINAL.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
+    await this.notifyTfaDisabled(user)
   }
 
   /**
@@ -614,6 +658,33 @@ class UserCredentials {
     CARDINAL.models.flags.authDebug(
       `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
     )
+    await this.notifyTfaDisabled(user)
+  }
+
+  /**
+   * Send the account holder their 2FA-disabled notice — shared by `disableTfa()` (their own choice)
+   * and `adminInvalidateTfa()` (an administrator's override), which both leave the account in the
+   * identical disabled state and so send the identical notice regardless of who initiated it.
+   *
+   * Locale resolves from the account holder's own `user.prefs?.locale`, never the acting admin's —
+   * load-bearing specifically for `adminInvalidateTfa()`, where the two differ. A mail-send failure
+   * must not turn a successful 2FA disable into a failed one, matching
+   * `models/login.ts#resetPassword()`'s own swallow-and-log pattern for login-adjacent notices.
+   */
+  private async notifyTfaDisabled(user: any): Promise<void> {
+    try {
+      await CARDINAL.models.mail.sendTfaDisabled({
+        to: user.email,
+        name: user.name,
+        userId: user.id,
+        locale: user.prefs?.locale
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('auth', 'sending the 2FA-disabled notice failed', {
+        user: user.id,
+        error: err
+      })
+    }
   }
 
   /**
@@ -751,6 +822,11 @@ class UserCredentials {
     CARDINAL.models.flags.authDebug(
       `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
     )
+
+    // -> Recovery-codes-generated notice (OpenProject #3300) -- the re-issuance counterpart to
+    //    `enableTfa()`'s initial-issuance call above.
+    await notifyRecoveryCodesGenerated(user)
+
     return { recoveryCodes: plaintext, hadUnusedCodes }
   }
 

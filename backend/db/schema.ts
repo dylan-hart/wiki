@@ -558,37 +558,6 @@ export const hooks = pgTable(
   (table) => [index('hooks_siteId_idx').on(table.siteId)]
 )
 
-// EVENT SUBSCRIPTIONS ------------------
-/**
- * A user's opt-in to receive an email whenever a given event fires, independent of the webhook
- * `hooks` an administrator configures — see `models/hooks.ts#emit()`, which queues a subscriber
- * notification for every event alongside the webhook deliveries it already queues.
- *
- * A row IS the subscription, the same shape `pageWatching` uses: there is no `enabled` column to
- * flip, because being unsubscribed is the absence of a row, not a state kept around and toggled off.
- * Global rather than per-site, matching Feature #2425's scope ("per-user, per-event-type subscription
- * toggle") — a site-scoped version, a richer per-event template, and the settings UI to manage this
- * are separately-tracked follow-on work, not added here.
- */
-export const eventSubscriptions = pgTable(
-  'eventSubscriptions',
-  {
-    id: uuid().primaryKey().defaultRandom(),
-    userId: uuid()
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    // -> One of `HookEvent` (`models/hooks.ts`) -- not a DB enum, matching `hooks.events`'s own
-    //    plain-text choice, so a new subscribable event needs no migration
-    event: varchar({ length: 64 }).notNull(),
-    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
-  },
-  (table) => [
-    index('eventSubscriptions_event_idx').on(table.event),
-    // -> Subscribing twice is subscribing once
-    uniqueIndex('eventSubscriptions_user_event_idx').on(table.userId, table.event)
-  ]
-)
-
 // ICONS -------------------------------
 // -> An Iconify icon set the wiki draws icons from, e.g. `mdi`. Adding one makes its icons
 //    searchable; individual icons are only stored once something references them.
@@ -1731,6 +1700,35 @@ export const tree = pgTable(
     uniqueIndex('tree_composite_nonpage_idx')
       .on(table.siteId, table.locale, table.folderPath, table.fileName)
       .where(sql`"tree" <> 'page'`)
+  ]
+)
+
+// TFA KNOWN DEVICES -------------------
+// -> OpenProject #3302: what `models/login.ts#loginTFA()` reads/writes to tell a returning
+//    device/location from a new one, so it knows when to fire the new-device-login notice. There is
+//    no geoIP lookup anywhere in this codebase (see `docs/decisions/2026-09-15-tfa-new-device-login-
+//    fingerprint.md`), so "device" and "location" are not tracked separately: `fingerprint` is a
+//    hash of the client IP plus its User-Agent string, and a change in either one is a new
+//    fingerprint. `ip`/`userAgent` are kept alongside it in the clear (not just the hash) purely so
+//    a future admin-facing "known devices" view has something human-readable to show — nothing reads
+//    them back today.
+export const tfaKnownDevices = pgTable(
+  'tfaKnownDevices',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // -> sha1 hex of `${ip}|${userAgent}` -- see `models/login.ts#tfaDeviceFingerprint`, the one
+    //    place that computes it. Looked up by (userId, fingerprint) equality only, never parsed.
+    fingerprint: varchar({ length: 64 }).notNull(),
+    ip: varchar({ length: 255 }),
+    userAgent: text(),
+    firstSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('tfaKnownDevices_userId_fingerprint_idx').on(table.userId, table.fingerprint)
   ]
 )
 

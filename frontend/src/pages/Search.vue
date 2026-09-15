@@ -211,7 +211,6 @@
                 <div class="layout-search-rowtitle">
                   {{ item.title }}
                   <search-result-hop-badge :hop="item.hop" />
-                  <search-result-similarity-badge :distance="item.distance" />
                 </div>
                 <div v-if="item.description" class="layout-search-rowdesc">
                   {{ item.description }}
@@ -225,7 +224,17 @@
                 </div>
               </div>
               <div class="layout-search-rowmeta">
-                <div class="layout-search-rowdate">{{ item.updatedAtFormatted }}</div>
+                <!--
+                  A semantic-mode row's match percentage lands here rather than on the title line
+                  (OpenProject #3293) -- it replaces the date, not sits beside it, since a semantic
+                  row carries no `updatedAt` to show in the first place (see `formattedResults`).
+                -->
+                <div class="layout-search-rowdate">
+                  <search-result-similarity-badge
+                    v-if="item.distance !== null && item.distance !== undefined"
+                    :distance="item.distance" />
+                  <template v-else>{{ item.updatedAtFormatted }}</template>
+                </div>
                 <!--
                   Only when there is something to draw: an empty wrapper would still take the
                   column's 6px gap and leave the date sitting a row-height above the row's own
@@ -415,11 +424,20 @@ const defaultPageIcon = DEFAULT_PAGE_ICON
 /**
  * `state.results` with each row's update time formatted, computed once when the result set changes
  * rather than once per render of a list that can hold up to `RESULTS_LIMIT` rows.
+ *
+ * The `'---'` "no date" fallback is a keyword-mode-only concern (OpenProject #3293): a semantic row
+ * carries no `updatedAt` field at all (`SemanticSearchResult`'s wire schema has none), and the
+ * template draws its match-percentage badge in `updatedAtFormatted`'s place for those rows instead
+ * of the date -- so leaving it unset here for a row that carries a `distance` avoids computing a
+ * placeholder string nothing ever reads.
  */
 const formattedResults = computed(() =>
   state.results.map((r) => ({
     ...r,
-    updatedAtFormatted: userStore.formatRecent(t, r.updatedAt) || '---'
+    updatedAtFormatted:
+      r.distance === null || r.distance === undefined
+        ? userStore.formatRecent(t, r.updatedAt) || '---'
+        : null
   }))
 )
 

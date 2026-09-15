@@ -92,6 +92,50 @@ describe('backend/locales/en.json — dead key clusters stay removed', () => {
     assert.equal(Object.hasOwn(parsed, 'admin.utilities.import'), true)
     assert.equal(Object.hasOwn(parsed, 'admin.utilities.invalidApiCertificates'), true)
   })
+
+  /**
+   * OpenProject #3287: `mail.eventSubscription.*` backed `MailModel#sendEventSubscriptionNotification`,
+   * and the per-event `mail.notificationEvent.<event>.label`/`bodyPlain.*`/`bodyWithTarget.*`/
+   * `subjectPlain`/`subjectWithTarget`/`templateFooter`/`unknownActor` keys backed
+   * `MailModel#sendNotificationEvent` -- both removed as dead code (the `eventSubscriptions` table had
+   * no writer, and `sendNotificationEvent` had no caller at all). `mail.notificationEvent.{subject,
+   * text,html,footer}` and every `mail.notificationEventLabel.*` key back the still-live
+   * `sendEventNotification` path and must survive this and any future dead-key sweep.
+   */
+  test('no mail.eventSubscription.* or sendNotificationEvent-only mail.notificationEvent.* keys', async () => {
+    const parsed = await loadParsed()
+    const eventSubscriptionKeys = Object.keys(parsed).filter((k) =>
+      k.startsWith('mail.eventSubscription.')
+    )
+    assert.deepEqual(eventSubscriptionKeys, [])
+
+    for (const deadKey of [
+      'mail.notificationEvent.subjectPlain',
+      'mail.notificationEvent.subjectWithTarget',
+      'mail.notificationEvent.templateFooter',
+      'mail.notificationEvent.unknownActor',
+      'mail.notificationEvent.bodyPlain.text',
+      'mail.notificationEvent.bodyPlain.html',
+      'mail.notificationEvent.bodyWithTarget.text',
+      'mail.notificationEvent.bodyWithTarget.html',
+      'mail.notificationEvent.page:create.label',
+      'mail.notificationEvent.user:join.label'
+    ]) {
+      assert.equal(Object.hasOwn(parsed, deadKey), false, `${deadKey} should have been deleted`)
+    }
+
+    // -> The surviving sendEventNotification path's own keys must not be caught by the same sweep.
+    for (const liveKey of [
+      'mail.notificationEvent.subject',
+      'mail.notificationEvent.text',
+      'mail.notificationEvent.html',
+      'mail.notificationEvent.footer',
+      'mail.notificationEventLabel.page:create',
+      'mail.notificationEventLabel.user:join'
+    ]) {
+      assert.equal(Object.hasOwn(parsed, liveKey), true, `${liveKey} must still exist`)
+    }
+  })
 })
 
 /**

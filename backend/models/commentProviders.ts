@@ -80,13 +80,8 @@ export interface CommentProvider {
  *
  * ---
  *
- * **`read:comments` permission boundary — binding on any future embed rendering.**
- *
- * Nothing in this repo renders a `codeTemplate` provider's embed yet: there is no page-view logic
- * that drops Disqus/Commento/Artalk's `<script>` onto a page, only the native `default` provider's
- * server-rendered comments are wired up. This note exists so that whichever future change adds one
- * does not reintroduce a permission bug that would be easy to miss precisely *because*
- * Disqus/Commento/Artalk have no server-side code of their own to gate.
+ * **`read:comments` permission boundary — how it is actually enforced (Feature #3286 / OpenProject
+ * #3303).**
  *
  * The `default` provider's comments are read through `models/comments.ts` calls a route makes, and
  * any such route checks `mayOnPage(req, 'read:comments', page)` (`helpers/pageAccess.ts`) before returning
@@ -97,21 +92,21 @@ export interface CommentProvider {
  * in the handler).
  *
  * A `codeTemplate` provider has no equivalent handler to put that check in — embedding its `<script>`
- * IS the render, there is no server response to withhold first. That makes it easy to wire up a page
- * view that drops the vendor's embed tag onto the page unconditionally, reachable by anyone who can
- * load the page's HTML at all. Doing that would leak more than the comments: Disqus/Commento/Artalk
- * are third-party services, and initializing their embed tells that third party the page exists (its
- * URL/shortname, at minimum, before the visitor supplies any credential of their own) — for a reader
- * who lacks `read:comments` on that specific page, that is a leak the native provider's own
- * `mayOnPage` check exists precisely to prevent. So: **whatever future code renders a `codeTemplate`
- * provider's embed on a page view must call `mayOnPage(req, 'read:comments', page)` (or the
- * equivalent frontend-side `userStore.pagePermissions` check) and skip
- * emitting the embed script entirely when it is false** — not merely hide the resulting widget with
- * CSS, which would still have let the third-party script load and phone home first.
+ * IS the render, there is no server response to withhold first, and this fork's page views are
+ * client-rendered (no per-page server-rendered HTML for a `mayOnPage` call to gate the way a REST
+ * route gates its JSON body). So the boundary is enforced on the frontend instead, the alternative
+ * this doc comment always allowed for: `frontend/src/components/PageCommentsEmbed.vue` gates its
+ * whole template on `userStore.pagePermissions.includes('read:comments')` — the same page-scoped
+ * permission list `Index.vue` already reads for `write:pages`/`read:history`/etc, refreshed per route
+ * by `App.vue` — so the vendor's `<script>` is never constructed or inserted into the DOM for a
+ * reader who lacks it, not merely hidden with CSS after the fact. `buildSitePayload()` (`api/sites.ts`)
+ * only ever exposes THAT a `codeTemplate` provider is active and its (non-sensitive) config/origin —
+ * site-wide, admin-configured information, not anything about any specific page or its comments — so
+ * nothing page-specific reaches a reader's browser ahead of that permission check.
  *
  * ---
  *
- * **Canonical URL boundary — also binding on any future embed rendering (OpenProject #831).**
+ * **Canonical URL boundary — how it is actually enforced (OpenProject #831, Feature #3286 / #3303).**
  *
  * Disqus and Commento both identify a page by a canonical URL handed to their embed script
  * (`disqus_config.page.url`, Commento's `data-page-id`/current-URL detection) — get that URL wrong
@@ -121,16 +116,18 @@ export interface CommentProvider {
  * from the site's real public address — behind a reverse proxy, on a non-default port, or just
  * because an admin-typed "Site URL" setting went stale.
  *
- * The rule that follows from it is mandatory: **whatever future code renders a `codeTemplate`
- * provider's embed must build the page URL it hands the vendor's script from the request that served
- * the page — `` `${requestOrigin(req.protocol, req.hostname)}/${page.path}` `` (`helpers/common.ts`,
- * with `page.path`'s leading slash stripped) — never by re-deriving `protocol://host` itself and
- * never from a separately stored/configured URL.** `req.protocol`/`req.hostname` are already correct
- * behind a reverse proxy and on a non-default port *as long as `security.trustProxy` is on* (see
- * `requestOrigin`'s own doc comment), so there is nothing left to get wrong once every caller goes
- * through the one formula. This model carried that formula as a `canonicalPageUrl()` one-liner until
- * it was removed for having no caller but its own test — the boundary is the rule above, not a
- * wrapper kept alive for it.
+ * The rule that follows from it: the page URL handed to a vendor's embed script must be built from
+ * the request that served the app — `` `${requestOrigin(req.protocol, req.hostname)}/${page.path}` ``
+ * (`helpers/common.ts`) — never by re-deriving `protocol://host` itself and never from a separately
+ * stored/configured URL. There is no per-page server-rendered response to compute the *whole* URL
+ * against in an SPA (see the permission-boundary note above), so the formula is split at the point
+ * that stays true across page views: `buildSitePayload()` computes ONLY the origin half,
+ * `requestOrigin(req.protocol, req.hostname)`, from the same request that serves the app shell/site
+ * payload (`GET /sites/:id`, `GET /_api/bootstrap`) — `PageCommentsEmbed.vue` appends `/${page.path}`
+ * client-side, which is not a `protocol://host` re-derivation, just the page identity the SPA already
+ * knows from its own route. `req.protocol`/`req.hostname` are already correct behind a reverse proxy
+ * and on a non-default port *as long as `security.trustProxy` is on* (see `requestOrigin`'s own doc
+ * comment), so there is nothing left to get wrong once every caller goes through the one formula.
  */
 class CommentProviders {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -144,18 +141,25 @@ class CommentProviders {
   /**
    * Whether a provider may be listed and selected.
    *
-   * `hasImplementation` alone, matching `models/storage.ts`'s equivalent gate. Reversed from an
-   * earlier version that also treated `codeTemplate` as an independent grant: no page-view code
-   * renders a `codeTemplate` provider's embed, and building that render path turned out to be
-   * materially more
-   * than the one-field flip it looked like (a new public, per-page-permission-gated API to expose
-   * the active provider to anonymous readers, plus vendor-specific glue for three different
-   * third-party SDKs), so the fork now marks Disqus/Commento/Artalk `isAvailable: false` instead —
-   * `AdminComments.vue` already renders such a row disabled — rather than advertise a provider the
-   * picker cannot actually deliver comments through.
+   * `hasImplementation || codeTemplate` (Feature #3286 / OpenProject #3303, superseding #1958): a
+   * provider is selectable when it has its own server-side implementation (the native `default`
+   * provider's `comments.ts`), OR when it is a `codeTemplate` provider, now that a page-view render
+   * path for one actually exists — `frontend/src/components/PageCommentsEmbed.vue`, mounted by
+   * `Index.vue` off `siteStore.commentsProvider` (built by `buildSitePayload()` in `api/sites.ts`).
+   *
+   * #1958 turned this OFF for `codeTemplate` alone, deliberately, because at the time nothing
+   * rendered a `codeTemplate` provider's embed at all: an earlier version (Feature 396) let a
+   * provider with no server-side implementation be selected purely on the theory that a render path
+   * would show up later, and none did — so Disqus/Commento/Artalk were marked `isAvailable: false`
+   * instead of advertising a provider the picker could not actually deliver comments through. That
+   * theory is no longer hypothetical: the render path now exists, `read:comments` boundary and
+   * canonical-URL formula both enforced exactly as this file's own doc comments above require, so the
+   * condition #1958 was waiting on is satisfied and this reverts to Feature 396's original formula.
    */
-  isSelectable(definition: Pick<CommentProviderDefinition, 'hasImplementation'>): boolean {
-    return definition.hasImplementation
+  isSelectable(
+    definition: Pick<CommentProviderDefinition, 'hasImplementation' | 'codeTemplate'>
+  ): boolean {
+    return definition.hasImplementation || definition.codeTemplate
   }
 
   /**
@@ -287,6 +291,19 @@ class CommentProviders {
   }
 
   /**
+   * The site's active provider, or null when none is (a fresh site, or one where comments are on but
+   * no provider has ever been activated). Distinct from `getSiteProviders()`/`getSiteProviderByModule()`,
+   * which serve the admin area's full list of every discovered module — this is the one answer a page
+   * view actually needs, and what `buildSitePayload()` (`api/sites.ts`) calls to decide whether the
+   * site payload's `commentsProvider` field is set. Always masked: this can reach an anonymous
+   * reader's browser (via that public site payload), same as `setActiveProvider()`'s own return value.
+   */
+  async getActiveProvider(siteId: string): Promise<CommentProvider | null> {
+    const providers = await this.getSiteProviders(siteId, { mask: true })
+    return providers.find((p) => p.isEnabled) ?? null
+  }
+
+  /**
    * Merge incoming config values onto the ones already stored, keeping only what the module declares
    * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
@@ -328,14 +345,15 @@ class CommentProviders {
     if (!definition) {
       return null
     }
-    // -> A non-selectable module (no server-side implementation) must never be stored as active in the
-    //    first place. There is no read-side counterpart to this: `api/comments.ts` reads the site's
-    //    providers through `getSiteProviders({ mask: true })` and picks client-side, so a stored row
-    //    whose module loses its implementation on disk AFTER activation surfaces as a non-selectable
-    //    provider there rather than being silently swapped for `default`.
+    // -> A non-selectable module (no server-side implementation, and not a codeTemplate provider
+    //    either) must never be stored as active in the first place. There is no read-side counterpart
+    //    to this: `buildSitePayload()`/`api/comments.ts` read the site's providers through
+    //    `getSiteProviders({ mask: true })` and pick client-side, so a stored row whose module loses
+    //    both `hasImplementation` and `codeTemplate` on disk AFTER activation surfaces as a
+    //    non-selectable provider there rather than being silently swapped for `default`.
     if (!this.isSelectable(definition)) {
       throw new Error(
-        `${definition.title} cannot be activated: it has no server-side implementation.`
+        `${definition.title} cannot be activated: it has no server-side implementation and does not declare codeTemplate.`
       )
     }
     const invalid = this.validateConfig(moduleKey, config)
