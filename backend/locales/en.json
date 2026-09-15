@@ -3576,6 +3576,8 @@
   "profile.tfaRecoveryCodesRegenerateConfirm": "Regenerating will immediately invalidate all of your existing recovery codes, including any that are still unused. Continue?",
   "profile.tfaRecoveryCodesRegenerateFailed": "Failed to regenerate recovery codes.",
   "profile.tfaRecoveryCodesRemaining": "{remaining} of {total} recovery codes remaining",
+  "profile.theme": "Theme",
+  "profile.time": "Time",
   "profile.timeFormat": "Time Format",
   "profile.timeFormat12h": "12 hour",
   "profile.timeFormat24h": "24 hour",

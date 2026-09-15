@@ -1,6 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { nextTick } from 'vue'
 
 import ProfileInfo from './ProfileInfo.vue'
 import ProfileOverlay from '@/components/ProfileOverlay.vue'
@@ -53,17 +52,26 @@ function mountPage() {
  * assertions are unaffected. See `docs/cobalt-mockup-diff-signoff.md` row 10.
  */
 describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2623)', () => {
+  /**
+   * OpenProject #3315 (Feature #3314): the THEME/TIME/ACCESSIBILITY rows -- and the sun/eye glyphs
+   * that came with them -- moved out to `ProfilePreferences.vue`. Only the ID card glyph (the
+   * display name row) is still this page's own; `ProfilePreferences.test.js` pins the sun/eye pair
+   * now.
+   */
   it('draws the glyphs the design draws, not the ones that were there before', async () => {
     globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
 
     const wrapper = mountPage()
     await flushPromises()
 
-    // -> The design draws an ID card, a sun and an OPEN eye for these three rows
-    for (const icon of ['tabler:id', 'tabler:sun', 'tabler:eye']) {
-      expect(wrapper.find(`[data-icon="${icon}"]`).exists()).toBe(true)
-    }
-    for (const icon of ['tabler:address-book', 'tabler:bulb', 'tabler:eye-off']) {
+    expect(wrapper.find('[data-icon="tabler:id"]').exists()).toBe(true)
+    for (const icon of [
+      'tabler:sun',
+      'tabler:eye',
+      'tabler:address-book',
+      'tabler:bulb',
+      'tabler:eye-off'
+    ]) {
       expect(wrapper.find(`[data-icon="${icon}"]`).exists()).toBe(false)
     }
   })
@@ -106,9 +114,12 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
       The design stacks band, rows, band, rows with nothing between them: the strip IS the seam. A
       `mt-*` utility on a band is what put a 24px hole there instead. There is no save bar any more
       (Task #3220) for one to sit on.
+
+      OpenProject #3315: down from 3 to 1 -- PREFERENCES/ACCESSIBILITY's two bands moved to
+      `ProfilePreferences.vue` with the rows they headed, leaving only MY INFO's here.
     */
     const bands = wrapper.findAll('.w-section-header')
-    expect(bands.length).toBe(3)
+    expect(bands.length).toBe(1)
     for (const band of bands) {
       expect(band.classes().some((cls) => cls.startsWith('mt-'))).toBe(false)
     }
@@ -142,90 +153,13 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
   })
 })
 
-/**
- * OpenProject #2810: row 10 (Profile) of `docs/cobalt-mockup-diff-signoff.md` was never diffed
- * against `ui-redesign-cobalt/Cardinal Wiki - Profile 3x - Cobalt.dc.html`. That diff found the
- * Preferences card's four `w-btn-toggle`s (Time format, Aesthetic, Appearance, Colour vision) all
- * filling their selected segment from `--color-primary` where the mockup's selected-segment fill is
- * the ACCENT role (`ui-redesign-cobalt/HANDOFF.md`'s chrome table, "Accent fill carrying WHITE text
- * ... selected segment", `#c8303c`/5.3:1) -- invisible under Ledger only because its `colorPrimary`
- * and `colorAccent` defaults are identical (`#c14a52`).
- */
-describe('ProfileInfo against Cardinal Wiki - Profile 3x - Cobalt.dc.html (OpenProject #2810)', () => {
-  it('fills every settings-row toggle selection from the segment-selected role', async () => {
-    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
-
-    const wrapper = mountPage()
-    await flushPromises()
-
-    const toggleLabels = [
-      'profile.timeFormat',
-      'profile.aesthetic',
-      'profile.appearance',
-      'profile.cvd'
-    ]
-    expect.assertions(toggleLabels.length * 2)
-    for (const label of toggleLabels) {
-      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
-      expect(toggle.exists()).toBe(true)
-      const selected = toggle.find('[aria-checked="true"]')
-      /*
-        `--color-segment-selected`, not `--color-accent` directly: the mockup's ask is "the accent
-        under Cobalt", and the two aesthetics answer it differently -- Ledger fills a selected
-        segment with the site's primary (what `WBtnToggle` has always drawn, and what its own
-        Aesthetic Setting card shows), Cobalt with the accent. The token carries both, so no caller
-        names a tone; `css/cobaltTokens.test.js` pins the two values.
-      */
-      expect(selected.attributes('style')).toContain(
-        'background-color: var(--color-segment-selected)'
-      )
-    }
-  })
-})
-
-/**
- * OpenProject #3060: Time Format, Aesthetic, Light/Dark Mode and Color Vision Deficiency each wrap
- * their `w-btn-toggle` in a flanking `w-item-section side`, which the shared `WItemSection.vue`
- * responsive stacking (OpenProject #2822/#2823) deliberately excludes -- only two ADJACENT MAIN
- * sections (`.w-item-section--main + .w-item-section--main`) collapse to field-over-value on a
- * narrow row, the same shape Pronouns/Job Title already use. Dropping `side` on these four rows'
- * value section is the whole fix; this asserts the resulting DOM shape rather than re-proving the
- * container-query mechanism itself, which `WItem.responsiveStacking.test.js` already covers in a
- * real browser.
- *
- * OpenProject #3088: Content Width (added later, by Feature #3051 / Task #3068) kept `side` and
- * was left right-aligned and non-stacking, unlike the four rows above -- it joins the same
- * assertion here now that it has been converted too.
- */
-describe('ProfileInfo toggle-style fields collapse to field-over-value (OpenProject #3060)', () => {
-  it('wraps Time Format/Aesthetic/Appearance/CVD/Content Width in a MAIN section, not a flanking `side` one', async () => {
-    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
-    const wrapper = mountPage()
-    await flushPromises()
-
-    const toggleLabels = [
-      'profile.timeFormat',
-      'profile.aesthetic',
-      'profile.appearance',
-      'profile.cvd',
-      'profile.contentWidth'
-    ]
-    expect.assertions(toggleLabels.length * 4)
-    for (const label of toggleLabels) {
-      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
-      expect(toggle.exists()).toBe(true)
-
-      const valueSection = toggle.element.closest('.w-item-section')
-      expect(valueSection.classList.contains('w-item-section--side')).toBe(false)
-      expect(valueSection.classList.contains('w-item-section--main')).toBe(true)
-
-      // -> Immediately preceded by the label's own MAIN section -- the two-adjacent-MAIN-sections
-      //    shape Pronouns/Job Title already have, which is what the container query keys off.
-      const labelSection = valueSection.previousElementSibling
-      expect(labelSection.classList.contains('w-item-section--main')).toBe(true)
-    }
-  })
-})
+/*
+  OpenProject #3315 (Feature #3314): the Cobalt toggle-fill signoff (OpenProject #2810) and the
+  toggle-style-fields responsive-stacking pin (OpenProject #3060) both exercised ONLY the
+  THEME/TIME/ACCESSIBILITY toggle rows, which moved out to `ProfilePreferences.vue` -- this page
+  renders no `w-btn-toggle` at all any more. Both describes moved there verbatim (component swapped),
+  rather than staying here to assert on DOM that no longer exists.
+*/
 
 /**
  * The claims above that are MEASUREMENTS rather than class names, checked where a measurement can
@@ -544,145 +478,6 @@ describe('ProfileInfo first/last/display name (Feature #2608)', () => {
     expect(wrapper.find('input[aria-label="First Name"]').element.value).toBe('Janet')
   })
 
-  it('loads and sends the aesthetic choice the same way appearance already works', async () => {
-    const wrapper = mountProfile({ ...FULL_PROFILE, aesthetic: 'cobalt' })
-    await flushPromises()
-
-    // -> WBtnToggle draws each option as a labelled button; the test i18n resolves the untranslated
-    //    profile.aesthetic* keys to themselves, so the aesthetic toggle's own aria-label is distinct
-    //    from the appearance toggle's.
-    const aestheticToggle = wrapper.find('[aria-label="profile.aesthetic"]')
-    expect(aestheticToggle.exists()).toBe(true)
-    expect(wrapper.find('[aria-label="profile.appearance"]').exists()).toBe(true)
-
-    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    await wrapper.vm.save()
-    await flushPromises()
-
-    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
-      aesthetic: 'cobalt',
-      appearance: 'site'
-    })
-  })
-
-  /*
-    OpenProject #3052: the two prefs used to share one "Appearance" row/label with both toggles side
-    by side in a flex-wrap div. Each now gets its own row with its own label and hint, so the two
-    toggles must resolve to two distinct `.w-item` ancestors, not a shared one.
-  */
-  it('gives the aesthetic and light/dark toggles separate rows, each with its own label', async () => {
-    const wrapper = mountProfile(FULL_PROFILE)
-    await flushPromises()
-
-    const aestheticToggle = wrapper.find('[aria-label="profile.aesthetic"]')
-    const appearanceToggle = wrapper.find('[aria-label="profile.appearance"]')
-    expect(aestheticToggle.exists()).toBe(true)
-    expect(appearanceToggle.exists()).toBe(true)
-
-    const aestheticRow = aestheticToggle.element.closest('.w-item')
-    const appearanceRow = appearanceToggle.element.closest('.w-item')
-    expect(aestheticRow).not.toBe(null)
-    expect(appearanceRow).not.toBe(null)
-    expect(aestheticRow).not.toBe(appearanceRow)
-
-    // -> Each row carries its own label and hint text now, rather than one row describing both.
-    expect(aestheticRow.textContent).toContain('profile.aesthetic')
-    expect(aestheticRow.textContent).toContain('profile.aestheticHint')
-    expect(appearanceRow.textContent).toContain('profile.appearance')
-    expect(appearanceRow.textContent).toContain('profile.appearanceHint')
-  })
-
-  it('patches userStore.aesthetic on save, the same way appearance already does', async () => {
-    globalThis.API_CLIENT.get.mockReturnValue({
-      json: () => Promise.resolve({ ...FULL_PROFILE, aesthetic: 'ledger' })
-    })
-    const { wrapper, userStore } = mountWithApp(ProfileInfo, {
-      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
-      stores: {
-        site: (store) => {
-          store.features.profile = true
-        }
-      }
-    })
-    await flushPromises()
-
-    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    await wrapper.vm.save()
-    await flushPromises()
-
-    expect(userStore.aesthetic).toBe('ledger')
-  })
-
-  it('defaults the aesthetic choice to site when the profile carries none', async () => {
-    const wrapper = mountProfile(FULL_PROFILE)
-    await flushPromises()
-
-    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    await wrapper.vm.save()
-    await flushPromises()
-
-    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
-      aesthetic: 'site'
-    })
-  })
-
-  /**
-   * Feature #3051 / Task #3068: `contentWidth` follows the same load/send/patch/default shape
-   * `aesthetic` already exercises above.
-   */
-  it('loads and sends the contentWidth choice the same way aesthetic already works', async () => {
-    const wrapper = mountProfile({ ...FULL_PROFILE, contentWidth: 'full' })
-    await flushPromises()
-
-    // -> WBtnToggle draws each option as a labelled button; the test i18n resolves the untranslated
-    //    profile.contentWidth* keys to themselves, so this toggle's own aria-label is distinct from
-    //    the aesthetic/appearance toggles'.
-    const contentWidthToggle = wrapper.find('[aria-label="profile.contentWidth"]')
-    expect(contentWidthToggle.exists()).toBe(true)
-
-    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    await wrapper.vm.save()
-    await flushPromises()
-
-    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
-      contentWidth: 'full'
-    })
-  })
-
-  it('patches userStore.contentWidth on save, the same way aesthetic already does', async () => {
-    globalThis.API_CLIENT.get.mockReturnValue({
-      json: () => Promise.resolve({ ...FULL_PROFILE, contentWidth: 'measured' })
-    })
-    const { wrapper, userStore } = mountWithApp(ProfileInfo, {
-      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
-      stores: {
-        site: (store) => {
-          store.features.profile = true
-        }
-      }
-    })
-    await flushPromises()
-
-    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    await wrapper.vm.save()
-    await flushPromises()
-
-    expect(userStore.contentWidth).toBe('measured')
-  })
-
-  it('defaults the contentWidth choice to site when the profile carries none', async () => {
-    const wrapper = mountProfile(FULL_PROFILE)
-    await flushPromises()
-
-    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    await wrapper.vm.save()
-    await flushPromises()
-
-    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
-      contentWidth: 'site'
-    })
-  })
-
   it('carries a mononym through: an empty last name is loaded and sent as empty', async () => {
     const wrapper = mountProfile({
       ...FULL_PROFILE,
@@ -805,119 +600,92 @@ describe('ProfileInfo auto-save (Task #3220)', () => {
 
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
   })
+})
 
-  it('puts an inline error on the timezone field for a server-rejected time zone', async () => {
-    const wrapper = mountProfile(FULL_PROFILE)
+/*
+  OpenProject #3315 (Feature #3314): the timezone inline-error tests (`userProfileInvalidTimezone`
+  pinned to the timezone control) and the entire "theme toggles have no pre-fetch flash" describe
+  (OpenProject #3281) both exercised controls that moved to `ProfilePreferences.vue` -- this page
+  renders neither the timezone field nor any theme toggle any more. Both moved there verbatim
+  (component swapped).
+*/
+
+/**
+ * OpenProject #3315: `ProfileInfo.vue` no longer renders a control for the theme/time/accessibility
+ * fields, but its `save()` still PUTs the whole profile object -- so it must carry whatever it
+ * fetched for those fields through UNCHANGED, or it would clobber whatever `ProfilePreferences.vue`
+ * last saved. It also must not patch any of them onto `userStore` any more (that page's job now).
+ */
+describe('ProfileInfo carries theme/time/accessibility fields through unmodified (OpenProject #3315)', () => {
+  const NON_IDENTITY_PROFILE = {
+    ...FULL_PROFILE,
+    aesthetic: 'cobalt',
+    appearance: 'dark',
+    contentWidth: 'full',
+    cvd: 'protanopia',
+    timezone: 'Europe/Paris',
+    dateFormat: 'YYYY-MM-DD',
+    timeFormat: '24h'
+  }
+
+  it('renders no control at all for any of them', async () => {
+    const wrapper = mountProfile(NON_IDENTITY_PROFILE)
     await flushPromises()
-    const err = new Error('Bad Request')
-    err.data = {
-      ok: false,
-      error: 'userProfileInvalidTimezone',
-      statusCode: 400,
-      message: 'Not a recognized IANA time zone.'
+
+    for (const label of [
+      'profile.aesthetic',
+      'profile.appearance',
+      'profile.contentWidth',
+      'profile.cvd'
+    ]) {
+      expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(false)
     }
-    globalThis.API_CLIENT.put.mockImplementationOnce(() => {
-      throw err
-    })
-
-    await wrapper.vm.save()
-    await flushPromises()
-
-    const timezoneField = wrapper.find('[aria-label="admin.general.defaultTimezone"]')
-    expect(timezoneField.exists()).toBe(true)
-    expect(timezoneField.element.closest('.w-item').textContent).toContain(
-      'Not a recognized IANA time zone.'
-    )
+    expect(wrapper.find('[aria-label="admin.general.defaultTimezone"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="admin.general.defaultDateFormat"]').exists()).toBe(false)
   })
 
-  it('clears a field-level error once a fresh save is attempted', async () => {
-    const wrapper = mountProfile(FULL_PROFILE)
+  it('sends the fetched values back unchanged on save', async () => {
+    const wrapper = mountProfile(NON_IDENTITY_PROFILE)
     await flushPromises()
-    const err = new Error('Bad Request')
-    err.data = {
-      ok: false,
-      error: 'userProfileInvalidTimezone',
-      statusCode: 400,
-      message: 'Not a recognized IANA time zone.'
-    }
-    globalThis.API_CLIENT.put.mockImplementationOnce(() => {
-      throw err
-    })
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.find('input[aria-label="First Name"]').setValue('Janet')
     await wrapper.vm.save()
     await flushPromises()
-    expect(wrapper.text()).toContain('Not a recognized IANA time zone.')
+
+    expect(globalThis.API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({
+      aesthetic: 'cobalt',
+      appearance: 'dark',
+      contentWidth: 'full',
+      cvd: 'protanopia',
+      timezone: 'Europe/Paris',
+      dateFormat: 'YYYY-MM-DD',
+      timeFormat: '24h'
+    })
+  })
+
+  it('patches only name onto userStore, leaving whatever ProfilePreferences.vue last set alone', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve(NON_IDENTITY_PROFILE) })
+    const { wrapper, userStore } = mountWithApp(ProfileInfo, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        },
+        user: (store) => {
+          store.aesthetic = 'ledger'
+          store.contentWidth = 'measured'
+        }
+      }
+    })
+    await flushPromises()
 
     globalThis.API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
     await wrapper.vm.save()
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('Not a recognized IANA time zone.')
-  })
-})
-
-/**
- * OpenProject #3281: `aesthetic`/`appearance`/`contentWidth`/`cvd` used to mount pre-selected on a
- * hardcoded default (`'site'`/`'none'`), then flash to the real saved value once `users/profile`
- * resolved. `state.config`'s initial value for all four is now `null`, and `WBtnToggle`'s own
- * selection check (`opt.value === modelValue`) is false for every segment when `modelValue` is
- * `null`, so no segment should render selected until the real value lands.
- */
-describe('ProfileInfo theme toggles have no pre-fetch flash (OpenProject #3281)', () => {
-  const toggleLabels = [
-    'profile.aesthetic',
-    'profile.appearance',
-    'profile.contentWidth',
-    'profile.cvd'
-  ]
-
-  function expectNoSegmentSelected(wrapper) {
-    for (const label of toggleLabels) {
-      const toggle = wrapper.find(`[role="radiogroup"][aria-label="${label}"]`)
-      expect(toggle.exists()).toBe(true)
-      expect(toggle.find('[aria-checked="true"]').exists()).toBe(false)
-    }
-  }
-
-  it('renders every theme toggle with no segment selected before the profile fetch resolves', async () => {
-    let resolveProfile
-    globalThis.API_CLIENT.get.mockReturnValue({
-      json: () =>
-        new Promise((resolve) => {
-          resolveProfile = resolve
-        })
-    })
-
-    const wrapper = mountPage()
-    await nextTick()
-
-    expectNoSegmentSelected(wrapper)
-
-    // -> Once the fetch resolves, the real values take over -- confirming this isn't merely a
-    //    permanently-blank control, but genuinely a race that now resolves the right way.
-    resolveProfile({
-      ...FULL_PROFILE,
-      aesthetic: 'cobalt',
-      contentWidth: 'full',
-      cvd: 'protanopia'
-    })
-    await flushPromises()
-
-    const aestheticToggle = wrapper.find('[role="radiogroup"][aria-label="profile.aesthetic"]')
-    expect(aestheticToggle.find('[aria-checked="true"]').exists()).toBe(true)
-  })
-
-  it('leaves every theme toggle blank, with the load-failed toast, when the profile fetch fails', async () => {
-    notifyQueue.splice(0, notifyQueue.length)
-    globalThis.API_CLIENT.get.mockReturnValue({
-      json: () => Promise.reject(new Error('network'))
-    })
-
-    const wrapper = mountPage()
-    await flushPromises()
-
-    expectNoSegmentSelected(wrapper)
-    expect(
-      notifyQueue.some((n) => n.type === 'negative' && n.message === 'profile.infoLoadingFailed')
-    ).toBe(true)
+    expect(userStore.name).toBe(NON_IDENTITY_PROFILE.name)
+    expect(userStore.aesthetic).toBe('ledger')
+    expect(userStore.contentWidth).toBe('measured')
   })
 })
