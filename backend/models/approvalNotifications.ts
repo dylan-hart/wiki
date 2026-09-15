@@ -100,13 +100,26 @@ class ApprovalNotifications {
           continue
         }
         const safePath = escapeHtml(page.path)
+        const locale = (reviewer.prefs as { locale?: string } | null)?.locale
         await CARDINAL.models.mail.send({
           to: reviewer.email,
           kind: 'approval',
           userId: reviewerId,
-          subject: `New edit suggestion waiting for review: ${page.path}`,
-          text: `A new edit suggestion is waiting for your review on "${page.path}" — ${link}`,
-          html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`
+          subject: await CARDINAL.models.locales.resolveString(
+            locale,
+            'mail.approvalReviewNotice.subject',
+            { path: page.path }
+          ),
+          text: await CARDINAL.models.locales.resolveString(
+            locale,
+            'mail.approvalReviewNotice.text',
+            { path: page.path, link }
+          ),
+          html: await CARDINAL.models.locales.resolveString(
+            locale,
+            'mail.approvalReviewNotice.html',
+            { path: safePath, link }
+          )
         })
       } catch (err: any) {
         CARDINAL.logger.warn('hooks', 'sending the submission notification failed', {

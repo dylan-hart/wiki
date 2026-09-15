@@ -275,6 +275,81 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     assert.equal(send.mock.callCount(), 1)
     send.mock.restore()
   })
+
+  /**
+   * OpenProject #3288: the reviewer notice must resolve its subject/text/html through
+   * `mail.approvalReviewNotice.*` (`CARDINAL.models.locales.resolveString`) in the reviewer's own
+   * `prefs.locale`, the same as every other mail trigger -- not hardcoded English template literals.
+   * Exercises the real (unmocked) `sendSubmissionNotification`, stubbing only the outbound
+   * `mail.send` call, so this fails if the send path goes back to inlining the strings.
+   */
+  test('the reviewer notice resolves its subject/text/html via locale keys, in the reviewer’s own locale', async () => {
+    const group = await groupsModel.createGroup('Localized Notice Reviewers')
+    await assignToGroup(group, reviewerAId)
+    await fixtures.db
+      .update(usersTable)
+      .set({ prefs: { locale: 'fr' } })
+      .where(eq(usersTable.id, reviewerAId))
+    await approvalRules.createRule(fixtures.siteId, {
+      name: 'localized notice rule',
+      isEnabled: true,
+      match: 'START',
+      path: 'notify/localized',
+      submitterGroups: [],
+      reviewerGroups: [group]
+    })
+
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'notify/localized/page',
+        title: 'Localized',
+        editor: 'markdown',
+        content: 'Original'
+      },
+      actor
+    )
+
+    const resolveString = mock.method(CARDINAL.models.locales, 'resolveString')
+    const send = mock.method(mail, 'send', async () => {})
+
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(send.mock.callCount(), 1)
+    const [sent] = send.mock.calls[0]!.arguments as [any]
+    assert.equal(sent.kind, 'approval')
+
+    // -> Every resolveString call for this trigger must ask for the reviewer's OWN locale ('fr'),
+    //    never a hardcoded 'en' or an omitted locale.
+    const noticeCalls = resolveString.mock.calls.filter((call) =>
+      String(call.arguments[1]).startsWith('mail.approvalReviewNotice.')
+    )
+    assert.equal(noticeCalls.length, 3)
+    for (const call of noticeCalls) {
+      assert.equal(call.arguments[0], 'fr')
+    }
+    const keys = noticeCalls.map((call) => call.arguments[1]).sort()
+    assert.deepEqual(keys, [
+      'mail.approvalReviewNotice.html',
+      'mail.approvalReviewNotice.subject',
+      'mail.approvalReviewNotice.text'
+    ])
+
+    // -> No 'fr' translation is installed, so lookupString falls back to `en` -- the sent content
+    //    must be the en.json-templated strings, not the old hardcoded literals.
+    assert.equal(sent.subject, `New edit suggestion waiting for review: ${page.path}`)
+    assert.match(sent.text, /^A new edit suggestion is waiting for your review on "/)
+    assert.match(sent.html, /^<p>A new edit suggestion is waiting for your review on <strong>/)
+
+    resolveString.mock.restore()
+    send.mock.restore()
+  })
 })
 
 /**
