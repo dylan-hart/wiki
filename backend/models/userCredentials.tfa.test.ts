@@ -71,6 +71,38 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
     }
   })
 
+  test('enableTfa sends the recovery-codes-generated notice, resolved against the user own locale (OpenProject #3300)', async (t) => {
+    const { mail } = await import('./mail.ts')
+    const sendMock = t.mock.method(mail, 'sendTfaRecoveryCodesGenerated', async () => {})
+
+    const strategyId = freshStrategyId()
+    const user = await usersModel.getById(fixtures.userId)
+    ;(user as any).prefs = { ...(user as any).prefs, locale: 'fr' }
+    await userCredentials.enableTfa(user, strategyId)
+
+    assert.equal(sendMock.mock.calls.length, 1)
+    const args = sendMock.mock.calls[0]!.arguments[0] as any
+    assert.equal(args.to, user.email)
+    assert.equal(args.name, user.name)
+    assert.equal(args.userId, user.id)
+    assert.equal(args.locale, 'fr')
+  })
+
+  test('enableTfa still stores the codes when the notice mail fails to send (OpenProject #3300)', async (t) => {
+    const { mail } = await import('./mail.ts')
+    t.mock.method(mail, 'sendTfaRecoveryCodesGenerated', async () => {
+      throw new Error('ERR_MAIL_NOT_CONFIGURED')
+    })
+
+    const strategyId = freshStrategyId()
+    const user = await usersModel.getById(fixtures.userId)
+    const recoveryCodes = await userCredentials.enableTfa(user, strategyId)
+
+    assert.equal(recoveryCodes.length, 10)
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    assert.equal(reloaded.auth[strategyId].tfaIsActive, true)
+  })
+
   test('verifyAndConsumeRecoveryCode accepts an issued code once, then rejects it on a second try', async () => {
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
@@ -238,6 +270,25 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
       await userCredentials.verifyAndConsumeRecoveryCode(user, strategyId, original[0]!),
       false
     )
+  })
+
+  test('regenerateRecoveryCodes sends the recovery-codes-generated notice (OpenProject #3300)', async (t) => {
+    const { mail } = await import('./mail.ts')
+    const sendMock = t.mock.method(mail, 'sendTfaRecoveryCodesGenerated', async () => {})
+
+    const strategyId = freshStrategyId()
+    const owner = await usersModel.getById(fixtures.userId)
+    await userCredentials.enableTfa(owner, strategyId)
+    // -> The initial issuance from enableTfa() fires its own independent call -- only the
+    //    regeneration call below is under test here.
+    sendMock.mock.resetCalls()
+
+    await userCredentials.regenerateRecoveryCodes(fixtures.userId, strategyId)
+
+    assert.equal(sendMock.mock.calls.length, 1)
+    const args = sendMock.mock.calls[0]!.arguments[0] as any
+    assert.equal(args.to, owner.email)
+    assert.equal(args.userId, fixtures.userId)
   })
 
   test('regenerateRecoveryCodes reports hadUnusedCodes false once every prior code was already spent', async () => {

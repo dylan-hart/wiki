@@ -155,6 +155,28 @@ async function issueRecoveryCodes(): Promise<{
 }
 
 /**
+ * Send the recovery-codes-generated notice for `enableTfa()`/`regenerateRecoveryCodes()`, swallowing
+ * any failure so an unconfigured/unreachable mail transport never blocks the 2FA action itself that
+ * already succeeded (matching `models/login.ts`'s existing swallow-and-log pattern for its own
+ * login-adjacent notices, e.g. `sendPasswordResetConfirmed`).
+ */
+async function notifyRecoveryCodesGenerated(user: any): Promise<void> {
+  try {
+    await CARDINAL.models.mail.sendTfaRecoveryCodesGenerated({
+      to: user.email,
+      name: user.name,
+      userId: user.id,
+      locale: user.prefs?.locale
+    })
+  } catch (err: any) {
+    CARDINAL.logger.warn('auth', 'sending the tfa-recovery-codes-generated notice failed', {
+      user: user.id,
+      error: err
+    })
+  }
+}
+
+/**
  * Which stored recovery code entry (if any) a normalized code matches. Every unconsumed entry is
  * checked, not just until the first hit — mirroring the constant-time discipline `verifyTotpCode`
  * uses for its drift window, so how long this takes does not depend on which one (if any) matched.
@@ -571,6 +593,11 @@ class UserCredentials {
       { mirrorInto: user }
     )
     CARDINAL.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
+
+    // -> Recovery-codes-generated notice (OpenProject #3300). A sibling notice for 2FA itself being
+    //    enabled (#3301) belongs beside this as its own independent call, not folded into one.
+    await notifyRecoveryCodesGenerated(user)
+
     return plaintext
   }
 
@@ -751,6 +778,11 @@ class UserCredentials {
     CARDINAL.models.flags.authDebug(
       `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
     )
+
+    // -> Recovery-codes-generated notice (OpenProject #3300) -- the re-issuance counterpart to
+    //    `enableTfa()`'s initial-issuance call above.
+    await notifyRecoveryCodesGenerated(user)
+
     return { recoveryCodes: plaintext, hadUnusedCodes }
   }
 

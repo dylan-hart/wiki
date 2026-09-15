@@ -711,6 +711,14 @@ describe('mail template senders', () => {
     assert.match(msg.text, /Ada/)
   })
 
+  test('sendTfaRecoveryCodesGenerated sends a notice with no token', async () => {
+    await mail.sendTfaRecoveryCodesGenerated({ to: 'ada@example.com', name: 'Ada' })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.subject, /recovery codes/i)
+    assert.match(msg.text, /Ada/)
+  })
+
   test('sendWelcomeEmail links at the reset-password screen with the given token, on the instance default base URL when no siteId is given', async () => {
     await mail.sendWelcomeEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok789' })
     const msg = sendCalls[0]
@@ -1254,6 +1262,17 @@ describe('mail templates resolve through the locale catalogue', () => {
     assert.equal(sendCalls[0].subject, 'Vérifiez votre adresse e-mail')
   })
 
+  test('sendTfaRecoveryCodesGenerated subject resolves from a recipient locale that has the key', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' }, DEFAULT_SITES, {
+      fr: {
+        'mail.tfaRecoveryCodesGenerated.subject': 'Vos codes de récupération ont été régénérés'
+      }
+    })
+    captureSends()
+    await mail.sendTfaRecoveryCodesGenerated({ to: 'ada@example.com', name: 'Ada', locale: 'fr' })
+    assert.equal(sendCalls[0].subject, 'Vos codes de récupération ont été régénérés')
+  })
+
   test('falls back to en for a locale that is not installed', async () => {
     setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
     captureSends()
@@ -1423,6 +1442,11 @@ describe('mail send wrappers set their own kind', () => {
       'registrationAttempt',
       () => mail.sendRegistrationAttemptNotice({ to: 'a@example.com', name: 'A', userId: 'u1' })
     ],
+    [
+      'sendTfaRecoveryCodesGenerated',
+      'tfaRecoveryCodesGenerated',
+      () => mail.sendTfaRecoveryCodesGenerated({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
     ['sendTestEmail', 'test', () => mail.sendTestEmail({ to: 'a@example.com' })],
     [
       'sendPageWatchNotification',
@@ -1491,7 +1515,8 @@ describe('mail send wrappers set their own kind', () => {
       'test',
       'watch',
       'digest',
-      'notificationEvent'
+      'notificationEvent',
+      'tfaRecoveryCodesGenerated'
     ]
     for (const kind of all) {
       assert.ok(covered.has(kind), `MailKind "${kind}" has no wrapper case above`)
