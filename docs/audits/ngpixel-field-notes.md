@@ -132,7 +132,10 @@ This is the part that would actually get a PR blocked on my project, not just an
 - **A whole authentication module that can never work.** CAS 1.0 gives no attributes but a bare
   username; your account model requires a verified email; so `profile()` in
   `modules/authentication/cas/authentication.ts` **always throws.** You shipped a login option that
-  cannot log anyone in, unless the deployment happens to run CAS 3.0+.
+  cannot log anyone in, unless the deployment happens to run CAS 3.0+. *(That hedge is exactly what
+  happened: as of this piece's 2026-09-13 snapshot, CAS 1.0 support has since been removed
+  outright, and CAS 3.0 — which does report an email attribute and does provision/log in accounts —
+  is now the only option; #3187/#3207.)*
 - **Roughly ten enterprise SSO integrations — LDAP, SAML, CAS, Auth0, Okta, Microsoft, Keycloak,
   GitLab, Twitch, Discord, Slack — none of them verified against a real identity provider.** Your
   own words: "This sandbox has no live Postgres reachable, and no LDAP directory, SAML identity
