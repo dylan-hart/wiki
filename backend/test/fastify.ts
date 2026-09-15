@@ -250,7 +250,15 @@ export function makeReplyStub() {
     unauthorized: string[]
     badRequest: string[]
     tooManyRequests: string[]
-  } = { forbidden: [], notFound: [], unauthorized: [], badRequest: [], tooManyRequests: [] }
+    serviceUnavailable: string[]
+  } = {
+    forbidden: [],
+    notFound: [],
+    unauthorized: [],
+    badRequest: [],
+    tooManyRequests: [],
+    serviceUnavailable: []
+  }
   const reply: any = {
     header: mock.fn(() => reply),
     code: mock.fn(() => reply),

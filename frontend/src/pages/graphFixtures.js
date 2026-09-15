@@ -182,16 +182,27 @@ export const FIXTURE_GRAPH_TRUNCATED = {
  *  unreachable from this fixture. Passing `true` wraps the profile response in two chained
  *  `queueMicrotask()` hops (real microtasks -- unaffected by `vi.useFakeTimers()`), which reliably
  *  settles it several microtask ticks after the pageviews response's own single-tick native `await`
- *  continuation, without depending on real timers or a fake-timer advance. */
+ *  continuation, without depending on real timers or a fake-timer advance.
+ *
+ *  `initialPath`/`pageLocale` are OpenProject #3312's own addition, for `Graph.route.test.js`'s
+ *  `?path=` query-param suite: `initialPath` is forwarded to `createTestRouter()` (so a test can pass
+ *  `/_graph?path=a` and have `Graph.vue#applyRouteFocus()` see it already resolved at mount, the same
+ *  "await `createTestRouter()` before mounting" shape every route-branching suite here already needs
+ *  -- see that helper's own doc comment), and `pageLocale` seeds `pageStore.locale`, the field
+ *  `applyRouteFocus()` scopes its locale match against. Both default to what every pre-#3312 call
+ *  site already got with neither passed: the router's own default path (`'/'`) and the page store's
+ *  own default locale (`'en'`, matching every fixture graph's nodes). */
 export async function mountGraph({
   pageviewsEnabled = false,
   graph = FIXTURE_GRAPH,
   messageOverrides = {},
   authenticated = false,
   graphPrefs = null,
-  delayProfileResolution = false
+  delayProfileResolution = false,
+  initialPath = '/',
+  pageLocale
 } = {}) {
-  const router = await createTestRouter(['/:pathMatch(.*)*'])
+  const router = await createTestRouter(['/:pathMatch(.*)*'], initialPath)
 
   // -> `structuredClone()`, not the fixture object itself: `Graph.vue#loadGraph()` `markRaw()`s
   //    the response's nodes/edges but never clones them, so a bare `Promise.resolve(graph)` here
@@ -217,7 +228,11 @@ export async function mountGraph({
 
   const { wrapper } = mountWithApp(Graph, {
     router,
-    stores: { site: { id: 'site-1' }, user: { authenticated } },
+    stores: {
+      site: { id: 'site-1' },
+      user: { authenticated },
+      ...(pageLocale !== undefined ? { page: { locale: pageLocale } } : {})
+    },
     messages: { ...GRAPH_MESSAGES, ...messageOverrides }
   })
   await flushPromises()

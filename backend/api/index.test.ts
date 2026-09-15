@@ -332,3 +332,52 @@ describe('the real api/index.ts, fully booted', () => {
     assert.deepEqual(res.json(), { ok: true, message: 'Site updated successfully.' })
   })
 })
+
+/**
+ * OpenProject #3322: a request landing between `app.listen()` accepting connections and `postBoot()`
+ * finishing used to reach a route whose backing caches (`CARDINAL.sites`, auth strategies, groups/
+ * locales/approvals/classification) were still empty — `GET authentication/modules` answering `[]`,
+ * showing Admin Authentication with no modules until a manual Refresh happened to land after
+ * `postBoot()` had since finished. `helpers/apiReadiness.ts#apiReadinessOnRequest`, registered first in
+ * `routes()` above, closes the window by answering 503 for the whole `/_api` tree while
+ * `CARDINAL.server.isReady()` is false — proven here against the real, fully-booted plugin (both a
+ * `sites.ts` route, registered directly on it, and a `contentApp` route), not a synthetic hook.
+ */
+describe('the real api/index.ts, not yet ready', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    app = await buildTestApp({
+      routes: apiRoutes,
+      prefix: '/_api',
+      schemas: [],
+      ajv: true,
+      wiki: {
+        server: { isReady: () => false }
+      }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('a sites.ts route (registered directly on the plugin) answers 503 with Retry-After', async () => {
+    const res = await app.inject({ method: 'GET', url: '/_api/sites' })
+    assert.equal(res.statusCode, 503)
+    assert.equal(res.headers['retry-after'], '1')
+    assert.deepEqual(res.json(), {
+      ok: false,
+      error: 'ServiceUnavailableError',
+      statusCode: 503,
+      message: 'The server is still starting up. Try again in a moment.'
+    })
+  })
+
+  test('a contentApp route (e.g. the site tree) answers 503 with Retry-After too', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/_api/sites/11111111-1111-4111-8111-111111111111/tree'
+    })
+    assert.equal(res.statusCode, 503)
+    assert.equal(res.headers['retry-after'], '1')
+  })
+})

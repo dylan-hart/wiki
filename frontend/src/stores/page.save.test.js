@@ -119,6 +119,41 @@ describe('page store: pageSave() concurrency', () => {
     expect(hasPendingChangesAtReplace).toBe(false)
   })
 
+  /**
+   * Regression for OpenProject #3317: `editorStore.originPageId` (set by `pageCreate()` to the page
+   * the reader was viewing before opening the create-mode editor) must not outlive the create session
+   * that set it -- left set, `pageStore.cancelPageEdit()` on a later, unrelated edit-mode discard
+   * would load this stale origin page instead of the page actually being edited.
+   */
+  it('resets originPageId once a create-mode save commits', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.$patch({ mode: 'create', originPageId: 'origin-page-1' })
+    pageStore.$patch({
+      id: 0,
+      contentLoaded: true,
+      locale: 'en',
+      path: 'new-page',
+      updatedAt: ''
+    })
+    pageStore.router = { replace: () => Promise.resolve() }
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '9', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    expect(editorStore.originPageId).toBe('')
+  })
+
   it('on a 409 conflict, surfaces the server snapshot on the editor store instead of a generic error', async () => {
     const pageStore = usePageStore()
     const editorStore = useEditorStore()

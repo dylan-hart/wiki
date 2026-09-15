@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -33,7 +33,7 @@ async function mountDestination(initialPath = '/') {
   const router = await createTestRouter(routes, initialPath)
 
   mount(Host, { global: { plugins: [router] } })
-  return captured
+  return { ...captured, router }
 }
 
 describe('useNavSidebarDestination#destination', () => {
@@ -153,6 +153,55 @@ describe('useNavSidebarDestination#destination -- empty-folder path fallback (Op
     const { isCurrent } = await mountDestination('/empty-folder')
     expect(isCurrent({ path: 'empty-folder' })).toBe(true)
     expect(isCurrent({ path: 'another-empty-folder' })).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #3313: while `/_graph` is open, clicking a page item in the sidebar moves the graph's
+ * own root instead of navigating away -- except the item that IS the active root, which still
+ * navigates normally. `route.query.path` is written and read in the same raw, un-prefixed form
+ * `item.path` already carries (`backend/models/navigation.ts`'s own doc comment), matching the
+ * Feature's shared `path` query-param contract `pages/Graph.vue` (#3312) also reads.
+ */
+describe('useNavSidebarDestination#destination -- graph sidebar branch (OpenProject #3313)', () => {
+  it('routes normally outside /_graph, same as before this WP', async () => {
+    const { destination } = await mountDestination('/some/page')
+    expect(destination({ path: 'docs/setup' })).toEqual({ to: '/docs/setup' })
+  })
+
+  it('branches to a clickable onClick, not a `to`, for a page that is not the active graph root', async () => {
+    const { destination } = await mountDestination('/_graph?path=docs/setup')
+    const result = destination({ path: 'other/page' })
+    expect(result.to).toBeUndefined()
+    expect(result.clickable).toBe(true)
+    expect(typeof result.onClick).toBe('function')
+  })
+
+  it('that onClick replaces the route with the new path query param -- never pushes, to avoid spamming history', async () => {
+    const { destination, router } = await mountDestination('/_graph?path=docs/setup')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    const pushSpy = vi.spyOn(router, 'push')
+    const result = destination({ path: 'other/page' })
+    result.onClick()
+    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'other/page' } })
+    expect(pushSpy).not.toHaveBeenCalled()
+  })
+
+  it('navigates normally (falls through to `to`) for the item that IS the currently active graph root', async () => {
+    const { destination } = await mountDestination('/_graph?path=docs/setup')
+    expect(destination({ path: 'docs/setup' })).toEqual({ to: '/docs/setup' })
+  })
+
+  it('leaves a hand-authored link with no item.path (only target) navigating normally, even inside the graph', async () => {
+    const { destination } = await mountDestination('/_graph?path=docs/setup')
+    expect(destination({ target: '/some/page' })).toEqual({ to: '/some/page' })
+  })
+
+  it('treats no active root (bare /_graph, no path query) the same as any other page not being the root', async () => {
+    const { destination } = await mountDestination('/_graph')
+    const result = destination({ path: 'docs/setup' })
+    expect(result.to).toBeUndefined()
+    expect(result.clickable).toBe(true)
   })
 })
 

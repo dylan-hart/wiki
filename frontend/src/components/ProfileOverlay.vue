@@ -139,6 +139,7 @@ const { t } = useI18n()
  */
 const sectionComponents = {
   info: defineAsyncComponent(() => import('@/pages/ProfileInfo.vue')),
+  preferences: defineAsyncComponent(() => import('@/pages/ProfilePreferences.vue')),
   avatar: defineAsyncComponent(() => import('@/pages/ProfileAvatar.vue')),
   auth: defineAsyncComponent(() => import('@/pages/ProfileAuth.vue')),
   groups: defineAsyncComponent(() => import('@/pages/ProfileGroups.vue')),
@@ -162,6 +163,13 @@ const sidenav = computed(() => [
     //    ("About Me" in English).
     label: t('profile.identity'),
     icon: 'tabler:id'
+  },
+  {
+    // -> OpenProject #3315 (Feature #3314): THEME/TIME/ACCESSIBILITY, split out of the "About Me"
+    //    section above into their own page -- placed right after it in the rail.
+    key: 'preferences',
+    label: t('profile.preferences'),
+    icon: 'tabler:adjustments'
   },
   {
     key: 'avatar',

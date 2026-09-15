@@ -15,125 +15,6 @@
         </w-card>
       </w-item-section>
     </w-item>
-    <h2 class="w-section-header">{{ t('profile.preferences') }}</h2>
-    <w-item>
-      <blueprint-icon icon="tabler:sun" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.appearance`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.appearanceHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.appearance"
-          :options="appearances"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.appearance`)" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:layout-grid" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.aesthetic`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.aestheticHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.aesthetic"
-          :options="aesthetics"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.aesthetic`)" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <!-- -> Feature #3051 / Task #3068: per-user override of the site's `contentWidth` admin setting. -->
-    <w-item>
-      <blueprint-icon icon="tabler:arrows-horizontal" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.contentWidth`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.contentWidthHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.contentWidth"
-          :options="contentWidths"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.contentWidth`)" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:clock-hour-4" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.timezone`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.timezoneHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <!--
-          The virtual-scroll props the previous control took are gone: WSelect renders its options
-          directly. The timezone list is the longest in the app and the dropdown scrolls internally,
-          so this trades a few hundred DOM nodes for a much simpler component.
-        -->
-        <w-select
-          ref="timezoneField"
-          v-model="state.config.timezone"
-          :options="timezones"
-          options-dense
-          hide-bottom-space
-          :aria-label="t(`admin.general.defaultTimezone`)"
-          :readonly="!canEdit"
-          :rules="[timezoneRule]" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:calendar" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.dateFormat`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.dateFormatHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-select
-          v-model="state.config.dateFormat"
-          emit-value
-          map-options
-          hide-bottom-space
-          :aria-label="t(`admin.general.defaultDateFormat`)"
-          :options="dateFormats"
-          :readonly="!canEdit" />
-      </w-item-section>
-    </w-item>
-    <w-separator inset />
-    <w-item>
-      <blueprint-icon icon="tabler:clock" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.timeFormat`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.timeFormatHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.timeFormat"
-          :options="timeFormats"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.timeFormat`)" />
-      </w-item-section>
-    </w-item>
-    <h2 class="w-section-header">{{ t('profile.accessibility') }}</h2>
-    <w-item>
-      <blueprint-icon icon="tabler:eye" />
-      <w-item-section>
-        <w-item-label>{{ t(`profile.cvd`) }}</w-item-label>
-        <w-item-label caption>{{ t(`profile.cvdHint`) }}</w-item-label>
-      </w-item-section>
-      <w-item-section>
-        <w-btn-toggle
-          v-model="state.config.cvd"
-          :options="cvdChoices"
-          :disabled="!canEdit"
-          :aria-label="t(`profile.cvd`)" />
-      </w-item-section>
-    </w-item>
-    <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item>
       <blueprint-icon icon="tabler:user" />
       <w-item-section>
@@ -147,7 +28,10 @@
           hide-bottom-space
           :aria-label="t(`profile.firstName`)"
           :readonly="!canEdit"
-          :rules="[firstNameRule]" />
+          :rules="[firstNameRule]"
+          @blur="commitTextField('firstName')"
+          @keyup:enter="commitTextField('firstName')"
+          @keydown.esc="revertTextField('firstName', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -164,7 +48,10 @@
           hide-bottom-space
           :aria-label="t(`profile.lastName`)"
           :readonly="!canEdit"
-          :rules="[lastNameRule]" />
+          :rules="[lastNameRule]"
+          @blur="commitTextField('lastName')"
+          @keyup:enter="commitTextField('lastName')"
+          @keydown.esc="revertTextField('lastName', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -187,7 +74,10 @@
           hide-bottom-space
           :aria-label="t(`profile.displayName`)"
           :readonly="!canEdit"
-          :rules="[nameRule]" />
+          :rules="[nameRule]"
+          @blur="commitTextField('name')"
+          @keyup:enter="commitTextField('name')"
+          @keydown.esc="revertTextField('name', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -217,7 +107,10 @@
           v-model="state.config.location"
           hide-bottom-space
           :aria-label="t(`profile.location`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @blur="commitTextField('location')"
+          @keyup:enter="commitTextField('location')"
+          @keydown.esc="revertTextField('location', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -232,7 +125,10 @@
           v-model="state.config.jobTitle"
           hide-bottom-space
           :aria-label="t(`profile.jobTitle`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @blur="commitTextField('jobTitle')"
+          @keyup:enter="commitTextField('jobTitle')"
+          @keydown.esc="revertTextField('jobTitle', $event)" />
       </w-item-section>
     </w-item>
     <w-separator inset />
@@ -247,7 +143,10 @@
           v-model="state.config.pronouns"
           hide-bottom-space
           :aria-label="t(`profile.pronouns`)"
-          :readonly="!canEdit" />
+          :readonly="!canEdit"
+          @blur="commitTextField('pronouns')"
+          @keyup:enter="commitTextField('pronouns')"
+          @keydown.esc="revertTextField('pronouns', $event)" />
       </w-item-section>
     </w-item>
   </w-page>
@@ -312,83 +211,71 @@ const state = reactive({
   },
   loading: 0,
   /*
-    The only two server error codes (`userProfileInvalidName`, `userProfileInvalidTimezone`) that
-    name a specific field -- see `applyFieldErrors` below. Every other failure is reported only by
-    the toast in `save()`'s catch.
+    `userProfileInvalidName` is the only server error code this page can pin to a specific control --
+    see `applyFieldErrors` below. `userProfileInvalidTimezone` moved to `ProfilePreferences.vue`
+    (OpenProject #3315) alongside the timezone control it names, since this page always carries
+    `timezone` through unmodified. Every other failure is reported only by the toast in `save()`'s
+    catch.
   */
   fieldErrors: {
     name: null,
     firstName: null,
-    lastName: null,
-    timezone: null
+    lastName: null
   }
 })
+
+/*
+  OpenProject #3321: the text fields' last-saved snapshot, for Esc to revert to. `state.config` only
+  ever holds the in-progress edit -- there was previously nothing to revert TO -- so this is a
+  parallel, deliberately shallow record of what the server last confirmed for each of them.
+  `snapshotTextFields()` (below) is the only writer, called once a profile fetch or a save response
+  has actually landed in `state.config`.
+*/
+const TEXT_FIELDS = ['firstName', 'lastName', 'name', 'location', 'jobTitle', 'pronouns']
+const lastSaved = reactive({
+  firstName: '',
+  lastName: '',
+  name: '',
+  location: '',
+  jobTitle: '',
+  pronouns: ''
+})
+
+function snapshotTextFields() {
+  for (const field of TEXT_FIELDS) {
+    lastSaved[field] = state.config[field]
+  }
+}
 
 /*
   Task #3220: auto-save is ambient, so its debounce has to run per keystroke rather than per
   explicit click -- 800ms gives a reader a real pause to keep typing before a request goes out,
   longer than the ~350-400ms this codebase uses for a typeahead search (there is nothing to react to
-  as fast as a dropdown of results here).
+  as fast as a dropdown of results here). OpenProject #3321: the text fields below no longer go
+  through this debounce at all -- they commit on blur/Enter instead (see `commitTextField`) -- so
+  this now only backs the toggle/select fields' watch further down.
 */
 const AUTO_SAVE_DEBOUNCE_MS = 800
 
 const firstNameField = ref(null)
 const lastNameField = ref(null)
 const nameField = ref(null)
-const timezoneField = ref(null)
 
 /*
-  `WInput`/`WSelect` only re-run their own `rules` on their own `modelValue` change or blur (see
-  `fieldFrame.js`/`WInput.vue`) -- neither fires just because `state.fieldErrors` changed out from
-  under them, so every place that mutates it also calls this to force the affected control to
-  re-read it immediately, rather than waiting for the reader to touch the field again.
+  `WInput` only re-runs its own `rules` on its own `modelValue` change or blur (see
+  `fieldFrame.js`/`WInput.vue`) -- it does not fire just because `state.fieldErrors` changed out from
+  under it, so every place that mutates it also calls this to force the affected control to re-read
+  it immediately, rather than waiting for the reader to touch the field again.
 */
 function revalidateFieldRefs() {
   firstNameField.value?.validate()
   lastNameField.value?.validate()
   nameField.value?.validate()
-  timezoneField.value?.validate()
 }
 
 const firstNameRule = () => state.fieldErrors.firstName ?? true
 const lastNameRule = () => state.fieldErrors.lastName ?? true
 const nameRule = () => state.fieldErrors.name ?? true
-const timezoneRule = () => state.fieldErrors.timezone ?? true
-
-const dateFormats = [
-  { value: '', label: t('profile.localeDefault') },
-  { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' },
-  { value: 'DD.MM.YYYY', label: 'DD.MM.YYYY' },
-  { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' },
-  { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' },
-  { value: 'YYYY/MM/DD', label: 'YYYY/MM/DD' }
-]
-const timeFormats = [
-  { value: '12h', label: t('admin.general.defaultTimeFormat12h') },
-  { value: '24h', label: t('admin.general.defaultTimeFormat24h') }
-]
-const aesthetics = [
-  { value: 'site', label: t('profile.aestheticDefault') },
-  { value: 'ledger', label: t('profile.aestheticLedger') },
-  { value: 'cobalt', label: t('profile.aestheticCobalt') }
-]
-const appearances = [
-  { value: 'site', label: t('profile.appearanceDefault') },
-  { value: 'light', label: t('profile.appearanceLight') },
-  { value: 'dark', label: t('profile.appearanceDark') }
-]
-const contentWidths = [
-  { value: 'site', label: t('profile.contentWidthDefault') },
-  { value: 'measured', label: t('profile.contentWidthMeasured') },
-  { value: 'full', label: t('profile.contentWidthFull') }
-]
-const cvdChoices = [
-  { value: 'none', label: t('profile.cvdNone') },
-  { value: 'protanopia', label: t('profile.cvdProtanopia') },
-  { value: 'deuteranopia', label: t('profile.cvdDeuteranopia') },
-  { value: 'tritanopia', label: t('profile.cvdTritanopia') }
-]
-const timezones = Intl.supportedValuesOf('timeZone')
 
 const canEdit = computed(() => siteStore.features?.profile)
 
@@ -449,6 +336,9 @@ function applyProfile(profile) {
   state.config.cvd = profile.cvd || 'none'
   // -> After the whole record is in the fields, not per-field: the answer depends on all three.
   syncDisplayName()
+  // -> OpenProject #3321: re-baseline Esc's revert target to what the server just confirmed, after
+  //    derivation above has had its say on `name`.
+  snapshotTextFields()
   nextTick(() => {
     suppressAutoSave = false
   })
@@ -458,7 +348,8 @@ function applyProfile(profile) {
  * Maps the one kind of failure the server can pin to a specific control onto `state.fieldErrors`,
  * so the affected field carries its own inline error alongside the toast `save()`'s catch always
  * raises. `userProfileInvalidName` covers all three name fields at once (the server validates them
- * together); everything else -- including a validation failure with no dedicated error code -- is
+ * together); everything else -- including a validation failure with no dedicated error code, and
+ * `userProfileInvalidTimezone` (handled by `ProfilePreferences.vue` now, OpenProject #3315) -- is
  * reported by the toast alone.
  */
 function applyFieldErrors(err) {
@@ -468,8 +359,6 @@ function applyFieldErrors(err) {
     state.fieldErrors.name = message
     state.fieldErrors.firstName = message
     state.fieldErrors.lastName = message
-  } else if (code === 'userProfileInvalidTimezone') {
-    state.fieldErrors.timezone = message
   }
   revalidateFieldRefs()
 }
@@ -519,17 +408,10 @@ async function save() {
     if (resp.profile) {
       applyProfile(resp.profile)
     }
-    // -> Only the fields the store actually holds: the appearance and CVD choices are watched by the
-    //    app shell, so saving them takes effect right away
+    // -> Only the field this page owns editing -- the theme/time/accessibility fields are
+    //    ProfilePreferences.vue's to patch onto the store now (OpenProject #3315).
     userStore.$patch({
-      name: state.config.name,
-      timezone: state.config.timezone,
-      dateFormat: state.config.dateFormat,
-      timeFormat: state.config.timeFormat,
-      aesthetic: state.config.aesthetic,
-      appearance: state.config.appearance,
-      contentWidth: state.config.contentWidth,
-      cvd: state.config.cvd
+      name: state.config.name
     })
     // -> Task #3220: ambient auto-save -- no success toast. The point is removing the need to
     //    think about saving at all; a failure below still surfaces one, so nothing is silently lost.
@@ -544,23 +426,63 @@ async function save() {
   profileSaving.end()
 }
 
+/**
+ * OpenProject #3321: commits one text field on blur or Enter -- a discrete save, not a per-keystroke
+ * one, and not the debounced auto-save the toggle/select fields still use below. Skips the request
+ * entirely when the field is back to (or still at) its last-saved value, which is also what makes an
+ * Esc-then-blur a no-op rather than a redundant round-trip: `revertTextField` writes the old value
+ * back before blurring, so by the time this runs the two already match.
+ */
+function commitTextField(field) {
+  if (!canEdit.value) {
+    return
+  }
+  if (state.config[field] === lastSaved[field]) {
+    return
+  }
+  save()
+}
+
+/**
+ * OpenProject #3321: Esc reverts the field to its last-saved value and blurs it, cancelling the
+ * in-progress edit. The explicit `blur()` is what makes this a *cancel* rather than merely a revert
+ * the reader could still type back over -- and it routes back through `commitTextField` via the
+ * field's own `@blur` handler above, which no-ops once the values already match rather than this
+ * function needing its own duplicate skip-save logic.
+ */
+function revertTextField(field, event) {
+  state.config[field] = lastSaved[field]
+  event.target.blur()
+}
+
 const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)
 
 /*
-  Watches the whole config object rather than any one field, so this keeps working whichever fields
-  a later change adds or however they get reordered in the template -- see Task #3220/#3221's
-  coordination note. `applyProfile()` is the only other writer of `state.config`, and it guards
-  itself with `suppressAutoSave`.
+  OpenProject #3321: narrowed to the toggle/select fields alone -- the text fields above now save
+  through `commitTextField` on blur/Enter, not through this debounced whole-object watch, and
+  including them here would mean a debounced save alongside their own discrete one. Still an
+  explicit field list rather than a single object the way the old whole-`state.config` watch was
+  (see Task #3220/#3221's coordination note for that prior shape): `#3320` owns this remaining half
+  and is expected to remove the debounce here entirely, so this list -- not the array literal's
+  identity -- is what future field churn should update. `applyProfile()` is the only other writer of
+  `state.config`, and it guards itself with `suppressAutoSave`.
 */
 watch(
-  () => state.config,
+  () => [
+    state.config.aesthetic,
+    state.config.appearance,
+    state.config.contentWidth,
+    state.config.cvd,
+    state.config.timezone,
+    state.config.dateFormat,
+    state.config.timeFormat
+  ],
   () => {
     if (suppressAutoSave || !canEdit.value) {
       return
     }
     debouncedAutoSave()
-  },
-  { deep: true }
+  }
 )
 
 // MOUNTED

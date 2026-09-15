@@ -89,4 +89,39 @@ describe('usePageSaveFlow() discardChanges()', () => {
 
     expect(globalThis.API_CLIENT.delete).not.toHaveBeenCalled()
   })
+
+  /**
+   * Regression coverage for OpenProject #3317: `editorStore.originPageId` is set by `pageCreate()`
+   * (the page the reader was viewing when they opened a create-mode session) and read back by
+   * `pageStore.cancelPageEdit()`. Left set after the create session that set it ends, it silently
+   * outlives that session and gets picked up by a later, unrelated edit-mode discard -- navigating
+   * the reader to a stale page instead of back to the one they were actually editing.
+   */
+  it('resets originPageId when discarding a create-mode session, so it cannot leak into a later edit session', async () => {
+    const { wrapper, editorStore } = mountFlow(router)
+    editorStore.$patch({ isActive: true, mode: 'create', originPageId: 'origin-page-1' })
+
+    await wrapper.vm.discardChanges()
+
+    expect(editorStore.originPageId).toBe('')
+  })
+
+  it('resets originPageId even when the (non-create) discard flow fails to reload the page', async () => {
+    const { wrapper, pageStore, siteStore, editorStore } = mountFlow(router)
+    siteStore.id = 'site-1'
+    pageStore.id = 'page-1'
+    editorStore.$patch({
+      isActive: true,
+      mode: 'edit',
+      // -> Simulates a leaked value from an earlier, unrelated create session
+      originPageId: 'origin-page-1',
+      lastSaveTimestamp: Temporal.Now.instant(),
+      lastChangeTimestamp: Temporal.Now.instant().add({ hours: 1 })
+    })
+    vi.spyOn(pageStore, 'cancelPageEdit').mockRejectedValue(new Error('network'))
+
+    await wrapper.vm.discardChanges()
+
+    expect(editorStore.originPageId).toBe('')
+  })
 })

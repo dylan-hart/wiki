@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import HeaderNav from './HeaderNav.vue'
 import WBtn from '@/components/shared/WBtn.vue'
 import { useMinWidth } from '@/composables/screen'
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -32,12 +33,18 @@ afterEach(() => {
   activeWrapper = null
 })
 
-async function mountHeaderNav() {
+/**
+ * `initialPath`/`routes` default to the plain `/` stub every pre-existing test in this file relies
+ * on; the OpenProject #3313 describe block below is the only caller that overrides either, since it
+ * needs `/_graph` (and a content-page catch-all) actually registered for `router.push()`'s target to
+ * resolve against.
+ */
+async function mountHeaderNav({ initialPath = '/', routes = ['/'] } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   const userStore = useUserStore()
 
-  const router = await createTestRouter(['/'])
+  const router = await createTestRouter(routes, initialPath)
 
   const i18n = createTestI18n()
 
@@ -55,7 +62,7 @@ async function mountHeaderNav() {
   activeWrapper = wrapper
   await flushPromises()
 
-  return { wrapper, siteStore, userStore }
+  return { wrapper, siteStore, userStore, router }
 }
 
 /**
@@ -298,5 +305,104 @@ describe('HeaderNav inline sidebar toggle (OpenProject #2928)', () => {
     await findToggle(wrapper).trigger('click')
 
     expect(wrapper.emitted('openSidebar')).toHaveLength(1)
+  })
+})
+
+/**
+ * OpenProject #3313: the Graph nav button branches on whether `/_graph` is already open -- a plain
+ * `@click` handler (`onGraphNavClick`) rather than a static `to`, so it is no longer a router-link
+ * and these assert the router calls it makes directly, rather than a `to`/`href` prop that no longer
+ * exists on this button.
+ *
+ * `mountHeaderNav({ routes, initialPath })`'s stub content-page route mirrors `router/routes.js`'s
+ * own STANDARD PAGE CATCH-ALL: `meta.contentPage: true` is what `onGraphNavClick()` actually reads
+ * to decide whether `pageStore.path` is trustworthy (OpenProject #2527's staleness reasoning).
+ */
+describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
+  const CONTENT_ROUTE = {
+    path: '/:catchAll(.*)*',
+    meta: { contentPage: true },
+    component: { template: '<div />' }
+  }
+
+  function findGraphButton(wrapper) {
+    return wrapper.find('[aria-label="common.header.graph"]')
+  }
+
+  it('renders as a plain button, not a router-link, since its destination branches on the route', async () => {
+    const { wrapper, siteStore } = await mountHeaderNav({ routes: ['/', '/_graph'] })
+    siteStore.features.browse = true
+    await wrapper.vm.$nextTick()
+
+    const button = findGraphButton(wrapper)
+    expect(button.exists()).toBe(true)
+    expect(button.element.tagName).toBe('BUTTON')
+  })
+
+  it('from an ordinary content page, opens the graph rooted on the page being read', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({
+      initialPath: '/docs/setup',
+      routes: ['/', '/_graph', CONTENT_ROUTE]
+    })
+    siteStore.features.browse = true
+    const pageStore = usePageStore()
+    pageStore.path = 'docs/setup'
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'docs/setup' } })
+  })
+
+  it('from a non-content route, opens the graph with no path query param -- pageStore.path there is stale leftover, not "nothing"', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({ routes: ['/', '/_graph'] })
+    siteStore.features.browse = true
+    const pageStore = usePageStore()
+    // -> Stale leftover from a previously-read content page -- must not leak into the query here.
+    pageStore.path = 'docs/setup'
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/_graph')
+  })
+
+  it('clicked again from inside /_graph, exits back to the route that was open before the graph', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({
+      initialPath: '/docs/setup',
+      routes: ['/', '/_graph', CONTENT_ROUTE]
+    })
+    siteStore.features.browse = true
+    await wrapper.vm.$nextTick()
+
+    await router.push('/_graph?path=docs/setup')
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/docs/setup')
+  })
+
+  it('exits to the route entered before the graph, not wherever the in-graph root query has since moved via the sidebar', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({
+      initialPath: '/docs/setup',
+      routes: ['/', '/_graph', CONTENT_ROUTE]
+    })
+    siteStore.features.browse = true
+    await wrapper.vm.$nextTick()
+
+    await router.push('/_graph?path=docs/setup')
+    // -> Simulates `navSidebarDestination.js#graphSidebarBranch`'s own `router.replace()` moving the
+    //    graph's root while the reader stays in graph mode.
+    await router.replace('/_graph?path=other/page')
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/docs/setup')
   })
 })

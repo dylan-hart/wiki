@@ -338,10 +338,10 @@
         <!-- Configuration -->
         <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.auth.strategyConfiguration')">
-          <w-card-section>
+          <w-card-section
+            v-if="!state.strategy.config || Object.keys(state.strategy.config).length < 1">
             <w-banner
               class="mt-4"
-              v-if="!state.strategy.config || Object.keys(state.strategy.config).length < 1"
               :class="dark.isActive ? `bg-dark-4 text-grey-5` : `bg-grey-2 text-grey-7`">
               <em>{{ t('admin.auth.noConfigOption') }}</em>
             </w-banner>
@@ -539,7 +539,12 @@ const { state, load, refresh } = useAdminSettings({
   // -> Instance-wide, not one site's: no site picker, no reload on switching site
   siteScoped: false,
   extraState: {
-    loadingGroups: true,
+    // -> Not "loading" until the first fetch actually starts (Task #3195's stale-response guard
+    //    compares this composable-seeded value against whatever `fetch()` itself settles it to once
+    //    its request resolves -- `fetch()` below always ends a request with this back at `false` via
+    //    its own `finally`, so seeding `true` here made the very first `load()` call compare `true`
+    //    (this default) against `false` (post-fetch) and drop its own response as "stale" every time).
+    loadingGroups: false,
     groups: [],
     strategies: [],
     activeStrategies: [],

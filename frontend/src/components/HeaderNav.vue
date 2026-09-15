@@ -132,14 +132,19 @@
             @click="openFileManager">
             <w-tooltip>{{ t('fileman.title') }}</w-tooltip>
           </w-btn>
+          <!--
+            -> OpenProject #3313: branches on whether `/_graph` is already open, so this is a plain
+               `@click` handler (`onGraphNavClick`) rather than a static `to` -- see that function's
+               own doc comment.
+          -->
           <w-btn
             v-if="siteStore.features.browse"
             class="header-nav-btn"
             flat
             icon="tabler:hierarchy"
             color="slate-soft"
-            to="/_graph"
-            :aria-label="t(`common.header.graph`)">
+            :aria-label="t(`common.header.graph`)"
+            @click="onGraphNavClick">
             <w-tooltip>{{ t('common.header.graph') }}</w-tooltip>
           </w-btn>
           <!--
@@ -232,12 +237,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { useMinWidth } from '@/composables/screen'
 
 import { useCommonStore } from '@/stores/common'
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -274,12 +280,22 @@ const emit = defineEmits(['openSidebar'])
 // STORES
 
 const commonStore = useCommonStore()
+const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
 
 const route = useRoute()
+const router = useRouter()
+
+/**
+ * The knowledge graph's fixed route path (`router/routes.js`) -- no locale prefix, unlike an
+ * ordinary content page. Shares the same literal with `composables/navSidebarDestination.js`'s own
+ * `GRAPH_ROUTE_PATH`, the sidebar half of this same OpenProject #3313 behavior; kept as two literals
+ * rather than one shared import for a single string used by two otherwise-unrelated call sites.
+ */
+const GRAPH_ROUTE_PATH = '/_graph'
 
 // I18N
 
@@ -300,6 +316,17 @@ const searchRowIsOpen = ref(false)
  * inbox button above. `0` (never shown) for a guest, who has nothing to be notified about.
  */
 const unreadNotifications = ref(0)
+
+/**
+ * OpenProject #3313: the last normally-viewed (non-graph) route, kept live by the watcher below --
+ * where the Graph button's own click returns to on exit. Deliberately independent of the graph's
+ * own `path` query param (owned by `pages/Graph.vue`, #3311/#3312): a reader who moves the graph's
+ * root via sidebar clicks (`composables/navSidebarDestination.js`) while still inside `/_graph` must
+ * land back on the page they were reading before they opened the graph, not wherever the root ended
+ * up. Defaults to `/` for the (unlikely) case of landing straight on `/_graph` with no prior route in
+ * this session at all.
+ */
+const lastNonGraphPath = ref('/')
 
 // COMPUTED
 
@@ -341,6 +368,23 @@ watch(
   () => {
     searchRowIsOpen.value = false
   }
+)
+
+/*
+  Keeps `lastNonGraphPath` current with every route that isn't the graph itself -- see that ref's
+  own doc comment for why this has to be a live watcher rather than a value captured only at the
+  moment the Graph button is clicked to enter (OpenProject #3313): the reader can also arrive at
+  `/_graph` some other way (a sidebar link, browser back/forward, a typed URL), and this still has to
+  know where to send them back regardless of how they got there.
+*/
+watch(
+  () => route.fullPath,
+  () => {
+    if (route.path !== GRAPH_ROUTE_PATH) {
+      lastNonGraphPath.value = route.fullPath
+    }
+  },
+  { immediate: true }
 )
 
 /*
@@ -409,6 +453,34 @@ function openFileManager() {
 
 function openInbox() {
   siteStore.openOverlay('Inbox', { tab: 'watching' })
+}
+
+/**
+ * OpenProject #3313: the Graph nav button branches on whether `/_graph` is already open.
+ *
+ * From an ordinary page, it opens the graph rooted on the page being read -- `pageStore.path`, the
+ * raw un-prefixed path the Feature's shared `path` query param is written in (#3311/#3312), only
+ * trustworthy while `route.meta.contentPage` is set: on any other non-graph route (admin, tags
+ * browse, ...) `pageStore.path` is stale leftover from whichever page was last actually read, not
+ * "nothing", so it is read only on a route that genuinely renders one (`router/routes.js`'s own
+ * `contentPage` meta flag, the same one `NavSidebar.vue`'s `effectiveNavigationId` already trusts
+ * for the identical reason).
+ *
+ * Clicked again from inside the graph, it exits back to `lastNonGraphPath` -- not wherever the
+ * graph's root ended up, which the sidebar can move independently while the reader stays in graph
+ * mode (see that ref's own doc comment).
+ *
+ * `router.push` both ways: this is a deliberate mode change each time, not the sidebar's own
+ * repeated in-graph re-rooting (`composables/navSidebarDestination.js#graphSidebarBranch`), which is
+ * the one call site that has to prefer `replace` to avoid spamming history.
+ */
+function onGraphNavClick() {
+  if (route.path === GRAPH_ROUTE_PATH) {
+    router.push(lastNonGraphPath.value)
+    return
+  }
+  const path = route.meta.contentPage ? pageStore.path : ''
+  router.push(path ? { path: GRAPH_ROUTE_PATH, query: { path } } : GRAPH_ROUTE_PATH)
 }
 </script>
 
