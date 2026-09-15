@@ -133,7 +133,6 @@
           :aria-label="t(`profile.cvd`)" />
       </w-item-section>
     </w-item>
-    <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item>
       <blueprint-icon icon="tabler:user" />
       <w-item-section>

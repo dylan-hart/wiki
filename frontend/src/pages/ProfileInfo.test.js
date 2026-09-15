@@ -106,9 +106,13 @@ describe('ProfileInfo against Cardinal Wiki - Profile 3x.dc.html (OpenProject #2
       The design stacks band, rows, band, rows with nothing between them: the strip IS the seam. A
       `mt-*` utility on a band is what put a 24px hole there instead. There is no save bar any more
       (Task #3220) for one to sit on.
+
+      Two bands now (PREFERENCES, ACCESSIBILITY) rather than three: OpenProject #3316 removed the
+      redundant "MY INFO" header ahead of the identity fields -- the page itself (titled "About Me"
+      in the sidenav) is the only section those fields need.
     */
     const bands = wrapper.findAll('.w-section-header')
-    expect(bands.length).toBe(3)
+    expect(bands.length).toBe(2)
     for (const band of bands) {
       expect(band.classes().some((cls) => cls.startsWith('mt-'))).toBe(false)
     }
