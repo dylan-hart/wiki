@@ -6,17 +6,15 @@
     so `null`/`undefined` both fall through to the same "nothing" case as `SearchResultHopBadge`'s own
     `hop` guard.
 
-    A visible text label, not an icon alone: same WCAG 1.4.1 reasoning as `SearchResultHopBadge` --
-    `w-icon` renders `aria-hidden="true"` on every branch, so the chip's accessible name to assistive
-    tech is exactly its visible "N% match" text.
+    Plain text, not a `w-chip` (OpenProject #3293) -- it renders inside `Search.vue`'s top-right meta
+    column now, alongside the row's date, rather than crammed onto the title line, so it needs
+    neither the chip's icon nor its bordered pill background to read as its own element. Still a
+    visible text label rather than an icon+color alone: same WCAG 1.4.1 reasoning as
+    `SearchResultHopBadge`.
   -->
-  <w-chip
-    v-if="percent !== null"
-    class="search-result-similarity-badge"
-    size="sm"
-    icon="tabler:percentage">
+  <span v-if="percent !== null" class="search-result-similarity-badge">
     {{ t('search.similarityMatch', { percent }) }}
-  </w-chip>
+  </span>
 </template>
 
 <script setup>
@@ -60,14 +58,3 @@ const percent = computed(() => {
   return Math.min(100, Math.max(0, raw))
 })
 </script>
-
-<style scoped>
-/*
-  Sits beside the title text on the same line, matching `SearchResultHopBadge` -- the badge is short
-  and the row reserves no extra vertical space for it.
-*/
-.search-result-similarity-badge {
-  margin-inline-start: 0.5em;
-  vertical-align: middle;
-}
-</style>
