@@ -56,23 +56,32 @@
     <g
       v-for="n in nodeList"
       :key="n.id"
-      class="storage-delivery-graph__node"
       :data-node-id="n.id"
       :transform="`translate(${n.pos.x} ${n.pos.y})`">
-      <rect
-        :x="-NODE_RADIUS"
-        :y="-NODE_RADIUS"
-        :width="NODE_RADIUS * 2"
-        :height="NODE_RADIUS * 2"
-        :rx="n.borderRadius"
-        :fill="n.color" />
-      <image
-        v-if="n.iconHref"
-        :x="-(NODE_RADIUS - ICON_INSET)"
-        :y="-(NODE_RADIUS - ICON_INSET)"
-        :width="(NODE_RADIUS - ICON_INSET) * 2"
-        :height="(NODE_RADIUS - ICON_INSET) * 2"
-        :href="n.iconHref" />
+      <!-- OpenProject #3290: this inner <g> carries the CSS hover scale/filter and the outer <g>
+           above carries only the SVG `transform="translate(...)"` positioning attribute. A CSS
+           `transform` on an element REPLACES an SVG presentation-attribute `transform` on that same
+           element rather than composing with it -- putting both on one <g> made every hover snap the
+           node to local origin (0,0), which happens to be exactly where the "pages" node sits
+           (`helpers/storageDeliveryGraph.js`'s `pages: { x: 0, y: 0 }`), so every other node appeared
+           to jitter toward it. Splitting the two transforms onto parent/child nodes keeps them
+           independent. -->
+      <g class="storage-delivery-graph__node">
+        <rect
+          :x="-NODE_RADIUS"
+          :y="-NODE_RADIUS"
+          :width="NODE_RADIUS * 2"
+          :height="NODE_RADIUS * 2"
+          :rx="n.borderRadius"
+          :fill="n.color" />
+        <image
+          v-if="n.iconHref"
+          :x="-(NODE_RADIUS - ICON_INSET)"
+          :y="-(NODE_RADIUS - ICON_INSET)"
+          :width="(NODE_RADIUS - ICON_INSET) * 2"
+          :height="(NODE_RADIUS - ICON_INSET) * 2"
+          :href="n.iconHref" />
+      </g>
     </g>
     <text
       v-for="n in nodeList"

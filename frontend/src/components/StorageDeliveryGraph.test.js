@@ -129,6 +129,33 @@ describe('StorageDeliveryGraph.vue - node hover', () => {
   it('marks the node group cursor: pointer, the old library’s visible click affordance', () => {
     expect(componentSource).toMatch(/\.storage-delivery-graph__node\s*{[^}]*cursor:\s*pointer/)
   })
+
+  /**
+   * OpenProject #3290 regression guard: a CSS `transform` on an element REPLACES an SVG
+   * presentation-attribute `transform` on that SAME element rather than composing with it, so
+   * putting the position `translate(x y)` and the `:hover { transform: scale(...) }` rule on one
+   * shared `<g>` snapped every node to local origin (0,0) on hover -- which happens to be exactly
+   * where the "pages" node sits, making every other node appear to jitter toward it. The fix keeps
+   * them on separate, nested elements: the outer `[data-node-id]` group carries only the positioning
+   * transform, and a distinct inner `.storage-delivery-graph__node` group (not the same element)
+   * carries the hover-scale class.
+   */
+  it('keeps the positioning transform and the hover-scale class on separate, nested elements', () => {
+    const wrapper = mountGraph({
+      nodes: { a: { name: 'A' } },
+      edges: {},
+      layouts: { nodes: { a: { x: 10, y: 20 } } }
+    })
+
+    const outer = wrapper.find('[data-node-id="a"]')
+    expect(outer.attributes('transform')).toBe('translate(10 20)')
+    expect(outer.classes()).not.toContain('storage-delivery-graph__node')
+
+    const inner = outer.find('.storage-delivery-graph__node')
+    expect(inner.exists()).toBe(true)
+    expect(inner.attributes('transform')).toBeUndefined()
+    expect(inner.attributes('data-node-id')).toBeUndefined()
+  })
 })
 
 describe('StorageDeliveryGraph.vue - edges', () => {
