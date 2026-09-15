@@ -222,13 +222,52 @@ and searches locally — no `api.iconify.design` reachability needed afterward, 
 from a set not sideloaded (and not Tabler) still resolves only if individually materialized, or not at
 all under `offline: true`.
 
+## Pre-seeded local embedding model
+
+**Docker image only, baked in at image-build time — no operator action, no sideload directory.**
+Semantic search's local embedding model (`Xenova/all-MiniLM-L6-v2`, run through
+`@huggingface/transformers` — see `backend/helpers/embeddings.ts`) lazily downloads and caches its
+~90MB of ONNX weights from the Hugging Face Hub the first time anything calls `embedText()`. The
+official container image (`dev/build/Dockerfile`) closes that gap the same way it already does for
+Chromium: `backend/scripts/preseed-embedding-model.ts` runs once during the image build, right after
+`npm ci` installs `@huggingface/transformers`, and writes the model into that package's own default
+local cache directory (`node_modules/@huggingface/transformers/.cache/`, resolved by the library
+itself from its own installed location — not a Cardinal-owned path, and not the `<dataPath>/…`
+sideload directories the locale and icon sections above use). No code change was needed in
+`embeddings.ts` to detect this: the library's own cache-hit resolution finds the baked-in files and
+skips the network call automatically the next time `embedText()` runs, exactly the same call it would
+otherwise have made cold.
+
+This is deliberately narrower in scope than locale/icon sideloading:
+
+- **It is Docker-image-only.** A source checkout (`npm install` / `npm run start`, not built from
+  `dev/build/Dockerfile`) never runs the pre-seed script and keeps relying on `embedText()`'s existing
+  lazy first-run fetch, exactly as before this existed.
+- **There is no sideload mechanism for this model.** Unlike icon sets, there is no per-deployment "pick
+  a different model" operation to support — one pinned model, shipped by default, with the runtime
+  fetch staying as the fallback for a pre-seed that is somehow missing or corrupt (the model still
+  loads, just from the network, the same as it always did).
+- **It does not touch `CARDINAL.capabilities.semanticSearch`.** That flag
+  (`backend/core/pgvectorBootstrap.ts`) reflects whether the `pgvector` Postgres extension provisioned
+  successfully and is entirely independent of the embedding model — it can read `true` with or without
+  this pre-seed. What the pre-seed actually changes is whether the *first* page embedded on a genuinely
+  air-gapped instance succeeds (a real vector) instead of silently degrading (`embedText()` returning
+  `null`, per its own "never throws" contract) for lack of network access.
+
+**Verifying it**: `dev/build/verify-embedding-preseed.sh` builds the image and loads the pipeline from
+inside a throwaway container started with `--network none`, confirming a real 384-length embedding
+comes back with zero outbound access — the concrete, sufficient proof that the bake actually works
+offline. It is a manual, opt-in check (same convention as `verify-sandboxed-puppeteer.sh`), not wired
+into CI.
+
 ## What must be present before first boot
 
 For a fresh instance that will never reach the network:
 
 - **The image itself** — already contains the full vendored locale set, self-hosted fonts, every UI
-  icon reference, and the full Tabler icon set (auto-materialized on first boot, see above), per the
-  audit above. No further action needed for base functionality.
+  icon reference, the full Tabler icon set (auto-materialized on first boot, see above), and the local
+  semantic-search embedding model pre-seeded at build time (see "Pre-seeded local embedding model"
+  above), per the audit above. No further action needed for base functionality.
 - **`config.yml` (or `WIKI_OFFLINE=true` / Helm's `offline: true`)** setting offline mode, so the daily
   version/locale-sync jobs stop attempting network calls instead of failing (harmlessly, but noisily)
   every day.

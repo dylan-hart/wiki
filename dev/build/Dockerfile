@@ -87,6 +87,18 @@ WORKDIR /wiki/backend
 # postinstall never fetches a Chromium build here -- it resolves the distro copy installed above instead.
 RUN npm ci --omit=dev
 
+# Pre-seeds the local embedding model (`Xenova/all-MiniLM-L6-v2`) into `@huggingface/transformers`'s
+# own default local cache directory at image-build time (OpenProject #3324), so an air-gapped
+# `offline: true` deployment's semantic search comes up without a first-run Hugging Face Hub fetch.
+# See `backend/scripts/preseed-embedding-model.ts` and `backend/helpers/embeddings.ts`'s module doc
+# comment for the full reasoning, and `docs/offline-deployment.md`'s "Pre-seeded local embedding
+# model" section for what this does and does not cover. Runs as `node` (already `USER node` above),
+# same as the `npm ci` immediately before it, so the cache files land inside `node_modules` -- already
+# chowned to `node` near the top of this file -- with no extra permission step needed. A source
+# checkout that never runs this Dockerfile is unaffected: `embedText()`'s existing lazy runtime fetch
+# is untouched and still runs there exactly as before.
+RUN node scripts/preseed-embedding-model.ts
+
 WORKDIR /wiki
 
 # The whole data root, not just `content` -- `dataPath` (`dev/build/config.yml`) is `/wiki/data`, and

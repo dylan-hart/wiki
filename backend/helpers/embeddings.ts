@@ -19,10 +19,15 @@
  * fixed environment needs a restart to be believed again either way.
  *
  * A real embedding call downloads and caches the model's ONNX weights (~90MB) from the Hugging Face
- * hub on first use per process — this module does not configure an offline/pre-seeded cache path,
- * which is left to deployment/ops. Nothing here reaches out for anything else: once loaded, inference
- * is entirely local, no external API call, no per-page cost, matching the Epic's offline-capable
- * design decision.
+ * hub on first use per process, into `@huggingface/transformers`'s own default local cache directory
+ * — UNLESS that cache is already warm. The official Docker image (`dev/build/Dockerfile`) bakes it in
+ * at image-build time via `scripts/preseed-embedding-model.ts` (OpenProject #3324): the library's own
+ * cache-hit resolution finds those files and skips the network call automatically, with no code
+ * change needed here to detect "pre-seeded" — `getExtractor()` below is unchanged either way. That
+ * only covers the shipped image, though: a source checkout (`npm install`/`npm run start`, not built
+ * from that Dockerfile) still relies on this lazy first-run fetch exactly as before, so this module
+ * still needs real (or well-mocked) network access the first time `embedText()` runs there. See
+ * `docs/offline-deployment.md`'s "Pre-seeded local embedding model" section for the full picture.
  *
  * Manual verification (not part of the default suite — the model download makes it unsuitable for a
  * fast, offline-safe run): `node -e "const { embedText } = await import('./helpers/embeddings.ts');
@@ -32,8 +37,10 @@
 /** The model's own output dimension — `pageEmbeddingChunks.embedding`'s `vector(384)` column matches this. */
 export const EMBEDDING_DIMENSIONS = 384
 
-/** The Hugging Face model id `embedText` loads, run through `@huggingface/transformers`. */
-const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2'
+/** The Hugging Face model id `embedText` loads, run through `@huggingface/transformers`. Exported so
+ * `scripts/preseed-embedding-model.ts` pre-seeds the exact same model this module actually loads,
+ * rather than keeping a second hardcoded copy that could drift. */
+export const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2'
 
 /** The npm specifier, held in a variable so a literal `import '@huggingface/transformers'` never has
  * to resolve at typecheck time — matching `helpers/images.ts`/`helpers/puppeteer.ts`'s convention for
