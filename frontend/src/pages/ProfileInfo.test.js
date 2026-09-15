@@ -253,8 +253,8 @@ describe(
       globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
 
       /*
-        Mounted for its stylesheet as much as for its markup: Vitest's `css: true` compiles an SFC's
-        `<style lang="scss">` and injects it into this document's head, so mounting the card is what
+        Mounted for its stylesheet as much as for its markup: Vitest's `css: true` reads an SFC's
+        `<style>` block and injects it into this document's head, so mounting the card is what
         puts `.layout-profile-body`'s rules within reach of the harvest below.
       */
       const overlay = mountWithApp(ProfileOverlay, {}).wrapper

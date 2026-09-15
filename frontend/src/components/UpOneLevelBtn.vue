@@ -71,7 +71,7 @@ const props = defineProps({
   /**
    * Surface-specific treatment for the plate, composed onto the button.
    *
-   * `acrylic-btn` (`css/_base.scss`) travels this way rather than being baked in: it is the
+   * `acrylic-btn` (`css/_base.css`) travels this way rather than being baked in: it is the
    * translucent-menu treatment, correct in the Browse panel and wrong on the two opaque surfaces the
    * other two call sites sit on.
    */

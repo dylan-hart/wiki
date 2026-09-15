@@ -6,7 +6,7 @@
     @hide="onDialogHide">
     <w-card style="min-width: 380px; max-width: 480px">
       <!--
-        `.card-header` (`css/_base.scss`) draws this band from the runtime `--color-dark-2` custom
+        `.card-header` (`css/_base.css`) draws this band from the runtime `--color-dark-2` custom
         property, so it picks up `body.body--cobalt.body--dark`'s override (`#1a43bd`, wired by
         OpenProject #2771 specifically for "Confirm dialog header band" against
         `Primitives Dark 3x - Cobalt.dc.html`) same as every other aesthetic-aware surface. Every

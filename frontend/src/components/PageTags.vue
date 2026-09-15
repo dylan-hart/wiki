@@ -170,7 +170,7 @@ function removeTag(tag) {
 }
 </script>
 
-<style lang="scss">
+<style>
 /*
   The tag plate, at the design's own metrics: a hairline box on the surface, 12px Barlow in the
   chrome tone, with the `#` carrying the only colour on it.

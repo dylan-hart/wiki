@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import { buildAppCss, chromium, hasChromium, CHROMIUM_TIMEOUT } from '../../test/realGridLayout.js'
 
@@ -33,13 +32,10 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  const themeDir = join(frontendRoot, 'src', 'css')
-  return sass.compileString(
-    `@use '${join(themeDir, '_theme.scss')}' as *;\n` +
-      `@use '${join(themeDir, '_palette.scss')}' as *;\n` +
-      sfcStyles(relativePath),
-    { loadPaths: [join(frontendRoot, 'src')] }
-  ).css
+  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
+  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
+  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  return sfcStyles(relativePath)
 }
 
 const SIDEBAR_WIDTH = 300
@@ -100,9 +96,9 @@ function mainLayoutHtml({
     sidebar +
     // -> `min-height: 0; overflow: auto` inline, standing in for `WLayout.vue`'s own
     //    `.w-layout :deep(> .w-page-container) { min-height: 0; overflow: auto }` rule: `:deep()` is
-    //    a Vue SFC *compile-time* transform (into a scoped, hashed descendant selector) that a bare
-    //    `sass.compileString` of the extracted `<style>` text never runs, so that rule reaches this
-    //    fixture as literal, browser-invalid `:deep(...)` syntax and is dropped. Left unreplaced,
+    //    a Vue SFC *compile-time* transform (into a scoped, hashed descendant selector) that the raw
+    //    extracted `<style>` text never goes through, so that rule reaches this fixture as literal,
+    //    browser-invalid `:deep(...)` syntax and is dropped. Left unreplaced,
     //    `.w-page-container`'s own 2000px article filler (below) would keep its default
     //    content-based automatic minimum size, growing the grid's shared `1fr` row -- and therefore
     //    `.bg-sidebar`, which spans the same row -- to match, which is the real rule's whole job to

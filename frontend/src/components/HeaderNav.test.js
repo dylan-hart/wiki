@@ -215,7 +215,7 @@ describe('HeaderNav replication warning banner (OpenProject #2851/#2852)', () =>
  * squares at the opposite end of the same toolbar (and `AccountMenu`'s avatar, which
  * `AdminLayout.test.js` already pins to the same class).
  *
- * `_base.scss`'s `.w-btn.header-nav-btn` is not loaded here -- these are component tests, not the
+ * `_base.css`'s `.w-btn.header-nav-btn` is not loaded here -- these are component tests, not the
  * real-Chromium harness -- so the class itself is the contract asserted, exactly as
  * `AdminLayout.test.js` asserts it for the account button rather than measuring a box.
  */

@@ -12,7 +12,7 @@
           -> The band's glyph takes the accent lightened for a dark ground, not the white the title
              is set in: `ui-redesign/Cardinal Wiki - File Manager 3x.dc.html` strokes it `#f08287`,
              which is `--color-accent-dark`, and nine other 3x design files draw their own overlay
-             header the same way. Stated here rather than in `.card-header` (`css/_base.scss`)
+             header the same way. Stated here rather than in `.card-header` (`css/_base.css`)
              because that band is shared with every other dialog in the app.
 
           -> A class rather than `WIcon`'s `color` prop: that prop resolves to a `text-<name>` CLASS,
@@ -1416,14 +1416,18 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   Where the overlay's header stops fitting on one line. Its own threshold: the three toolbars want roughly
   700px between them, and this leaves a margin over that. Not one of the app's shared breakpoints, though
   it is the same 900 the site header collapses its actions at -- both are simply where a window stops
   having room for a row of chrome.
 */
-
 .fileman {
   /*
     THE HEADER ON A NARROW SCREEN
@@ -1439,36 +1443,35 @@ onBeforeUnmount(() => {
     ordered last, which is what puts it on the second. Close is what this is for -- off the end of the row
     it was unreachable, and it is the only way out of the overlay.
   */
-  @media (max-width: 899.98px) {
-    > .card-header {
-      flex-wrap: wrap;
-    }
-
-    &-hdr-title {
-      width: auto;
-      flex: 1 1 auto;
-      /* -> "File Manager" wrapped to two lines rather than letting the row grow */
-      white-space: nowrap;
-    }
-
-    &-hdr-actions {
-      width: auto;
-      flex: 0 0 auto;
-    }
-
-    &-hdr-search {
-      order: 1;
-    }
+}
+@media (max-width: 899.98px) {
+  .fileman > .card-header {
+    flex-wrap: wrap;
   }
-
+  .fileman-hdr-title {
+    width: auto;
+    flex: 1 1 auto;
+    /* -> "File Manager" wrapped to two lines rather than letting the row grow */
+    white-space: nowrap;
+  }
+  .fileman-hdr-actions {
+    width: auto;
+    flex: 0 0 auto;
+  }
+  .fileman-hdr-search {
+    order: 1;
+  }
+}
+.fileman {
   /*
     The overlay title's own glyph, in the accent lightened for a dark ground. See the template note:
     the variable rather than a `text-accent-dark` utility, which nothing in this repo emits.
   */
-  &-hdr-icon {
-    color: var(--color-accent-dark);
-  }
-
+}
+.fileman-hdr-icon {
+  color: var(--color-accent-dark);
+}
+.fileman {
   /*
     The locale chip. The design draws it as a hairline box the same 34px height as the search field
     beside it -- not as a button standing proud of the row -- so the edge is stated here and the
@@ -1476,17 +1479,17 @@ onBeforeUnmount(() => {
     the `min-h-*` the component sets inline, but the inline style wins regardless of specificity,
     which is why the height goes on as `!important`; nothing else here needs it.
   */
-  &-locale {
-    height: 34px;
-    min-height: 34px !important;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-
-    &-caret {
-      font-size: 12px;
-      opacity: 0.6;
-    }
-  }
-
+}
+.fileman-locale {
+  height: 34px;
+  min-height: 34px !important;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.fileman-locale-caret {
+  font-size: 12px;
+  opacity: 0.6;
+}
+.fileman {
   /*
     The search field, following `.header-search-field` in HeaderSearch: 40px tall, dark fill on the
     dark header, inverting to white ink-on-white in use. Stated here rather than borrowing that
@@ -1502,268 +1505,249 @@ onBeforeUnmount(() => {
     end of the header are cut to the same shape. A full pill next to a 7px button read as two
     unrelated controls that happened to share a row.
   */
-  &-search {
-    display: flex;
-    /*
-      -> Bounded, as the design bounds it: `min-width: 180px; max-width: 420px`. Unbounded, the field
-         ate every pixel the header's spacer did not, and on a wide monitor a folder search ran the
-         better part of a metre.
-    */
-    flex: 1 1 auto;
-    min-width: 180px;
-    max-width: 420px;
-    align-items: center;
-    gap: 8px;
-    height: 34px;
-    padding: 0 8px 0 11px;
-    /*
-      A white box on the dialog's dark title band -- the design's own treatment, and the mirror of
-      what `HeaderSearch` does on the light one: a search field always presents the surface it is
-      typed on, whichever ground it happens to sit against. So this one goes lighter than its bar
-      where the header's goes darker, and neither inverts on focus any more.
-    */
-    background-color: var(--color-surface);
-    color: var(--color-text-caption);
-    transition: color 0.2s var(--ease-standard);
-
-    // -> Driven by a class rather than `:focus-within`, matching HeaderSearch
-    &.is-focused {
-      color: var(--color-ink);
-    }
-
-    &-lead {
-      flex-shrink: 0;
-      font-size: 16px;
-      color: var(--color-slate-faint);
-    }
-
-    &-input {
-      flex: 1;
-      min-width: 0;
-      height: 100%;
-      border: 0;
-      background: none;
-      color: inherit;
-      font: inherit;
-      outline: none;
-
-      &::placeholder {
-        color: currentColor;
-        opacity: 0.55;
-      }
-    }
-
-    &-clear {
-      flex-shrink: 0;
-      display: inline-flex;
-      padding: 4px;
-      border-radius: 9999px;
-      border: 0;
-      background: none;
-      color: inherit;
-      opacity: 0.6;
-      cursor: pointer;
-
-      &:hover {
-        opacity: 1;
-      }
-    }
-
-    /*
-      The shortcut key cap, declared the same way `.header-search-kbd` is: a square mono cap on the
-      field's own ground. Restated rather than borrowed for the same reason the field itself is --
-      this one sits on a white field in a dark title band, that one on the light site header, and a
-      change to either must not silently move the other.
-    */
-    &-kbd {
-      flex-shrink: 0;
-      padding: 2px 5px;
-      background-color: var(--color-surface);
-      border: 1px solid var(--color-hairline);
-      color: var(--color-text-caption);
-      font-family: var(--font-mono);
-      font-size: 10px;
-      font-weight: 500;
-      line-height: 1.4;
-      white-space: nowrap;
-      cursor: pointer;
-      user-select: none;
-    }
-  }
-
+}
+.fileman-search {
+  display: flex;
+  /*
+    -> Bounded, as the design bounds it: `min-width: 180px; max-width: 420px`. Unbounded, the field
+       ate every pixel the header's spacer did not, and on a wide monitor a folder search ran the
+       better part of a metre.
+  */
+  flex: 1 1 auto;
+  min-width: 180px;
+  max-width: 420px;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 8px 0 11px;
+  /*
+    A white box on the dialog's dark title band -- the design's own treatment, and the mirror of
+    what `HeaderSearch` does on the light one: a search field always presents the surface it is
+    typed on, whichever ground it happens to sit against. So this one goes lighter than its bar
+    where the header's goes darker, and neither inverts on focus any more.
+  */
+  background-color: var(--color-surface);
+  color: var(--color-text-caption);
+  transition: color 0.2s var(--ease-standard);
+  /* -> Driven by a class rather than `:focus-within`, matching HeaderSearch */
+}
+.fileman-search.is-focused {
+  color: var(--color-ink);
+}
+.fileman-search-lead {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--color-slate-faint);
+}
+.fileman-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.fileman-search-input::placeholder {
+  color: currentColor;
+  opacity: 0.55;
+}
+.fileman-search-clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 9999px;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.fileman-search-clear:hover {
+  opacity: 1;
+}
+.fileman-search {
+  /*
+    The shortcut key cap, declared the same way `.header-search-kbd` is: a square mono cap on the
+    field's own ground. Restated rather than borrowed for the same reason the field itself is --
+    this one sits on a white field in a dark title band, that one on the light site header, and a
+    change to either must not silently move the other.
+  */
+}
+.fileman-search-kbd {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-text-caption);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.fileman {
   /*
     Each pane states its own ink alongside its fill. Nothing above these sets a text color for dark
     mode -- the app has no global `body--dark { color }` rule, and the panes are not `w-card`s, which
     is where that pairing normally lives -- so anything that just inherits (the folder tree's labels,
     a file's title, the size in the right-hand column) came out black on the dark fill.
   */
-  &-left {
-    .body--light & {
-      background-color: var(--color-tint-alt);
-      border-inline-end: 1px solid var(--color-hairline);
-      color: var(--color-slate);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-4);
-      border-inline-end: 1px solid var(--color-hairline-dark);
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
-  &-center {
-    .body--light & {
-      background-color: var(--color-surface);
-      color: var(--color-text-body);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-3);
-      color: var(--color-text-dark);
-    }
-  }
-
-  &-right {
-    /*
-      `#fbfcfe` stays a Ledger-only literal rather than `--color-surface` (OpenProject #2776): the
-      design draws this pane a hair off pure white in Ledger but pure white (`#ffffff`, matching
-      `--color-surface`) under Cobalt (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`'s right
-      pane). No token distinguishes "surface" from "surface, a shade warmer" -- logged rather than
-      guessed at with a new one-off selector.
-    */
-    .body--light & {
-      background-color: #fbfcfe;
-      border-inline-start: 1px solid var(--color-hairline);
-      color: var(--color-text-body);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-4);
-      border-inline-start: 1px solid var(--color-hairline-dark);
-      color: var(--color-text-dark);
-    }
-  }
-
+}
+.body--light .fileman-left {
+  background-color: var(--color-tint-alt);
+  border-inline-end: 1px solid var(--color-hairline);
+  color: var(--color-slate);
+}
+.body--dark .fileman-left {
+  background-color: var(--color-dark-4);
+  border-inline-end: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-secondary-dark);
+}
+.body--light .fileman-center {
+  background-color: var(--color-surface);
+  color: var(--color-text-body);
+}
+.body--dark .fileman-center {
+  background-color: var(--color-dark-3);
+  color: var(--color-text-dark);
+}
+.fileman-right {
+  /*
+    `#fbfcfe` stays a Ledger-only literal rather than `--color-surface` (OpenProject #2776): the
+    design draws this pane a hair off pure white in Ledger but pure white (`#ffffff`, matching
+    `--color-surface`) under Cobalt (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`'s right
+    pane). No token distinguishes "surface" from "surface, a shade warmer" -- logged rather than
+    guessed at with a new one-off selector.
+  */
+}
+.body--light .fileman-right {
+  background-color: #fbfcfe;
+  border-inline-start: 1px solid var(--color-hairline);
+  color: var(--color-text-body);
+}
+.body--dark .fileman-right {
+  background-color: var(--color-dark-4);
+  border-inline-start: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-dark);
+}
+.fileman {
   /*
     The action bar over the list. The design paints it in the page tint rather than in the list's own
     white -- the same pairing the path bar along the bottom already uses, so the pane reads as a
     sheet of paper with a strip of chrome at each end rather than as one continuous white field with
     two hairlines ruled across it. Dark follows the path bar too: the recessed rung, not the panel's.
   */
-  &-toolbar {
-    .body--light & {
-      background-color: var(--color-tint);
-      border-block-end: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-4);
-      border-block-end: 1px solid var(--color-hairline-dark);
-    }
-  }
-
+}
+.body--light .fileman-toolbar {
+  background-color: var(--color-tint);
+  border-block-end: 1px solid var(--color-hairline);
+}
+.body--dark .fileman-toolbar {
+  background-color: var(--color-dark-4);
+  border-block-end: 1px solid var(--color-hairline-dark);
+}
+.fileman {
   /*
     Upload's green edge. `WBtn`'s `outline` draws every outlined edge in the hairline tone on purpose
     ("an outlined button's edge is chrome, its label is not"), and this is the one control the design
     overrides that for -- so the override lives here rather than as a prop on the shared component.
   */
-  &-upload-btn {
-    // -> The fill tone in both appearances: it is a hairline here, not a label, so the "never under
-    //    white text" constraint that separates `var(--color-positive-fill)` from `var(--color-positive)` does not apply.
-    border-color: var(--color-positive-fill);
-  }
-
-  &-path {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-
-    .body--light & {
-      background-color: var(--color-tint) !important;
-      border-block-start: 1px solid var(--color-hairline);
-      color: var(--color-text-caption);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-4) !important;
-      border-block-start: 1px solid var(--color-hairline-dark);
-      color: var(--color-text-caption-dark);
-    }
-  }
-
-  &-main {
-    height: 100%;
-  }
-
-  &-loadinglist {
-    padding: 16px;
-    font-style: italic;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-
-    > span {
-      margin-top: 16px;
-    }
-  }
-
-  &-emptylist {
-    padding: 16px;
-    font-style: italic;
-    font-size: 1.5em;
-    font-weight: 300;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-
-    > img {
-      opacity: 0.25;
-      width: 200px;
-    }
-
-    .body--light & {
-      color: var(--color-text-caption);
-    }
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-
-      > img {
-        filter: invert(1);
-      }
-    }
-  }
-
-  &-droptarget {
-    position: relative;
-    height: 100%;
-  }
-
+}
+.fileman-upload-btn {
+  /* -> The fill tone in both appearances: it is a hairline here, not a label, so the "never under */
+  /*    white text" constraint that separates `var(--color-positive-fill)` from `var(--color-positive)` does not apply. */
+  border-color: var(--color-positive-fill);
+}
+.fileman-path {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.body--light .fileman-path {
+  background-color: var(--color-tint) !important;
+  border-block-start: 1px solid var(--color-hairline);
+  color: var(--color-text-caption);
+}
+.body--dark .fileman-path {
+  background-color: var(--color-dark-4) !important;
+  border-block-start: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-caption-dark);
+}
+.fileman-main {
+  height: 100%;
+}
+.fileman-loadinglist {
+  padding: 16px;
+  font-style: italic;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+.fileman-loadinglist > span {
+  margin-top: 16px;
+}
+.fileman-emptylist {
+  padding: 16px;
+  font-style: italic;
+  font-size: 1.5em;
+  font-weight: 300;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+.fileman-emptylist > img {
+  opacity: 0.25;
+  width: 200px;
+}
+.body--light .fileman-emptylist {
+  color: var(--color-text-caption);
+}
+.body--dark .fileman-emptylist {
+  color: var(--color-text-caption-dark);
+}
+.body--dark .fileman-emptylist > img {
+  filter: invert(1);
+}
+.fileman-droptarget {
+  position: relative;
+  height: 100%;
+}
+.fileman {
   /*
     Covers the whole pane rather than sitting as a border on it: a dashed inset rectangle plus a
     translucent wash reads as "drop here" at a glance, the same affordance file managers and mail
     clients use. `pointer-events: none` is load-bearing -- see the template comment beside it.
   */
-  &-dropoverlay {
-    position: absolute;
-    inset: 8px;
-    z-index: 5;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    border: 2px dashed var(--color-accent);
-    pointer-events: none;
-    font-size: 1.1rem;
-    font-weight: 500;
-    text-align: center;
-
-    .body--light & {
-      background-color: rgba(255, 255, 255, 0.9);
-      color: var(--color-text-body);
-    }
-    .body--dark & {
-      background-color: rgba(20, 23, 31, 0.85);
-      color: var(--color-text-dark);
-    }
-  }
-
+}
+.fileman-dropoverlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 2px dashed var(--color-accent);
+  pointer-events: none;
+  font-size: 1.1rem;
+  font-weight: 500;
+  text-align: center;
+}
+.body--light .fileman-dropoverlay {
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--color-text-body);
+}
+.body--dark .fileman-dropoverlay {
+  background-color: rgba(20, 23, 31, 0.85);
+  color: var(--color-text-dark);
+}
+.fileman {
   /*
     The listing runs edge to edge -- the rows are the page, not cards floating on it -- so the
     padding is each row's own and the list has none of its own.
@@ -1785,353 +1769,337 @@ onBeforeUnmount(() => {
     the compact icon at `md` (32px) instead of the `sm` (24px) every other row list of this kind
     uses (`TreeBrowserDialog.vue`) -- both restored/fixed here.
   */
-  &-filelist {
-    padding: 0;
+}
+.fileman-filelist {
+  padding: 0;
+  /*
+    The selected row: the accent WASH plus an accent bar down its leading edge, matching how the
+    site sidebar and the folder tree beside this list both mark what the reader is on. A solid
+    accent fill (what this used to do) is the treatment a BUTTON gets; a selected row in a list is
+    not one, and filling it meant the file name, its type and its size all had to be restated in
+    white -- three overrides that existed only to survive the fill.
 
-    /*
-      The selected row: the accent WASH plus an accent bar down its leading edge, matching how the
-      site sidebar and the folder tree beside this list both mark what the reader is on. A solid
-      accent fill (what this used to do) is the treatment a BUTTON gets; a selected row in a list is
-      not one, and filling it meant the file name, its type and its size all had to be restated in
-      white -- three overrides that existed only to survive the fill.
+    The wash, not `--color-tint`: the design tints the selected row towards the accent (`#fdeced`),
+    which is `--color-accent-wash`. The neutral tint was the same colour as the toolbar above the
+    list, so a selected row read as a second strip of chrome rather than as a selection.
 
-      The wash, not `--color-tint`: the design tints the selected row towards the accent (`#fdeced`),
-      which is `--color-accent-wash`. The neutral tint was the same colour as the toolbar above the
-      list, so a selected row read as a second strip of chrome rather than as a selection.
-
-      The bar is an inset SHADOW rather than a border, again as the design draws it (`inset 3px 0 0`).
-      A border would have to be reserved as `2px solid transparent` on every unselected row, which is
-      what the previous rule did -- three pixels of padding stolen from every row in the list to make
-      room for a mark almost none of them carry.
-    */
-    > .w-item {
-      display: grid;
-      /*
-        Comfortable's own column widths: a 56px icon track (room for the `xl`/46px icon plus the
-        6px `padding-inline-end` below), matching `WItemSection`'s own default avatar reservation.
-        `.is-compact` narrows this track to 40px, for its smaller `sm`/24px icon.
-      */
-      grid-template-columns: 56px minmax(0, 1fr) 110px 90px;
-      /*
-        The comfortable row: ~69px, the design's own original density. 11px top/bottom padding
-        plus the `xl` (46px) icon below lands it there.
-      */
-      padding: 11px 16px;
-      min-height: 69px;
-      /*
-        Opts this row out of `WItem.vue`'s own container-query row stacking
-        (`.w-item:has(.w-item-section--main + .w-item-section--main)`) -- real for the settings
-        rows it was built for, which are single-column and genuinely need to drop a second field
-        onto its own line below ~600px, but wrong here: unopposed, that rule's `margin-top`/
-        `margin-inline-start` would land on this row's own TYPE column (also a "main" section,
-        adjacent to the label) the moment the pane narrows under 600px, which the file list pane
-        does routinely once the details or tree panel sits beside it. `!important` rather than
-        out-specificing the `:has()` selector, which carries its own scoped attribute: matching or
-        beating it here would be one more thing to keep in step by hand if that selector ever
-        changes.
-      */
-      container-type: normal !important;
-
-      // -> The design rules each row off from the next; the last one meets the pane's own edge
-      &:not(:last-child) {
-        border-block-end: 1px solid var(--color-tint);
-      }
-
-      &.active {
-        box-shadow: inset 3px 0 0 var(--color-accent-fill);
-        background-color: var(--color-accent-wash);
-        color: var(--color-ink);
-
-        .body--dark & {
-          background-color: var(--color-accent-wash-dark);
-          color: var(--color-text-dark);
-        }
-      }
-
-      .body--dark & {
-        &:not(:last-child) {
-          border-block-end-color: var(--color-hairline-dark);
-        }
-      }
-
-      /*
-        `WItemSection.vue`'s own `.w-item-section--avatar` reserves 56px width AND a matching
-        `min-width` -- fine for comfortable's own 56px track, but under Grid that `min-width`
-        overflows `.is-compact`'s narrower 40px track rather than simply being ignored the way it
-        was on a shrinking flex item. Overridden unconditionally here, nested under `.w-item`, for
-        the specificity to beat that scoped rule reliably rather than tying with it in either
-        density.
-      */
-      .fileman-filelist-icon {
-        padding-inline-end: 6px;
-        min-width: 0;
-      }
-    }
-
-    /*
-      Compact (the default -- `state.isCompact` starts `true`): roughly the ~40px row
-      `db2b0196a` shipped as the only option, now reachable as a toggle instead. The icon itself
-      shrinks with it, in the template's `:size="state.isCompact ? 'sm' : 'xl'"` -- CSS alone
-      can't resize the icon glyph, only the row and its grid track around it.
-    */
-    &.is-compact > .w-item {
-      grid-template-columns: 40px minmax(0, 1fr) 110px 90px;
-      padding: 4px 16px;
-      min-height: 40px;
-    }
-
-    // -> The design's own row type scale: a 14.5px/500 name, the filename column now exclusive
-    &-label {
-      .w-item-label {
-        font-size: 14.5px;
-        font-weight: 500;
-      }
-    }
-
-    /*
-      The dedicated filetype column ("PNG Image", "Markdown Page", ...) that used to be a sub-line
-      under the filename (WP #2920). Its width is the row's own grid template, not its own -- see
-      `> .w-item` above -- with the same 12px caption treatment the sub-line used to carry, and
-      truncated rather than wrapped: a long caption wrapping onto a second line would blow out this
-      row's fixed height.
-    */
-    &-type {
-      font-size: 12px;
-      font-weight: 400;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-
-      .body--light & {
-        color: var(--color-text-caption);
-      }
-      .body--dark & {
-        color: var(--color-text-caption-dark);
-      }
-    }
-
-    // -> A measurement, in the mono face, as every other measurement on this screen is. Its width
-    //    is the row's own grid template too -- reserved whether or not this row's `item.side` is
-    //    actually populated, which is the fix for OpenProject #2940.
-    &-side {
-      font-family: var(--font-mono);
-      font-size: 11.5px;
-
-      .body--light & {
-        color: var(--color-text-secondary);
-      }
-      .body--dark & {
-        color: var(--color-text-secondary-dark);
-      }
-    }
-  }
+    The bar is an inset SHADOW rather than a border, again as the design draws it (`inset 3px 0 0`).
+    A border would have to be reserved as `2px solid transparent` on every unselected row, which is
+    what the previous rule did -- three pixels of padding stolen from every row in the list to make
+    room for a mark almost none of them carry.
+  */
+}
+.fileman-filelist > .w-item {
+  display: grid;
+  /*
+    Comfortable's own column widths: a 56px icon track (room for the `xl`/46px icon plus the
+    6px `padding-inline-end` below), matching `WItemSection`'s own default avatar reservation.
+    `.is-compact` narrows this track to 40px, for its smaller `sm`/24px icon.
+  */
+  grid-template-columns: 56px minmax(0, 1fr) 110px 90px;
+  /*
+    The comfortable row: ~69px, the design's own original density. 11px top/bottom padding
+    plus the `xl` (46px) icon below lands it there.
+  */
+  padding: 11px 16px;
+  min-height: 69px;
+  /*
+    Opts this row out of `WItem.vue`'s own container-query row stacking
+    (`.w-item:has(.w-item-section--main + .w-item-section--main)`) -- real for the settings
+    rows it was built for, which are single-column and genuinely need to drop a second field
+    onto its own line below ~600px, but wrong here: unopposed, that rule's `margin-top`/
+    `margin-inline-start` would land on this row's own TYPE column (also a "main" section,
+    adjacent to the label) the moment the pane narrows under 600px, which the file list pane
+    does routinely once the details or tree panel sits beside it. `!important` rather than
+    out-specificing the `:has()` selector, which carries its own scoped attribute: matching or
+    beating it here would be one more thing to keep in step by hand if that selector ever
+    changes.
+  */
+  container-type: normal !important;
+  /* -> The design rules each row off from the next; the last one meets the pane's own edge */
+}
+.fileman-filelist > .w-item:not(:last-child) {
+  border-block-end: 1px solid var(--color-tint);
+}
+.fileman-filelist > .w-item.active {
+  box-shadow: inset 3px 0 0 var(--color-accent-fill);
+  background-color: var(--color-accent-wash);
+  color: var(--color-ink);
+}
+.body--dark .fileman-filelist > .w-item.active {
+  background-color: var(--color-accent-wash-dark);
+  color: var(--color-text-dark);
+}
+.body--dark .fileman-filelist > .w-item:not(:last-child) {
+  border-block-end-color: var(--color-hairline-dark);
+}
+.fileman-filelist > .w-item {
+  /*
+    `WItemSection.vue`'s own `.w-item-section--avatar` reserves 56px width AND a matching
+    `min-width` -- fine for comfortable's own 56px track, but under Grid that `min-width`
+    overflows `.is-compact`'s narrower 40px track rather than simply being ignored the way it
+    was on a shrinking flex item. Overridden unconditionally here, nested under `.w-item`, for
+    the specificity to beat that scoped rule reliably rather than tying with it in either
+    density.
+  */
+}
+.fileman-filelist > .w-item .fileman-filelist-icon {
+  padding-inline-end: 6px;
+  min-width: 0;
+}
+.fileman-filelist {
+  /*
+    Compact (the default -- `state.isCompact` starts `true`): roughly the ~40px row
+    `db2b0196a` shipped as the only option, now reachable as a toggle instead. The icon itself
+    shrinks with it, in the template's `:size="state.isCompact ? 'sm' : 'xl'"` -- CSS alone
+    can't resize the icon glyph, only the row and its grid track around it.
+  */
+}
+.fileman-filelist.is-compact > .w-item {
+  grid-template-columns: 40px minmax(0, 1fr) 110px 90px;
+  padding: 4px 16px;
+  min-height: 40px;
+}
+.fileman-filelist {
+  /* -> The design's own row type scale: a 14.5px/500 name, the filename column now exclusive */
+}
+.fileman-filelist-label .w-item-label {
+  font-size: 14.5px;
+  font-weight: 500;
+}
+.fileman-filelist {
+  /*
+    The dedicated filetype column ("PNG Image", "Markdown Page", ...) that used to be a sub-line
+    under the filename (WP #2920). Its width is the row's own grid template, not its own -- see
+    `> .w-item` above -- with the same 12px caption treatment the sub-line used to carry, and
+    truncated rather than wrapped: a long caption wrapping onto a second line would blow out this
+    row's fixed height.
+  */
+}
+.fileman-filelist-type {
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.body--light .fileman-filelist-type {
+  color: var(--color-text-caption);
+}
+.body--dark .fileman-filelist-type {
+  color: var(--color-text-caption-dark);
+}
+.fileman-filelist {
+  /* -> A measurement, in the mono face, as every other measurement on this screen is. Its width */
+  /*    is the row's own grid template too -- reserved whether or not this row's `item.side` is */
+  /*    actually populated, which is the fix for OpenProject #2940. */
+}
+.fileman-filelist-side {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.body--light .fileman-filelist-side {
+  color: var(--color-text-secondary);
+}
+.body--dark .fileman-filelist-side {
+  color: var(--color-text-secondary-dark);
+}
+.fileman {
   /*
     The preview plate at the top of the details pane, always drawn -- see the template note. A framed
     16/10 box on the tint, with the blueprint corner marks the design language sets around anything
     it wants read as a plate rather than as a picture that happens to be there.
   */
-  &-thumb {
-    position: relative;
-    aspect-ratio: 16 / 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-block-end: 16px;
+}
+.fileman-thumb {
+  position: relative;
+  aspect-ratio: 16/10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-block-end: 16px;
+}
+.body--light .fileman-thumb {
+  background-color: var(--color-tint);
+  border: 1px solid var(--color-hairline);
+}
+.body--dark .fileman-thumb {
+  background-color: var(--color-dark-3);
+  border: 1px solid var(--color-hairline-dark);
+}
+.fileman-thumb {
+  /* -> The image fills the plate it is framed by, so the frame's own aspect ratio is the one drawn */
+}
+.fileman-thumb > img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+}
+.fileman-thumb-placeholder {
+  color: var(--color-slate-pale);
+}
+.fileman-thumb {
+  /*
+    The four corner marks. Outside the frame by 4px, drawn as two edges of a 7px square each, so
+    they read as registration ticks rather than as a second border. Positioned with logical
+    insets, so each tick's two drawn edges stay on the corner it is named for under RTL.
 
-    .body--light & {
-      background-color: var(--color-tint);
-      border: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-3);
-      border: 1px solid var(--color-hairline-dark);
-    }
-
-    // -> The image fills the plate it is framed by, so the frame's own aspect ratio is the one drawn
-    > img {
-      display: block;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    &-placeholder {
-      color: var(--color-slate-pale);
-    }
-
-    /*
-      The four corner marks. Outside the frame by 4px, drawn as two edges of a 7px square each, so
-      they read as registration ticks rather than as a second border. Positioned with logical
-      insets, so each tick's two drawn edges stay on the corner it is named for under RTL.
-
-      `display: var(--corner-marks)` -- `block` in Ledger (a no-op), `none` in Cobalt
-      (OpenProject #2767/`NavEditMenu.vue`'s identical construction) -- is what this was missing:
-      Cobalt draws no corner marks anywhere ("white cards ... instead of hairlines and corner
-      marks", DESIGN-DECISIONS.md), and the File Manager mockup's own preview plate
-      (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`) confirms a plain hairline frame with no
-      ticks, but this frame kept drawing all four regardless of aesthetic until now
-      (OpenProject #2776).
-    */
-    &-tick {
-      position: absolute;
-      display: var(--corner-marks);
-      width: 7px;
-      height: 7px;
-      border: 0 solid var(--color-slate-soft);
-      pointer-events: none;
-
-      .body--dark & {
-        border-color: var(--color-slate-light);
-      }
-
-      &--tl {
-        top: -4px;
-        inset-inline-start: -4px;
-        border-block-start-width: 1px;
-        border-inline-start-width: 1px;
-      }
-      &--tr {
-        top: -4px;
-        inset-inline-end: -4px;
-        border-block-start-width: 1px;
-        border-inline-end-width: 1px;
-      }
-      &--bl {
-        bottom: -4px;
-        inset-inline-start: -4px;
-        border-block-end-width: 1px;
-        border-inline-start-width: 1px;
-      }
-      &--br {
-        bottom: -4px;
-        inset-inline-end: -4px;
-        border-block-end-width: 1px;
-        border-inline-end-width: 1px;
-      }
-    }
-  }
-
+    `display: var(--corner-marks)` -- `block` in Ledger (a no-op), `none` in Cobalt
+    (OpenProject #2767/`NavEditMenu.vue`'s identical construction) -- is what this was missing:
+    Cobalt draws no corner marks anywhere ("white cards ... instead of hairlines and corner
+    marks", DESIGN-DECISIONS.md), and the File Manager mockup's own preview plate
+    (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`) confirms a plain hairline frame with no
+    ticks, but this frame kept drawing all four regardless of aesthetic until now
+    (OpenProject #2776).
+  */
+}
+.fileman-thumb-tick {
+  position: absolute;
+  display: var(--corner-marks);
+  width: 7px;
+  height: 7px;
+  border: 0 solid var(--color-slate-soft);
+  pointer-events: none;
+}
+.body--dark .fileman-thumb-tick {
+  border-color: var(--color-slate-light);
+}
+.fileman-thumb-tick--tl {
+  top: -4px;
+  inset-inline-start: -4px;
+  border-block-start-width: 1px;
+  border-inline-start-width: 1px;
+}
+.fileman-thumb-tick--tr {
+  top: -4px;
+  inset-inline-end: -4px;
+  border-block-start-width: 1px;
+  border-inline-end-width: 1px;
+}
+.fileman-thumb-tick--bl {
+  bottom: -4px;
+  inset-inline-start: -4px;
+  border-block-end-width: 1px;
+  border-inline-start-width: 1px;
+}
+.fileman-thumb-tick--br {
+  bottom: -4px;
+  inset-inline-end: -4px;
+  border-block-end-width: 1px;
+  border-inline-end-width: 1px;
+}
+.fileman {
   /*
     A detail row is a LABELLED VALUE, and the design lays it out as one: a 92px mono-uppercase label
     gutter with the value beside it, each row ruled off from the next. Stacked (what this used to do)
     made every value look like the start of its own paragraph and cost twice the vertical room, which
     is how a four-row pane came to need scrolling.
   */
-  &-details-row {
-    display: flex;
-    gap: 10px;
-    padding: 7px 0;
-
-    .body--light & {
-      border-block-end: 1px solid var(--color-tint);
-    }
-    .body--dark & {
-      border-block-end: 1px solid var(--color-hairline-dark);
-    }
-
-    label {
-      flex: 0 0 92px;
-      padding-block-start: 2px;
-      font-size: 0.6rem;
-      font-weight: 600;
-
-      font-family: var(--font-mono);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-
-      .body--light & {
-        color: var(--color-text-caption);
-      }
-      .body--dark & {
-        color: var(--color-text-caption-dark);
-      }
-    }
-    span {
-      flex: 1;
-      min-width: 0;
-      font-size: 13.5px;
-      // -> A long file name has nowhere to break: the gutter beside it is fixed
-      word-break: break-word;
-
-      .body--light & {
-        color: var(--color-ink);
-      }
-      .body--dark & {
-        color: var(--color-text-dark);
-      }
-    }
-  }
-
+}
+.fileman-details-row {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+}
+.body--light .fileman-details-row {
+  border-block-end: 1px solid var(--color-tint);
+}
+.body--dark .fileman-details-row {
+  border-block-end: 1px solid var(--color-hairline-dark);
+}
+.fileman-details-row label {
+  flex: 0 0 92px;
+  padding-block-start: 2px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.body--light .fileman-details-row label {
+  color: var(--color-text-caption);
+}
+.body--dark .fileman-details-row label {
+  color: var(--color-text-caption-dark);
+}
+.fileman-details-row span {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  /* -> A long file name has nowhere to break: the gutter beside it is fixed */
+  word-break: break-word;
+}
+.body--light .fileman-details-row span {
+  color: var(--color-ink);
+}
+.body--dark .fileman-details-row span {
+  color: var(--color-text-dark);
+}
+.fileman {
   /*
     The pane's own commit button, marked with the same registration ticks the plate above it carries
     -- the design puts them on the leading-top and trailing-bottom corners only, which is the motif's
     abbreviated form for a control rather than a plate.
   */
-  &-insert-btn {
-    &::before,
-    &::after {
-      content: '';
-      position: absolute;
-      width: 5px;
-      height: 5px;
-      border: 0 solid var(--color-accent);
-      pointer-events: none;
-    }
-
-    &::before {
-      top: -3px;
-      inset-inline-start: -3px;
-      border-block-start-width: 1px;
-      border-inline-start-width: 1px;
-    }
-
-    &::after {
-      bottom: -3px;
-      inset-inline-end: -3px;
-      border-block-end-width: 1px;
-      border-inline-end-width: 1px;
-    }
-  }
-
-  &-progressbar {
-    width: 100%;
-    flex: 1;
-    height: 12px;
-
-    .body--light & {
-      background-color: var(--color-blue-grey-2);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-4) !important;
-    }
-
-    > div {
-      height: 12px;
-      background-color: var(--color-positive);
-      background-image: linear-gradient(
-        -45deg,
-        rgba(255, 255, 255, 0.3) 25%,
-        transparent 25%,
-        transparent 50%,
-        rgba(255, 255, 255, 0.3) 50%,
-        rgba(255, 255, 255, 0.3) 75%,
-        transparent 75%,
-        transparent
-      );
-      background-size: 50px 50px;
-      background-position: 0 0;
-      animation: fileman-progress 2s linear infinite;
-      box-shadow: 0 0 5px 0 var(--color-positive);
-      font-size: 9px;
-      letter-spacing: 2px;
-      font-weight: 700;
-      color: #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      overflow: hidden;
-      transition: all 1s ease;
-    }
-  }
+}
+.fileman-insert-btn::before,
+.fileman-insert-btn::after {
+  content: '';
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border: 0 solid var(--color-accent);
+  pointer-events: none;
+}
+.fileman-insert-btn::before {
+  top: -3px;
+  inset-inline-start: -3px;
+  border-block-start-width: 1px;
+  border-inline-start-width: 1px;
+}
+.fileman-insert-btn::after {
+  bottom: -3px;
+  inset-inline-end: -3px;
+  border-block-end-width: 1px;
+  border-inline-end-width: 1px;
+}
+.fileman-progressbar {
+  width: 100%;
+  flex: 1;
+  height: 12px;
+}
+.body--light .fileman-progressbar {
+  background-color: var(--color-blue-grey-2);
+}
+.body--dark .fileman-progressbar {
+  background-color: var(--color-dark-4) !important;
+}
+.fileman-progressbar > div {
+  height: 12px;
+  background-color: var(--color-positive);
+  background-image: linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.3) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0.3) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 50px 50px;
+  background-position: 0 0;
+  animation: fileman-progress 2s linear infinite;
+  box-shadow: 0 0 5px 0 var(--color-positive);
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  transition: all 1s ease;
 }
 
 @keyframes fileman-progress {

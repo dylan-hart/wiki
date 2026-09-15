@@ -1,9 +1,9 @@
-@use 'base';
-@use 'animation';
-@use 'page-contents';
-@use 'print';
-@use 'overlay-dialog';
-@use 'content-image-lightbox';
+@import './_base.css';
+@import './_animation.css';
+@import './_page-contents.css';
+@import './_print.css';
+@import './_overlay-dialog.css';
+@import './_content-image-lightbox.css';
 
 /*
   KaTeX's own stylesheet, loaded globally rather than per-block: `renderers/markdown.js` resolves

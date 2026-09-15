@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import { tokenValue } from '../../test/tokens.js'
 
@@ -14,13 +13,12 @@ import { tokenValue } from '../../test/tokens.js'
 
   Neither `jsdom` nor `happy-dom` installs the Cobalt half of the token layer (`test/setup.js` only
   installs Ledger's, see `test/tokens.js`), so a mount-based assertion would read Ledger's values
-  regardless of the `body--cobalt` class on the fixture -- this instead compiles the SFC's own
-  `<style lang="scss">` block the same way the app does (mirroring `editorScreenChrome.test.js`) and
-  reads the resolved rule text back, which is what actually exposes a selector that never matches.
+  regardless of the `body--cobalt` class on the fixture -- this instead reads the SFC's own
+  `<style>` block the same way the app ships it (mirroring `editorScreenChrome.test.js`) and reads
+  the rule text back, which is what actually exposes a selector that never matches.
 */
 
 const componentsDir = dirname(fileURLToPath(import.meta.url))
-const srcDir = dirname(componentsDir)
 
 function token(name, expected) {
   expect(tokenValue(name, 'cobalt'), `${name} should still be ${expected} under Cobalt`).toBe(
@@ -31,20 +29,9 @@ function token(name, expected) {
 
 function compileStyles(fileName) {
   const source = readFileSync(join(componentsDir, fileName), 'utf8')
-  const block = source.match(/<style[^>]*lang="scss"[^>]*>([\s\S]*?)<\/style>/)
-  expect(block, `${fileName} has a scss style block`).toBeTruthy()
-  return sass.compileString(
-    `@use '@/css/_theme.scss' as *;\n@use '@/css/_palette.scss' as *;\n${block[1]}`,
-    {
-      importers: [
-        {
-          findFileUrl(url) {
-            return url.startsWith('@/') ? new URL(`file://${join(srcDir, url.slice(2))}`) : null
-          }
-        }
-      ]
-    }
-  ).css
+  const block = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)
+  expect(block, `${fileName} has a style block`).toBeTruthy()
+  return block[1]
 }
 
 function declarations(css, selector) {

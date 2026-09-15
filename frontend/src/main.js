@@ -14,7 +14,7 @@ import { initializeTemporal } from './boot/temporal'
 import { initializeHairlines } from './helpers/hairline'
 
 import './css/tailwind.css'
-import './css/app.scss'
+import './css/app.css'
 
 import RootApp from './App.vue'
 

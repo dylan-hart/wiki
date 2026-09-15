@@ -180,7 +180,7 @@ async function clearImage() {
 }
 </script>
 
-<style lang="scss">
+<style>
 .profile-avatar-circ {
   box-shadow:
     2px 2px 15px -5px var(--color-primary),

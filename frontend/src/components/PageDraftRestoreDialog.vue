@@ -168,7 +168,7 @@ watch(
 )
 </script>
 
-<style lang="scss">
+<style>
 /*
   Compact rather than the full-size pane `PageHistoryOverlay.vue`/`PageSaveConflictDialog.vue` each
   give theirs (this dialog is a prompt, not a dedicated diff view) -- a fixed height plus

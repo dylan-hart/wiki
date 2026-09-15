@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import WFooter from '@/components/shared/WFooter.vue'
 import FooterNav from '@/components/FooterNav.vue'
@@ -48,13 +47,10 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  const themeDir = join(frontendRoot, 'src', 'css')
-  return sass.compileString(
-    `@use '${join(themeDir, '_theme.scss')}' as *;\n` +
-      `@use '${join(themeDir, '_palette.scss')}' as *;\n` +
-      sfcStyles(relativePath),
-    { loadPaths: [join(frontendRoot, 'src')] }
-  ).css
+  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
+  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
+  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  return sfcStyles(relativePath)
 }
 
 /** The footer exactly as `Index.vue` renders it -- see `Index.footerCobalt.test.js`'s own comment. */
@@ -230,8 +226,8 @@ describe(
             '</div>' +
             '</aside>' +
             // -> `WLayout.vue`'s own `:deep(> .w-page-container) { min-height: 0; overflow: auto }`
-            //    reproduced inline -- see `MainLayout.footerClearance.test.js`'s own comment for why a
-            //    bare `sass.compileString` extraction never runs a Vue SFC's `:deep()` transform.
+            //    reproduced inline -- see `MainLayout.footerClearance.test.js`'s own comment for why
+            //    the raw extracted `<style>` text never runs a Vue SFC's `:deep()` transform.
             '<div class="w-page-container" style="min-height: 0; overflow: auto">' +
             '<div class="page-container flex min-h-0 flex-nowrap items-stretch" style="height: 100%">' +
             '<div class="min-w-0 flex-1" style="height: 100%">' +

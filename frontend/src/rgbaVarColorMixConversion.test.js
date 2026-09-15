@@ -10,9 +10,9 @@ import { listSourceFiles } from '../test/sourceFiles.js'
  * `docs/frontend-sass-removal-plan.md`'s footprint count named exactly 3 `rgba($variable, …)` call
  * sites left in `frontend/src` -- `EditorMarkdown.vue:2153` and `GroupRulesEditor.vue:703-704` -- and
  * this is a source-scan for the same reason every other Sass-removal regression test in this
- * workspace is: nothing compiles Sass here, so a re-introduced `rgba($var, …)` (which only fails to
- * build once the `additionalData` Sass injection is eventually dropped in the final teardown Task)
- * would otherwise sit invisible until then.
+ * workspace is: nothing compiles Sass here at all any more (OpenProject #3254 dropped the pipeline
+ * entirely), so a re-introduced `rgba($var, …)` would now be a plain-CSS parse casualty -- a dropped
+ * declaration, not a build error -- and this source-scan is what still catches it.
  *
  * The two converted sites are also asserted individually against the exact `color-mix(in srgb,
  * var(--color-x) N%, transparent)` text, matching the pattern already shipped two rules above in
@@ -22,7 +22,7 @@ import { listSourceFiles } from '../test/sourceFiles.js'
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
 describe('no rgba($variable, …) call sites remain in frontend/src', () => {
-  const files = listSourceFiles(SRC_ROOT, { ext: ['.vue', '.scss'] })
+  const files = listSourceFiles(SRC_ROOT, { ext: ['.vue', '.css'] })
 
   it('has at least one file to check (scan is not silently matching nothing)', () => {
     expect(files.length).toBeGreaterThan(0)
@@ -42,7 +42,7 @@ describe('no rgba($variable, …) call sites remain in frontend/src', () => {
 
 describe('GroupRulesEditor.vue .is-forceallow uses color-mix(), matching .is-allow/.is-deny above it', () => {
   const source = readFileSync(resolve(SRC_ROOT, 'components/GroupRulesEditor.vue'), 'utf-8')
-  const forceallowRule = source.match(/&\.is-forceallow \{([^}]*)\}/)
+  const forceallowRule = source.match(/\.is-forceallow \{([^}]*)\}/)
 
   it('finds the .is-forceallow rule', () => {
     expect(forceallowRule, '.is-forceallow rule found').toBeTruthy()

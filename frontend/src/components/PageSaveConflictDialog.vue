@@ -163,7 +163,7 @@ watch(dialogVisible, async (visible) => {
 onBeforeUnmount(disposeEditor)
 </script>
 
-<style lang="scss">
+<style>
 .save-conflict-diff-labels {
   display: flex;
   justify-content: space-around;

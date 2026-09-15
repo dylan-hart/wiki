@@ -320,7 +320,7 @@ function chooseFirst() {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .emoji-menu {
   width: 340px;
 }

@@ -574,152 +574,141 @@ async function importRules() {
 }
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .admin-groups-rule {
   position: relative;
   padding-block: 10px 24px;
   padding-inline-start: 40px;
+}
+.admin-groups-rule-icon {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 31px;
+}
+.admin-groups-rule-icon::before {
+  position: absolute;
+  content: '';
+  border-radius: 100%;
+  width: 31px;
+  height: 31px;
+  background-color: currentColor;
+  top: 4px;
+}
+.admin-groups-rule-icon::after {
+  position: absolute;
+  content: '';
+  width: 3px;
+  top: 41px;
+  bottom: 0;
+  inset-inline-start: 14px;
+  opacity: 0.4;
+  background-color: currentColor;
+  display: block;
+}
+.admin-groups-rule-icon {
+  /*
+    Sized and placed to the disc `::before` draws, with the glyph inset by the padding: an inline
+    <svg> scales its viewBox to whatever box it is given, so the old `width: 100%; height: 38px`
+    -- metrics for the icon FONT this replaced, where `font-size` did the sizing -- stretched the
+    mark across the whole circle.
 
-  &-icon {
-    position: absolute;
-    top: 0;
-    inset-inline-start: 0;
-    bottom: 0;
-    width: 31px;
-
-    &::before {
-      position: absolute;
-      content: '';
-      border-radius: 100%;
-      width: 31px;
-      height: 31px;
-      background-color: currentColor;
-      top: 4px;
-    }
-
-    &::after {
-      position: absolute;
-      content: '';
-      width: 3px;
-      top: 41px;
-      bottom: 0;
-      inset-inline-start: 14px;
-      opacity: 0.4;
-      background-color: currentColor;
-      display: block;
-    }
-
-    /*
-      Sized and placed to the disc `::before` draws, with the glyph inset by the padding: an inline
-      <svg> scales its viewBox to whatever box it is given, so the old `width: 100%; height: 38px`
-      -- metrics for the icon FONT this replaced, where `font-size` did the sizing -- stretched the
-      mark across the whole circle.
-
-      The box stays the full 31px even though the glyph is 15px, so the click target is the disc a
-      reader is aiming at rather than the mark inside it.
-    */
-    .w-icon {
-      position: absolute;
-      top: 4px;
-      inset-inline-start: 0;
-      box-sizing: border-box;
-      width: 31px;
-      height: 31px;
-      padding: 8px;
-      cursor: pointer;
-    }
-  }
-
-  &-name {
-    line-height: 12px;
-    display: flex;
-    flex-wrap: nowrap;
-    /*
-      On the text baseline, not stretched. An <input> stretched to the row's height centres its text
-      inside that height, while the mode name beside it sits at the top of its own box -- so the two
-      read as a few pixels apart even though both are 12px type. The separator between them is
-      unaffected: it carries its own `self-stretch`, which outranks this.
-    */
-    align-items: baseline;
-    padding-top: 4px;
-
-    &-text {
-      flex: 0 0;
-      white-space: nowrap;
-    }
-
-    input {
-      font-weight: 700;
-      color: var(--color-grey-6);
-      letter-spacing: 1px;
-      font-size: 12px;
-      line-height: 12px;
-      border: none;
-      padding: 0 0 0 5px;
-      outline: none;
-      flex: 1;
-      background-color: transparent;
-
-      &::placeholder {
-        color: var(--color-grey-5);
-      }
-
-      .body--dark & {
-        color: rgba(255, 255, 255, 0.7);
-
-        &::placeholder {
-          color: rgba(255, 255, 255, 0.4);
-        }
-      }
-    }
-  }
-
-  &-card {
-    background-color: var(--color-grey-2) !important;
-
-    .body--dark & {
-      background-color: var(--color-dark-6) !important;
-    }
-
-    &-permissions {
-      background-color: color-mix(in srgb, var(--color-positive) 10%, transparent);
-      border-bottom: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
-      display: flex;
-      align-items: center;
-
-      .w-select {
-        flex-basis: 100%;
-      }
-
-      &.is-allow {
-        background-color: color-mix(in srgb, var(--color-positive) 10%, transparent);
-        border-bottom: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
-      }
-      &.is-deny {
-        background-color: color-mix(in srgb, var(--color-negative) 10%, transparent);
-        border-bottom: 1px solid color-mix(in srgb, var(--color-negative) 30%, transparent);
-      }
-      &.is-forceallow {
-        background-color: color-mix(in srgb, var(--color-blue) 10%, transparent);
-        border-bottom: 1px solid color-mix(in srgb, var(--color-blue) 30%, transparent);
-      }
-    }
-
-    &-filters {
-      background-color: var(--color-grey-3);
-      flex-basis: 300px;
-
-      .text-caption:first-child {
-        color: var(--color-grey-7);
-      }
-
-      .body--dark & {
-        background-color: var(--color-dark-5);
-      }
-    }
-    &-pattern {
-      flex-grow: 1;
-    }
-  }
+    The box stays the full 31px even though the glyph is 15px, so the click target is the disc a
+    reader is aiming at rather than the mark inside it.
+  */
+}
+.admin-groups-rule-icon .w-icon {
+  position: absolute;
+  top: 4px;
+  inset-inline-start: 0;
+  box-sizing: border-box;
+  width: 31px;
+  height: 31px;
+  padding: 8px;
+  cursor: pointer;
+}
+.admin-groups-rule-name {
+  line-height: 12px;
+  display: flex;
+  flex-wrap: nowrap;
+  /*
+    On the text baseline, not stretched. An <input> stretched to the row's height centres its text
+    inside that height, while the mode name beside it sits at the top of its own box -- so the two
+    read as a few pixels apart even though both are 12px type. The separator between them is
+    unaffected: it carries its own `self-stretch`, which outranks this.
+  */
+  align-items: baseline;
+  padding-top: 4px;
+}
+.admin-groups-rule-name-text {
+  flex: 0 0;
+  white-space: nowrap;
+}
+.admin-groups-rule-name input {
+  font-weight: 700;
+  color: var(--color-grey-6);
+  letter-spacing: 1px;
+  font-size: 12px;
+  line-height: 12px;
+  border: none;
+  padding: 0 0 0 5px;
+  outline: none;
+  flex: 1;
+  background-color: transparent;
+}
+.admin-groups-rule-name input::placeholder {
+  color: var(--color-grey-5);
+}
+.body--dark .admin-groups-rule-name input {
+  color: rgba(255, 255, 255, 0.7);
+}
+.body--dark .admin-groups-rule-name input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.admin-groups-rule-card {
+  background-color: var(--color-grey-2) !important;
+}
+.body--dark .admin-groups-rule-card {
+  background-color: var(--color-dark-6) !important;
+}
+.admin-groups-rule-card-permissions {
+  background-color: color-mix(in srgb, var(--color-positive) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
+  display: flex;
+  align-items: center;
+}
+.admin-groups-rule-card-permissions .w-select {
+  flex-basis: 100%;
+}
+.admin-groups-rule-card-permissions.is-allow {
+  background-color: color-mix(in srgb, var(--color-positive) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
+}
+.admin-groups-rule-card-permissions.is-deny {
+  background-color: color-mix(in srgb, var(--color-negative) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-negative) 30%, transparent);
+}
+.admin-groups-rule-card-permissions.is-forceallow {
+  background-color: color-mix(in srgb, var(--color-blue) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-blue) 30%, transparent);
+}
+.admin-groups-rule-card-filters {
+  background-color: var(--color-grey-3);
+  flex-basis: 300px;
+}
+.admin-groups-rule-card-filters .text-caption:first-child {
+  color: var(--color-grey-7);
+}
+.body--dark .admin-groups-rule-card-filters {
+  background-color: var(--color-dark-5);
+}
+.admin-groups-rule-card-pattern {
+  flex-grow: 1;
 }
 </style>

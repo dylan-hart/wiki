@@ -678,7 +678,12 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .page-save-dialog {
   /*
     The stronger of the two Cardinal edges. A dialog is laid over the app rather than sitting in it,
@@ -692,65 +697,63 @@ onMounted(async () => {
     would be clipped away by the box that holds the card.
   */
   margin: 5px;
-
-  .body--dark & {
-    border-color: var(--color-border-dark);
-  }
-
+}
+.body--dark .page-save-dialog {
+  border-color: var(--color-border-dark);
+}
+.page-save-dialog {
   /*
     A crop mark: two 1px edges meeting at a 9px corner, drawn in the ground the dialog is laid over
     rather than in the card's own edge colour, so it reads as registration around the sheet instead
     of as a thickening of its border. Over the backdrop's scrim in dark mode the paper tone
     disappears, so it takes the faint slate there instead.
   */
-  &-corner {
-    position: absolute;
-    width: 9px;
-    height: 9px;
-    border-color: var(--color-paper);
-    border-style: solid;
-    border-width: 0;
-    pointer-events: none;
-
-    .body--dark & {
-      border-color: var(--color-slate-faint);
-    }
-  }
-
+}
+.page-save-dialog-corner {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--color-paper);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+.body--dark .page-save-dialog-corner {
+  border-color: var(--color-slate-faint);
+}
+.page-save-dialog {
   /*
     Named for CSS's own logical corners (`border-start-start-radius` and friends): block-start /
     inline-start, block-start / inline-end, and so on. Logical rather than top-left/top-right so the
     set still frames the card under RTL -- all four are present and the shape is symmetric, so each
     one simply becomes the corner it is drawing.
   */
-  &-corner--ss {
-    inset-block-start: -5px;
-    inset-inline-start: -5px;
-    border-block-start-width: 1px;
-    border-inline-start-width: 1px;
-  }
-
-  &-corner--se {
-    inset-block-start: -5px;
-    inset-inline-end: -5px;
-    border-block-start-width: 1px;
-    border-inline-end-width: 1px;
-  }
-
-  &-corner--es {
-    inset-block-end: -5px;
-    inset-inline-start: -5px;
-    border-block-end-width: 1px;
-    border-inline-start-width: 1px;
-  }
-
-  &-corner--ee {
-    inset-block-end: -5px;
-    inset-inline-end: -5px;
-    border-block-end-width: 1px;
-    border-inline-end-width: 1px;
-  }
-
+}
+.page-save-dialog-corner--ss {
+  inset-block-start: -5px;
+  inset-inline-start: -5px;
+  border-block-start-width: 1px;
+  border-inline-start-width: 1px;
+}
+.page-save-dialog-corner--se {
+  inset-block-start: -5px;
+  inset-inline-end: -5px;
+  border-block-start-width: 1px;
+  border-inline-end-width: 1px;
+}
+.page-save-dialog-corner--es {
+  inset-block-end: -5px;
+  inset-inline-start: -5px;
+  border-block-end-width: 1px;
+  border-inline-start-width: 1px;
+}
+.page-save-dialog-corner--ee {
+  inset-block-end: -5px;
+  inset-inline-end: -5px;
+  border-block-end-width: 1px;
+  border-inline-end-width: 1px;
+}
+.page-save-dialog {
   /*
     The header draws its separator as an OUTSET box-shadow, which is painted with the header's own
     background -- and a later sibling's background is painted after it. So the tinted tree column
@@ -760,32 +763,30 @@ onMounted(async () => {
     Positioning the header puts it above both: a positioned element paints over its in-flow siblings,
     so the line survives across the full width.
   */
-  .card-header {
-    position: relative;
-
-    /*
-      The one accent on the title band. `.card-header` is the near-black raised tone, on which the
-      accent's own text tone is too dark to read -- `var(--color-accent-dark)` is the tone Cardinal lightens it
-      to for an ink ground.
-    */
-    > .w-icon {
-      color: var(--color-accent-dark);
-    }
-  }
-
-  &-browser {
-    height: 300px;
-    max-height: 90vh;
-    /* -> Belt and braces with the scroll areas inside: whatever either column ends up holding, the
-          browser cannot spill over the fields and buttons below it */
-    overflow: hidden;
-    border-bottom: 1px solid var(--color-hairline);
-
-    .body--dark & {
-      border-bottom-color: var(--color-hairline-dark);
-    }
-  }
-
+}
+.page-save-dialog .card-header {
+  position: relative;
+  /*
+    The one accent on the title band. `.card-header` is the near-black raised tone, on which the
+    accent's own text tone is too dark to read -- `var(--color-accent-dark)` is the tone Cardinal lightens it
+    to for an ink ground.
+  */
+}
+.page-save-dialog .card-header > .w-icon {
+  color: var(--color-accent-dark);
+}
+.page-save-dialog-browser {
+  height: 300px;
+  max-height: 90vh;
+  /* -> Belt and braces with the scroll areas inside: whatever either column ends up holding, the
+        browser cannot spill over the fields and buttons below it */
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-hairline);
+}
+.body--dark .page-save-dialog-browser {
+  border-bottom-color: var(--color-hairline-dark);
+}
+.page-save-dialog {
   /*
     Tinted so the tree reads as a column of its own rather than running into the file list beside it,
     and ruled off along its trailing edge -- the tint alone leaves the two columns sharing an edge
@@ -794,16 +795,16 @@ onMounted(async () => {
     This was a `> .col-4` rule, which the layout migration left pointing at a class that no longer
     exists -- the columns are Tailwind fractions now -- so the pane had been plain white since.
   */
-  &-tree {
-    background-color: var(--color-tint);
-    border-inline-end: 1px solid var(--color-hairline);
-
-    .body--dark & {
-      background-color: var(--color-dark-4);
-      border-inline-end-color: var(--color-hairline-dark);
-    }
-  }
-
+}
+.page-save-dialog-tree {
+  background-color: var(--color-tint);
+  border-inline-end: 1px solid var(--color-hairline);
+}
+.body--dark .page-save-dialog-tree {
+  background-color: var(--color-dark-4);
+  border-inline-end-color: var(--color-hairline-dark);
+}
+.page-save-dialog {
   /*
     The one accent FILL on the sheet: the folder being saved into, and nothing else.
 
@@ -812,65 +813,67 @@ onMounted(async () => {
     under the tree column and prefixed with the theme class so it out-specifies that rule on
     specificity rather than on which stylesheet happens to be written out last.
   */
-  .body--light &-tree .treeview-label.active,
-  .body--light &-tree .treeview-label.active:hover,
-  .body--dark &-tree .treeview-label.active,
-  .body--dark &-tree .treeview-label.active:hover {
-    background-color: var(--color-accent-fill);
-    color: #fff;
-
-    .w-icon,
-    .treeview-label-text {
-      color: #fff;
-    }
-  }
-
-  &-filelist {
-    padding: 8px 12px;
-
-    > .w-item {
-      padding: 4px 6px;
-
-      /*
-        NOT a fill. The tree's selected folder is the sheet's only filled surface, so the selected
-        file -- which is an offer to overwrite, not the destination -- is drawn as a tinted row with
-        an accent edge at its leading side instead. `box-shadow` rather than a border, so the row
-        does not change width as the selection moves down the list.
-      */
-      &.active {
-        background-color: var(--color-tint);
-        box-shadow: inset 2px 0 0 0 var(--color-accent-fill);
-        color: var(--color-accent-strong);
-
-        .fileman-filelist-label .w-item-label--caption,
-        .fileman-filelist-side .text-caption {
-          color: var(--color-text-caption);
-        }
-
-        .body--dark & {
-          background-color: var(--color-dark-4);
-          color: var(--color-accent-dark);
-
-          .fileman-filelist-label .w-item-label--caption,
-          .fileman-filelist-side .text-caption {
-            color: var(--color-text-caption-dark);
-          }
-        }
-      }
-    }
-  }
-
-  &-hint {
-    padding: 6px 16px 0;
-    font-size: 12px;
-    font-style: italic;
-    color: var(--color-text-caption);
-
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
-
+}
+.body--light .page-save-dialog-tree .treeview-label.active,
+.body--light .page-save-dialog-tree .treeview-label.active:hover,
+.body--dark .page-save-dialog-tree .treeview-label.active,
+.body--dark .page-save-dialog-tree .treeview-label.active:hover {
+  background-color: var(--color-accent-fill);
+  color: #fff;
+}
+.body--light .page-save-dialog-tree .treeview-label.active .w-icon,
+.body--light .page-save-dialog-tree .treeview-label.active .treeview-label-text,
+.body--light .page-save-dialog-tree .treeview-label.active:hover .w-icon,
+.body--light .page-save-dialog-tree .treeview-label.active:hover .treeview-label-text,
+.body--dark .page-save-dialog-tree .treeview-label.active .w-icon,
+.body--dark .page-save-dialog-tree .treeview-label.active .treeview-label-text,
+.body--dark .page-save-dialog-tree .treeview-label.active:hover .w-icon,
+.body--dark .page-save-dialog-tree .treeview-label.active:hover .treeview-label-text {
+  color: #fff;
+}
+.page-save-dialog-filelist {
+  padding: 8px 12px;
+}
+.page-save-dialog-filelist > .w-item {
+  padding: 4px 6px;
+  /*
+    NOT a fill. The tree's selected folder is the sheet's only filled surface, so the selected
+    file -- which is an offer to overwrite, not the destination -- is drawn as a tinted row with
+    an accent edge at its leading side instead. `box-shadow` rather than a border, so the row
+    does not change width as the selection moves down the list.
+  */
+}
+.page-save-dialog-filelist > .w-item.active {
+  background-color: var(--color-tint);
+  box-shadow: inset 2px 0 0 0 var(--color-accent-fill);
+  color: var(--color-accent-strong);
+}
+.page-save-dialog-filelist > .w-item.active .fileman-filelist-label .w-item-label--caption,
+.page-save-dialog-filelist > .w-item.active .fileman-filelist-side .text-caption {
+  color: var(--color-text-caption);
+}
+.body--dark .page-save-dialog-filelist > .w-item.active {
+  background-color: var(--color-dark-4);
+  color: var(--color-accent-dark);
+}
+.body--dark
+  .page-save-dialog-filelist
+  > .w-item.active
+  .fileman-filelist-label
+  .w-item-label--caption,
+.body--dark .page-save-dialog-filelist > .w-item.active .fileman-filelist-side .text-caption {
+  color: var(--color-text-caption-dark);
+}
+.page-save-dialog-hint {
+  padding: 6px 16px 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--color-text-caption);
+}
+.body--dark .page-save-dialog-hint {
+  color: var(--color-text-caption-dark);
+}
+.page-save-dialog {
   /*
     The path bar. The cooler of the two tints, ruled off underneath, in mono -- it is a path, and
     every path in Cardinal is mono.
@@ -880,46 +883,45 @@ onMounted(async () => {
     16px every time the browser crossed in or out of the root. 38px is the 28px plate plus the 5px
     this row already had above and below it.
   */
-  &-path {
-    min-height: 38px;
-    padding: 5px 16px;
-    font-size: 12px;
-    background-color: var(--color-tint-alt);
-    border-bottom: 1px solid var(--color-hairline);
-    color: var(--color-slate);
-
-    .body--dark & {
-      background-color: var(--color-dark-4);
-      border-bottom-color: var(--color-hairline-dark);
-      color: var(--color-slate-light);
-    }
-  }
-
+}
+.page-save-dialog-path {
+  min-height: 38px;
+  padding: 5px 16px;
+  font-size: 12px;
+  background-color: var(--color-tint-alt);
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-slate);
+}
+.body--dark .page-save-dialog-path {
+  background-color: var(--color-dark-4);
+  border-bottom-color: var(--color-hairline-dark);
+  color: var(--color-slate-light);
+}
+.page-save-dialog {
   /*
     Block padding only. Each `w-item` already carries the 16px inline inset the path bar and the hint
     above it use, so adding it here as well would inset the plates by 32px and break the one vertical
     line those three share.
   */
-  &-fields {
-    padding-block: 14px;
-  }
-
+}
+.page-save-dialog-fields {
+  padding-block: 14px;
+}
+.page-save-dialog {
   /*
     Aligned onto the fields' own text column rather than under their plates: the checkbox is a
     qualifier on the move the two fields describe, not a third field. The row's own 16px, plus the
     34px plate and the 14px gap beside it.
   */
-  &-translations {
-    padding-inline-start: 64px;
-  }
-
-  &-display-hint {
-    font-size: 11.5px;
-    color: var(--color-text-caption);
-
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
+}
+.page-save-dialog-translations {
+  padding-inline-start: 64px;
+}
+.page-save-dialog-display-hint {
+  font-size: 11.5px;
+  color: var(--color-text-caption);
+}
+.body--dark .page-save-dialog-display-hint {
+  color: var(--color-text-caption-dark);
 }
 </style>

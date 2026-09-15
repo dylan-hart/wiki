@@ -118,70 +118,69 @@ const error = computed(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .errorpage {
   background: var(--color-dark-6) radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
   color: #fff;
   height: 100vh;
-
-  &-bg {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 320px;
-    height: 320px;
-    background: linear-gradient(0, transparent 50%, var(--color-red-9) 50%);
-    border-radius: 50%;
-    filter: blur(80px);
-    transform: translate(-50%, -50%);
-    visibility: hidden;
-  }
-
-  &-content {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    max-width: 100%;
-    padding: 0 1rem;
-    text-align: center;
-  }
-
-  &-code {
-    font-size: clamp(4rem, 30vw, 12rem);
-    line-height: 1;
-    font-weight: 700;
-    background: linear-gradient(45deg, var(--color-red-9), var(--color-red-3));
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    user-select: none;
-  }
-
-  &-title {
-    font-size: clamp(1.75rem, 10vw, 5rem);
-    font-weight: 500;
-    line-height: 1;
-  }
-
-  &-hint {
-    font-size: 1.2rem;
-    font-weight: 500;
-    color: var(--color-red-3);
-    line-height: 1.2rem;
-    margin-top: 1rem;
-  }
-
-  &-actions {
-    margin-top: 2rem;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 1rem;
-  }
+}
+.errorpage-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 320px;
+  height: 320px;
+  background: linear-gradient(0, transparent 50%, var(--color-red-9) 50%);
+  border-radius: 50%;
+  filter: blur(80px);
+  transform: translate(-50%, -50%);
+  visibility: hidden;
+}
+.errorpage-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 1rem;
+  text-align: center;
+}
+.errorpage-code {
+  font-size: clamp(4rem, 30vw, 12rem);
+  line-height: 1;
+  font-weight: 700;
+  background: linear-gradient(45deg, var(--color-red-9), var(--color-red-3));
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  user-select: none;
+}
+.errorpage-title {
+  font-size: clamp(1.75rem, 10vw, 5rem);
+  font-weight: 500;
+  line-height: 1;
+}
+.errorpage-hint {
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: var(--color-red-3);
+  line-height: 1.2rem;
+  margin-top: 1rem;
+}
+.errorpage-actions {
+  margin-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
 }
 </style>

@@ -29,11 +29,10 @@ import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test
  *
  * `test/realGridLayout.js` supplies `hasChromium()` and `buildAppCss()` unchanged -- this file adds
  * nothing to it. `buildAppCss()` compiles `src/css/tailwind.css` only, though, and every rule this
- * screen is made of lives in `Search.vue`'s own `<style lang="scss">` block. Those are compiled by
- * Vitest itself (`test.css: true` in `vitest.config.js`, plus the SCSS `additionalData` injection)
- * and injected into the test document as `<style>` elements at import time, so `collectSfcCss()`
- * reads back exactly the CSS the app build produces -- scope attributes and all -- rather than a
- * second, hand-maintained copy of it.
+ * screen is made of lives in `Search.vue`'s own `<style>` block. That block is read by Vitest itself
+ * (`test.css: true` in `vitest.config.js`) and injected into the test document as a `<style>`
+ * element at import time, so `collectSfcCss()` reads back exactly the CSS the app build produces --
+ * scope attributes and all -- rather than a second, hand-maintained copy of it.
  */
 
 const FIXTURE_RESULT = {

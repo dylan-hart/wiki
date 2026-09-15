@@ -241,7 +241,7 @@ defineExpose({
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   Unscoped, but every selector is under `.util-code-editor`. The highlighted markup arrives through
   `v-html` and so carries no scope attribute, which a scoped rule could only reach through `:deep()`

@@ -672,7 +672,12 @@ onMounted(() => {
 onBeforeUnmount(disposeEditor)
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   `Cardinal Wiki - Inbox Review 3x.dc.html`, which this screen had never been compared against.
 
@@ -681,49 +686,41 @@ onBeforeUnmount(disposeEditor)
   11.5px, and neither rung of that ramp is either of those. The mono byline is the point -- who
   suggested this and when is metadata, and metadata is mono everywhere in the language.
 */
+.inbox-review-title {
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.body--dark .inbox-review-title {
+  color: var(--color-text-dark);
+}
+.inbox-review-byline {
+  color: var(--color-text-caption);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  /* -> The author's name lifts to the chrome tone; everything around it stays caption-weight */
+}
+.inbox-review-byline strong {
+  color: var(--color-slate);
+  font-weight: 500;
+}
+.body--dark .inbox-review-byline {
+  color: var(--color-text-caption-dark);
+}
+.body--dark .inbox-review-byline strong {
+  color: var(--color-slate-light);
+}
+.inbox-review-hint {
+  color: var(--color-text-caption);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.body--dark .inbox-review-hint {
+  color: var(--color-text-caption-dark);
+}
 .inbox-review {
-  &-title {
-    color: var(--color-ink);
-    font-size: 15px;
-    font-weight: 600;
-    line-height: 1.4;
-
-    .body--dark & {
-      color: var(--color-text-dark);
-    }
-  }
-
-  &-byline {
-    color: var(--color-text-caption);
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    line-height: 1.5;
-
-    // -> The author's name lifts to the chrome tone; everything around it stays caption-weight
-    strong {
-      color: var(--color-slate);
-      font-weight: 500;
-    }
-
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-
-      strong {
-        color: var(--color-slate-light);
-      }
-    }
-  }
-
-  &-hint {
-    color: var(--color-text-caption);
-    font-size: 11.5px;
-    line-height: 1.5;
-
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
-
   /*
     The approvals reading. `#5f78a8` is the design's own edge for this chip and is a hair off
     `var(--color-slate-soft)`; the design file wins on a colour, so it goes in as written rather than being
@@ -736,86 +733,84 @@ onBeforeUnmount(disposeEditor)
     guessing one here (rather than confirming against a real mockup) is exactly what the acceptance
     criteria ask not to do. `var(--color-slate)`/`var(--color-slate-light)` stay as the fallback; logged, not fixed.
   */
-  &-count {
-    border: 1px solid #5f78a8;
-    color: var(--color-slate);
-    flex: none;
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    padding: 3px 7px;
-    text-transform: uppercase;
-    white-space: nowrap;
-
-    .body--dark & {
-      border-color: var(--color-border-dark);
-      color: var(--color-slate-light);
-    }
-  }
-
+}
+.inbox-review-count {
+  border: 1px solid #5f78a8;
+  color: var(--color-slate);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  padding: 3px 7px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.body--dark .inbox-review-count {
+  border-color: var(--color-border-dark);
+  color: var(--color-slate-light);
+}
+.inbox-review {
   /*
     The strip naming Monaco's two panes. On the diff's own ground rather than the page's, because it
     belongs to the dark surface below it and not to the light toolbar above -- the design draws it as
     the top row of the code well, ruled off from the code by the same hairline the panes are split
     by.
   */
-  &-diff-heads {
-    background-color: var(--color-dark-4);
-    border-top: 1px solid var(--color-hairline);
-    display: flex;
-
-    .body--dark & {
-      border-top-color: var(--color-hairline-dark);
-    }
-  }
-
-  &-diff-head {
-    align-items: center;
-    border-bottom: 1px solid rgba(#fff, 0.12);
-    color: var(--color-slate-light);
-    display: flex;
-    flex: 1 1 0;
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    gap: 12px;
-    justify-content: space-between;
-    letter-spacing: 0.18em;
-    min-width: 0;
-    padding: 6px 12px;
-    text-transform: uppercase;
-
-    // -> The panes are split by a rule, so only the first of the two draws one on its trailing edge
-    &:first-child {
-      border-inline-end: 1px solid rgba(#fff, 0.12);
-    }
-  }
-
+}
+.inbox-review-diff-heads {
+  background-color: var(--color-dark-4);
+  border-top: 1px solid var(--color-hairline);
+  display: flex;
+}
+.body--dark .inbox-review-diff-heads {
+  border-top-color: var(--color-hairline-dark);
+}
+.inbox-review-diff-head {
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--color-slate-light);
+  display: flex;
+  flex: 1 1 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  gap: 12px;
+  justify-content: space-between;
+  letter-spacing: 0.18em;
+  min-width: 0;
+  padding: 6px 12px;
+  text-transform: uppercase;
+  /* -> The panes are split by a rule, so only the first of the two draws one on its trailing edge */
+}
+.inbox-review-diff-head:first-child {
+  border-inline-end: 1px solid rgba(255, 255, 255, 0.12);
+}
+.inbox-review {
   /*
     "read only" / "editable". Tighter tracking than the pane's own name and a tone down from it: it
     qualifies the heading beside it rather than competing with it. The editable half takes the accent,
     which is the language's mark for the live edge -- here, the one pane a reviewer can type into.
   */
-  &-diff-state {
-    color: var(--color-text-caption-dark);
-    letter-spacing: 0.14em;
-    white-space: nowrap;
-
-    &--editable {
-      color: var(--color-accent-dark);
-    }
-  }
-
+}
+.inbox-review-diff-state {
+  color: var(--color-text-caption-dark);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+.inbox-review-diff-state--editable {
+  color: var(--color-accent-dark);
+}
+.inbox-review {
   /*
     The diff takes whatever is left under the header rather than a fixed height: this page sits in a
     card that already fills the viewport, so a height in pixels would either overflow it or leave a
     gap under it. The floor is the design's 260px, not 400 -- at half a short viewport, 400px was
     taller than the space the overlay has to give it.
   */
-  &-diff {
-    flex: 1 1 auto;
-    min-height: 260px;
-  }
+}
+.inbox-review-diff {
+  flex: 1 1 auto;
+  min-height: 260px;
 }
 </style>

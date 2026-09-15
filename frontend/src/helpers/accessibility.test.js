@@ -83,8 +83,8 @@ describe('contrastRatio()', () => {
 
 /**
  * Every color a solid `WBtn`/chip/header/status mark can be painted, PAIRED WITH THE FOREGROUND IT
- * IS ACTUALLY DRAWN UNDER. Values mirror the CSS tokens at `frontend/src/css/tailwind.css` (and
- * their SCSS twins in `_theme.scss`).
+ * IS ACTUALLY DRAWN UNDER. Values mirror the CSS tokens at `frontend/src/css/tailwind.css` (the old
+ * Sass `_theme.scss` twin these once also mirrored is deleted).
  *
  * The pairing is the whole point, and it is what changed when the app moved onto Cardinal. Before,
  * every fill drew WHITE text, so one list checked against `#ffffff` said everything. Cardinal has
@@ -251,7 +251,7 @@ describe('placeholder and muted-text token pinning', () => {
 })
 
 /**
- * OpenProject #2630 -- the code-token palette in `frontend/src/css/_page-contents.scss`, pinned
+ * OpenProject #2630 -- the code-token palette in `frontend/src/css/_page-contents.css`, pinned
  * against the ground each form is ACTUALLY drawn on.
  *
  * The pairing is the whole point here for the same reason it is above, and this is the case that
@@ -264,7 +264,7 @@ describe('placeholder and muted-text token pinning', () => {
  * So each palette is listed with its own ground, and a future edit that reaches for a white-ground
  * palette again fails here rather than shipping an unreadable code block.
  */
-describe('rendered code-token palette (frontend/src/css/_page-contents.scss)', () => {
+describe('rendered code-token palette (frontend/src/css/_page-contents.css)', () => {
   /** `--color-ink`: the code block's ground in the LIGHT theme -- a dark island on a white page. */
   const CODE_GROUND = '#1c2233'
   /** `--color-dark-6`, the deepest well: the code block's ground in the DARK theme. */
@@ -408,7 +408,7 @@ describe('rendered code-token palette (frontend/src/css/_page-contents.scss)', (
 
 /**
  * OpenProject #2916/#2919 -- `--content-table-head-ink` on `--content-table-head`, the tinted-strip
- * table head's own text-on-ground pair, pinned per aesthetic and mode. `_page-contents.scss` never
+ * table head's own text-on-ground pair, pinned per aesthetic and mode. `_page-contents.css` never
  * had a contrast pin for a table head before this task (the OLD dark title bar used a literal
  * `rgba(255, 255, 255, 0.82)` ink, never checked against its `#292f39`/gradient ground either), so
  * this is new coverage rather than a re-pin of a stale value.
@@ -422,7 +422,7 @@ describe('rendered code-token palette (frontend/src/css/_page-contents.scss)', (
  * so this pins what the shipped tokens ACTUALLY resolve to, per this epic's own instruction to verify
  * against landed colours rather than copy a spec's figures blind.
  */
-describe('table head-ink contrast pins (frontend/src/css/_page-contents.scss)', () => {
+describe('table head-ink contrast pins (frontend/src/css/_page-contents.css)', () => {
   const PAIRS = [
     { name: 'Ledger light', ink: '#4e5d7d', ground: '#f0f2f7', ratio: 5.89 },
     { name: 'Cobalt light', ink: '#1f4fd6', ground: '#e6edff', ratio: 5.69 },
@@ -456,7 +456,7 @@ describe('table head-ink contrast pins (frontend/src/css/_page-contents.scss)', 
  * only its ground switched, which put `#38465f` on `#242b3a` -- 1.09:1, a chip with nothing legible
  * in it. The dark Ledger draws the same chip in the lightened chrome tone.
  */
-describe('inline code and kbd chips (frontend/src/css/_page-contents.scss)', () => {
+describe('inline code and kbd chips (frontend/src/css/_page-contents.css)', () => {
   const CHIP_INK = '#38465f' // --color-slate
   const CHIP_INK_DARK = '#8ea6cf' // --color-slate-light
   const CHIP_GROUND = '#eef1f7' // --color-tint

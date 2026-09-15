@@ -216,9 +216,9 @@ function logout() {
 }
 </script>
 
-<style lang="scss">
-// -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline `color`,
-//    which would outrank this rule. Matches `.account-avbtn`, the button it stands in for.
+<style>
+/* -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline `color`, */
+/*    which would outrank this rule. Matches `.account-avbtn`, the button it stands in for. */
 .header-actions-btn {
   color: rgba(255, 255, 255, 0.75);
 }

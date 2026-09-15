@@ -337,7 +337,7 @@ export class MarkdownRenderer {
       #2997/#3014).
 
       The reason is `border-collapse: collapse`. Three rounds of container-level fixes (#2916, #2935,
-      #2958 -- see `_page-contents.scss`'s own TABLES comment) narrowed Cobalt's rounded-corner clip
+      #2958 -- see `_page-contents.css`'s own TABLES comment) narrowed Cobalt's rounded-corner clip
       down to a plain `overflow: hidden` box with nothing else on it, and the square corners STILL
       bled past it. `border-collapse` combined with an ancestor `overflow: hidden` + `border-radius`
       clip is a known cross-browser rendering gap: a collapsed table's own borders/backgrounds don't
@@ -369,7 +369,7 @@ export class MarkdownRenderer {
 
       The three scroll/clip/frame wrapper divs below (`.table-wrap` > `.table-clip` > `.table-scroll`,
       OpenProject #2935/#2958) are unaffected by any of this: `.table-wrap` is the outer,
-      non-scrolling frame (`_page-contents.scss`'s `// TABLES` section draws the border, radius,
+      non-scrolling frame (`_page-contents.css`'s `// TABLES` section draws the border, radius,
       shadow and corner marks on it, and nothing about it ever clips a descendant); `.table-clip` is a
       plain `overflow: hidden` + the same radius and nothing else, so it has no scrollbar of its own
       to worry about, which is what lets it clip cleanly; `.table-scroll` is the innermost box that
@@ -414,7 +414,7 @@ export class MarkdownRenderer {
       `<div>` is never subject to that in-body table-tag rule, so it survives parsing intact with
       whichever attribute `./modules/markdown-it-table.js` gave it (`style="caption-side: bottom"` for
       one authored below the table, nothing extra for one authored above). `.table-caption` is what
-      `_page-contents.scss`'s grid-caption rules key off of to size and place it -- including, via its
+      `_page-contents.css`'s grid-caption rules key off of to size and place it -- including, via its
       `order: 1` rule keyed off that same inline style, putting a bottom caption at the visual end of
       the grid regardless of where its own tokens sit in the document (the plugin emits a caption's
       tokens in its own natural authored position, above the rows or after them, rather than always

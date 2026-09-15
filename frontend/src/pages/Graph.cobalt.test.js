@@ -17,7 +17,7 @@ const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'Graph.vue'
 const source = readFileSync(SOURCE_PATH, 'utf-8')
 
 function styleBlock(src) {
-  return src.match(/<style lang="scss" scoped>([\s\S]*)<\/style>/)[1]
+  return src.match(/<style scoped>([\s\S]*)<\/style>/)[1]
 }
 
 describe('Graph.vue Cobalt diff (OpenProject #2777)', () => {

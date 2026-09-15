@@ -47,7 +47,7 @@ const classes = computed(() => [
 ])
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 /*
   Ports Quasar's item-section rules. These live in the component's own stylesheet rather than in a
   Tailwind layer on purpose: Quasar declares `.q-icon { font-size: inherit }` unlayered, and a

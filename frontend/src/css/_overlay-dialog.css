@@ -12,7 +12,7 @@
   async chunk -- a fresh/direct load of an admin route never imported `MainLayout.vue`'s chunk, so
   `.main-overlay`'s entire styling (background AND Cobalt treatment, both light and dark) never
   loaded there, even though `AdminLayout.vue` mounts the very same `MainOverlayDialog.vue`. Living
-  here instead -- pulled into `app.scss`, which `main.js` imports unconditionally at boot rather than
+  here instead -- pulled into `app.css`, which `main.js` imports unconditionally at boot rather than
   per route -- makes the styling available regardless of which layout's chunk happens to be loaded,
   for any current or future layout that mounts `MainOverlayDialog.vue`.
 
@@ -20,15 +20,14 @@
   distinct route-based admin overlays -- that is not `.main-overlay` and is untouched by this file.
 
   OpenProject #3249 (Sass removal 4/9): converted to native CSS nesting + custom properties. The one
-  `$breakpoint-sm-max` reference below is now the literal `1023.98px` it always resolved to
-  (`_palette.scss:78`) rather than a Sass module import -- a media query can't read a custom
-  property, and this file has no other bare `$variable` left to justify keeping `@use 'palette' as
-  *;` around for.
+  `$breakpoint-sm-max` reference below is now the literal `1023.98px` it always resolved to (the
+  since-deleted `_palette.scss:78`) rather than a Sass module import -- a media query can't read a
+  custom property.
 */
 
-// -> Ported from the Quasar dialog internals onto WDialog's own structure: the old
-//    "q-dialog__backdrop" class became `.w-dialog-backdrop`, "q-dialog__inner" became
-//    `.w-dialog-viewport`, and "q-layout-container" became `.w-dialog-panel`
+/* -> Ported from the Quasar dialog internals onto WDialog's own structure: the old */
+/*    "q-dialog__backdrop" class became `.w-dialog-backdrop`, "q-dialog__inner" became */
+/*    `.w-dialog-viewport`, and "q-layout-container" became `.w-dialog-panel` */
 .main-overlay {
   > .w-dialog-backdrop {
     background-color: rgba(0, 0, 0, 0.6);
@@ -52,7 +51,7 @@
       padding: 24px 64px;
     }
 
-    // -> Last of the three, so it still wins on a phone: all three have the same specificity
+    /* -> Last of the three, so it still wins on a phone: all three have the same specificity */
     @media (max-width: 1023.98px) {
       padding: 0;
     }
@@ -104,7 +103,7 @@
       }
 
       /*
-        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.scss`), not
+        `.card-header` is the shared title-band class 60+ dialogs use (`css/_base.css`), not
         something owned by any one overlay -- every entry `MainOverlayDialog.vue` mounts (Inbox,
         Profile, File Manager, History, Table Editor, Edit Menu Items, Block Picker, ...) renders
         one as its own first element, so rounding it here (scoped under `.main-overlay`) reaches

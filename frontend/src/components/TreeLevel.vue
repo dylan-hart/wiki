@@ -122,7 +122,7 @@ function handleRootKeydown(event) {
 }
 </script>
 
-<style lang="scss">
+<style>
 /*
   The root row's own two tones. Tokens rather than a `color` prop, for the reason `NavSidebar.vue`'s
   icon rule gives: `WIcon` builds its `color` class at runtime and Tailwind cannot see it, so the

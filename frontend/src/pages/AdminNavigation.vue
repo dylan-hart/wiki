@@ -490,4 +490,4 @@ async function savePathDisplay() {
 onMounted(loadSiteLocales)
 </script>
 
-<style lang="scss"></style>
+<style></style>

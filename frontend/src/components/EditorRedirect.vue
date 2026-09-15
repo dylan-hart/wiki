@@ -212,67 +212,70 @@ function chooseTarget() {
 }
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .editor-redirect {
   height: 100%;
-
-  .body--light & {
-    background-color: var(--color-grey-3);
-  }
-  .body--dark & {
-    background-color: var(--color-dark-6);
-  }
-
+}
+.body--light .editor-redirect {
+  background-color: var(--color-grey-3);
+}
+.body--dark .editor-redirect {
+  background-color: var(--color-dark-6);
+}
+.editor-redirect {
   /* -> A form, not a document: it stops widening well before the column does */
-  &-form {
-    max-width: 780px;
-    margin: 0 auto;
-    padding: 24px 16px 48px;
-  }
-
+}
+.editor-redirect-form {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+.editor-redirect {
   /*
     Lined up with the main section of the row above it: `w-item` pads 16px and its avatar section is
     56px wide, so the field starts where that row's label does.
   */
-  &-field {
-    padding: 0 16px 8px 72px;
-  }
-
-  &-target {
-    display: flex;
-    align-items: center;
-    overflow-wrap: anywhere;
-  }
-
+}
+.editor-redirect-field {
+  padding: 0 16px 8px 72px;
+}
+.editor-redirect-target {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.editor-redirect {
   /*
     The one line that says what a reader arriving at this page gets. Blue while the form is answerable
     and amber while it is not -- the second is a warning about a save that will be refused, not an
     error that has happened yet.
   */
-  &-summary {
-    display: flex;
-    align-items: flex-start;
-    margin-top: 16px;
-    padding: 12px 16px;
-    font-size: 0.8rem;
-    line-height: 1.4;
-
-    &.is-ready {
-      background-color: rgba(25, 118, 210, 0.1);
-      color: var(--color-blue-9);
-
-      .body--dark &.is-ready {
-        color: var(--color-blue-3);
-      }
-    }
-    &.is-incomplete {
-      background-color: rgba(255, 152, 0, 0.12);
-      color: var(--color-orange-9);
-
-      .body--dark &.is-incomplete {
-        color: var(--color-orange-3);
-      }
-    }
-  }
+}
+.editor-redirect-summary {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 12px 16px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.editor-redirect-summary.is-ready {
+  background-color: rgba(25, 118, 210, 0.1);
+  color: var(--color-blue-9);
+}
+.body--dark .editor-redirect-summary.is-ready.is-ready {
+  color: var(--color-blue-3);
+}
+.editor-redirect-summary.is-incomplete {
+  background-color: rgba(255, 152, 0, 0.12);
+  color: var(--color-orange-9);
+}
+.body--dark .editor-redirect-summary.is-incomplete.is-incomplete {
+  color: var(--color-orange-3);
 }
 </style>

@@ -10,9 +10,9 @@ import { describe, expect, it } from 'vitest'
  * convention `_page-contents.test.js` already uses for `ul.links-list` -- this asserts the compiled
  * source directly rather than a computed style.
  */
-describe('_animation.scss @view-transition', () => {
+describe('_animation.css @view-transition', () => {
   const dir = dirname(fileURLToPath(import.meta.url))
-  const source = readFileSync(join(dir, '_animation.scss'), 'utf-8')
+  const source = readFileSync(join(dir, '_animation.css'), 'utf-8')
 
   it('opts every document navigation into the default crossfade, with no named view-transition-names', () => {
     expect(source).toMatch(/@view-transition\s*\{\s*navigation:\s*auto;?\s*\}/)

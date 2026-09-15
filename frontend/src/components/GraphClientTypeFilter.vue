@@ -44,7 +44,7 @@ defineProps({
 defineEmits(['update:modelValue'])
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .graph-client-type-filter {
   display: flex;
   flex-direction: column;

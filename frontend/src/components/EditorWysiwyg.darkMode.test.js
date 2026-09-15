@@ -15,7 +15,7 @@ import { createTestI18n } from '../../test/i18n.js'
  * toolbar, table header/borders, inline code, blockquote/hr rules and empty-editor placeholder all
  * stayed hardcoded to their light-mode colors regardless of theme.
  *
- * These mount the real component (its `<style lang="scss">` block is unscoped, so it applies
+ * These mount the real component (its `<style>` block is unscoped, so it applies
  * globally the same way it does in the app) attached to `document.body` -- required for the
  * `.body--dark <selector>` ancestor combinator to actually match -- and read the real, compiled
  * `getComputedStyle` result rather than asserting the source text contains the right-looking

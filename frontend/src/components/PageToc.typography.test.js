@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { compileStringAsync } from 'sass'
 
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 import { AESTHETIC_DEFAULT_COLORS } from '../helpers/aestheticDefaults.js'
@@ -28,22 +27,19 @@ import { AESTHETIC_DEFAULT_COLORS } from '../helpers/aestheticDefaults.js'
 const componentDir = dirname(fileURLToPath(import.meta.url))
 const componentSource = readFileSync(join(componentDir, 'PageToc.vue'), 'utf-8')
 
-const styleMatch = componentSource.match(/<style lang="scss">([\s\S]*?)<\/style>/)
+const styleMatch = componentSource.match(/<style>([\s\S]*?)<\/style>/)
 if (!styleMatch) {
-  throw new Error('PageToc.vue should still carry a `<style lang="scss">` block')
+  throw new Error('PageToc.vue should still carry a `<style>` block')
 }
 const styleSource = styleMatch[1]
 
 describe('PageToc.vue --page-toc-* token wiring (source)', () => {
-  const cobaltStart = styleSource.indexOf('body.body--cobalt &')
-  const cobaltDarkStart = styleSource.indexOf('body.body--cobalt.body--dark &')
-  // -> Searched from AFTER cobaltDarkStart's own marker text, not from the start of the file: that
-  //    marker's own "cobalt.body--dark &" tail is itself a substring match for a bare search of
-  //    ".body--dark &", which would otherwise find it instead of the real, later, unqualified block.
-  const cobaltEnd = styleSource.indexOf(
-    '.body--dark &',
-    cobaltDarkStart + 'body.body--cobalt.body--dark &'.length
-  )
+  const cobaltStart = styleSource.indexOf('body.body--cobalt .page-toc {')
+  const cobaltDarkStart = styleSource.indexOf('body.body--cobalt.body--dark .page-toc {')
+  // -> Each of these two rules is a single, self-contained flat block now (OpenProject #3254
+  //    flattened this file's nesting), so the block's own next `\n}` is its real close -- no need to
+  //    hunt for an unrelated later marker the way the pre-flattening `&`-based search did.
+  const cobaltEnd = styleSource.indexOf('\n}', cobaltDarkStart) + 1
   expect(cobaltStart).toBeGreaterThan(-1)
   expect(cobaltDarkStart).toBeGreaterThan(cobaltStart)
   expect(cobaltEnd).toBeGreaterThan(cobaltDarkStart)
@@ -82,25 +78,16 @@ describe('PageToc.vue --page-toc-* token wiring (source)', () => {
 })
 
 /**
- * `PageToc.vue`'s `<style lang="scss">` block is un-scoped, global CSS reaching for bare `$grey-*`
- * palette constants -- it needs the same `@use '.../_theme.scss' as *; @use '.../_palette.scss' as
- * *;` injection `vite.config.js`'s `css.preprocessorOptions.scss.additionalData` performs at build
- * time, mirrored here the same way `Index.contentWidth.test.js#indexPageCss()` does for `Index.vue`'s
- * own un-scoped block. Compiled beside the real, Tailwind-built `tailwind.css` (`buildAppCss()`) so
- * every `var(--color-*)` / `var(--font-*)` resolves to what the app itself ships, not a hand-picked
+ * `PageToc.vue`'s `<style>` block is un-scoped, global CSS -- already plain, valid CSS (OpenProject
+ * #3254 dropped the Sass pipeline this used to compile through), so it is read directly, the same
+ * way `Index.contentWidth.test.js#indexPageCss()` does for `Index.vue`'s own un-scoped block.
+ * Assembled beside the real, Tailwind-built `tailwind.css` (`buildAppCss()`) so every
+ * `var(--color-*)` / `var(--font-*)` resolves to what the app itself ships, not a hand-picked
  * subset.
  */
 async function buildStylesheets() {
-  const [appCss, component] = await Promise.all([
-    buildAppCss(),
-    compileStringAsync(
-      `@use 'css/_theme.scss' as *; @use 'css/_palette.scss' as *;\n${styleSource}`,
-      {
-        loadPaths: [join(componentDir, '..')]
-      }
-    )
-  ])
-  return { appCss, componentCss: component.css }
+  const appCss = await buildAppCss()
+  return { appCss, componentCss: styleSource }
 }
 
 /**

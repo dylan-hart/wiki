@@ -546,9 +546,9 @@ describe('PageHistoryOverlay: the header band (OpenProject #2637)', () => {
 
   it('leaves the page title in the case its author wrote it, despite the uppercased title band', async () => {
     /*
-      `.card-header` uppercases a dialog's title band (`css/_base.scss`), and the page-title span sits
+      `.card-header` uppercases a dialog's title band (`css/_base.css`), and the page-title span sits
       inside it -- so this is a cascade fact, and asserting it needs both halves present. The overlay
-      brings its own stylesheet with it (Vitest's `css: true`), but `_base.scss` is a global sheet the
+      brings its own stylesheet with it (Vitest's `css: true`), but `_base.css` is a global sheet the
       app loads in `main.js` and no component test pulls in, so its one relevant declaration is
       restated here rather than the whole file being imported for it.
     */
@@ -971,7 +971,7 @@ describe('PageHistoryOverlay: version-actions menu icons stay legible in dark mo
  *    directly through `WBadge`'s own resolved inline style, the same way `WBtn.test.js` covers the
  *    same mechanism on a button.
  * 2. This overlay is drawn on ink in both site THEMES by design (see this file's own stylesheet
- *    comment), but its `<style lang="scss">` block spelled that out with Sass compile-time
+ *    comment), but its `<style>` block spelled that out with Sass compile-time
  *    constants (`$dark-4`, `$hairline-dark`, `$primary`, ...) rather than the CSS custom
  *    properties `css/tailwind.css` actually swaps per AESTHETIC (`--color-dark-4`,
  *    `--color-hairline-dark`, `--color-accent-fill`/`--color-accent`, ...) -- identical in Ledger,
@@ -997,12 +997,14 @@ describe('PageHistoryOverlay Cobalt aesthetic conformance (OpenProject #2776)', 
 
   it('marks a picked/current timeline row with the untexted accent fill, not the site primary color', () => {
     expect(styleBlock).toMatch(
-      /&\.is-picked\s*{\s*background-color:\s*color-mix\(in srgb, var\(--color-accent-fill\) 16%, transparent\);\s*box-shadow:\s*inset 3px 0 0 var\(--color-accent-fill\);/
+      /\.page-history-item\.is-picked\s*{\s*background-color:\s*color-mix\(in srgb, var\(--color-accent-fill\) 16%, transparent\);\s*box-shadow:\s*inset 3px 0 0 var\(--color-accent-fill\);/
     )
   })
 
   it('fills the A/B compare-bar letter plates with the white-text accent, not the site primary color', () => {
-    expect(styleBlock).toMatch(/&-letter\s*{[^}]*background-color:\s*var\(--color-accent\);/)
+    expect(styleBlock).toMatch(
+      /\.page-history-letter\s*{[^}]*background-color:\s*var\(--color-accent\);/
+    )
   })
 
   it('reads the aesthetic-aware dark custom properties, not the frozen Ledger Sass constants', () => {
@@ -1049,13 +1051,13 @@ describe('PageHistoryOverlay Cobalt polish: toggle/chip spacing (OpenProject #28
   })
 
   it('gives the toggle a 10px gap and the A/B pick chips a 4px gap, Cobalt only', () => {
-    expect(styleBlock).toMatch(/body\.body--cobalt[^{]*\{\s*&-toggle\s*{\s*gap:\s*10px;/)
-    expect(styleBlock).toMatch(/&-pick-group\s*{\s*gap:\s*4px;/)
+    expect(styleBlock).toMatch(/body\.body--cobalt \.page-history-toggle\s*{\s*gap:\s*10px;/)
+    expect(styleBlock).toMatch(/body\.body--cobalt \.page-history-pick-group\s*{\s*gap:\s*4px;/)
   })
 
   it('drops the shared btn-group seam hairline for both groups once they have a real gap', () => {
     expect(styleBlock).toMatch(
-      /&-toggle \.w-btn:not\(:last-child\),\s*&-pick-group \.w-btn:not\(:last-child\)\s*{\s*border-inline-end:\s*none;/
+      /body\.body--cobalt \.page-history-toggle \.w-btn:not\(:last-child\),\s*body\.body--cobalt \.page-history-pick-group \.w-btn:not\(:last-child\)\s*{\s*border-inline-end:\s*none;/
     )
   })
 })

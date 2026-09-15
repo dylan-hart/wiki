@@ -8,7 +8,7 @@ import { listSourceFiles } from '../../test/sourceFiles.js'
 /**
  * OpenProject #1909 ("Delete dead Quasar CSS and the seven `q-*` utility classes still written in
  * templates"). Quasar is gone from this codebase (`tailwind.css`'s Preflight comment says so
- * outright), but `.q-*` selectors and `q-*` utility class tokens kept surviving in `_base.scss` and
+ * outright), but `.q-*` selectors and `q-*` utility class tokens kept surviving in `_base.css` and
  * a handful of templates as dead weight -- rules matching nothing, and classes that silently applied
  * no styling wherever they were still written.
  *
@@ -29,7 +29,7 @@ const CSS_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_DIR = resolve(CSS_DIR, '..')
 
 describe('no dead Quasar .q-* CSS remains', () => {
-  const cssFiles = listSourceFiles(CSS_DIR, { ext: ['.scss', '.css'] })
+  const cssFiles = listSourceFiles(CSS_DIR, { ext: ['.css'] })
 
   it('has at least one stylesheet to check (scan is not silently matching nothing)', () => {
     expect(cssFiles.length).toBeGreaterThan(0)
@@ -76,8 +76,8 @@ describe('no dead Quasar q-* utility classes remain in templates', () => {
  * loading after `tailwind.css`), but ONLY as long as nobody ever touched the copy here again -- a
  * silent second source of truth is exactly what the token layer exists to prevent.
  */
-describe('_base.scss chrome background resolves through the token only', () => {
-  const source = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+describe('_base.css chrome background resolves through the token only', () => {
+  const source = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
   it('declares no `--q-header`/`--q-sidebar` custom property of its own', () => {
     expect(source).not.toMatch(/--q-header\s*:/)
@@ -105,7 +105,7 @@ describe('_base.scss chrome background resolves through the token only', () => {
  * Sass constant creeping back into the rule) is only visible by reading the rule body directly.
  */
 describe('.card-header title band resolves through runtime tokens only', () => {
-  const source = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+  const source = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
   // -> `\s*\{` (no `--slate` in between) is what keeps this from matching `.card-header--slate`.
   const cardHeaderRule = source.match(/\.card-header\s*\{([^}]*)\}/)
 
@@ -137,13 +137,13 @@ describe('.card-header title band resolves through runtime tokens only', () => {
  * file: nothing compiles Sass here and jsdom has no `::-webkit-scrollbar` pseudo-element to read a
  * computed style off of.
  */
-describe('_base.scss Ledger dark-ground scrollbar block covers .admin-sidebar', () => {
-  const fullSource = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+describe('_base.css Ledger dark-ground scrollbar block covers .admin-sidebar', () => {
+  const fullSource = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
   // Scoped to the Ledger dark-ground block alone (its own comment through to the Cobalt section
   // header that follows it) so this doesn't also match Cobalt's separate, already-correct block.
-  const blockStart = fullSource.indexOf('// Dark mode, and any Ledger surface on ink')
-  const blockEnd = fullSource.indexOf('// SCROLLBAR — COBALT', blockStart)
+  const blockStart = fullSource.indexOf('/* Dark mode, and any Ledger surface on ink')
+  const blockEnd = fullSource.indexOf('/* SCROLLBAR — COBALT', blockStart)
   const source = fullSource.slice(blockStart, blockEnd)
 
   it('has a Ledger dark-ground block to check (scan is not silently matching nothing)', () => {
@@ -204,8 +204,8 @@ describe('_base.scss Ledger dark-ground scrollbar block covers .admin-sidebar', 
  * (no real layout engine, no `::-webkit-scrollbar` pseudo-element support) -- so this pins the rule
  * text down directly, the same way `_page-contents.test.js` does for its own file.
  */
-describe('_base.scss Cobalt overlay-pill scrollbar block', () => {
-  const fullSource = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+describe('_base.css Cobalt overlay-pill scrollbar block', () => {
+  const fullSource = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
   /*
     Scoped to this task's own block (its header comment through to the FONTS section that follows
@@ -213,8 +213,8 @@ describe('_base.scss Cobalt overlay-pill scrollbar block', () => {
     #3005, a sibling task, replaces with its own Ledger-specific block) is a known, separately-owned
     issue -- asserting the engine gotcha file-wide would fail against code this task does not touch.
   */
-  const blockStart = fullSource.indexOf('// SCROLLBAR — COBALT')
-  const blockEnd = fullSource.indexOf('// FONTS', blockStart)
+  const blockStart = fullSource.indexOf('/* SCROLLBAR — COBALT')
+  const blockEnd = fullSource.indexOf('/* FONTS', blockStart)
   const source = fullSource.slice(blockStart, blockEnd)
 
   it('has a Cobalt scrollbar block to check (scan is not silently matching nothing)', () => {
@@ -336,7 +336,7 @@ describe('_base.scss Cobalt overlay-pill scrollbar block', () => {
  * file: jsdom has no `::-webkit-scrollbar` pseudo-element to read a computed style off of at all.
  */
 /**
- * OpenProject #3250 ("Sass removal 5/9: convert _base.scss"). This file used to `@use 'sass:color'`
+ * OpenProject #3250 ("Sass removal 5/9: convert _base.css"). This file used to `@use 'sass:color'`
  * / `'palette'` / `'theme'` (all three dead -- no bare `$variable` or `color.*` call ever read them)
  * and four `@at-root <selector> &` escapes (`.card-actions`, `.translucent-menu`), which at their
  * actual nesting depth of 1 are mechanically redundant against plain `&` nesting -- see
@@ -345,8 +345,8 @@ describe('_base.scss Cobalt overlay-pill scrollbar block', () => {
  * reintroduced `@use`/`@at-root` is only visible by reading the file directly, not by a runtime
  * failure.
  */
-describe('_base.scss carries no Sass-specific syntax', () => {
-  const source = readFileSync(resolve(CSS_DIR, '_base.scss'), 'utf-8')
+describe('_base.css carries no Sass-specific syntax', () => {
+  const source = readFileSync(resolve(CSS_DIR, '_base.css'), 'utf-8')
 
   it('declares no @use import', () => {
     expect(source).not.toMatch(/^\s*@use\b/m)

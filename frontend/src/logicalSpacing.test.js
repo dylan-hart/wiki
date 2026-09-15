@@ -29,7 +29,7 @@ import { describe, expect, it } from 'vitest'
  * not `margin`/`padding`/`border`/`text-align` declarations), already repo-wide and closed. Its own
  * ALLOWLIST is untouched here.
  *
- * `css/_page-contents.scss` is excluded from this scan: it has its own WP, and already carries its
+ * `css/_page-contents.css` is excluded from this scan: it has its own WP, and already carries its
  * own source-level regression test (`css/_page-contents.test.js`) for the one physical form it
  * once had (fixed there, not here).
  *
@@ -48,7 +48,7 @@ import { describe, expect, it } from 'vitest'
  */
 describe('frontend/src carries no unconverted physical spacing/border/position/alignment declarations', () => {
   const srcDir = dirname(fileURLToPath(import.meta.url))
-  const EXCLUDED_FILES = new Set(['css/_page-contents.scss'])
+  const EXCLUDED_FILES = new Set(['css/_page-contents.css'])
 
   /**
    * Files with a physical form that is NOT a simple leading/trailing gutter, and so cannot be
@@ -83,10 +83,10 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       "the TOC overlay panel, already documented physical (OpenProject #1590): paired with a fixed screen corner (the opener button), not with the reading direction -- see `physicalPositioning.test.js`'s own ALLOWLIST entry for this same file, and the inline comment here"
   }
 
-  /** Every `.vue`/`.scss`/`.css` file under `src`, as paths relative to `src` with forward slashes. */
+  /** Every `.vue`/`.css` file under `src`, as paths relative to `src` with forward slashes. */
   function collectFiles(dir) {
     return readdirSync(dir, { recursive: true })
-      .filter((entry) => /\.(vue|scss|css)$/.test(entry))
+      .filter((entry) => /\.(vue|css)$/.test(entry))
       .filter((entry) => statSync(join(dir, entry)).isFile())
       .map((entry) => entry.split(sep).join('/'))
       .filter((entry) => !EXCLUDED_FILES.has(entry))

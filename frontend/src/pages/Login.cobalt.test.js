@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 /*
   `Login.vue`'s `.auth` stylesheet against the Cobalt token layer (OpenProject #2779).
@@ -12,45 +11,34 @@ import * as sass from 'sass'
   per-aesthetic values -- is plain CSS with no compiled module this file can import and resolve a
   live cascade against (see `css/cobaltTokens.test.js`'s identical note), and neither jsdom nor
   happy-dom runs a real cascade/layout engine either way. So, following `editorScreenChrome.test.js`'s
-  established pattern, this compiles `Login.vue`'s own `<style lang="scss">` block through the same
-  Sass pipeline `vite.config.js`/`vitest.config.js` both apply and reads the emitted declarations
-  back -- which is exactly the level this task's own gap sits at: whether the block reaches for the
-  token layer at all, not what any one token currently resolves to (that is `cobaltTokens.test.js`'s
-  job, and `Login.darkMode.test.js`'s for the live light/dark cascade).
+  established pattern, this reads `Login.vue`'s own `<style>` block back exactly as the app ships it
+  (no compile step needed -- it is already plain, valid CSS) and reads the declarations back --
+  which is exactly the level this task's own gap sits at: whether the block reaches for the token
+  layer at all, not what any one token currently resolves to (that is `cobaltTokens.test.js`'s job,
+  and `Login.darkMode.test.js`'s for the live light/dark cascade).
 */
 
 const pagesDir = dirname(fileURLToPath(import.meta.url))
 const srcDir = dirname(pagesDir)
 
 /**
- * One SFC's `<style lang="scss">` block, compiled the way the app compiles it.
+ * One SFC's `<style>` block, read back exactly the way the app ships it.
  *
  * @param {string} dir directory containing the SFC, relative to `src/`
  * @param {string} fileName the SFC itself
- * @returns {string} the compiled CSS
+ * @returns {string} the style block's own text
  */
 function compileStyles(dir, fileName) {
   const source = readFileSync(join(srcDir, dir, fileName), 'utf8')
-  const block = source.match(/<style[^>]*lang="scss"[^>]*>([\s\S]*?)<\/style>/)
-  expect(block, `${fileName} has a scss style block`).toBeTruthy()
-  return sass.compileString(
-    `@use '@/css/_theme.scss' as *;\n@use '@/css/_palette.scss' as *;\n${block[1]}`,
-    {
-      importers: [
-        {
-          findFileUrl(url) {
-            return url.startsWith('@/') ? new URL(`file://${join(srcDir, url.slice(2))}`) : null
-          }
-        }
-      ]
-    }
-  ).css
+  const block = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)
+  expect(block, `${fileName} has a style block`).toBeTruthy()
+  return block[1]
 }
 
 /**
  * Every declaration one selector carries, as a `property: value` map -- merged across every rule
- * that names it (a Sass `&::before, &::after {…}` shared block plus that selector's own dedicated
- * rule compile to TWO separate CSS rules, both of which apply). Keys are literal CSS property names
+ * that names it (a nested `&::before, &::after {…}` shared block plus that selector's own dedicated
+ * rule are TWO separate CSS rules, both of which apply). Keys are literal CSS property names
  * (`border-top`, not `borderTop`). See `editorScreenChrome.test.js`'s identical single-rule helper
  * for why comments are stripped before the split.
  *

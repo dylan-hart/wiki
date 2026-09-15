@@ -321,7 +321,7 @@ describe('AdminLayout locale-switcher menu direction', () => {
  * hover state task 807 fixed for the site header's five icon buttons via `.header-nav-btn`. These
  * two buttons carry a visible text label beside their icon, unlike those five icon-only buttons, so
  * they take `header-nav-btn` together with the `header-nav-btn--auto-width` modifier
- * (`css/_base.scss`) rather than the bare class -- same 64px band, squared corners and 20% hover
+ * (`css/_base.css`) rather than the bare class -- same 64px band, squared corners and 20% hover
  * fill, but sized to the label instead of forced to a 64px square.
  */
 describe('AdminLayout toolbar hover treatment (task 822)', () => {
@@ -406,7 +406,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     //    a dead rule left behind in the CSS. Guards the removal directly, the same way the SSL
     //    dead-code describe block above asserts on file contents rather than rendered style.
     const dir = dirname(fileURLToPath(import.meta.url))
-    const scssPath = join(dir, '../css/_base.scss')
+    const scssPath = join(dir, '../css/_base.css')
     const source = readFileSync(scssPath, 'utf-8')
 
     expect(source).not.toMatch(/header-nav-btn--auto-width/)

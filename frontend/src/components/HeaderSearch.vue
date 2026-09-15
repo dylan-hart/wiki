@@ -675,7 +675,13 @@ onBeforeUnmount(() => {
 defineExpose({ focus, state })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+@charset "UTF-8";
 /*
   The header search box.
 
@@ -691,7 +697,6 @@ defineExpose({ focus, state })
 .header-search {
   max-width: 480px;
   margin: 0 auto;
-
   /*
     Ground, edge and placeholder tone all come from the `--color-header-search-*` tokens
     (`tailwind.css`, OpenProject #2767) rather than the generic paper/hairline/caption trio: the
@@ -699,21 +704,22 @@ defineExpose({ focus, state })
     exactly the constants this rule used to name, so nothing moves there; Cobalt's are a
     `rgba(255,255,255,.16)` well with no edge at all, which is what its own mockup draws.
   */
-  &-field {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 36px;
-    padding: 0 6px 0 12px;
-    border-radius: var(--radius-control);
-    background-color: var(--color-header-search-bg);
-    border: 1px solid var(--color-header-search-border);
-    color: var(--color-header-search-placeholder);
-    transition:
-      border-color 0.2s var(--ease-standard),
-      background-color 0.2s var(--ease-standard);
-  }
-
+}
+.header-search-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-radius: var(--radius-control);
+  background-color: var(--color-header-search-bg);
+  border: 1px solid var(--color-header-search-border);
+  color: var(--color-header-search-placeholder);
+  transition:
+    border-color 0.2s var(--ease-standard),
+    background-color 0.2s var(--ease-standard);
+}
+.header-search {
   /*
     Docked against the tags button below (never in `row` form, which stands alone). The field's own
     `border-radius` above is one value for all four corners, but a docked field only OWNS its two
@@ -723,12 +729,13 @@ defineExpose({ focus, state })
     corner properties, not physical `border-top-right-radius` etc., so the fix follows the reading
     direction the same way the border/padding around it already do.
   */
-  &-field--docked {
-    border-inline-end: 0;
-    border-start-end-radius: 0;
-    border-end-end-radius: 0;
-  }
-
+}
+.header-search-field--docked {
+  border-inline-end: 0;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+.header-search {
   /*
     Driven by a class rather than `:focus-within` so the field stays marked while the panel below is
     being used -- clicking a tag in there moves focus out of the input, and the border flicking back
@@ -741,74 +748,76 @@ defineExpose({ focus, state })
 
     Two classes, so this outranks the `--row` rule above whichever order they end up in.
   */
-  .header-search-row-inline.is-focused &-field {
-    background-color: var(--color-surface);
-    border-color: var(--color-slate);
-    color: var(--color-ink);
-  }
-
-  &-lead {
-    flex-shrink: 0;
-    font-size: 17px;
-    color: var(--color-header-icon);
-  }
-
-  &-input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    /*
-      `font: inherit` above pulls the ancestor chain's font-size, which bottoms out at `body`'s 14px
-      base (`tailwind.css`'s documented fallback, not a role) rather than the search field's own
-      13.5px role (`ui-iteration-cobalt-typography/cobalt-typography.md` §3, identical in Ledger and
-      Cobalt -- only `color` differs between the two aesthetics, so this stays unscoped).
-    */
-    font-size: 13.5px;
-    outline: none;
-
-    &::placeholder {
-      color: currentColor;
-      opacity: 0.55;
-    }
-    /* -> the UA's own clear affordance would sit beside ours */
-    &::-webkit-search-cancel-button {
-      display: none;
-    }
-  }
-
-  &-clear {
-    flex-shrink: 0;
-    display: inline-flex;
-    padding: 4px;
-    color: var(--color-slate-soft);
-    cursor: pointer;
-
-    &:hover {
-      color: var(--color-ink);
-    }
-  }
-
-  /* The shortcut hint: a square mono key cap on the field's own ground, as Cardinal sets every key */
-  &-kbd {
-    flex-shrink: 0;
-    padding: 2px 5px;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-hairline);
-    color: var(--color-text-caption);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 500;
-    line-height: 1.4;
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-  }
 }
-
+.header-search-row-inline.is-focused .header-search-field {
+  background-color: var(--color-surface);
+  border-color: var(--color-slate);
+  color: var(--color-ink);
+}
+.header-search-lead {
+  flex-shrink: 0;
+  font-size: 17px;
+  color: var(--color-header-icon);
+}
+.header-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  /*
+    `font: inherit` above pulls the ancestor chain's font-size, which bottoms out at `body`'s 14px
+    base (`tailwind.css`'s documented fallback, not a role) rather than the search field's own
+    13.5px role (`ui-iteration-cobalt-typography/cobalt-typography.md` §3, identical in Ledger and
+    Cobalt -- only `color` differs between the two aesthetics, so this stays unscoped).
+  */
+  font-size: 13.5px;
+  outline: none;
+}
+.header-search-input::placeholder {
+  color: currentColor;
+  opacity: 0.55;
+}
+.header-search-input {
+  /* -> the UA's own clear affordance would sit beside ours */
+}
+.header-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+.header-search-clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 4px;
+  color: var(--color-slate-soft);
+  cursor: pointer;
+}
+.header-search-clear:hover {
+  color: var(--color-ink);
+}
+.header-search {
+  /* The shortcut hint: a square mono key cap on the field's own ground, as Cardinal sets every key */
+}
+.header-search-kbd {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-text-caption);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   Cobalt's header band is the same solid blue in light and dark, so its field, key cap and docked
   tags button are the same translucent white in both -- and the `.body--dark` block below, which is
@@ -816,17 +825,14 @@ defineExpose({ focus, state })
   first and the `:not(.body--cobalt)` on that block is what keeps them apart, the same shape
   `HeaderNav.vue`'s own eyebrow rule uses.
 */
-body.body--cobalt .header-search {
-  &-clear:hover {
-    color: #fff;
-  }
-
-  &-kbd {
-    background-color: rgb(255 255 255 / 0.18);
-    border-color: transparent;
-    border-radius: var(--radius-mark);
-    color: #fff;
-  }
+body.body--cobalt .header-search-clear:hover {
+  color: #fff;
+}
+body.body--cobalt .header-search-kbd {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-color: transparent;
+  border-radius: var(--radius-mark);
+  color: #fff;
 }
 
 /*
@@ -878,27 +884,26 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-mode-btn,
 body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   border-color: rgb(255 255 255 / 0.4);
 }
-
-.body--dark:not(.body--cobalt) .header-search {
-  &-field {
-    background-color: var(--color-dark-4);
-    border-color: var(--color-hairline-dark);
-    color: var(--color-text-caption-dark);
-  }
-
-  &-lead {
-    color: var(--color-slate-light);
-  }
-
-  &-clear:hover {
-    color: var(--color-text-dark);
-  }
-
-  &-kbd {
-    background-color: var(--color-dark-3);
-    border-color: var(--color-hairline-dark);
-    color: var(--color-text-caption-dark);
-  }
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.body--dark:not(.body--cobalt) .header-search-field {
+  background-color: var(--color-dark-4);
+  border-color: var(--color-hairline-dark);
+  color: var(--color-text-caption-dark);
+}
+.body--dark:not(.body--cobalt) .header-search-lead {
+  color: var(--color-slate-light);
+}
+.body--dark:not(.body--cobalt) .header-search-clear:hover {
+  color: var(--color-text-dark);
+}
+.body--dark:not(.body--cobalt) .header-search-kbd {
+  background-color: var(--color-dark-3);
+  border-color: var(--color-hairline-dark);
+  color: var(--color-text-caption-dark);
 }
 
 /*
@@ -998,7 +1003,11 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
 .body--dark:not(.body--cobalt) .header-search-row-inline.is-focused .header-search-mode-btn {
   border-color: var(--color-slate-light);
 }
-
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   Hangs off the field, matching its width -- `inset-inline-start: 0; inset-inline-end: 0` against the
   wrapper rather than a width of its own, so the two cannot drift apart.
@@ -1028,105 +1037,105 @@ body.body--cobalt .header-search-row-inline.is-focused .header-search-tags-btn {
   */
   max-height: calc(100vh - 80px);
   overflow-y: auto;
-
-  &-header {
-    font-weight: 500;
-    color: var(--color-text-caption);
-    border-bottom: 1px solid var(--color-hairline);
-    padding: 0 0 0.5rem 0;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
-  }
-
+}
+.searchpanel-header {
+  font-weight: 500;
+  color: var(--color-text-caption);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0 0 0.5rem 0;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+}
+.searchpanel {
   /* -> The loading header's spinner sits beside its copy rather than above it */
-  &-status {
-    gap: 8px;
-  }
-
-  &-results {
-    margin-bottom: 0.5rem;
-  }
-
+}
+.searchpanel-status {
+  gap: 8px;
+}
+.searchpanel-results {
+  margin-bottom: 0.5rem;
+}
+.searchpanel {
   /* Plain `<button>`, not `w-btn` -- it reads as a line of text within the empty-preview state, not a UI control */
-  &-suggestion-link {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: inherit;
-    opacity: 0.85;
-    text-align: start;
-    cursor: pointer;
-    /* -> The suggested title is unbounded page content, same as a result row's -- ellipsis, not wrap/overflow */
-    max-width: 100%;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-
-    &:hover {
-      opacity: 1;
-      text-decoration: underline;
-    }
-
-    strong {
-      font-weight: 600;
-    }
-  }
-
-  &-tip {
-    + .searchpanel-tip {
-      margin-top: 0.5rem;
-    }
-  }
-
+}
+.searchpanel-suggestion-link {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: inherit;
+  opacity: 0.85;
+  text-align: start;
+  cursor: pointer;
+  /* -> The suggested title is unbounded page content, same as a result row's -- ellipsis, not wrap/overflow */
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.searchpanel-suggestion-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.searchpanel-suggestion-link strong {
+  font-weight: 600;
+}
+.searchpanel-tip + .searchpanel-tip {
+  margin-top: 0.5rem;
+}
+.searchpanel {
   /*
     The "Search Operators" header row is a `<button>` (Preflight already strips its border/background/
     padding), not a `<div>`, so it needs `width: 100%` -- a button shrink-wraps its content by default,
     where the div it replaces was block-level -- plus its own cursor, since `.searchpanel-header`
     itself carries none.
   */
-  &-operators-toggle {
-    width: 100%;
-    cursor: pointer;
-    text-align: start;
-  }
-
-  &-operators-arrow {
-    transition: transform 0.3s var(--ease-standard);
-
-    @media (prefers-reduced-motion: reduce) {
-      transition-duration: 0.01ms;
-    }
-  }
-
-  /* -> A search operator, set the way Cardinal sets every inline code run: a tinted square chip */
-  code {
-    background-color: var(--color-tint);
-    border: 1px solid var(--color-hairline);
-    color: var(--color-accent-strong);
-    padding: 1px 5px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s
-  //    `@layer components`, shared with `Search.vue`'s full results screen this panel previews.
 }
-
+.searchpanel-operators-toggle {
+  width: 100%;
+  cursor: pointer;
+  text-align: start;
+}
+.searchpanel-operators-arrow {
+  transition: transform 0.3s var(--ease-standard);
+}
+@media (prefers-reduced-motion: reduce) {
+  .searchpanel-operators-arrow {
+    transition-duration: 0.01ms;
+  }
+}
+.searchpanel {
+  /* -> A search operator, set the way Cardinal sets every inline code run: a tinted square chip */
+}
+.searchpanel code {
+  background-color: var(--color-tint);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-accent-strong);
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+.searchpanel {
+  /* -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s */
+  /*    `@layer components`, shared with `Search.vue`'s full results screen this panel previews. */
+}
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .body--dark .searchpanel {
   background-color: var(--color-dark-3);
   border-color: var(--color-hairline-dark);
   color: var(--color-text-dark);
-
-  &-header {
-    color: var(--color-text-caption-dark);
-    border-bottom-color: var(--color-hairline-dark);
-  }
-
-  code {
-    background-color: var(--color-accent-wash-dark);
-    border-color: var(--color-hairline-dark);
-    color: var(--color-accent-dark);
-  }
+}
+.body--dark .searchpanel-header {
+  color: var(--color-text-caption-dark);
+  border-bottom-color: var(--color-hairline-dark);
+}
+.body--dark .searchpanel code {
+  background-color: var(--color-accent-wash-dark);
+  border-color: var(--color-hairline-dark);
+  color: var(--color-accent-dark);
 }
 </style>

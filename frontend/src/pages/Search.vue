@@ -653,33 +653,35 @@ onUnmounted(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+@charset "UTF-8";
 /*
-  Where this card's two desktop assumptions give out -- the same two widths `components/ProfileOverlay.vue`
-  declares, because the two screens are the same shape and run out of room together. Deliberately not in
-  `_palette.scss`, which is for breakpoints the whole app shares; these describe one kind of card. Change
-  them in one file and the other wants the same change.
+  Where this card's two desktop assumptions give out -- the same two widths
+  `components/ProfileOverlay.vue` declares, because the two screens are the same shape and run out of
+  room together. Deliberately not a shared app-wide breakpoint; these describe one kind of card.
+  Change them in one file and the other wants the same change.
 
   `899.98px` has to agree with the 900px `useMinWidth` above it.
 */
-
 /*
   Row metrics, from the design (`docs/ui-redesign-supplementary/Cardinal Wiki - Search 3x.dc.html`).
   Named because the below-600px stacking rule has to derive its inset from them rather than restate
   a number: the date and tags wrap under the TITLE, which starts one plate plus one gutter in.
 */
-
 /*
   The trailing column: when the page was last touched, and what it is tagged with. Fixed rather than
   content-sized so that every row's title ends on the same edge down the list -- a column that sized
   itself would step in and out by a few pixels per row as the dates and tag counts varied.
 */
-
 /*
   A header strip's height. One value for all three (Sort by, Filters, Results) because Sort by and
   Results start the two columns side by side and are read as a single ruled line across the card.
 */
-
 .layout-search {
   /*
     The ordinary page ground. What used to be here was a dark radial band painted across the top
@@ -688,80 +690,78 @@ onUnmounted(() => {
     and the `:after` gradient are gone, and with them the `var(--color-grey-3)` ground they were washing over
     (OpenProject #2697).
   */
-  .body--light & {
-    background-color: var(--color-paper);
-  }
-  .body--dark & {
-    background-color: var(--color-dark-6);
-  }
+}
+.body--light .layout-search {
+  background-color: var(--color-paper);
+}
+.body--dark .layout-search {
+  background-color: var(--color-dark-6);
+}
+.layout-search-card {
+  position: relative;
+  width: 90%;
+  max-width: 1400px;
+  margin: 50px auto;
+  display: flex;
+  align-items: stretch;
+  /*
+    No height of its own, as `.layout-profile-card` explains at length: the scrolling page container
+    grows this into the height left over beside its margins, and lets its content take it past that.
 
-  &-card {
-    position: relative;
-    width: 90%;
-    max-width: 1400px;
-    margin: 50px auto;
-    display: flex;
-    align-items: stretch;
-    /*
-      No height of its own, as `.layout-profile-card` explains at length: the scrolling page container
-      grows this into the height left over beside its margins, and lets its content take it past that.
+    It used to say `height: 100%`, which overflowed the box by exactly its own margins on every
+    search however few results came back -- so the footer under it started 100px below the fold --
+    and, since a height is not a minimum, spilled a long result list out past the bottom edge of the
+    white card the results are supposed to sit on.
+  */
+  /*
+    A foreground to go with the background, as `.layout-profile-card` needs for the same reason:
+    this card is a plain div rather than a WCard, and a WCard is what declares BOTH halves of a
+    surface. With only the background set, everything inside inherited the document's black --
+    headings, result titles, input and select values alike -- which is invisible on the dark one.
+    The light value is the black it was already inheriting, so only dark mode changes.
 
-      It used to say `height: 100%`, which overflowed the box by exactly its own margins on every
-      search however few results came back -- so the footer under it started 100px below the fold --
-      and, since a height is not a minimum, spilled a long result list out past the bottom edge of the
-      white card the results are supposed to sit on.
-    */
-
-    /*
-      A foreground to go with the background, as `.layout-profile-card` needs for the same reason:
-      this card is a plain div rather than a WCard, and a WCard is what declares BOTH halves of a
-      surface. With only the background set, everything inside inherited the document's black --
-      headings, result titles, input and select values alike -- which is invisible on the dark one.
-      The light value is the black it was already inheriting, so only dark mode changes.
-
-      Held by a hairline rather than by a shadow: Cardinal draws a card as a plate on paper, and the
-      `$shadow-2` that used to sit here was the other half of the dark band above.
-    */
-    .body--light & {
-      background-color: var(--color-white);
-      border: 1px solid var(--color-hairline);
-      color: var(--color-text-body);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-3);
-      border: 1px solid var(--color-hairline-dark);
-      color: var(--color-text-dark);
-    }
-
-    /*
-      Cobalt draws this card's edge through `--shadow-card` alone, not the `border` above -- both
-      tokens are `0`/`none` under Ledger, so that border stays the only visible edge there, and the
-      dark half needs no override of its own since `--shadow-card` already carries its own
-      Cobalt-dark value. Under Cobalt `--shadow-card` is itself a hairline ring now (OpenProject
-      #2856's matte pass), not the mockup's blurred `border-radius:8px;
-      box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
-    */
-    body.body--cobalt & {
-      border: 0;
-      border-radius: var(--radius-card);
-      box-shadow: var(--shadow-card);
-    }
-  }
-
-  &-sd {
-    flex: 0 0 300px;
-    overflow: hidden;
-
-    .body--light & {
-      background-color: var(--color-tint);
-      border-inline-end: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-4);
-      border-inline-end: 1px solid var(--color-hairline-dark);
-    }
-  }
-
+    Held by a hairline rather than by a shadow: Cardinal draws a card as a plate on paper, and the
+    `$shadow-2` that used to sit here was the other half of the dark band above.
+  */
+}
+.body--light .layout-search-card {
+  background-color: var(--color-white);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-text-body);
+}
+.body--dark .layout-search-card {
+  background-color: var(--color-dark-3);
+  border: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-dark);
+}
+.layout-search-card {
+  /*
+    Cobalt draws this card's edge through `--shadow-card` alone, not the `border` above -- both
+    tokens are `0`/`none` under Ledger, so that border stays the only visible edge there, and the
+    dark half needs no override of its own since `--shadow-card` already carries its own
+    Cobalt-dark value. Under Cobalt `--shadow-card` is itself a hairline ring now (OpenProject
+    #2856's matte pass), not the mockup's blurred `border-radius:8px;
+    box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
+  */
+}
+body.body--cobalt .layout-search-card {
+  border: 0;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+.layout-search-sd {
+  flex: 0 0 300px;
+  overflow: hidden;
+}
+.body--light .layout-search-sd {
+  background-color: var(--color-tint);
+  border-inline-end: 1px solid var(--color-hairline);
+}
+.body--dark .layout-search-sd {
+  background-color: var(--color-dark-4);
+  border-inline-end: 1px solid var(--color-hairline-dark);
+}
+.layout-search {
   /*
     A header strip: Sort by, Filters, Results.
 
@@ -774,63 +774,62 @@ onUnmounted(() => {
     glance. A fixed height plus a line-height of 1 makes a bar's height independent of what is
     written in it.
   */
-  .section-header {
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    height: 37px;
-    padding: 0 16px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-
-    .body--light & {
-      color: var(--color-accent-strong);
-      background-color: var(--color-tint-alt);
-      border-bottom: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      color: var(--color-accent-dark);
-      background-color: var(--color-dark-2);
-      border-bottom: 1px solid var(--color-hairline-dark);
-    }
-  }
-
+}
+.layout-search .section-header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 37px;
+  padding: 0 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.body--light .layout-search .section-header {
+  color: var(--color-accent-strong);
+  background-color: var(--color-tint-alt);
+  border-bottom: 1px solid var(--color-hairline);
+}
+.body--dark .layout-search .section-header {
+  color: var(--color-accent-dark);
+  background-color: var(--color-dark-2);
+  border-bottom: 1px solid var(--color-hairline-dark);
+}
+.layout-search {
   /* -> A strip that follows content is ruled off from it as well as from what comes after */
-  .layout-search-sd .section-header:not(:first-child) {
-    .body--light & {
-      border-top: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      border-top: 1px solid var(--color-hairline-dark);
-    }
-  }
-
+}
+.body--light .layout-search .layout-search-sd .section-header:not(:first-child) {
+  border-top: 1px solid var(--color-hairline);
+}
+.body--dark .layout-search .layout-search-sd .section-header:not(:first-child) {
+  border-top: 1px solid var(--color-hairline-dark);
+}
+.layout-search {
   /*
     The result count, in the strip beside the Results label. Mono and `line-height: 1` for the same
     reason the strip itself is: it is a number that changes length, and nothing about it may reach
     the bar's height.
   */
-  &-count {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    font-weight: 400;
-    line-height: 1;
-    letter-spacing: 0;
-    text-transform: none;
-
-    .body--light & {
-      color: var(--color-text-caption);
-    }
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
-
+}
+.layout-search-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.body--light .layout-search-count {
+  color: var(--color-text-caption);
+}
+.body--dark .layout-search-count {
+  color: var(--color-text-caption-dark);
+}
+.layout-search {
   /*
     The Keyword/Semantic mode toggle (OpenProject #3105), sitting in the same `.section-header` strip
     as the label and the mono/uppercase/wide-tracking `.layout-search-count` above -- `w-btn-toggle`'s
@@ -838,15 +837,15 @@ onUnmounted(() => {
     this reset "Keyword"/"Semantic" would inherit the strip's kicker styling instead of reading as
     ordinary control labels.
   */
-  &-modetoggle {
-    font-family: var(--font-sans);
-    text-transform: none;
-    letter-spacing: normal;
-  }
-
-  // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s
-  //    `@layer components`, shared with `HeaderSearch.vue`'s preview panel rather than duplicated here.
-
+}
+.layout-search-modetoggle {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.layout-search {
+  /* -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s */
+  /*    `@layer components`, shared with `HeaderSearch.vue`'s preview panel rather than duplicated here. */
   /*
     The empty-query prompt: what the results pane shows before any search has run at all, distinct
     from `search.noResults` (a query WAS run and matched nothing) -- the `<em>` in the markup already
@@ -854,49 +853,44 @@ onUnmounted(() => {
     (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Search", "Empty-query prompt") rather
     than leaving it at the browser's untouched inherited size.
   */
-  &-empty-prompt {
-    font-size: 14.5px;
-    line-height: 1.6;
-
-    .body--light & {
-      color: var(--color-text-secondary);
-    }
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
-  .w-page {
-    flex: 1 1;
-    min-width: 0;
-  }
-
+}
+.layout-search-empty-prompt {
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+.body--light .layout-search-empty-prompt {
+  color: var(--color-text-secondary);
+}
+.body--dark .layout-search-empty-prompt {
+  color: var(--color-text-secondary-dark);
+}
+.layout-search .w-page {
+  flex: 1 1;
+  min-width: 0;
+}
+.layout-search {
   /* --- A result row ------------------------------------------------------------------------------ */
-
-  &-row {
-    display: flex;
-    gap: 14px;
-    padding: 14px 16px;
-    text-decoration: none;
-    color: inherit;
-
-    .body--light & {
-      border-bottom: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      border-bottom: 1px solid var(--color-hairline-dark);
-    }
-
-    &:hover {
-      .body--light & {
-        background-color: var(--color-paper);
-      }
-      .body--dark & {
-        background-color: var(--color-dark-2);
-      }
-    }
-  }
-
+}
+.layout-search-row {
+  display: flex;
+  gap: 14px;
+  padding: 14px 16px;
+  text-decoration: none;
+  color: inherit;
+}
+.body--light .layout-search-row {
+  border-bottom: 1px solid var(--color-hairline);
+}
+.body--dark .layout-search-row {
+  border-bottom: 1px solid var(--color-hairline-dark);
+}
+.body--light .layout-search-row:hover {
+  background-color: var(--color-paper);
+}
+.body--dark .layout-search-row:hover {
+  background-color: var(--color-dark-2);
+}
+.layout-search {
   /*
     The plate. The same square hairline frame `BlueprintIcon` draws for a settings row and at the
     same 34px, but in the accent rather than the chrome tone -- what sits in it here is the page's
@@ -907,33 +901,34 @@ onUnmounted(() => {
     standing in for the accent-text role rather than the (numerically equal, under Ledger) primary
     one -- the Cobalt mockup's icon plate glyph is the accent red, not the link blue.
   */
-  &-plate {
-    display: flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-
-    .body--light & {
-      border: 1px solid var(--color-hairline);
-      background-color: var(--color-white);
-      color: var(--color-accent);
-    }
-    .body--dark & {
-      border: 1px solid var(--color-hairline-dark);
-      background-color: var(--color-dark-4);
-      color: var(--color-accent-dark);
-    }
-
-    /* Same shadowed-plate treatment as the card and results row above -- see that rule's comment. */
-    body.body--cobalt & {
-      border: 0;
-      border-radius: var(--radius-card);
-      box-shadow: var(--shadow-card);
-    }
-  }
-
+}
+.layout-search-plate {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+}
+.body--light .layout-search-plate {
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-white);
+  color: var(--color-accent);
+}
+.body--dark .layout-search-plate {
+  border: 1px solid var(--color-hairline-dark);
+  background-color: var(--color-dark-4);
+  color: var(--color-accent-dark);
+}
+.layout-search-plate {
+  /* Same shadowed-plate treatment as the card and results row above -- see that rule's comment. */
+}
+body.body--cobalt .layout-search-plate {
+  border: 0;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+.layout-search {
   /*
     A ZERO basis, not `auto`, and `min-width: 0` beside it. Both are load-bearing below 600px, where
     the row is `flex-wrap: wrap`: wrapping is decided from each item's hypothetical main size, so a
@@ -943,92 +938,81 @@ onUnmounted(() => {
     on the plate's line and shrinks, which is what the design draws and what the `flex: 1 1 0%` on
     `WItemSection`'s main section was quietly doing before this row stopped being a `w-item`.
   */
-  &-rowbody {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  &-rowtitle {
-    font-size: 15px;
-    font-weight: 500;
-
-    .body--light & {
-      color: var(--color-ink);
-    }
-    .body--dark & {
-      color: var(--color-text-dark);
-    }
-  }
-
-  &-rowdesc {
-    padding-top: 1px;
-    font-size: 13px;
-    line-height: 1.5;
-
-    .body--light & {
-      color: var(--color-text-secondary);
-    }
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
-  &-rowpath {
-    padding-top: 3px;
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    overflow-wrap: anywhere;
-
-    .body--light & {
-      color: var(--color-text-caption);
-    }
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
-
-  &-rowexcerpt {
-    padding-top: 5px;
-    font-size: 12.5px;
-    line-height: 1.55;
-
-    .body--light & {
-      color: var(--color-text-body);
-    }
-    .body--dark & {
-      color: var(--color-text-dark);
-    }
-  }
-
-  &-rowmeta {
-    display: flex;
-    flex: none;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-    width: 150px;
-  }
-
-  &-rowdate {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    text-align: end;
-
-    .body--light & {
-      color: var(--color-text-caption);
-    }
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-  }
-
-  &-rowtags {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 4px;
-  }
-
+}
+.layout-search-rowbody {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.layout-search-rowtitle {
+  font-size: 15px;
+  font-weight: 500;
+}
+.body--light .layout-search-rowtitle {
+  color: var(--color-ink);
+}
+.body--dark .layout-search-rowtitle {
+  color: var(--color-text-dark);
+}
+.layout-search-rowdesc {
+  padding-top: 1px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.body--light .layout-search-rowdesc {
+  color: var(--color-text-secondary);
+}
+.body--dark .layout-search-rowdesc {
+  color: var(--color-text-secondary-dark);
+}
+.layout-search-rowpath {
+  padding-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.body--light .layout-search-rowpath {
+  color: var(--color-text-caption);
+}
+.body--dark .layout-search-rowpath {
+  color: var(--color-text-caption-dark);
+}
+.layout-search-rowexcerpt {
+  padding-top: 5px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.body--light .layout-search-rowexcerpt {
+  color: var(--color-text-body);
+}
+.body--dark .layout-search-rowexcerpt {
+  color: var(--color-text-dark);
+}
+.layout-search-rowmeta {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: 150px;
+}
+.layout-search-rowdate {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: end;
+}
+.body--light .layout-search-rowdate {
+  color: var(--color-text-caption);
+}
+.body--dark .layout-search-rowdate {
+  color: var(--color-text-caption-dark);
+}
+.layout-search-rowtags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.layout-search {
   /*
     THREE NARROWER LAYOUTS
     ======================
@@ -1048,92 +1032,94 @@ onUnmounted(() => {
     property. `899.98px` is the stylesheet's half of the 900px `useMinWidth` above, which is
     what decides whether the disclosure button is rendered at all.
   */
-
   /* --- Below 1200px: the card gives up half its gutters ------------------------------------------- */
-  @media (max-width: 1199.98px) {
+}
+@media (max-width: 1199.98px) {
+  .layout-search {
     /*
       Halved from `90% / 50px`. Not bracketed to a band: below 900 the gutters would otherwise jump back to
       the wider pair as the window narrowed, which is the one thing a reader resizing a window notices.
     */
-    &-card {
-      width: 95%;
-      margin: 25px auto;
-    }
   }
-
+  .layout-search-card {
+    width: 95%;
+    margin: 25px auto;
+  }
+}
+.layout-search {
   /* --- Below 900px: the sidebar is a disclosure above the results --------------------------------- */
-  @media (max-width: 899.98px) {
-    &-card {
-      flex-direction: column;
-    }
-
+}
+@media (max-width: 899.98px) {
+  .layout-search-card {
+    flex-direction: column;
+  }
+  .layout-search {
     /*
       The disclosure's bar. Full width, so it reads as a strip of the card rather than as a button sitting
       on it -- `space-between` is what puts the chevron at the far end from the label, where a disclosure's
       marker belongs.
     */
-    &-filterbtn {
-      justify-content: space-between;
-
-      .body--light & {
-        background-color: var(--color-tint-alt);
-        border-bottom: 1px solid var(--color-hairline);
-      }
-      .body--dark & {
-        background-color: var(--color-dark-2);
-        border-bottom: 1px solid var(--color-hairline-dark);
-      }
-    }
-
+  }
+  .layout-search-filterbtn {
+    justify-content: space-between;
+  }
+  .body--light .layout-search-filterbtn {
+    background-color: var(--color-tint-alt);
+    border-bottom: 1px solid var(--color-hairline);
+  }
+  .body--dark .layout-search-filterbtn {
+    background-color: var(--color-dark-2);
+    border-bottom: 1px solid var(--color-hairline-dark);
+  }
+  .layout-search {
     /* -> The whole content of the button is one flex row, so the chevron needs pushing to the end of it */
-    &-filterbtn > span {
-      flex: 1;
-      justify-content: space-between;
-    }
-
-    &-filterchevron {
-      transition: transform 0.2s var(--ease-standard);
-
-      &.is-open {
-        transform: rotate(180deg);
-      }
-    }
-
+  }
+  .layout-search-filterbtn > span {
+    flex: 1;
+    justify-content: space-between;
+  }
+  .layout-search-filterchevron {
+    transition: transform 0.2s var(--ease-standard);
+  }
+  .layout-search-filterchevron.is-open {
+    transform: rotate(180deg);
+  }
+  .layout-search {
     /*
       The panel, no longer a 300px column: the full width of the card, and the seam that divided the two
       columns moves from its right edge to its bottom one. Both stated per theme, because that is where
       the rules they replace are declared -- at three classes each, which a plain override here would
       lose to.
     */
-    &-sd {
-      flex: none;
-      width: 100%;
-
-      .body--light & {
-        border-inline-end: 0;
-        border-bottom: 1px solid var(--color-hairline);
-      }
-      .body--dark & {
-        border-inline-end: 0;
-        border-bottom: 1px solid var(--color-hairline-dark);
-      }
-    }
   }
-
+  .layout-search-sd {
+    flex: none;
+    width: 100%;
+  }
+  .body--light .layout-search-sd {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--color-hairline);
+  }
+  .body--dark .layout-search-sd {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--color-hairline-dark);
+  }
+}
+.layout-search {
   /* --- Below 600px: the card is the screen, and a result row stacks -------------------------------- */
-  @media (max-width: 599.98px) {
-    &-card {
-      width: 100%;
-      margin: 0;
-
-      .body--light & {
-        border-inline: 0;
-      }
-      .body--dark & {
-        border-inline: 0;
-      }
-    }
-
+}
+@media (max-width: 599.98px) {
+  .layout-search-card {
+    width: 100%;
+    margin: 0;
+  }
+  .body--light .layout-search-card {
+    border-inline: 0;
+  }
+  .body--dark .layout-search-card {
+    border-inline: 0;
+  }
+  .layout-search {
     /*
       A result stacks instead of reserving a column for its date and tags. That column is a fixed
       150px, so beside it a title had whatever was left -- and what was left of 390px, after a plate
@@ -1141,18 +1127,20 @@ onUnmounted(() => {
       title, the path and the matched text under it, then when it was touched and what it is tagged
       with.
     */
-    &-row {
-      flex-wrap: wrap;
-    }
-
+  }
+  .layout-search-row {
+    flex-wrap: wrap;
+  }
+  .layout-search {
     /*
       And the plate goes to the top of the row rather than the middle of it -- it is centred for a
       row two lines tall, and would be stranded halfway down one that is now six.
     */
-    &-plate {
-      align-self: flex-start;
-    }
-
+  }
+  .layout-search-plate {
+    align-self: flex-start;
+  }
+  .layout-search {
     /*
       Lined up under the title rather than under the plate. The inset is DERIVED from the row's own
       metrics (34px + 14px) rather than restated as a number: change the plate and the
@@ -1160,20 +1148,18 @@ onUnmounted(() => {
       value was `WItemSection`'s avatar-column width, and stopped describing this row the moment the
       row stopped being a `w-item`.
     */
-    &-rowmeta {
-      width: 100%;
-      align-items: flex-start;
-      margin-top: 0.25rem;
-      padding-inline-start: 48px;
-    }
-
-    &-rowdate {
-      text-align: start;
-    }
-
-    &-rowtags {
-      justify-content: flex-start;
-    }
+  }
+  .layout-search-rowmeta {
+    width: 100%;
+    align-items: flex-start;
+    margin-top: 0.25rem;
+    padding-inline-start: 48px;
+  }
+  .layout-search-rowdate {
+    text-align: start;
+  }
+  .layout-search-rowtags {
+    justify-content: flex-start;
   }
 }
 
@@ -1181,6 +1167,6 @@ body.body--dark {
   background-color: var(--color-dark-6);
 }
 
-// -> The `.w-footer .q-bar` rule that used to sit here never matched: FooterNav renders
-//    `.site-footer`, never a q-bar. Its colours live in FooterNav's own scoped style.
+/* -> The `.w-footer .q-bar` rule that used to sit here never matched: FooterNav renders */
+/*    `.site-footer`, never a q-bar. Its colours live in FooterNav's own scoped style. */
 </style>

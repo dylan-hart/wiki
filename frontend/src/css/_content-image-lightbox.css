@@ -1,9 +1,9 @@
 /*
   The click-to-zoom lightbox for ordinary content images (OpenProject #3066), built and appended
   straight to `<body>` by `helpers/contentImageZoom.js` -- entirely outside any Vue component's
-  scoped styles, and outside `.page-contents`'s own nesting (`_page-contents.scss` styles only what
+  scoped styles, and outside `.page-contents`'s own nesting (`_page-contents.css` styles only what
   is INSIDE that element; this dialog is a sibling of it, not a descendant). So it gets its own
-  partial, pulled into `app.scss` unconditionally, the same way `_overlay-dialog.scss` is (see that
+  partial, pulled into `app.css` unconditionally, the same way `_overlay-dialog.css` is (see that
   file's own header comment for why "unconditional" matters here: a route-based Vite chunk split
   must not gate whether this loads at all).
 

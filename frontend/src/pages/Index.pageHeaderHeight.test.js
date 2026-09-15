@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import * as sass from 'sass'
 
 import PageHeader from '@/components/PageHeader.vue'
 import { usePageStore } from '@/stores/page'
@@ -34,8 +33,8 @@ const frontendRoot = join(import.meta.dirname, '..', '..')
 /**
  * The rule under test lives in an SFC `<style>` block, which `buildAppCss()` never sees — it
  * compiles `src/css/tailwind.css` alone. So both style blocks are pulled out of their `.vue` files
- * and put through `sass` with the same `_theme` / `_palette` prelude `vitest.config.js` injects into
- * every SFC.
+ * directly: no compile step needed, since every SFC style block is already plain, valid CSS
+ * (OpenProject #3254 dropped the Sass pipeline that used to inject a `_theme`/`_palette` prelude).
  *
  * `PageHeader.vue`'s block is `scoped` in the app and is applied unscoped here. The fixture page
  * holds nothing but one masthead, so the two are equivalent for this measurement; what matters is
@@ -48,13 +47,10 @@ function sfcStyles(relativePath) {
 }
 
 function compileSfcStyles(relativePath) {
-  const themeDir = join(frontendRoot, 'src', 'css')
-  return sass.compileString(
-    `@use '${join(themeDir, '_theme.scss')}' as *;\n` +
-      `@use '${join(themeDir, '_palette.scss')}' as *;\n` +
-      sfcStyles(relativePath),
-    { loadPaths: [join(frontendRoot, 'src')] }
-  ).css
+  // -> Sass is no longer part of the build (OpenProject #3254): every SFC `<style>` block is now
+  //    plain, already-valid CSS (native nesting included, which real Chromium below parses natively),
+  //    so this just returns the extracted text -- no compile step, no `_theme`/`_palette` prelude.
+  return sfcStyles(relativePath)
 }
 
 async function mountHeaderHtml({ title, description }) {

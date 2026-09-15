@@ -1505,12 +1505,12 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .graph-view {
   position: relative;
   width: 100%;
-  // -> Fills whatever height MainLayout's <w-page-container> gives it; the canvas itself is
-  //    sized to match via a ResizeObserver wired up in Task 12/13, not a fixed value here.
+  /* -> Fills whatever height MainLayout's <w-page-container> gives it; the canvas itself is */
+  /*    sized to match via a ResizeObserver wired up in Task 12/13, not a fixed value here. */
   height: 100%;
   min-height: 480px;
 }

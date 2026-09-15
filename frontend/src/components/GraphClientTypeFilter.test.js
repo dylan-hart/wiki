@@ -107,7 +107,14 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    expect(style.flexDirection).toBe('row')
+    // -> `flexFlow`, not `flexDirection` directly: lightningcss (wired into `vitest.config.js` to
+    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) coalesces the
+    //    source's separate `flex-direction: row; flex-wrap: wrap;` into the shorthand
+    //    `flex-flow: wrap;`, omitting `row` since it is that shorthand's own initial value -- valid,
+    //    equivalent CSS, but happy-dom does not expand a shorthand missing a component back into
+    //    that component's own longhand, so `style.flexDirection` reads empty. `flexFlow` is what
+    //    happy-dom actually populates.
+    expect(style.flexFlow).toBe('wrap')
   })
 
   it('renders as a single row for a wider option set too (browser/api/mcp, OpenProject #2855/#2828)', () => {
@@ -125,7 +132,14 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    expect(style.flexDirection).toBe('row')
+    // -> `flexFlow`, not `flexDirection` directly: lightningcss (wired into `vitest.config.js` to
+    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) coalesces the
+    //    source's separate `flex-direction: row; flex-wrap: wrap;` into the shorthand
+    //    `flex-flow: wrap;`, omitting `row` since it is that shorthand's own initial value -- valid,
+    //    equivalent CSS, but happy-dom does not expand a shorthand missing a component back into
+    //    that component's own longhand, so `style.flexDirection` reads empty. `flexFlow` is what
+    //    happy-dom actually populates.
+    expect(style.flexFlow).toBe('wrap')
   })
 
   /**

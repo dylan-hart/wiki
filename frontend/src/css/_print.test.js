@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * Regression coverage for OpenProject #821: printing a page used to print the whole app shell
  * (header, side nav, ToC/tags/rating column, page action buttons, floating corner buttons) along
- * with the article. `_print.scss` fixes that with `@media print` rules keyed off the classes those
+ * with the article. `_print.css` fixes that with `@media print` rules keyed off the classes those
  * elements render with.
  *
  * These are source-inspection tests, not rendered-DOM ones -- `@media print` is never evaluated
@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
  * against, see `AdminLayout.test.js`'s own `count-badge` test for the same style of check used
  * elsewhere in this codebase for a CSS rule that can't be exercised by mounting). What CAN be
  * verified here is the CONTRACT between the stylesheet and the templates it targets: that every
- * class `_print.scss` hides is still the class the corresponding component actually renders
+ * class `_print.css` hides is still the class the corresponding component actually renders
  * (catching a rename that would silently stop hiding it), and that the one thing print is required
  * to keep -- `FooterNav`'s copyright/license line and "Powered by Cardinal.js" credit, the
  * attribution requarks/wiki#1593 (upstream) asks a print layout to retain -- is neither in the
@@ -22,21 +22,21 @@ import { describe, expect, it } from 'vitest'
  */
 
 const cssDir = dirname(fileURLToPath(import.meta.url))
-const printScss = readFileSync(join(cssDir, '_print.scss'), 'utf-8')
-const appScss = readFileSync(join(cssDir, 'app.scss'), 'utf-8')
+const printScss = readFileSync(join(cssDir, '_print.css'), 'utf-8')
+const appScss = readFileSync(join(cssDir, 'app.css'), 'utf-8')
 
 function readSource(relativePath) {
   return readFileSync(join(cssDir, relativePath), 'utf-8')
 }
 
 describe('print stylesheet wiring', () => {
-  it('is loaded globally by app.scss', () => {
-    expect(appScss).toMatch(/@use ['"]print['"]/)
+  it('is loaded globally by app.css', () => {
+    expect(appScss).toMatch(/@import ['"]\.\/_print\.css['"]/)
   })
 })
 
 describe('print stylesheet hides only chrome classes that still exist', () => {
-  // -> Every selector `_print.scss` hides outright, mapped to the component whose template is
+  // -> Every selector `_print.css` hides outright, mapped to the component whose template is
   //    supposed to still be rendering that class. A future rename on either side that isn't kept in
   //    step would otherwise fail silently -- the chrome would just stop being hidden.
   const hiddenClassesToSources = {

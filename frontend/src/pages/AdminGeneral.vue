@@ -772,43 +772,40 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
-.admin-general {
-  &-favicontabs {
-    overflow: hidden;
-    display: flex;
-    padding: 5px 5px 0 12px;
-
-    .body--light & {
-      background-color: rgba(0, 0, 0, 0.1);
-    }
-
-    .body--dark & {
-      background-color: rgba(255, 255, 255, 0.1);
-    }
-
-    > div {
-      display: flex;
-      padding: 4px 12px;
-      position: relative;
-      align-items: center;
-
-      &:first-child {
-        border: 1px solid #fff;
-        border-bottom: none;
-        box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.2);
-
-        .body--light & {
-          background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0.75));
-          border-color: #fff;
-        }
-
-        .body--dark & {
-          background: linear-gradient(to top, var(--color-dark-6), var(--color-dark-5));
-          border-color: var(--color-dark-6);
-        }
-      }
-    }
-  }
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+.admin-general-favicontabs {
+  overflow: hidden;
+  display: flex;
+  padding: 5px 5px 0 12px;
+}
+.body--light .admin-general-favicontabs {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+.body--dark .admin-general-favicontabs {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.admin-general-favicontabs > div {
+  display: flex;
+  padding: 4px 12px;
+  position: relative;
+  align-items: center;
+}
+.admin-general-favicontabs > div:first-child {
+  border: 1px solid #fff;
+  border-bottom: none;
+  box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.2);
+}
+.body--light .admin-general-favicontabs > div:first-child {
+  background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0.75));
+  border-color: #fff;
+}
+.body--dark .admin-general-favicontabs > div:first-child {
+  background: linear-gradient(to top, var(--color-dark-6), var(--color-dark-5));
+  border-color: var(--color-dark-6);
 }
 </style>

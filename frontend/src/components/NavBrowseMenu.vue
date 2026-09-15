@@ -248,7 +248,7 @@ function goUp() {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .browse-menu-panel {
   width: 270px;
 }

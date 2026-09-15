@@ -1780,16 +1780,13 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
-/*
-  Both toolbars -- the markup bar over the source pane and the preview pane's own header -- and the
-  height each pane below them has to subtract. `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` draws
-  both bands at 40px with a 30px square inside; one variable so the two bands and the two
-  `calc(100% - …)` heights below cannot drift apart.
-*/
-$toolbar-height: 40px;
-$toolbar-btn: 30px;
-
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+@charset "UTF-8";
 /*
   Diffed against `Editor 3x - Cobalt` (OpenProject #2774). This component's own chrome below --
   both toolbar bands, the source pane's gutter/background, the preview pane's frame, and the
@@ -1799,11 +1796,11 @@ $toolbar-btn: 30px;
   and reads bare `var(--color-slate)`/`var(--color-surface)`/`var(--color-tint)`/`var(--color-primary)` SCSS constants throughout rather than the
   `--color-*`/`--radius-*` tokens Cobalt overrides. Nothing here is illegible or broken under Cobalt
   -- every constant is still a valid, contrasting Ledger colour -- but none of it takes on Cobalt's
-  own blue/pill language the way `_page-contents.scss`'s code-block panel (this Task's one fix here)
+  own blue/pill language the way `_page-contents.css`'s code-block panel (this Task's one fix here)
   now does. A full pass is a much larger restructuring than this diff-and-fix Task's economical scope
   covers (dozens of call sites across a 2000+ line file, none of them this Task's explicit "the work"
   items), so it is logged here rather than attempted piecemeal: the render preview pane already
-  inherits `_page-contents.scss`'s own Cobalt-aware tokens correctly (it shares the `.page-contents`
+  inherits `_page-contents.css`'s own Cobalt-aware tokens correctly (it shares the `.page-contents`
   class), which is the one place OpenProject #2774's acceptance criteria actually named.
 */
 .editor-markdown {
@@ -1819,346 +1816,361 @@ $toolbar-btn: 30px;
   */
   height: 100%;
   min-height: 0;
-
   /*
     While the divider is being dragged (`isDragging`, see `onDividerPointerDown`/`onDividerPointerUp`).
     Pointer capture already keeps the drag tracking correctly once the pointer leaves the divider's
     own few px -- this is only about what the pointer LOOKS like, and stopping Monaco or the preview
     text from being selected as it sweeps across them mid-drag.
   */
-  &.is-resizing {
-    cursor: col-resize;
-    * {
-      cursor: col-resize !important;
-      user-select: none !important;
-    }
-  }
-  &-main {
-    display: flex;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-  }
-  &-mid {
-    /*
-      The column the code sits in. `#171b24` -- the recessed rung -- is what the Editor design puts
-      behind the text, with the line-number gutter one step DARKER at ink; the Monaco theme paints
-      both, and this is the same value so nothing shows through as a different dark while Monaco is
-      still measuring itself.
-    */
-    background-color: var(--color-dark-4);
-    flex: 1 1 50%;
-    display: block;
-    height: 100%;
-    position: relative;
-    /*
-      The seam facing the preview pane, which is the next flex item in `-main` -- always the one
-      after this in reading order, whichever physical side that mirrors to under `dir="rtl"`.
+}
+.editor-markdown.is-resizing {
+  cursor: col-resize;
+}
+.editor-markdown.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.editor-markdown-main {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.editor-markdown-mid {
+  /*
+    The column the code sits in. `#171b24` -- the recessed rung -- is what the Editor design puts
+    behind the text, with the line-number gutter one step DARKER at ink; the Monaco theme paints
+    both, and this is the same value so nothing shows through as a different dark while Monaco is
+    still measuring itself.
+  */
+  background-color: var(--color-dark-4);
+  flex: 1 1 50%;
+  display: block;
+  height: 100%;
+  position: relative;
+  /*
+    The seam facing the preview pane, which is the next flex item in `-main` -- always the one
+    after this in reading order, whichever physical side that mirrors to under `dir="rtl"`.
 
-      A hairline in the language's own border tone, 5px wide: the design draws the pane seam as a
-      `#dbe1ec` strip, not as a stripe of the accent. Cardinal reserves the accent for the live edge,
-      and a permanent red rule down the middle of the editor is not one.
-    */
-    border-inline-end: 5px solid var(--color-hairline);
-    /*
-      Monaco writes its measured width in pixels onto its own elements, so this item's automatic
-      min-width -- min-content, i.e. whatever Monaco last laid itself out at -- pins it to the full
-      width it took while the preview was closed. Bringing the preview back then leaves it the few
-      pixels the flex line has left over, and Monaco never re-measures because its container never
-      shrinks. Zero lets the basis decide instead.
-    */
-    min-width: 0;
-  }
-  &-editor {
-    display: block;
-    /* -> Whatever `-toolbar` above it is tall; the two move together or Monaco overflows the column */
-    height: calc(100% - #{$toolbar-height});
-    position: relative;
-
-    > div {
-      height: 100%;
-    }
-  }
+    A hairline in the language's own border tone, 5px wide: the design draws the pane seam as a
+    `#dbe1ec` strip, not as a stripe of the accent. Cardinal reserves the accent for the live edge,
+    and a permanent red rule down the middle of the editor is not one.
+  */
+  border-inline-end: 5px solid var(--color-hairline);
+  /*
+    Monaco writes its measured width in pixels onto its own elements, so this item's automatic
+    min-width -- min-content, i.e. whatever Monaco last laid itself out at -- pins it to the full
+    width it took while the preview was closed. Bringing the preview back then leaves it the few
+    pixels the flex line has left over, and Monaco never re-measures because its container never
+    shrinks. Zero lets the basis decide instead.
+  */
+  min-width: 0;
+}
+.editor-markdown-editor {
+  display: block;
+  /* -> Whatever `-toolbar` above it is tall; the two move together or Monaco overflows the column */
+  height: calc(100% - 40px);
+  position: relative;
+}
+.editor-markdown-editor > div {
+  height: 100%;
+}
+.editor-markdown {
   /* -> Set down the rail in Cardinal's chrome overline: tracked uppercase mono, the caption tier */
-  &-type {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    padding: 12px 0;
-    color: var(--color-text-caption);
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-  }
-  &-divider {
-    flex: 0 0 auto;
-    width: 9px;
-    height: 100%;
-    position: relative;
-    cursor: col-resize;
-    // -> Pointer capture (see `onDividerPointerDown`) keeps the drag tracking correctly once the
-    //    pointer leaves this narrow strip; this stops a fast drag from also selecting text in Monaco
-    //    or the preview as the pointer crosses over them along the way.
-    touch-action: none;
-    user-select: none;
+}
+.editor-markdown-type {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 12px 0;
+  color: var(--color-text-caption);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.editor-markdown-divider {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 100%;
+  position: relative;
+  cursor: col-resize;
+  /* -> Pointer capture (see `onDividerPointerDown`) keeps the drag tracking correctly once the */
+  /*    pointer leaves this narrow strip; this stops a fast drag from also selecting text in Monaco */
+  /*    or the preview as the pointer crosses over them along the way. */
+  touch-action: none;
+  user-select: none;
+  /*
+    Invisible until interacted with. `-mid`'s own `border-inline-end` just before this is already
+    the seam's permanent visual line -- this only adds a highlight on top of it while the divider is
+    actually being grabbed or hovered, rather than shipping a second, always-on stripe beside it.
+  */
+}
+.editor-markdown-divider::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 3px;
+  background-color: var(--color-primary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.editor-markdown-divider:hover::after,
+.editor-markdown-divider.is-dragging::after {
+  opacity: 0.6;
+}
+.editor-markdown-preview {
+  flex: 0 1 50%;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  /*
+    Paper, not a grey: the design renders the preview onto the same white the article column itself
+    uses, so what an author sees beside the source is the page as it will actually be read.
+  */
+}
+.body--light .editor-markdown-preview {
+  background-color: var(--color-surface);
+}
+.body--dark .editor-markdown-preview {
+  background-color: var(--color-dark-3);
+}
+.editor-markdown-preview {
+  /* @include until($tablet) { */
+  /*   display: none; */
+  /* } */
+  /*
+    `-enter-from` is the Vue 3 name; as `-enter` it matched nothing, so the pane animated shut but
+    snapped open. The inner selector was stale in the same way -- the content class is
+    `-preview-content` -- which left the render reflowing for the length of the transition.
+  */
+  /*
+    `var(--preview-width, 50vw)`: the custom-property fallback is what keeps this transition (and
+    the settled `-content` max-width below) behaving exactly as before for anyone who has never
+    dragged the divider -- `previewInlineStyle` only ever sets the property once a width has
+    actually been dragged or loaded from a saved one, and leaves it unset (falling through to the
+    `50vw` written here) otherwise.
+  */
+}
+.editor-markdown-preview-enter-active,
+.editor-markdown-preview-leave-active {
+  transition: max-width 0.5s ease;
+  max-width: var(--preview-width, 50vw);
+}
+.editor-markdown-preview-enter-active .editor-markdown-preview-content,
+.editor-markdown-preview-leave-active .editor-markdown-preview-content {
+  width: var(--preview-width, 50vw);
+  overflow: hidden;
+}
+.editor-markdown-preview-enter-from,
+.editor-markdown-preview-leave-to {
+  max-width: 0;
+}
+.editor-markdown-preview {
+  /*
+    The pane's one-time entrance (see `previewEverRevealed`'s doc comment in the script), timed to
+    `WDrawer.vue`'s own `0.2s` close so the two read as one movement -- the side nav sliding away on
+    the left as this opens on the right. `opacity` is added on top of `max-width` here, unlike the
+    toggle-button transition above: a genuinely empty pane has nothing left to paint at `max-width: 0`
+    regardless, but this variant also covers whatever the pane is opening ONTO A STILL-RESOLVING
+    layout, where a border, shadow or the toolbar's own background could otherwise read as a sliver of
+    "something" at the very start of the animation. `var(--ease-standard)` for the same reason as the
+    timing: it is the curve the side nav itself moves on.
+  */
+}
+.editor-markdown-preview-initial-enter-active,
+.editor-markdown-preview-initial-leave-active {
+  transition:
+    max-width 0.2s var(--ease-standard),
+    opacity 0.2s var(--ease-standard);
+  max-width: var(--preview-width, 50vw);
+}
+.editor-markdown-preview-initial-enter-active .editor-markdown-preview-content,
+.editor-markdown-preview-initial-leave-active .editor-markdown-preview-content {
+  width: var(--preview-width, 50vw);
+  overflow: hidden;
+}
+.editor-markdown-preview-initial-enter-from,
+.editor-markdown-preview-initial-leave-to {
+  max-width: 0;
+  opacity: 0;
+}
+.editor-markdown-preview {
+  /*
+    The preview pane's own header. The design gives it no ground of its own -- it is the paper the
+    render sits on, ruled off by a hairline -- so the only thing separating it from the article
+    below is that rule, exactly as a page's own chrome is separated everywhere else in Cardinal.
+  */
+}
+.editor-markdown-preview-toolbar {
+  color: var(--color-slate);
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+.body--light .editor-markdown-preview-toolbar {
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-hairline);
+}
+.body--dark .editor-markdown-preview-toolbar {
+  background-color: var(--color-dark-3);
+  border-bottom: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-secondary-dark);
+}
+.editor-markdown-preview-toolbar {
+  /* -> The 30px square the design draws, inside a 40px band; see `-toolbar`'s own note below */
+}
+.editor-markdown-preview-toolbar .w-btn {
+  min-height: 30px !important;
+}
+.editor-markdown-preview-toolbar {
+  /*
+    The "Render preview" label. Colour comes from `-toolbar`'s own `color` above, which already
+    resolves correctly per aesthetic -- only the face itself (italic display sans, not the
+    `<strong><em>` default of bold-and-italic body text) needs stating here.
+  */
+}
+.editor-markdown-preview-toolbar-title {
+  font: italic 600 12px var(--font-sans);
+}
+.editor-markdown-preview-content {
+  height: calc(100% - 40px);
+  overflow-y: scroll;
+  /* -> The design's own article inset inside the preview pane */
+  padding: 22px 24px;
+  max-width: calc(var(--preview-width, 50vw) - 57px);
+  /* -ms-overflow-style: none; */
+  /* &::-webkit-scrollbar { */
+  /*   width: 0px; */
+  /*   background: transparent; */
+  /* } */
+}
+.editor-markdown-preview-content > div {
+  outline: none;
+}
+.editor-markdown-preview-content p.line {
+  overflow-wrap: break-word;
+}
+.editor-markdown-preview-content {
+  /*
+    The inset column this pane renders onto runs a shade smaller than the published article's own
+    `.page-contents` (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Editor"'s "Preview
+    h2 / paragraph" and "Preview inline code" rows) -- it is half a screen wide, not a full reading
+    column. Colour, weight and line-height already come out right by inheriting `_page-contents.css`'s
+    own rules (which this element's shared `page-contents` class pulls in); only the SIZE differs, so
+    only `font-size` (plus `p`'s own line-height, since it does not track a shared heading rule the
+    way `h2`'s already-correct 1.15 does) is restated here -- combined with `.page-contents` for
+    specificity over that shared file's own rules, rather than depending on stylesheet load order.
+  */
+}
+.editor-markdown-preview-content.page-contents h2 {
+  font-size: 25px;
+}
+.editor-markdown-preview-content.page-contents p {
+  font-size: 15px;
+  line-height: 1.7;
+}
+.editor-markdown-preview-content.page-contents {
+  /* -> `pre`'s own code stays at the shared file's size; only an inline span shrinks here */
+}
+.editor-markdown-preview-content.page-contents :not(pre) > code {
+  font-size: 13.5px;
+  color: var(--color-slate);
+}
+.editor-markdown-preview-content.page-contents {
+  /*
+    The GitHub-alert label ("Note", "Tip", …) reads as a flat mono eyebrow in this preview --
+    `Editor 3x - Cobalt`'s own admonition draws it in one neutral tone regardless of severity,
+    unlike the published article's hue-per-kind title (`_page-contents.css`'s `.alert-title`,
+    untouched here and left keyed to `--alert-hue`).
+  */
+}
+.editor-markdown-preview-content.page-contents .alert-title {
+  font: 600 9.5px/normal var(--font-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.editor-markdown-preview-content {
+  /*
+    A block this site has switched off, marked by `markDisabledBlock`. Editor-only styling: the
+    server strips the element on save, so no reader ever meets one of these.
 
-    /*
-      Invisible until interacted with. `-mid`'s own `border-inline-end` just before this is already
-      the seam's permanent visual line -- this only adds a highlight on top of it while the divider is
-      actually being grabbed or hovered, rather than shipping a second, always-on stripe beside it.
-    */
-    &::after {
-      content: '';
-      position: absolute;
-      inset-block: 0;
-      inset-inline-start: 3px;
-      width: 3px;
-      background-color: var(--color-primary);
-      opacity: 0;
-      transition: opacity 0.15s ease;
-    }
-    &:hover::after,
-    &.is-dragging::after {
-      opacity: 0.6;
-    }
-  }
-  &-preview {
-    flex: 0 1 50%;
-    position: relative;
-    height: 100%;
-    overflow: hidden;
-
-    /*
-      Paper, not a grey: the design renders the preview onto the same white the article column itself
-      uses, so what an author sees beside the source is the page as it will actually be read.
-    */
-    @at-root .body--light & {
-      background-color: var(--color-surface);
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-3);
-    }
-    // @include until($tablet) {
-    //   display: none;
-    // }
-    /*
-      `-enter-from` is the Vue 3 name; as `-enter` it matched nothing, so the pane animated shut but
-      snapped open. The inner selector was stale in the same way -- the content class is
-      `-preview-content` -- which left the render reflowing for the length of the transition.
-    */
-    /*
-      `var(--preview-width, 50vw)`: the custom-property fallback is what keeps this transition (and
-      the settled `-content` max-width below) behaving exactly as before for anyone who has never
-      dragged the divider -- `previewInlineStyle` only ever sets the property once a width has
-      actually been dragged or loaded from a saved one, and leaves it unset (falling through to the
-      `50vw` written here) otherwise.
-    */
-    &-enter-active,
-    &-leave-active {
-      transition: max-width 0.5s ease;
-      max-width: var(--preview-width, 50vw);
-      .editor-markdown-preview-content {
-        width: var(--preview-width, 50vw);
-        overflow: hidden;
-      }
-    }
-    &-enter-from,
-    &-leave-to {
-      max-width: 0;
-    }
-    /*
-      The pane's one-time entrance (see `previewEverRevealed`'s doc comment in the script), timed to
-      `WDrawer.vue`'s own `0.2s` close so the two read as one movement -- the side nav sliding away on
-      the left as this opens on the right. `opacity` is added on top of `max-width` here, unlike the
-      toggle-button transition above: a genuinely empty pane has nothing left to paint at `max-width: 0`
-      regardless, but this variant also covers whatever the pane is opening ONTO A STILL-RESOLVING
-      layout, where a border, shadow or the toolbar's own background could otherwise read as a sliver of
-      "something" at the very start of the animation. `var(--ease-standard)` for the same reason as the
-      timing: it is the curve the side nav itself moves on.
-    */
-    &-initial-enter-active,
-    &-initial-leave-active {
-      transition:
-        max-width 0.2s var(--ease-standard),
-        opacity 0.2s var(--ease-standard);
-      max-width: var(--preview-width, 50vw);
-      .editor-markdown-preview-content {
-        width: var(--preview-width, 50vw);
-        overflow: hidden;
-      }
-    }
-    &-initial-enter-from,
-    &-initial-leave-to {
-      max-width: 0;
-      opacity: 0;
-    }
-    /*
-      The preview pane's own header. The design gives it no ground of its own -- it is the paper the
-      render sits on, ruled off by a hairline -- so the only thing separating it from the article
-      below is that rule, exactly as a page's own chrome is separated everywhere else in Cardinal.
-    */
-    &-toolbar {
-      color: var(--color-slate);
-      height: $toolbar-height;
-      display: flex;
-      align-items: center;
-      padding: 0 12px;
-
-      @at-root .body--light & {
-        background-color: var(--color-surface);
-        border-bottom: 1px solid var(--color-hairline);
-      }
-      @at-root .body--dark & {
-        background-color: var(--color-dark-3);
-        border-bottom: 1px solid var(--color-hairline-dark);
-        color: var(--color-text-secondary-dark);
-      }
-
-      /* -> The 30px square the design draws, inside a 40px band; see `-toolbar`'s own note below */
-      .w-btn {
-        min-height: $toolbar-btn !important;
-      }
-
-      /*
-        The "Render preview" label. Colour comes from `-toolbar`'s own `color` above, which already
-        resolves correctly per aesthetic -- only the face itself (italic display sans, not the
-        `<strong><em>` default of bold-and-italic body text) needs stating here.
-      */
-      &-title {
-        font: italic 600 12px var(--font-sans);
-      }
-    }
-    &-content {
-      height: calc(100% - #{$toolbar-height});
-      overflow-y: scroll;
-      /* -> The design's own article inset inside the preview pane */
-      padding: 22px 24px;
-      max-width: calc(var(--preview-width, 50vw) - 57px);
-      // -ms-overflow-style: none;
-      // &::-webkit-scrollbar {
-      //   width: 0px;
-      //   background: transparent;
-      // }
-      > div {
-        outline: none;
-      }
-      p.line {
-        overflow-wrap: break-word;
-      }
-
-      /*
-        The inset column this pane renders onto runs a shade smaller than the published article's own
-        `.page-contents` (`ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Editor"'s "Preview
-        h2 / paragraph" and "Preview inline code" rows) -- it is half a screen wide, not a full reading
-        column. Colour, weight and line-height already come out right by inheriting `_page-contents.scss`'s
-        own rules (which this element's shared `page-contents` class pulls in); only the SIZE differs, so
-        only `font-size` (plus `p`'s own line-height, since it does not track a shared heading rule the
-        way `h2`'s already-correct 1.15 does) is restated here -- combined with `.page-contents` for
-        specificity over that shared file's own rules, rather than depending on stylesheet load order.
-      */
-      &.page-contents {
-        h2 {
-          font-size: 25px;
-        }
-        p {
-          font-size: 15px;
-          line-height: 1.7;
-        }
-        /* -> `pre`'s own code stays at the shared file's size; only an inline span shrinks here */
-        :not(pre) > code {
-          font-size: 13.5px;
-          color: var(--color-slate);
-        }
-        /*
-          The GitHub-alert label ("Note", "Tip", …) reads as a flat mono eyebrow in this preview --
-          `Editor 3x - Cobalt`'s own admonition draws it in one neutral tone regardless of severity,
-          unlike the published article's hue-per-kind title (`_page-contents.scss`'s `.alert-title`,
-          untouched here and left keyed to `--alert-hue`).
-        */
-        .alert-title {
-          font: 600 9.5px/normal var(--font-mono);
-          letter-spacing: 0.18em;
-          text-transform: uppercase;
-          color: var(--color-text-secondary);
-        }
-      }
-      /*
-        A block this site has switched off, marked by `markDisabledBlock`. Editor-only styling: the
-        server strips the element on save, so no reader ever meets one of these.
-
-        Built from the admonition palette `.page-contents` already declares -- the preview pane
-        carries that class, so both themes are covered by the tokens rather than by a rule here.
-      */
-      [data-block-disabled] {
-        display: block;
-        margin: 1rem 0;
-        padding: 0.75rem 1rem;
-        border-inline-start: 4px solid var(--content-danger);
-        background-color: var(--content-danger-wash);
-        color: var(--content-ink-muted);
-      }
-      .block-disabled-notice {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        margin: 0;
-        color: var(--content-danger);
-        font-size: 0.85rem;
-        font-weight: 600;
-
-        /* -> `tabler:alert-triangle`, drawn as a mask so it takes the colour above rather than one of its own */
-        &::before {
-          content: '';
-          flex: 0 0 auto;
-          width: 1.1rem;
-          height: 1.1rem;
-          background-color: currentColor;
-          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2z'/%3E%3C/svg%3E");
-          mask-repeat: no-repeat;
-          mask-size: contain;
-        }
-      }
-      /* -> Whatever the author wrote inside, which is what the saved page is left holding */
-      [data-block-disabled] > .block-disabled-notice + * {
-        margin-top: 0.5rem;
-      }
-      .tabset {
-        background-color: $teal-7;
-        color: $teal-2 !important;
-        padding: 5px 12px;
-        font-size: 14px;
-        font-weight: 500;
-        font-style: italic;
-        &::after {
-          display: none;
-        }
-        &-header {
-          background-color: $teal-5;
-          color: #fff !important;
-          padding: 5px 12px;
-          font-size: 14px;
-          font-weight: 500;
-          margin-top: 0 !important;
-          &::after {
-            display: none;
-          }
-        }
-        &-content {
-          border-inline-start: 5px solid $teal-5;
-          background-color: $teal-1;
-          padding: 0 15px 15px;
-          overflow: hidden;
-          /*
-            OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this dark-mode
-            override is hand-converted to a plain, unnested rule at the bottom of this style block
-            instead -- see "Hand-converted @at-root escapes" below, including why that rule now
-            reads `.body--dark` rather than this block's original `.theme--dark`.
-          */
-        }
-      }
-    }
-  }
+    Built from the admonition palette `.page-contents` already declares -- the preview pane
+    carries that class, so both themes are covered by the tokens rather than by a rule here.
+  */
+}
+.editor-markdown-preview-content [data-block-disabled] {
+  display: block;
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-inline-start: 4px solid var(--content-danger);
+  background-color: var(--content-danger-wash);
+  color: var(--content-ink-muted);
+}
+.editor-markdown-preview-content .block-disabled-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  color: var(--content-danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+  /* -> `tabler:alert-triangle`, drawn as a mask so it takes the colour above rather than one of its own */
+}
+.editor-markdown-preview-content .block-disabled-notice::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2z'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+.editor-markdown-preview-content {
+  /* -> Whatever the author wrote inside, which is what the saved page is left holding */
+}
+.editor-markdown-preview-content [data-block-disabled] > .block-disabled-notice + * {
+  margin-top: 0.5rem;
+}
+.editor-markdown-preview-content .tabset {
+  background-color: var(--color-teal-7);
+  color: var(--color-teal-2) !important;
+  padding: 5px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  font-style: italic;
+}
+.editor-markdown-preview-content .tabset::after {
+  display: none;
+}
+.editor-markdown-preview-content .tabset-header {
+  background-color: var(--color-teal-5);
+  color: #fff !important;
+  padding: 5px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 0 !important;
+}
+.editor-markdown-preview-content .tabset-header::after {
+  display: none;
+}
+.editor-markdown-preview-content .tabset-content {
+  border-inline-start: 5px solid var(--color-teal-5);
+  background-color: var(--color-teal-1);
+  padding: 0 15px 15px;
+  overflow: hidden;
+  /*
+    OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this dark-mode
+    override is hand-converted to a plain, unnested rule at the bottom of this style block
+    instead -- see "Hand-converted @at-root escapes" below, including why that rule now
+    reads `.body--dark` rather than this block's original `.theme--dark`.
+  */
+}
+.editor-markdown {
   /*
     The markup bar over the source pane.
 
@@ -2168,115 +2180,122 @@ $toolbar-btn: 30px;
     put the loudest colour in the language across the top of the one screen an author spends the most
     time on, and spent the accent on chrome rather than on the live edge it is reserved for.
   */
-  &-toolbar {
-    height: $toolbar-height;
-    padding: 0 8px;
-    // -> Flex so the preview toggle can be pushed to the far inline-end by `w-space`
-    display: flex;
-    align-items: center;
-
-    @at-root .body--light & {
-      background-color: var(--color-tint);
-      border-bottom: 1px solid var(--color-hairline);
-      color: var(--color-slate);
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-2);
-      border-bottom: 1px solid var(--color-hairline-dark);
-      color: var(--color-text-secondary-dark);
-    }
-
-    /*
-      `w-btn`'s own default min-height (2.572em, ~36px at this button's inherited 14px font-size --
-      see `WBtn.vue`'s `styles` computed) is taller than this toolbar's fixed band regardless of
-      the `padding="xs sm"` passed here, since that prop only overrides `padding`, never `minHeight`.
-      Centered by `align-items: center` above, the button box then overflows top and bottom, which is
-      invisible until a flat button's own `hover:bg-current/10` fill paints that overflow. `!important`
-      is required because `WBtn` sets `min-height` as an inline style, which otherwise beats any
-      selector here. Scoped to this toolbar's own buttons -- `WBtn.vue` keeps its default for every
-      other caller.
-    */
-    .w-btn {
-      min-height: $toolbar-btn !important;
-    }
-
-    /*
-      Cobalt draws this bar as a full-width SQUARE band (ui-iteration/README.md Part 1.1,
-      OpenProject #2870) -- not the rounded pill `WBtn`'s default `rounded-control` class
-      resolves to under Cobalt everywhere else (Task #2859's `--radius-control` token). Scoped to
-      just this toolbar's own buttons, the same way the min-height override above is; plain
-      unlayered SFC CSS already beats Tailwind's `@layer utilities` regardless of specificity, so
-      no `!important` is needed here.
-    */
-    @at-root .body--cobalt & .w-btn {
-      border-radius: 0;
-    }
-
-    /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
-    &-caret {
-      margin-inline-start: 1px;
-      color: var(--color-slate-soft);
-
-      @at-root .body--dark & {
-        color: var(--color-slate-light);
-      }
-    }
-
-    /*
-      20px of hairline, the design's own group rule, not a full-height divider. The colour goes
-      through `--w-hairline-color` because `.w-hairline` paints its line on an `::after` and is
-      itself transparent (`css/tailwind.css`); `self-stretch`/`h-auto` come off `WSeparator` as
-      Tailwind utilities, which this unlayered rule outranks without needing `!important`.
-    */
-    &-rule {
-      height: 20px;
-      margin: 0 5px;
-      align-self: center;
-      --w-hairline-color: #{var(--color-hairline)};
-
-      @at-root .body--dark & {
-        --w-hairline-color: #{var(--color-hairline-dark)};
-      }
-    }
-  }
+}
+.editor-markdown-toolbar {
+  height: 40px;
+  padding: 0 8px;
+  /* -> Flex so the preview toggle can be pushed to the far inline-end by `w-space` */
+  display: flex;
+  align-items: center;
+}
+.body--light .editor-markdown-toolbar {
+  background-color: var(--color-tint);
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-slate);
+}
+.body--dark .editor-markdown-toolbar {
+  background-color: var(--color-dark-2);
+  border-bottom: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-secondary-dark);
+}
+.editor-markdown-toolbar {
+  /*
+    `w-btn`'s own default min-height (2.572em, ~36px at this button's inherited 14px font-size --
+    see `WBtn.vue`'s `styles` computed) is taller than this toolbar's fixed band regardless of
+    the `padding="xs sm"` passed here, since that prop only overrides `padding`, never `minHeight`.
+    Centered by `align-items: center` above, the button box then overflows top and bottom, which is
+    invisible until a flat button's own `hover:bg-current/10` fill paints that overflow. `!important`
+    is required because `WBtn` sets `min-height` as an inline style, which otherwise beats any
+    selector here. Scoped to this toolbar's own buttons -- `WBtn.vue` keeps its default for every
+    other caller.
+  */
+}
+.editor-markdown-toolbar .w-btn {
+  min-height: 30px !important;
+}
+.editor-markdown-toolbar {
+  /*
+    Cobalt draws this bar as a full-width SQUARE band (ui-iteration/README.md Part 1.1,
+    OpenProject #2870) -- not the rounded pill `WBtn`'s default `rounded-control` class
+    resolves to under Cobalt everywhere else (Task #2859's `--radius-control` token). Scoped to
+    just this toolbar's own buttons, the same way the min-height override above is; plain
+    unlayered SFC CSS already beats Tailwind's `@layer utilities` regardless of specificity, so
+    no `!important` is needed here.
+  */
+}
+.body--cobalt .editor-markdown-toolbar .w-btn {
+  border-radius: 0;
+}
+.editor-markdown-toolbar {
+  /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
+}
+.editor-markdown-toolbar-caret {
+  margin-inline-start: 1px;
+  color: var(--color-slate-soft);
+}
+.body--dark .editor-markdown-toolbar-caret {
+  color: var(--color-slate-light);
+}
+.editor-markdown-toolbar {
+  /*
+    20px of hairline, the design's own group rule, not a full-height divider. The colour goes
+    through `--w-hairline-color` because `.w-hairline` paints its line on an `::after` and is
+    itself transparent (`css/tailwind.css`); `self-stretch`/`h-auto` come off `WSeparator` as
+    Tailwind utilities, which this unlayered rule outranks without needing `!important`.
+  */
+}
+.editor-markdown-toolbar-rule {
+  height: 20px;
+  margin: 0 5px;
+  align-self: center;
+  --w-hairline-color: var(--color-hairline);
+}
+.body--dark .editor-markdown-toolbar-rule {
+  --w-hairline-color: var(--color-hairline-dark);
+}
+.editor-markdown {
   /*
     The insert rail. Light slate like the toolbar beside it, ruled off from the source pane by the
     same hairline -- the two together are one continuous piece of chrome wrapping the dark editor,
     which is what the design draws and what the rest of the app already looks like.
   */
-  &-sidebar {
-    width: 48px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: center;
-    padding: 8px 0;
-
-    @at-root .body--light & {
-      background-color: var(--color-tint);
-      border-inline-end: 1px solid var(--color-hairline);
-      color: var(--color-slate);
-    }
-    @at-root .body--dark & {
-      background-color: var(--color-dark-2);
-      border-inline-end: 1px solid var(--color-hairline-dark);
-      color: var(--color-text-secondary-dark);
-    }
-
-    /*
-      The design's 34px square inside a 48px rail. `padding="sm sm"` on each button would draw a box
-      wider than the rail can hold once `WBtn`'s own min-height is added, and both of those are inline
-      styles on the element -- hence `!important`, for the same reason the markup toolbar's own
-      override above needs it.
-    */
-    .w-btn {
-      min-height: 34px !important;
-      width: 34px;
-      padding: 0 !important;
-    }
-  }
 }
-
+.editor-markdown-sidebar {
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 8px 0;
+}
+.body--light .editor-markdown-sidebar {
+  background-color: var(--color-tint);
+  border-inline-end: 1px solid var(--color-hairline);
+  color: var(--color-slate);
+}
+.body--dark .editor-markdown-sidebar {
+  background-color: var(--color-dark-2);
+  border-inline-end: 1px solid var(--color-hairline-dark);
+  color: var(--color-text-secondary-dark);
+}
+.editor-markdown-sidebar {
+  /*
+    The design's 34px square inside a 48px rail. `padding="sm sm"` on each button would draw a box
+    wider than the rail can hold once `WBtn`'s own min-height is added, and both of those are inline
+    styles on the element -- hence `!important`, for the same reason the markup toolbar's own
+    override above needs it.
+  */
+}
+.editor-markdown-sidebar .w-btn {
+  min-height: 34px !important;
+  width: 34px;
+  padding: 0 !important;
+}
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   Hand-converted @at-root escapes (OpenProject #3252). `.tabset-content`'s dark-mode tint above used
   to read `@at-root .theme--dark & { background-color: color-mix(in srgb, var(--color-teal-5) 10%,

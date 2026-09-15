@@ -75,7 +75,7 @@
           <w-checkbox v-model="state.compact" :label="t('editor.tableEditor.compact')" />
           <!--
             The classes the content stylesheet gives a table, which go under it as a `markdown-it-attrs`
-            line — see `css/_page-contents.scss`, where each of the three is defined. Last in the strip
+            line — see `css/_page-contents.css`, where each of the three is defined. Last in the strip
             and in its own colour: the only control here that opens something rather than doing something.
 
             A menu of checkboxes rather than a `w-select`: these are not one choice from a list, they are
@@ -281,7 +281,7 @@ const ALIGN_ICONS = {
 
 /*
   The classes the Styling menu offers, and what each one does to a table. Every one of them is defined in
-  `css/_page-contents.scss` -- this list is the UI for those rules, so a class added there needs a line
+  `css/_page-contents.css` -- this list is the UI for those rules, so a class added there needs a line
   here to be reachable, and a line here naming a class that is not there does nothing at all.
 
   A class an author wrote by hand that is not in this list is left alone rather than stripped: it stays in
@@ -436,14 +436,18 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .table-editor {
   /*
     The page pads itself 16px (`<w-page class="p-4">`); a section band is full-bleed, so it needs that
     inset given back. Named here, beside the padding it cancels, so the two cannot drift apart.
   */
   --w-section-bleed: 16px;
-
   /*
     Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
     overlay has to state its own or everything that merely inherits `color` stays black on the dark
@@ -457,14 +461,15 @@ onBeforeUnmount(() => {
     that shared rule, where the File Manager design asks for the same `var(--color-paper)`, and this line should be
     deleted rather than kept in step when that question is answered.
   */
-  .body--light & {
-    color: var(--color-ink);
-    background-color: var(--color-paper);
-  }
-  .body--dark & {
-    color: #fff;
-  }
-
+}
+.body--light .table-editor {
+  color: var(--color-ink);
+  background-color: var(--color-paper);
+}
+.body--dark .table-editor {
+  color: #fff;
+}
+.table-editor {
   /*
     Cancel / Update (OpenProject #2871): the general Cobalt button-group gap rule -- adjacent buttons
     take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
@@ -477,56 +482,51 @@ onBeforeUnmount(() => {
     unconditionally (`--radius-control`, 6px under Cobalt), so nothing else about the buttons
     themselves needs to change.
   */
-  .card-header .w-btn-group {
-    .body--cobalt & {
-      gap: 8px;
-
-      > .w-btn:not(:last-child) {
-        border-inline-end: none;
-      }
-    }
-  }
-
+}
+.body--cobalt .table-editor .card-header .w-btn-group {
+  gap: 8px;
+}
+.body--cobalt .table-editor .card-header .w-btn-group > .w-btn:not(:last-child) {
+  border-inline-end: none;
+}
+.table-editor {
   /*
     The toolbar band under the title bar: the page tint ruled off underneath, which is the same recipe
     `.w-section-header` draws the `Markdown` heading below with.
   */
-  &-toolbar {
-    .body--light & {
-      background-color: var(--color-tint);
-      border-bottom: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-2);
-      border-bottom: 1px solid var(--color-hairline-dark);
-    }
-
-    /*
-      The design's divider is a 22px tick in the fainter separator tone with 4px of air each side --
-      not a rule the full height of the row. `WSeparator` stretches to its flex line by default and
-      paints the generic hairline, so both are pinned here rather than by widening its props: this is
-      the only place in the app that wants a short vertical tick inside a control strip.
-    */
-    .w-separator {
-      align-self: center;
-      height: 22px;
-      margin-inline: 4px;
-      --w-hairline-color: #{var(--color-rule)};
-
-      .body--dark & {
-        --w-hairline-color: #{var(--color-border-dark)};
-      }
-    }
-  }
-
-  &-grid {
-    overflow-x: auto;
-
-    table {
-      border-collapse: collapse;
-    }
-  }
-
+}
+.body--light .table-editor-toolbar {
+  background-color: var(--color-tint);
+  border-bottom: 1px solid var(--color-hairline);
+}
+.body--dark .table-editor-toolbar {
+  background-color: var(--color-dark-2);
+  border-bottom: 1px solid var(--color-hairline-dark);
+}
+.table-editor-toolbar {
+  /*
+    The design's divider is a 22px tick in the fainter separator tone with 4px of air each side --
+    not a rule the full height of the row. `WSeparator` stretches to its flex line by default and
+    paints the generic hairline, so both are pinned here rather than by widening its props: this is
+    the only place in the app that wants a short vertical tick inside a control strip.
+  */
+}
+.table-editor-toolbar .w-separator {
+  align-self: center;
+  height: 22px;
+  margin-inline: 4px;
+  --w-hairline-color: var(--color-rule);
+}
+.body--dark .table-editor-toolbar .w-separator {
+  --w-hairline-color: var(--color-border-dark);
+}
+.table-editor-grid {
+  overflow-x: auto;
+}
+.table-editor-grid table {
+  border-collapse: collapse;
+}
+.table-editor {
   /*
     A cell is a white plate on the panel's paper, edged in the language's one border colour. Both the
     ground and the edge are STATED rather than inherited: the grid is the thing being edited, so it
@@ -538,94 +538,91 @@ onBeforeUnmount(() => {
     which is where `.table-editor-rowtools`'s `!important`s came from. Naming the data cells instead
     leaves the chrome cells unstyled, which is what they want to be.
   */
-  &-cellbox {
-    padding: 0;
-    border: 1px solid var(--color-hairline);
-    background-color: var(--color-surface);
-
-    .body--dark & {
-      border-color: var(--color-hairline-dark);
-      background-color: var(--color-dark-3);
-    }
-
-    /*
-      Banding, as the design draws it. `#f8f9fc` has no token of its own -- it is the same half-step
-      below white that `WInput`/`WSelect` paint a read-only field in, and is written as a literal there
-      too. Dark takes the recessed rung of the ramp against the panel rung above.
-    */
-    /*
-      OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this pair is
-      hand-converted to plain, unnested rules at the bottom of this style block instead -- see
-      "Hand-converted @at-root escapes" below.
-    */
-  }
-
+}
+.table-editor-cellbox {
+  padding: 0;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-surface);
+}
+.body--dark .table-editor-cellbox {
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-3);
+}
+.table-editor-cellbox {
+  /*
+    Banding, as the design draws it. `#f8f9fc` has no token of its own -- it is the same half-step
+    below white that `WInput`/`WSelect` paint a read-only field in, and is written as a literal there
+    too. Dark takes the recessed rung of the ramp against the panel rung above.
+  */
+  /*
+    OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this pair is
+    hand-converted to plain, unnested rules at the bottom of this style block instead -- see
+    "Hand-converted @at-root escapes" below.
+  */
+}
+.table-editor {
   /* -> The tools row is chrome, not content: no border under the buttons, tighter than a data row */
-  &-tools {
-    th {
-      padding: 2px 4px;
-    }
-  }
-
-  &-rowtools {
-    width: 32px;
-    padding: 0 2px;
-    text-align: center;
-  }
-
+}
+.table-editor-tools th {
+  padding: 2px 4px;
+}
+.table-editor-rowtools {
+  width: 32px;
+  padding: 0 2px;
+  text-align: center;
+}
+.table-editor {
   /*
     Each column and row tool is a 24x22 plate with a 14px glyph in it -- a hit target sized to the tools
     row rather than to a button band, which is what the design draws and what keeps the row 22px tall
     next to a 28px toolbar. `WBtn` writes its `min-height` and `padding` INLINE, off its own font size,
     so the plate has to out-specify them.
   */
-  &-toolbtn {
-    width: 24px;
-    min-width: 24px;
-    height: 22px;
-    min-height: 22px !important;
-    padding: 0 !important;
-    font-size: 14px;
-    /* -> A plate holding one glyph and no text: `WBtn`'s 1.715em leading would make it 24px tall */
-    line-height: 1;
-
-    /* -> The X reads a size larger than the align rules at the same box, so the design draws it 13px */
-    &--del {
-      font-size: 13px;
-    }
-  }
-
-  &-cell {
-    display: block;
-    width: 200px;
-    padding: 7px 9px;
-    background-color: transparent;
-    color: inherit;
-    font-size: 14px;
-    outline: none;
-
-    /*
-      The focused cell takes the tint and turns its edge slate. The ring is an `outline` on the INPUT
-      rather than a border on the cell: `border-collapse: collapse` picks one winner per shared edge, so
-      recolouring a single cell's border is not reliable. The cell is unpadded, so the input's border box
-      is the cell's content box -- an outline at offset 0 lands exactly over the collapsed border.
-    */
-    &:focus {
-      background-color: var(--color-tint);
-      outline: 1px solid var(--color-slate);
-
-      .body--dark & {
-        background-color: var(--color-dark-2);
-        outline-color: var(--color-slate-light);
-      }
-    }
-
-    /* -> The header row is what a reader sees in bold, so it reads that way here too */
-    &--head {
-      font-weight: 600;
-    }
-  }
-
+}
+.table-editor-toolbtn {
+  width: 24px;
+  min-width: 24px;
+  height: 22px;
+  min-height: 22px !important;
+  padding: 0 !important;
+  font-size: 14px;
+  /* -> A plate holding one glyph and no text: `WBtn`'s 1.715em leading would make it 24px tall */
+  line-height: 1;
+  /* -> The X reads a size larger than the align rules at the same box, so the design draws it 13px */
+}
+.table-editor-toolbtn--del {
+  font-size: 13px;
+}
+.table-editor-cell {
+  display: block;
+  width: 200px;
+  padding: 7px 9px;
+  background-color: transparent;
+  color: inherit;
+  font-size: 14px;
+  outline: none;
+  /*
+    The focused cell takes the tint and turns its edge slate. The ring is an `outline` on the INPUT
+    rather than a border on the cell: `border-collapse: collapse` picks one winner per shared edge, so
+    recolouring a single cell's border is not reliable. The cell is unpadded, so the input's border box
+    is the cell's content box -- an outline at offset 0 lands exactly over the collapsed border.
+  */
+}
+.table-editor-cell:focus {
+  background-color: var(--color-tint);
+  outline: 1px solid var(--color-slate);
+}
+.body--dark .table-editor-cell:focus {
+  background-color: var(--color-dark-2);
+  outline-color: var(--color-slate-light);
+}
+.table-editor-cell {
+  /* -> The header row is what a reader sees in bold, so it reads that way here too */
+}
+.table-editor-cell--head {
+  font-weight: 600;
+}
+.table-editor {
   /*
     Cobalt matte: the single-plate grid (OpenProject #2858, `ui-iteration/README.md` Part 1.1).
     Every other aesthetic keeps the grid the generic rules above already draw -- individually
@@ -644,56 +641,59 @@ onBeforeUnmount(() => {
     would tie, leaving the winner to source order rather than intent. The extra `body` type selector
     breaks that tie unconditionally, matching `tailwind.css`'s own `body.body--cobalt` convention.
   */
-  body.body--cobalt & {
-    &-grid table {
-      border-collapse: separate;
-      border-spacing: 2px;
-      background-color: var(--color-tint);
-      border-radius: var(--radius-card);
-      padding: 2px;
-      border: 1px solid var(--color-hairline);
-    }
-
-    /*
-      The collapsed table's per-cell hairline is gone -- the plate's own border-spacing gap, filled
-      with the plate's tint, is what separates cells now. Left unrounded and unshadowed, per spec.
-    */
-    &-cellbox {
-      border: 0;
-    }
-
-    /*
-      The header row reads a half-step lighter than the plate, toward the page ground -- the
-      relationship the board draws (`#eef2ff` sits between the plate's `#e6edff` and the page's
-      `#f2f5ff`). The dark counterpart lives in the separate `body.body--cobalt.body--dark &` block
-      below, not nested here: `&` at this point already resolves to the full
-      `body.body--cobalt .table-editor th.table-editor-cellbox` chain, so prefixing it with another
-      `body.body--cobalt` ancestor would ask for two `<body>` elements and never match -- a real
-      regression this file's own real-Chromium suite caught (OpenProject #2858).
-    */
-    th.table-editor-cellbox {
-      background-color: #eef2ff;
-    }
-
-    /* -> Both chrome strips -- the alignment/delete tools row and the row-tools column -- sit on
-            the page ground rather than staying transparent, matching the board's `#f2f5ff` */
-    &-tools th,
-    &-rowtools {
-      background-color: var(--color-paper);
-    }
-
-    /*
-      The active cell takes a 2px inset ring instead of the generic tint-and-outline treatment --
-      `border-collapse: separate` means there is no shared, collapsed edge to protect any more, so
-      the ring can sit directly on the input without the generic rule's workaround.
-    */
-    &-cell:focus {
-      background-color: var(--color-surface);
-      outline: none;
-      box-shadow: inset 0 0 0 2px var(--color-accent-strong);
-    }
-  }
-
+}
+body.body--cobalt .table-editor-grid table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  background-color: var(--color-tint);
+  border-radius: var(--radius-card);
+  padding: 2px;
+  border: 1px solid var(--color-hairline);
+}
+body.body--cobalt .table-editor {
+  /*
+    The collapsed table's per-cell hairline is gone -- the plate's own border-spacing gap, filled
+    with the plate's tint, is what separates cells now. Left unrounded and unshadowed, per spec.
+  */
+}
+body.body--cobalt .table-editor-cellbox {
+  border: 0;
+}
+body.body--cobalt .table-editor {
+  /*
+    The header row reads a half-step lighter than the plate, toward the page ground -- the
+    relationship the board draws (`#eef2ff` sits between the plate's `#e6edff` and the page's
+    `#f2f5ff`). The dark counterpart lives in the separate `body.body--cobalt.body--dark &` block
+    below, not nested here: `&` at this point already resolves to the full
+    `body.body--cobalt .table-editor th.table-editor-cellbox` chain, so prefixing it with another
+    `body.body--cobalt` ancestor would ask for two `<body>` elements and never match -- a real
+    regression this file's own real-Chromium suite caught (OpenProject #2858).
+  */
+}
+body.body--cobalt .table-editor th.table-editor-cellbox {
+  background-color: #eef2ff;
+}
+body.body--cobalt .table-editor {
+  /* -> Both chrome strips -- the alignment/delete tools row and the row-tools column -- sit on
+          the page ground rather than staying transparent, matching the board's `#f2f5ff` */
+}
+body.body--cobalt .table-editor-tools th,
+body.body--cobalt .table-editor-rowtools {
+  background-color: var(--color-paper);
+}
+body.body--cobalt .table-editor {
+  /*
+    The active cell takes a 2px inset ring instead of the generic tint-and-outline treatment --
+    `border-collapse: separate` means there is no shared, collapsed edge to protect any more, so
+    the ring can sit directly on the input without the generic rule's workaround.
+  */
+}
+body.body--cobalt .table-editor-cell:focus {
+  background-color: var(--color-surface);
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent-strong);
+}
+.table-editor {
   /*
     Cobalt dark's one departure from the light block above: the header-cell tint. There is no
     Cobalt-dark board for this screen to measure against, so this reaches for the ramp's own
@@ -703,11 +703,9 @@ onBeforeUnmount(() => {
     `body.body--cobalt` -- see the comment on `th.table-editor-cellbox` above for why nesting it
     there doesn't work.
   */
-  body.body--cobalt.body--dark & {
-    th.table-editor-cellbox {
-      background-color: var(--color-dark-3);
-    }
-  }
+}
+body.body--cobalt.body--dark .table-editor th.table-editor-cellbox {
+  background-color: var(--color-dark-3);
 }
 
 /*

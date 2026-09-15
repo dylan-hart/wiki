@@ -768,18 +768,20 @@ function commitRenamePendingAsset(item) {
 }
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   Just under the width at which the site's nav sidebar stops taking a column of its own -- the number
   `MainLayout` hands its drawer as `overlayBelow`, and the same one `NavSidebar` states for its own use.
   Below it the corner button lands in this rail; see the padding rule.
 */
-
 /** One row of this rail, which is what the bottom group has to clear. Matches the buttons' `h-12`. */
-
 .page-actions {
   flex: 0 0 56px;
-
   /*
     Room at the foot of the rail for the button in the corner of the window -- scroll-to-top, or the
     contents panel's opener below 750px (`MainLayout` and `pages/Index.vue` respectively). While the nav
@@ -793,10 +795,13 @@ function commitRenamePendingAsset(item) {
     permissions and on whether the editor is open, and the space is owed to whichever of them it turns out
     to be. The rail scrolls its own overflow, so this is inside what scrolls and cannot be scrolled behind.
   */
-  @media (max-width: 1199.98px) {
+}
+@media (max-width: 1199.98px) {
+  .page-actions {
     padding-bottom: 3rem;
   }
-
+}
+.page-actions {
   /*
     Gone on a phone while a page is being read: the rail is a column of icon buttons whose labels only
     ever appear in a tooltip, which a touch screen has no way to show -- so it reads as six unexplained
@@ -805,25 +810,27 @@ function commitRenamePendingAsset(item) {
     Not while the editor is open (`is-editor`), where the rail holds the properties panel and the pending
     asset queue, and taking it away would leave an author with no way to reach either.
   */
-  @media (max-width: 599.98px) {
-    &:not(.is-editor) {
-      display: none;
-    }
+}
+@media (max-width: 599.98px) {
+  .page-actions:not(.is-editor) {
+    display: none;
   }
-
+}
+.page-actions {
   /*
     The rail's own ground: the tint, ruled off from the article column beside it. Cardinal's chrome is
     continuous light slate, so the rail is a strip of the same paper the sidebar is, not a grey block.
   */
-  .body--light & {
-    background-color: var(--color-tint);
-    border-inline-start: 1px solid var(--color-hairline);
-  }
-  .body--dark & {
-    background-color: var(--color-dark-4);
-    border-inline-start: 1px solid var(--color-hairline-dark);
-  }
-
+}
+.body--light .page-actions {
+  background-color: var(--color-tint);
+  border-inline-start: 1px solid var(--color-hairline);
+}
+.body--dark .page-actions {
+  background-color: var(--color-dark-4);
+  border-inline-start: 1px solid var(--color-hairline-dark);
+}
+.page-actions {
   /*
     Cobalt draws the READING rail as a short floating white card rather than Ledger's full-height
     flush strip (`Page View 3x - Cobalt` mockup) -- `align-self: flex-start` is what lets it stop
@@ -834,100 +841,98 @@ function commitRenamePendingAsset(item) {
     screens genuinely disagree here, and Cobalt's page view is authoritative for the reading rail
     only (OpenProject #2774).
   */
-  body.body--cobalt &:not(.is-editor) {
-    flex: 0 0 40px;
-    align-self: flex-start;
-    margin: 28px 24px 28px 0;
-    border-inline-start: 0;
-    border-radius: var(--radius-card);
-    background-color: var(--color-white);
+}
+body.body--cobalt .page-actions:not(.is-editor) {
+  flex: 0 0 40px;
+  align-self: flex-start;
+  margin: 28px 24px 28px 0;
+  border-inline-start: 0;
+  border-radius: var(--radius-card);
+  background-color: var(--color-white);
+  /*
+    An INSET ring, not `--shadow-card` (every other consumer's plain outer one): OpenProject #3040.
+    `.page-actions` carries an unconditional `overflow-y: auto` a few rules down, which per spec
+    forces `overflow-x` to compute to `auto` too -- so any child that tried to physically overhang
+    this box (to paint over an OUTER ring sitting past its own edge) would just get clipped there,
+    ring and all, confirmed by screenshotting an isolated repro in real Chromium before landing
+    this. An inset ring instead lives INSIDE the box's own paintable area, in the same paint layer
+    as the background, so the page-properties plate below -- flush with this box's edges, not
+    overhanging them -- covers it in ordinary z-order with no overflow or margin tricks needed.
+    Deliberately local to this one selector rather than flipping the shared `--shadow-card` token
+    itself, which every other floating Cobalt card/panel still draws as a plain outer ring.
+    `--color-hairline` (not `-dark`): this token is already redefined inside `body.body--cobalt.
+    body--dark` to the same value `--shadow-card`'s own dark branch uses, so this stays correct
+    under dark mode with no second, dark-scoped copy of this rule.
+  */
+  box-shadow: inset 0 0 0 1px var(--color-hairline);
+  /*
+    The rail's own primary action (Page Properties), lifted into a 40px rounded accent-fill plate --
+    the mockup's own "40px rounded primary action plate" -- rather than Ledger's square first cell.
 
-    /*
-      An INSET ring, not `--shadow-card` (every other consumer's plain outer one): OpenProject #3040.
-      `.page-actions` carries an unconditional `overflow-y: auto` a few rules down, which per spec
-      forces `overflow-x` to compute to `auto` too -- so any child that tried to physically overhang
-      this box (to paint over an OUTER ring sitting past its own edge) would just get clipped there,
-      ring and all, confirmed by screenshotting an isolated repro in real Chromium before landing
-      this. An inset ring instead lives INSIDE the box's own paintable area, in the same paint layer
-      as the background, so the page-properties plate below -- flush with this box's edges, not
-      overhanging them -- covers it in ordinary z-order with no overflow or margin tricks needed.
-      Deliberately local to this one selector rather than flipping the shared `--shadow-card` token
-      itself, which every other floating Cobalt card/panel still draws as a plain outer ring.
-      `--color-hairline` (not `-dark`): this token is already redefined inside `body.body--cobalt.
-      body--dark` to the same value `--shadow-card`'s own dark branch uses, so this stays correct
-      under dark mode with no second, dark-scoped copy of this rule.
-    */
-    box-shadow: inset 0 0 0 1px var(--color-hairline);
+    OpenProject #3040: the top corners take the CARD's own `--radius-card` (8px), not the plate's
+    usual `--radius-control` (6px), and `margin-top` is 0 rather than an 8px inset -- this plate is
+    the rail's only cell flush with a card edge on three sides (left, right, top; the ring above is
+    the reason those three, and only those three, need it) and is drawn to actually cap the card
+    there, top corners included, rather than sit inset from it with the card's hairline showing
+    around it. The bottom corners stay `--radius-control`: the plate doesn't reach the card's
+    bottom edge, so there's no card corner there to match.
 
-    /*
-      The rail's own primary action (Page Properties), lifted into a 40px rounded accent-fill plate --
-      the mockup's own "40px rounded primary action plate" -- rather than Ledger's square first cell.
+    OpenProject #2813: this plate is a plain cell, not a `WBtn`, so it can't pick up
+    `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
+    hand-wired consumer on purpose, already keyed off the accent family #2813 decided on.
+  */
+}
+body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 4px;
+  border-radius: var(--radius-card) var(--radius-card) var(--radius-control) var(--radius-control);
+  border-block-end: 0;
+  /*
+    `--color-accent`, not `--color-accent-fill`: this plate carries a white glyph, and the
+    handoff's fill/text split puts a white-texted accent surface on `#c8303c` (5.3:1) rather
+    than the untexted `#ff4d5a` (3.1:1) -- the same divergence it flags as a defect in the
+    mockups themselves.
+  */
+  background-color: var(--color-accent);
+  box-shadow: var(--shadow-primary);
+  /*
+    OpenProject #2903: on `.aspect-square:first-child` ITSELF this loses to `w-btn`'s own inline
+    `color` -- the template passes `color="accent-fill"` for this button (Ledger's plain white
+    cell wants that as its glyph colour, and does, since Ledger declares no color rule here to
+    compete with it), and an inline style always beats an external rule on the very same element
+    regardless of specificity. Targeting the icon -- a DESCENDANT of the button the inline style
+    is on -- sidesteps that: a stylesheet rule that specifies `color` for `.w-icon` itself is a
+    specified value for THAT element, which wins over whatever it would otherwise have inherited
+    (inline or not) from its ancestor. Same mechanism the "rest of the rail" rule below already
+    relies on; this plate just wasn't using it, so `--color-accent-fill`'s red rendered on the
+    red-toned `--color-accent` plate instead of the white the mockup draws.
+  */
+}
+body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child .w-icon {
+  color: var(--color-white);
+}
+body.body--cobalt .page-actions:not(.is-editor) {
+  /*
+    And the rest of the rail's glyphs, which the mockup draws as cobalt strokes on the card rather
+    than the chrome-slate Ledger sets them in. `--color-accent-strong` is `#1f4fd6` under Cobalt
+    (and `#7fa0ff` on its dark ground), which is exactly the tone the mockup uses.
 
-      OpenProject #3040: the top corners take the CARD's own `--radius-card` (8px), not the plate's
-      usual `--radius-control` (6px), and `margin-top` is 0 rather than an 8px inset -- this plate is
-      the rail's only cell flush with a card edge on three sides (left, right, top; the ring above is
-      the reason those three, and only those three, need it) and is drawn to actually cap the card
-      there, top corners included, rather than sit inset from it with the card's hairline showing
-      around it. The bottom corners stay `--radius-control`: the plate doesn't reach the card's
-      bottom edge, so there's no card corner there to match.
-
-      OpenProject #2813: this plate is a plain cell, not a `WBtn`, so it can't pick up
-      `--shadow-primary` through that component's own `color="accent"` wiring -- it stays a direct,
-      hand-wired consumer on purpose, already keyed off the accent family #2813 decided on.
-    */
-    > .aspect-square:first-child {
-      width: 40px;
-      height: 40px;
-      margin: 0 auto 4px;
-      border-radius: var(--radius-card) var(--radius-card) var(--radius-control)
-        var(--radius-control);
-      border-block-end: 0;
-      /*
-        `--color-accent`, not `--color-accent-fill`: this plate carries a white glyph, and the
-        handoff's fill/text split puts a white-texted accent surface on `#c8303c` (5.3:1) rather
-        than the untexted `#ff4d5a` (3.1:1) -- the same divergence it flags as a defect in the
-        mockups themselves.
-      */
-      background-color: var(--color-accent);
-      box-shadow: var(--shadow-primary);
-
-      /*
-        OpenProject #2903: on `.aspect-square:first-child` ITSELF this loses to `w-btn`'s own inline
-        `color` -- the template passes `color="accent-fill"` for this button (Ledger's plain white
-        cell wants that as its glyph colour, and does, since Ledger declares no color rule here to
-        compete with it), and an inline style always beats an external rule on the very same element
-        regardless of specificity. Targeting the icon -- a DESCENDANT of the button the inline style
-        is on -- sidesteps that: a stylesheet rule that specifies `color` for `.w-icon` itself is a
-        specified value for THAT element, which wins over whatever it would otherwise have inherited
-        (inline or not) from its ancestor. Same mechanism the "rest of the rail" rule below already
-        relies on; this plate just wasn't using it, so `--color-accent-fill`'s red rendered on the
-        red-toned `--color-accent` plate instead of the white the mockup draws.
-      */
-      .w-icon {
-        color: var(--color-white);
-      }
-    }
-
-    /*
-      And the rest of the rail's glyphs, which the mockup draws as cobalt strokes on the card rather
-      than the chrome-slate Ledger sets them in. `--color-accent-strong` is `#1f4fd6` under Cobalt
-      (and `#7fa0ff` on its dark ground), which is exactly the tone the mockup uses.
-
-      `.h-12`, not `.aspect-square:not(:first-child)`: Page Properties is the rail's only
-      `.aspect-square` cell (the header comment above explains why -- it alone keeps the full square,
-      every other button is `h-12`), so a `:not(:first-child)` sibling of it never existed to match
-      and this rule was dead from the day it was written -- these buttons kept their inline
-      `slate-soft` (`#7b88bd`, a hairline/stroke tone, not the mockup's saturated link blue) instead.
-      Targeted at `.w-icon` for the same inline-beats-external-on-the-SAME-element reason as above.
-    */
-    > .h-12 .w-icon {
-      color: var(--color-accent-strong);
-    }
-  }
-  body.body--cobalt.body--dark &:not(.is-editor) {
-    background-color: var(--color-dark-3);
-  }
-
+    `.h-12`, not `.aspect-square:not(:first-child)`: Page Properties is the rail's only
+    `.aspect-square` cell (the header comment above explains why -- it alone keeps the full square,
+    every other button is `h-12`), so a `:not(:first-child)` sibling of it never existed to match
+    and this rule was dead from the day it was written -- these buttons kept their inline
+    `slate-soft` (`#7b88bd`, a hairline/stroke tone, not the mockup's saturated link blue) instead.
+    Targeted at `.w-icon` for the same inline-beats-external-on-the-SAME-element reason as above.
+  */
+}
+body.body--cobalt .page-actions:not(.is-editor) > .h-12 .w-icon {
+  color: var(--color-accent-strong);
+}
+body.body--cobalt.body--dark .page-actions:not(.is-editor) {
+  background-color: var(--color-dark-3);
+}
+.page-actions {
   /*
     NOT changed here: the mockup's reading rail shows four cells (Edit, History, Export, More) where
     this component renders whatever the reader's permissions and the page's own state allow (Page
@@ -936,7 +941,6 @@ function commitRenamePendingAsset(item) {
     hero screenshot would be a functional regression dressed as a style fix, so this is a content
     decision left alone rather than guessed at (OpenProject #2774's acceptance criterion 1).
   */
-
   /*
     Editing fills the rail, which is what `ui-redesign/Cardinal Wiki - Editor 3x.dc.html` draws: the
     whole 56px column in the accent, white glyphs on it, the dividers and the mode overline in white
@@ -953,73 +957,74 @@ function commitRenamePendingAsset(item) {
     still switched to `color="white"` -- so an author editing a page was looking at white glyphs on
     #eef1f7, i.e. at an empty strip.
   */
-  &.is-editor {
-    /*
-      Both theme scopes, spelled out, because the rail's resting ground just above is itself written
-      as `.body--light &` / `.body--dark &` -- a bare `&.is-editor` would be one class short of those
-      and lose the cascade to them, leaving the fill off entirely.
-    */
-    /*
-      `--color-accent`, not `--color-primary`: the two are the same `#c14a52` in Ledger, so this
-      changes nothing there -- but they part company under Cobalt, where `primary` is the aesthetic's
-      cobalt blue and the accent is what an accent SURFACE takes. `Editor 3x - Cobalt` paints this
-      rail `#ff4d5a`; the accent token resolves to `#c8303c` instead, for exactly the reason the
-      paragraph above gives about Ledger's own `#e4676b` -- the rail carries white glyphs and a white
-      overline, and `#ff4d5a` under white is 3.1:1. Same known mockup defect, same correction.
-    */
-    .body--light &,
-    .body--dark & {
-      background-color: var(--color-accent);
-      border-inline-start: 1px solid var(--color-accent);
-      color: #fff;
-    }
-
-    /*
-      The design's own dividers: the rail's white, held back so they rule without cutting. Through
-      `--w-hairline-color`, not `background-color`: `.w-hairline` is transparent itself and paints the
-      line on an `::after` that reads that property (`css/tailwind.css`), so a colour set on the
-      element paints nothing at all.
-    */
-    .w-separator {
-      --w-hairline-color: rgb(255 255 255 / 0.3);
-    }
-  }
-
+}
+.page-actions.is-editor {
+  /*
+    Both theme scopes, spelled out, because the rail's resting ground just above is itself written
+    as `.body--light &` / `.body--dark &` -- a bare `&.is-editor` would be one class short of those
+    and lose the cascade to them, leaving the fill off entirely.
+  */
+  /*
+    `--color-accent`, not `--color-primary`: the two are the same `#c14a52` in Ledger, so this
+    changes nothing there -- but they part company under Cobalt, where `primary` is the aesthetic's
+    cobalt blue and the accent is what an accent SURFACE takes. `Editor 3x - Cobalt` paints this
+    rail `#ff4d5a`; the accent token resolves to `#c8303c` instead, for exactly the reason the
+    paragraph above gives about Ledger's own `#e4676b` -- the rail carries white glyphs and a white
+    overline, and `#ff4d5a` under white is 3.1:1. Same known mockup defect, same correction.
+  */
+}
+.body--light .page-actions.is-editor,
+.body--dark .page-actions.is-editor {
+  background-color: var(--color-accent);
+  border-inline-start: 1px solid var(--color-accent);
+  color: #fff;
+}
+.page-actions.is-editor {
+  /*
+    The design's own dividers: the rail's white, held back so they rule without cutting. Through
+    `--w-hairline-color`, not `background-color`: `.w-hairline` is transparent itself and paints the
+    line on an `::after` that reads that property (`css/tailwind.css`), so a colour set on the
+    element paints nothing at all.
+  */
+}
+.page-actions.is-editor .w-separator {
+  --w-hairline-color: rgb(255 255 255 / 0.3);
+}
+.page-actions {
   /*
     The rail's first cell -- page properties, its primary action -- lifted onto the article column's
     own white so it reads as the head of the rail rather than as the first of a row of equals. While
     the rail is filled there is no white to lift it onto, so the design marks it the only way a solid
     ground can be marked from within: a wash of its own foreground.
   */
-  > .aspect-square:first-child {
-    .body--light & {
-      background-color: var(--color-surface);
-      border-block-end: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-3);
-      border-block-end: 1px solid var(--color-hairline-dark);
-    }
-  }
-
+}
+.body--light .page-actions > .aspect-square:first-child {
+  background-color: var(--color-surface);
+  border-block-end: 1px solid var(--color-hairline);
+}
+.body--dark .page-actions > .aspect-square:first-child {
+  background-color: var(--color-dark-3);
+  border-block-end: 1px solid var(--color-hairline-dark);
+}
+.page-actions {
   /*
     Written with `.body--light`/`.body--dark` spelled out rather than relying on source order: the
     two rules just above are themselves theme-scoped, so an unscoped override would tie on
     specificity and win only by position -- which the next edit to this file could quietly undo.
   */
-  .body--light &.is-editor > .aspect-square:first-child {
-    background-color: rgb(255 255 255 / 0.14);
-    border-block-end: 0;
-  }
-  .body--dark &.is-editor > .aspect-square:first-child {
-    background-color: rgb(255 255 255 / 0.14);
-    border-block-end: 0;
-  }
-
+}
+.body--light .page-actions.is-editor > .aspect-square:first-child {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-block-end: 0;
+}
+.body--dark .page-actions.is-editor > .aspect-square:first-child {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-block-end: 0;
+}
+.page-actions {
   /* -> Taller than the shell only on a very short window, and then it scrolls rather than clipping */
   overflow-y: auto;
   scrollbar-width: none;
-
   /*
     Set down the rail in Cardinal's chrome overline: tracked uppercase Roboto Mono.
 
@@ -1028,21 +1033,20 @@ function commitRenamePendingAsset(item) {
     4.5:1 on `var(--color-primary)` where the softened version does not, and there is nothing else on the rail for
     it to be held back from.
   */
-  &-mode {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    padding: 1.75rem 1rem 1.75rem 0;
-    color: #fff;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-  }
-
-  &-pending-badge {
-    animation: pageActionsBadgePulsate 2s ease infinite;
-  }
+}
+.page-actions-mode {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 1.75rem 1rem 1.75rem 0;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.page-actions-pending-badge {
+  animation: pageActionsBadgePulsate 2s ease infinite;
 }
 
 @keyframes pageActionsBadgePulsate {

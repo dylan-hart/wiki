@@ -23,9 +23,9 @@ import { describe, expect, it } from 'vitest'
 const componentDir = dirname(fileURLToPath(import.meta.url))
 const componentSource = readFileSync(join(componentDir, 'TreeNav.vue'), 'utf-8')
 
-const styleMatch = componentSource.match(/<style lang="scss">([\s\S]*?)<\/style>/)
+const styleMatch = componentSource.match(/<style>([\s\S]*?)<\/style>/)
 if (!styleMatch) {
-  throw new Error('TreeNav.vue should still carry a `<style lang="scss">` block')
+  throw new Error('TreeNav.vue should still carry a `<style>` block')
 }
 const styleSource = styleMatch[1]
 
@@ -50,14 +50,14 @@ describe('TreeNav.vue: indentation is a hover-only dot cue, not an always-on lin
   })
 
   it("ports the main navbar's own hover-only radial-dot depth cue verbatim (6px inset, 10px lanes, `max()`-floored width, `@media (hover: hover)`-guarded)", () => {
-    expect(liveStyleSource).toMatch(/&::before/)
+    expect(liveStyleSource).toMatch(/::before/)
     expect(liveStyleSource).toMatch(/inset-inline-start:\s*6px/)
     expect(liveStyleSource).toMatch(
-      /width:\s*max\(0px,\s*calc\(var\(--tree-depth,\s*0\)\s*\*\s*10px\s*-\s*4px\)\)/
+      /width:\s*max\(0px,\s*var\(--tree-depth,\s*0\)\s*\*\s*10px\s*-\s*4px\)/
     )
     expect(liveStyleSource).toMatch(/radial-gradient\(circle,\s*var\(--color-slate-faint\)/)
     expect(liveStyleSource).toMatch(/opacity:\s*0;/)
     expect(liveStyleSource).toMatch(/@media \(hover: hover\)/)
-    expect(liveStyleSource).toMatch(/&:hover::before\s*\{\s*opacity:\s*0\.5;/)
+    expect(liveStyleSource).toMatch(/:hover::before\s*\{\s*opacity:\s*0\.5;/)
   })
 })

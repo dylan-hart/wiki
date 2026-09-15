@@ -208,7 +208,12 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   The contents list.
 
@@ -236,166 +241,158 @@ onBeforeUnmount(() => {
   --page-toc-active-mark: 2px;
   --page-toc-active-radius: 0;
   --page-toc-active-weight: inherit;
-
   line-height: 1.4;
-
-  body.body--cobalt & {
-    --page-toc-rail: transparent;
-    --page-toc-ink-strong: var(--color-text-body);
-    --page-toc-ink: var(--color-text-secondary);
-    --page-toc-ink-soft: var(--color-text-secondary);
-    --page-toc-ink-hover: var(--color-ink);
-    --page-toc-hover-surface: var(--color-tint);
-    --page-toc-active-ink: var(--color-accent);
-    --page-toc-active-surface: var(--color-accent-wash);
-    --page-toc-active-mark: 0;
-    --page-toc-active-radius: 5px;
-    --page-toc-active-weight: 600;
-  }
-
-  body.body--cobalt.body--dark & {
-    --page-toc-ink-strong: var(--color-text-dark);
-    --page-toc-ink: var(--color-text-secondary-dark);
-    --page-toc-ink-soft: var(--color-text-secondary-dark);
-    --page-toc-ink-hover: var(--color-text-dark);
-    --page-toc-hover-surface: rgba(255, 255, 255, 0.06);
-    --page-toc-active-ink: var(--color-accent-dark);
-    --page-toc-active-surface: var(--color-accent-wash-dark);
-  }
-
-  .body--dark & {
-    --page-toc-rail: rgba(255, 255, 255, 0.12);
-    --page-toc-ink-strong: rgba(255, 255, 255, 0.87);
-    --page-toc-ink: rgba(255, 255, 255, 0.6);
-    --page-toc-ink-soft: rgba(255, 255, 255, 0.45);
-    --page-toc-ink-hover: #fff;
-    --page-toc-hover-surface: rgba(255, 255, 255, 0.06);
-  }
-
-  &-list {
-    position: relative;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-
-    /*
-      The rail. Inset top and bottom so it stops level with the first and last label, and on the
-      INLINE-START edge -- the side the depth ramp indents away from -- so it sits under the reader's
-      right hand in RTL rather than staying pinned to the physical left.
-    */
-    &::before {
-      content: '';
-      position: absolute;
-      top: 3px;
-      bottom: 3px;
-      inset-inline-start: 0;
-      width: 1px;
-      background-color: var(--page-toc-rail);
-    }
-  }
-
-  &-item {
-    position: relative;
-    /* Depth is carried as a custom property by the template, so one rule indents every level */
-    padding-inline-start: calc(var(--page-toc-depth) * var(--page-toc-indent));
-  }
-
+}
+body.body--cobalt .page-toc {
+  --page-toc-rail: transparent;
+  --page-toc-ink-strong: var(--color-text-body);
+  --page-toc-ink: var(--color-text-secondary);
+  --page-toc-ink-soft: var(--color-text-secondary);
+  --page-toc-ink-hover: var(--color-ink);
+  --page-toc-hover-surface: var(--color-tint);
+  --page-toc-active-ink: var(--color-accent);
+  --page-toc-active-surface: var(--color-accent-wash);
+  --page-toc-active-mark: 0;
+  --page-toc-active-radius: 5px;
+  --page-toc-active-weight: 600;
+}
+body.body--cobalt.body--dark .page-toc {
+  --page-toc-ink-strong: var(--color-text-dark);
+  --page-toc-ink: var(--color-text-secondary-dark);
+  --page-toc-ink-soft: var(--color-text-secondary-dark);
+  --page-toc-ink-hover: var(--color-text-dark);
+  --page-toc-hover-surface: rgba(255, 255, 255, 0.06);
+  --page-toc-active-ink: var(--color-accent-dark);
+  --page-toc-active-surface: var(--color-accent-wash-dark);
+}
+.body--dark .page-toc {
+  --page-toc-rail: rgba(255, 255, 255, 0.12);
+  --page-toc-ink-strong: rgba(255, 255, 255, 0.87);
+  --page-toc-ink: rgba(255, 255, 255, 0.6);
+  --page-toc-ink-soft: rgba(255, 255, 255, 0.45);
+  --page-toc-ink-hover: #fff;
+  --page-toc-hover-surface: rgba(255, 255, 255, 0.06);
+}
+.page-toc-list {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /*
+    The rail. Inset top and bottom so it stops level with the first and last label, and on the
+    INLINE-START edge -- the side the depth ramp indents away from -- so it sits under the reader's
+    right hand in RTL rather than staying pinned to the physical left.
+  */
+}
+.page-toc-list::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  inset-inline-start: 0;
+  width: 1px;
+  background-color: var(--page-toc-rail);
+}
+.page-toc-item {
+  position: relative;
+  /* Depth is carried as a custom property by the template, so one rule indents every level */
+  padding-inline-start: calc(var(--page-toc-depth) * var(--page-toc-indent));
+}
+.page-toc {
   /*
     The active marker, drawn ON the rail rather than beside it: `inset-inline-start: 0` is the item's
     own border box, which starts at the rail whatever the indentation, so every depth marks the same
     line -- on whichever edge the rail itself is on.
   */
-  &-item--active::before {
-    content: '';
-    position: absolute;
-    top: 2px;
-    bottom: 2px;
-    inset-inline-start: 0;
-    width: var(--page-toc-active-mark);
-    background-color: var(--page-toc-active-ink);
-  }
-
-  &-link {
-    display: block;
-    /* 9px of gutter, not a caret column: the rail is the only thing before a label, on its start side */
-    padding-block: 3px;
-    padding-inline: 9px 8px;
-    color: inherit;
-    font-size: inherit;
-    font-weight: inherit;
-    text-decoration: none;
-    /* Long headings wrap rather than being cut off; the sidebar is 300px wide, 200px under 1400px */
-    overflow-wrap: break-word;
-    /*
-      Always present, not just while active: only `color`/`background-color` transition below, so a
-      radius that appeared/disappeared with the active class would snap to square corners the instant
-      the class is removed, while the background is still fading out over the same 0.2s. A rounded
-      corner on a `transparent` background (Ledger's default, and any inactive row in Cobalt) draws
-      nothing, so this costs nothing when inactive.
-    */
-    border-radius: var(--page-toc-active-radius);
-    transition:
-      color 0.2s var(--ease-standard),
-      background-color 0.2s var(--ease-standard);
-
-    &:hover {
-      color: var(--page-toc-ink-hover);
-      background-color: var(--page-toc-hover-surface);
-    }
-  }
-
+}
+.page-toc-item--active::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  inset-inline-start: 0;
+  width: var(--page-toc-active-mark);
+  background-color: var(--page-toc-active-ink);
+}
+.page-toc-link {
+  display: block;
+  /* 9px of gutter, not a caret column: the rail is the only thing before a label, on its start side */
+  padding-block: 3px;
+  padding-inline: 9px 8px;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  text-decoration: none;
+  /* Long headings wrap rather than being cut off; the sidebar is 300px wide, 200px under 1400px */
+  overflow-wrap: break-word;
+  /*
+    Always present, not just while active: only `color`/`background-color` transition below, so a
+    radius that appeared/disappeared with the active class would snap to square corners the instant
+    the class is removed, while the background is still fading out over the same 0.2s. A rounded
+    corner on a `transparent` background (Ledger's default, and any inactive row in Cobalt) draws
+    nothing, so this costs nothing when inactive.
+  */
+  border-radius: var(--page-toc-active-radius);
+  transition:
+    color 0.2s var(--ease-standard),
+    background-color 0.2s var(--ease-standard);
+}
+.page-toc-link:hover {
+  color: var(--page-toc-ink-hover);
+  background-color: var(--page-toc-hover-surface);
+}
+.page-toc {
   /*
     The depth ramp. Each level steps down in weight, size and contrast, so nesting is legible from
     the type alone -- indentation on its own left every level looking like the same kind of thing.
   */
-  &-item--d0 {
-    color: var(--page-toc-ink-strong);
-    font-size: 0.8125rem;
-    font-weight: 500;
-  }
-
+}
+.page-toc-item--d0 {
+  color: var(--page-toc-ink-strong);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.page-toc {
   /* Air above each top-level entry, which is what separates one section's block from the next */
-  &-item--d0 + &-item--d0,
-  &-item--d1 + &-item--d0,
-  &-item--d2 + &-item--d0 {
-    margin-top: 7px;
-  }
-
-  &-item--d1 {
-    color: var(--page-toc-ink);
-    font-size: 0.78125rem;
-    font-weight: 400;
-  }
-
-  &-item--d2 {
-    color: var(--page-toc-ink-soft);
-    font-size: 0.75rem;
-    font-weight: 400;
-  }
-
+}
+.page-toc-item--d0 + .page-toc-item--d0,
+.page-toc-item--d1 + .page-toc-item--d0,
+.page-toc-item--d2 + .page-toc-item--d0 {
+  margin-top: 7px;
+}
+.page-toc-item--d1 {
+  color: var(--page-toc-ink);
+  font-size: 0.78125rem;
+  font-weight: 400;
+}
+.page-toc-item--d2 {
+  color: var(--page-toc-ink-soft);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.page-toc {
   /* Active beats the ramp at every depth, and keeps that depth's own weight */
-  &-item--active {
-    color: var(--page-toc-active-ink);
-
-    .body--dark:not(.body--cobalt) & {
-      color: var(--color-primary-light);
-    }
-
-    /*
-      The row's own plate, which is `transparent`/`0` in Ledger and so draws nothing there. On the
-      link rather than the item, so the tint stops at the label's box instead of running back under
-      the indentation of a nested entry.
-    */
-    > .page-toc-link {
-      background-color: var(--page-toc-active-surface);
-      font-weight: var(--page-toc-active-weight);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    &-link {
-      transition-duration: 0.01ms;
-    }
+}
+.page-toc-item--active {
+  color: var(--page-toc-active-ink);
+}
+.body--dark:not(.body--cobalt) .page-toc-item--active {
+  color: var(--color-primary-light);
+}
+.page-toc-item--active {
+  /*
+    The row's own plate, which is `transparent`/`0` in Ledger and so draws nothing there. On the
+    link rather than the item, so the tint stops at the label's box instead of running back under
+    the indentation of a nested entry.
+  */
+}
+.page-toc-item--active > .page-toc-link {
+  background-color: var(--page-toc-active-surface);
+  font-weight: var(--page-toc-active-weight);
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-toc-link {
+    transition-duration: 0.01ms;
   }
 }
 </style>

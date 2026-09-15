@@ -8,7 +8,7 @@
  * They are mapped onto the admonition classes the content stylesheet already draws — the ones
  * `{.is-info}` and friends attach — so an alert and a hand-classed blockquote are the same object on
  * the page, and there is one place where an admonition is styled. `important` is the one kind with no
- * existing counterpart, and has a hue of its own in `css/_page-contents.scss`.
+ * existing counterpart, and has a hue of its own in `css/_page-contents.css`.
  *
  * The labels are English, as the marker itself is: what the renderer emits is stored as the page's
  * HTML, so nothing here can follow the reader's locale afterwards.

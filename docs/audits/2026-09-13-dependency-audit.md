@@ -33,14 +33,14 @@ The 2026-08-22 audit (#1152, Epic #1160) covered currency and dead dependencies.
   - the Scarf opt-out
 - **Verdicts:**
 
-  | Verdict | Meaning |
-  | --- | --- |
-  | `KEEP` | Healthy, and no better option exists |
-  | `KEEP-WATCH` | Acceptable now, with a named thing to monitor |
+  | Verdict                | Meaning                                              |
+  | ---------------------- | ---------------------------------------------------- |
+  | `KEEP`                 | Healthy, and no better option exists                 |
+  | `KEEP-WATCH`           | Acceptable now, with a named thing to monitor        |
   | `CONSIDER-ALTERNATIVE` | A credible better option exists; weigh the migration |
-  | `REPLACE` | A clearly better option exists; move |
-  | `IN-HOUSE-CANDIDATE` | Shaky, and small enough to own |
-  | `REMOVE` | Redundant or dead |
+  | `REPLACE`              | A clearly better option exists; move                 |
+  | `IN-HOUSE-CANDIDATE`   | Shaky, and small enough to own                       |
+  | `REMOVE`               | Redundant or dead                                    |
 
 - **Risk** (Low / Med / High) combines exposure (production vs dev, untrusted input or not) with how fragile the package is.
 
@@ -50,47 +50,47 @@ The 2026-08-22 audit (#1152, Epic #1160) covered currency and dead dependencies.
 
 These pins are currently **inside published security advisories**. Each fix is a patch or minor bump, except the transformers swap.
 
-| # | Package | Pin → target | Why | Section |
-| --- | --- | --- | --- | --- |
-| 1 | **fastify** | 5.12.1 → ≥ 5.12.4 | 5.12.2 (2026-09-04) fixes **four high** GHSAs: header-validation bypass, `false`-schema bypass, body replacement, and **GHSA-p68q-wchp-6fh7 (auth bypass via malformed URLs reaching encapsulated not-found handlers)**. The last matters because we use encapsulated `contentApp` scopes. **`npm audit` does not show these**: they are on fastify's repo advisories but were not yet in the global advisory index (verified). | A |
-| 2 | **@tiptap/\*** (22 packages) | 3.30.2 → 3.31.3 | GHSA-cp6q (`mergeAttributes` `__proto__` → executable DOM attributes, reachable through collaborative content) and GHSA-j95f (high ReDoS). `npm audit` reports `@tiptap/core` high. | C |
-| 3 | **nodemailer** | 9.0.5 → ≥ 9.1.1 (10.0.9 preferred) | 4 advisories, including high GHSA-2x7j (addressparser DoS) and two recipient-domain allow-list bypasses. v10 ships its own types, so drop `@types/nodemailer` in the same commit. | B, E |
-| 4 | **markdown-it** (frontend + backend) | 15.0.0 → 15.0.2 | Quadratic-complexity fixes in linkify fuzzy links, scheme backscan and smartquotes (CHANGELOG verified). The backend renders **untrusted comments** with `linkify: true`. | D |
-| 5 | **sharp** (optional) | 0.35.3 → 0.35.4 | High GHSA-rgj7 (libvips/libheif CVEs). Uploaded images are untrusted input. | F |
-| 6 | **undici** | 8.10.0 → 8.10.2 | Security release (verified): 3 high, 1 medium. They sit in interceptors, BalancedPool and WebSocket, which `liveData.ts` doesn't use directly, so real exposure is probably low. It is still a free bump. | A |
-| 7 | **@xenova/transformers** | → `@huggingface/transformers` 4.x | The package name has been frozen since 2024-05; the project moved to the Hugging Face org. It is the source of backend's **only critical** audit finding (`protobufjs`), plus 3 highs and a nested `sharp` 0.32.6. The change is confined to `helpers/embeddings.ts` (137 LOC). **Check embedding dimensions and model id before merging**, since stored pgvector data depends on them. | B |
+| #   | Package                              | Pin → target                       | Why                                                                                                                                                                                                                                                                                                                                                                                                                             | Section |
+| --- | ------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 1   | **fastify**                          | 5.12.1 → ≥ 5.12.4                  | 5.12.2 (2026-09-04) fixes **four high** GHSAs: header-validation bypass, `false`-schema bypass, body replacement, and **GHSA-p68q-wchp-6fh7 (auth bypass via malformed URLs reaching encapsulated not-found handlers)**. The last matters because we use encapsulated `contentApp` scopes. **`npm audit` does not show these**: they are on fastify's repo advisories but were not yet in the global advisory index (verified). | A       |
+| 2   | **@tiptap/\*** (22 packages)         | 3.30.2 → 3.31.3                    | GHSA-cp6q (`mergeAttributes` `__proto__` → executable DOM attributes, reachable through collaborative content) and GHSA-j95f (high ReDoS). `npm audit` reports `@tiptap/core` high.                                                                                                                                                                                                                                             | C       |
+| 3   | **nodemailer**                       | 9.0.5 → ≥ 9.1.1 (10.0.9 preferred) | 4 advisories, including high GHSA-2x7j (addressparser DoS) and two recipient-domain allow-list bypasses. v10 ships its own types, so drop `@types/nodemailer` in the same commit.                                                                                                                                                                                                                                               | B, E    |
+| 4   | **markdown-it** (frontend + backend) | 15.0.0 → 15.0.2                    | Quadratic-complexity fixes in linkify fuzzy links, scheme backscan and smartquotes (CHANGELOG verified). The backend renders **untrusted comments** with `linkify: true`.                                                                                                                                                                                                                                                       | D       |
+| 5   | **sharp** (optional)                 | 0.35.3 → 0.35.4                    | High GHSA-rgj7 (libvips/libheif CVEs). Uploaded images are untrusted input.                                                                                                                                                                                                                                                                                                                                                     | F       |
+| 6   | **undici**                           | 8.10.0 → 8.10.2                    | Security release (verified): 3 high, 1 medium. They sit in interceptors, BalancedPool and WebSocket, which `liveData.ts` doesn't use directly, so real exposure is probably low. It is still a free bump.                                                                                                                                                                                                                       | A       |
+| 7   | **@xenova/transformers**             | → `@huggingface/transformers` 4.x  | The package name has been frozen since 2024-05; the project moved to the Hugging Face org. It is the source of backend's **only critical** audit finding (`protobufjs`), plus 3 highs and a nested `sharp` 0.32.6. The change is confined to `helpers/embeddings.ts` (137 LOC). **Check embedding dimensions and model id before merging**, since stored pgvector data depends on them.                                         | B       |
 
 Also bump **pdfjs-dist** 6.2.108 → 6.3.289. It isn't vulnerable (our pin is exactly the high-severity fix floor), but it is a "track latest" package with a third high advisory since 2022.
 
 ## 2. Replace or remove: a clearly better option, low cost
 
-| Package | Workspace | Action | Cost | Section |
-| --- | --- | --- | --- | --- |
-| akismet-api | backend | **REMOVE.** No imports; `comments.ts` now calls Akismet's REST API itself (verified). The 2026-08-22 audit's "live in comments.ts" note is out of date. | 1 line | B |
-| s3rver + @types/s3rver | backend (dev) | **REPLACE** with a MinIO or LocalStack container test gated like `hasTestDatabase()`, or drop the one emulated test. The repo is archived, last published 2021, and it carries a permanent **high** `npm audit` finding with no fix. | 1 test file (219 LOC) | B |
-| turndown-plugin-gfm | frontend | **REPLACE** with `@joplin/turndown-plugin-gfm` (published 2026-09-07, 3 maintainers, same `tables`/`taskListItems` exports). The original was last published 2018. Re-run the `htmlToMarkdown` tests: headerless tables and `<br>` inside cells behave differently. | 1 import | C |
-| @js-temporal/polyfill | backend | **REPLACE.** Drop it (fail fast with a clear message), or point the fallback at `temporal-polyfill` so all workspaces share one polyfill. Last release 2025-03, pre-1.0. See §6.1: it never loads on official Node builds anyway. | small | A |
-| cron-parser | backend, frontend | **CONSIDER-ALTERNATIVE → croner.** cron-parser pulls **luxon 3.7.2** into both workspaces (verified), against the "luxon removed entirely" policy, and luxon ends up in the frontend `AdminReplication` chunk. croner has zero dependencies. Check the cron dialect (seconds, `L`/`W`/`#`) against stored expressions. | 5 call sites, ~½ day | A |
-| @types/js-yaml | backend | **REMOVE.** js-yaml 5 ships its own types; `tsc --listFiles` never loads `@types/js-yaml`. | 1 line | E |
-| @types/markdown-it-emoji | backend | **Local `declare module` shim.** It drags in `@types/markdown-it@14` beside markdown-it 15's bundled types. *(Section E rated it KEEP and section D a shim. D's reason, two disagreeing MarkdownIt type trees, decides it.)* | 3 lines | D |
-| cross-env | frontend | **REMOVE.** Archived upstream, one call site. Use `node --max-old-space-size=8192 node_modules/vite/bin/vite.js build --mode production`, after confirming `NODE_ENV` handling. | 1 script | E |
-| npm-check-updates | backend, frontend, blocks | **REMOVE.** Dependabot already covers all four workspaces weekly. Use `npx npm-check-updates@<ver> -i` on demand, and update the docs that mention `npx ncu -i`. | 3 scripts + doc | E |
+| Package                  | Workspace                 | Action                                                                                                                                                                                                                                                                                                                 | Cost                  | Section |
+| ------------------------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------- |
+| akismet-api              | backend                   | **REMOVE.** No imports; `comments.ts` now calls Akismet's REST API itself (verified). The 2026-08-22 audit's "live in comments.ts" note is out of date.                                                                                                                                                                | 1 line                | B       |
+| s3rver + @types/s3rver   | backend (dev)             | **REPLACE** with a MinIO or LocalStack container test gated like `hasTestDatabase()`, or drop the one emulated test. The repo is archived, last published 2021, and it carries a permanent **high** `npm audit` finding with no fix.                                                                                   | 1 test file (219 LOC) | B       |
+| turndown-plugin-gfm      | frontend                  | **REPLACE** with `@joplin/turndown-plugin-gfm` (published 2026-09-07, 3 maintainers, same `tables`/`taskListItems` exports). The original was last published 2018. Re-run the `htmlToMarkdown` tests: headerless tables and `<br>` inside cells behave differently.                                                    | 1 import              | C       |
+| @js-temporal/polyfill    | backend                   | **REPLACE.** Drop it (fail fast with a clear message), or point the fallback at `temporal-polyfill` so all workspaces share one polyfill. Last release 2025-03, pre-1.0. See §6.1: it never loads on official Node builds anyway.                                                                                      | small                 | A       |
+| cron-parser              | backend, frontend         | **CONSIDER-ALTERNATIVE → croner.** cron-parser pulls **luxon 3.7.2** into both workspaces (verified), against the "luxon removed entirely" policy, and luxon ends up in the frontend `AdminReplication` chunk. croner has zero dependencies. Check the cron dialect (seconds, `L`/`W`/`#`) against stored expressions. | 5 call sites, ~½ day  | A       |
+| @types/js-yaml           | backend                   | **REMOVE.** js-yaml 5 ships its own types; `tsc --listFiles` never loads `@types/js-yaml`.                                                                                                                                                                                                                             | 1 line                | E       |
+| @types/markdown-it-emoji | backend                   | **Local `declare module` shim.** It drags in `@types/markdown-it@14` beside markdown-it 15's bundled types. _(Section E rated it KEEP and section D a shim. D's reason, two disagreeing MarkdownIt type trees, decides it.)_                                                                                           | 3 lines               | D       |
+| cross-env                | frontend                  | **REMOVE.** Archived upstream, one call site. Use `node --max-old-space-size=8192 node_modules/vite/bin/vite.js build --mode production`, after confirming `NODE_ENV` handling.                                                                                                                                        | 1 script              | E       |
+| npm-check-updates        | backend, frontend, blocks | **REMOVE.** Dependabot already covers all four workspaces weekly. Use `npx npm-check-updates@<ver> -i` on demand, and update the docs that mention `npx ncu -i`.                                                                                                                                                       | 3 scripts + doc       | E       |
 
 ## 3. In-house candidates: shaky and small enough to own
 
 These pass both tests: a concerning health signal **and** a replacement small enough that owning it costs less than trusting it.
 
-| Package | Workspace | Why it's shaky | In-house replacement | Section |
-| --- | --- | --- | --- | --- |
-| **text-case** | frontend | Solo publisher (17★, 100k/wk). Installs **20 sub-packages from the same account**, so 21 packages ride on one set of npm credentials, all for one helper. | ~40 LOC in `helpers/pathHumanize.js`, which already holds the transform rules | C |
-| **vue3-otp-input** | frontend | Pre-1.0, solo, no release since 2025-05, on the **login path** | ~150 LOC `WOtpInput.vue` in the shared W\* library (paste split, backspace navigation, `autocomplete="one-time-code"`) | B |
-| **sortablejs-vue3** | frontend | Solo, 19k/wk, no release in 12 months | ~70 LOC component or composable over `sortablejs` (2 use sites) | C |
-| **rollup-plugin-summary** | blocks (dev) | Solo, 16★, no release since 2025-04. Ships ESLint config as **runtime** dependencies, about 30 transitive packages for cosmetic output. | ~25 LOC `generateBundle` plugin (zlib gzip/brotli + `console.table`), or just delete it | E |
-| **markdown-it-expand-tabs** | frontend | Last published 2018, repo idle since 2020. Pulls in `lodash.repeat` despite the lodash ban. | ~15 LOC `renderers/modules/` plugin using `String.prototype.repeat` | D |
-| **markdown-it-task-lists** | frontend | Last published 2018, solo. Module-global mutable option state. | **Vendor verbatim** (116 LOC, ISC). The #1180 markup decision is unaffected. | D |
-| **filesize** | backend, frontend | Solo, republished ~21× a year for a trivial function | ~20 LOC base-2 JEDEC formatter behind the existing `helpers/fileSize.js` | A |
-| **nanoid** | backend | Healthy but solo, and unnecessary on the backend. Three 2026 high advisories on older lines show that even tiny libraries collect CVEs. | ~15 LOC over `node:crypto` (`randomBytes(n).toString('base64url')`) | A |
-| **@gquittet/graceful-server** | backend | Bus factor 1 (269 commits vs 1), low adoption, and **owns `process.exit()`** on the shutdown path | ~100 LOC module, or `close-with-grace` (mcollina) plus our own `/_live` and `/_ready` routes | A |
+| Package                       | Workspace         | Why it's shaky                                                                                                                                            | In-house replacement                                                                                                   | Section |
+| ----------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------- |
+| **text-case**                 | frontend          | Solo publisher (17★, 100k/wk). Installs **20 sub-packages from the same account**, so 21 packages ride on one set of npm credentials, all for one helper. | ~40 LOC in `helpers/pathHumanize.js`, which already holds the transform rules                                          | C       |
+| **vue3-otp-input**            | frontend          | Pre-1.0, solo, no release since 2025-05, on the **login path**                                                                                            | ~150 LOC `WOtpInput.vue` in the shared W\* library (paste split, backspace navigation, `autocomplete="one-time-code"`) | B       |
+| **sortablejs-vue3**           | frontend          | Solo, 19k/wk, no release in 12 months                                                                                                                     | ~70 LOC component or composable over `sortablejs` (2 use sites)                                                        | C       |
+| **rollup-plugin-summary**     | blocks (dev)      | Solo, 16★, no release since 2025-04. Ships ESLint config as **runtime** dependencies, about 30 transitive packages for cosmetic output.                   | ~25 LOC `generateBundle` plugin (zlib gzip/brotli + `console.table`), or just delete it                                | E       |
+| **markdown-it-expand-tabs**   | frontend          | Last published 2018, repo idle since 2020. Pulls in `lodash.repeat` despite the lodash ban.                                                               | ~15 LOC `renderers/modules/` plugin using `String.prototype.repeat`                                                    | D       |
+| **markdown-it-task-lists**    | frontend          | Last published 2018, solo. Module-global mutable option state.                                                                                            | **Vendor verbatim** (116 LOC, ISC). The #1180 markup decision is unaffected.                                           | D       |
+| **filesize**                  | backend, frontend | Solo, republished ~21× a year for a trivial function                                                                                                      | ~20 LOC base-2 JEDEC formatter behind the existing `helpers/fileSize.js`                                               | A       |
+| **nanoid**                    | backend           | Healthy but solo, and unnecessary on the backend. Three 2026 high advisories on older lines show that even tiny libraries collect CVEs.                   | ~15 LOC over `node:crypto` (`randomBytes(n).toString('base64url')`)                                                    | A       |
+| **@gquittet/graceful-server** | backend           | Bus factor 1 (269 commits vs 1), low adoption, and **owns `process.exit()`** on the shutdown path                                                         | ~100 LOC module, or `close-with-grace` (mcollina) plus our own `/_live` and `/_ready` routes                           | A       |
 
 **Promote to in-house if one more advisory lands.** These are shaky today, but only worth owning if their record gets worse:
 
@@ -101,7 +101,7 @@ These pass both tests: a concerning health signal **and** a replacement small en
 - **browser-fs-access.** Pre-1.0, effectively solo, idle since 2025-06. The fallback is ~60 LOC (picker, else `<a download>`, else `<input type=file>`).
 - **uqr.** Pre-1.0, but a finished domain. The fallback is to vendor its single 27 KB file (Nayuki-derived, MIT).
 
-**Explicitly *not* in-house candidates, despite single-maintainer or advisory-heavy profiles.** Owning these would be strictly worse than a shaky but audited library:
+**Explicitly _not_ in-house candidates, despite single-maintainer or advisory-heavy profiles.** Owning these would be strictly worse than a shaky but audited library:
 
 - `@node-saml/node-saml`: XML signature wrapping and canonicalization
 - `sanitize-html`: the stored-XSS boundary
@@ -115,17 +115,17 @@ These pass both tests: a concerning health signal **and** a replacement small en
 
 None of these is urgent, and each is a real improvement.
 
-| Current | Alternative | Why | Cost | Section |
-| --- | --- | --- | --- | --- |
-| `@modelcontextprotocol/sdk` 1.x | v2 `@modelcontextprotocol/server` + **`@modelcontextprotocol/fastify`** (GA 2026-07-27) | First-party Fastify adapter. Drops express, hono, cors and express-rate-limit from our tree. v1 has an **unreleased** request-body size-limit hardening fix. | 23 files, mostly imports; 1–2 days | A |
-| `poolifier` | `piscina` (piscinajs org: mcollina, jasnell, addaleax…) | poolifier is effectively one developer at 23k/wk; piscina is at 8M/wk | 1–2 days, on the next scheduler rework | A |
-| AWS CloudSearch module | Retire it, and add OpenSearch if anyone asks | AWS closed CloudSearch to new customers on **2024-07-25**. No new Cardinal.js install can use it, yet it is about 2.3k LOC under test. | −2.3k LOC | B |
-| `rollup` + 4 plugins (blocks) | **Rolldown** (already installed through vitest → vite 8) | One bundler across frontend and blocks. Built-in resolve, CommonJS and minify, plus `rolldown/parseAst`. | Spike: diff `compiled/` and the manifest | E |
-| `sass` | Native CSS nesting + existing custom-property tokens | Tailwind 4 discourages preprocessors. The 132 SCSS blocks are mostly plain `$variable` substitution. | Multi-WP cleanup | E |
-| `bcryptjs` | Node built-in `crypto.argon2` (argon2id) + rehash-on-login | Removes the dependency and moves to a modern KDF | 1–2 days, **once `crypto.argon2` is stable** | B |
-| `pako` (one `inflateRaw`) | Native `DecompressionStream('deflate-raw')` | One fewer dependency | Small async refactor in `block-drawio` | D |
-| `monaco-editor` | CodeMirror 6, only if bundle size or mobile editing become priorities | We ship a 6.9 MB `ts.worker`. **First check whether that worker is needed at all.** | Weeks | C |
-| `vitest` 4 | vitest 5 (frontend + blocks together) | Auto `clearAllMocks`, no ancestor config lookup. Stay ≥ 4.1.11 until then (patched floor for GHSA-82fw). | 1 WP | E |
+| Current                         | Alternative                                                                             | Why                                                                                                                                                                                                                                           | Cost                                         | Section |
+| ------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------- |
+| `@modelcontextprotocol/sdk` 1.x | v2 `@modelcontextprotocol/server` + **`@modelcontextprotocol/fastify`** (GA 2026-07-27) | First-party Fastify adapter. Drops express, hono, cors and express-rate-limit from our tree. v1 has an **unreleased** request-body size-limit hardening fix.                                                                                  | 23 files, mostly imports; 1–2 days           | A       |
+| `poolifier`                     | `piscina` (piscinajs org: mcollina, jasnell, addaleax…)                                 | poolifier is effectively one developer at 23k/wk; piscina is at 8M/wk                                                                                                                                                                         | 1–2 days, on the next scheduler rework       | A       |
+| AWS CloudSearch module          | Retire it, and add OpenSearch if anyone asks                                            | AWS closed CloudSearch to new customers on **2024-07-25**. No new Cardinal.js install can use it, yet it is about 2.3k LOC under test.                                                                                                        | −2.3k LOC                                    | B       |
+| `rollup` + 4 plugins (blocks)   | **Rolldown** (already installed through vitest → vite 8)                                | One bundler across frontend and blocks. Built-in resolve, CommonJS and minify, plus `rolldown/parseAst`.                                                                                                                                      | Spike: diff `compiled/` and the manifest     | E       |
+| `sass`                          | Native CSS nesting + existing custom-property tokens                                    | **DONE (2026-09-15, OpenProject #1160 / #3172's spike, Tasks #3246–#3254).** Tailwind 4 discourages preprocessors; the 132 SCSS blocks were mostly plain `$variable` substitution. `sass` is uninstalled and `frontend/src/css` is plain CSS. | Multi-WP cleanup                             | E       |
+| `bcryptjs`                      | Node built-in `crypto.argon2` (argon2id) + rehash-on-login                              | Removes the dependency and moves to a modern KDF                                                                                                                                                                                              | 1–2 days, **once `crypto.argon2` is stable** | B       |
+| `pako` (one `inflateRaw`)       | Native `DecompressionStream('deflate-raw')`                                             | One fewer dependency                                                                                                                                                                                                                          | Small async refactor in `block-drawio`       | D       |
+| `monaco-editor`                 | CodeMirror 6, only if bundle size or mobile editing become priorities                   | We ship a 6.9 MB `ts.worker`. **First check whether that worker is needed at all.**                                                                                                                                                           | Weeks                                        | C       |
+| `vitest` 4                      | vitest 5 (frontend + blocks together)                                                   | Auto `clearAllMocks`, no ancestor config lookup. Stay ≥ 4.1.11 until then (patched floor for GHSA-82fw).                                                                                                                                      | 1 WP                                         | E       |
 
 ## 5. Watch list: shaky signals, no action yet
 
@@ -164,7 +164,7 @@ None of these is urgent, and each is a real improvement.
 - **Temporal is native on official Node 26 builds.**
   - `docker run node:26.8.1-slim node -e "typeof Temporal"` → `object` (verified). This Mac's Homebrew Node 26.8.1 gives `undefined` (verified).
   - So CLAUDE.md's "verified … `typeof Temporal` is `undefined`" and the header of `core/temporal.ts` describe a build compiled without Temporal (`v8_enable_temporal_support=0`), not Node 26 itself.
-  - `ensureTemporal()` is a no-op in CI, the devcontainer and the production image. Correct the doc when acting on the §2 polyfill item. Keeping *a* fallback for Homebrew-style builds is still reasonable.
+  - `ensureTemporal()` is a no-op in CI, the devcontainer and the production image. Correct the doc when acting on the §2 polyfill item. Keeping _a_ fallback for Homebrew-style builds is still reasonable.
 - **"luxon has been removed entirely"** holds only for direct dependencies: `npm ls luxon` shows luxon 3.7.2 through `cron-parser` in backend and frontend (verified).
 - **The 2026-08-22 audit memory's "akismet-api is live in comments.ts"** is out of date (0 imports, verified).
 
@@ -176,22 +176,22 @@ For the handful of packages that sit on a trust boundary, **watch the upstream r
 
 Snapshot on 2026-09-13:
 
-| Workspace | Total | Critical | High | Moderate | Low | Main sources |
-| --- | --- | --- | --- | --- | --- | --- |
-| backend | 13 | 1 | 8 | 4 | 0 | `@xenova/transformers` (protobufjs, onnx, nested sharp), `s3rver` (busboy/dicer, old fast-xml-parser), `nodemailer`, `sharp`, `gaxios`→`uuid` |
-| frontend | 51 | 0 | 3 | 47 | 1 | `@tiptap/core` (45 `@tiptap/*` entries, fixed by 3.31.3), `immutable` (through sass), `browserslist`/`baseline-browser-mapping` (build tooling, not traced), `dompurify` (bundled in monaco) |
-| blocks | 3 | 0 | 3 | 0 | 0 | `swagger-ui`'s nested `js-yaml` 4, `@xmldom/xmldom` (MathJax → speech-rule-engine) |
-| e2e | 0 | 0 | 0 | 0 | 0 | — |
+| Workspace | Total | Critical | High | Moderate | Low | Main sources                                                                                                                                                                                                                                  |
+| --------- | ----- | -------- | ---- | -------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| backend   | 13    | 1        | 8    | 4        | 0   | `@xenova/transformers` (protobufjs, onnx, nested sharp), `s3rver` (busboy/dicer, old fast-xml-parser), `nodemailer`, `sharp`, `gaxios`→`uuid`                                                                                                 |
+| frontend  | 51    | 0        | 3    | 47       | 1   | `@tiptap/core` (45 `@tiptap/*` entries, fixed by 3.31.3), ~~`immutable` (through sass)~~ (gone: `sass` uninstalled 2026-09-15, #3254), `browserslist`/`baseline-browser-mapping` (build tooling, not traced), `dompurify` (bundled in monaco) |
+| blocks    | 3     | 0        | 3    | 0        | 0   | `swagger-ui`'s nested `js-yaml` 4, `@xmldom/xmldom` (MathJax → speech-rule-engine)                                                                                                                                                            |
+| e2e       | 0     | 0        | 0    | 0        | 0   | —                                                                                                                                                                                                                                             |
 
 Doing §1 and §2 clears every backend critical and high except transitive stragglers, and all 45 `@tiptap` entries.
 
 ### 6.3 Install scripts and native builds in the tree
 
-| Workspace | Packages that run install scripts | Origin |
-| --- | --- | --- |
-| backend | `puppeteer` (browser download), `ssh2` + `cpu-features` (native addon), `esbuild` | optional dependency; `ssh2-sftp-client`; `drizzle-kit` |
-| frontend | `@parcel/watcher` | `sass` |
-| blocks | `@scarf/scarf` (**install telemetry**), `tree-sitter` ×2, `tree-sitter-json`, `@tree-sitter-grammars/tree-sitter-yaml` (native compiles), `core-js-pure` | all through **`swagger-ui`** / `swagger-client` |
+| Workspace | Packages that run install scripts                                                                                                                        | Origin                                                 |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| backend   | `puppeteer` (browser download), `ssh2` + `cpu-features` (native addon), `esbuild`                                                                        | optional dependency; `ssh2-sftp-client`; `drizzle-kit` |
+| frontend  | none (`sass` and, with it, its optional `@parcel/watcher` dependency, were uninstalled 2026-09-15, #3254)                                                | —                                                      |
+| blocks    | `@scarf/scarf` (**install telemetry**), `tree-sitter` ×2, `tree-sitter-json`, `@tree-sitter-grammars/tree-sitter-yaml` (native compiles), `core-js-pure` | all through **`swagger-ui`** / `swagger-client`        |
 
 - Scarf telemetry is already disabled by `"scarfSettings": { "enabled": false }` in `blocks/package.json` (verified).
 - `swagger-ui` is by far the heaviest supply-chain contributor in `blocks/`: native tree-sitter builds, core-js, a nested `js-yaml` 4 with a high advisory, and a 1.59 MB bundle.
@@ -201,7 +201,7 @@ Doing §1 and §2 clears every backend critical and high except transitive strag
 
 - **Two Temporal polyfills** (`@js-temporal/polyfill` in backend, `temporal-polyfill` in frontend and blocks) → one (§2).
 - **Two `sharp`** (top-level 0.35.3, nested 0.32.6 under transformers) → one after §1 #7. Check `npm ls sharp`, since the successor's `^0.34.5` range may still nest.
-- **Two `@twemoji/api`** (the direct pin plus `twemoji-assets`, which *is* the package) → document or pin by SHA.
+- **Two `@twemoji/api`** (the direct pin plus `twemoji-assets`, which _is_ the package) → document or pin by SHA.
 - **`js-yaml` 4 and 5** in blocks (through `swagger-ui` and `rollup-plugin-summary`).
 - **`highlight.js`:** the backend imports every grammar and the frontend imports `lib/common`. Align the backend to `lib/common`.
 - **KaTeX + MathJax:** justified. 2.5.x offered both, the TeX coverage differs, and both are lazily loaded blocks.
@@ -219,63 +219,63 @@ Doing §1 and §2 clears every backend critical and high except transitive strag
 
 Every package gets a table row and a per-package entry with evidence. Sections A–E are the research passes' output; section F was written directly.
 
-
 ---
 
 ## A. Backend core: HTTP, runtime, data, collab and utility libraries
 
 Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, maintainers), `gh api repos/*` (archived, pushed_at, open issues, contributors), `api.npmjs.org` weekly downloads (week ending 2026-09-11), `gh api /advisories`, release notes via `gh api .../releases`, and runtime checks in the official `node:26.7.0` / `node:26.8.1` Docker images. Use-site counts are non-test source files importing the package (test files in brackets), from a grep of `backend/ frontend/ blocks/ e2e/` that skips `node_modules`, `assets` and `compiled`. "Maint" means npm publish rights; "top contrib" means GitHub commit count.
 
-| Package | Workspace(s) | Pinned → Latest | Last publish (latest) | Maintainers/backing | Verdict | Risk |
-|---|---|---|---|---|---|---|
-| fastify | backend | 5.12.1 → 5.12.4 | 2026-09-11 | fastify org (OpenJS), 6 maint | KEEP (**bump now**: 4 high GHSAs) | High until bumped |
-| @fastify/compress | backend | 9.2.0 = latest | 2026-08-08 | fastify org | KEEP | Low |
-| @fastify/cookie | backend | 11.1.2 = latest | 2026-07-15 | fastify org | KEEP | Low |
-| @fastify/cors | backend | 11.3.0 = latest | 2026-07-08 | fastify org | KEEP | Low |
-| @fastify/formbody | backend | 9.0.0 = latest | 2026-08-08 | fastify org | KEEP | Low |
-| @fastify/helmet | backend | 13.1.1 = latest | 2026-08-19 | fastify org | KEEP | Low |
-| @fastify/multipart | backend | 10.1.1 = latest | 2026-08-14 | fastify org | KEEP | Low |
-| @fastify/proxy-addr | backend | 5.1.0 = latest | 2025-09-28 | fastify org | KEEP | Low |
-| @fastify/sensible | backend | 6.0.5 = latest | 2026-08-08 | fastify org | KEEP | Low |
-| @fastify/session | backend | 11.1.2 = latest | 2026-07-15 | fastify org | KEEP-WATCH | Low |
-| @fastify/static | backend | 10.1.3 = latest | 2026-08-06 | fastify org | KEEP-WATCH | Med |
-| @fastify/swagger | backend | 9.8.1 = latest | 2026-07-13 | fastify org | KEEP | Low |
-| @fastify/swagger-ui | backend | 6.1.1 = latest | 2026-07-28 | fastify org | KEEP | Low |
-| @fastify/websocket | backend | 11.3.0 = latest | 2026-07-08 | fastify org | KEEP | Low |
-| @gquittet/graceful-server | backend | 6.1.0 = latest | 2026-08-18 | 1 person (gquittet) | CONSIDER-ALTERNATIVE (close-with-grace or in-house) | Med |
-| undici | backend | 8.10.0 → 8.10.2 | 2026-09-04 | Node.js org | KEEP (bump) | Med |
-| poolifier | backend | 5.3.2 = latest | 2026-02-23 | poolifier org, effectively 1 dev | CONSIDER-ALTERNATIVE (piscina) | Med |
-| emittery | backend | 2.0.0 = latest | 2026-03-04 | sindresorhus | KEEP | Low |
-| lru-cache | backend | 11.5.2 = latest | 2026-07-07 | isaacs (1) | KEEP | Low |
-| commander | backend | 15.0.0 = latest | 2026-05-29 | 2 maint, tj org repo | KEEP | Low |
-| cron-parser | backend, frontend | 5.10.0 → 5.10.1 | 2026-09-12 | 1 (harrisiirak) | CONSIDER-ALTERNATIVE (croner) | Med |
-| js-yaml | backend, frontend(dev), blocks | 5.3.0 → 5.4.2 | 2026-09-13 | nodeca org, 1 npm maint | KEEP-WATCH | Med |
-| semver | backend, frontend | 7.8.5 = latest | 2026-06-19 | npm org | KEEP | Low |
-| nanoid | backend | 6.0.1 = latest | 2026-08-03 (v6 line) | 1 (ai) | CONSIDER-ALTERNATIVE (node:crypto) | Low |
-| mime | backend | 4.1.0 = latest | 2025-09-12 | 1 (broofa) | KEEP-WATCH | Low |
-| filesize | backend, frontend | 11.0.22 → 11.0.23 | 2026-09-03 | 1 (avoidwork) | IN-HOUSE-CANDIDATE | Low |
-| es-toolkit | backend, frontend | 1.51.0 → 1.52.0 | 2026-08-28 | Toss org | KEEP | Low |
-| @js-temporal/polyfill | backend | 0.5.1 = latest | 2025-03-31 | TC39 champions (Igalia et al.) | REPLACE (drop or use temporal-polyfill) | Med |
-| temporal-polyfill | frontend, blocks(dev) | 1.0.4 → 1.0.5 | 2026-09-11 | 1 (arshaw / FullCalendar) | KEEP-WATCH | Low |
-| zod | backend | 4.4.3 → 4.6.5 | 2026-09-13 | 1 (colinhacks) | KEEP | Low |
-| @modelcontextprotocol/sdk | backend | 1.30.0 = latest | 2026-07-27 | MCP org (Anthropic) | CONSIDER-ALTERNATIVE (v2 `@modelcontextprotocol/server` + `/fastify`) | Med |
-| acorn | backend | 8.18.0 = latest | 2026-07-28 | acornjs org (marijn) | KEEP | Low |
-| jsonpath-plus | backend | 10.4.0 = latest | 2026-02-16 | 2 (brettz9) | KEEP-WATCH | Med |
-| fast-xml-parser | backend | 5.11.0 → 5.11.1 | 2026-08-27 | 1 (amitgupta) | KEEP-WATCH | Med |
-| tar | backend | 7.5.22 = latest | 2026-07-24 | isaacs (1) | KEEP-WATCH | Med |
-| diff | backend | 9.0.0 = latest | 2026-04-13 | 2 (kpdecker, ExplodingCabbage) | KEEP | Low |
-| lib0 | backend | 0.2.117 = latest | 2025-12-30 | 1 (dmonad) | KEEP-WATCH | Med |
-| yjs | backend, frontend | 13.6.32 = latest (14.0.0-rc.26 pending) | 2026-08-04 | 1 (dmonad), yjs org | KEEP-WATCH | Med |
-| y-protocols | backend | 1.0.7 = latest | 2025-12-16 | 1 (dmonad) | KEEP-WATCH | Med |
-| y-websocket | frontend | 3.1.0 = latest | 2026-08-06 | 1 (dmonad) | KEEP-WATCH | Med |
-| drizzle-orm | backend | 1.0.0-rc.4 = `rc` tag | 2026-06-27 (rc.4) | Drizzle Team (company), 4 maint | KEEP-WATCH | Med |
-| drizzle-kit | backend(dev) | 1.0.0-rc.4 = `rc` tag | 2026-06-27 (rc.4) | Drizzle Team | KEEP-WATCH | Med |
-| pg | backend, e2e(dev) | 8.23.0 = latest | 2026-08-08 | 1 (brianc) | KEEP-WATCH | Med |
-| pg-cursor | backend | 2.22.0 = latest | 2026-08-08 | 1 (brianc) | KEEP | Low |
+| Package                   | Workspace(s)                   | Pinned → Latest                         | Last publish (latest) | Maintainers/backing              | Verdict                                                               | Risk              |
+| ------------------------- | ------------------------------ | --------------------------------------- | --------------------- | -------------------------------- | --------------------------------------------------------------------- | ----------------- |
+| fastify                   | backend                        | 5.12.1 → 5.12.4                         | 2026-09-11            | fastify org (OpenJS), 6 maint    | KEEP (**bump now**: 4 high GHSAs)                                     | High until bumped |
+| @fastify/compress         | backend                        | 9.2.0 = latest                          | 2026-08-08            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/cookie           | backend                        | 11.1.2 = latest                         | 2026-07-15            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/cors             | backend                        | 11.3.0 = latest                         | 2026-07-08            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/formbody         | backend                        | 9.0.0 = latest                          | 2026-08-08            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/helmet           | backend                        | 13.1.1 = latest                         | 2026-08-19            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/multipart        | backend                        | 10.1.1 = latest                         | 2026-08-14            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/proxy-addr       | backend                        | 5.1.0 = latest                          | 2025-09-28            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/sensible         | backend                        | 6.0.5 = latest                          | 2026-08-08            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/session          | backend                        | 11.1.2 = latest                         | 2026-07-15            | fastify org                      | KEEP-WATCH                                                            | Low               |
+| @fastify/static           | backend                        | 10.1.3 = latest                         | 2026-08-06            | fastify org                      | KEEP-WATCH                                                            | Med               |
+| @fastify/swagger          | backend                        | 9.8.1 = latest                          | 2026-07-13            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/swagger-ui       | backend                        | 6.1.1 = latest                          | 2026-07-28            | fastify org                      | KEEP                                                                  | Low               |
+| @fastify/websocket        | backend                        | 11.3.0 = latest                         | 2026-07-08            | fastify org                      | KEEP                                                                  | Low               |
+| @gquittet/graceful-server | backend                        | 6.1.0 = latest                          | 2026-08-18            | 1 person (gquittet)              | CONSIDER-ALTERNATIVE (close-with-grace or in-house)                   | Med               |
+| undici                    | backend                        | 8.10.0 → 8.10.2                         | 2026-09-04            | Node.js org                      | KEEP (bump)                                                           | Med               |
+| poolifier                 | backend                        | 5.3.2 = latest                          | 2026-02-23            | poolifier org, effectively 1 dev | CONSIDER-ALTERNATIVE (piscina)                                        | Med               |
+| emittery                  | backend                        | 2.0.0 = latest                          | 2026-03-04            | sindresorhus                     | KEEP                                                                  | Low               |
+| lru-cache                 | backend                        | 11.5.2 = latest                         | 2026-07-07            | isaacs (1)                       | KEEP                                                                  | Low               |
+| commander                 | backend                        | 15.0.0 = latest                         | 2026-05-29            | 2 maint, tj org repo             | KEEP                                                                  | Low               |
+| cron-parser               | backend, frontend              | 5.10.0 → 5.10.1                         | 2026-09-12            | 1 (harrisiirak)                  | CONSIDER-ALTERNATIVE (croner)                                         | Med               |
+| js-yaml                   | backend, frontend(dev), blocks | 5.3.0 → 5.4.2                           | 2026-09-13            | nodeca org, 1 npm maint          | KEEP-WATCH                                                            | Med               |
+| semver                    | backend, frontend              | 7.8.5 = latest                          | 2026-06-19            | npm org                          | KEEP                                                                  | Low               |
+| nanoid                    | backend                        | 6.0.1 = latest                          | 2026-08-03 (v6 line)  | 1 (ai)                           | CONSIDER-ALTERNATIVE (node:crypto)                                    | Low               |
+| mime                      | backend                        | 4.1.0 = latest                          | 2025-09-12            | 1 (broofa)                       | KEEP-WATCH                                                            | Low               |
+| filesize                  | backend, frontend              | 11.0.22 → 11.0.23                       | 2026-09-03            | 1 (avoidwork)                    | IN-HOUSE-CANDIDATE                                                    | Low               |
+| es-toolkit                | backend, frontend              | 1.51.0 → 1.52.0                         | 2026-08-28            | Toss org                         | KEEP                                                                  | Low               |
+| @js-temporal/polyfill     | backend                        | 0.5.1 = latest                          | 2025-03-31            | TC39 champions (Igalia et al.)   | REPLACE (drop or use temporal-polyfill)                               | Med               |
+| temporal-polyfill         | frontend, blocks(dev)          | 1.0.4 → 1.0.5                           | 2026-09-11            | 1 (arshaw / FullCalendar)        | KEEP-WATCH                                                            | Low               |
+| zod                       | backend                        | 4.4.3 → 4.6.5                           | 2026-09-13            | 1 (colinhacks)                   | KEEP                                                                  | Low               |
+| @modelcontextprotocol/sdk | backend                        | 1.30.0 = latest                         | 2026-07-27            | MCP org (Anthropic)              | CONSIDER-ALTERNATIVE (v2 `@modelcontextprotocol/server` + `/fastify`) | Med               |
+| acorn                     | backend                        | 8.18.0 = latest                         | 2026-07-28            | acornjs org (marijn)             | KEEP                                                                  | Low               |
+| jsonpath-plus             | backend                        | 10.4.0 = latest                         | 2026-02-16            | 2 (brettz9)                      | KEEP-WATCH                                                            | Med               |
+| fast-xml-parser           | backend                        | 5.11.0 → 5.11.1                         | 2026-08-27            | 1 (amitgupta)                    | KEEP-WATCH                                                            | Med               |
+| tar                       | backend                        | 7.5.22 = latest                         | 2026-07-24            | isaacs (1)                       | KEEP-WATCH                                                            | Med               |
+| diff                      | backend                        | 9.0.0 = latest                          | 2026-04-13            | 2 (kpdecker, ExplodingCabbage)   | KEEP                                                                  | Low               |
+| lib0                      | backend                        | 0.2.117 = latest                        | 2025-12-30            | 1 (dmonad)                       | KEEP-WATCH                                                            | Med               |
+| yjs                       | backend, frontend              | 13.6.32 = latest (14.0.0-rc.26 pending) | 2026-08-04            | 1 (dmonad), yjs org              | KEEP-WATCH                                                            | Med               |
+| y-protocols               | backend                        | 1.0.7 = latest                          | 2025-12-16            | 1 (dmonad)                       | KEEP-WATCH                                                            | Med               |
+| y-websocket               | frontend                       | 3.1.0 = latest                          | 2026-08-06            | 1 (dmonad)                       | KEEP-WATCH                                                            | Med               |
+| drizzle-orm               | backend                        | 1.0.0-rc.4 = `rc` tag                   | 2026-06-27 (rc.4)     | Drizzle Team (company), 4 maint  | KEEP-WATCH                                                            | Med               |
+| drizzle-kit               | backend(dev)                   | 1.0.0-rc.4 = `rc` tag                   | 2026-06-27 (rc.4)     | Drizzle Team                     | KEEP-WATCH                                                            | Med               |
+| pg                        | backend, e2e(dev)              | 8.23.0 = latest                         | 2026-08-08            | 1 (brianc)                       | KEEP-WATCH                                                            | Med               |
+| pg-cursor                 | backend                        | 2.22.0 = latest                         | 2026-08-08            | 1 (brianc)                       | KEEP                                                                  | Low               |
 
 ---
 
 ### fastify
+
 - **Use:** the whole HTTP layer. 126 source files [104 test].
 - **Health:** 24 stable releases in the last 12 months. 9.5M downloads/wk, 37.1k stars, repo pushed 2026-09-13, 154 open issues, OpenJS Foundation project. A `6.0.0-alpha.3` is on `next`.
 - **Security (key finding):** the 5.12.2 security release (2026-09-04) fixes four **high** GHSAs, and every one affects our pin of 5.12.1:
@@ -285,11 +285,13 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
   - GHSA-667r-xxjv-c9mm: request body replacement through an async validation collision
 
   We lean on encapsulated plugins, including `siteEnabledPreHandler` on `contentApp`, so p68q is directly relevant. At the time of the check these four did not appear in the global `/advisories?affects=fastify` listing, so `npm audit` may not flag them yet.
+
 - **Alternatives:** none better. Hono and Express would be a rewrite with no upside.
 - **Shakiness:** none. The advisory rate is high, but fixes ship fast and are backported.
 - **Verdict: KEEP**, and bump to ≥5.12.4 immediately. Watch the v6 timeline.
 
 ### @fastify/* plugins (compress, cookie, cors, formbody, helmet, multipart, proxy-addr, sensible, session, static, swagger, swagger-ui, websocket)
+
 - **Use:** each is registered once, mostly in `core/http/{server,security,session,openapi}.ts`, plus `api/pages/import.ts` (multipart), `models/security.ts` (proxy-addr) and `helpers/authSecretSigner.ts` (cookie). sensible has 3 source files [12 test]. The rest have 1–2.
 - **Health:** all live in the fastify GitHub org, with 7–18 npm maintainers each (mcollina, Eomm, climba03003, Fdawgs and others). All 13 were re-published on 2026-09-04 (npm `time.modified`). Every pin equals `latest`. Downloads run from 0.14M/wk (session) to 7.8M/wk (proxy-addr). None is archived.
 - **Advisories, all fixed at our pins:**
@@ -301,6 +303,7 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: KEEP**, with **KEEP-WATCH** on @fastify/static (repeated path-canonicalisation advisories on a route that serves `assets/`) and @fastify/session (smaller user base).
 
 ### @gquittet/graceful-server
+
 - **Use:** `core/http/server.ts`, one call. It wraps `app.server` and provides `/_live` and `/_ready`, `closePromises` (scheduler, collab, db), a 5 s pre-close delay, and a `SHUTTING_DOWN` event. The library calls `process.exit()` itself.
 - **Health:** one npm maintainer. On GitHub, gquittet has 269 commits and the next human contributor has 1. 40.5k downloads/wk, 348 stars, 1 open issue. 14 releases in 12 months, many of them dependency bumps. Repo is active (last push 2026-08-18).
 - **Alternatives:**
@@ -310,12 +313,14 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: CONSIDER-ALTERNATIVE.** Move to `close-with-grace` plus our own probe routes (the preferred option), or an in-house module of about 100 LOC. It is not urgent, since the package works and is maintained.
 
 ### undici
+
 - **Use:** `models/liveData.ts`, one use. It builds a per-request `Agent` with a pinned DNS `lookup` (SSRF defence) and passes it as `dispatcher` to the **global** `fetch`.
 - **Health:** Node.js org. 134.7M downloads/wk. 54 releases in 12 months across the v6, v7 and v8 lines. Heavy advisory traffic: 20 GHSAs in 2026. 8.10.2 (2026-09-04) fixes high GHSA-vp8m, w293 and rfgv plus medium 3wwx. Those are in interceptors, BalancedPool and WebSocket, which liveData doesn't use (unverified that no transitive path does).
-- **Note:** official Node 26.8.1 bundles `process.versions.undici` = 8.10.0, and it has no public API for `Agent`. So the npm package is the right way to get a dispatcher. Mixing npm undici's `Agent` with the *global* fetch only works while the major versions match. undici's docs recommend importing `fetch` from the same package (unverified that the docs still say so). Doing that removes the coupling to the Node release.
+- **Note:** official Node 26.8.1 bundles `process.versions.undici` = 8.10.0, and it has no public API for `Agent`. So the npm package is the right way to get a dispatcher. Mixing npm undici's `Agent` with the _global_ fetch only works while the major versions match. undici's docs recommend importing `fetch` from the same package (unverified that the docs still say so). Doing that removes the coupling to the Node release.
 - **Verdict: KEEP.** Bump to 8.10.2 and consider `import { fetch, Agent } from 'undici'` in liveData.
 
 ### poolifier
+
 - **Use:** `core/scheduler.ts` (`FixedThreadPool` / `DynamicThreadPool`) and `worker.ts` (`ThreadWorker`), plus 3 test fixtures. Roughly 30 lines touch the API.
 - **Health:** 23.4k downloads/wk, 454 stars, 19 open issues. The repo is very active (pushed 2026-09-14, 5 stable releases in 12 months). On npm the publishers are pioardi and fraggle, but on GitHub `jerome-benoit` has 5,083 commits against 264 for the next human. The effective bus factor is 1, and adoption is low.
 - **Alternatives:**
@@ -325,24 +330,28 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: CONSIDER-ALTERNATIVE (piscina).** The case is reputation and bus factor, not a defect. Do it when the scheduler is next reworked.
 
 ### emittery
+
 - **Use:** `WIKI.events.{inbound,outbound}` in `index.ts`: `emit`, `on`, `onAny`, `offAny` and `clearListeners`, over about 15 call sites.
 - **Health:** sindresorhus. 33.5M downloads/wk, 0 open issues, 2.0.0 released 2026-03. Low churn.
 - **Alternatives:** `node:events` EventEmitter, but its `emit` is synchronous and doesn't await async listeners, which emittery does. Swapping would change semantics for no gain.
 - **Verdict: KEEP.**
 
 ### lru-cache
+
 - **Use:** 5 sites: `WIKI.cache`, the `mcp/http.ts` session map, the icons not-found cache and the rate-limit ban memo. TTL is used.
 - **Health:** isaacs as sole publisher, but 408M downloads/wk and 3 open issues. 17 releases in 12 months, no advisories. Its `prepare` script doesn't run on registry installs.
 - **Alternatives:** none built in. A `Map`-based LRU is ~40 LOC, but TTL, size accounting and fetch semantics make that a false economy.
 - **Verdict: KEEP.** The bus factor is 1, but the package is ubiquitous enough that the ecosystem would fork it.
 
 ### commander
+
 - **Use:** the 2.5.x migration CLI: `migration/source-args.ts`, `cli.ts` and `verify-cli.ts`. About 17 option declarations, plus `InvalidArgumentError` and generated help.
 - **Health:** 371M downloads/wk, 28.4k stars. shadowspawn has been the steady maintainer (572 commits), with abetomo also publishing. v15 shipped 2026-05, and there are 8 open issues.
 - **Alternatives:** `util.parseArgs`, available on Node 26, has no help, custom validators or typed errors. We would rebuild about 60–100 LOC of help and validation.
 - **Verdict: KEEP.** It's healthy and the swap would add code.
 
 ### cron-parser
+
 - **Use:** backend `core/scheduler.ts`, `api/replication.ts` and `models/replication.ts`, plus frontend `pages/AdminReplication.vue` (next-run preview). Only `CronExpressionParser.parse(...)` is used, 4 call sites.
 - **Health:** one maintainer (harrisiirak, 339 commits; next contributor 19). 14.7M downloads/wk, 11 open issues, active (5.10.1 released 2026-09-12). No advisories.
 - **Hidden cost:** it depends on `luxon ^3.7.2`, confirmed in 5.10.1's `dependencies`. `npm ls luxon` shows luxon 3.7.2 installed in **both** backend and frontend through cron-parser. So the "luxon removed entirely" claim in CLAUDE.md holds for our direct dependencies only. On the frontend, luxon ships inside `AdminReplication-*.js` (102.5 kB raw / 31.5 kB gzip, where the string "Luxon" appears 6 times) for a single admin page.
@@ -351,6 +360,7 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: CONSIDER-ALTERNATIVE (croner).** It removes a transitive date library the project policy bans, and it shrinks a frontend chunk.
 
 ### js-yaml
+
 - **Use:** backend `core/config.ts`, `helpers/moduleRegistry.ts` and `helpers/pageSerialization.ts` (`load`/`dump`) [26 test files]. Frontend dev: `vite.config.js`. blocks runtime: `block-openapi` and `block-infobox` (`CORE_SCHEMA`, `timestampTag`).
 - **Health:** nodeca org, but npm publish rights sit with one account (vitaly). 216M downloads/wk, 4 open issues. 19 releases in 12 months, with active v3, v4 and v5 lines.
 - **Advisories:** 11 GHSAs on record, 7 of them published 2025-11 to 2026-09 (mostly parser DoS). Our 5.3.0 is past GHSA-pm4m (≤5.2.1). 5.4.1 (2026-08-26) adds merge-key CPU hardening with no GHSA of its own. 5.4.0 put `[breaking]` changes in a **minor** release (AST node shape, `sortKeys`, scalar quoting style). That could change `dump()` output in page serialization and exports.
@@ -358,17 +368,20 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: KEEP-WATCH.** Take 5.4.x for the hardening, but check `dump()` output from `pageSerialization.ts` against fixtures, because of the breaking change in a minor. Keep an exact pin: SemVer here isn't trustworthy.
 
 ### semver
+
 - **Use:** backend `index.ts` (the Node ≥26 check), `tasks/simple/check-version.ts` and `core/db.ts` (`coerce`). Frontend `stores/admin.js` (`semver/functions/gte`).
 - **Health:** npm org, 619M downloads/wk. fastify already depends on it, so it stays in the tree regardless.
 - **Verdict: KEEP.**
 
 ### nanoid
+
 - **Use:** 8 calls in 5 backend files. Most are security-sensitive: the OAuth `state`, `nonce` and `codeVerifier`, the SAML request id, a random password, a credential token, plus `INSTANCE_ID` via `customAlphabet`. `userCredentials.ts:779` writes `await nanoid()`, which is harmless because nanoid is synchronous.
 - **Health:** one maintainer (ai, 1,030 commits). 179M downloads/wk, 27k stars, 0 open issues. Highly reputable. Three **high** GHSAs in 2026 (xwg4, 28wg, 2v37) hit the 3.x/5.x lines, not v6. v6 narrowed `engines` to `^22 || ^24 || >=26`.
 - **Alternatives:** `crypto.randomBytes(n).toString('base64url')`, or `crypto.randomUUID()` for ids, in `node:crypto`. They're equally strong, have no dependency and are always present on the backend. `customAlphabet('0-9a-f', 10)` becomes `randomBytes(5).toString('hex')`. That's a 10–15 LOC helper.
 - **Verdict: CONSIDER-ALTERNATIVE (node:crypto).** It's low priority and low risk. The backend doesn't need a dependency for random tokens, and the 2026 advisory streak shows even tiny libraries get CVEs.
 
 ### mime
+
 - **Use:** `models/assets.ts`, `modules/storage/git/sync.ts` and `helpers/common.ts`, about 4 `getType`/`getExtension` calls.
 - **Health:** broofa (also maintains uuid), 111M downloads/wk. No release since 4.1.0 (2025-09-12), though commits continued through 2026-04 (trusted publishing). 6 open issues. The only advisory is from 2018.
 - **Concern:** the type table ships inside the package. A year without a release means newer types won't be recognised (unverified which ones).
@@ -376,18 +389,21 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: KEEP-WATCH** for type-table staleness.
 
 ### filesize
+
 - **Use:** 2 call sites. Backend `api/system/info.ts` (`ramTotal`) and frontend `helpers/fileSize.js` (`{ base: 2, standard: 'jedec' }`, used by 4 files).
 - **Health:** one maintainer (avoidwork, 445 commits). 11M downloads/wk. 21 releases in 12 months, mostly patches. Has a husky `prepare`. No advisories.
 - **In-house:** base-2 JEDEC formatting (`B`, `KB`, `MB`, …, with rounding) is about 15–20 LOC plus a table test. `Intl.NumberFormat` with `style: 'unit', unit: 'megabyte'` covers the decimal units but not JEDEC labels.
 - **Verdict: IN-HOUSE-CANDIDATE.** It's a trivial function sitting behind a frequently republished single-maintainer package, and it already has a wrapper (`helpers/fileSize.js`) to swap behind. Low priority.
 
 ### es-toolkit
+
 - **Use:** 25 backend and 29 frontend files through subpath exports. Most common: debounce ×12, isPlainObject ×6, chunk ×6, toMerged ×5, uniq ×4, cloneDeep ×4.
 - **Health:** Toss (company). 36.9M downloads/wk, 11.3k stars, 51 open issues. 17 stable releases in 12 months plus automated `dev` pre-releases. Project policy mandates it.
 - **Alternatives:** some calls could be native (`cloneDeep` → `structuredClone`, `uniq` → `new Set`, `isEqual` → `util.isDeepStrictEqual` on the backend). That would be tidying, not a risk fix.
 - **Verdict: KEEP.**
 
 ### @js-temporal/polyfill (backend) and temporal-polyfill (frontend, blocks): duplication
+
 - **Use:** backend `core/temporal.ts` `ensureTemporal()`, plus `test/temporal.ts`. Frontend `boot/temporal.js` (a lazy import, for Safari) and `test/setup.js`. blocks `test/setup.js` (dev only).
 - **Key finding, verified live:**
   - The **official** `node:26.7.0-bookworm-slim` and `node:26.8.1-bookworm-slim` images report `typeof Temporal === 'object'`, `Date.prototype.toTemporalInstant` present, and `v8_enable_temporal_support=1`.
@@ -401,12 +417,14 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Doc impact:** the Temporal paragraphs in CLAUDE.md and the `core/temporal.ts` header are factually wrong for official builds and should be corrected.
 
 ### zod
+
 - **Use:** 15 files, all under `mcp/tools/*` (tool input schemas).
 - **Health:** colinhacks (1,073 commits), 209M downloads/wk, 43.9k stars, 51 open issues. v4 is stable. 29 stable releases in 12 months plus canaries. The only advisory is from 2023 (3.x).
 - **Pin:** 4.4.3 vs 4.6.5. MCP SDK 1.30 accepts `^3.25 || ^4.0`, and v2 requires `^4.2.0`.
 - **Verdict: KEEP.** Bump with the MCP work.
 
 ### @modelcontextprotocol/sdk
+
 - **Use:** 23 files. `server/mcp.js` ×20, `types.js` ×21, `streamableHttp.js` ×2, `stdio.js`, `shared/transport.js`.
 - **Health:** MCP org (Anthropic staff publish). 41M downloads/wk, but 610 open issues. Three high GHSAs, 2025-12 through 2026-02, all fixed before 1.25.3.
 - **Status change:** `@modelcontextprotocol/server@2.0.0` (npm `latest`), `/node`, `/hono` and **`/fastify`** (peer `fastify ^5.2.0`) all went GA on 2026-07-27, the same day as 1.30.0. v1 lives on a `v1.x` branch, which has an **unreleased** fix from 2026-08-25: "read HTTP request bodies with a size limit and bound JSON-RPC batch length". No 1.30.1 exists yet.
@@ -416,11 +434,13 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: CONSIDER-ALTERNATIVE (v2 split packages).** It's the same project's successor, it has a first-party Fastify adapter and a far smaller transitive tree. Meanwhile, watch for a 1.30.1 carrying the body-size fix.
 
 ### acorn
+
 - **Use:** `helpers/blockDefinition.ts` (284 lines), which parses a block's `static definition` literal.
 - **Health:** acornjs org (marijn). 181M downloads/wk, 15 open issues. Last advisory 2020.
 - **Verdict: KEEP.**
 
 ### jsonpath-plus
+
 - **Use:** `helpers/jsonPath.ts`, one call. `JSONPath({ path, json, wrap: true })` with **author-supplied** paths from `block-live-data`.
 - **Health:** JSONPath-Plus org, brettz9 the main maintainer (321 commits). 8.8M downloads/wk, 51 open issues. One release in 12 months (10.4.0 on 2026-02-16).
 - **Advisories:** RCE history. Critical GHSA-pppg (2024, ≤6.0.1) and high GHSA-hw8r (2025, <10.3.0), both from its `eval` script-expression feature. We call it without an explicit `eval` option and rely on the 10.x default ("safe" evaluation, unverified exactly which filter syntax that still allows).
@@ -428,6 +448,7 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: KEEP-WATCH.** Set `eval: false` now. If a new eval-class advisory lands, go in-house with a restricted subset.
 
 ### fast-xml-parser
+
 - **Use:** `modules/authentication/cas/authentication.ts`, which parses the CAS `serviceValidate` response (`removeNSPrefix: true`).
 - **Health:** NaturalIntelligence org, but amitgupta is the sole publisher (868 commits). 60M downloads/wk, 23 open issues. **44 releases in 12 months.** 12 GHSAs on record, 8 of them in 2026 (including a critical in 2026-02, ≥5.0.0 <5.3.5). Our 5.11.0 is past all of them.
 - **Supply chain:** the 5.x line split into six new single-publisher packages: `@nodable/entities`, `fast-xml-builder`, `is-unsafe`, `path-expression-matcher`, `strnum` and `xml-naming`. All have the same sole publisher, amitgupta.
@@ -435,17 +456,20 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 - **Verdict: KEEP-WATCH.** Churny, one owner across seven packages, and a steady advisory stream, all for a single CAS call site. Revisit if CAS auth is ever reworked, or after another critical advisory.
 
 ### tar
+
 - **Use:** `create` in `models/export.ts`, `models/replicationExport.ts` and `modules/storage/disk/storage.ts`. `list` with `onReadEntry` in `models/siteImport.ts`, which reads **untrusted uploaded archives**.
 - **Health:** isaacs as sole publisher (710 commits). 62.5M downloads/wk, 13 open issues. 24 releases in 12 months. **12 GHSAs published 2026-01 to 2026-07**, including a critical GHSA-23hp (≤7.5.18) and a high GHSA-r292 (≤7.5.20), a stack-overflow DoS in `list` with member selection. Our 7.5.22 is past all of them.
 - **Alternatives:** `tar-stream` 3.2.1 (mafintosh, 73.7M/wk, a lower-level streaming parser with no filesystem extraction logic), or `modern-tar` 0.8.5 (pre-1.0, single maintainer). An in-house ustar writer is about 150 LOC. An in-house reader for our own export format is about 150–200 LOC plus gzip through `node:zlib`, which works because we only ever read archives we wrote.
 - **Verdict: KEEP-WATCH.** Healthy and widely used, but the advisory rate is high and the import path takes untrusted input. `tar-stream` is the fallback if the pace of advisories continues. Keep automated patch bumps flowing.
 
 ### diff
+
 - **Use:** `models/approvals.ts` (`createPatch`) and `models/pageHistory.ts` (`diffLines`).
 - **Health:** kpdecker and ExplodingCabbage. 102M downloads/wk, 9.2k stars, 22 open issues. v9 released 2026-04. One low advisory in 2026, fixed in 8.0.3.
 - **Verdict: KEEP.**
 
 ### Yjs family: yjs, y-protocols, lib0 (backend) and y-websocket (frontend)
+
 - **Use:**
   - backend: `core/collab.ts` (sync and awareness protocol, lib0 encoding/decoding) and `models/pageDrafts.ts`, 3 source files [5 test]
   - frontend: `composables/collab.js` (`WebsocketProvider`) and `monacoYjsBinding.js`
@@ -456,23 +480,27 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
   - y-websocket: 0.53M/wk, 38 open issues
 
   dmonad is the only npm publisher on all four and dominates commits (yjs 2,042; lib0 883), so the bus factor is 1. lib0 is still `0.2.x`, with `1.0.0-rc.32` on `beta`. **yjs 14.0.0-rc.26** (2026-09-07) is imminent. No advisories.
+
 - **Alternatives:** Automerge and Loro exist, but a switch would be a rewrite of the collab stack and stored draft encoding. Not justified.
 - **Shakiness:** bus factor 1, and a pre-1.0 lib0 that we import directly. The yjs 14 major will need a coordinated upgrade of all four packages (plus the stored update format, unverified whether that changes).
 - **Verdict: KEEP-WATCH.** Plan a v14 upgrade spike. Don't import lib0 more widely than the codec we already use.
 
 ### drizzle-orm and drizzle-kit
+
 - **Use:** 63 source files [58 test]. `drizzle-orm` ×119 imports, `/node-postgres` ×9, `/migrator` ×4, `/pg-core` ×6. drizzle-kit is used for `db-generate`.
 - **Health:** Drizzle Team (company), 4 publishers. 16.5M downloads/wk, 35.8k stars, **2,022 open issues**. `latest` is still 0.45.2. The `rc` tag is 1.0.0-rc.4 (2026-06-27), `npm view drizzle-orm@1.0.0` returns 404, and only an `rc5` snapshot tag (`1.0.0-rc.5-5935859`) exists. No rc release in 2.5 months, and no GA. SQL-identifier injection GHSA-gpj5 (high) is fixed in 1.0.0-beta.20, so rc.4 is patched.
 - **Alternatives:** Kysely (not assessed live). Migration would be enormous. The rc pin was already settled in the prior audit.
 - **Verdict: KEEP-WATCH.** Watch for 1.0.0 GA or rc.5. A search result claimed "v1 stable as of March 2026", but npm contradicts it, so that claim is wrong.
 
 ### pg and pg-cursor
+
 - **Use:** pg in 9 backend source files (`core/db.ts` Pool, `helpers/pubsub.ts` LISTEN/NOTIFY, `helpers/advisoryLock.ts`, the migration connector) and `e2e/helpers/db.js`. pg-cursor has one use, streaming 2.5.x source rows in `migration/connectors/postgres.ts`.
 - **Health:** brianc is the only publisher (1,854 commits; next contributor 79). pg has 39.3M downloads/wk and **527 open issues**. 9 releases in 12 months. Only a 2018 advisory.
 - **Alternatives:** `postgres` (porsager) is also single-maintainer (unverified current state). Drizzle supports both, but LISTEN/NOTIFY and advisory-lock code is written against pg's API. Not worth moving.
 - **Verdict: pg KEEP-WATCH** (bus factor, issue backlog). **pg-cursor KEEP**: a single contained use in a one-shot importer.
 
 ### Group findings
+
 1. **Bump fastify 5.12.1 → ≥5.12.4 now.** Four high GHSAs, published 2026-09-04, affect our pin, including an auth bypass through encapsulated not-found handlers (GHSA-p68q-wchp-6fh7). They weren't yet in the global advisory index when I checked, so `npm audit` can miss them. Bump undici 8.10.0 → 8.10.2 in the same pass, and consider importing `fetch` from undici alongside `Agent` in `liveData.ts`.
 2. **Temporal: drop or replace `@js-temporal/polyfill`, and correct CLAUDE.md.**
    - Official Node 26.7.0 and 26.8.1 images ship native `Temporal` (verified). The "undefined on 26.7.0" claim came from a build compiled without Temporal (Homebrew reports `v8_enable_temporal_support=0`).
@@ -494,46 +522,47 @@ Audit date 2026-09-13. Live sources: `npm view` (dist-tags, version `time`, main
 
 Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, advisories), the npm downloads API for the week of 2026-09-05 to 09-11, `npm audit` run in `backend/` and `frontend/`, lockfile versions, and grep over the repo (excluding node_modules, assets and compiled). Anything I could not check live is marked (unverified).
 
-| Package | Workspace(s) | Pinned → Latest | Last publish | Maintainers/backing | Verdict | Risk |
-|---|---|---|---|---|---|---|
-| @aws-sdk/client-cloudsearch | backend | 3.1116.0 → 3.1131.0 | 2026-09-11 | AWS (org) | CONSIDER-ALTERNATIVE (retire module / OpenSearch) | Med |
-| @aws-sdk/client-cloudsearch-domain | backend | 3.1116.0 → 3.1131.0 | 2026-09-11 | AWS (org) | CONSIDER-ALTERNATIVE (same) | Med |
-| @aws-sdk/client-s3 | backend | 3.1116.0 → 3.1131.0 | 2026-09-11 | AWS (org) | KEEP | Low |
-| @aws-sdk/s3-request-presigner | backend | 3.1116.0 → 3.1131.0 | 2026-09-11 | AWS (org) | KEEP | Low |
-| aws-sdk-client-mock (dev) | backend | 4.1.0 = latest | 2024-10-15 | 1 person (m-radzikowski) | KEEP-WATCH (SDK compat, issue #256) | Low |
-| s3rver (dev) | backend | 3.7.1 = latest | 2021-10-03 | repo **archived** | REPLACE (MinIO/LocalStack container, or drop) | Low |
-| @types/s3rver (dev) | backend | 3.7.4 = latest | 2023-11-21 | DefinitelyTyped | REPLACE (goes with s3rver) | Low |
-| @azure/search-documents | backend | 13.0.0 = latest | 2026-05-04 | Microsoft (org) | KEEP | Low |
-| @azure/storage-blob | backend | 12.33.0 = latest | 2026-06-24 | Microsoft (org) | KEEP | Low |
-| @elastic/elasticsearch | backend | 9.5.0 → 9.5.1 | 2026-08-31 | Elastic (org) | KEEP | Low |
-| @google-cloud/storage | backend | 8.0.1 → 8.1.0 | 2026-09-08 | Google (org) | KEEP | Low |
-| algoliasearch | backend | 5.57.0 → 5.59.0 | 2026-09-09 | Algolia (org, 19 npm maint) | KEEP | Low |
-| @xenova/transformers | backend | 2.17.2 = latest (frozen) | 2024-05-29 | superseded by @huggingface/transformers | **REPLACE** (@huggingface/transformers 4.x) | High |
-| @node-saml/node-saml | backend | 5.1.0 = latest | 2025-07-21 | node-saml org, ~1 active (cjbarth) | KEEP-WATCH (maintainer activity, issue #415) | Med |
-| openid-client | backend | 6.8.7 → 6.8.8 | 2026-09-05 | 1 person (panva), very responsive | KEEP | Low |
-| ldapts | backend | 9.0.0 = latest | 2026-07-11 | ldapts org, 1 human (jgeurts) | KEEP | Low |
-| @simplewebauthn/server | backend | 13.3.2 → 14.0.2 | 2026-09-13 | 1 person (MasterKale) | KEEP-WATCH (bus factor; take v14) | Low |
-| @simplewebauthn/browser | frontend | 13.3.0 → 14.0.0 | 2026-09-02 | 1 person (MasterKale) | KEEP-WATCH (bump alongside server) | Low |
-| bcryptjs | backend | 3.0.3 = latest | 2025-11-02 | 1 person (dcodeIO) | KEEP-WATCH (Node built-in `crypto.argon2`) | Low |
-| nodemailer | backend | 9.0.5 → 10.0.9 | 2026-09-12 | nodemailer org, 1 person (andris9) | KEEP-WATCH (**we are on a vulnerable version, bump now**) | High |
-| akismet-api | backend | 6.0.0 = latest | 2023-01-28 | 1 person | **REPLACE → remove (no longer imported)** | Low |
-| qrcode | backend | 1.5.4 = latest | 2024-08-05 | 2 people, stale | KEEP-WATCH (alt: `uqr`) | Low |
-| simple-git | backend | 3.36.0 = latest | 2026-04-12 | 1 person (steveukx) | KEEP-WATCH (RCE-class advisory history) | Med |
-| ssh2-sftp-client | backend | 12.1.1 = latest | 2026-03-25 | 1 person (theophilusx) | KEEP-WATCH | Low |
-| ssh2 (dev, runtime via sftp client) | backend | 1.17.0 = latest | 2025-08-20 | 1 person (mscdex) | KEEP-WATCH (bus factor, install script) | Med |
-| sanitize-html | backend | 2.17.7 = latest | 2026-08-13 | ApostropheCMS (org) | KEEP-WATCH (5 advisories in 2026) | Med |
-| cheerio | backend | 1.2.0 = latest | 2026-01-23 | cheeriojs org | KEEP | Low |
-| @iconify/utils | backend | 3.1.4 → 3.1.7 | 2026-09-06 | iconify org, 1 person (cyberalien) | KEEP | Low |
-| iconify-icon | frontend | 3.0.2 = latest | 2025-10-25 | iconify org, 1 person | KEEP | Low |
-| @iconify-json/tabler (dev) | backend, frontend | 1.2.38 = latest | 2026-07-28 | iconify org | KEEP | Low |
-| @iconify-json/la (dev) | frontend | 1.2.1 = latest | 2024-12-16 | iconify org (upstream set frozen) | KEEP | Low |
-| @iconify-json/mdi (dev) | frontend | 1.2.3 = latest | 2025-01-20 | iconify org (upstream set frozen) | KEEP | Low |
-| @zxcvbn-ts/core | frontend | 4.2.0 = latest | 2026-08-12 | zxcvbn-ts org, 1 person (MrWook) | KEEP | Low |
-| @zxcvbn-ts/language-common | frontend | 4.1.3 = latest | 2026-07-16 | same | KEEP | Low |
-| @zxcvbn-ts/language-en | frontend | 4.1.1 = latest | 2026-06-16 | same | KEEP | Low |
-| vue3-otp-input | frontend | 0.5.40 = latest | 2025-05-29 | 1 person (ejirocodes), pre-1.0 | IN-HOUSE-CANDIDATE | Low |
+| Package                             | Workspace(s)      | Pinned → Latest          | Last publish | Maintainers/backing                     | Verdict                                                   | Risk |
+| ----------------------------------- | ----------------- | ------------------------ | ------------ | --------------------------------------- | --------------------------------------------------------- | ---- |
+| @aws-sdk/client-cloudsearch         | backend           | 3.1116.0 → 3.1131.0      | 2026-09-11   | AWS (org)                               | CONSIDER-ALTERNATIVE (retire module / OpenSearch)         | Med  |
+| @aws-sdk/client-cloudsearch-domain  | backend           | 3.1116.0 → 3.1131.0      | 2026-09-11   | AWS (org)                               | CONSIDER-ALTERNATIVE (same)                               | Med  |
+| @aws-sdk/client-s3                  | backend           | 3.1116.0 → 3.1131.0      | 2026-09-11   | AWS (org)                               | KEEP                                                      | Low  |
+| @aws-sdk/s3-request-presigner       | backend           | 3.1116.0 → 3.1131.0      | 2026-09-11   | AWS (org)                               | KEEP                                                      | Low  |
+| aws-sdk-client-mock (dev)           | backend           | 4.1.0 = latest           | 2024-10-15   | 1 person (m-radzikowski)                | KEEP-WATCH (SDK compat, issue #256)                       | Low  |
+| s3rver (dev)                        | backend           | 3.7.1 = latest           | 2021-10-03   | repo **archived**                       | REPLACE (MinIO/LocalStack container, or drop)             | Low  |
+| @types/s3rver (dev)                 | backend           | 3.7.4 = latest           | 2023-11-21   | DefinitelyTyped                         | REPLACE (goes with s3rver)                                | Low  |
+| @azure/search-documents             | backend           | 13.0.0 = latest          | 2026-05-04   | Microsoft (org)                         | KEEP                                                      | Low  |
+| @azure/storage-blob                 | backend           | 12.33.0 = latest         | 2026-06-24   | Microsoft (org)                         | KEEP                                                      | Low  |
+| @elastic/elasticsearch              | backend           | 9.5.0 → 9.5.1            | 2026-08-31   | Elastic (org)                           | KEEP                                                      | Low  |
+| @google-cloud/storage               | backend           | 8.0.1 → 8.1.0            | 2026-09-08   | Google (org)                            | KEEP                                                      | Low  |
+| algoliasearch                       | backend           | 5.57.0 → 5.59.0          | 2026-09-09   | Algolia (org, 19 npm maint)             | KEEP                                                      | Low  |
+| @xenova/transformers                | backend           | 2.17.2 = latest (frozen) | 2024-05-29   | superseded by @huggingface/transformers | **REPLACE** (@huggingface/transformers 4.x)               | High |
+| @node-saml/node-saml                | backend           | 5.1.0 = latest           | 2025-07-21   | node-saml org, ~1 active (cjbarth)      | KEEP-WATCH (maintainer activity, issue #415)              | Med  |
+| openid-client                       | backend           | 6.8.7 → 6.8.8            | 2026-09-05   | 1 person (panva), very responsive       | KEEP                                                      | Low  |
+| ldapts                              | backend           | 9.0.0 = latest           | 2026-07-11   | ldapts org, 1 human (jgeurts)           | KEEP                                                      | Low  |
+| @simplewebauthn/server              | backend           | 13.3.2 → 14.0.2          | 2026-09-13   | 1 person (MasterKale)                   | KEEP-WATCH (bus factor; take v14)                         | Low  |
+| @simplewebauthn/browser             | frontend          | 13.3.0 → 14.0.0          | 2026-09-02   | 1 person (MasterKale)                   | KEEP-WATCH (bump alongside server)                        | Low  |
+| bcryptjs                            | backend           | 3.0.3 = latest           | 2025-11-02   | 1 person (dcodeIO)                      | KEEP-WATCH (Node built-in `crypto.argon2`)                | Low  |
+| nodemailer                          | backend           | 9.0.5 → 10.0.9           | 2026-09-12   | nodemailer org, 1 person (andris9)      | KEEP-WATCH (**we are on a vulnerable version, bump now**) | High |
+| akismet-api                         | backend           | 6.0.0 = latest           | 2023-01-28   | 1 person                                | **REPLACE → remove (no longer imported)**                 | Low  |
+| qrcode                              | backend           | 1.5.4 = latest           | 2024-08-05   | 2 people, stale                         | KEEP-WATCH (alt: `uqr`)                                   | Low  |
+| simple-git                          | backend           | 3.36.0 = latest          | 2026-04-12   | 1 person (steveukx)                     | KEEP-WATCH (RCE-class advisory history)                   | Med  |
+| ssh2-sftp-client                    | backend           | 12.1.1 = latest          | 2026-03-25   | 1 person (theophilusx)                  | KEEP-WATCH                                                | Low  |
+| ssh2 (dev, runtime via sftp client) | backend           | 1.17.0 = latest          | 2025-08-20   | 1 person (mscdex)                       | KEEP-WATCH (bus factor, install script)                   | Med  |
+| sanitize-html                       | backend           | 2.17.7 = latest          | 2026-08-13   | ApostropheCMS (org)                     | KEEP-WATCH (5 advisories in 2026)                         | Med  |
+| cheerio                             | backend           | 1.2.0 = latest           | 2026-01-23   | cheeriojs org                           | KEEP                                                      | Low  |
+| @iconify/utils                      | backend           | 3.1.4 → 3.1.7            | 2026-09-06   | iconify org, 1 person (cyberalien)      | KEEP                                                      | Low  |
+| iconify-icon                        | frontend          | 3.0.2 = latest           | 2025-10-25   | iconify org, 1 person                   | KEEP                                                      | Low  |
+| @iconify-json/tabler (dev)          | backend, frontend | 1.2.38 = latest          | 2026-07-28   | iconify org                             | KEEP                                                      | Low  |
+| @iconify-json/la (dev)              | frontend          | 1.2.1 = latest           | 2024-12-16   | iconify org (upstream set frozen)       | KEEP                                                      | Low  |
+| @iconify-json/mdi (dev)             | frontend          | 1.2.3 = latest           | 2025-01-20   | iconify org (upstream set frozen)       | KEEP                                                      | Low  |
+| @zxcvbn-ts/core                     | frontend          | 4.2.0 = latest           | 2026-08-12   | zxcvbn-ts org, 1 person (MrWook)        | KEEP                                                      | Low  |
+| @zxcvbn-ts/language-common          | frontend          | 4.1.3 = latest           | 2026-07-16   | same                                    | KEEP                                                      | Low  |
+| @zxcvbn-ts/language-en              | frontend          | 4.1.1 = latest           | 2026-06-16   | same                                    | KEEP                                                      | Low  |
+| vue3-otp-input                      | frontend          | 0.5.40 = latest          | 2025-05-29   | 1 person (ejirocodes), pre-1.0          | IN-HOUSE-CANDIDATE                                        | Low  |
 
 ### @aws-sdk/client-cloudsearch, @aws-sdk/client-cloudsearch-domain
+
 - **Use:** only `backend/modules/search/aws-cloudsearch/search.ts` (1175 LOC, plus 1101 LOC of tests). It uses 9 commands: Define/Describe for AnalysisScheme, IndexField and Suggester, plus IndexDocuments, Search and UploadDocuments.
 - **Health:** the libraries are fine. AWS publishes from its SDK monorepo, 212 releases in the last 12 months (a daily cadence), not archived. Downloads: 23.5k/wk (control plane) and 32.7k/wk (domain). No advisories.
 - **The product is the problem.** Amazon CloudSearch has been closed to new customers since **2024-07-25**. Existing customers can keep using it and AWS says it will keep up security and availability, but plans no new features. AWS points people to Amazon OpenSearch Service instead. No end-of-support date has been announced. Sources: [InfoWorld](https://www.infoworld.com/article/3484870/aws-closes-several-cloud-services-to-new-customers.html), [Neowin](https://www.neowin.net/news/aws-to-discontinue-cloud9-codecommit-cloudsearch-and-several-other-services/), [AWS docs](https://docs.aws.amazon.com/cloudsearch/latest/developerguide/what-is-cloudsearch.html).
@@ -546,12 +575,14 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: CONSIDER-ALTERNATIVE.** Retire the CloudSearch module, keep a migration note for old configs, and add OpenSearch if anyone asks for it.
 
 ### @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
+
 - **Use:** `modules/storage/s3/storage.ts` (211 LOC, one of the `blobBase.ts` drivers) plus 3 test files.
 - **Health:** AWS org, daily releases. 32.9M/wk (client-s3) and 16.2M/wk (presigner). No advisories for client-s3. Our pin is 15 releases behind, which is normal drift at this cadence.
 - **Alternatives:** a leaner S3 client such as `aws4fetch` (unverified) would lose multipart and checksum handling. Not worth it.
 - **Verdict: KEEP.** The reference implementation, backed by AWS, and the only cost is keeping up with version bumps.
 
 ### aws-sdk-client-mock (dev)
+
 - **Use:** `modules/storage/s3/storage.test.ts` (`mockClient(S3Client)`).
 - **Health:**
   - Last publish 2024-10-15, so nothing in about 23 months. One maintainer (128 commits). 911 stars, 32 open issues, 2.3M/wk.
@@ -562,6 +593,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** If an SDK bump breaks it, swap to `mock.method` rather than looking for another library.
 
 ### s3rver, @types/s3rver (dev)
+
 - **Use:** `modules/storage/s3/storage.emulated.test.ts` (219 LOC), an in-process fake S3.
 - **Health:**
   - The GitHub repo is **archived** (last push 2025-08-10). Last npm publish was 2021-10-03; types were last published 2023-11.
@@ -572,26 +604,31 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: REPLACE.** Archived, with no fix available.
 
 ### @azure/search-documents, @azure/storage-blob
+
 - **Use:** `modules/search/azure-search/search.ts` (784 LOC) and `modules/storage/azure/storage.ts` (103 LOC).
 - **Health:** Microsoft's azure-sdk-for-js monorepo, active (pushed 2026-09-13). 330k/wk (search) and 7.0M/wk (blob). Both pinned at latest. No advisories. storage-blob now requires Node ≥22, which is fine for us.
 - **Verdict: KEEP.** Official SDKs, current, no advisories.
 
 ### @elastic/elasticsearch
+
 - **Use:** `modules/search/elasticsearch/search.ts` (459 LOC) plus a smoke test.
 - **Health:** Elastic org, 75 releases in 12 months, 21 open issues, 1.85M/wk, no advisories. 9.5.1 is a patch release ahead of us.
 - **Verdict: KEEP.** Official client, active, no advisories.
 
 ### @google-cloud/storage
+
 - **Use:** `modules/storage/gcs/storage.ts` (104 LOC).
 - **Health:** Google org (google-cloud-node monorepo), 12.7M/wk. 8.1.0 published 2026-09-08. `npm audit` shows a moderate advisory on transitive `gaxios` 6.4–6.7.1 via `uuid` <11.1.1 (GHSA-w5hq-g745-h8pq, fixable). I have not confirmed which package pulls in that `gaxios` (unverified).
 - **Verdict: KEEP.** Bump to 8.1.0 and re-run the audit.
 
 ### algoliasearch
+
 - **Use:** `modules/search/algolia/search.ts` (470 LOC).
 - **Health:** Algolia org, 39 releases in 12 months, 24 open issues, 5.6M/wk, no advisories.
 - **Verdict: KEEP.**
 
 ### @xenova/transformers
+
 - **Use:**
   - Only through `helpers/embeddings.ts` (137 LOC): a lazy dynamic `import(specifier)` and `pipeline('feature-extraction', MODEL_NAME)`, feeding semantic search.
   - Two test files (`helpers/embeddings.test.ts`, `models/semanticSearch.test.ts`) rename `node_modules/@xenova/transformers` on disk to simulate the package being absent.
@@ -611,6 +648,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: REPLACE.** A clear successor exists under the same author at Hugging Face, and the work is contained to one 137-LOC seam.
 
 ### @node-saml/node-saml
+
 - **Use:** `modules/authentication/saml/authentication.ts` (308 LOC): `new SAML({...})`, `validatePostResponseAsync`, with `wantAssertionsSigned` defaulting to true.
 - **Health:**
   - 5.1.0 (2025-07-21) fixed two **critical** 2025 advisories: GHSA-4mxg-3p6v-xgq3 (signature verification) and GHSA-m837-g268-mmv7 (auth bypass). We are on the patched version. Transitive `xml-crypto` is 6.1.2, patched for 2025's SAMLStorm class. `@xmldom/xmldom` 0.8.15 is patched for the 2026-09-08 batch of xmldom advisories.
@@ -624,6 +662,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** Watch issue #415 and xmldom advisories weekly. If #415 turns into an advisory with no release within about 30 days, evaluate `@boxyhq/saml20`.
 
 ### openid-client
+
 - **Use:** `modules/authentication/oidc/authentication.ts` (214 LOC) and `google/authentication.ts` (120 LOC), via `import * as client`.
 - **Health:**
   - One maintainer (panva: 1113 commits; next contributor has 4). The same person maintains its dependencies `oauth4webapi` 3.8.7 and `jose` 6.2.10.
@@ -633,12 +672,14 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP.** Bump to 6.8.8.
 
 ### ldapts
+
 - **Use:** `modules/authentication/ldap/authentication.ts` (335 LOC), using `Client`. This replaced ldapjs in 2026-08.
 - **Health:** ldapts org, but jgeurts is the only human committer (263 commits; the rest is renovate). 38 releases in 12 months, 3 open issues, 352k/wk, no advisories. The 9.0.0 major landed the same day as 8.2.0 (2026-07-11), so majors do happen.
 - **Alternatives:** none. ldapjs is decommissioned.
 - **Verdict: KEEP.** Responsive and low backlog; the bus factor is acceptable for an optional auth module.
 
 ### @simplewebauthn/server, @simplewebauthn/browser
+
 - **Use:** server side in `models/passkeys.ts` (476 LOC). Browser side in `AuthLoginPanel.vue` and `ProfileAuth.vue`.
 - **Health:**
   - One maintainer (MasterKale: 2445 commits; next contributor has 24). 5 open issues. 3.2M/wk (server), 3.6M/wk (browser).
@@ -648,6 +689,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** Keep an eye on the bus factor, and upgrade server and browser to v14 together.
 
 ### bcryptjs
+
 - **Use:** 16 hash/compare call sites across `models/login.ts`, `models/userCredentials.ts`, `models/users.ts` and `models/pages.ts` (page passwords), `modules/authentication/local` (a constant-time dummy hash) and the 2.5.x importer. Plus 3 test files. Cost factor comes from `BCRYPT_ROUNDS`.
 - **Health:** one maintainer (dcodeIO, 96 of about 105 commits). 3.0.3 (2025-11) is its only release in 12 months. 6 open issues, 10.1M/wk, no advisories. It is a mature, small, pure-JS implementation.
 - **Alternatives:**
@@ -659,6 +701,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** Once `crypto.argon2` is marked stable in Node 26 LTS, move to built-in argon2id with rehash-on-login and drop the dependency.
 
 ### nodemailer
+
 - **Use:** `models/mail.ts` (1063 LOC), one `createTransport` site.
 - **Health:**
   - nodemailer org, but one human (andris9: 823 commits; next contributor has 7). 17.5M/wk. 37 releases in 12 months, including 4 on 2026-09-11/12 alone.
@@ -670,12 +713,14 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** **Bump now** (at least 9.1.1, ideally 10.0.9), and treat nodemailer as a package that needs a fast patch cadence.
 
 ### akismet-api
+
 - **Use:** **none.** No import anywhere. `modules/comments/default/comments.ts` now calls Akismet's REST API directly through `fetch` (`https://rest.akismet.com/1.1/verify-key`, plus a `User-Agent` header), and its doc comments (lines 270, 289) say the field aliases were copied from `akismet-api`'s source. The package is still listed in `backend/package.json:79`.
   - This contradicts the 2026-08-22 audit's note that akismet-api was live in `comments.ts`. The code has changed since then.
 - **Health:** last publish 2023-01-28, last repo push 2024-03-30, one maintainer, 12k/wk.
 - **Verdict: REPLACE → remove from `package.json`.** It is dead weight; the in-house `fetch` client already replaced it.
 
 ### qrcode
+
 - **Use:** one call, `QRCode.toString(buildTotpUri(...))` in `models/userCredentials.ts:548` (TOTP setup image).
 - **Health:** last publish 2024-08-05 (about 2 years), last repo push 2024-08-23. **125 open issues**. Two maintainers, 19.1M/wk, no advisories.
 - **Alternatives:** `uqr` (unjs, 0.1.3 published 2026-04, 2 maintainers, 3.2M/wk) has no dependencies and outputs SVG (unverified API parity). `qrcode-generator` 2.0.4 has 1 maintainer.
@@ -683,6 +728,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** Stale but stable, and it only ever sees server-generated input. Swap to `uqr` only if it breaks.
 
 ### simple-git
+
 - **Use:** `modules/storage/git/` (repo, sync, content, actions, plus tests): about 12 distinct commands (commit ×14, add ×10, raw ×7, pull, addConfig, log, getRemotes, checkIgnore, rm, mv, branch).
 - **Health:**
   - One maintainer (steveukx: 1205 commits). 80 open issues, 8.2M/wk.
@@ -695,6 +741,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** If another RCE-class advisory lands, promote to IN-HOUSE-CANDIDATE: a thin `execFile` wrapper with fixed argv and `--` separators is contained and removes the parsing surface.
 
 ### ssh2-sftp-client, ssh2
+
 - **Use:**
   - `ssh2-sftp-client`: `modules/storage/sftp/` (connection, pages, assets, plus tests).
   - `ssh2`: listed as a dev dependency for `test/sftpServer.ts`, but `ssh2-sftp-client` also depends on it at runtime, so it ships in production.
@@ -705,6 +752,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH** for both. The SSH transport rests on one person and there is no better option. Consider `npm config ignore-scripts` / skipping `cpu-features` in the Docker build (unverified effect).
 
 ### sanitize-html
+
 - **Use:** 9 non-test call sites across `models/rendering.ts`, `helpers/htmlSanitizePolicy.ts` (the shared policy), `helpers/images.ts` and `modules/comments/default/comments.ts`. It is the core defence against stored XSS in page content.
 - **Health:**
   - Maintained by ApostropheCMS: 4 npm maintainers, 7.6M/wk. The standalone repo `apostrophecms/sanitize-html` is **archived**, and development has moved into the `apostrophecms/apostrophe` monorepo (npm `repository` now points there; that repo was active 2026-09-11).
@@ -714,26 +762,31 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: KEEP-WATCH.** Subscribe to GHSA for sanitize-html, keep the exact pin, and bump within days of each advisory. Re-evaluate DOMPurify+jsdom only if response times slip.
 
 ### cheerio
+
 - **Use:** `models/rendering.ts` (load, stripEditorArtifacts, liftIconChildren, inlineIcons), `helpers/htmlSanitizePolicy.ts`, and `migration/mappers/drawioFence.ts` (XML mode).
 - **Health:** cheeriojs org (fb55 and others), 57 open issues, 19.7M/wk, no advisories. Only one release in 12 months (1.2.0, 2026-01), but the repo is active (2026-09-11).
 - **Verdict: KEEP.** Mature and widely used, no advisories.
 
 ### @iconify/utils, iconify-icon
+
 - **Use:** `@iconify/utils` in `models/icons.ts` (getIconData, iconToSVG, iconToHTML, replaceIDs) and `models/rendering.ts` (flip and rotate helpers). `iconify-icon` in `frontend/src/boot/iconify.js`, as the fallback path for user-picked icons.
 - **Health:** iconify org, but effectively one person (cyberalien: 1184 commits; next contributor has 100). 24 open issues. `@iconify/utils` gets 13.0M/wk, with 10 releases in 12 months (3.1.7 published 2026-09-06). `iconify-icon` gets 85.5k/wk (3.0.2, 2025-10). No advisories.
 - **Verdict: KEEP** both. Bump `@iconify/utils` to 3.1.7. The format is ours to vendor if the project ever stalls.
 
 ### @iconify-json/tabler, @iconify-json/la, @iconify-json/mdi (dev)
+
 - **Use:** build-time only. `backend/scripts/vendor-icon-sets.ts` vendors tabler into `assets/icon-sets/tabler.json`. `frontend/scripts/generate-icons.mjs:434` reads `node_modules/@iconify-json/<prefix>/icons.json` to build the committed `icons.generated.js`.
 - **Health:** all pinned at latest. tabler is active (16 releases in 12 months). `la` and `mdi` have not moved because their upstreams are frozen: npm `line-awesome` was last modified 2022-05-08, `@mdi/svg` 7.4.47 was last modified 2023-12-27. Downloads: 132k (tabler), 4.7k (la), 243k (mdi) per week.
 - **Verdict: KEEP.** These are JSON data packages used only at build time and gated by the `icons:check` drift checks. A frozen upstream is harmless here.
 
 ### @zxcvbn-ts/core, @zxcvbn-ts/language-common, @zxcvbn-ts/language-en
+
 - **Use:** `frontend/src/helpers/passwordStrength.js` only.
 - **Health:** zxcvbn-ts org, one active maintainer (MrWook: 451 commits). 8 open issues, about 1.06M/wk (core), active (4.2.0 published 2026-08-12). No advisories.
 - **Verdict: KEEP.** This is advisory UI, not a security boundary.
 
 ### vue3-otp-input
+
 - **Use:** 3 `<v-otp-input>` instances in `components/AuthTfaScreens.vue` (×2) and `components/SetupTfaDialog.vue`, plus `SetupTfaDialog.test.js`. It is already restyled through `.otp-input` in `css/tailwind.css`.
 - **Health:** one maintainer (ejirocodes: 132 commits), pre-1.0 (0.5.40), last publish 2025-05-29, last push 2025-10-06. 124 stars, 20k/wk. It lists `vue ^3.4.27` under `dependencies` as well as `peerDependencies`, which could duplicate Vue if the ranges diverge (unverified).
 - **Alternatives:** `vue-otp-input` 1.0.0 is dead (2022).
@@ -741,6 +794,7 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 - **Verdict: IN-HOUSE-CANDIDATE.** Small, UI-only, and a shaky pre-1.0 single-maintainer package in the login path. It would also match the W* component-library convention.
 
 ### Group findings
+
 1. **Bump nodemailer now** (9.0.5 → 9.1.1 minimum, 10.0.9 preferred). Our pin is inside four current advisories, including a high-severity remote DoS in address parsing (GHSA-2x7j-588g-ccc2). It is a one-line change and v10's only break is Node ≥20.
 2. **Replace `@xenova/transformers` with `@huggingface/transformers` 4.x.** The old name has been frozen since 2024-05, and it accounts for the backend's only **critical** `npm audit` finding (protobufjs) plus 3 high ones and a nested native sharp 0.32.6. The work is contained to `helpers/embeddings.ts` (137 LOC) and two test paths. Verify the embedding dimensions and model id before merging.
 3. **Remove the dead `akismet-api` dependency** (no import; `comments.ts` now calls the REST API directly). Also **replace `s3rver`** (archived, high audit finding with no fix) with a MinIO/LocalStack container test, or drop that one emulated test. Together these clear the remaining dev-only audit noise in this group.
@@ -753,36 +807,36 @@ Audited 2026-09-13 from live data: `npm view`, `gh api` (repos, contributors, ad
 
 Audited 2026-09-13 against live data: `npm view` (versions, publish times, maintainers), the npm downloads API (last week = 2026-09-05..09-11), `gh api` (repo health, contributors, `/advisories`), `npm audit --omit=dev` and `npm ls` run in `frontend/` (read-only), and a grep of `frontend/src`, `frontend/scripts` and `vite.config.js`. "Use sites" counts **non-test source files** importing the package; test-file counts are given where relevant. "Last publish" is the publish date of the current `latest` dist-tag.
 
-| Package | Workspace(s) | Pinned → Latest | Last publish | Maintainers/backing | Verdict | Risk |
-| --- | --- | --- | --- | --- | --- | --- |
-| vue | frontend | 3.5.41 → 3.5.42 | 2026-08-27 | vuejs org (yyx990803, posva) | KEEP | Low |
-| vue-router | frontend | 5.2.0 → 5.3.1 | 2026-09-02 | vuejs org (posva) | KEEP | Low |
-| pinia | frontend | 4.0.3 → 4.0.3 | 2026-08-12 | vuejs org (posva) | KEEP | Low |
-| vue-i18n | frontend | 11.4.9 → 11.4.10 | 2026-08-25 | intlify org (kazupon) | KEEP-WATCH | Low |
-| @tiptap/starter-kit, @tiptap/vue-3, @tiptap/suggestion | frontend | 3.30.2 → 3.31.3 | 2026-09-04 | ueberdosis GmbH (6 npm maintainers) | KEEP-WATCH (**patch now**) | Med |
-| @tiptap/extension-* (19 packages) | frontend | 3.30.2 → 3.31.3 | 2026-09-04 | ueberdosis GmbH | KEEP-WATCH (**patch now**) | Med |
-| monaco-editor | frontend | 0.56.0 → 0.56.0 | 2026-07-20 | Microsoft | KEEP-WATCH | Med |
-| lowlight | frontend | 3.3.0 → 3.3.0 | 2024-12-14 | wooorm (solo) | KEEP | Low |
-| ky | frontend | 2.0.2 → 2.1.0 | 2026-08-28 | sindresorhus (solo) | KEEP | Low |
-| mitt | frontend | 3.0.1 → 3.0.1 | 2023-07-04 | developit (solo) | KEEP | Low |
-| uuid | frontend | 14.0.2 → 14.0.2 | 2026-08-18 | uuidjs org (broofa, ctavan) | KEEP | Low |
-| fuse.js | frontend | 7.5.0 → 7.5.0 | 2026-07-13 | krisk (solo) | KEEP | Low |
-| sortablejs | frontend | 1.15.7 → 1.15.7 | 2026-02-11 | SortableJS org (2) | KEEP-WATCH | Low |
-| sortablejs-vue3 | frontend | 1.3.0 → 1.3.0 | 2025-08-20 | maxleiter (solo) | IN-HOUSE-CANDIDATE | Low |
-| browser-fs-access | frontend | 0.38.0 → 0.38.0 | 2025-06-18 | GoogleChromeLabs (tomayac, effectively solo) | KEEP-WATCH | Low |
-| d3-force | frontend | 3.0.0 → 3.0.0 | 2021-06-05 | d3 org (mbostock, Fil) | KEEP | Low |
-| d3-quadtree | frontend | 3.0.1 → 3.0.1 | 2021-06-05 | d3 org | KEEP | Low |
-| d3-selection | frontend | 3.0.0 → 3.0.0 | 2021-06-07 | d3 org | KEEP | Low |
-| d3-zoom | frontend | 3.0.0 → 3.0.0 | 2021-06-10 | d3 org | KEEP | Low |
-| slugify | frontend | 1.6.9 → 1.6.9 | 2026-04-01 | simov + Trott + JoshuaKGoldberg | KEEP | Low |
-| text-case | frontend | 1.2.11 → 1.2.11 | 2026-05-19 | idimetrix (solo, 17 stars) | IN-HOUSE-CANDIDATE | Med |
-| turndown | frontend | 7.2.4 → 7.2.4 | 2026-04-03 | mixmark-io org (2) | KEEP | Low |
-| turndown-plugin-gfm | frontend | 1.0.2 → 1.0.2 | 2018-05-11 | domchristie (solo, dormant) | REPLACE (`@joplin/turndown-plugin-gfm`) | Med |
-| @twemoji/api | frontend | 17.0.2 → 17.0.3 (deliberate lag) | 2026-06-01 | jdecked community fork (2 npm) | KEEP-WATCH | Med |
-| twemoji-assets (GitHub tarball) | frontend | tag v17.0.3 | 2026-06-01 (tag) | jdecked/twemoji | KEEP-WATCH | Med |
-| unicode-emoji-json (dev) | frontend | 0.9.0 → 0.9.0 | 2026-04-18 | muan (solo) | KEEP | Low |
-| tailwindcss | frontend | 4.3.3 → 4.3.3 | 2026-07-16 | Tailwind Labs | KEEP | Low |
-| @tailwindcss/vite | frontend | 4.3.3 → 4.3.3 | 2026-07-16 | Tailwind Labs | KEEP | Low |
+| Package                                                | Workspace(s) | Pinned → Latest                  | Last publish     | Maintainers/backing                          | Verdict                                 | Risk |
+| ------------------------------------------------------ | ------------ | -------------------------------- | ---------------- | -------------------------------------------- | --------------------------------------- | ---- |
+| vue                                                    | frontend     | 3.5.41 → 3.5.42                  | 2026-08-27       | vuejs org (yyx990803, posva)                 | KEEP                                    | Low  |
+| vue-router                                             | frontend     | 5.2.0 → 5.3.1                    | 2026-09-02       | vuejs org (posva)                            | KEEP                                    | Low  |
+| pinia                                                  | frontend     | 4.0.3 → 4.0.3                    | 2026-08-12       | vuejs org (posva)                            | KEEP                                    | Low  |
+| vue-i18n                                               | frontend     | 11.4.9 → 11.4.10                 | 2026-08-25       | intlify org (kazupon)                        | KEEP-WATCH                              | Low  |
+| @tiptap/starter-kit, @tiptap/vue-3, @tiptap/suggestion | frontend     | 3.30.2 → 3.31.3                  | 2026-09-04       | ueberdosis GmbH (6 npm maintainers)          | KEEP-WATCH (**patch now**)              | Med  |
+| @tiptap/extension-* (19 packages)                      | frontend     | 3.30.2 → 3.31.3                  | 2026-09-04       | ueberdosis GmbH                              | KEEP-WATCH (**patch now**)              | Med  |
+| monaco-editor                                          | frontend     | 0.56.0 → 0.56.0                  | 2026-07-20       | Microsoft                                    | KEEP-WATCH                              | Med  |
+| lowlight                                               | frontend     | 3.3.0 → 3.3.0                    | 2024-12-14       | wooorm (solo)                                | KEEP                                    | Low  |
+| ky                                                     | frontend     | 2.0.2 → 2.1.0                    | 2026-08-28       | sindresorhus (solo)                          | KEEP                                    | Low  |
+| mitt                                                   | frontend     | 3.0.1 → 3.0.1                    | 2023-07-04       | developit (solo)                             | KEEP                                    | Low  |
+| uuid                                                   | frontend     | 14.0.2 → 14.0.2                  | 2026-08-18       | uuidjs org (broofa, ctavan)                  | KEEP                                    | Low  |
+| fuse.js                                                | frontend     | 7.5.0 → 7.5.0                    | 2026-07-13       | krisk (solo)                                 | KEEP                                    | Low  |
+| sortablejs                                             | frontend     | 1.15.7 → 1.15.7                  | 2026-02-11       | SortableJS org (2)                           | KEEP-WATCH                              | Low  |
+| sortablejs-vue3                                        | frontend     | 1.3.0 → 1.3.0                    | 2025-08-20       | maxleiter (solo)                             | IN-HOUSE-CANDIDATE                      | Low  |
+| browser-fs-access                                      | frontend     | 0.38.0 → 0.38.0                  | 2025-06-18       | GoogleChromeLabs (tomayac, effectively solo) | KEEP-WATCH                              | Low  |
+| d3-force                                               | frontend     | 3.0.0 → 3.0.0                    | 2021-06-05       | d3 org (mbostock, Fil)                       | KEEP                                    | Low  |
+| d3-quadtree                                            | frontend     | 3.0.1 → 3.0.1                    | 2021-06-05       | d3 org                                       | KEEP                                    | Low  |
+| d3-selection                                           | frontend     | 3.0.0 → 3.0.0                    | 2021-06-07       | d3 org                                       | KEEP                                    | Low  |
+| d3-zoom                                                | frontend     | 3.0.0 → 3.0.0                    | 2021-06-10       | d3 org                                       | KEEP                                    | Low  |
+| slugify                                                | frontend     | 1.6.9 → 1.6.9                    | 2026-04-01       | simov + Trott + JoshuaKGoldberg              | KEEP                                    | Low  |
+| text-case                                              | frontend     | 1.2.11 → 1.2.11                  | 2026-05-19       | idimetrix (solo, 17 stars)                   | IN-HOUSE-CANDIDATE                      | Med  |
+| turndown                                               | frontend     | 7.2.4 → 7.2.4                    | 2026-04-03       | mixmark-io org (2)                           | KEEP                                    | Low  |
+| turndown-plugin-gfm                                    | frontend     | 1.0.2 → 1.0.2                    | 2018-05-11       | domchristie (solo, dormant)                  | REPLACE (`@joplin/turndown-plugin-gfm`) | Med  |
+| @twemoji/api                                           | frontend     | 17.0.2 → 17.0.3 (deliberate lag) | 2026-06-01       | jdecked community fork (2 npm)               | KEEP-WATCH                              | Med  |
+| twemoji-assets (GitHub tarball)                        | frontend     | tag v17.0.3                      | 2026-06-01 (tag) | jdecked/twemoji                              | KEEP-WATCH                              | Med  |
+| unicode-emoji-json (dev)                               | frontend     | 0.9.0 → 0.9.0                    | 2026-04-18       | muan (solo)                                  | KEEP                                    | Low  |
+| tailwindcss                                            | frontend     | 4.3.3 → 4.3.3                    | 2026-07-16       | Tailwind Labs                                | KEEP                                    | Low  |
+| @tailwindcss/vite                                      | frontend     | 4.3.3 → 4.3.3                    | 2026-07-16       | Tailwind Labs                                | KEEP                                    | Low  |
 
 ### vue
 
@@ -983,7 +1037,7 @@ Audited 2026-09-13 against live data: `npm view` (versions, publish times, maint
 - **What the pattern actually does (verified):**
   - `package-lock.json` records the `https://codeload.github.com/...v17.0.3` URL **with a sha512 `integrity`**. A retagged or altered tarball makes `npm ci` fail rather than install different bytes.
   - The GitHub release v17.0.3 is **not an immutable release** (`immutable=false`), so the tag can be moved. The integrity hash is the only guard.
-  - The tarball is the repo root, which *is* the `@twemoji/api` package: `npm ls` shows `twemoji-assets@npm:@twemoji/api@17.0.3`. It therefore installs a **second copy of @twemoji/api** and hoists `@twemoji/parser@17.0.2` (the very version the pin avoids) to the top level, along with its `fs-extra`/`jsonfile`/`universalify` dependencies. 35 MB on disk.
+  - The tarball is the repo root, which _is_ the `@twemoji/api` package: `npm ls` shows `twemoji-assets@npm:@twemoji/api@17.0.3`. It therefore installs a **second copy of @twemoji/api** and hoists `@twemoji/parser@17.0.2` (the very version the pin avoids) to the top level, along with its `fs-extra`/`jsonfile`/`universalify` dependencies. 35 MB on disk.
   - There are no install scripts (`scripts` has no `*install*`), so installing runs no code.
   - It has no npm provenance or signature. `npm audit` sees it only as `@twemoji/api@17.0.3`. `npm-check-updates` and Dependabot cannot bump a tag URL (unverified for Dependabot). Installs also depend on codeload.github.com being available.
 - **Alternatives:**
@@ -1025,33 +1079,33 @@ npm downloads API (week 2026-09-05..11), GitHub release notes/CHANGELOGs, and gr
 (excluding `node_modules`, `assets`, `compiled`). "Commits/yr" = commits on the default branch since
 2025-09-13 (the API caps it at 100). Pinned versions are exact in each `package.json` and match the lockfiles.
 
-| Package | Workspace(s) | Pinned → Latest | Last publish | Maintainers/backing | Verdict | Risk |
-| --- | --- | --- | --- | --- | --- | --- |
-| markdown-it | frontend, backend | 15.0.0 → **15.0.2** | 2026-09-11 | markdown-it org (puzrin, rlidwka); 21.4M/wk | KEEP (bump now: DoS fixes) | Med |
-| markdown-it-emoji | frontend, backend | 3.1.0 = 3.1.0 | 2026-07-22 | markdown-it org; 524k/wk | KEEP | Low |
-| @types/markdown-it-emoji | backend | 3.0.1 = 3.0.1 | 2024-05-01 | DefinitelyTyped | CONSIDER-ALTERNATIVE (local `declare module` shim) | Low |
-| markdown-it-abbr | frontend | 2.0.0 = 2.0.0 | 2023-12-06 | markdown-it org; 252k/wk | KEEP | Low |
-| markdown-it-attrs | frontend | 5.0.1 = 5.0.1 | 2026-07-27 | 1 human (arve0), heavy Copilot-authored PRs; 199k/wk | KEEP-WATCH | Med |
-| markdown-it-expand-tabs | frontend | 1.0.13 = 1.0.13 | 2018-03-06 | 1 (revin), repo idle since 2020; 9.5k/wk | IN-HOUSE-CANDIDATE | Low |
-| markdown-it-footnote | frontend | 4.0.0 = 4.0.0 | 2023-12-06 | markdown-it org; 468k/wk | KEEP | Low |
-| markdown-it-mark | frontend | 4.0.0 = 4.0.0 | 2023-12-05 | markdown-it org; 358k/wk | KEEP | Low |
-| markdown-it-sub | frontend | 2.0.0 = 2.0.0 | 2023-12-05 | markdown-it org; 369k/wk | KEEP | Low |
-| markdown-it-sup | frontend | 2.0.0 = 2.0.0 | 2023-12-05 | markdown-it org; 409k/wk | KEEP | Low |
-| markdown-it-task-lists | frontend | 2.1.1 = 2.1.1 | 2018-03-06 | 1 (revin), repo idle since 2022; 2.2M/wk | IN-HOUSE-CANDIDATE (vendor as-is) | Low |
-| highlight.js | frontend, backend | 11.12.0 = 11.12.0 | 2026-08-12 | highlightjs org, revived Jun 2026 after ~1 yr dormant; 26.4M/wk | KEEP-WATCH | Med |
-| asciidoctor | frontend | 4.0.11 = 4.0.11 | 2026-08-18 | asciidoctor org, one active committer (ggrossetie); 26k/wk | KEEP-WATCH | Med |
-| katex | frontend, blocks | 0.18.4 → 0.18.7 | 2026-09-06 | KaTeX org (Khan Academy lineage), 7 npm maintainers; 18.9M/wk | KEEP | Low |
-| @mathjax/src | blocks | 4.1.3 = 4.1.3 | 2026-07-03 | MathJax org (dpvc, zorkow); 92k/wk | KEEP | Low |
-| @mathjax/mathjax-newcm-font | blocks | 4.1.3 = 4.1.3 | 2026-07-03 | MathJax org; 104k/wk | KEEP | Low |
-| @mathjax/mathjax-mhchem-font-extension | blocks | 4.1.3 = 4.1.3 | 2026-07-03 | MathJax org; 6.9k/wk | KEEP | Low |
-| mermaid | blocks | 11.17.0 → 11.17.2 (12.0.0 major out) | 2026-09-10 | mermaid-js org, 5 npm maintainers; 12.1M/wk | KEEP-WATCH | Med |
-| leaflet | blocks | 1.9.4 = 1.9.4 (2.0.0-alpha.1) | 2023-05-18 (stable) | Leaflet org (mourner et al.); 5.3M/wk | KEEP-WATCH | Low |
-| lit | blocks | 3.3.3 = 3.3.3 | 2026-05-14 | Google / lit org, 8 npm maintainers; 5.2M/wk | KEEP | Low |
-| pdfjs-dist | blocks | 6.2.108 → 6.3.289 | 2026-08-29 | Mozilla; 19.7M/wk | KEEP (track latest) | Med |
-| swagger-ui | blocks | 5.32.14 → 5.32.15 | 2026-09-04 | SmartBear / swagger-api org; 93k/wk | KEEP | Low |
-| asciinema-player | blocks | 3.17.0 = 3.17.0 | 2026-06-30 | asciinema org, effectively 1 dev (ku1ik); 60k/wk | KEEP-WATCH | Low |
-| pako | blocks | 3.0.1 → 3.0.2 | 2026-09-12 | nodeca org (puzrin); 83M/wk | CONSIDER-ALTERNATIVE (native `DecompressionStream`) | Low |
-| uqr | blocks | 0.1.3 = 0.1.3 | 2026-04-03 | unjs org (antfu, pi0); 3.2M/wk | KEEP-WATCH | Low |
+| Package                                | Workspace(s)      | Pinned → Latest                      | Last publish        | Maintainers/backing                                             | Verdict                                             | Risk |
+| -------------------------------------- | ----------------- | ------------------------------------ | ------------------- | --------------------------------------------------------------- | --------------------------------------------------- | ---- |
+| markdown-it                            | frontend, backend | 15.0.0 → **15.0.2**                  | 2026-09-11          | markdown-it org (puzrin, rlidwka); 21.4M/wk                     | KEEP (bump now: DoS fixes)                          | Med  |
+| markdown-it-emoji                      | frontend, backend | 3.1.0 = 3.1.0                        | 2026-07-22          | markdown-it org; 524k/wk                                        | KEEP                                                | Low  |
+| @types/markdown-it-emoji               | backend           | 3.0.1 = 3.0.1                        | 2024-05-01          | DefinitelyTyped                                                 | CONSIDER-ALTERNATIVE (local `declare module` shim)  | Low  |
+| markdown-it-abbr                       | frontend          | 2.0.0 = 2.0.0                        | 2023-12-06          | markdown-it org; 252k/wk                                        | KEEP                                                | Low  |
+| markdown-it-attrs                      | frontend          | 5.0.1 = 5.0.1                        | 2026-07-27          | 1 human (arve0), heavy Copilot-authored PRs; 199k/wk            | KEEP-WATCH                                          | Med  |
+| markdown-it-expand-tabs                | frontend          | 1.0.13 = 1.0.13                      | 2018-03-06          | 1 (revin), repo idle since 2020; 9.5k/wk                        | IN-HOUSE-CANDIDATE                                  | Low  |
+| markdown-it-footnote                   | frontend          | 4.0.0 = 4.0.0                        | 2023-12-06          | markdown-it org; 468k/wk                                        | KEEP                                                | Low  |
+| markdown-it-mark                       | frontend          | 4.0.0 = 4.0.0                        | 2023-12-05          | markdown-it org; 358k/wk                                        | KEEP                                                | Low  |
+| markdown-it-sub                        | frontend          | 2.0.0 = 2.0.0                        | 2023-12-05          | markdown-it org; 369k/wk                                        | KEEP                                                | Low  |
+| markdown-it-sup                        | frontend          | 2.0.0 = 2.0.0                        | 2023-12-05          | markdown-it org; 409k/wk                                        | KEEP                                                | Low  |
+| markdown-it-task-lists                 | frontend          | 2.1.1 = 2.1.1                        | 2018-03-06          | 1 (revin), repo idle since 2022; 2.2M/wk                        | IN-HOUSE-CANDIDATE (vendor as-is)                   | Low  |
+| highlight.js                           | frontend, backend | 11.12.0 = 11.12.0                    | 2026-08-12          | highlightjs org, revived Jun 2026 after ~1 yr dormant; 26.4M/wk | KEEP-WATCH                                          | Med  |
+| asciidoctor                            | frontend          | 4.0.11 = 4.0.11                      | 2026-08-18          | asciidoctor org, one active committer (ggrossetie); 26k/wk      | KEEP-WATCH                                          | Med  |
+| katex                                  | frontend, blocks  | 0.18.4 → 0.18.7                      | 2026-09-06          | KaTeX org (Khan Academy lineage), 7 npm maintainers; 18.9M/wk   | KEEP                                                | Low  |
+| @mathjax/src                           | blocks            | 4.1.3 = 4.1.3                        | 2026-07-03          | MathJax org (dpvc, zorkow); 92k/wk                              | KEEP                                                | Low  |
+| @mathjax/mathjax-newcm-font            | blocks            | 4.1.3 = 4.1.3                        | 2026-07-03          | MathJax org; 104k/wk                                            | KEEP                                                | Low  |
+| @mathjax/mathjax-mhchem-font-extension | blocks            | 4.1.3 = 4.1.3                        | 2026-07-03          | MathJax org; 6.9k/wk                                            | KEEP                                                | Low  |
+| mermaid                                | blocks            | 11.17.0 → 11.17.2 (12.0.0 major out) | 2026-09-10          | mermaid-js org, 5 npm maintainers; 12.1M/wk                     | KEEP-WATCH                                          | Med  |
+| leaflet                                | blocks            | 1.9.4 = 1.9.4 (2.0.0-alpha.1)        | 2023-05-18 (stable) | Leaflet org (mourner et al.); 5.3M/wk                           | KEEP-WATCH                                          | Low  |
+| lit                                    | blocks            | 3.3.3 = 3.3.3                        | 2026-05-14          | Google / lit org, 8 npm maintainers; 5.2M/wk                    | KEEP                                                | Low  |
+| pdfjs-dist                             | blocks            | 6.2.108 → 6.3.289                    | 2026-08-29          | Mozilla; 19.7M/wk                                               | KEEP (track latest)                                 | Med  |
+| swagger-ui                             | blocks            | 5.32.14 → 5.32.15                    | 2026-09-04          | SmartBear / swagger-api org; 93k/wk                             | KEEP                                                | Low  |
+| asciinema-player                       | blocks            | 3.17.0 = 3.17.0                      | 2026-06-30          | asciinema org, effectively 1 dev (ku1ik); 60k/wk                | KEEP-WATCH                                          | Low  |
+| pako                                   | blocks            | 3.0.1 → 3.0.2                        | 2026-09-12          | nodeca org (puzrin); 83M/wk                                     | CONSIDER-ALTERNATIVE (native `DecompressionStream`) | Low  |
+| uqr                                    | blocks            | 0.1.3 = 0.1.3                        | 2026-04-03          | unjs org (antfu, pi0); 3.2M/wk                                  | KEEP-WATCH                                          | Low  |
 
 ---
 
@@ -1253,7 +1307,7 @@ npm downloads API (week 2026-09-05..11), GitHub release notes/CHANGELOGs, and gr
 
 1. **Bump markdown-it 15.0.0 → 15.0.2 in both `frontend/` and `backend/` now.** 15.0.1 and 15.0.2 fix quadratic-complexity DoS in linkify (fuzzy links, scheme backscan) and smartquotes. The backend renders untrusted comments with `linkify: true`. While there, fix `markdown.js:221` `typography:` → `typographer:`: today the admin Typographer toggle and quote styles are silently ignored.
 2. **Remove the two abandoned revin plugins.** Rewrite `markdown-it-expand-tabs` in-house (43 lines, last publish 2018, pulls in `lodash.repeat`). Vendor `markdown-it-task-lists` verbatim (116 lines, ISC); the checkbox markup stays identical, so the #1180 keep-decision holds.
-3. **The @mdit/* family is not a consolidation target.** It is a single maintainer with ~12–15k downloads/wk per plugin, against the markdown-it org's own plugins at 250k–470k/wk with two long-time maintainers. The org's abbr/footnote/mark/sub/sup are small, feature-complete and markdown-it-15 compatible: keep them.
+3. _*The @mdit/* family is not a consolidation target._* It is a single maintainer with ~12–15k downloads/wk per plugin, against the markdown-it org's own plugins at 250k–470k/wk with two long-time maintainers. The org's abbr/footnote/mark/sub/sup are small, feature-complete and markdown-it-15 compatible: keep them.
 4. **Security-sensitive libraries need "track latest" discipline, not replacement:** pdfjs-dist (pinned at exactly the high-severity fix 6.2.108; bump to 6.3.289), mermaid (11 advisories in 2025–26; take 11.17.2, adopt 12.0 deliberately since it re-lays out every diagram), and markdown-it-attrs (Copilot-authored parser PRs; review each bump's diff and keep a test that the whitelist drops non-listed attributes). The backend's full `highlight.js` import could become `lib/common` to cut the server-side grammar/ReDoS surface.
 5. **Watch, don't act:** highlight.js (revived Jun 2026 after a dormant year), asciidoctor 4.x (fresh native-JS rewrite, 11 patches in 8 weeks, one active committer; add a render test), Leaflet (2.0 stalled at alpha, 1.9.4 fine for our 4-call surface). Two small optional cleanups: replace `@types/markdown-it-emoji` (drags in `@types/markdown-it@14` beside markdown-it 15's bundled types) with a local shim, and swap pako's single `inflateRaw` for native `DecompressionStream`.
 
@@ -1265,48 +1319,49 @@ Data pulled live on 2026-09-13 from the npm registry (`npm view`), the npm downl
 `/advisories`), `tsc --listFiles` run in `backend/`, the Node v26.8.1 `doc/api/cli.md`, and vendor docs/blogs.
 Anything marked "(unverified)" was not confirmed against a live source. "dl/wk" = npm downloads last week.
 
-| Package | Workspace(s) | Pinned → Latest | Last publish | Maintainers/backing | Verdict | Risk |
-| --- | --- | --- | --- | --- | --- | --- |
-| typescript | backend | 7.0.2 → 7.0.2 | 2026-07-08 (7.0.2) | Microsoft | KEEP | Low |
-| oxlint | backend, frontend, blocks | 1.79.0 → 1.82.0 | 2026-09-07 | oxc / VoidZero | KEEP | Low |
-| oxfmt | backend (CI canonical) | 0.64.0 → 0.67.0 | 2026-09-07 | oxc / VoidZero | KEEP-WATCH | Med |
-| nodemon | backend | 3.1.14 → 3.1.14 | 2026-02-20 | remy (single) | KEEP-WATCH | Low |
-| npm-check-updates | backend, frontend, blocks | 23.0.2 → 23.1.0 | 2026-08-23 | raineorshine (primary) | REMOVE | Low |
-| vite | frontend | 8.2.2 → 8.3.0 | 2026-09-10 | VoidZero / Vite team | KEEP | Low |
-| @vitejs/plugin-vue | frontend | 6.0.8 → 6.0.8 | 2026-07-21 | Vite team | KEEP | Low |
-| vite-plugin-vue-devtools | frontend | 8.2.1 → 8.2.1 | 2026-07-25 | vuejs org (1 npm publisher) | KEEP | Low |
-| vitest | frontend, blocks | 4.1.11 → 5.0.0 | 2026-09-03 (5.0.0) | Vitest team / VoidZero | KEEP-WATCH | Low |
-| @vue/test-utils | frontend | 2.4.11 → 2.5.0 | 2026-08-27 | Vue team | KEEP | Low |
-| happy-dom | frontend | 20.11.6 → 20.14.5 | 2026-09-12 | capricorn86 (de facto single) | KEEP-WATCH | Med |
-| jsdom | blocks | 30.0.1 → 30.0.1 | 2026-07-29 | jsdom org (6 maintainers) | KEEP | Low |
-| playwright | frontend | 1.62.1 → 1.63.0 | 2026-09-13 | Microsoft | KEEP | Low |
-| @playwright/test | e2e | 1.62.1 → 1.63.0 | 2026-09-13 | Microsoft | KEEP | Low |
-| sass | frontend | 1.103.1 → 1.104.1 | 2026-09-12 | Sass team (Google-originated) | CONSIDER-ALTERNATIVE (native CSS long-term) | Low |
-| cross-env | frontend | 10.1.0 → 10.1.0 | 2025-09-29 | kentcdodds, repo **archived** | REMOVE | Low |
-| rollup | blocks | 4.62.5 → 4.63.2 | 2026-09-12 | Rollup team | CONSIDER-ALTERNATIVE (rolldown) | Low |
-| @rollup/plugin-commonjs | blocks | 29.0.3 → 29.0.3 | 2026-05-29 | rollup/plugins | KEEP (folds into rolldown move) | Low |
-| @rollup/plugin-node-resolve | blocks | 16.0.3 → 16.0.3 | 2025-10-13 | rollup/plugins | KEEP (folds into rolldown move) | Low |
-| @rollup/plugin-terser | blocks | 1.0.0 → 1.0.0 | 2026-03-05 | rollup/plugins | KEEP (folds into rolldown move) | Low |
-| rollup-plugin-summary | blocks | 3.0.1 → 3.0.1 | 2025-04-08 | yousifalraheem (single, 16★) | IN-HOUSE-CANDIDATE | Med |
-| @types/js-yaml | backend | 4.0.9 → 4.0.9 | 2025-08-03 | DefinitelyTyped | REMOVE | Low |
-| @types/markdown-it-emoji | backend | 3.0.1 → 3.0.1 | 2025-08-03 | DefinitelyTyped | KEEP | Low |
-| @types/node | backend | 26.2.0 → 26.5.1 | 2026-09-13 | DefinitelyTyped | KEEP | Low |
-| @types/nodemailer | backend | 8.0.1 → 8.0.1 | 2026-06-10 | DefinitelyTyped | KEEP-WATCH (drop at nodemailer 10) | Low |
-| @types/pg | backend | 8.23.1 → 8.23.1 | 2026-08-17 | DefinitelyTyped | KEEP | Low |
-| @types/pg-cursor | backend | 2.7.2 → 2.7.2 | 2025-08-03 | DefinitelyTyped | KEEP | Low |
-| @types/qrcode | backend | 1.5.6 → 1.5.6 | 2025-10-24 | DefinitelyTyped | KEEP | Low |
-| @types/s3rver | backend | 3.7.4 → 3.7.4 | 2025-08-03 | DefinitelyTyped | KEEP (fate tied to s3rver) | Low |
-| @types/sanitize-html | backend | 2.16.1 → 2.16.1 | 2026-03-06 | DefinitelyTyped | KEEP | Low |
-| @types/semver | backend | 7.8.0 → 7.8.0 | 2026-08-02 | DefinitelyTyped | KEEP | Low |
-| @types/ssh2 | backend | 1.15.5 → 1.15.6 | 2026-09-02 | DefinitelyTyped | KEEP | Low |
-| @types/ssh2-sftp-client | backend | 9.0.6 → 9.0.6 | 2025-11-30 | DefinitelyTyped | KEEP-WATCH (3 majors behind runtime) | Low |
-| @types/ws | backend | 8.18.1 → 8.18.1 | 2025-08-03 | DefinitelyTyped | KEEP | Low |
+| Package                     | Workspace(s)              | Pinned → Latest       | Last publish       | Maintainers/backing           | Verdict                              | Risk |
+| --------------------------- | ------------------------- | --------------------- | ------------------ | ----------------------------- | ------------------------------------ | ---- |
+| typescript                  | backend                   | 7.0.2 → 7.0.2         | 2026-07-08 (7.0.2) | Microsoft                     | KEEP                                 | Low  |
+| oxlint                      | backend, frontend, blocks | 1.79.0 → 1.82.0       | 2026-09-07         | oxc / VoidZero                | KEEP                                 | Low  |
+| oxfmt                       | backend (CI canonical)    | 0.64.0 → 0.67.0       | 2026-09-07         | oxc / VoidZero                | KEEP-WATCH                           | Med  |
+| nodemon                     | backend                   | 3.1.14 → 3.1.14       | 2026-02-20         | remy (single)                 | KEEP-WATCH                           | Low  |
+| npm-check-updates           | backend, frontend, blocks | 23.0.2 → 23.1.0       | 2026-08-23         | raineorshine (primary)        | REMOVE                               | Low  |
+| vite                        | frontend                  | 8.2.2 → 8.3.0         | 2026-09-10         | VoidZero / Vite team          | KEEP                                 | Low  |
+| @vitejs/plugin-vue          | frontend                  | 6.0.8 → 6.0.8         | 2026-07-21         | Vite team                     | KEEP                                 | Low  |
+| vite-plugin-vue-devtools    | frontend                  | 8.2.1 → 8.2.1         | 2026-07-25         | vuejs org (1 npm publisher)   | KEEP                                 | Low  |
+| vitest                      | frontend, blocks          | 4.1.11 → 5.0.0        | 2026-09-03 (5.0.0) | Vitest team / VoidZero        | KEEP-WATCH                           | Low  |
+| @vue/test-utils             | frontend                  | 2.4.11 → 2.5.0        | 2026-08-27         | Vue team                      | KEEP                                 | Low  |
+| happy-dom                   | frontend                  | 20.11.6 → 20.14.5     | 2026-09-12         | capricorn86 (de facto single) | KEEP-WATCH                           | Med  |
+| jsdom                       | blocks                    | 30.0.1 → 30.0.1       | 2026-07-29         | jsdom org (6 maintainers)     | KEEP                                 | Low  |
+| playwright                  | frontend                  | 1.62.1 → 1.63.0       | 2026-09-13         | Microsoft                     | KEEP                                 | Low  |
+| @playwright/test            | e2e                       | 1.62.1 → 1.63.0       | 2026-09-13         | Microsoft                     | KEEP                                 | Low  |
+| sass                        | frontend                  | 1.103.1 → _(removed)_ | 2026-09-12         | Sass team (Google-originated) | REMOVED (2026-09-15, #3246–#3254)    | —    |
+| cross-env                   | frontend                  | 10.1.0 → 10.1.0       | 2025-09-29         | kentcdodds, repo **archived** | REMOVE                               | Low  |
+| rollup                      | blocks                    | 4.62.5 → 4.63.2       | 2026-09-12         | Rollup team                   | CONSIDER-ALTERNATIVE (rolldown)      | Low  |
+| @rollup/plugin-commonjs     | blocks                    | 29.0.3 → 29.0.3       | 2026-05-29         | rollup/plugins                | KEEP (folds into rolldown move)      | Low  |
+| @rollup/plugin-node-resolve | blocks                    | 16.0.3 → 16.0.3       | 2025-10-13         | rollup/plugins                | KEEP (folds into rolldown move)      | Low  |
+| @rollup/plugin-terser       | blocks                    | 1.0.0 → 1.0.0         | 2026-03-05         | rollup/plugins                | KEEP (folds into rolldown move)      | Low  |
+| rollup-plugin-summary       | blocks                    | 3.0.1 → 3.0.1         | 2025-04-08         | yousifalraheem (single, 16★)  | IN-HOUSE-CANDIDATE                   | Med  |
+| @types/js-yaml              | backend                   | 4.0.9 → 4.0.9         | 2025-08-03         | DefinitelyTyped               | REMOVE                               | Low  |
+| @types/markdown-it-emoji    | backend                   | 3.0.1 → 3.0.1         | 2025-08-03         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/node                 | backend                   | 26.2.0 → 26.5.1       | 2026-09-13         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/nodemailer           | backend                   | 8.0.1 → 8.0.1         | 2026-06-10         | DefinitelyTyped               | KEEP-WATCH (drop at nodemailer 10)   | Low  |
+| @types/pg                   | backend                   | 8.23.1 → 8.23.1       | 2026-08-17         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/pg-cursor            | backend                   | 2.7.2 → 2.7.2         | 2025-08-03         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/qrcode               | backend                   | 1.5.6 → 1.5.6         | 2025-10-24         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/s3rver               | backend                   | 3.7.4 → 3.7.4         | 2025-08-03         | DefinitelyTyped               | KEEP (fate tied to s3rver)           | Low  |
+| @types/sanitize-html        | backend                   | 2.16.1 → 2.16.1       | 2026-03-06         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/semver               | backend                   | 7.8.0 → 7.8.0         | 2026-08-02         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/ssh2                 | backend                   | 1.15.5 → 1.15.6       | 2026-09-02         | DefinitelyTyped               | KEEP                                 | Low  |
+| @types/ssh2-sftp-client     | backend                   | 9.0.6 → 9.0.6         | 2025-11-30         | DefinitelyTyped               | KEEP-WATCH (3 majors behind runtime) | Low  |
+| @types/ws                   | backend                   | 8.18.1 → 8.18.1       | 2025-08-03         | DefinitelyTyped               | KEEP                                 | Low  |
 
 No package in this group has an install, preinstall or postinstall script (checked with `npm view <pkg> scripts.*`). The native
 tools (typescript 7, oxlint, oxfmt, sass-embedded, rolldown) ship prebuilt per-platform binaries as optional dependencies, not
 install-time downloads.
 
 ### typescript
+
 - **Use:** `npm run typecheck` (`tsc`, `noEmit`) in backend; the CI gate runs it (`quality.yml`).
 - **Health:** 7.0.2 is `latest` (released 2026-07-08); `next` gets nightly builds (7.1.0-dev.20260913.1). About 203M dl/wk. Seven npm
   maintainers, all Microsoft accounts or TS team members. `microsoft/typescript-go` is **archived** and describes itself as a "Staging
@@ -1319,6 +1374,7 @@ install-time downloads.
 - **Verdict:** KEEP. Current, Microsoft-backed, and the whole backend design assumes it.
 
 ### oxlint
+
 - **Use:** `npx oxlint --deny-warnings` in all three workspaces (quality.yml lines 174, 271, 302).
 - **Health:** 1.82.0 is latest; 13 stable releases since 2026-06-13, roughly weekly. 15.9M dl/wk. The `oxc-project/oxc` repo is
   active (pushed 2026-09-14, 22.7k★) and its top contributors are Boshen (4572), overlookmotel (4007) and camc314 (2198), so
@@ -1330,6 +1386,7 @@ install-time downloads.
 - **Verdict:** KEEP. Post-1.0, very actively developed, and backed by VoidZero.
 
 ### oxfmt
+
 - **Use:** the repo-wide `npx --prefix backend oxfmt --check backend frontend blocks` gate (quality.yml line 339). Only backend
   installs it; frontend does not (see the finding below).
 - **Health:** **Pre-1.0.** It is at 0.67.0; the first publish was 2025-09-10, and the oxc blog announced the **beta** on
@@ -1348,6 +1405,7 @@ install-time downloads.
   the sole installer, which matches CLAUDE.md. Good: only one copy to bump.
 
 ### nodemon
+
 - **Use:** only `npm run dev` → `nodemon backend --watch backend --ext js,ts,json`. There is no nodemon.json or `nodemonConfig`.
 - **Health:** 3.1.14 is latest (2026-02-20). No release since, and 4 in the past year. 9.7M dl/wk. The repo is not archived (pushed
   2026-09-12, 13 open issues). It is effectively single-maintainer: remy has 1202 contributions and the next contributor has 16. It
@@ -1368,6 +1426,7 @@ install-time downloads.
   the `--watch-path` platform restriction, or if nodemon goes unmaintained.
 
 ### npm-check-updates
+
 - **Use:** only the `ncu` (`ncu -i`) and `ncu-u` scripts, in three workspaces. CI, scripts/ and the devcontainer never call it.
 - **Health:** 23.1.0 is latest (2026-08-23); 46 releases in the past year. 564k dl/wk. raineorshine has 2002 contributions, the
   runtime package has zero dependencies (bundled), and the repo is active. No advisories.
@@ -1379,6 +1438,7 @@ install-time downloads.
   `npx npm-check-updates@<ver> -i` and update the docs that mention it.
 
 ### vite
+
 - **Use:** frontend dev server and `vite build` into `../assets`. It also comes in transitively through vitest in blocks (blocks has
   vite 8.2.2 and rolldown 1.2.5 installed today).
 - **Health:** 8.3.0 is latest (2026-09-10); 11 stable releases since June. 132M dl/wk. Published by `vitebot@voidzero.dev` and Evan
@@ -1388,12 +1448,14 @@ install-time downloads.
 - **Verdict:** KEEP. Take 8.3.0 through Dependabot. Vite has a regular stream of dev-server advisories, so don't let it drift far.
 
 ### @vitejs/plugin-vue
+
 - **Use:** SFC compilation in `vite.config.js` and `vitest.config.js`.
 - **Health:** 6.0.8 is latest (2026-07-21); peer `vite ^5–^8`; maintained by the Vite/Vue core team (yyx990803, sxzz, vitebot). No
   advisories.
 - **Verdict:** KEEP. It is the only official Vue plugin for Vite.
 
 ### vite-plugin-vue-devtools
+
 - **Use:** added unconditionally to `vite.config.js` plugins; it is not in `vitest.config.js`.
 - **Health:** 8.2.1 is latest (2026-07-25); the repo is `vuejs/devtools` (pushed 2026-09-14, 241 open issues). The single npm
   publisher is `webfansplz`, a Vue devtools core maintainer. 898k dl/wk. It pulls in `vite-plugin-inspect` and
@@ -1404,6 +1466,7 @@ install-time downloads.
   tree.
 
 ### vitest
+
 - **Use:** unit test runner for frontend (happy-dom) and blocks (jsdom), plus the flaky-lane configs.
 - **Health:** 5.0.0 was released 2026-09-03, and a `V4` dist-tag (4.1.11) still exists for a maintained v4 line. 35 stable releases in
   the past year. 77M dl/wk. Five npm maintainers, including Evan You and antfu.
@@ -1422,6 +1485,7 @@ install-time downloads.
   v4 patch releases.
 
 ### @vue/test-utils
+
 - **Use:** component mounting through the `frontend/test/mount.js` harness.
 - **Health:** 2.5.0 is latest (2026-08-27; the previous release, 2.4.11, came out 2026-06-04). Maintainers are lmiller1990, yyx990803
   and danielroe; the repo was pushed 2026-09-11 and has 32 open issues. 3.4M dl/wk. No advisories. It depends on `js-beautify`.
@@ -1430,6 +1494,7 @@ install-time downloads.
 - **Verdict:** KEEP. It is the official library and still actively maintained, even if releases are slow.
 
 ### happy-dom
+
 - **Use:** frontend Vitest environment.
 - **Health:** 20.14.5 is latest (2026-09-12). Churn is extreme: 31 releases since 2026-06-13 and 90 in the past year. 12.2M dl/wk. It
   is **effectively a single-maintainer project**: capricorn86 has 1770 contributions and the next contributor has 79. The npm
@@ -1447,12 +1512,14 @@ install-time downloads.
   consolidate onto jsdom, matching blocks.
 
 ### jsdom
+
 - **Use:** blocks Vitest environment, chosen deliberately for shadow DOM coverage.
 - **Health:** 30.0.1 is latest (2026-07-29); 15 releases in the past year. Six npm maintainers, including domenic. 21.7k★; the repo was
   pushed 2026-09-12. 72.7M dl/wk. The only advisory is from 2022 (<=16.4.0).
 - **Verdict:** KEEP. It is the most reputable DOM emulator available.
 
 ### playwright (frontend) and @playwright/test (e2e)
+
 - **Use:**
   - `frontend/test/realGridLayout.js` (real Chromium CSS-grid layout checks) and `frontend/scripts/generate-favicon.mjs`.
   - `e2e/` runs the full Playwright suite.
@@ -1464,6 +1531,7 @@ install-time downloads.
 - **Verdict:** KEEP, both. They are the industry standard for this layer. Bump them together.
 
 ### sass
+
 - **Use:** SCSS compilation through Vite. The injected `additionalData` `@use`s `_theme.scss` and `_palette.scss` into every SFC.
 - **Footprint** (grep of `frontend/src`):
   - 9 `.scss` files, about 4,050 lines, with `_page-contents.scss` alone at 2,962.
@@ -1479,14 +1547,17 @@ install-time downloads.
 - **Alternatives:**
   1. **sass-embedded** 1.104.1: same release train, published by nex3, 4.2M dl/wk. The Vite 8.3 docs list
      `npm add -D sass-embedded # or sass`. It runs the native Dart compiler, so builds are faster (magnitude unverified). It pulls in
-     18 platform binaries plus `rxjs` and `@bufbuild/protobuf`, so the dependency tree is *larger*, not smaller.
+     18 platform binaries plus `rxjs` and `@bufbuild/protobuf`, so the dependency tree is _larger_, not smaller.
   2. **Native CSS:** nesting plus custom properties (the Cobalt token layer in `tailwind.css` already exists), which removes the
      preprocessor entirely.
-- **Verdict:** CONSIDER-ALTERNATIVE, long-term. Migrate the `$variable` uses onto the existing CSS custom-property tokens, then
-  convert the last handful of mixins and color functions and drop sass. This is a multi-work-package effort, not a dependency swap.
-  Switch to sass-embedded only if build time becomes a complaint.
+- **Verdict:** DONE — REMOVED (2026-09-15). Migrated per Epic #1160 / OpenProject #3172's spike, across
+  Tasks #3246–#3254: every `$variable` moved onto the existing CSS custom-property tokens, the one mixin
+  and every colour function converted, `frontend/src/css` is plain CSS with native nesting, and the
+  `sass` devDependency (with it, `immutable`/`@parcel/watcher`) is uninstalled. `sass-embedded` is moot
+  now that there is no preprocessor to speed up.
 
 ### cross-env
+
 - **Use:** one script, `frontend` `build`:
   `cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 vite build --emptyOutDir`.
 - **Health:** 10.1.0 (2025-09-29) is the last release. The GitHub repo is **archived** (verified), and its README says "cross-env is
@@ -1500,6 +1571,7 @@ install-time downloads.
 - **Verdict:** REMOVE. One call site, a zero-dependency replacement, and an archived upstream.
 
 ### rollup
+
 - **Use:** `blocks/` build (`rollup -c`). Besides bundling, it runs 3 custom plugins (`blocksManifest`, `blockAssets`,
   `cssAsString`) using `transform`, `buildStart`, `generateBundle`, `emitFile`, `addWatchFile`, `this.parse` and `this.error`.
   `scripts/check-locale-keys.mjs` imports `parseAst` from `rollup/parseAst`.
@@ -1525,6 +1597,7 @@ install-time downloads.
   not an urgent change.
 
 ### @rollup/plugin-commonjs, @rollup/plugin-node-resolve, @rollup/plugin-terser
+
 - **Use:** CommonJS interop for UMD libraries (e.g. dayjs via mermaid), production-condition resolution for Lit, and minification
   with `ecma: 2019, module: true`.
 - **Health:** all three live in `rollup/plugins` (maintainers shellscape, rich_harris, guybedford, lukastaegert; the repo was last
@@ -1536,6 +1609,7 @@ install-time downloads.
 - **Verdict:** KEEP all three as long as blocks stays on rollup. Rolldown's built-ins would make all three unnecessary.
 
 ### rollup-plugin-summary
+
 - **Use:** `summary()` prints a size table after each blocks build. It is purely cosmetic; nothing consumes the output.
 - **Health:** 3.0.1 (2025-04-08) is the last release; none in the past 12 months. **Single maintainer** (yousifalraheem has 121
   commits; the rest are dependabot). 16★, 13 open issues. The repo was pushed 2026-06-15 without a release. 8.9k dl/wk. No advisories.
@@ -1547,6 +1621,7 @@ install-time downloads.
 - **Verdict:** IN-HOUSE-CANDIDATE, or simply delete it. The supply-chain surface is out of proportion to what it does.
 
 ### @types/* (backend devDependencies)
+
 Checked with `tsc --listFiles` in backend: it shows which declaration packages are actually loaded. `tsconfig` has
 `"types": ["node"]`, so the other `@types` packages load only through import resolution.
 
@@ -1582,6 +1657,7 @@ Checked with `tsc --listFiles` in backend: it shows which declaration packages a
   out of scope.
 
 ### Group findings
+
 1. **Remove dead or redundant devDependencies.**
    - `@types/js-yaml`: tsc provably doesn't load it.
    - `cross-env`: archived upstream and a single call site; use `node --max-old-space-size=8192 node_modules/vite/bin/vite.js build`
@@ -1596,13 +1672,11 @@ Checked with `tsc --listFiles` in backend: it shows which declaration packages a
    - **oxfmt:** pre-1.0 beta with no output-stability promise and roughly weekly releases. Batch its bumps into "bump + full
      reformat" commits instead of weekly Dependabot PRs.
    - **Vitest 5:** plan the upgrade as one frontend + blocks work package (auto `clearAllMocks`, no ancestor config lookup). Stay at
-     >=4.1.11 until then, since that is the patched floor for GHSA-82fw-gwwq-j7x9.
+     > =4.1.11 until then, since that is the patched floor for GHSA-82fw-gwwq-j7x9.
 5. **Watch list.**
    - **happy-dom:** single maintainer, 3 critical advisories since 2024, extreme churn. The fallback is consolidating onto jsdom.
    - **@types/nodemailer:** delete it when nodemailer reaches 10, which bundles its own types.
    - **@types/ssh2-sftp-client:** 3 majors behind; a local shim is the fallback.
-   - **sass:** Tailwind 4 officially discourages preprocessors, and roughly 132 SCSS blocks remain, mostly `$variable` use. Migrating
-     to CSS custom properties is a long-term cleanup, not urgent.
    - **nodemon:** stays, because Node 26 documents `--watch-path` as macOS/Windows-only. Consider `--signal SIGTERM` so dev restarts
      go through the graceful-shutdown path.
 
@@ -1612,18 +1686,20 @@ Checked with `tsc --listFiles` in backend: it shows which declaration packages a
 
 Checked live on 2026-09-13 with `npm view`, `npm ls` and `npm audit` in `backend/`. These two ship in production images as optional installs, and every call site already tolerates their absence (`helpers/puppeteer.ts`, `helpers/images.ts` use a dynamic `import(specifier)`).
 
-| Package | Workspace(s) | Pinned → Latest | Last publish | Maintainers/backing | Verdict | Risk |
-| --- | --- | --- | --- | --- | --- | --- |
-| puppeteer | backend (optional) | 25.4.0 → 25.10.0 | 2026-09-03 | Google Chrome team (`google-wombot` + 1) | KEEP (bump) | Low |
-| sharp | backend (optional) | 0.35.3 → 0.35.4 | 2026-08-26 | 1 person (lovell) | KEEP-WATCH (**bump now**) | Med |
+| Package   | Workspace(s)       | Pinned → Latest  | Last publish | Maintainers/backing                      | Verdict                   | Risk |
+| --------- | ------------------ | ---------------- | ------------ | ---------------------------------------- | ------------------------- | ---- |
+| puppeteer | backend (optional) | 25.4.0 → 25.10.0 | 2026-09-03   | Google Chrome team (`google-wombot` + 1) | KEEP (bump)               | Low  |
+| sharp     | backend (optional) | 0.35.3 → 0.35.4  | 2026-08-26   | 1 person (lovell)                        | KEEP-WATCH (**bump now**) | Med  |
 
 ### puppeteer
+
 - **Use:** headless Chromium for `models/renderQueue.ts`, `models/pdfExport.ts`, `models/diagramRender.ts`, `api/pages/read.ts` and `migration/bootstrap.ts`, all behind `helpers/puppeteer.ts` (`isPuppeteerAvailable`, `assertPuppeteerAvailable` → 503). The Dockerfile carries Chromium sandbox handling for it.
 - **Health:** published by Google's release bot, Apache-2.0, very active (25.10.0 on 2026-09-03). It has an install script: it downloads a browser at install time, which is the only notable supply-chain surface.
 - **Alternatives:** `playwright-core` (Microsoft) drives Chromium with a similar API. The repo already uses Playwright for tests, so consolidating onto one browser-automation library is possible but offers no health gain. Puppeteer is Google-backed and tracks Chrome directly.
 - **Verdict: KEEP.** Bump to 25.10.0 so the downloaded Chromium picks up recent browser security fixes; render input is author-controlled page content.
 
 ### sharp
+
 - **Use:** image processing in `helpers/images.ts` (3 dynamic-import sites: thumbnails and format conversion), with graceful degradation when the optional install is skipped.
 - **Health:** one maintainer (lovell), but the de facto standard Node image library, Apache-2.0, bundling prebuilt libvips binaries. It has an install script.
 - **Advisories (from `npm audit`):** the top-level `sharp` 0.35.3 is inside GHSA-rgj7-g3m4-5g8c (`< 0.35.4`, inherited libvips/libheif CVEs, **high**). A second, older copy (`0.32.6`) is nested under `@xenova/transformers` and is also inside GHSA-f88m-g3jw-g9cj (`< 0.35.0`). Uploaded images are untrusted input, so libvips CVEs matter here.
@@ -1631,4 +1707,3 @@ Checked live on 2026-09-13 with `npm view`, `npm ls` and `npm audit` in `backend
 - **Verdict: KEEP-WATCH.** Bump to 0.35.4 now. The nested 0.32.6 goes away with the `@xenova/transformers` → `@huggingface/transformers` replacement (section B), though that successor's `sharp ^0.34.5` range may still pull a vulnerable copy until it widens. Check with `npm ls sharp` after the swap.
 
 ---
-

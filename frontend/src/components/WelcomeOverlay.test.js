@@ -130,12 +130,11 @@ describe('WelcomeOverlay: dark mode', () => {
   )
 
   it('gives .welcome a body--dark override for background, border and text color', () => {
-    const welcomeRule = source.match(/\.welcome\s*\{[\s\S]*?\n\}\n/)[0]
+    const darkRule = source.match(/\.body--dark \.welcome\s*\{[\s\S]*?\n\}\n/)[0]
 
-    expect(welcomeRule).toMatch(/\.body--dark\s+&\s*\{/)
-    expect(welcomeRule).toMatch(/\.body--dark\s+&\s*\{[^}]*background:[^}]*var\(--color-dark-6\)/)
-    expect(welcomeRule).toMatch(/\.body--dark\s+&\s*\{[^}]*color:\s*var\(--color-blue-grey-1\)/)
-    expect(welcomeRule).toMatch(/\.body--dark\s+&\s*\{[^}]*border:[^}]*var\(--color-dark-4\)/)
+    expect(darkRule).toMatch(/background:[^}]*var\(--color-dark-6\)/)
+    expect(darkRule).toMatch(/color:\s*var\(--color-blue-grey-1\)/)
+    expect(darkRule).toMatch(/border:[^}]*var\(--color-dark-4\)/)
   })
 
   it('still keeps the light-mode background/border/color as the default (unguarded) values', () => {
@@ -145,8 +144,8 @@ describe('WelcomeOverlay: dark mode', () => {
   })
 
   it('gives the decorative .welcome-bg glow a dark override too, so no white halo remains', () => {
-    const bgRule = source.match(/&-bg\s*\{[\s\S]*?\n {2}\}\n/)[0]
+    const bgDarkRule = source.match(/\.body--dark \.welcome-bg\s*\{[\s\S]*?\n\}\n/)[0]
 
-    expect(bgRule).toMatch(/\.body--dark\s+&\s*\{[^}]*var\(--color-dark-6\)/)
+    expect(bgDarkRule).toMatch(/var\(--color-dark-6\)/)
   })
 })

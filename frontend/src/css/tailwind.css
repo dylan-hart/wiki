@@ -83,8 +83,9 @@ html.theme-transition-suppress *::after {
   keeps runtime theming working. Do not inline these.
 */
 /*
-  The Cardinal accent, chrome and status tones -- see `css/_theme.scss` for the same palette as SCSS
-  and for what each one is FOR. Every value here is paired with a foreground it actually gets drawn
+  The Cardinal accent, chrome and status tones. `css/_theme.scss`, this file's Sass-era counterpart,
+  was deleted once every `$variable` reference onto it was converted to the `var(--color-*)` form
+  these tokens already are. Every value here is paired with a foreground it actually gets drawn
   under, and every such pair clears WCAG AA (4.5:1); `helpers/accessibility.test.js` pins them, so a
   future edit that regresses one fails the suite rather than shipping quietly.
 
@@ -195,8 +196,8 @@ html.theme-transition-suppress *::after {
   --color-warning-fill: #d9a441;
   /*
     Warning as TEXT, which `--color-warning`'s brighter fill tone is not (3.0:1 on white). The
-    custom-property face of `_theme.scss`'s `$warning` -- 3.64:1, so headings and marks, not body
-    copy. Cobalt keeps the same amber: the handoff moves the accent and the chrome, never the
+    custom-property face of the old Sass `$warning` (`_theme.scss`, now deleted) -- 3.64:1, so
+    headings and marks, not body copy. Cobalt keeps the same amber: the handoff moves the accent and the chrome, never the
     status ramp's warning.
   */
   --color-warning-text: #a8801f;
@@ -220,7 +221,8 @@ html.theme-transition-suppress *::after {
   --color-slate-light: #8ea6cf;
   /*
     An icon stroke on the INK sidebar (the admin area's own nav), dimmer than the label beside it.
-    The custom-property face of `_theme.scss`'s `$slate-nav-icon` -- declared here so a rule drawing
+    The custom-property face of the old Sass `$slate-nav-icon` (`_theme.scss`, now deleted) --
+    declared here so a rule drawing
     one follows the aesthetic rather than baking Ledger's tone in at build time.
   */
   --color-slate-nav-icon: #6d7893;
@@ -601,7 +603,7 @@ html.theme-transition-suppress *::after {
   /* The file manager tree's root glyph -- a chrome stroke in Ledger, the aesthetic's blue in Cobalt */
   --color-tree-root-icon: var(--color-slate-soft);
   /*
-    A dialog's own title band (`.card-header`, `css/_base.scss` -- some sixty dialogs share it).
+    A dialog's own title band (`.card-header`, `css/_base.css` -- some sixty dialogs share it).
     Ledger draws it in the dark ramp's raised rung whatever the theme, which is what the token
     resolves to here; Cobalt draws it in its own raised indigo (`Profile 3x - Cobalt`'s `#1c2a70`),
     deepening to the header bar's `#1a43bd` on a dark ground (the handoff's "Confirm dialog header

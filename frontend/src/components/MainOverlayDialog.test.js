@@ -151,7 +151,7 @@ describe('MainOverlayDialog half-sized overlays', () => {
   it('sizes HALF_SIZE at half the viewport, with the floor on the panel and no ceiling', () => {
     // -> The design draws `50vw`/`50vh` with a `min(560px, 100%)` / `420px` floor and nothing above
     //    it (`ui-redesign/Cardinal Wiki - Inbox 3x.dc.html`). The floor belongs on the panel rather
-    //    than on the dialog's own box, so it lives in the shared `css/_overlay-dialog.scss`
+    //    than on the dialog's own box, so it lives in the shared `css/_overlay-dialog.css`
     //    partial's `.is-half-sized` rule (OpenProject #3000 moved it there from `MainLayout.vue`, so
     //    every layout mounting this component gets it, not only whichever one's own chunk loaded) --
     //    which this asserts too, since a `50vw` with no floor anywhere would be crushed on a phone.
@@ -160,7 +160,7 @@ describe('MainOverlayDialog half-sized overlays', () => {
     expect(source).toContain(':class="{ \'is-half-sized\': isHalfSized }"')
 
     const overlayDialogCss = readFileSync(
-      join(import.meta.dirname, '..', 'css', '_overlay-dialog.scss'),
+      join(import.meta.dirname, '..', 'css', '_overlay-dialog.css'),
       'utf-8'
     )
     expect(overlayDialogCss).toContain('&.is-half-sized > .w-dialog-viewport > .w-dialog-panel')

@@ -490,214 +490,217 @@ function checkForUpdates() {
 }
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+@charset "UTF-8";
 .admin-dashboard {
   /*
     The design's own track: as many 230px cards as fit, each taking its share of the remainder. See
     the template for what a 12-column split did instead. The inset is the body's, not the page's --
     the header band above it is full-bleed and pads itself, and the two line up at 24px.
   */
-  &-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-    gap: 12px;
-    padding: 20px 24px 40px;
+}
+.admin-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  padding: 20px 24px 40px;
+  /*
+    The card IS the grid item -- there is no wrapper div between them. Grid's default
+    `align-items: stretch` sizes a grid item to the tallest thing on its row, so with a wrapper in
+    the way it was the WRAPPER that grew and the auto-height card inside it that stayed short:
+    Logins and Wiki Version, whose figures are the 22px `<small>` rather than the 30px `<span>`,
+    sat noticeably low against a full-height box, which is the ragged bottom edge.
 
-    /*
-      The card IS the grid item -- there is no wrapper div between them. Grid's default
-      `align-items: stretch` sizes a grid item to the tallest thing on its row, so with a wrapper in
-      the way it was the WRAPPER that grew and the auto-height card inside it that stayed short:
-      Logins and Wiki Version, whose figures are the 22px `<small>` rather than the 30px `<span>`,
-      sat noticeably low against a full-height box, which is the ragged bottom edge.
-
-      Stretching the card only gets half of it. A taller card whose bands keep their own heights
-      leaves the footer strip stranded mid-box, so the card is a column and the figure band is what
-      absorbs the slack -- the strip stays welded to the bottom edge, where it reads as part of the
-      card rather than as something floating inside it.
-    */
-    > .w-card {
-      display: flex;
-      flex-direction: column;
-
-      > .admin-dashboard-card {
-        flex: 1;
-      }
-    }
-  }
-
+    Stretching the card only gets half of it. A taller card whose bands keep their own heights
+    leaves the footer strip stranded mid-box, so the card is a column and the figure band is what
+    absorbs the slack -- the strip stays welded to the bottom edge, where it reads as part of the
+    card rather than as something floating inside it.
+  */
+}
+.admin-dashboard-grid > .w-card {
+  display: flex;
+  flex-direction: column;
+}
+.admin-dashboard-grid > .w-card > .admin-dashboard-card {
+  flex: 1;
+}
+.admin-dashboard {
   /*
     The recent-logins panel is a READING panel, not a counter: it holds four lines of names and times,
     and the design caps it at 640px so those lines stay a readable measure instead of stretching to
     whatever the window happens to be. It also spans the grid, so it starts on a row of its own.
   */
-  &-logins {
-    grid-column: 1 / -1;
-    max-width: 640px;
-    margin-top: 12px;
-  }
-
+}
+.admin-dashboard-logins {
+  grid-column: 1/-1;
+  max-width: 640px;
+  margin-top: 12px;
+}
+.admin-dashboard {
   /* -> The banded head of that panel; see the template for why it is a band and not a row */
-  &-panel {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--color-hairline);
-    background-color: var(--color-tint);
-    color: var(--color-slate);
-
-    .body--dark & {
-      border-bottom-color: var(--color-hairline-dark);
-      background-color: var(--color-dark-2);
-      color: var(--color-slate-light);
-    }
-
-    /*
-      `.w-icon`, not `img`: these were raster `<img>` assets and are inline SVG now, so the size has
-      to be stated as a font-size (which is what WIcon sizes from) rather than a width.
-    */
-    > .w-icon {
-      font-size: 20px;
-      flex: none;
-    }
-
-    > span {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-    }
-  }
-
-  &-card {
-    display: flex;
-    align-items: center;
-
-    /* -> See `-panel` above: inline SVG now, so sized by font-size rather than width */
-    > .w-icon {
-      font-size: 34px;
-      margin-inline-end: 14px;
-      color: var(--color-slate-soft);
-      flex: none;
-    }
-
-    strong {
-      font-size: 16px;
-      font-weight: 300;
-      display: block;
-      line-height: 1.2;
-      color: var(--color-slate);
-      padding-inline-start: 2px;
-
-      .body--dark & {
-        color: var(--color-text-secondary-dark);
-      }
-    }
-
-    /*
-      The figure itself: Barlow Condensed at the size a counter card is built around, in the accent.
-      This is the one place the accent is used as a NUMBER rather than as an action -- the card's
-      whole content is that figure, so it is what the reader's eye is meant to land on.
-    */
-    span {
-      font-family: var(--font-display);
-      font-size: 30px;
-      line-height: 1.1;
-      font-weight: 700;
-      color: var(--color-accent);
-      display: block;
-    }
-
-    /*
-      "Counter small numeral" (OpenProject #2983, `cobalt-typography.md` §3 "Admin"): the Logins
-      card's own figure, drawn at this smaller size because "N / past 24h" doesn't fit the 30px
-      track the plain `span` figures use. 700 26px/1.2 display, same accent as `span` above --
-      #2969's own defect naming this pair ("22px `<small>` rather than the 30px `<span>`") is what
-      names the size, 26px is what the mockup actually draws it at.
-    */
-    small {
-      font-family: var(--font-display);
-      font-size: 26px;
-      line-height: 1.2;
-      font-weight: 700;
-      color: var(--color-accent);
-      display: block;
-
-      /*
-        "Counter caption" role: the small italic annotation riding along a counter figure -- "/ past
-        24h" here, the "(from → to)" version parenthetical on the Wiki Version card below. Mono,
-        12px, the same caption tone every other kicker/timestamp in the app uses, not a scaled-down
-        echo of the figure's own display face.
-      */
-      i {
-        font-family: var(--font-mono);
-        font-size: 12px;
-        font-style: normal;
-        font-weight: 400;
-        color: var(--color-text-caption);
-      }
-
-      /*
-        "Status line" role: the Wiki Version card's own status phrase ("Up to date!", "Update
-        available", "Checking version..."), never a numeral even though it shares this `<small>`
-        markup with the Logins card's figure above -- 500 14px/1.4 sans, not the figure's 700/26px
-        display. The extra class (template) is what tells the two apart; this rule out-specifies the
-        plain `small` above it by carrying one more class, regardless of source order.
-      */
-      &.admin-dashboard-status {
-        font-family: var(--font-sans);
-        font-size: 14px;
-        line-height: 1.4;
-        font-weight: 500;
-      }
-
-      /*
-        Only the mockup's own state ("Up to date!") gets its target colour (`--color-positive`,
-        the aesthetic's own status-positive token -- #177a5e under Cobalt, #3f7a66 under Ledger).
-        "Update available" and "Checking version..." are left on the figure's inherited accent/
-        `.pending` amber below: the spec gives no target for those two, and guessing one is not
-        this task's call to make.
-      */
-      &.admin-dashboard-status--positive {
-        color: var(--color-positive);
-      }
-
-      /*
-        Amber itself (#ffc107) is picked to read on the dark surface; on the white card it lands
-        around 1.7:1, so the light theme takes the darker end of the ramp instead.
-      */
-      &.pending {
-        color: var(--color-amber-9);
-
-        .body--dark & {
-          color: var(--color-amber);
-        }
-      }
-    }
-  }
-
+}
+.admin-dashboard-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-hairline);
+  background-color: var(--color-tint);
+  color: var(--color-slate);
+}
+.body--dark .admin-dashboard-panel {
+  border-bottom-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-2);
+  color: var(--color-slate-light);
+}
+.admin-dashboard-panel {
+  /*
+    `.w-icon`, not `img`: these were raster `<img>` assets and are inline SVG now, so the size has
+    to be stated as a font-size (which is what WIcon sizes from) rather than a width.
+  */
+}
+.admin-dashboard-panel > .w-icon {
+  font-size: 20px;
+  flex: none;
+}
+.admin-dashboard-panel > span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.admin-dashboard-card {
+  display: flex;
+  align-items: center;
+  /* -> See `-panel` above: inline SVG now, so sized by font-size rather than width */
+}
+.admin-dashboard-card > .w-icon {
+  font-size: 34px;
+  margin-inline-end: 14px;
+  color: var(--color-slate-soft);
+  flex: none;
+}
+.admin-dashboard-card strong {
+  font-size: 16px;
+  font-weight: 300;
+  display: block;
+  line-height: 1.2;
+  color: var(--color-slate);
+  padding-inline-start: 2px;
+}
+.body--dark .admin-dashboard-card strong {
+  color: var(--color-text-secondary-dark);
+}
+.admin-dashboard-card {
+  /*
+    The figure itself: Barlow Condensed at the size a counter card is built around, in the accent.
+    This is the one place the accent is used as a NUMBER rather than as an action -- the card's
+    whole content is that figure, so it is what the reader's eye is meant to land on.
+  */
+}
+.admin-dashboard-card span {
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--color-accent);
+  display: block;
+}
+.admin-dashboard-card {
+  /*
+    "Counter small numeral" (OpenProject #2983, `cobalt-typography.md` §3 "Admin"): the Logins
+    card's own figure, drawn at this smaller size because "N / past 24h" doesn't fit the 30px
+    track the plain `span` figures use. 700 26px/1.2 display, same accent as `span` above --
+    #2969's own defect naming this pair ("22px `<small>` rather than the 30px `<span>`") is what
+    names the size, 26px is what the mockup actually draws it at.
+  */
+}
+.admin-dashboard-card small {
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--color-accent);
+  display: block;
+  /*
+    "Counter caption" role: the small italic annotation riding along a counter figure -- "/ past
+    24h" here, the "(from → to)" version parenthetical on the Wiki Version card below. Mono,
+    12px, the same caption tone every other kicker/timestamp in the app uses, not a scaled-down
+    echo of the figure's own display face.
+  */
+}
+.admin-dashboard-card small i {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--color-text-caption);
+}
+.admin-dashboard-card small {
+  /*
+    "Status line" role: the Wiki Version card's own status phrase ("Up to date!", "Update
+    available", "Checking version..."), never a numeral even though it shares this `<small>`
+    markup with the Logins card's figure above -- 500 14px/1.4 sans, not the figure's 700/26px
+    display. The extra class (template) is what tells the two apart; this rule out-specifies the
+    plain `small` above it by carrying one more class, regardless of source order.
+  */
+}
+.admin-dashboard-card small.admin-dashboard-status {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.admin-dashboard-card small {
+  /*
+    Only the mockup's own state ("Up to date!") gets its target colour (`--color-positive`,
+    the aesthetic's own status-positive token -- #177a5e under Cobalt, #3f7a66 under Ledger).
+    "Update available" and "Checking version..." are left on the figure's inherited accent/
+    `.pending` amber below: the spec gives no target for those two, and guessing one is not
+    this task's call to make.
+  */
+}
+.admin-dashboard-card small.admin-dashboard-status--positive {
+  color: var(--color-positive);
+}
+.admin-dashboard-card small {
+  /*
+    Amber itself (#ffc107) is picked to read on the dark surface; on the white card it lands
+    around 1.7:1, so the light theme takes the darker end of the ramp instead.
+  */
+}
+.admin-dashboard-card small.pending {
+  color: var(--color-amber-9);
+}
+.body--dark .admin-dashboard-card small.pending {
+  color: var(--color-amber);
+}
+.admin-dashboard {
   /*
     A counter card's footer: a flat tinted strip ruled off from the figure above it, its actions
     pushed to the trailing edge and separated by a hairline. The gradient it used to carry was a
     bevel, which is the one thing Cardinal never draws -- and it left the strip reading as a shadow
     under the card rather than as part of it.
   */
-  .w-card-actions {
-    padding: 0;
-    border-top: 1px solid var(--color-hairline);
-    background-color: var(--color-paper);
-
-    .body--dark & {
-      border-top-color: var(--color-hairline-dark);
-      background-color: var(--color-dark-4);
-    }
-
-    .w-btn {
-      padding: 8px 12px;
-      font-size: 12px;
-      font-weight: 500;
-    }
-  }
+}
+.admin-dashboard .w-card-actions {
+  padding: 0;
+  border-top: 1px solid var(--color-hairline);
+  background-color: var(--color-paper);
+}
+.body--dark .admin-dashboard .w-card-actions {
+  border-top-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-4);
+}
+.admin-dashboard .w-card-actions .w-btn {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 </style>

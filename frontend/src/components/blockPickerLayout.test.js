@@ -3,7 +3,6 @@ import { flushPromises } from '@vue/test-utils'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import * as sass from 'sass'
 
 import BlockPickerOverlay from './BlockPickerOverlay.vue'
 
@@ -28,15 +27,14 @@ import { mountWithApp } from '../../test/mount.js'
  *      property a static reading of the stylesheet can get wrong, so this measures the boxes
  *      instead: every card's rect, and every corner mark's rect, before and after selection moves.
  *
- * `BlockPickerOverlay.vue`'s own `<style lang="scss">` is compiled here alongside the app's
- * stylesheet. `buildAppCss()` compiles `src/css/tailwind.css` only, which is where the reset, the
- * utilities and every `--color-*` token live but NOT a single SFC's scoped rules — and this card is
- * drawn entirely by the SFC. The prelude matches `vitest.config.js`'s own
- * `css.preprocessorOptions.scss.additionalData`, since the block reaches for bare `$ink` / `$text-*`.
+ * `BlockPickerOverlay.vue`'s own `<style>` block is read alongside the app's stylesheet.
+ * `buildAppCss()` compiles `src/css/tailwind.css` only, which is where the reset, the utilities and
+ * every `--color-*` token live but NOT a single SFC's scoped rules — and this card is drawn entirely
+ * by the SFC. No compile step is needed for it: the block is already plain, valid CSS (OpenProject
+ * #3254 dropped the Sass pipeline this used to run through).
  */
 
 const selfDir = dirname(fileURLToPath(import.meta.url))
-const cssDir = join(selfDir, '..', 'css')
 const componentPath = join(selfDir, 'BlockPickerOverlay.vue')
 
 /** Enough blocks to fill three rows at two per row, so a third column would be visible as a shortfall. */
@@ -55,12 +53,7 @@ const BLOCKS = ['tabs', 'kroki', 'live-data', 'callout', 'diagram'].map((block, 
 
 async function componentCss() {
   const source = await readFile(componentPath, 'utf8')
-  const scss = source.match(/<style lang="scss">([\s\S]*?)<\/style>/)[1]
-  const compiled = await sass.compileStringAsync(
-    `@use 'theme' as *;\n@use 'palette' as *;\n${scss}`,
-    { loadPaths: [cssDir] }
-  )
-  return compiled.css
+  return source.match(/<style>([\s\S]*?)<\/style>/)[1]
 }
 
 async function mountPicker() {

@@ -73,7 +73,7 @@ function texMathHtml(source, display) {
 
 /**
  * The error panel itself -- reusing `block-katex`/`block-mathjax`'s own treatment (say why, don't
- * vanish) rather than inventing a second one, styled by `.tex-math-error` in `_page-contents.scss`.
+ * vanish) rather than inventing a second one, styled by `.tex-math-error` in `_page-contents.css`.
  *
  * A `<span>` even for a display-mode failure, deliberately: this token sits inside a markdown-it
  * paragraph's inline content, and only a handful of tag names trigger an HTML parser's implied `</p>`

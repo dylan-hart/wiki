@@ -362,7 +362,7 @@ const HLJS_THEMES = import.meta.glob('../node_modules/highlight.js/styles/**/*.m
  * The stylesheet is wrapped in `.page-contents { ... }` and applied through CSS nesting, for two
  * reasons: a highlight.js theme is written as bare `.hljs*` rules that would otherwise reach every
  * code sample in the interface, and nesting lifts its selectors to the same weight as the fallback
- * palette in `_page-contents.scss` -- so this one wins on being applied later, which is exactly the
+ * palette in `_page-contents.css` -- so this one wins on being applied later, which is exactly the
  * relationship wanted. With no theme chosen, nothing is injected and that fallback is what shows.
  */
 async function applyCodeBlocksTheme() {

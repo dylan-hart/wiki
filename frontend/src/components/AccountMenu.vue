@@ -72,9 +72,9 @@ const { t } = useI18n()
 const initials = computed(() => initialsFor(userStore.name))
 </script>
 
-<style lang="scss">
-// -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline
-//    `color`, which would outrank this rule
+<style>
+/* -> Where the button gets its colour, so it carries no `color` prop: `WBtn` emits an inline */
+/*    `color`, which would outrank this rule */
 /*
   The account button takes the same chrome tone as the other five icons in the band rather than a
   dimmed white -- Cardinal's header is a white plate, so a translucent white here rendered the glyph

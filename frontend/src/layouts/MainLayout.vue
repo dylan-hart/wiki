@@ -758,7 +758,7 @@ onMounted(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   `position: fixed` at all times, not only once focused: `.w-layout` (the parent) is a CSS grid
   with every one of its ordinary children placed by a named `grid-area` (header/drawer/main/footer)
@@ -811,23 +811,23 @@ onMounted(() => {
   `#c5cff5`, which is what the token resolves to under Cobalt.
 */
 .sidebar-actions {
-  // -> A true 40px interior: with the 1px `border-bottom` below and this box in `border-box` sizing
-  //    (Tailwind's preflight default), the content area is exactly 40px -- replacing the old
-  //    38px/37px band now that a third cell (Top) has to share the row on equal footing.
+  /* -> A true 40px interior: with the 1px `border-bottom` below and this box in `border-box` sizing */
+  /*    (Tailwind's preflight default), the content area is exactly 40px -- replacing the old */
+  /*    38px/37px band now that a third cell (Top) has to share the row on equal footing. */
   height: 41px;
   border-bottom: 1px solid var(--color-sidebar-hairline);
 
-  // -> Where the buttons above get their colour, so none of them carries a `color` prop: `WBtn`
-  //    emits an inline `color`, which would outrank this rule
+  /* -> Where the buttons above get their colour, so none of them carries a `color` prop: `WBtn` */
+  /*    emits an inline `color`, which would outrank this rule */
   .w-btn {
     color: var(--color-sidebar-actions-text);
   }
 
-  // -> OpenProject #2788: WBtn's own `.w-icon` rule (`.w-btn :deep(.w-icon) { font-size: 1.715em }`)
-  //    scales off `size="sm"`'s 10px button font-size, landing at ~17px -- undersized next to the
-  //    label here. `.icon-lg` (Locale and Browse only, not the sibling Collapse button below) pins
-  //    those two icons to 20px explicitly. `!important` because this plain rule and WBtn's own
-  //    scoped one tie on specificity, and which stylesheet loads later is not something to rely on.
+  /* -> OpenProject #2788: WBtn's own `.w-icon` rule (`.w-btn :deep(.w-icon) { font-size: 1.715em }`) */
+  /*    scales off `size="sm"`'s 10px button font-size, landing at ~17px -- undersized next to the */
+  /*    label here. `.icon-lg` (Locale and Browse only, not the sibling Collapse button below) pins */
+  /*    those two icons to 20px explicitly. `!important` because this plain rule and WBtn's own */
+  /*    scoped one tie on specificity, and which stylesheet loads later is not something to rely on. */
   .icon-lg .w-icon {
     font-size: 20px !important;
   }
@@ -855,7 +855,7 @@ onMounted(() => {
   width: 40px;
 }
 
-// -> Fades in step with the button it leads, on the same 150ms/opacity terms
+/* -> Fades in step with the button it leads, on the same 150ms/opacity terms */
 .sidebar-actions-top-sep {
   transition: opacity 0.15s var(--ease-standard);
 }
@@ -900,14 +900,14 @@ onMounted(() => {
 }
 
 .sidebar-actions-top .w-btn {
-  // -> Ledger's "white plate": filled and coloured at rest, not only on hover, unlike Locale/Browse
+  /* -> Ledger's "white plate": filled and coloured at rest, not only on hover, unlike Locale/Browse */
   background-color: var(--color-white);
   color: var(--color-accent);
 
-  // -> OpenProject #3133: fills the 40x40 `.sidebar-actions-top` cell exactly, on every aesthetic --
-  //    WBtn's own inline dense padding (`0 0.8em`) otherwise still governs the button's actual size,
-  //    leaving it short of the cell. `!important` on padding beats that inline `style` binding, which
-  //    no external stylesheet rule can outrank otherwise.
+  /* -> OpenProject #3133: fills the 40x40 `.sidebar-actions-top` cell exactly, on every aesthetic -- */
+  /*    WBtn's own inline dense padding (`0 0.8em`) otherwise still governs the button's actual size, */
+  /*    leaving it short of the cell. `!important` on padding beats that inline `style` binding, which */
+  /*    no external stylesheet rule can outrank otherwise. */
   width: 40px;
   height: 40px;
   padding: 0 !important;
@@ -916,24 +916,24 @@ onMounted(() => {
     background-color: var(--color-accent-wash);
   }
 
-  // -> Pins the arrow-up to the mockup's 15px regardless of WBtn's own em-scaled icon rule -- the
-  //    same tie this file's `.icon-lg .w-icon` rule above already documents (OpenProject #2788).
+  /* -> Pins the arrow-up to the mockup's 15px regardless of WBtn's own em-scaled icon rule -- the */
+  /*    same tie this file's `.icon-lg .w-icon` rule above already documents (OpenProject #2788). */
   .w-icon {
     font-size: 15px !important;
   }
 
-  // -> WBtn's content wrapper flips from its default row to a column, so "TOP" sits under the
-  //    arrow rather than beside it -- the only way both fit inside the 40px cell, on every
-  //    aesthetic. Scoped to the Top cell alone; every other labelled button keeps WBtn's row.
+  /* -> WBtn's content wrapper flips from its default row to a column, so "TOP" sits under the */
+  /*    arrow rather than beside it -- the only way both fit inside the 40px cell, on every */
+  /*    aesthetic. Scoped to the Top cell alone; every other labelled button keeps WBtn's row. */
   > span {
     flex-direction: column;
     gap: 1px;
   }
 
-  // -> The "TOP" label itself: Roboto Mono, uppercased here rather than in the translation string
-  //    so `common.sidebar.top` stays natural-case ("Top"), matching `NavSidebar.vue`'s section
-  //    kicker convention. Sized off its own rule rather than the button's `font-size`, which the
-  //    inline `min-height`/`padding` styles are `em`-relative to and would shrink along with it.
+  /* -> The "TOP" label itself: Roboto Mono, uppercased here rather than in the translation string */
+  /*    so `common.sidebar.top` stays natural-case ("Top"), matching `NavSidebar.vue`'s section */
+  /*    kicker convention. Sized off its own rule rather than the button's `font-size`, which the */
+  /*    inline `min-height`/`padding` styles are `em`-relative to and would shrink along with it. */
   > span > span {
     font-family: var(--font-mono);
     font-weight: 600;
@@ -948,8 +948,8 @@ onMounted(() => {
     --w-hairline-color: var(--color-hairline-dark);
   }
 
-  // -> Specificity-tied with the generic `.sidebar-actions .w-btn { color: ... }` dark override
-  //    above; wins on source order, declared after it, same as that rule's own sibling overrides.
+  /* -> Specificity-tied with the generic `.sidebar-actions .w-btn { color: ... }` dark override */
+  /*    above; wins on source order, declared after it, same as that rule's own sibling overrides. */
   .sidebar-actions-top .w-btn {
     background-color: var(--color-dark-2);
     color: var(--color-accent-dark);
@@ -976,11 +976,11 @@ body.body--cobalt {
     display: none;
   }
 
-  // -> Locale and Browse become flat, inset tiles. `rounded-control` (WBtn's own default corner
-  //    class, applied to every non-round/non-rounded button) already resolves to Cobalt's 6px, so
-  //    only the inset margin and hover wash are new here. Icon and label take different tones --
-  //    the sidebar's icon token vs. its actions-text token -- unlike Ledger, where both inherit the
-  //    same `.w-btn` colour from the rule at the top of this file.
+  /* -> Locale and Browse become flat, inset tiles. `rounded-control` (WBtn's own default corner */
+  /*    class, applied to every non-round/non-rounded button) already resolves to Cobalt's 6px, so */
+  /*    only the inset margin and hover wash are new here. Icon and label take different tones -- */
+  /*    the sidebar's icon token vs. its actions-text token -- unlike Ledger, where both inherit the */
+  /*    same `.w-btn` colour from the rule at the top of this file. */
   .sidebar-actions .icon-lg {
     margin: 4px 0 4px 4px;
 
@@ -993,22 +993,22 @@ body.body--cobalt {
     }
   }
 
-  // -> OpenProject #3133: the Top button now shares Locale/Browse's `.icon-lg` treatment above
-  //    (hover wash, icon colour) rather than a bespoke Cobalt-only plate style (OpenProject #3109,
-  //    reverted). The unscoped `.sidebar-actions-top .w-btn` rule's own `background-color:
-  //    var(--color-white)` (Ledger's white plate) isn't scoped away from Cobalt and would otherwise
-  //    bleed through, so that needs resetting here -- the hover wash and icon colour already come
-  //    from `.sidebar-actions .icon-lg` above, which wins on source order against the unscoped
-  //    rule's equal-specificity hover.
-  //
-  //    OpenProject #3224: that same `.icon-lg` rule's `margin: 4px 0 4px 4px` was never meant for
-  //    the Top button -- it's Locale/Browse's own inset-tile spacing, sized for flex-1 cells with
-  //    room to spare. The Top button sits in a cell that is ALSO exactly 40x40
-  //    (`.sidebar-actions-top` above) and is itself pinned to `width: 40px; height: 40px` by the
-  //    unscoped rule this block already overrides, so the inherited margin pushes it past the
-  //    cell's edge instead of insetting it. Reset to 0 here, at equal specificity and later in
-  //    source order than the `.icon-lg` rule above, so it wins without touching Locale/Browse's
-  //    margin or Ledger's own #3133 sizing (which never applied `.icon-lg`'s margin to begin with).
+  /* -> OpenProject #3133: the Top button now shares Locale/Browse's `.icon-lg` treatment above */
+  /*    (hover wash, icon colour) rather than a bespoke Cobalt-only plate style (OpenProject #3109, */
+  /*    reverted). The unscoped `.sidebar-actions-top .w-btn` rule's own `background-color: */
+  /*    var(--color-white)` (Ledger's white plate) isn't scoped away from Cobalt and would otherwise */
+  /*    bleed through, so that needs resetting here -- the hover wash and icon colour already come */
+  /*    from `.sidebar-actions .icon-lg` above, which wins on source order against the unscoped */
+  /*    rule's equal-specificity hover. */
+  /* */
+  /*    OpenProject #3224: that same `.icon-lg` rule's `margin: 4px 0 4px 4px` was never meant for */
+  /*    the Top button -- it's Locale/Browse's own inset-tile spacing, sized for flex-1 cells with */
+  /*    room to spare. The Top button sits in a cell that is ALSO exactly 40x40 */
+  /*    (`.sidebar-actions-top` above) and is itself pinned to `width: 40px; height: 40px` by the */
+  /*    unscoped rule this block already overrides, so the inherited margin pushes it past the */
+  /*    cell's edge instead of insetting it. Reset to 0 here, at equal specificity and later in */
+  /*    source order than the `.icon-lg` rule above, so it wins without touching Locale/Browse's */
+  /*    margin or Ledger's own #3133 sizing (which never applied `.icon-lg`'s margin to begin with). */
   .sidebar-actions-top .w-btn {
     background-color: transparent;
     margin: 0;
@@ -1106,11 +1106,11 @@ body.body--cobalt .bg-sidebar.w-drawer--overlay {
   }
 
   .w-btn {
-    // -> WBar's dense override used to force this down to 8px; the library's own un-dense default
-    //    (12.5px) is still smaller than a nav row's label, so it is stated explicitly here instead.
-    //    `min-height` is WBtn's own inline style (em-relative to ITS font-size), which would
-    //    otherwise outgrow the band this bar's height is built to match -- reset so the flex
-    //    stretch above is what actually sizes it.
+    /* -> WBar's dense override used to force this down to 8px; the library's own un-dense default */
+    /*    (12.5px) is still smaller than a nav row's label, so it is stated explicitly here instead. */
+    /*    `min-height` is WBtn's own inline style (em-relative to ITS font-size), which would */
+    /*    otherwise outgrow the band this bar's height is built to match -- reset so the flex */
+    /*    stretch above is what actually sizes it. */
     min-height: auto !important;
     font-size: 14px;
   }
@@ -1139,13 +1139,13 @@ body.body--dark {
   rather than by component boundary. OpenProject #3000: `AdminLayout.vue` mounts the very same
   `MainOverlayDialog.vue`, but a direct load of an admin route never pulls in THIS layout's own
   async `<style>` chunk, so the styling silently never loaded there. Moved to the shared
-  `css/_overlay-dialog.scss` partial, pulled into `app.scss` (loaded unconditionally at boot by
+  `css/_overlay-dialog.css` partial, pulled into `app.css` (loaded unconditionally at boot by
   `main.js`, not per-route) so it reaches every layout that mounts `MainOverlayDialog.vue`
   regardless of which one's chunk happens to be present.
 */
 
-// -> The `.q-footer .q-bar` rule that used to sit here never matched: FooterNav renders
-//    `.site-footer`, never a q-bar. Its colours live in FooterNav's own scoped style.
+/* -> The `.q-footer .q-bar` rule that used to sit here never matched: FooterNav renders */
+/*    `.site-footer`, never a q-bar. Its colours live in FooterNav's own scoped style. */
 
 .syncing-enter-active {
   animation: syncing-anim 0.1s;
@@ -1230,10 +1230,10 @@ body.body--dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  // -> Defence in depth: `playEntranceFlourish` is already false whenever this media query matches,
-  //    so `.main-layout--entrance-flourish` is never added in the first place -- this holds even if
-  //    it were ever toggled some other way, matching the same convention `Login.vue`'s `&--exiting`
-  //    block follows on the login side of this feature.
+  /* -> Defence in depth: `playEntranceFlourish` is already false whenever this media query matches, */
+  /*    so `.main-layout--entrance-flourish` is never added in the first place -- this holds even if */
+  /*    it were ever toggled some other way, matching the same convention `Login.vue`'s `&--exiting` */
+  /*    block follows on the login side of this feature. */
   .main-layout--entrance-flourish {
     .site-header-wrap,
     .bg-sidebar,

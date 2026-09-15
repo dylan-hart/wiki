@@ -178,84 +178,79 @@ function loadAdmin() {
 }
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .welcome {
   background: #fff radial-gradient(ellipse, #fff, #ddd);
   color: var(--color-grey-9);
   height: 100vh;
   border: 1px solid #eee;
-
-  .body--dark & {
-    background: var(--color-dark-6)
-      radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
-    color: var(--color-blue-grey-1);
-    border: 1px solid var(--color-dark-4);
+}
+.body--dark .welcome {
+  background: var(--color-dark-6) radial-gradient(ellipse, var(--color-dark-4), var(--color-dark-6));
+  color: var(--color-blue-grey-1);
+  border: 1px solid var(--color-dark-4);
+}
+.welcome-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 320px;
+  height: 320px;
+  background: linear-gradient(0, #fff 50%, var(--color-blue-5) 50%);
+  border-radius: 50%;
+  filter: blur(100px);
+  transform: translate(-50%, -55%);
+}
+.body--dark .welcome-bg {
+  background: linear-gradient(0, var(--color-dark-6) 50%, var(--color-blue-5) 50%);
+}
+.welcome-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 90vw;
+}
+.welcome-logo {
+  user-select: none;
+}
+.welcome-logo > img {
+  height: 200px;
+  user-select: none;
+}
+.welcome-title {
+  font-size: 4rem;
+  font-weight: 500;
+  line-height: 4rem;
+  text-align: center;
+}
+@media (max-width: 1439.98px) {
+  .welcome-title {
+    font-size: 2.5rem;
+    line-height: 2.5rem;
   }
-
-  &-bg {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 320px;
-    height: 320px;
-    background: linear-gradient(0, #fff 50%, var(--color-blue-5) 50%);
-    border-radius: 50%;
-    filter: blur(100px);
-    transform: translate(-50%, -55%);
-
-    .body--dark & {
-      background: linear-gradient(0, var(--color-dark-6) 50%, var(--color-blue-5) 50%);
-    }
-  }
-
-  &-content {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    width: 90vw;
-  }
-
-  &-logo {
-    user-select: none;
-
-    > img {
-      height: 200px;
-      user-select: none;
-    }
-  }
-
-  &-title {
-    font-size: 4rem;
-    font-weight: 500;
-    line-height: 4rem;
-    text-align: center;
-
-    @media (max-width: 1439.98px) {
-      font-size: 2.5rem;
-      line-height: 2.5rem;
-    }
-  }
-
-  &-subtitle {
-    font-size: 1.2rem;
-    font-weight: 500;
-    color: var(--color-blue-7);
-    line-height: 1.2rem;
-    margin-top: 1rem;
-  }
-
-  &-actions {
-    margin-top: 2rem;
-    text-align: center;
-
-    > .w-btn {
-      margin: 0 5px 5px 5px;
-    }
-  }
+}
+.welcome-subtitle {
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: var(--color-blue-7);
+  line-height: 1.2rem;
+  margin-top: 1rem;
+}
+.welcome-actions {
+  margin-top: 2rem;
+  text-align: center;
+}
+.welcome-actions > .w-btn {
+  margin: 0 5px 5px 5px;
 }
 </style>

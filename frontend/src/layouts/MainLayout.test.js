@@ -533,7 +533,7 @@ describe('MainLayout reader locale/browse toolbar sizing (OpenProject #2788)', (
         MainOverlayDialog: true,
         NavSidebar: true
       },
-      // -> `getComputedStyle` only resolves the real cascade (including the `<style lang="scss">`
+      // -> `getComputedStyle` only resolves the real cascade (including the `<style>`
       //    rule this suite asserts against) for an element actually attached to the document, the
       //    same reason the sibling `.sidebar-footerbtns-spacer` suite above attaches too.
       attachTo: document.body
@@ -641,7 +641,7 @@ describe('MainLayout reader locale button casing (OpenProject #2971)', () => {
  *
  * OpenProject #3000 moved `.main-overlay` itself out of this file (it was scoped only by class name,
  * invisible to `AdminLayout.vue`'s own separate async `<style>` chunk) into the shared
- * `css/_overlay-dialog.scss` partial, `@use`d by `app.scss` so it loads regardless of which layout's
+ * `css/_overlay-dialog.css` partial, `@import`ed by `app.css` so it loads regardless of which layout's
  * chunk is present -- the coverage this comment used to introduce, keeping only what #2776 is
  * responsible for (the eyebrow bar is gone and the panel still carries the dialog radius for its
  * box-shadow under Cobalt), moved with it and lives on in
@@ -972,7 +972,11 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.backgroundColor).toBe('transparent')
+    // -> `#0000`, not the `transparent` keyword: lightningcss (wired into `vitest.config.js` to
+    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) canonicalizes color
+    //    keywords into their shortest equivalent hex form as part of that same pass. Semantically
+    //    identical -- fully transparent black either way.
+    expect(style.backgroundColor).toBe('#0000')
   })
 
   it("resolves Ledger's cell-separator hairline colour from the light/dark hairline tokens", () => {
@@ -1004,7 +1008,7 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
 // -> OpenProject #3000: the `describe('MainLayout overlay chrome Cobalt aesthetic conformance
 //    (OpenProject #2776)', ...)` suite that used to sit here moved to
 //    `css/_overlay-dialog.cobaltDialogCorners.test.js`, alongside the `.main-overlay` styling itself
-//    -- extracted out of this file's own `<style>` block into the shared `css/_overlay-dialog.scss`
+//    -- extracted out of this file's own `<style>` block into the shared `css/_overlay-dialog.css`
 //    partial, so any layout mounting `MainOverlayDialog.vue` gets it regardless of which layout's own
 //    chunk is loaded.
 

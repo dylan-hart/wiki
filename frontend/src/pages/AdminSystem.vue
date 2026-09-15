@@ -337,7 +337,7 @@ Total RAM: ${state.info.ramTotal}`
 }
 </script>
 
-<style lang="scss">
+<style>
 .admin-system {
   .v-list-item-title,
   .v-list-item__subtitle {

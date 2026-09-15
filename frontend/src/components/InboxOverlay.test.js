@@ -149,8 +149,8 @@ describe('InboxOverlay: dark mode', () => {
 
   /*
    * OpenProject #2778: these used to read the `$surface`/`$text-body`/`$dark-3`/`$text-dark` SCSS
-   * literals -- Ledger-only constants (`css/_theme.scss`'s own header says so) that never pick up
-   * Cobalt's `body.body--cobalt`/`body.body--cobalt.body--dark` overrides. Moved onto the matching
+   * literals -- Ledger-only constants (the old Sass `_theme.scss`'s own header said so) that never
+   * picked up Cobalt's `body.body--cobalt`/`body.body--cobalt.body--dark` overrides. Moved onto the matching
    * `var(--color-*)` custom properties, which resolve to the identical Ledger values (this assertion
    * still passes unchanged there) and to Cobalt's own values once `body--cobalt` is on `<body>`.
    */

@@ -17,7 +17,8 @@
 
           `accent` (#c14a52), not the brighter `accent-fill` (#e4676b): the label over it is white,
           and only the darker of the two tones clears 4.5:1 under white. See the live-edge note at
-          the top of `css/_theme.scss` for which tone belongs on which surface.
+          the "Cardinal: the accent, in all three of its tones" comment near the top of
+          `css/tailwind.css` for which tone belongs on which surface.
         -->
         <w-btn
           color="accent"
@@ -225,7 +226,7 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   Cancel / Insert (OpenProject #2873): the general Cobalt button-group gap rule -- adjacent buttons
   take an 8-10px gap and each keeps its own radius, never a rounded button butted against a square
@@ -251,22 +252,26 @@ onMounted(async () => {
     }
   }
 }
-
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .block-picker {
   height: 100%;
   padding: 0;
-
   /*
     Nothing here sits on a `w-card`, and that is where the app's dark text colour comes from -- so the
     panels have to state it themselves or everything inheriting `color` stays black on a dark surface.
   */
-  .body--light & {
-    color: var(--color-text-body);
-  }
-  .body--dark & {
-    color: var(--color-text-dark);
-  }
-
+}
+.body--light .block-picker {
+  color: var(--color-text-body);
+}
+.body--dark .block-picker {
+  color: var(--color-text-dark);
+}
+.block-picker {
   /*
     The catalog is paper and the properties panel is the tinted strip beside it, ruled off with the
     one hairline between them -- the pairing the design draws, and the same relationship a settings
@@ -276,46 +281,45 @@ onMounted(async () => {
     The proportions are the design's own: the catalog takes the room, the panel is a fixed 340px
     column that stops growing once the fields in it are wide enough to read.
   */
-  &-catalog {
-    flex: 1 1 480px;
-    min-width: 300px;
-    height: 100%;
-
-    .body--light & {
-      background-color: var(--color-surface);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-5);
-    }
-  }
-
-  &-form {
-    flex: 0 0 340px;
-    min-width: 280px;
-    height: 100%;
-
-    .body--light & {
-      background-color: var(--color-tint);
-      border-inline-start: 1px solid var(--color-hairline);
-    }
-    .body--dark & {
-      background-color: var(--color-dark-3);
-      border-inline-start: 1px solid var(--color-hairline-dark);
-    }
-  }
-
+}
+.block-picker-catalog {
+  flex: 1 1 480px;
+  min-width: 300px;
+  height: 100%;
+}
+.body--light .block-picker-catalog {
+  background-color: var(--color-surface);
+}
+.body--dark .block-picker-catalog {
+  background-color: var(--color-dark-5);
+}
+.block-picker-form {
+  flex: 0 0 340px;
+  min-width: 280px;
+  height: 100%;
+}
+.body--light .block-picker-form {
+  background-color: var(--color-tint);
+  border-inline-start: 1px solid var(--color-hairline);
+}
+.body--dark .block-picker-form {
+  background-color: var(--color-dark-3);
+  border-inline-start: 1px solid var(--color-hairline-dark);
+}
+.block-picker {
   /*
     Two columns at most, however wide the overlay gets: a card carries a name, a sentence and a tag
     name, so it reads better wide than tiled. The `max()` is what caps the count -- a track asking
     for half the row (less its share of the gap) can only ever fit twice -- while the 280px floor
     takes over on a panel too narrow for two of them and drops the grid to a single column.
   */
-  &-grid {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(auto-fill, minmax(max(280px, calc(50% - 6px)), 1fr));
-  }
-
+}
+.block-picker-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(max(280px, 50% - 6px), 1fr));
+}
+.block-picker {
   /*
     -> A card is the whole hit target, so the icon and the text are both part of choosing it
 
@@ -341,79 +345,73 @@ onMounted(async () => {
     the box-geometry invariant this comment (and `blockPickerLayout.test.js`) exists to rule out.
     Logged as a gap rather than guessed at, not fixed here.
   */
-  &-card {
-    position: relative;
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-hairline);
-    color: inherit;
-    text-align: start;
-    cursor: pointer;
-    transition:
-      border-color 0.15s var(--ease-standard),
-      box-shadow 0.15s var(--ease-standard);
-
-    &:hover {
-      border-color: var(--color-rule);
-    }
-
-    &.is-selected,
-    &.is-selected:hover {
-      border-color: var(--color-accent-fill);
-      box-shadow: inset 0 0 0 1px var(--color-accent-fill);
-    }
-
-    .body--dark & {
-      background-color: var(--color-dark-3);
-      border-color: var(--color-hairline-dark);
-
-      &:hover {
-        border-color: var(--color-border-dark);
-      }
-
-      &.is-selected,
-      &.is-selected:hover {
-        border-color: var(--color-accent-dark);
-        box-shadow: inset 0 0 0 1px var(--color-accent-dark);
-      }
-    }
-  }
-
+}
+.block-picker-card {
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color 0.15s var(--ease-standard),
+    box-shadow 0.15s var(--ease-standard);
+}
+.block-picker-card:hover {
+  border-color: var(--color-rule);
+}
+.block-picker-card.is-selected,
+.block-picker-card.is-selected:hover {
+  border-color: var(--color-accent-fill);
+  box-shadow: inset 0 0 0 1px var(--color-accent-fill);
+}
+.body--dark .block-picker-card {
+  background-color: var(--color-dark-3);
+  border-color: var(--color-hairline-dark);
+}
+.body--dark .block-picker-card:hover {
+  border-color: var(--color-border-dark);
+}
+.body--dark .block-picker-card.is-selected,
+.body--dark .block-picker-card.is-selected:hover {
+  border-color: var(--color-accent-dark);
+  box-shadow: inset 0 0 0 1px var(--color-accent-dark);
+}
+.block-picker {
   /* The 40px hairline plate the glyph sits in -- the same material as a settings row's plate. */
-  &-plate {
-    display: flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    border: 1px solid var(--color-hairline);
-    background-color: var(--color-surface);
-    color: var(--color-slate-soft);
-
-    .is-selected > & {
-      border-color: var(--color-accent-fill);
-      background-color: var(--color-accent-wash);
-      color: var(--color-accent);
-    }
-
-    .body--dark & {
-      border-color: var(--color-hairline-dark);
-      background-color: var(--color-dark-4);
-      color: var(--color-slate-light);
-    }
-
-    .body--dark .is-selected > & {
-      border-color: var(--color-accent-dark);
-      background-color: var(--color-accent-wash-dark);
-      color: var(--color-accent-dark);
-    }
-  }
-
+}
+.block-picker-plate {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-hairline);
+  background-color: var(--color-surface);
+  color: var(--color-slate-soft);
+}
+.is-selected > .block-picker-plate {
+  border-color: var(--color-accent-fill);
+  background-color: var(--color-accent-wash);
+  color: var(--color-accent);
+}
+.body--dark .block-picker-plate {
+  border-color: var(--color-hairline-dark);
+  background-color: var(--color-dark-4);
+  color: var(--color-slate-light);
+}
+.body--dark .is-selected > .block-picker-plate {
+  border-color: var(--color-accent-dark);
+  background-color: var(--color-accent-wash-dark);
+  color: var(--color-accent-dark);
+}
+.block-picker {
   /*
     Two adjacent 1px rules per corner, sitting 4px clear of the card. They overhang the card, which
     the catalog's own 16px inset and the grid's 12px gap both absorb -- nothing clips them and
@@ -423,156 +421,141 @@ onMounted(async () => {
     under Cobalt, matching `Login.vue`/`NavEditMenu.vue`'s identical construction -- Cobalt draws no
     registration marks at all, on a block card same as everywhere else.
   */
-  &-mark {
-    position: absolute;
-    display: var(--corner-marks);
-    width: 7px;
-    height: 7px;
-    opacity: 0;
-    /* -> One property so each corner states only WHICH two of its edges it draws, not in what tone */
-    --mark-tone: var(--color-accent-fill);
-    transition: opacity 0.15s var(--ease-standard);
-
-    .is-selected > & {
-      opacity: 1;
-    }
-
-    .body--dark & {
-      --mark-tone: var(--color-accent-dark);
-    }
-  }
-
-  &-mark-tl {
-    top: -4px;
-    inset-inline-start: -4px;
-    border-top: 1px solid var(--mark-tone);
-    border-inline-start: 1px solid var(--mark-tone);
-  }
-
-  &-mark-tr {
-    top: -4px;
-    inset-inline-end: -4px;
-    border-top: 1px solid var(--mark-tone);
-    border-inline-end: 1px solid var(--mark-tone);
-  }
-
-  &-mark-bl {
-    bottom: -4px;
-    inset-inline-start: -4px;
-    border-bottom: 1px solid var(--mark-tone);
-    border-inline-start: 1px solid var(--mark-tone);
-  }
-
-  &-mark-br {
-    bottom: -4px;
-    inset-inline-end: -4px;
-    border-bottom: 1px solid var(--mark-tone);
-    border-inline-end: 1px solid var(--mark-tone);
-  }
-
-  &-name {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    flex-wrap: wrap;
-    font-size: 13.5px;
-    font-weight: 600;
-
-    .body--light & {
-      color: var(--color-ink);
-    }
-
-    em {
-      font-size: 11.5px;
-      font-weight: 400;
-    }
-  }
-
-  &-description {
-    font-size: 12.5px;
-    line-height: 1.5;
-
-    .body--light & {
-      color: var(--color-text-secondary);
-    }
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
+}
+.block-picker-mark {
+  position: absolute;
+  display: var(--corner-marks);
+  width: 7px;
+  height: 7px;
+  opacity: 0;
+  /* -> One property so each corner states only WHICH two of its edges it draws, not in what tone */
+  --mark-tone: var(--color-accent-fill);
+  transition: opacity 0.15s var(--ease-standard);
+}
+.is-selected > .block-picker-mark {
+  opacity: 1;
+}
+.body--dark .block-picker-mark {
+  --mark-tone: var(--color-accent-dark);
+}
+.block-picker-mark-tl {
+  top: -4px;
+  inset-inline-start: -4px;
+  border-top: 1px solid var(--mark-tone);
+  border-inline-start: 1px solid var(--mark-tone);
+}
+.block-picker-mark-tr {
+  top: -4px;
+  inset-inline-end: -4px;
+  border-top: 1px solid var(--mark-tone);
+  border-inline-end: 1px solid var(--mark-tone);
+}
+.block-picker-mark-bl {
+  bottom: -4px;
+  inset-inline-start: -4px;
+  border-bottom: 1px solid var(--mark-tone);
+  border-inline-start: 1px solid var(--mark-tone);
+}
+.block-picker-mark-br {
+  bottom: -4px;
+  inset-inline-end: -4px;
+  border-bottom: 1px solid var(--mark-tone);
+  border-inline-end: 1px solid var(--mark-tone);
+}
+.block-picker-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.body--light .block-picker-name {
+  color: var(--color-ink);
+}
+.block-picker-name em {
+  font-size: 11.5px;
+  font-weight: 400;
+}
+.block-picker-description {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.body--light .block-picker-description {
+  color: var(--color-text-secondary);
+}
+.body--dark .block-picker-description {
+  color: var(--color-text-secondary-dark);
+}
+.block-picker {
   /*
     The tag name is what actually lands in the page, so it is the one line on the card that follows
     the selection into the accent -- the card's own confirmation of what it is about to insert.
   */
-  &-tag {
-    padding-top: 4px;
-    font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
-    font-size: 11px;
-    font-weight: 500;
-
-    .body--light & {
-      color: var(--color-text-caption);
-    }
-    .body--dark & {
-      color: var(--color-text-caption-dark);
-    }
-
-    .is-selected & {
-      color: var(--color-accent);
-    }
-
-    .body--dark .is-selected & {
-      color: var(--color-accent-dark);
-    }
-  }
-
+}
+.block-picker-tag {
+  padding-top: 4px;
+  font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
+  font-size: 11px;
+  font-weight: 500;
+}
+.body--light .block-picker-tag {
+  color: var(--color-text-caption);
+}
+.body--dark .block-picker-tag {
+  color: var(--color-text-caption-dark);
+}
+.is-selected .block-picker-tag {
+  color: var(--color-accent);
+}
+.body--dark .is-selected .block-picker-tag {
+  color: var(--color-accent-dark);
+}
+.block-picker {
   /* Nothing picked yet: a faint outline of the shape a block leaves, and the sentence saying so. */
-  &-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding: 44px 24px;
-    text-align: center;
-
-    .w-icon {
-      color: var(--color-slate-faint);
-    }
-
-    p {
-      max-width: 240px;
-      margin: 0;
-      font-size: 13.5px;
-      line-height: 1.6;
-    }
-
-    .body--light & {
-      color: var(--color-text-secondary);
-    }
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
+}
+.block-picker-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 44px 24px;
+  text-align: center;
+}
+.block-picker-empty .w-icon {
+  color: var(--color-slate-faint);
+}
+.block-picker-empty p {
+  max-width: 240px;
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.body--light .block-picker-empty {
+  color: var(--color-text-secondary);
+}
+.body--dark .block-picker-empty {
+  color: var(--color-text-secondary-dark);
+}
+.block-picker {
   /*
     The generated markup, drawn as the design draws it: an ink slab with the accent down its leading
     edge. It reads as a quotation of the page rather than another field, which is what it is.
   */
-  &-output {
-    padding: 11px 12px;
-    border-inline-start: 2px solid var(--color-accent-fill);
-    background-color: var(--color-ink);
-    color: var(--color-text-dark);
-    font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-
-    .body--dark & {
-      background-color: var(--color-dark-6);
-    }
-  }
+}
+.block-picker-output {
+  padding: 11px 12px;
+  border-inline-start: 2px solid var(--color-accent-fill);
+  background-color: var(--color-ink);
+  color: var(--color-text-dark);
+  font-family: 'Roboto Mono', Consolas, 'Liberation Mono', Courier, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.body--dark .block-picker-output {
+  background-color: var(--color-dark-6);
 }
 </style>

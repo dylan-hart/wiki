@@ -206,7 +206,7 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss" scoped>
+<style scoped>
 .site-hostname-link {
   display: inline-flex;
   text-decoration: none;

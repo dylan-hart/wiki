@@ -30,7 +30,7 @@ const styleBlock = componentSource.slice(
 )
 
 function ruleFor(className) {
-  const match = styleBlock.match(new RegExp(`&${className}\\s*\\{([^}]*)\\}`))
+  const match = styleBlock.match(new RegExp(`\\.errorpage${className}\\s*\\{([^}]*)\\}`))
   return match?.[1] ?? ''
 }
 

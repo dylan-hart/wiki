@@ -990,7 +990,7 @@ describe('FileManager design conformance (WP #2625)', () => {
  *    brand blue, `#1f4fd6`) is not -- so the button rendered the wrong colour the moment the two
  *    aesthetics gave "primary" and "accent" different values. Covered directly through `WBtn`'s own
  *    resolved inline style, the same way `WBtn.test.js` does.
- * 2. Most of this file's `<style lang="scss">` block read Sass compile-time constants
+ * 2. Most of this file's `<style>` block read Sass compile-time constants
  *    (`$hairline`, `$dark-4`, `$tint`, ...) instead of the CSS custom properties `css/tailwind.css`
  *    actually swaps per aesthetic (`--color-hairline`, `--color-dark-4`, `--color-tint`, ...) --
  *    identical in Ledger, since a Sass constant and its custom-property twin start at the same
@@ -1059,7 +1059,7 @@ describe('FileManager Cobalt aesthetic conformance (OpenProject #2776)', () => {
 
   it('hides the preview plate corner marks under Cobalt, which draws none', () => {
     expect(styleBlock).toMatch(
-      /&-tick\s*{\s*position:\s*absolute;\s*display:\s*var\(--corner-marks\);/
+      /\.fileman-thumb-tick\s*{\s*position:\s*absolute;\s*display:\s*var\(--corner-marks\);/
     )
   })
 })
@@ -1166,7 +1166,10 @@ describe('FileManager compact/comfortable grid rows (WP #2940/#2960)', () => {
   const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'FileManager.vue')
   const source = readFileSync(SOURCE_PATH, 'utf-8')
   const styleBlock = source.slice(source.indexOf('<style'))
-  const rowBlock = styleBlock.slice(styleBlock.indexOf('&-filelist'), styleBlock.indexOf('&-thumb'))
+  const rowBlock = styleBlock.slice(
+    styleBlock.indexOf('.fileman-filelist'),
+    styleBlock.indexOf('.fileman-thumb')
+  )
 
   function seedRows(wrapper) {
     wrapper.vm.state.fileList = [

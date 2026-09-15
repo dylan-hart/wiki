@@ -241,4 +241,4 @@ function openConfig(editorId) {
 }
 </script>
 
-<style lang="scss"></style>
+<style></style>

@@ -404,7 +404,7 @@
       What opens that panel, in the bottom-right corner. `MainLayout`'s own scroll-to-top corner button
       used to occupy the same corner at 750px and up before OpenProject #2894 retired it in favour of
       the sidebar's own "Top" cell -- this is now the corner's only occupant, and only below 750px. The
-      `.corner-btn` shape is `css/_base.scss`'s, shared with `AdminLayout`'s sidebar opener; the
+      `.corner-btn` shape is `css/_base.css`'s, shared with `AdminLayout`'s sidebar opener; the
       sidebar opener `MainLayout` used to draw in the opposite corner moved inline into the header bar
       (OpenProject #2928), so this is the only fixed corner button left in the page view.
 
@@ -1419,11 +1419,11 @@ function goBack() {
 }
 </script>
 
-<style lang="scss">
+<style>
 /*
-  Where the contents column stops being able to afford 300px. This view's own threshold, not one of the
-  app's -- `_palette.scss` is for the breakpoints the whole app shares, and this one is a function of this
-  page's two sidebars. Stated as a `max` value just under 1400px, the way the shared ones are.
+  Where the contents column stops being able to afford 300px. This view's own threshold, not one of
+  the app's shared breakpoints, and this one is a function of this page's two sidebars. Stated as a
+  `max` value just under 1400px, the way the shared ones are.
 */
 
 /*
@@ -1450,7 +1450,7 @@ function goBack() {
 
   /*
     Stated per theme, as everything else in this column is: the article's own colours come from
-    `_page-contents.scss`, so a plain block dropped in beside it inherits the document's black and
+    `_page-contents.css`, so a plain block dropped in beside it inherits the document's black and
     goes invisible on the dark surface. The icon below takes its colour from here as well.
   */
   .body--light & {
@@ -1576,7 +1576,11 @@ function goBack() {
     color: var(--color-text-caption-dark);
   }
 }
-
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   The masthead. A white plate with the page's icon in a hairline square beside its title, ruled off
   from the article -- the two-stop gradient and the white top edge it used to carry were the same
@@ -1620,7 +1624,6 @@ function goBack() {
   box-shadow: var(--page-header-shadow);
   background: var(--page-header-bg);
   color: var(--page-header-fg);
-
   /*
     Sized by its contents on a phone instead, which comes out around 96px: the 120px is pitched for a
     64px icon beside 34px display type, and holding it under the halved icon and title of the phone
@@ -1629,25 +1632,29 @@ function goBack() {
     So the variance the desktop band just lost is deliberate down here -- there is no height worth
     holding when everything that would fill it is half the size.
   */
-  @media (max-width: 599.98px) {
+}
+@media (max-width: 599.98px) {
+  .page-header {
     min-height: 0;
     padding-block: 10px;
   }
-
+}
+.page-header {
   /*
     Ledger's own flush plate: a hairline border rather than the radius/shadow/margin the tokens above
     resolve to `0`/`none`/`0` for anyway -- kept as literal rules rather than folded into the tokens
     since Ledger draws no card at all, just a ruled-off band.
   */
-  .body--light & {
-    background-color: var(--color-surface);
-    border-bottom: 1px solid var(--color-hairline);
-  }
-  .body--dark & {
-    background-color: var(--color-dark-3);
-    border-bottom: 1px solid var(--color-hairline-dark);
-  }
-
+}
+.body--light .page-header {
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-hairline);
+}
+.body--dark .page-header {
+  background-color: var(--color-dark-3);
+  border-bottom: 1px solid var(--color-hairline-dark);
+}
+.page-header {
   /*
     Cobalt overrides both of the rules just above: the flat colour/radius/shadow/margin already set
     by the tokens at the top of this block replace Ledger's flush plate entirely, in both themes --
@@ -1662,56 +1669,54 @@ function goBack() {
     present at once). Leaving this undeclared would let Ledger's surface colour win instead of the
     token.
   */
-  body.body--cobalt & {
-    border-bottom: 0;
-    background-color: var(--page-header-bg);
-  }
-
+}
+body.body--cobalt .page-header {
+  border-bottom: 0;
+  background-color: var(--page-header-bg);
+}
+.page-header {
   /*
     The page's own title, and the one place in the interface the display face is set at full size:
     Barlow Condensed at 36px/700, which is what lets a long title stay on one line in a bar this
     height. `text-wrap: pretty` keeps a two-line title from leaving one orphaned word.
   */
-  &-title {
-    font-family: var(--font-display);
-    font-size: 36px;
-    font-weight: 700;
-    line-height: 1.05;
-    letter-spacing: normal;
-    text-wrap: pretty;
-
-    /*
-      The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated flat colour and
-      its title is white. `--page-header-fg` is `var(--color-ink)` in Ledger, so the light rule this
-      replaces is reproduced exactly; dark mode keeps its own value, but only for Ledger -- Cobalt's
-      banner is identical in both themes.
-    */
-    color: var(--page-header-fg);
-
-    .body--dark:not(.body--cobalt) & {
-      color: var(--color-text-dark);
-    }
-  }
-
+}
+.page-header-title {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: normal;
+  text-wrap: pretty;
+  /*
+    The masthead's own foreground, not the app's ink: Cobalt's banner is a saturated flat colour and
+    its title is white. `--page-header-fg` is `var(--color-ink)` in Ledger, so the light rule this
+    replaces is reproduced exactly; dark mode keeps its own value, but only for Ledger -- Cobalt's
+    banner is identical in both themes.
+  */
+  color: var(--page-header-fg);
+}
+.body--dark:not(.body--cobalt) .page-header-title {
+  color: var(--color-text-dark);
+}
+.page-header {
   /*
     The description under the title: Barlow at 400, not the 500 `text-subtitle2` was giving it. At the
     weight the title carries it read as a second heading rather than as the sentence explaining the
     first one.
   */
-  &-subtitle {
-    margin-top: 6px;
-    font-weight: 400;
-    font-size: 14.5px;
-    line-height: 1.45;
-    letter-spacing: normal;
-
-    /* Same reasoning as the title above -- Ledger's token value is `var(--color-text-secondary)`. */
-    color: var(--page-header-subtitle-fg);
-
-    .body--dark:not(.body--cobalt) & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
+}
+.page-header-subtitle {
+  margin-top: 6px;
+  font-weight: 400;
+  font-size: 14.5px;
+  line-height: 1.45;
+  letter-spacing: normal;
+  /* Same reasoning as the title above -- Ledger's token value is `var(--color-text-secondary)`. */
+  color: var(--page-header-subtitle-fg);
+}
+.body--dark:not(.body--cobalt) .page-header-subtitle {
+  color: var(--color-text-secondary-dark);
 }
 /*
   The article and the footer under it, stacked inside the one box that scrolls -- Ledger only; see the
@@ -2045,7 +2050,7 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
       Left padding is 2px, not 0: `.page-sidebar-card`'s edge is a box-shadow ring
       (`--shadow-card`), which extends 1px OUTSIDE its own border-box. This column's
       `overflow-y: auto` silently computes `overflow-x` to `auto` too (the CSS Overflow
-      spec's same-axis-pairing quirk, per `_page-contents.scss`'s `.table-scroll` comment),
+      spec's same-axis-pairing quirk, per `_page-contents.css`'s `.table-scroll` comment),
       so with 0 left padding that 1px of ring had nothing to render into and was clipped
       away -- the card was missing its left hairline while the other three sides, which
       have 24-28px of padding to spare, were fine. 2px is just enough room to contain it.
@@ -2053,13 +2058,13 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
     padding: 28px 24px 28px 2px;
   }
 
-  // The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the
-  // language -- where they used to be a light-on-light / near-black-on-dark pair drawing the bevel
-  // between two panels.
-  //
-  // The original set a background-colour here as well as a border. It never showed: the element is
-  // 1px tall with `box-sizing: border-box`, so the content box is 0px and the opaque border covers
-  // it completely. Only the border colour is carried across.
+  /* The rules BETWEEN this rail's own sections, which are hairlines like every other rule in the */
+  /* language -- where they used to be a light-on-light / near-black-on-dark pair drawing the bevel */
+  /* between two panels. */
+  /* */
+  /* The original set a background-colour here as well as a border. It never showed: the element is */
+  /* 1px tall with `box-sizing: border-box`, so the content box is 0px and the opaque border covers */
+  /* it completely. Only the border colour is carried across. */
   .w-separator {
     --w-hairline-color: #{var(--color-hairline)};
     /* -> 22px of air on each side, as the design draws them */

@@ -763,7 +763,7 @@ async function toggleWatch() {
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 /*
   One target box for the whole action row (OpenProject #2616).
 
@@ -783,7 +783,7 @@ async function toggleWatch() {
   this row.
 
   `!important` because `WBtn` writes `min-height` and `padding` as INLINE styles, which no class beats
-  on specificity alone; `.w-btn.header-nav-btn` in `css/_base.scss` documents the same fight against
+  on specificity alone; `.w-btn.header-nav-btn` in `css/_base.css` documents the same fight against
   the same two properties for the site header's own band.
 */
 .page-header-actions > .w-btn {

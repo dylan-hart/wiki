@@ -250,7 +250,12 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .editor-code {
   /*
     Percentage heights all the way down rather than a viewport calc, which had to grow a new
@@ -262,42 +267,40 @@ onBeforeUnmount(() => {
   */
   height: 100%;
   min-height: 0;
-
-  &-main {
-    display: flex;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-  }
-  &-editor {
-    background-color: var(--color-dark-6);
-    flex: 1 1 auto;
-    display: block;
-    height: 100%;
-    position: relative;
-    min-width: 0;
-
-    > div {
-      height: 100%;
-    }
-  }
-  &-type {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    padding-bottom: 1rem;
-    color: rgba(255, 255, 255, 0.4);
-    font-weight: 500;
-  }
-  &-sidebar {
-    background-color: var(--color-dark-4);
-    border-top: 32px solid color-mix(in srgb, var(--color-primary) 80%, #000);
-    color: #fff;
-    width: 56px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: center;
-    padding: 12px 0;
-  }
+}
+.editor-code-main {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.editor-code-editor {
+  background-color: var(--color-dark-6);
+  flex: 1 1 auto;
+  display: block;
+  height: 100%;
+  position: relative;
+  min-width: 0;
+}
+.editor-code-editor > div {
+  height: 100%;
+}
+.editor-code-type {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding-bottom: 1rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+}
+.editor-code-sidebar {
+  background-color: var(--color-dark-4);
+  border-top: 32px solid color-mix(in srgb, var(--color-primary) 80%, #000);
+  color: #fff;
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 12px 0;
 }
 </style>

@@ -75,7 +75,7 @@ const isDark = computed({
 })
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .dev-tab {
   position: fixed;
   top: -14px;

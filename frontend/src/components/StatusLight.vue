@@ -25,7 +25,7 @@ const cssClasses = computed(() => {
 })
 </script>
 
-<style lang="scss">
+<style>
 /*
   A 5px bar, square. Cardinal draws a status as a flat block of colour against the hairline grid --
   the rounded, gradient-lit pill this replaces read as a jewel light, which is one more piece of

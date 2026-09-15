@@ -750,246 +750,223 @@ onBeforeUnmount(() => {
 defineExpose({ editor, menuBar })
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .wysiwyg-container {
   height: calc(100% - 41px);
-
-  .wysiwyg-toolbar {
-    border: none;
-    display: flex;
-    align-items: center;
-    padding: 4px;
-
-    /*
-      OpenProject #2498: this bar had no dark-mode treatment at all, so it stayed a bright white/grey
-      band regardless of theme. Dark values reuse the same `var(--color-dark-2)`/`var(--color-dark-1)` panel-and-border pair
-      `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
-      this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
-    */
-    .body--light & {
-      background: linear-gradient(to top, var(--color-grey-1) 0%, #fff 100%);
-      border-bottom: 1px solid var(--color-grey-4);
-    }
-    .body--dark & {
-      background: linear-gradient(to top, var(--color-dark-3) 0%, var(--color-dark-2) 100%);
-      border-bottom: 1px solid var(--color-dark-1);
-    }
-  }
-
-  .ProseMirror {
-    padding: 16px;
-    min-height: 75vh;
-
-    /*
-      The typed content itself, so a dark toolbar above isn't paired with the default (black-on-
-      whatever's-behind-it) text the rest of this rule otherwise never sets a color for.
-    */
-    .body--dark & {
-      color: rgba(255, 255, 255, 0.87);
-    }
-
-    &-focused {
-      border: none;
-      outline: none;
-    }
-
-    > * + * {
-      margin-top: 0.75em;
-    }
-
-    ul,
-    ol {
-      padding: 0 1rem;
-    }
-
-    h1,
-    h2,
-    h3,
-    h4,
-    h5,
-    h6 {
-      line-height: 1.1;
-    }
-
-    code {
-      background-color: rgba(#616161, 0.1);
-      color: #616161;
-
-      .body--dark & {
-        background-color: rgba(255, 255, 255, 0.08);
-        color: var(--color-grey-4);
-      }
-    }
-
-    pre {
-      background: #0d0d0d;
-      color: #fff;
-      font-family: 'JetBrainsMono', monospace;
-      padding: 0.75rem 1rem;
-      border-radius: 0.5rem;
-
-      code {
-        color: inherit;
-        padding: 0;
-        background: none;
-        font-size: 0.8rem;
-      }
-    }
-
-    img {
-      max-width: 100%;
-      height: auto;
-    }
-
-    blockquote {
-      padding-inline-start: 1rem;
-      border-inline-start: 2px solid rgba(#0d0d0d, 0.1);
-
-      .body--dark & {
-        border-inline-start-color: rgba(255, 255, 255, 0.2);
-      }
-    }
-
-    hr {
-      border: none;
-      border-top: 2px solid rgba(#0d0d0d, 0.1);
-      margin: 2rem 0;
-
-      .body--dark & {
-        border-top-color: rgba(255, 255, 255, 0.2);
-      }
-    }
-
-    table {
-      border-collapse: collapse;
-      table-layout: fixed;
-      width: 100%;
-      margin: 0;
-      overflow: hidden;
-
-      td,
-      th {
-        min-width: 1em;
-        border: 2px solid #ced4da;
-        padding: 3px 5px;
-        vertical-align: top;
-        box-sizing: border-box;
-        position: relative;
-
-        .body--dark & {
-          border-color: var(--color-dark-1);
-        }
-
-        > * {
-          margin-bottom: 0;
-        }
-      }
-
-      th {
-        font-weight: bold;
-        text-align: start;
-        background-color: #f1f3f5;
-
-        .body--dark & {
-          background-color: var(--color-dark-2);
-        }
-      }
-
-      .selectedCell:after {
-        z-index: 2;
-        position: absolute;
-        content: '';
-        inset-inline-start: 0;
-        inset-inline-end: 0;
-        top: 0;
-        bottom: 0;
-        background: rgba(200, 200, 255, 0.4);
-        pointer-events: none;
-      }
-
-      .column-resize-handle {
-        position: absolute;
-        inset-inline-end: -2px;
-        top: 0;
-        bottom: -2px;
-        width: 4px;
-        background-color: #adf;
-        pointer-events: none;
-      }
-    }
-
-    .tableWrapper {
-      overflow-x: auto;
-    }
-
-    .resize-cursor {
-      cursor: ew-resize;
-      cursor: col-resize;
-    }
-
-    ul[data-type='taskList'] {
-      list-style: none;
-      padding: 0;
-
-      li {
-        display: flex;
-        align-items: center;
-
-        > label {
-          flex: 0 0 auto;
-          margin-inline-end: 0.5rem;
-        }
-      }
-    }
-
-    p.is-editor-empty:first-child::before {
-      content: attr(data-placeholder);
-      float: left;
-      color: #ced4da;
-      pointer-events: none;
-      height: 0;
-
-      .body--dark & {
-        color: rgba(255, 255, 255, 0.35);
-      }
-    }
-
-    /*
-      Remote collaborators' cursors (OpenProject #1124). `CollaborationCaret`'s default `render`/
-      `selectionRender` build these two classes with nothing but a per-user `border-color`/
-      `background-color` already inlined -- everything about their layout is left to CSS, matching
-      the shape of TipTap's own documented example for this extension.
-    */
-    .collaboration-carets__caret {
-      position: relative;
-      margin-inline-start: -1px;
-      margin-inline-end: -1px;
-      border-inline-start: 1px solid;
-      border-inline-end: 1px solid;
-      word-break: normal;
-      pointer-events: none;
-    }
-
-    /*
-      -> `left` stays physical on purpose (OpenProject #1601's repo-wide pass): the label is a flag
-         anchored to the caret's own left edge, and moving it to a logical offset without also moving
-         the caret line it points at would separate the two under RTL -- a coordinated redesign, not
-         a mechanical property swap. (The rounded corners that used to cut its point are gone with the
-         rest of the app's radii; the label is a square flag now.) See
-         `frontend/src/logicalSpacing.test.js`.
-    */
-    .collaboration-carets__label {
-      position: absolute;
-      top: -1.4em;
-      left: -1px;
-      padding: 0.1rem 0.3rem;
-      font-size: 0.7rem;
-      font-weight: 600;
-      line-height: normal;
-      color: #fff;
-      white-space: nowrap;
-      user-select: none;
-    }
-  }
+}
+.wysiwyg-container .wysiwyg-toolbar {
+  border: none;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  /*
+    OpenProject #2498: this bar had no dark-mode treatment at all, so it stayed a bright white/grey
+    band regardless of theme. Dark values reuse the same `var(--color-dark-2)`/`var(--color-dark-1)` panel-and-border pair
+    `EditorMarkdown.vue`'s own dark preview toolbar uses -- the closest sibling shape, even though
+    this toolbar (formatting buttons, not a rendered preview) has no exact structural twin.
+  */
+}
+.body--light .wysiwyg-container .wysiwyg-toolbar {
+  background: linear-gradient(to top, var(--color-grey-1) 0%, #fff 100%);
+  border-bottom: 1px solid var(--color-grey-4);
+}
+.body--dark .wysiwyg-container .wysiwyg-toolbar {
+  background: linear-gradient(to top, var(--color-dark-3) 0%, var(--color-dark-2) 100%);
+  border-bottom: 1px solid var(--color-dark-1);
+}
+.wysiwyg-container .ProseMirror {
+  padding: 16px;
+  min-height: 75vh;
+  /*
+    The typed content itself, so a dark toolbar above isn't paired with the default (black-on-
+    whatever's-behind-it) text the rest of this rule otherwise never sets a color for.
+  */
+}
+.body--dark .wysiwyg-container .ProseMirror {
+  color: rgba(255, 255, 255, 0.87);
+}
+.wysiwyg-container .ProseMirror-focused {
+  border: none;
+  outline: none;
+}
+.wysiwyg-container .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+.wysiwyg-container .ProseMirror ul,
+.wysiwyg-container .ProseMirror ol {
+  padding: 0 1rem;
+}
+.wysiwyg-container .ProseMirror h1,
+.wysiwyg-container .ProseMirror h2,
+.wysiwyg-container .ProseMirror h3,
+.wysiwyg-container .ProseMirror h4,
+.wysiwyg-container .ProseMirror h5,
+.wysiwyg-container .ProseMirror h6 {
+  line-height: 1.1;
+}
+.wysiwyg-container .ProseMirror code {
+  background-color: rgba(97, 97, 97, 0.1);
+  color: #616161;
+}
+.body--dark .wysiwyg-container .ProseMirror code {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--color-grey-4);
+}
+.wysiwyg-container .ProseMirror pre {
+  background: #0d0d0d;
+  color: #fff;
+  font-family: 'JetBrainsMono', monospace;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+}
+.wysiwyg-container .ProseMirror pre code {
+  color: inherit;
+  padding: 0;
+  background: none;
+  font-size: 0.8rem;
+}
+.wysiwyg-container .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+}
+.wysiwyg-container .ProseMirror blockquote {
+  padding-inline-start: 1rem;
+  border-inline-start: 2px solid rgba(13, 13, 13, 0.1);
+}
+.body--dark .wysiwyg-container .ProseMirror blockquote {
+  border-inline-start-color: rgba(255, 255, 255, 0.2);
+}
+.wysiwyg-container .ProseMirror hr {
+  border: none;
+  border-top: 2px solid rgba(13, 13, 13, 0.1);
+  margin: 2rem 0;
+}
+.body--dark .wysiwyg-container .ProseMirror hr {
+  border-top-color: rgba(255, 255, 255, 0.2);
+}
+.wysiwyg-container .ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+.wysiwyg-container .ProseMirror table td,
+.wysiwyg-container .ProseMirror table th {
+  min-width: 1em;
+  border: 2px solid #ced4da;
+  padding: 3px 5px;
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+}
+.body--dark .wysiwyg-container .ProseMirror table td,
+.body--dark .wysiwyg-container .ProseMirror table th {
+  border-color: var(--color-dark-1);
+}
+.wysiwyg-container .ProseMirror table td > *,
+.wysiwyg-container .ProseMirror table th > * {
+  margin-bottom: 0;
+}
+.wysiwyg-container .ProseMirror table th {
+  font-weight: bold;
+  text-align: start;
+  background-color: #f1f3f5;
+}
+.body--dark .wysiwyg-container .ProseMirror table th {
+  background-color: var(--color-dark-2);
+}
+.wysiwyg-container .ProseMirror table .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: '';
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(200, 200, 255, 0.4);
+  pointer-events: none;
+}
+.wysiwyg-container .ProseMirror table .column-resize-handle {
+  position: absolute;
+  inset-inline-end: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: #adf;
+  pointer-events: none;
+}
+.wysiwyg-container .ProseMirror .tableWrapper {
+  overflow-x: auto;
+}
+.wysiwyg-container .ProseMirror .resize-cursor {
+  cursor: ew-resize;
+  cursor: col-resize;
+}
+.wysiwyg-container .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding: 0;
+}
+.wysiwyg-container .ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: center;
+}
+.wysiwyg-container .ProseMirror ul[data-type='taskList'] li > label {
+  flex: 0 0 auto;
+  margin-inline-end: 0.5rem;
+}
+.wysiwyg-container .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #ced4da;
+  pointer-events: none;
+  height: 0;
+}
+.body--dark .wysiwyg-container .ProseMirror p.is-editor-empty:first-child::before {
+  color: rgba(255, 255, 255, 0.35);
+}
+.wysiwyg-container .ProseMirror {
+  /*
+    Remote collaborators' cursors (OpenProject #1124). `CollaborationCaret`'s default `render`/
+    `selectionRender` build these two classes with nothing but a per-user `border-color`/
+    `background-color` already inlined -- everything about their layout is left to CSS, matching
+    the shape of TipTap's own documented example for this extension.
+  */
+}
+.wysiwyg-container .ProseMirror .collaboration-carets__caret {
+  position: relative;
+  margin-inline-start: -1px;
+  margin-inline-end: -1px;
+  border-inline-start: 1px solid;
+  border-inline-end: 1px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.wysiwyg-container .ProseMirror {
+  /*
+    -> `left` stays physical on purpose (OpenProject #1601's repo-wide pass): the label is a flag
+       anchored to the caret's own left edge, and moving it to a logical offset without also moving
+       the caret line it points at would separate the two under RTL -- a coordinated redesign, not
+       a mechanical property swap. (The rounded corners that used to cut its point are gone with the
+       rest of the app's radii; the label is a square flag now.) See
+       `frontend/src/logicalSpacing.test.js`.
+  */
+}
+.wysiwyg-container .ProseMirror .collaboration-carets__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: normal;
+  color: #fff;
+  white-space: nowrap;
+  user-select: none;
 }
 </style>

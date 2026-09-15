@@ -58,7 +58,12 @@ useMeta(() => ({
 }))
 </script>
 
-<style lang="scss">
+<style>
+/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
+   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
+   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
+   it never matches). Compiled via the real Sass compiler one last time and inlined here
+   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
   The login screen, and with it the auth panel's shared visual language.
 
@@ -75,11 +80,12 @@ useMeta(() => ({
 */
 .auth {
   /*
-    OpenProject #2779: every color below moved off `_theme.scss`'s literal `$`-prefixed SCSS
+    OpenProject #2779: every color below moved off the old Sass `_theme.scss`'s literal `$`-prefixed
     variables onto the equivalent `var(--color-*)` custom property. The Ledger value each token
-    resolves to is unchanged (`_theme.scss` and `tailwind.css`'s `:root`/`@theme static` blocks are
-    the same palette in two faces), so this is a no-op under Ledger -- the SCSS variables never
-    followed `body.body--cobalt`'s token overrides, so under Cobalt this whole screen used to render
+    resolves to is unchanged (`_theme.scss` and `tailwind.css`'s `:root`/`@theme static` blocks were
+    the same palette in two faces before the former was deleted), so this is a no-op under Ledger --
+    the SCSS variables never followed `body.body--cobalt`'s token overrides, so under Cobalt this
+    whole screen used to render
     with Ledger's white/ink/slate literals regardless of the site's aesthetic.
   */
   background-color: var(--color-surface);
@@ -93,138 +99,136 @@ useMeta(() => ({
     on the row lets either side be the taller one.
   */
   min-height: 100vh;
-
-  .body--dark & {
-    background-color: var(--color-dark-6);
-    color: var(--color-text-dark);
+}
+.body--dark .auth {
+  background-color: var(--color-dark-6);
+  color: var(--color-text-dark);
+}
+.auth-content {
+  flex: 1 0 100%;
+  width: 100%;
+  max-width: 500px;
+  /* -> The design's `48px 56px`; this was `3rem 4rem`, 8px wider on each side */
+  padding: 48px 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  box-sizing: border-box;
+  /*
+    OpenProject #2747/#2750: the exit flourish -- `AuthLoginPanel`'s `exit-flourish` emit flips
+    `.auth--exiting` on, and this scales/fades the column out over the panel's own ~320ms navigation
+    budget (`AuthLoginPanel.vue`'s `EXIT_FLOURISH_MS`) so the hard reload doesn't cut a static screen
+    away with no transition at all. `transform-origin: center` keeps the scale-down concentric rather
+    than drifting toward a corner.
+  */
+  transition:
+    transform 320ms ease-out,
+    opacity 320ms ease-out;
+  transform-origin: center;
+}
+@media (max-width: 599.98px) {
+  .auth-content {
+    padding: 1rem 2rem;
+    max-width: 100vw;
   }
-
-  &-content {
-    flex: 1 0 100%;
-    width: 100%;
-    max-width: 500px;
-    /* -> The design's `48px 56px`; this was `3rem 4rem`, 8px wider on each side */
-    padding: 48px 56px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: stretch;
-    box-sizing: border-box;
-    /*
-      OpenProject #2747/#2750: the exit flourish -- `AuthLoginPanel`'s `exit-flourish` emit flips
-      `.auth--exiting` on, and this scales/fades the column out over the panel's own ~320ms navigation
-      budget (`AuthLoginPanel.vue`'s `EXIT_FLOURISH_MS`) so the hard reload doesn't cut a static screen
-      away with no transition at all. `transform-origin: center` keeps the scale-down concentric rather
-      than drifting toward a corner.
-    */
-    transition:
-      transform 320ms ease-out,
-      opacity 320ms ease-out;
-    transform-origin: center;
-
-    @media (max-width: 599.98px) {
-      padding: 1rem 2rem;
-      max-width: 100vw;
-    }
-  }
-
-  &-logo {
-    margin-bottom: 6px;
-
-    img {
-      height: 192px;
-    }
-  }
-
+}
+.auth-logo {
+  margin-bottom: 6px;
+}
+.auth-logo img {
+  height: 192px;
+}
+.auth {
   /*
     The wordmark. Cardinal sets it in the display face, uppercase and letter-spaced -- the same
     treatment the header band's own site title takes -- rather than in the body face at whatever
     case the site happened to type its name in.
   */
-  &-site-title {
-    font-family: var(--font-display);
-    font-size: 30px;
-    line-height: 1.2;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin: 0;
-    color: var(--color-ink);
-
-    .body--dark & {
-      color: var(--color-text-dark);
-    }
-  }
-
+}
+.auth-site-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--color-ink);
+}
+.body--dark .auth-site-title {
+  color: var(--color-text-dark);
+}
+.auth {
   /* -> The line under the wordmark */
-  &-lead {
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--color-text-secondary);
-    margin: 6px 0 20px;
-
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
+}
+.auth-lead {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin: 6px 0 20px;
+}
+.body--dark .auth-lead {
+  color: var(--color-text-secondary-dark);
+}
+.auth {
   /*
     A screen's own subtitle, once the panel has switched away from the login form -- register, 2FA,
     forgot, reset. The auth-screens sheet sets each at 13.5px with 14px beneath it.
   */
-  &-subtitle {
-    font-size: 13.5px;
-    line-height: 1.5;
-    color: var(--color-text-secondary);
-    margin: 0 0 14px;
-
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
+}
+.auth-subtitle {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin: 0 0 14px;
+}
+.body--dark .auth-subtitle {
+  color: var(--color-text-secondary-dark);
+}
+.auth {
   /*
     A statement rather than a subtitle -- "check your emails to activate your account", "this site
     requires two-factor authentication". The design sets these a tier darker than a subtitle, in the
     chrome tone, because they are the whole content of the screen rather than a preamble to a form.
   */
-  &-notice {
-    font-size: 13.5px;
-    line-height: 1.6;
-    color: var(--color-slate);
-    margin: 0;
-
-    .body--dark & {
-      color: var(--color-text-dark);
-    }
-  }
-
+}
+.auth-notice {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--color-slate);
+  margin: 0;
+}
+.body--dark .auth-notice {
+  color: var(--color-text-dark);
+}
+.auth {
   /* -> The first line of the 2FA setup screen, which the design leads with in semibold */
-  &-notice--lead {
-    font-weight: 600;
-    line-height: 1.5;
-    margin-bottom: 6px;
-  }
-
+}
+.auth-notice--lead {
+  font-weight: 600;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+.auth {
   /* -> The caption over the strategy selector */
-  &-hint {
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--color-text-secondary);
-    margin: 0 0 8px;
-
-    .body--dark & {
-      color: var(--color-text-secondary-dark);
-    }
-  }
-
-  &-strategies {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(45%, 1fr));
-    gap: 10px;
-    margin-bottom: 18px;
-  }
-
+}
+.auth-hint {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  margin: 0 0 8px;
+}
+.body--dark .auth-hint {
+  color: var(--color-text-secondary-dark);
+}
+.auth-strategies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(45%, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.auth {
   /*
     The fields. The design draws each as a bare hairline box with a leading glyph and no label above
     it -- so the label is passed as a placeholder plus an `aria-label` instead (the conversion
@@ -232,17 +236,19 @@ useMeta(() => ({
     height. `min-height` here is a utility CLASS on the control, not an inline style, so an unlayered
     rule beats `min-h-[34px]` without `!important`.
   */
-  &-field .w-input-control {
-    min-height: 44px;
-    padding-inline: 12px;
-  }
-
+}
+.auth-field .w-input-control {
+  min-height: 44px;
+  padding-inline: 12px;
+}
+.auth {
   /* -> The register form's fields are one step shorter than the login screen's */
-  &-field--sm .w-input-control {
-    min-height: 40px;
-    padding-inline: 11px;
-  }
-
+}
+.auth-field--sm .w-input-control {
+  min-height: 40px;
+  padding-inline: 11px;
+}
+.auth {
   /*
     The blueprint corner marks on a primary action: two 6px right-angles standing 3px outside the
     top-left and bottom-right corners. The same mark the page header's icon plate draws, and for the
@@ -255,117 +261,111 @@ useMeta(() => ({
     under Ledger and `none` under Cobalt, matching `NavEditMenu.vue`/`NavItemEditor.vue`'s identical
     construction -- Cobalt's cards and controls carry no registration marks at all.
   */
-  &-marks {
-    position: relative;
-
-    &::before,
-    &::after {
-      content: '';
-      position: absolute;
-      display: var(--corner-marks);
-      width: 6px;
-      height: 6px;
-      pointer-events: none;
-    }
-
-    &::before {
-      top: -3px;
-      inset-inline-start: -3px;
-      border-top: 1px solid var(--color-accent-fill);
-      border-inline-start: 1px solid var(--color-accent-fill);
-    }
-
-    &::after {
-      bottom: -3px;
-      inset-inline-end: -3px;
-      border-bottom: 1px solid var(--color-accent-fill);
-      border-inline-end: 1px solid var(--color-accent-fill);
-    }
-  }
-
+}
+.auth-marks {
+  position: relative;
+}
+.auth-marks::before,
+.auth-marks::after {
+  content: '';
+  position: absolute;
+  display: var(--corner-marks);
+  width: 6px;
+  height: 6px;
+  pointer-events: none;
+}
+.auth-marks::before {
+  top: -3px;
+  inset-inline-start: -3px;
+  border-top: 1px solid var(--color-accent-fill);
+  border-inline-start: 1px solid var(--color-accent-fill);
+}
+.auth-marks::after {
+  bottom: -3px;
+  inset-inline-end: -3px;
+  border-bottom: 1px solid var(--color-accent-fill);
+  border-inline-end: 1px solid var(--color-accent-fill);
+}
+.auth {
   /*
     Every glyph in an auth button. `WBtn` scales an icon to its own line height (1.715em), which at
     these larger labels draws a 24px glyph where both sheets draw 15-16px. Stated as a ratio rather
     than a length, so the one rule covers all five band sizes.
   */
-  .w-btn .w-icon {
-    font-size: 1.15em;
-  }
-
+}
+.auth .w-btn .w-icon {
+  font-size: 1.15em;
+}
+.auth {
   /*
     The colophon. `FooterNav` draws itself as a tinted, ruled bar for the two layouts that end a
     scrolling page in one; here it is a line of type at the foot of the column, which is what the
     design draws. The mono face, the 11px and the caption tone are already the bar's own.
   */
-  &-colophon {
-    margin-top: 26px;
-
-    .site-footer {
-      background-color: transparent;
-      border-top: 0;
-      padding: 0;
-    }
-  }
-
-  &-bg {
-    flex: 1;
-    flex-basis: 0;
-    position: relative;
-    /*
-      The design's own ground, and the answer to which of three grounds this pane has: the tint is
-      the LAYOUT's, and a site's uploaded login background sits on top of it. With nothing painted
-      here, a site that has never uploaded one showed a white pane beside a white column and the
-      split read as a rendering fault rather than as a screen.
-    */
-    background-color: var(--color-tint);
-    min-height: 100vh;
-    overflow: hidden;
-    // -> The exit flourish's fade, matching `.auth-content`'s own duration/easing
-    transition: opacity 320ms ease-out;
-
-    .body--dark & {
-      background-color: var(--color-dark-4);
-    }
-
-    img {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      top: 0;
-      bottom: 0;
-      inset-inline-start: 0;
-      inset-inline-end: 0;
-      margin: 0;
-      padding: 0;
-    }
-  }
-
+}
+.auth-colophon {
+  margin-top: 26px;
+}
+.auth-colophon .site-footer {
+  background-color: transparent;
+  border-top: 0;
+  padding: 0;
+}
+.auth-bg {
+  flex: 1;
+  flex-basis: 0;
+  position: relative;
+  /*
+    The design's own ground, and the answer to which of three grounds this pane has: the tint is
+    the LAYOUT's, and a site's uploaded login background sits on top of it. With nothing painted
+    here, a site that has never uploaded one showed a white pane beside a white column and the
+    split read as a rendering fault rather than as a screen.
+  */
+  background-color: var(--color-tint);
+  min-height: 100vh;
+  overflow: hidden;
+  /* -> The exit flourish's fade, matching `.auth-content`'s own duration/easing */
+  transition: opacity 320ms ease-out;
+}
+.body--dark .auth-bg {
+  background-color: var(--color-dark-4);
+}
+.auth-bg img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  margin: 0;
+  padding: 0;
+}
+.auth {
   /*
     OpenProject #2747/#2750: the exit flourish's end state, toggled by `AuthLoginPanel`'s
     `exit-flourish` emit (see `script setup`'s `exiting` ref). `.auth-content` scales down and fades
     out together; `.auth-bg` only fades -- the design calls for the background pane to dim rather than
     shrink with the column in front of it.
   */
-  &--exiting {
-    .auth-content {
-      transform: scale(0.94);
-      opacity: 0;
-    }
-
-    .auth-bg {
-      opacity: 0;
-    }
+}
+.auth--exiting .auth-content {
+  transform: scale(0.94);
+  opacity: 0;
+}
+.auth--exiting .auth-bg {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth {
+    /* -> Defence in depth: `AuthLoginPanel.vue` already skips emitting `exit-flourish` under reduced */
+    /*    motion, so `&--exiting` is never applied here, but a transition duration of zero means this */
+    /*    holds even if that class were ever toggled some other way. */
   }
-
-  @media (prefers-reduced-motion: reduce) {
-    // -> Defence in depth: `AuthLoginPanel.vue` already skips emitting `exit-flourish` under reduced
-    //    motion, so `&--exiting` is never applied here, but a transition duration of zero means this
-    //    holds even if that class were ever toggled some other way.
-    &-content,
-    &-bg {
-      transition: none;
-    }
+  .auth-content,
+  .auth-bg {
+    transition: none;
   }
 }
 </style>

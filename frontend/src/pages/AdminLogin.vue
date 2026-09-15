@@ -337,7 +337,7 @@ onMounted(async () => {
 })
 </script>
 
-<style lang="scss">
+<style>
 .admin-login-bg {
   width: 100%;
   height: 140px;
