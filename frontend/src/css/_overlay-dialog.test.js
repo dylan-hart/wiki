@@ -53,9 +53,15 @@ describe('shared .main-overlay styling lives outside any one layout chunk', () =
     )
   })
 
-  it('resolves its own $breakpoint-sm-max rather than relying on per-SFC injection', () => {
-    expect(partial).toMatch(/@use\s+'palette'\s+as\s+\*;/)
-    expect(partial).toMatch(/\$breakpoint-sm-max/)
+  it('is native CSS with no Sass-specific syntax left (OpenProject #3249)', () => {
+    // -> strips the file's own header comment first, which explains the removal by naming the
+    //    old `@use 'palette' as *;`/`$breakpoint-sm-max` syntax -- a plain substring check without
+    //    this would fail on the comment rather than testing the code it describes.
+    const withoutComments = partial.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(withoutComments).not.toMatch(/@use\s+'palette'/)
+    expect(withoutComments).not.toMatch(/\$breakpoint-sm-max/)
+    // -> the literal palette.scss:78 resolved to -- a media query can't read a custom property
+    expect(withoutComments).toMatch(/@media \(max-width: 1023\.98px\)/)
   })
 
   it('is no longer duplicated inside MainLayout.vue, so it cannot drift from the shared copy', () => {
