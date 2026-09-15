@@ -14,11 +14,16 @@ import { describe, expect, it } from 'vitest'
  * `<style>` chunk) into this shared `_overlay-dialog.scss` partial -- this file moved with it,
  * unchanged in substance, since the assertions are still about the same rule.
  *
- * `_overlay-dialog.scss` is a plain global partial, so this is plain SCSS source with no compiled
+ * `_overlay-dialog.scss` is a plain global partial, so this is plain CSS source with no compiled
  * stylesheet in this test environment to assert live values against -- the established pattern for
  * that (`cobaltTokens.test.js`, and this file's own `MainOverlayDialog.test.js` sibling, which
  * already reads this same rule's source for the `is-half-sized` rule) is a direct source-text
  * assertion.
+ *
+ * OpenProject #3249 (Sass removal 4/9): the `@at-root` keyword these assertions used to require was
+ * redundant here (a same-selector `.body--<aesthetic> &` theme toggle nested one level deep, not a
+ * genuine escape site -- see docs/frontend-sass-removal-plan.md's block classification) and is gone;
+ * the selectors themselves are unchanged.
  */
 
 const source = readFileSync(join(import.meta.dirname, '_overlay-dialog.scss'), 'utf-8')
@@ -38,7 +43,7 @@ describe('_overlay-dialog.scss .main-overlay block', () => {
 describe('Cobalt dialog panel: no fill, no clip', () => {
   it('the panel keeps its radius (for the box-shadow) but draws no fill and does not clip', () => {
     expect(mainOverlaySource).toMatch(
-      /@at-root \.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*background: transparent;\s*overflow: visible;\s*\}/
+      /\.body--cobalt & \{\s*border-top: 0;\s*border-radius: var\(--radius-dialog\);\s*background: transparent;\s*overflow: visible;\s*\}/
     )
   })
 
@@ -54,19 +59,19 @@ describe('Cobalt dialog panel: no fill, no clip', () => {
 describe('Cobalt dialog header/body: round and fill themselves', () => {
   it("rounds .card-header's own top corners, scoped under .main-overlay", () => {
     expect(mainOverlaySource).toContain(
-      '@at-root .body--cobalt & .card-header {\n        border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;\n      }'
+      '.body--cobalt & .card-header {\n        border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;\n      }'
     )
   })
 
   it("fills and rounds the first body sibling's outer bottom-left corner", () => {
     expect(mainOverlaySource).toMatch(
-      /@at-root \.body--cobalt & \.card-header \+ \* \{\s*background: var\(--float-bg\);\s*overflow: auto;\s*border-bottom-left-radius: var\(--radius-dialog\);\s*\}/
+      /\.body--cobalt & \.card-header \+ \* \{\s*background: var\(--float-bg\);\s*overflow: auto;\s*border-bottom-left-radius: var\(--radius-dialog\);\s*\}/
     )
   })
 
   it("fills and rounds the last body sibling's outer bottom-right corner", () => {
     expect(mainOverlaySource).toMatch(
-      /@at-root \.body--cobalt & \.card-header ~ \*:last-child \{\s*background: var\(--float-bg\);\s*overflow: auto;\s*border-bottom-right-radius: var\(--radius-dialog\);\s*\}/
+      /\.body--cobalt & \.card-header ~ \*:last-child \{\s*background: var\(--float-bg\);\s*overflow: auto;\s*border-bottom-right-radius: var\(--radius-dialog\);\s*\}/
     )
   })
 
@@ -79,7 +84,7 @@ describe('Cobalt dialog header/body: round and fill themselves', () => {
 describe('Ledger is untouched', () => {
   it('keeps its flat panel with the ink-strip border-top, independent of the Cobalt rules above', () => {
     expect(mainOverlaySource).toContain('border-top: 10px solid var(--color-dark-5);')
-    expect(mainOverlaySource).toContain('@at-root .body--light &')
-    expect(mainOverlaySource).toContain('@at-root .body--dark &')
+    expect(mainOverlaySource).toContain('.body--light &')
+    expect(mainOverlaySource).toContain('.body--dark &')
   })
 })
