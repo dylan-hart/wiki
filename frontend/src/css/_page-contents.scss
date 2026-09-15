@@ -2289,34 +2289,25 @@
     scrollbar-*` tokens each aesthetic's own section above sets, which is what lets a table's
     scrollbar blend into ITS OWN surface (the frame in Ledger, the page ground in Cobalt) rather than
     read as the app's more prominent chrome scrollbar dropped onto a table. The leading `body`
-    element on every selector below is deliberate, not decoration: it is what keeps each override at
-    a strictly higher specificity than the aesthetic-scoped global rule it overrides (both are
-    otherwise one class plus one pseudo-element/-class, which would tie and fall back to source
-    order between two different files -- exactly the trap `PageActionsCol.vue`'s own header comment
-    warns about) regardless of how the two stylesheets end up concatenated. Each is `@at-root`
-    rather than plain nesting for a second, purely structural reason: everything in this file sits
-    inside the outer `.page-contents { ... }` block, so an ordinary nested rule here would compile to
-    `.page-contents body .table-scroll::-webkit-scrollbar-thumb` -- `body` AFTER `.page-contents`,
-    requiring a `<body>` descendant of the article column, which does not exist. `@at-root` writes
-    the selector exactly as stated instead, `body` first.
+    element each override's selector starts with is deliberate, not decoration: it is what keeps
+    each override at a strictly higher specificity than the aesthetic-scoped global rule it
+    overrides (both are otherwise one class plus one pseudo-element/-class, which would tie and fall
+    back to source order between two different files -- exactly the trap `PageActionsCol.vue`'s own
+    header comment warns about) regardless of how the two stylesheets end up concatenated.
+
+    OpenProject #3252: these four rules used to be `@at-root body .table-scroll::-webkit-scrollbar-*`
+    right here, escaping the outer `.page-contents { ... }` this whole file sits inside for a
+    second, purely structural reason -- an ordinary nested rule in this spot would compile to
+    `.page-contents body .table-scroll::-webkit-scrollbar-thumb`, `body` AFTER `.page-contents`,
+    requiring a `<body>` descendant of the article column, which does not exist. Native CSS nesting
+    has no `@at-root`; hand-converted to plain, unnested rules at the bottom of this file instead --
+    see "Hand-converted @at-root escapes" there, `body` written first exactly as `@at-root` used to.
   */
   @supports not selector(::-webkit-scrollbar) {
     .table-scroll {
       scrollbar-width: thin;
       scrollbar-color: var(--content-table-scrollbar-thumb) var(--content-table-scrollbar-track);
     }
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-track {
-    background: var(--content-table-scrollbar-track);
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-thumb {
-    background: var(--content-table-scrollbar-thumb);
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-thumb:hover {
-    background-color: var(--content-table-scrollbar-thumb-hover);
-  }
-  @at-root body .table-scroll::-webkit-scrollbar-thumb:active {
-    background-color: var(--content-table-scrollbar-thumb-active);
   }
 
   /*
@@ -2993,4 +2984,26 @@
       content: none;
     }
   }
+}
+
+/*
+  Hand-converted @at-root escapes (OpenProject #3252). The four rules below used to sit inline in
+  the TABLES section above, just under `.table-scroll`, as `@at-root body
+  .table-scroll::-webkit-scrollbar-*` -- see that section's own comment for why `body` leads each
+  selector and why plain nesting can't reach it (this whole file sits inside `.page-contents { ... }`,
+  so an ordinary nested rule would put `body` AFTER `.page-contents` instead of first). Native CSS
+  nesting has no `@at-root`; these stay flat, top-level rules instead, `body` written first exactly
+  as `@at-root` used to compile it.
+*/
+body .table-scroll::-webkit-scrollbar-track {
+  background: var(--content-table-scrollbar-track);
+}
+body .table-scroll::-webkit-scrollbar-thumb {
+  background: var(--content-table-scrollbar-thumb);
+}
+body .table-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--content-table-scrollbar-thumb-hover);
+}
+body .table-scroll::-webkit-scrollbar-thumb:active {
+  background-color: var(--content-table-scrollbar-thumb-active);
 }

@@ -553,12 +553,11 @@ onBeforeUnmount(() => {
       below white that `WInput`/`WSelect` paint a read-only field in, and is written as a literal there
       too. Dark takes the recessed rung of the ramp against the panel rung above.
     */
-    @at-root tbody > tr:nth-child(even) > & {
-      background-color: #f8f9fc;
-    }
-    @at-root .body--dark tbody > tr:nth-child(even) > & {
-      background-color: var(--color-dark-4);
-    }
+    /*
+      OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this pair is
+      hand-converted to plain, unnested rules at the bottom of this style block instead -- see
+      "Hand-converted @at-root escapes" below.
+    */
   }
 
   /* -> The tools row is chrome, not content: no border under the buttons, tighter than a data row */
@@ -709,5 +708,23 @@ onBeforeUnmount(() => {
       background-color: var(--color-dark-3);
     }
   }
+}
+
+/*
+  Hand-converted @at-root escapes (OpenProject #3252). `&-cellbox`'s zebra-striping rule above used
+  to read `@at-root tbody > tr:nth-child(even) > & { ... }` -- a genuine structural escape (the row
+  band is the cell's ANCESTOR, not a class toggled on the cell itself), not a same-selector theme
+  toggle, so it has no native-nesting equivalent: `&` there compiles to `.table-editor-cellbox`
+  (from `.table-editor { &-cellbox { ... } }` above), and `@at-root` discarded that ambient nesting
+  entirely to put `tbody > tr:nth-child(even) >` in FRONT of it instead. A plain nested rule in its
+  original spot would compile to `.table-editor .table-editor-cellbox tbody > tr:nth-child(even) >
+  .table-editor-cellbox`, which is both wrong (duplicates `.table-editor-cellbox`) and un-matchable
+  (`tbody` is never a descendant of a `<td>`/`<th>`) -- so these stay flat, top-level rules instead.
+*/
+tbody > tr:nth-child(even) > .table-editor-cellbox {
+  background-color: #f8f9fc;
+}
+.body--dark tbody > tr:nth-child(even) > .table-editor-cellbox {
+  background-color: var(--color-dark-4);
 }
 </style>

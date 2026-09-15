@@ -2149,9 +2149,12 @@ $toolbar-btn: 30px;
           background-color: $teal-1;
           padding: 0 15px 15px;
           overflow: hidden;
-          @at-root .theme--dark & {
-            background-color: rgba($teal-5, 0.1);
-          }
+          /*
+            OpenProject #3252: native CSS nesting has no `@at-root` equivalent, so this dark-mode
+            override is hand-converted to a plain, unnested rule at the bottom of this style block
+            instead -- see "Hand-converted @at-root escapes" below, including why that rule now
+            reads `.body--dark` rather than this block's original `.theme--dark`.
+          */
         }
       }
     }
@@ -2272,5 +2275,26 @@ $toolbar-btn: 30px;
       padding: 0 !important;
     }
   }
+}
+
+/*
+  Hand-converted @at-root escapes (OpenProject #3252). `.tabset-content`'s dark-mode tint above used
+  to read `@at-root .theme--dark & { background-color: rgba($teal-5, 0.1); }`, nested five levels
+  deep inside `.editor-markdown { &-preview { &-content { .tabset { &-content { ... } } } } }` (`&`
+  there compiles to `.editor-markdown-preview-content .tabset-content`) -- `@at-root` discarded all
+  five levels of ambient nesting to put `.theme--dark` in front instead of the app's usual
+  `.body--dark`.
+
+  `.theme--dark` is not a class this codebase (or Wiki.js's `scarlett` branch it forked from) has
+  ever applied to anything -- `grep -rn "theme--dark" frontend/src` turns up only this comment now --
+  so the rule was permanently dead: this tint never actually painted in dark mode, regardless of
+  theme. `composables/dark.js` is the single source of truth for dark mode and toggles `.body--dark`
+  on `<body>`, the class every other dark-mode override in this same file (and everywhere else in the
+  app) actually reads. Per OpenProject #3252's own note, this conversion corrects the class to
+  `.body--dark` rather than silently carrying the dead selector forward -- the screenshot
+  verification for this rule is against the NOW-ACTIVE tint, not a no-op.
+*/
+.body--dark .editor-markdown-preview-content .tabset-content {
+  background-color: rgba($teal-5, 0.1);
 }
 </style>
