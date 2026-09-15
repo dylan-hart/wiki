@@ -94,7 +94,7 @@ useMeta(() => ({
   */
   min-height: 100vh;
 
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-6);
     color: var(--color-text-dark);
   }
@@ -122,7 +122,7 @@ useMeta(() => ({
       opacity 320ms ease-out;
     transform-origin: center;
 
-    @media (max-width: $breakpoint-xs-max) {
+    @media (max-width: 599.98px) {
       padding: 1rem 2rem;
       max-width: 100vw;
     }
@@ -151,7 +151,7 @@ useMeta(() => ({
     margin: 0;
     color: var(--color-ink);
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-dark);
     }
   }
@@ -163,7 +163,7 @@ useMeta(() => ({
     color: var(--color-text-secondary);
     margin: 6px 0 20px;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -178,7 +178,7 @@ useMeta(() => ({
     color: var(--color-text-secondary);
     margin: 0 0 14px;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -194,7 +194,7 @@ useMeta(() => ({
     color: var(--color-slate);
     margin: 0;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-dark);
     }
   }
@@ -213,7 +213,7 @@ useMeta(() => ({
     color: var(--color-text-secondary);
     margin: 0 0 8px;
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -323,7 +323,7 @@ useMeta(() => ({
     // -> The exit flourish's fade, matching `.auth-content`'s own duration/easing
     transition: opacity 320ms ease-out;
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
     }
 

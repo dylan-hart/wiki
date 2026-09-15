@@ -774,10 +774,8 @@ function commitRenamePendingAsset(item) {
   `MainLayout` hands its drawer as `overlayBelow`, and the same one `NavSidebar` states for its own use.
   Below it the corner button lands in this rail; see the padding rule.
 */
-$sidebar-overlay-max: 1199.98px;
 
 /** One row of this rail, which is what the bottom group has to clear. Matches the buttons' `h-12`. */
-$action-btn-height: 3rem;
 
 .page-actions {
   flex: 0 0 56px;
@@ -795,8 +793,8 @@ $action-btn-height: 3rem;
     permissions and on whether the editor is open, and the space is owed to whichever of them it turns out
     to be. The rail scrolls its own overflow, so this is inside what scrolls and cannot be scrolled behind.
   */
-  @media (max-width: $sidebar-overlay-max) {
-    padding-bottom: $action-btn-height;
+  @media (max-width: 1199.98px) {
+    padding-bottom: 3rem;
   }
 
   /*
@@ -807,7 +805,7 @@ $action-btn-height: 3rem;
     Not while the editor is open (`is-editor`), where the rail holds the properties panel and the pending
     asset queue, and taking it away would leave an author with no way to reach either.
   */
-  @media (max-width: $breakpoint-xs-max) {
+  @media (max-width: 599.98px) {
     &:not(.is-editor) {
       display: none;
     }
@@ -817,11 +815,11 @@ $action-btn-height: 3rem;
     The rail's own ground: the tint, ruled off from the article column beside it. Cardinal's chrome is
     continuous light slate, so the rail is a strip of the same paper the sidebar is, not a grey block.
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-tint);
     border-inline-start: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     border-inline-start: 1px solid var(--color-hairline-dark);
   }
@@ -836,7 +834,7 @@ $action-btn-height: 3rem;
     screens genuinely disagree here, and Cobalt's page view is authoritative for the reading rail
     only (OpenProject #2774).
   */
-  @at-root body.body--cobalt &:not(.is-editor) {
+  body.body--cobalt &:not(.is-editor) {
     flex: 0 0 40px;
     align-self: flex-start;
     margin: 28px 24px 28px 0;
@@ -926,7 +924,7 @@ $action-btn-height: 3rem;
       color: var(--color-accent-strong);
     }
   }
-  @at-root body.body--cobalt.body--dark &:not(.is-editor) {
+  body.body--cobalt.body--dark &:not(.is-editor) {
     background-color: var(--color-dark-3);
   }
 
@@ -969,8 +967,8 @@ $action-btn-height: 3rem;
       paragraph above gives about Ledger's own `#e4676b` -- the rail carries white glyphs and a white
       overline, and `#ff4d5a` under white is 3.1:1. Same known mockup defect, same correction.
     */
-    @at-root .body--light &,
-      .body--dark & {
+    .body--light &,
+    .body--dark & {
       background-color: var(--color-accent);
       border-inline-start: 1px solid var(--color-accent);
       color: #fff;
@@ -994,11 +992,11 @@ $action-btn-height: 3rem;
     ground can be marked from within: a wash of its own foreground.
   */
   > .aspect-square:first-child {
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-surface);
       border-block-end: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-3);
       border-block-end: 1px solid var(--color-hairline-dark);
     }
@@ -1009,11 +1007,11 @@ $action-btn-height: 3rem;
     two rules just above are themselves theme-scoped, so an unscoped override would tie on
     specificity and win only by position -- which the next edit to this file could quietly undo.
   */
-  @at-root .body--light &.is-editor > .aspect-square:first-child {
+  .body--light &.is-editor > .aspect-square:first-child {
     background-color: rgb(255 255 255 / 0.14);
     border-block-end: 0;
   }
-  @at-root .body--dark &.is-editor > .aspect-square:first-child {
+  .body--dark &.is-editor > .aspect-square:first-child {
     background-color: rgb(255 255 255 / 0.14);
     border-block-end: 0;
   }

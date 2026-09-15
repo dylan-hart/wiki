@@ -70,7 +70,7 @@
     <div v-if="graphTruncated" class="graph-view-truncation-notice">
       {{ t('graph.truncationNotice', { shown: allNodes.length, total: totalNodes }) }}
     </div>
-    <div class="graph-view-right-rail">
+    <div class="graph-view-right-rail graph-panel">
       <div class="graph-view-controls">
         <div class="graph-view-control-group">
           <span class="graph-view-control-caption">{{ t('graph.controls.groupByLabel') }}</span>
@@ -126,7 +126,7 @@
       `WInput`/`WSelect` floating labels, which set them in body size and left the two panels
       speaking in two voices about the same kind of thing.
     -->
-    <div class="graph-view-filters">
+    <div class="graph-view-filters graph-panel">
       <div class="flex flex-col gap-[5px]">
         <span class="graph-view-control-caption">{{ t('graph.filters.keyword') }}</span>
         <w-input v-model="keywordQuery" clearable dense :aria-label="t('graph.filters.keyword')" />
@@ -1531,8 +1531,12 @@ onBeforeUnmount(() => {
   draws them (`ui-redesign/Cardinal Wiki - Graph 3x.dc.html`). They used to be translucent washes with
   a backdrop blur, which is frosted glass -- a material this language does not have, and one that put
   the graph's own edges behind every control on it.
+
+  A plain shared class, not a Sass `@mixin` (`.graph-view-right-rail`/`.graph-view-filters` both
+  carry `graph-panel` in the template) -- native CSS nesting has no mixin equivalent, and this is the
+  only mixin the codebase had (docs/frontend-sass-removal-plan.md).
 */
-@mixin graph-panel {
+.graph-panel {
   position: absolute;
   top: 16px;
   z-index: 1;
@@ -1540,12 +1544,12 @@ onBeforeUnmount(() => {
   flex-direction: column;
   padding: 14px;
 
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-white);
     border: 1px solid var(--color-hairline);
     color: var(--color-text-body);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     border: 1px solid var(--color-hairline-dark);
     color: var(--color-text-dark);
@@ -1558,7 +1562,7 @@ onBeforeUnmount(() => {
     itself a hairline ring now (OpenProject #2856's matte pass), not the mockup's blurred
     `background:#fff;border-radius:8px;box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     border: 0;
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
@@ -1566,7 +1570,6 @@ onBeforeUnmount(() => {
 }
 
 .graph-view-right-rail {
-  @include graph-panel;
   right: 16px;
   gap: 14px;
   align-items: flex-end;
@@ -1621,16 +1624,15 @@ onBeforeUnmount(() => {
   letter-spacing: 0.16em;
   text-transform: uppercase;
 
-  @at-root .body--light & {
+  .body--light & {
     color: var(--color-text-caption);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: var(--color-text-caption-dark);
   }
 }
 
 .graph-view-filters {
-  @include graph-panel;
   left: 16px;
   gap: 12px;
   width: 268px;
@@ -1647,12 +1649,12 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-align: center;
 
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-white);
     border: 1px solid var(--color-accent-fill);
     color: var(--color-slate);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-3);
     border: 1px solid var(--color-accent-dark);
     color: var(--color-text-secondary-dark);
@@ -1665,7 +1667,7 @@ onBeforeUnmount(() => {
     under the matte pass (OpenProject #2856) `--shadow-card` is a hairline ring instead, so the pill
     now reads as a plain hairline-bordered plate rather than an accent-outlined or shadowed one.
   */
-  @at-root body.body--cobalt & {
+  body.body--cobalt & {
     border: 0;
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
@@ -1683,11 +1685,11 @@ onBeforeUnmount(() => {
   max-height: 240px;
   overflow-y: auto;
 
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-tint);
     border: 1px solid var(--color-hairline);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-2);
     border: 1px solid var(--color-hairline-dark);
   }
@@ -1713,10 +1715,10 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   max-width: 160px;
 
-  @at-root .body--light & {
+  .body--light & {
     color: rgba(0, 0, 0, 0.8);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: #fff;
   }
 }

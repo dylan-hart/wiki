@@ -186,7 +186,7 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     "every `border-radius` in the file lives inside that block", not a textual coincidence.
   */
   it('scopes the single-plate radius to Cobalt alone, leaving every other aesthetic square', () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    const cobaltBlock = extractBalancedBlock(source, 'body.body--cobalt &')
     expect(cobaltBlock).not.toBeNull()
     expect(cobaltBlock).toContain('border-radius')
 
@@ -201,19 +201,19 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     `jsdom` runs a layout/paint engine.
   */
   it("collapses the per-cell border into the plate's own border-spacing gap under Cobalt", () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    const cobaltBlock = extractBalancedBlock(source, 'body.body--cobalt &')
     expect(cobaltBlock).toContain('border-collapse: separate')
     expect(cobaltBlock).toContain('border-spacing: 2px')
     expect(cobaltBlock).toMatch(/&-cellbox\s*\{\s*border: 0;/)
   })
 
   it('tints Cobalt header cells distinctly from the plate and the data cells', () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    const cobaltBlock = extractBalancedBlock(source, 'body.body--cobalt &')
     expect(cobaltBlock).toMatch(/th\.table-editor-cellbox\s*\{\s*background-color: #eef2ff;/)
   })
 
   it('rings the focused Cobalt cell instead of tinting it', () => {
-    const cobaltBlock = extractBalancedBlock(source, '@at-root body.body--cobalt &')
+    const cobaltBlock = extractBalancedBlock(source, 'body.body--cobalt &')
     expect(cobaltBlock).toMatch(/&-cell:focus\s*\{/)
     expect(cobaltBlock).toContain('box-shadow: inset 0 0 0 2px var(--color-accent-strong)')
   })

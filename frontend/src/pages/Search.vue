@@ -364,7 +364,7 @@ const state = reactive({
  *
  * This layout's own breakpoint rather than one of the app's, and the same one `ProfileOverlay` uses for its
  * nav: the two screens are the same shape -- a card with a 300px sidebar -- so they run out of room at the
- * same width. The stylesheet has to agree with it; `$filters-collapse-max` is the same boundary from the
+ * same width. The stylesheet has to agree with it; `899.98px` is the same boundary from the
  * other side.
  */
 const isAtLeast900 = useMinWidth(900)
@@ -660,45 +660,38 @@ onUnmounted(() => {
   `_palette.scss`, which is for breakpoints the whole app shares; these describe one kind of card. Change
   them in one file and the other wants the same change.
 
-  `$filters-collapse-max` has to agree with the 900px `useMinWidth` above it.
+  `899.98px` has to agree with the 900px `useMinWidth` above it.
 */
-$filters-collapse-max: 899.98px;
-$card-gutter-max: 1199.98px;
 
 /*
   Row metrics, from the design (`docs/ui-redesign-supplementary/Cardinal Wiki - Search 3x.dc.html`).
   Named because the below-600px stacking rule has to derive its inset from them rather than restate
   a number: the date and tags wrap under the TITLE, which starts one plate plus one gutter in.
 */
-$plate-size: 34px;
-$row-gutter: 14px;
-$row-inset: $plate-size + $row-gutter;
 
 /*
   The trailing column: when the page was last touched, and what it is tagged with. Fixed rather than
   content-sized so that every row's title ends on the same edge down the list -- a column that sized
   itself would step in and out by a few pixels per row as the dates and tag counts varied.
 */
-$row-meta-width: 150px;
 
 /*
   A header strip's height. One value for all three (Sort by, Filters, Results) because Sort by and
   Results start the two columns side by side and are read as a single ruled line across the card.
 */
-$strip-height: 37px;
 
 .layout-search {
   /*
     The ordinary page ground. What used to be here was a dark radial band painted across the top
     200px of the window with a hairline gradient under it -- elevation and 2.x chrome, on a screen
     whose card is now held by a hairline like every other Cardinal surface. Both the `:before` band
-    and the `:after` gradient are gone, and with them the `$grey-3` ground they were washing over
+    and the `:after` gradient are gone, and with them the `var(--color-grey-3)` ground they were washing over
     (OpenProject #2697).
   */
-  @at-root .body--light & {
+  .body--light & {
     background-color: var(--color-paper);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-6);
   }
 
@@ -729,12 +722,12 @@ $strip-height: 37px;
       Held by a hairline rather than by a shadow: Cardinal draws a card as a plate on paper, and the
       `$shadow-2` that used to sit here was the other half of the dark band above.
     */
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-white);
       border: 1px solid var(--color-hairline);
       color: var(--color-text-body);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-3);
       border: 1px solid var(--color-hairline-dark);
       color: var(--color-text-dark);
@@ -748,7 +741,7 @@ $strip-height: 37px;
       #2856's matte pass), not the mockup's blurred `border-radius:8px;
       box-shadow:0 2px 10px rgba(16,25,74,.08)` glow.
     */
-    @at-root body.body--cobalt & {
+    body.body--cobalt & {
       border: 0;
       border-radius: var(--radius-card);
       box-shadow: var(--shadow-card);
@@ -759,11 +752,11 @@ $strip-height: 37px;
     flex: 0 0 300px;
     overflow: hidden;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: var(--color-tint);
       border-inline-end: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-inline-end: 1px solid var(--color-hairline-dark);
     }
@@ -786,7 +779,7 @@ $strip-height: 37px;
     display: flex;
     align-items: center;
     gap: 12px;
-    height: $strip-height;
+    height: 37px;
     padding: 0 16px;
     font-family: var(--font-mono);
     font-size: 10px;
@@ -795,12 +788,12 @@ $strip-height: 37px;
     letter-spacing: 0.2em;
     text-transform: uppercase;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-accent-strong);
       background-color: var(--color-tint-alt);
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-accent-dark);
       background-color: var(--color-dark-2);
       border-bottom: 1px solid var(--color-hairline-dark);
@@ -809,10 +802,10 @@ $strip-height: 37px;
 
   /* -> A strip that follows content is ruled off from it as well as from what comes after */
   .layout-search-sd .section-header:not(:first-child) {
-    @at-root .body--light & {
+    .body--light & {
       border-top: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       border-top: 1px solid var(--color-hairline-dark);
     }
   }
@@ -830,10 +823,10 @@ $strip-height: 37px;
     letter-spacing: 0;
     text-transform: none;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-caption);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }
@@ -865,10 +858,10 @@ $strip-height: 37px;
     font-size: 14.5px;
     line-height: 1.6;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-secondary);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -882,23 +875,23 @@ $strip-height: 37px;
 
   &-row {
     display: flex;
-    gap: $row-gutter;
+    gap: 14px;
     padding: 14px 16px;
     text-decoration: none;
     color: inherit;
 
-    @at-root .body--light & {
+    .body--light & {
       border-bottom: 1px solid var(--color-hairline);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       border-bottom: 1px solid var(--color-hairline-dark);
     }
 
     &:hover {
-      @at-root .body--light & {
+      .body--light & {
         background-color: var(--color-paper);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-2);
       }
     }
@@ -919,22 +912,22 @@ $strip-height: 37px;
     flex: none;
     align-items: center;
     justify-content: center;
-    width: $plate-size;
-    height: $plate-size;
+    width: 34px;
+    height: 34px;
 
-    @at-root .body--light & {
+    .body--light & {
       border: 1px solid var(--color-hairline);
       background-color: var(--color-white);
       color: var(--color-accent);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       border: 1px solid var(--color-hairline-dark);
       background-color: var(--color-dark-4);
       color: var(--color-accent-dark);
     }
 
     /* Same shadowed-plate treatment as the card and results row above -- see that rule's comment. */
-    @at-root body.body--cobalt & {
+    body.body--cobalt & {
       border: 0;
       border-radius: var(--radius-card);
       box-shadow: var(--shadow-card);
@@ -959,10 +952,10 @@ $strip-height: 37px;
     font-size: 15px;
     font-weight: 500;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-ink);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-dark);
     }
   }
@@ -972,10 +965,10 @@ $strip-height: 37px;
     font-size: 13px;
     line-height: 1.5;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-secondary);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -986,10 +979,10 @@ $strip-height: 37px;
     font-size: 11.5px;
     overflow-wrap: anywhere;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-caption);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }
@@ -999,10 +992,10 @@ $strip-height: 37px;
     font-size: 12.5px;
     line-height: 1.55;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-body);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-dark);
     }
   }
@@ -1013,7 +1006,7 @@ $strip-height: 37px;
     flex-direction: column;
     align-items: flex-end;
     gap: 6px;
-    width: $row-meta-width;
+    width: 150px;
   }
 
   &-rowdate {
@@ -1021,10 +1014,10 @@ $strip-height: 37px;
     font-size: 11.5px;
     text-align: end;
 
-    @at-root .body--light & {
+    .body--light & {
       color: var(--color-text-caption);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }
@@ -1052,12 +1045,12 @@ $strip-height: 37px;
       below 600px    the card stops being a sheet and becomes the screen, and a result row stacks
 
     Ordered narrowest-last, so each block overrides the one above it where the two speak about the same
-    property. `$filters-collapse-max` is the stylesheet's half of the 900px `useMinWidth` above, which is
+    property. `899.98px` is the stylesheet's half of the 900px `useMinWidth` above, which is
     what decides whether the disclosure button is rendered at all.
   */
 
   /* --- Below 1200px: the card gives up half its gutters ------------------------------------------- */
-  @media (max-width: $card-gutter-max) {
+  @media (max-width: 1199.98px) {
     /*
       Halved from `90% / 50px`. Not bracketed to a band: below 900 the gutters would otherwise jump back to
       the wider pair as the window narrowed, which is the one thing a reader resizing a window notices.
@@ -1069,7 +1062,7 @@ $strip-height: 37px;
   }
 
   /* --- Below 900px: the sidebar is a disclosure above the results --------------------------------- */
-  @media (max-width: $filters-collapse-max) {
+  @media (max-width: 899.98px) {
     &-card {
       flex-direction: column;
     }
@@ -1082,11 +1075,11 @@ $strip-height: 37px;
     &-filterbtn {
       justify-content: space-between;
 
-      @at-root .body--light & {
+      .body--light & {
         background-color: var(--color-tint-alt);
         border-bottom: 1px solid var(--color-hairline);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-2);
         border-bottom: 1px solid var(--color-hairline-dark);
       }
@@ -1116,11 +1109,11 @@ $strip-height: 37px;
       flex: none;
       width: 100%;
 
-      @at-root .body--light & {
+      .body--light & {
         border-inline-end: 0;
         border-bottom: 1px solid var(--color-hairline);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         border-inline-end: 0;
         border-bottom: 1px solid var(--color-hairline-dark);
       }
@@ -1128,15 +1121,15 @@ $strip-height: 37px;
   }
 
   /* --- Below 600px: the card is the screen, and a result row stacks -------------------------------- */
-  @media (max-width: $breakpoint-xs-max) {
+  @media (max-width: 599.98px) {
     &-card {
       width: 100%;
       margin: 0;
 
-      @at-root .body--light & {
+      .body--light & {
         border-inline: 0;
       }
-      @at-root .body--dark & {
+      .body--dark & {
         border-inline: 0;
       }
     }
@@ -1162,7 +1155,7 @@ $strip-height: 37px;
 
     /*
       Lined up under the title rather than under the plate. The inset is DERIVED from the row's own
-      metrics ($plate-size + $row-gutter) rather than restated as a number: change the plate and the
+      metrics (34px + 14px) rather than restated as a number: change the plate and the
       stacked line follows it, which is what the hand-written 56px it replaces did not do -- that
       value was `WItemSection`'s avatar-column width, and stopped describing this row the moment the
       row stopped being a `w-item`.
@@ -1171,7 +1164,7 @@ $strip-height: 37px;
       width: 100%;
       align-items: flex-start;
       margin-top: 0.25rem;
-      padding-inline-start: $row-inset;
+      padding-inline-start: 48px;
     }
 
     &-rowdate {

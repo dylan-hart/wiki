@@ -692,7 +692,7 @@ onMounted(async () => {
       dark rule), with a real Cobalt-dark value of its own so this renders correctly with no
       dedicated dark mockup.
     */
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-accent-dark);
     }
   }
@@ -727,9 +727,6 @@ onMounted(async () => {
     on purpose, already keyed off the same accent role #2813 decided on (see `WChip`'s own `color`
     usage on `.tags-browse-chips--selected` above).
   */
-  @at-root body.body--cobalt .tags-browse-chips--selected .w-chip {
-    box-shadow: var(--shadow-primary);
-  }
 
   &-count {
     color: var(--color-text-secondary);
@@ -739,7 +736,7 @@ onMounted(async () => {
       font-weight: 700;
     }
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
 
       strong {
@@ -753,7 +750,7 @@ onMounted(async () => {
     border: 1px solid var(--color-hairline);
     background-color: var(--color-white);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-color: var(--color-hairline-dark);
       background-color: var(--color-dark-3);
     }
@@ -765,7 +762,7 @@ onMounted(async () => {
       (OpenProject #2856's matte pass), not the mockup's blurred `box-shadow:0 2px 10px
       rgba(16,25,74,.08)` glow.
     */
-    @at-root body.body--cobalt & {
+    body.body--cobalt & {
       border: 0;
       border-radius: var(--radius-card);
       box-shadow: var(--shadow-card);
@@ -781,7 +778,7 @@ onMounted(async () => {
     font-weight: 500;
     color: var(--color-ink);
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-dark);
     }
   }
@@ -790,7 +787,7 @@ onMounted(async () => {
     font-size: 12.5px;
     color: var(--color-text-secondary);
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-secondary-dark);
     }
   }
@@ -800,7 +797,7 @@ onMounted(async () => {
     font-size: 11.5px;
     color: var(--color-text-caption);
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }
@@ -809,7 +806,7 @@ onMounted(async () => {
     padding: 16px 8px 0;
   }
 
-  @media (max-width: $breakpoint-sm-max) {
+  @media (max-width: 1023.98px) {
     &-body {
       flex-direction: column;
       /* The design's 20px inline padding is a desktop rhythm; a phone column takes the page's own. */
@@ -823,6 +820,28 @@ onMounted(async () => {
       min-width: 0;
     }
   }
+}
+
+/*
+  Hoisted out of `.tags-browse` (was `@at-root body.body--cobalt .tags-browse-chips--selected
+  .w-chip`, converted by hand per docs/frontend-sass-removal-plan.md's block-classification note --
+  this selector deliberately does NOT descend from `.tags-browse`, so plain nesting under it would
+  have wrongly scoped the rule).
+
+  `--shadow-primary` on the selected chips -- `none` under both Ledger and Cobalt now (OpenProject
+  #2856's matte pass dropped the mockup's `box-shadow:0 4px 14px rgba(200,48,60,.35)` glow outright,
+  no replacement), so this rule is a no-op in every aesthetic today and is kept as the wiring
+  `--shadow-primary` gains a value again through in the future. A dedicated modifier class rather
+  than reaching for `.tags-browse-chips` alone: that class is shared with the "available tags" block
+  below, which stays a flat fill with no glow.
+
+  OpenProject #2813: this is a `WChip`, not a `WBtn`, so it can't pick up `--shadow-primary` through
+  that component's own `color="accent"` wiring -- it stays a direct, hand-wired consumer on purpose,
+  already keyed off the same accent role #2813 decided on (see `WChip`'s own `color` usage on
+  `.tags-browse-chips--selected` above).
+*/
+body.body--cobalt .tags-browse-chips--selected .w-chip {
+  box-shadow: var(--shadow-primary);
 }
 
 /*
@@ -873,7 +892,7 @@ onMounted(async () => {
   .w-item + .w-item {
     border-block-start: 1px solid var(--color-tint);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-block-start-color: var(--color-hairline-dark);
     }
   }

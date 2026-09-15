@@ -1501,14 +1501,15 @@ describe('NavSidebar', () => {
    * computed-style assertion cannot actually tell "no rule" apart from "environment can't resolve
    * it" here. Scoped to the specific `.sidebar-nav {` rule body (not the whole style block, which
    * also holds unrelated selectors) and to the `.body--dark &` block nested inside it, which is
-   * `.sidebar-nav`'s own dark twin (`@at-root` splices it out to `.body--dark .sidebar-nav`).
+   * `.sidebar-nav`'s own dark twin (native CSS nesting resolves `&` to `.sidebar-nav`, so this
+   * compiles to `.body--dark .sidebar-nav`).
    */
   it('draws no border-top of its own on the nav list, light or dark (OpenProject #2726)', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
     const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
     const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
     const sidebarNavStart = styleBlock.indexOf('.sidebar-nav {')
-    const darkStart = styleBlock.indexOf('@at-root .body--dark &', sidebarNavStart)
+    const darkStart = styleBlock.indexOf('.body--dark &', sidebarNavStart)
     const darkEnd = styleBlock.indexOf('\n  }', darkStart)
 
     // -> The light rule: from `.sidebar-nav {` up to the flex-column block the adjacent test above

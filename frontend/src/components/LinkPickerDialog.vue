@@ -408,10 +408,10 @@ onMounted(async () => {
   &-tree {
     height: 300px;
 
-    @at-root .body--light & {
-      background-color: $blue-grey-1;
+    .body--light & {
+      background-color: var(--color-blue-grey-1);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
     }
   }

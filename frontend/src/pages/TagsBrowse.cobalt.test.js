@@ -49,12 +49,12 @@ describe('TagsBrowse.vue Cobalt diff (OpenProject #2777)', () => {
 
   it('draws the "Current selection"/"Tags"/"Locale"/"Order by" subheaders in the accent role', () => {
     expect(source).toMatch(/&-subheader\s*\{[\s\S]*?color:\s*var\(--color-accent\);/)
-    expect(source).toMatch(/@at-root \.body--dark & \{\s*color:\s*var\(--color-accent-dark\);/)
+    expect(source).toMatch(/\.body--dark & \{\s*color:\s*var\(--color-accent-dark\);/)
   })
 
   it("draws the results plate as Cobalt's shadowed sheet", () => {
     expect(source).toMatch(
-      /@at-root body\.body--cobalt & \{\s*border:\s*0;\s*border-radius:\s*var\(--radius-card\);\s*box-shadow:\s*var\(--shadow-card\);\s*\}/
+      /body\.body--cobalt & \{\s*border:\s*0;\s*border-radius:\s*var\(--radius-card\);\s*box-shadow:\s*var\(--shadow-card\);\s*\}/
     )
   })
 })

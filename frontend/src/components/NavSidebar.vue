@@ -110,7 +110,6 @@ watch(
   stops being a column beside the content and starts overlaying it. Not one of the app's shared breakpoints
   -- it belongs to this sidebar -- so it is stated here and cross-referenced there.
 */
-$sidebar-overlay-max: 1199.98px;
 
 /*
   Diffed against `Page View 3x - Cobalt`/`Page View Dark 3x - Cobalt` (OpenProject #2774). The
@@ -274,7 +273,7 @@ $sidebar-overlay-max: 1199.98px;
         color: var(--color-accent-fill);
       }
 
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: var(--color-dark-3);
         color: var(--color-text-dark);
 
@@ -291,7 +290,7 @@ $sidebar-overlay-max: 1199.98px;
         `tailwind.css`'s Cobalt-dark block does not restate either token, since both mockups draw the
         identical treatment.
       */
-      @at-root body.body--cobalt & {
+      body.body--cobalt & {
         background-color: var(--color-sidebar-active-bg);
         color: var(--color-sidebar-active-text);
         border-inline-start: 0;
@@ -482,7 +481,7 @@ $sidebar-overlay-max: 1199.98px;
     base color regardless of aesthetic, clobbering Cobalt dark's own (already-correct, inherited
     unchanged from Cobalt light) `--color-sidebar-*` values with Ledger's dark literals.
   */
-  @at-root .body--dark:not(.body--cobalt) & {
+  .body--dark:not(.body--cobalt) & {
     color: var(--color-text-secondary-dark);
 
     .w-expansion-item__arrow {
@@ -501,7 +500,7 @@ $sidebar-overlay-max: 1199.98px;
        above it; tightening the bottom side ties it to the links it labels */
     padding-bottom: 4px;
 
-    @at-root .body--dark:not(.body--cobalt) & {
+    .body--dark:not(.body--cobalt) & {
       color: var(--color-text-caption-dark) !important;
     }
   }

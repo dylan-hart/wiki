@@ -89,22 +89,22 @@ describe('SideDialog Cobalt corner-radius fix', () => {
 
   it('makes the panel transparent and non-clipping under Cobalt', () => {
     expect(panelBlock).toMatch(
-      /\.w-dialog-panel\s*{[^}]*@at-root \.body--cobalt & {[^}]*background: transparent;[^}]*overflow: visible;/s
+      /\.w-dialog-panel\s*{[^}]*\.body--cobalt & {[^}]*background: transparent;[^}]*overflow: visible;/s
     )
   })
 
   it('rounds the header band to the side-dialog radii (top-left only)', () => {
     expect(panelBlock).toMatch(
-      /\.w-toolbar\s*{[^}]*@at-root \.body--cobalt & {[^}]*border-radius: 12px 0 0 0;/s
+      /\.w-toolbar\s*{[^}]*\.body--cobalt & {[^}]*border-radius: 12px 0 0 0;/s
     )
   })
 
   it('rounds and fills the body band to the side-dialog radii (bottom-left only)', () => {
     expect(panelBlock).toMatch(
-      /\.w-scroll-area\s*{[^}]*@at-root \.body--cobalt & {[^}]*border-radius: 0 0 0 12px;[^}]*background-color: var\(--color-white\);/s
+      /\.w-scroll-area\s*{[^}]*\.body--cobalt & {[^}]*border-radius: 0 0 0 12px;[^}]*background-color: var\(--color-white\);/s
     )
     expect(panelBlock).toMatch(
-      /@at-root \.body--cobalt\.body--dark & {[^}]*background-color: var\(--color-dark-3\);/s
+      /\.body--cobalt\.body--dark & {[^}]*background-color: var\(--color-dark-3\);/s
     )
   })
 
@@ -138,7 +138,7 @@ describe('SideDialog Cobalt card fringe (OpenProject #2895)', () => {
 
   it('stops the card filling itself, or drawing its own edge, under Cobalt', () => {
     expect(panelBlock).toMatch(
-      /\.w-card\s*{[^}]*@at-root \.body--cobalt & {[^}]*background: transparent;[^}]*box-shadow: none;/s
+      /\.w-card\s*{[^}]*\.body--cobalt & {[^}]*background: transparent;[^}]*box-shadow: none;/s
     )
   })
 

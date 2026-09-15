@@ -104,7 +104,7 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
       and fill themselves instead -- side-specific radii (left corners only, matching this panel's
       own left-edge float) rather than MainOverlayDialog's all-four-corner treatment.
     */
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       background: transparent;
       overflow: visible;
     }
@@ -117,7 +117,7 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     markup or class names.
   */
   .w-toolbar {
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       border-radius: 12px 0 0 0;
     }
   }
@@ -129,11 +129,11 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     `overflow: auto` is `WScrollArea`'s own base style already, unconditionally.
   */
   .w-scroll-area {
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       border-radius: 0 0 0 12px;
       background-color: var(--color-white);
     }
-    @at-root .body--cobalt.body--dark & {
+    .body--cobalt.body--dark & {
       background-color: var(--color-dark-3);
     }
   }
@@ -158,22 +158,22 @@ const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDial
     `--radius-dialog` are both 0 there, so there is no radius to mismatch.
   */
   .w-card {
-    @at-root .body--cobalt & {
+    .body--cobalt & {
       background: transparent;
       box-shadow: none;
     }
   }
 
   .alt-card {
-    @at-root .body--light & {
-      background-color: $grey-2;
-      border-top: 1px solid $grey-4;
+    .body--light & {
+      background-color: var(--color-grey-2);
+      border-top: 1px solid var(--color-grey-4);
       box-shadow:
         inset 0 1px 0 0 #fff,
         inset 0 -1px 0 0 #fff;
-      border-bottom: 1px solid $grey-4;
+      border-bottom: 1px solid var(--color-grey-4);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-top: 1px solid color-mix(in srgb, var(--color-dark-3) 88%, #fff);
       box-shadow:

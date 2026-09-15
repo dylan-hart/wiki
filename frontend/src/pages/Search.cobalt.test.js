@@ -22,8 +22,9 @@ describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
     // -> Strip comments first: several explain the fix by NAMING the literal they replaced
     //    (`$primary`, `$accent-dark`, ...), which would otherwise read as the regression itself.
     const withoutComments = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
-    // -> The page's own local layout variables ($filters-collapse-max, $plate-size, ...) are fine;
-    //    only the Ledger theme literals are the regression this guards against.
+    // -> The page's own local layout constants (filters-collapse-max, plate-size, ...) are plain
+    //    px literals now (inlined, no longer Sass variables); only a Ledger theme literal is the
+    //    regression this guards against.
     expect(withoutComments).not.toMatch(
       /\$(hairline|surface|primary|slate|ink|tint(-alt)?|dark-\d|text-(body|secondary|caption|dark)(-dark)?|accent-(fill|strong|dark|text)|paper)\b/
     )
@@ -31,7 +32,7 @@ describe('Search.vue Cobalt diff (OpenProject #2777)', () => {
 
   it('draws the card, plate and truncation-adjacent surfaces as Cobalt shadowed sheets', () => {
     const cobaltOverrides = source.match(
-      /@at-root body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
+      /body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
     )
     // -> `.layout-search-card` and `.layout-search-plate` each get their own override.
     expect(cobaltOverrides?.length).toBe(2)
@@ -61,9 +62,9 @@ describe('Search.vue empty-query prompt type role (OpenProject #2984)', () => {
   const styleBlock = source.match(/<style lang="scss">([\s\S]*)<\/style>/)[1]
 
   /**
-   * `&-empty-prompt`'s own rule nests two `@at-root … &` blocks, so a non-greedy `[\s\S]*?\}` regex
-   * stops at the FIRST closing brace (the light-mode block's), not the rule's own -- brace-counting
-   * from the selector's own opening `{` is what actually finds the matching close.
+   * `&-empty-prompt`'s own rule nests two `… &` blocks, so a non-greedy `[\s\S]*?\}` regex stops at
+   * the FIRST closing brace (the light-mode block's), not the rule's own -- brace-counting from the
+   * selector's own opening `{` is what actually finds the matching close.
    */
   function extractRule(selector) {
     const start = styleBlock.indexOf(selector)

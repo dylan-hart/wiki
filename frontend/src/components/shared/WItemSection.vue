@@ -95,7 +95,7 @@ const classes = computed(() => [
   1 0%`, and a flex item is sized by its basis -- a bare `width: 100%` is ignored while the row's
   `flex-wrap` (see `WItem.vue`) is what actually lets a `flex-basis` of 100% claim a line of its own.
 */
-@container w-item (max-width: #{$breakpoint-xs-max}) {
+@container w-item (max-width: 599.98px) {
   .w-item-section--main + .w-item-section--main {
     flex: 1 0 100%;
     margin-top: 0.5rem;

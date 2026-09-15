@@ -740,11 +740,11 @@ onMounted(async () => {
     display: flex;
     padding: 5px 5px 0 12px;
 
-    @at-root .body--light & {
+    .body--light & {
       background-color: rgba(0, 0, 0, 0.1);
     }
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: rgba(255, 255, 255, 0.1);
     }
 
@@ -759,12 +759,12 @@ onMounted(async () => {
         border-bottom: none;
         box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.2);
 
-        @at-root .body--light & {
+        .body--light & {
           background: linear-gradient(to top, #fff, rgba(255, 255, 255, 0.75));
           border-color: #fff;
         }
 
-        @at-root .body--dark & {
+        .body--dark & {
           background: linear-gradient(to top, var(--color-dark-6), var(--color-dark-5));
           border-color: var(--color-dark-6);
         }

@@ -127,11 +127,11 @@ defineExpose({ onKeyDown })
     0 8px 24px rgba(0, 0, 0, 0.15);
   overflow: hidden;
 
-  @at-root .body--light & {
+  .body--light & {
     background-color: #fff;
-    border: 1px solid $grey-4;
+    border: 1px solid var(--color-grey-4);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-4);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }

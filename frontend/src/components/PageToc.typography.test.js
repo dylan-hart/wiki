@@ -35,9 +35,15 @@ if (!styleMatch) {
 const styleSource = styleMatch[1]
 
 describe('PageToc.vue --page-toc-* token wiring (source)', () => {
-  const cobaltStart = styleSource.indexOf('@at-root body.body--cobalt &')
-  const cobaltDarkStart = styleSource.indexOf('@at-root body.body--cobalt.body--dark &')
-  const cobaltEnd = styleSource.indexOf('@at-root .body--dark &')
+  const cobaltStart = styleSource.indexOf('body.body--cobalt &')
+  const cobaltDarkStart = styleSource.indexOf('body.body--cobalt.body--dark &')
+  // -> Searched from AFTER cobaltDarkStart's own marker text, not from the start of the file: that
+  //    marker's own "cobalt.body--dark &" tail is itself a substring match for a bare search of
+  //    ".body--dark &", which would otherwise find it instead of the real, later, unqualified block.
+  const cobaltEnd = styleSource.indexOf(
+    '.body--dark &',
+    cobaltDarkStart + 'body.body--cobalt.body--dark &'.length
+  )
   expect(cobaltStart).toBeGreaterThan(-1)
   expect(cobaltDarkStart).toBeGreaterThan(cobaltStart)
   expect(cobaltEnd).toBeGreaterThan(cobaltDarkStart)

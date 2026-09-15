@@ -130,7 +130,7 @@ const error = computed(() => {
     left: 50%;
     width: 320px;
     height: 320px;
-    background: linear-gradient(0, transparent 50%, $red-9 50%);
+    background: linear-gradient(0, transparent 50%, var(--color-red-9) 50%);
     border-radius: 50%;
     filter: blur(80px);
     transform: translate(-50%, -50%);
@@ -156,7 +156,7 @@ const error = computed(() => {
     font-size: clamp(4rem, 30vw, 12rem);
     line-height: 1;
     font-weight: 700;
-    background: linear-gradient(45deg, $red-9, $red-3);
+    background: linear-gradient(45deg, var(--color-red-9), var(--color-red-3));
     background-clip: text;
     -webkit-text-fill-color: transparent;
     user-select: none;
@@ -171,7 +171,7 @@ const error = computed(() => {
   &-hint {
     font-size: 1.2rem;
     font-weight: 500;
-    color: $red-3;
+    color: var(--color-red-3);
     line-height: 1.2rem;
     margin-top: 1rem;
   }

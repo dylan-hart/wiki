@@ -693,7 +693,7 @@ onMounted(async () => {
   */
   margin: 5px;
 
-  @at-root .body--dark & {
+  .body--dark & {
     border-color: var(--color-border-dark);
   }
 
@@ -712,7 +712,7 @@ onMounted(async () => {
     border-width: 0;
     pointer-events: none;
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-color: var(--color-slate-faint);
     }
   }
@@ -781,7 +781,7 @@ onMounted(async () => {
     overflow: hidden;
     border-bottom: 1px solid var(--color-hairline);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-bottom-color: var(--color-hairline-dark);
     }
   }
@@ -798,7 +798,7 @@ onMounted(async () => {
     background-color: var(--color-tint);
     border-inline-end: 1px solid var(--color-hairline);
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-inline-end-color: var(--color-hairline-dark);
     }
@@ -812,10 +812,10 @@ onMounted(async () => {
     under the tree column and prefixed with the theme class so it out-specifies that rule on
     specificity rather than on which stylesheet happens to be written out last.
   */
-  @at-root .body--light &-tree .treeview-label.active,
-    .body--light &-tree .treeview-label.active:hover,
-    .body--dark &-tree .treeview-label.active,
-    .body--dark &-tree .treeview-label.active:hover {
+  .body--light &-tree .treeview-label.active,
+  .body--light &-tree .treeview-label.active:hover,
+  .body--dark &-tree .treeview-label.active,
+  .body--dark &-tree .treeview-label.active:hover {
     background-color: var(--color-accent-fill);
     color: #fff;
 
@@ -847,7 +847,7 @@ onMounted(async () => {
           color: var(--color-text-caption);
         }
 
-        @at-root .body--dark & {
+        .body--dark & {
           background-color: var(--color-dark-4);
           color: var(--color-accent-dark);
 
@@ -866,7 +866,7 @@ onMounted(async () => {
     font-style: italic;
     color: var(--color-text-caption);
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }
@@ -888,7 +888,7 @@ onMounted(async () => {
     border-bottom: 1px solid var(--color-hairline);
     color: var(--color-slate);
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: var(--color-dark-4);
       border-bottom-color: var(--color-hairline-dark);
       color: var(--color-slate-light);
@@ -917,7 +917,7 @@ onMounted(async () => {
     font-size: 11.5px;
     color: var(--color-text-caption);
 
-    @at-root .body--dark & {
+    .body--dark & {
       color: var(--color-text-caption-dark);
     }
   }

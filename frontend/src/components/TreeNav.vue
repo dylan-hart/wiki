@@ -215,10 +215,10 @@ onMounted(() => {
     &:hover,
     &:focus,
     &.active {
-      @at-root .body--light & {
+      .body--light & {
         background-color: rgba(0, 0, 0, 0.05);
       }
-      @at-root .body--dark & {
+      .body--dark & {
         background-color: rgba(255, 255, 255, 0.1);
       }
     }

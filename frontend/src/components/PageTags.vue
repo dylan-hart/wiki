@@ -181,12 +181,12 @@ function removeTag(tag) {
 
   border: 1px solid;
 
-  @at-root .body--light & {
+  .body--light & {
     border-color: var(--color-hairline);
     background-color: var(--color-surface);
     color: var(--color-slate);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     border-color: var(--color-hairline-dark);
     background-color: var(--color-dark-3);
     color: var(--color-text-secondary-dark);
@@ -224,10 +224,10 @@ function removeTag(tag) {
   font-size: 11px;
   font-weight: 500;
 
-  @at-root .body--light & {
+  .body--light & {
     color: var(--color-accent);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     color: var(--color-accent-dark);
   }
 

@@ -291,7 +291,7 @@ function goUp() {
   color: var(--color-primary);
   font-weight: 500;
 
-  @at-root .body--dark & {
+  .body--dark & {
     color: var(--color-primary-light);
   }
 }
@@ -304,7 +304,7 @@ function goUp() {
   /* -> The seam that says the row has two hit targets rather than one */
   border-inline-start: 1px solid rgb(0 0 0 / 0.08);
 
-  @at-root .body--dark & {
+  .body--dark & {
     border-inline-start-color: rgb(255 255 255 / 0.12);
   }
 }
@@ -319,7 +319,7 @@ function goUp() {
     background-color: rgb(0 0 0 / 0.14);
   }
 
-  @at-root .body--dark & {
+  .body--dark & {
     &:hover {
       background-color: rgb(255 255 255 / 0.14);
     }

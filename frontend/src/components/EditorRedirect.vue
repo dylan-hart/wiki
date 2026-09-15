@@ -216,10 +216,10 @@ function chooseTarget() {
 .editor-redirect {
   height: 100%;
 
-  @at-root .body--light & {
-    background-color: $grey-3;
+  .body--light & {
+    background-color: var(--color-grey-3);
   }
-  @at-root .body--dark & {
+  .body--dark & {
     background-color: var(--color-dark-6);
   }
 
@@ -259,18 +259,18 @@ function chooseTarget() {
 
     &.is-ready {
       background-color: rgba(25, 118, 210, 0.1);
-      color: $blue-9;
+      color: var(--color-blue-9);
 
-      @at-root .body--dark &.is-ready {
-        color: $blue-3;
+      .body--dark &.is-ready {
+        color: var(--color-blue-3);
       }
     }
     &.is-incomplete {
       background-color: rgba(255, 152, 0, 0.12);
-      color: $orange-9;
+      color: var(--color-orange-9);
 
-      @at-root .body--dark &.is-incomplete {
-        color: $orange-3;
+      .body--dark &.is-incomplete {
+        color: var(--color-orange-3);
       }
     }
   }

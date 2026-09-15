@@ -546,7 +546,7 @@ function checkForUpdates() {
     background-color: var(--color-tint);
     color: var(--color-slate);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-bottom-color: var(--color-hairline-dark);
       background-color: var(--color-dark-2);
       color: var(--color-slate-light);
@@ -590,7 +590,7 @@ function checkForUpdates() {
       color: var(--color-slate);
       padding-inline-start: 2px;
 
-      @at-root .body--dark & {
+      .body--dark & {
         color: var(--color-text-secondary-dark);
       }
     }
@@ -670,7 +670,7 @@ function checkForUpdates() {
       &.pending {
         color: var(--color-amber-9);
 
-        @at-root .body--dark & {
+        .body--dark & {
           color: var(--color-amber);
         }
       }
@@ -688,7 +688,7 @@ function checkForUpdates() {
     border-top: 1px solid var(--color-hairline);
     background-color: var(--color-paper);
 
-    @at-root .body--dark & {
+    .body--dark & {
       border-top-color: var(--color-hairline-dark);
       background-color: var(--color-dark-4);
     }

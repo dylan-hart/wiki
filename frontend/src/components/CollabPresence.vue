@@ -192,12 +192,12 @@ function personLabel(person) {
       behind them rather than a fixed colour — the header is near-white on one theme and near-black
       on the other.
     */
-    @at-root .body--light & {
+    .body--light & {
       /* -> The header's own ground, `var(--color-surface)` -- not the near-white it used to borrow from the
          Material ramp, which read as a faint grey halo against the white behind it */
       box-shadow: 0 0 0 2px var(--color-surface);
     }
-    @at-root .body--dark & {
+    .body--dark & {
       box-shadow: 0 0 0 2px var(--color-dark-3);
     }
 
@@ -209,11 +209,11 @@ function personLabel(person) {
   }
 
   &-overflow {
-    @at-root .body--light & {
-      background-color: $grey-6;
+    .body--light & {
+      background-color: var(--color-grey-6);
     }
-    @at-root .body--dark & {
-      background-color: $grey-8;
+    .body--dark & {
+      background-color: var(--color-grey-8);
     }
   }
 
@@ -222,11 +222,11 @@ function personLabel(person) {
     the grey it is drawn in. Every other wave takes its colour from its owner, inline.
   */
   &-person--overflow &-wave {
-    @at-root .body--light & {
-      border-color: $grey-6;
+    .body--light & {
+      border-color: var(--color-grey-6);
     }
-    @at-root .body--dark & {
-      border-color: $grey-8;
+    .body--dark & {
+      border-color: var(--color-grey-8);
     }
   }
 }

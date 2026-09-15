@@ -229,20 +229,20 @@ describe('ProfileOverlay Cobalt card fringe (OpenProject #2895)', () => {
 
   it('stops the card clipping or filling itself under Cobalt', () => {
     expect(cardBlock).toMatch(
-      /@at-root \.body--cobalt & {[^}]*overflow: visible;[^}]*background: transparent;/s
+      /\.body--cobalt & {[^}]*overflow: visible;[^}]*background: transparent;/s
     )
   })
 
   it('places the Cobalt override after the light/dark fills, so it wins the specificity tie', () => {
-    const cobaltIndex = cardBlock.indexOf('@at-root .body--cobalt &')
-    const lightIndex = cardBlock.indexOf('@at-root .body--light &')
-    const darkIndex = cardBlock.indexOf('@at-root .body--dark &')
+    const cobaltIndex = cardBlock.indexOf('.body--cobalt &')
+    const lightIndex = cardBlock.indexOf('.body--light &')
+    const darkIndex = cardBlock.indexOf('.body--dark &')
     expect(cobaltIndex).toBeGreaterThan(lightIndex)
     expect(cobaltIndex).toBeGreaterThan(darkIndex)
   })
 
   it('leaves the unconditional overflow: hidden in place -- Ledger still needs the clip', () => {
-    const beforeCobalt = cardBlock.slice(0, cardBlock.indexOf('@at-root .body--cobalt &'))
+    const beforeCobalt = cardBlock.slice(0, cardBlock.indexOf('.body--cobalt &'))
     expect(beforeCobalt).toMatch(/overflow: hidden;/)
   })
 })

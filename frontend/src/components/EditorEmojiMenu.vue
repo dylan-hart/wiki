@@ -391,7 +391,7 @@ function chooseFirst() {
     background-color: rgb(0 0 0 / 0.08);
     outline: none;
 
-    @at-root .body--dark & {
+    .body--dark & {
       background-color: rgb(255 255 255 / 0.14);
     }
   }
