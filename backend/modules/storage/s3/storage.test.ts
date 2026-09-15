@@ -134,6 +134,31 @@ describe('s3 storage / buildClient mode branching', () => {
     assert.equal(client.config.forcePathStyle, false)
     assert.equal((client.config as any).bucketEndpoint, false)
   })
+
+  test('custom mode signs with the configured region, not a hardcoded us-east-1', async () => {
+    const client = buildClient({
+      mode: 'custom',
+      endpoint: 'https://garage.example.com',
+      region: 'garage-region',
+      accessKeyId: 'a',
+      secretAccessKey: 'b'
+    })
+    assert.equal(await client.config.region(), 'garage-region')
+  })
+
+  test('custom mode falls back to us-east-1 when region is unset, preserving prior behavior', async () => {
+    // -> `definition.yml`'s new `region` prop defaults to 'us-east-1', which is what an existing
+    //    MinIO/custom-mode target resolves to via `models/storage.ts#buildConfig`. buildClient() also
+    //    falls back itself for a bare config with no region set at all (the SDK otherwise throws
+    //    "Region is missing" rather than resolving anything on its own).
+    const client = buildClient({
+      mode: 'custom',
+      endpoint: 'https://minio.example.com',
+      accessKeyId: 'a',
+      secretAccessKey: 'b'
+    })
+    assert.equal(await client.config.region(), 'us-east-1')
+  })
 })
 
 describe('s3 storage / storageClassFor', () => {
