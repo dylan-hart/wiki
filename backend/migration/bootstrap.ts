@@ -229,9 +229,23 @@ export function createCacheStub(): CardinalGlobal['cache'] {
  * which this stub has none of, so guessing wrong for an unlisted task would misroute it on whichever
  * live server picks the row up; logging and skipping is the safe default for anything else, matching
  * `CARDINAL.events`/`CARDINAL.cache`'s own "reached transitively, never actually needed yet" stub philosophy.
+ *
+ * `'embedPage'` gets its own branch rather than falling into that generic one (OpenProject #3296):
+ * migration's default `renderBootstrap: 'passthrough'` makes `hasRenderInput` true for essentially
+ * every migrated page, so `models/pages.ts#createPage()` calls `enqueueEmbedJob()` once per page —
+ * thousands of identical `addJob({ task: 'embedPage' })` calls on a real corpus, which used to warn
+ * once each and flood the log. Nothing here changes `createPage()`/`enqueueEmbedJob()` themselves;
+ * this stub just answers each of those calls the same no-op way the generic branch would, but logs
+ * only once for the whole run, and never inserts a job row for it: worker.ts's `embedPage` handler
+ * has its own bug against a fresh migration destination (Bug #3295, out of scope here), and even
+ * fixed, one job per page is not what an operator wants — the admin area's "Rebuild embeddings
+ * index" action (`POST /sites/:siteId/search/rebuild-embeddings`, task `rebuildEmbeddingsIndex`)
+ * already re-embeds a whole site in one pass and is the supported way to populate semantic search
+ * after a migration.
  */
 export function createSchedulerStub(): CardinalGlobal['scheduler'] {
   const USE_WORKER: Record<string, boolean> = { renderPages: false }
+  let notedDeferredEmbed = false
   return {
     async addJob({
       task,
@@ -246,6 +260,18 @@ export function createSchedulerStub(): CardinalGlobal['scheduler'] {
       isScheduled?: boolean
       waitUntil?: Date
     }) {
+      if (task === 'embedPage') {
+        if (!notedDeferredEmbed) {
+          notedDeferredEmbed = true
+          CARDINAL.logger.info(
+            'migrate',
+            "migrated pages are not individually queued for embedding — run the admin area's " +
+              '"rebuild embeddings index" action for this site after the migration completes to ' +
+              'populate semantic search'
+          )
+        }
+        return undefined
+      }
       if (!(task in USE_WORKER)) {
         CARDINAL.logger.warn(
           'migrate',
