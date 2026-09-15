@@ -2150,7 +2150,7 @@ $toolbar-btn: 30px;
           padding: 0 15px 15px;
           overflow: hidden;
           @at-root .theme--dark & {
-            background-color: rgba($teal-5, 0.1);
+            background-color: color-mix(in srgb, var(--color-teal-5) 10%, transparent);
           }
         }
       }
