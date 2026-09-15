@@ -50,6 +50,32 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           additionalProperties: true
         }
       },
+      commentsProvider: {
+        type: 'object',
+        nullable: true,
+        description:
+          "Null unless this site's active comment provider (`CARDINAL.models.commentProviders`) is a `codeTemplate` one (Disqus/Commento/Artalk) -- the native `default` provider, and a site with none active, both read as null. `PageCommentsEmbed.vue` reads this to decide whether to render a vendor embed at all, and off what config/origin, instead of `PageComments.vue`'s native list. `origin` is `requestOrigin(req.protocol, req.hostname)` (`helpers/common.ts`), computed from the request that served THIS payload, never a stored setting -- see `models/commentProviders.ts`'s canonical-URL boundary doc comment.",
+        properties: {
+          module: {
+            type: 'string',
+            description: 'Directory name under `modules/comments`.'
+          },
+          title: {
+            type: 'string'
+          },
+          config: {
+            type: 'object',
+            additionalProperties: true,
+            description:
+              "The active provider's config values, completed with its declared defaults."
+          },
+          origin: {
+            type: 'string',
+            description:
+              "This request's own `scheme://host[:port]` -- see the field description above."
+          }
+        }
+      },
       blocksIndex: {
         type: 'object',
         description:

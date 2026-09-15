@@ -364,7 +364,7 @@
   "admin.comments.deleteSuccess": "Comment deleted successfully.",
   "admin.comments.enabledNoProviderHint": "Comments are enabled in General, but no provider is active yet -- pick one below and apply it.",
   "admin.comments.excerpt": "Comment",
-  "admin.comments.externalProviderNotice": "This is an external, client-embedded comment provider. Saving this configuration stores it, but this fork does not yet implement rendering its embed script on page views -- comments will not appear on pages until that support is added.",
+  "admin.comments.externalProviderNotice": "This is an external, client-embedded comment provider. Its embed script is shown on page views only to readers who hold the read:comments permission on that page, addressed at this wiki's own URL rather than a separately configured Site URL.",
   "admin.comments.goToGeneral": "Go to General",
   "admin.comments.loadCommentsFailed": "Failed to load comments.",
   "admin.comments.loadFailed": "Failed to load comment providers.",

@@ -209,7 +209,15 @@
             </template>
             <template v-if="siteStore.features.comments && pageStore.allowComments">
               <w-separator class="my-6" />
-              <page-comments />
+              <!--
+                `siteStore.commentsProvider` is set only when the site's active comment provider is a
+                `codeTemplate` one (Disqus/Commento/Artalk) -- see `PageCommentsEmbed.vue`'s own doc
+                comment for the permission/canonical-URL boundaries it enforces. Every other case
+                (the native `default` provider, or no provider ever activated) renders `page-comments`
+                unchanged, exactly as before this existed.
+              -->
+              <page-comments-embed v-if="siteStore.commentsProvider" />
+              <page-comments v-else />
             </template>
           </div>
           <!--
@@ -529,6 +537,7 @@ import FooterNav from '@/components/FooterNav.vue'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
 import PageActionsCol from '@/components/PageActionsCol.vue'
 import PageComments from '@/components/PageComments.vue'
+import PageCommentsEmbed from '@/components/PageCommentsEmbed.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PageRedirect from '@/components/PageRedirect.vue'
 import PageTags from '@/components/PageTags.vue'

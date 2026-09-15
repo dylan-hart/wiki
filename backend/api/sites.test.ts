@@ -227,6 +227,9 @@ before(async () => {
       navigation: {
         ensureSiteNav
       },
+      commentProviders: {
+        getActiveProvider: async () => null
+      },
       auditLog: {
         record: mock.fn(async () => {})
       }

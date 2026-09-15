@@ -60,48 +60,52 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
       //    builder reads it here now.
       renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] },
-      navigation: { ensureSiteNav: async () => 'nav-id' }
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: { getActiveProvider: async () => null }
     }
   })
 
-  const payload = await buildSitePayload({
-    id: 'site-id',
-    hostname: 'example.test',
-    isEnabled: true,
-    config: {
-      title: 'A Site',
-      description: 'desc',
-      company: 'Acme',
-      contentLicense: 'CC-BY',
-      footerExtra: '',
-      pageExtensions: ['md'],
-      allowedUrlSchemes: ['discord'],
-      discoverable: false,
-      defaults: { tocDepth: { min: 1, max: 2 } },
-      features: { browse: true },
-      uploads: { conflictBehavior: 'overwrite' },
-      logoText: true,
-      sitemap: true,
-      pathDisplayCase: 'off',
-      robots: { index: true, follow: true },
-      security: { embedAllowedOrigins: ['https://intranet.example.com'] },
-      auth: { autoLogin: false },
-      authStrategies: [],
-      locales: { primary: 'en', active: ['en'] },
-      assets: { logo: false },
-      editors: { markdown: { isActive: true, config: {} } },
-      theme: { dark: false },
-      analytics: { providers: {} },
-      // -> Deliberately present in the input, exactly as `models/sites.ts` seeds it, to prove it does
-      //    not survive to the output. This is the exclusion the file-header comment above is about.
-      search: {
-        engine: 'algolia',
-        config: {
-          engines: { algolia: { apiKey: 'super-secret-algolia-key' } }
+  const payload = await buildSitePayload(
+    {
+      id: 'site-id',
+      hostname: 'example.test',
+      isEnabled: true,
+      config: {
+        title: 'A Site',
+        description: 'desc',
+        company: 'Acme',
+        contentLicense: 'CC-BY',
+        footerExtra: '',
+        pageExtensions: ['md'],
+        allowedUrlSchemes: ['discord'],
+        discoverable: false,
+        defaults: { tocDepth: { min: 1, max: 2 } },
+        features: { browse: true },
+        uploads: { conflictBehavior: 'overwrite' },
+        logoText: true,
+        sitemap: true,
+        pathDisplayCase: 'off',
+        robots: { index: true, follow: true },
+        security: { embedAllowedOrigins: ['https://intranet.example.com'] },
+        auth: { autoLogin: false },
+        authStrategies: [],
+        locales: { primary: 'en', active: ['en'] },
+        assets: { logo: false },
+        editors: { markdown: { isActive: true, config: {} } },
+        theme: { dark: false },
+        analytics: { providers: {} },
+        // -> Deliberately present in the input, exactly as `models/sites.ts` seeds it, to prove it does
+        //    not survive to the output. This is the exclusion the file-header comment above is about.
+        search: {
+          engine: 'algolia',
+          config: {
+            engines: { algolia: { apiKey: 'super-secret-algolia-key' } }
+          }
         }
       }
-    }
-  })
+    },
+    { protocol: 'https', hostname: 'example.test' }
+  )
 
   assert.deepEqual(Object.keys(payload).sort(), [
     'allowedUrlSchemes',
@@ -111,6 +115,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'authStrategies',
     'blocksConfig',
     'blocksIndex',
+    'commentsProvider',
     'company',
     'contentLicense',
     'defaults',
@@ -144,6 +149,83 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'isReplicationEnabled should reflect CARDINAL.config.replication.isEnabled'
   )
   assert.deepEqual(payload.security, { embedAllowedOrigins: ['https://intranet.example.com'] })
+  assert.equal(
+    payload.commentsProvider,
+    null,
+    'commentsProvider must be null when no active provider is a codeTemplate one'
+  )
+
+  wikiHandle.restore()
+})
+
+/**
+ * Feature #3286 / OpenProject #3303: `commentsProvider` is populated only when the site's active
+ * provider is a `codeTemplate` one, and its `origin` comes from the `req` passed in -- never a
+ * config-stored value -- exactly the formula `models/commentProviders.ts`'s canonical-URL boundary
+ * doc comment requires.
+ */
+test('buildSitePayload populates commentsProvider from the active codeTemplate provider and the request origin', async () => {
+  const wikiHandle = installTestWiki({
+    config: { docsBase: '' },
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: {
+        getActiveProvider: async () => ({
+          module: 'disqus',
+          title: 'Disqus',
+          codeTemplate: true,
+          config: { accountName: 'my-shortname' }
+        })
+      }
+    }
+  })
+
+  const payload = await buildSitePayload(
+    { id: 'site-id', hostname: 'example.test', isEnabled: true, config: {} },
+    { protocol: 'https', hostname: 'wiki.example.org' }
+  )
+
+  assert.deepEqual(payload.commentsProvider, {
+    module: 'disqus',
+    title: 'Disqus',
+    config: { accountName: 'my-shortname' },
+    origin: 'https://wiki.example.org'
+  })
+
+  wikiHandle.restore()
+})
+
+/**
+ * The native `default` provider (or any other non-`codeTemplate` provider) is never surfaced through
+ * `commentsProvider` -- that field exists purely to drive `PageCommentsEmbed.vue`, which has nothing
+ * to do when the active provider renders through the ordinary `PageComments.vue` native flow instead.
+ */
+test('buildSitePayload reports commentsProvider: null when the active provider is not a codeTemplate one', async () => {
+  const wikiHandle = installTestWiki({
+    config: { docsBase: '' },
+    models: {
+      renderQueue: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] },
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: {
+        getActiveProvider: async () => ({
+          module: 'default',
+          title: 'Cardinal.js Native',
+          codeTemplate: false,
+          config: {}
+        })
+      }
+    }
+  })
+
+  const payload = await buildSitePayload(
+    { id: 'site-id', hostname: 'example.test', isEnabled: true, config: {} },
+    { protocol: 'https', hostname: 'wiki.example.org' }
+  )
+
+  assert.equal(payload.commentsProvider, null)
 
   wikiHandle.restore()
 })
@@ -160,7 +242,8 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
     models: {
       renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] },
-      navigation: { ensureSiteNav: async () => 'nav-id' }
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: { getActiveProvider: async () => null }
     }
   })
 
@@ -207,7 +290,8 @@ for (const { capability, siteSetting, expected } of semanticSearchCombinations) 
       models: {
         renderQueue: { isAvailable: async () => false },
         blocks: { getSiteBlocks: async () => [] },
-        navigation: { ensureSiteNav: async () => 'nav-id' }
+        navigation: { ensureSiteNav: async () => 'nav-id' },
+        commentProviders: { getActiveProvider: async () => null }
       }
     })
 
@@ -242,7 +326,8 @@ test('buildSitePayload reports features.semanticSearch: false when CARDINAL.capa
     models: {
       renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] },
-      navigation: { ensureSiteNav: async () => 'nav-id' }
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: { getActiveProvider: async () => null }
     }
   })
 
@@ -271,7 +356,8 @@ test('buildSitePayload reports features.semanticSearch: false when the setting i
     models: {
       renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] },
-      navigation: { ensureSiteNav: async () => 'nav-id' }
+      navigation: { ensureSiteNav: async () => 'nav-id' },
+      commentProviders: { getActiveProvider: async () => null }
     }
   })
 

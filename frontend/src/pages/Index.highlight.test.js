@@ -24,7 +24,8 @@ const STUBS = {
   SideDialog: true,
   PageRedirect: true,
   FooterNav: true,
-  PageComments: true
+  PageComments: true,
+  PageCommentsEmbed: true
 }
 
 beforeEach(() => {

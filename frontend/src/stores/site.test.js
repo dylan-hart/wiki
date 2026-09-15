@@ -165,6 +165,60 @@ describe('site store: applySiteInfo() blocksIndex', () => {
 })
 
 /**
+ * Feature #3286 / OpenProject #3303: `commentsProvider` reaches `siteStore` from `applySiteInfo` the
+ * same way `blocksIndex` does above -- `PageCommentsEmbed.vue` reads it off `Index.vue` to decide
+ * whether to render a vendor embed at all, in place of `PageComments.vue`'s native list.
+ */
+describe('site store: applySiteInfo() commentsProvider', () => {
+  it('adopts commentsProvider from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({
+        commentsProvider: {
+          module: 'disqus',
+          title: 'Disqus',
+          config: { accountName: 'my-shortname' },
+          origin: 'https://wiki.example.com'
+        }
+      })
+    )
+
+    expect(store.commentsProvider).toEqual({
+      module: 'disqus',
+      title: 'Disqus',
+      config: { accountName: 'my-shortname' },
+      origin: 'https://wiki.example.com'
+    })
+  })
+
+  it('defaults to null when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.commentsProvider).toBeNull()
+  })
+
+  it('resets to null on a later applySiteInfo that omits it, rather than keeping the previous site’s value', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({
+        commentsProvider: {
+          module: 'disqus',
+          title: 'Disqus',
+          config: {},
+          origin: 'https://wiki.example.com'
+        }
+      })
+    )
+    expect(store.commentsProvider).not.toBeNull()
+
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.commentsProvider).toBeNull()
+  })
+})
+
+/**
  * Feature #2574/#2577: `pathDisplayCase` reaches `siteStore` from `applySiteInfo`, the same as
  * `pdfExportAvailable`/`blocksIndex` above -- both `loadSite` and `bootstrap` hand it the same
  * payload shape. `applySiteInfo` also kicks off `fetchAcronymMap()` on its own once the setting is

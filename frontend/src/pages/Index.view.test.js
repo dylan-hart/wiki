@@ -86,7 +86,8 @@ async function mountIndex() {
         SideDialog: true,
         PageRedirect: true,
         FooterNav: true,
-        PageComments: true
+        PageComments: true,
+        PageCommentsEmbed: true
       }
     }
   })

@@ -1,6 +1,6 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, requestOrigin } from '../helpers/common.ts'
 import { defaultLocale } from '../helpers/localeRouting.ts'
 import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
@@ -144,6 +144,19 @@ function semanticSearchAvailable(config: Record<string, any>): boolean {
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
  *
+ * Also carries `commentsProvider` (Feature #3286 / OpenProject #3303): non-null only when the site's
+ * active comment provider is a `codeTemplate` one (Disqus/Commento/Artalk), in which case it is
+ * `{ module, title, config, origin }` -- `origin` is `requestOrigin(req.protocol, req.hostname)`
+ * (`helpers/common.ts`), computed from `req`, the SAME request this payload is being built for, never
+ * a stored setting. This is what lets `PageCommentsEmbed.vue` build a codeTemplate provider's
+ * canonical page URL as `commentsProvider.origin + '/' + page.path` without ever re-deriving
+ * `protocol://host` itself -- see `models/commentProviders.ts`'s canonical-URL boundary doc comment
+ * for why that matters. `config` carries only what the module's own `definition.yml` declares (none
+ * of Disqus/Commento/Artalk's props are `sensitive`), and revealing which provider is active/its
+ * config to every reader is not a `read:comments` leak: it is site-wide, admin-configured
+ * information, not anything about any specific page -- the per-page boundary is enforced separately,
+ * client-side, by `PageCommentsEmbed.vue` itself before it ever renders the vendor's `<script>`.
+ *
  * Also carries `navigationId`: this site's default (locale-scoped) menu row id, resolved via
  * `CARDINAL.models.navigation.ensureSiteNav()` the same way `GET .../navigation/default` resolves it for
  * an admin caller. Unlike that route -- gated behind `manage:navigation`/`site:navigation`, a
@@ -169,14 +182,18 @@ function semanticSearchAvailable(config: Record<string, any>): boolean {
  * `authentication.ts`'s `activeStrategies` payload — makes the omission positive instead of
  * accidental; `schemas/site.test.ts` pins it.
  */
-export async function buildSitePayload(site: {
-  id: string
-  hostname: string
-  isEnabled: boolean
-  config: Record<string, any>
-}): Promise<Record<string, any>> {
+export async function buildSitePayload(
+  site: {
+    id: string
+    hostname: string
+    isEnabled: boolean
+    config: Record<string, any>
+  },
+  req?: Pick<FastifyRequest, 'protocol' | 'hostname'>
+): Promise<Record<string, any>> {
   const { blocksConfig, blocksIndex } = await siteBlocksInfoFor(site.id)
   const config = site.config
+  const activeProvider = await CARDINAL.models.commentProviders.getActiveProvider(site.id)
   return {
     id: site.id,
     hostname: site.hostname,
@@ -185,6 +202,18 @@ export async function buildSitePayload(site: {
     docsBase: CARDINAL.config.docsBase,
     isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
     navigationId: await CARDINAL.models.navigation.ensureSiteNav(site.id, defaultLocale(site.id)),
+    // -> `req` is optional purely so existing test call sites that only care about other fields need
+    //    not fabricate one; a real caller (both routes below) always passes it. Absent, or the active
+    //    provider not a `codeTemplate` one, both read as null -- see this field's own doc comment above.
+    commentsProvider:
+      req && activeProvider?.codeTemplate
+        ? {
+            module: activeProvider.module,
+            title: activeProvider.title,
+            config: activeProvider.config,
+            origin: requestOrigin(req.protocol, req.hostname)
+          }
+        : null,
     blocksConfig,
     blocksIndex,
     title: config.title,
@@ -348,7 +377,14 @@ async function routes(app: FastifyInstance) {
         strict: req.query.strict ?? false
       })
       if (site) {
-        return buildSitePayload(site)
+        // -> `req.protocol`/`req.hostname` are this REQUEST's own -- correct for `commentsProvider.origin`
+        //    whenever `siteIdorHostname` names the site actually being browsed (`'current'`, or its own
+        //    hostname), which is the only case anything reads that field for (`applySiteInfo()` on the
+        //    frontend, called by `loadSite(window.location.hostname)`). A caller naming a DIFFERENT
+        //    site by id (e.g. an admin browsing another site's settings) gets an origin that reflects
+        //    ITS OWN request, not that other site's -- harmless, since nothing feeds this response into
+        //    `siteStore` in that case, but worth knowing before reaching for this field a second way.
+        return buildSitePayload(site, req)
       } else {
         return reply.notFound('Site does not exist.')
       }

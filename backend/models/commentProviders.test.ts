@@ -34,12 +34,12 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'vendor: Test',
         "website: ''",
         'isAvailable: true',
-        // -> `codeTemplate: true` is descriptive only -- since OpenProject #1958 it no longer grants
-        //    selectability on its own (see `isSelectable()`'s doc comment). This fixture is selectable
-        //    because it also gets its own `comments.ts` below, same as the real native `default`
-        //    provider does and the `default` fixture further down does too -- otherwise the
-        //    OpenProject #1962 guard added to `setActiveProvider` would refuse every activation this
-        //    describe block's other tests rely on, for a reason unrelated to what those tests cover.
+        // -> Selectable two ways at once here (`codeTemplate: true` below AND its own `comments.ts`
+        //    further down) -- deliberately redundant so this fixture exercises `setActiveProvider`
+        //    regardless of which half of `isSelectable()`'s `hasImplementation || codeTemplate` is
+        //    under test elsewhere; the OpenProject #1962 guard on `setActiveProvider` would otherwise
+        //    refuse every activation this describe block's other tests rely on, for a reason unrelated
+        //    to what those tests cover.
         'codeTemplate: true',
         'props:',
         '  apiKey:',
@@ -69,7 +69,8 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'props: {}'
       ].join('\n')
     )
-    // -> Selectable for the same reason as `alpha` above: its own `comments.ts`, not `codeTemplate`.
+    // -> Also selectable both ways, same as `alpha` above (`codeTemplate: true` on its definition.yml
+    //    plus its own `comments.ts` here).
     await fs.writeFile(path.join(modulesDir, 'beta', 'comments.ts'), 'export {}\n')
     // -> Stands in for the real `default` provider: the only fixture module here with an actual
     //    `comments.ts` next to it, so `hasImplementation` is true and it is selectable on that basis
@@ -250,14 +251,20 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * `codeTemplate`/`hasImplementation`/`isSelectable` (OpenProject #1958): `isSelectable()` now gates
- * purely on `hasImplementation`, matching `models/storage.ts`'s equivalent gate for storage targets.
- * An earlier version (Feature 396) treated `codeTemplate: true` (declared on each of Disqus/Commento/
- * Artalk's `definition.yml`) as an independent grant, so a provider with no server-side
- * implementation could still be selected on the theory that a future page-view render path would
- * embed the vendor's own client-side script. No such render path was ever built, and the three
- * providers now declare `isAvailable: false` instead -- `codeTemplate` remains a descriptive field
- * on the definition (still read off disk below), it just no longer feeds `isSelectable()`.
+ * `codeTemplate`/`hasImplementation`/`isSelectable` (Feature #3286 / OpenProject #3303, superseding
+ * #1958): `isSelectable()` is `hasImplementation || codeTemplate` -- `hasImplementation` matches
+ * `models/storage.ts`'s equivalent gate for storage targets, and `codeTemplate` is restored alongside
+ * it as an independent grant. That second half was OFF between #1958 and #3303: an earlier version
+ * (Feature 396) treated `codeTemplate: true` (declared on each of Disqus/Commento/Artalk's
+ * `definition.yml`) as an independent grant, so a provider with no server-side implementation could
+ * still be selected on the theory that a future page-view render path would embed the vendor's own
+ * client-side script; no such render path existed yet, so #1958 turned it off and the three providers
+ * declared `isAvailable: false` instead of advertising a provider the picker could not actually
+ * deliver comments through. #3303 is that render path
+ * (`frontend/src/components/PageCommentsEmbed.vue`, driven by `buildSitePayload()`'s
+ * `commentsProvider` field, `api/sites.ts`) actually landing, so the condition #1958 was waiting on
+ * now holds and both flip back: `codeTemplate` grants selectability again, and all three declare
+ * `isAvailable: true`.
  *
  * No `CARDINAL` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
  * reads disk, and points at this repo's own real `modules/comments/` directory (not a fixture) so
@@ -294,29 +301,39 @@ describe('commentProviders (definition loading)', () => {
     assert.equal(defaultProvider.codeTemplate, false)
   })
 
-  test('all three external providers are unavailable and not selectable despite declaring codeTemplate', () => {
+  test('all three external providers are available and selectable via codeTemplate', () => {
     for (const key of ['disqus', 'commento', 'artalk']) {
       const definition = commentProvidersModel.definitions.find((d) => d.key === key)!
       assert.equal(definition.hasImplementation, false, `${key} unexpectedly has an implementation`)
       assert.equal(definition.codeTemplate, true, `${key} did not declare codeTemplate: true`)
-      assert.equal(definition.isAvailable, false, `${key} should declare isAvailable: false`)
+      assert.equal(definition.isAvailable, true, `${key} should declare isAvailable: true`)
       assert.equal(
         commentProvidersModel.isSelectable(definition),
-        false,
-        `${key} should not be selectable -- codeTemplate no longer grants selectability on its own`
+        true,
+        `${key} should be selectable -- codeTemplate grants selectability on its own (#3303)`
       )
     }
   })
 
-  test('the default provider is selectable via hasImplementation', () => {
+  test('the default provider is selectable via hasImplementation, not codeTemplate', () => {
     const definition = commentProvidersModel.definitions.find((d) => d.key === 'default')!
     assert.equal(definition.hasImplementation, true)
     assert.equal(definition.codeTemplate, false)
     assert.equal(commentProvidersModel.isSelectable(definition), true)
   })
 
-  test('a hypothetical provider with no implementation is not selectable, codeTemplate notwithstanding', () => {
-    assert.equal(commentProvidersModel.isSelectable({ hasImplementation: false }), false)
+  test('a hypothetical provider with neither an implementation nor codeTemplate is not selectable', () => {
+    assert.equal(
+      commentProvidersModel.isSelectable({ hasImplementation: false, codeTemplate: false }),
+      false
+    )
+  })
+
+  test('a hypothetical provider with codeTemplate but no implementation is selectable', () => {
+    assert.equal(
+      commentProvidersModel.isSelectable({ hasImplementation: false, codeTemplate: true }),
+      true
+    )
   })
 
   test('backend/locales/en.json carries a codeTemplate-aware caption under admin.comments.*', async () => {
@@ -326,9 +343,12 @@ describe('commentProviders (definition loading)', () => {
 
     assert.equal(typeof caption, 'string')
     assert.ok(caption.length > 0, 'caption must not be empty')
-    // -> Must actually communicate the two things an admin needs to know: that this is an external,
-    //    client-embedded provider, and that page-view rendering for it isn't implemented yet
+    // -> Must actually communicate the two things an admin needs to know now that #3303's render path
+    //    exists: that this is an external, client-embedded provider, and that its embed is gated per
+    //    reader on the `read:comments` permission -- NOT the pre-#3303 wording claiming page-view
+    //    rendering isn't implemented, which would now be false.
     assert.match(caption, /external/i)
-    assert.match(caption, /not.*(?:implement|support)/i)
+    assert.match(caption, /read:comments|permission/i)
+    assert.doesNotMatch(caption, /not.*(?:implement|support)/i)
   })
 })

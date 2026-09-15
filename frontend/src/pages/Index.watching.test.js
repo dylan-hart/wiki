@@ -106,7 +106,8 @@ async function mountIndex({ payload, sidebar = true } = {}) {
         SideDialog: true,
         PageRedirect: true,
         FooterNav: true,
-        PageComments: true
+        PageComments: true,
+        PageCommentsEmbed: true
       }
     }
   })

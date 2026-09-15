@@ -61,7 +61,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       codeTemplate: {
         type: 'boolean',
         description:
-          "Whether this provider embeds a vendor's own client-side script/widget (Disqus, Commento, Artalk) rather than being rendered server-side by this wiki. This fork does not render that embed on a page view yet."
+          "Whether this provider embeds a vendor's own client-side script/widget (Disqus, Commento, Artalk) rather than being rendered server-side by this wiki. When active, its embed is rendered by `PageCommentsEmbed.vue` off the site payload's `commentsProvider` field, gated per page on the reader's `read:comments` permission."
       },
       hasImplementation: {
         type: 'boolean',
