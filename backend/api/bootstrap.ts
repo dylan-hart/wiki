@@ -71,7 +71,7 @@ async function routes(app: FastifyInstance) {
         return reply
       }
       return {
-        site: await buildSitePayload(site),
+        site: await buildSitePayload(site, req),
         flags: CARDINAL.models.flags.getFlags(),
         user: await whoAmI(req)
       }

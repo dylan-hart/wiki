@@ -113,9 +113,10 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           </template>
         </w-banner>
-        <!-- -> Disqus/Commento/Artalk are pure client-side embeds this fork does not render on page
-             views yet -- see the permission-boundary note on CommentProviders in
-             backend/models/commentProviders.ts before ever wiring one up. -->
+        <!-- -> Disqus/Commento/Artalk are pure client-side embeds, rendered by PageCommentsEmbed.vue
+             instead of PageComments.vue's native list once activated -- see the permission/canonical-URL
+             boundary notes on CommentProviders in backend/models/commentProviders.ts, and
+             PageCommentsEmbed.vue's own doc comment, for what actually enforces them. -->
         <w-banner
           class="mb-4"
           v-if="selectedProvider.codeTemplate"

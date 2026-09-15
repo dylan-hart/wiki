@@ -135,7 +135,8 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
         SideDialog: true,
         PageRedirect: true,
         FooterNav: true,
-        PageComments: true
+        PageComments: true,
+        PageCommentsEmbed: true
       }
     })
     activeWrapper = wrapper
@@ -221,7 +222,8 @@ describe('Index.vue: generation guard on the route-path watcher (OpenProject #17
           SideDialog: true,
           PageRedirect: true,
           FooterNav: true,
-          PageComments: true
+          PageComments: true,
+          PageCommentsEmbed: true
         }
       }
     })

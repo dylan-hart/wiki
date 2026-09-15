@@ -125,7 +125,8 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
           SideDialog: true,
           PageRedirect: true,
           FooterNav: true,
-          PageComments: true
+          PageComments: true,
+          PageCommentsEmbed: true
         }
       }
     })
@@ -196,7 +197,8 @@ describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenPr
           SideDialog: true,
           PageRedirect: true,
           FooterNav: true,
-          PageComments: true
+          PageComments: true,
+          PageCommentsEmbed: true
         }
       }
     })
@@ -268,7 +270,8 @@ describe('Index.vue: reader-view block scan skips a block absent from blocksInde
           SideDialog: true,
           PageRedirect: true,
           FooterNav: true,
-          PageComments: true
+          PageComments: true,
+          PageCommentsEmbed: true
         }
       }
     })
