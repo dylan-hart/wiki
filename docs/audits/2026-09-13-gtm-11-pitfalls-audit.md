@@ -166,7 +166,10 @@ Every "Evidence" cell was gathered from the repo on 2026-09-13 unless marked *ju
 
 ### B2 · Options that don't actually work — EXPOSED
 - **Evidence.**
-  - The CAS module can never log anyone in (CAS 1.0 only, no provisioning or login capability).
+  - The CAS module can never log anyone in (CAS 1.0 only, no provisioning or login capability), as
+    of this audit's 2026-09-13 snapshot. *Update 2026-09-14: CAS 1.0 support was removed and CAS
+    3.0 — which does provision and log in accounts — became the only option (#3187/#3207); this
+    item no longer applies.*
   - Roughly ten SSO integrations were verified only against mocks.
   - History of the same pattern: a ratings feature and about 1,400 lines of a data-template admin panel shipped as dead UI before audits removed them.
 - **Why it's fatal early.** The first evaluator who picks a broken option from a dropdown stops trusting every other claim.

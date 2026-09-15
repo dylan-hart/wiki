@@ -138,7 +138,7 @@ Tiered by how disqualifying each gap actually is, not by effort to fix.
 | **Legal/branding hygiene reads as an unlicensed rebrand** | README hotlinks the Wiki.js logo from Requarks' CDN; GitHub Sponsors/OpenCollective funding routes to Requarks; `SECURITY.md` sends vulnerability reports to `security@requarks.io`; no `NOTICE` file; no AGPL §5(a) fork-disclosure statement; no font/Twemoji attribution (`docs/legal/06-branding-and-trademark.md`, `07-recommended-actions.md`) | Any legal/procurement review at a company evaluating this would flag it immediately as either sloppy or bad-faith. This is cheap to fix and currently isn't fixed. |
 | **Zero public presence** | Private repo (`github.com/dylan-hart/wiki`), no announcement, no community, no public roadmap | You cannot lose a bake-off you were never invited to. Before any gap below matters, someone outside this repo has to know Cardinal.js exists. |
 | **SCIM provisioning does not exist** | Zero hits for SCIM anywhere in `backend/` | Automated user lifecycle/deprovisioning is a hard requirement for most enterprise security teams, independent of everything else on offer. |
-| **CAS auth is decorative** | CAS 1.0 only, **cannot provision or log in any account** | Worse than not offering CAS at all: it implies a capability that silently fails. An evaluator who tries it loses trust in every other claim in the docs. |
+| **CAS auth is decorative** | CAS 1.0 only, **cannot provision or log in any account**, as audited 2026-09-13 against `df032646a`. *Update 2026-09-14: CAS 1.0 support was removed and CAS 3.0 — which does provision and log in accounts — became the only option (#3187/#3207); this finding no longer applies.* | Worse than not offering CAS at all: it implies a capability that silently fails. An evaluator who tries it loses trust in every other claim in the docs. |
 
 ### Tier 1 — Competitive table stakes missing (the 2026 market has normalized these; their absence is now noticed, not excused)
 
@@ -225,7 +225,9 @@ Obsidian wins on personal-linking UX and its plugin ecosystem's sheer size.
    to court the existing Wiki.js install base and message Cardinal.js as a fresh start instead. Either
    is defensible; the current silent gap is not.
 4. Add SCIM provisioning; remove or clearly relabel CAS as non-functional rather than leaving it
-   decorative.
+   decorative. *(Update 2026-09-14: the CAS half of this is done — CAS 1.0 support was removed and
+   CAS 3.0, which provisions and logs in correctly, is now the only option; #3187/#3207. SCIM
+   provisioning is still open.)*
 
 **P1 — Close 2026 table stakes (highest leverage relative to effort, given existing infrastructure)**
 5. AI authoring assistant, built on the same LLM plumbing already powering semantic search and MCP —

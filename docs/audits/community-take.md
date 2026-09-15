@@ -81,7 +81,9 @@ containing the word "collaborative," and here's what they'd find:
 - **A dead-on-arrival auth module, shipped as a working option.** CAS 1.0 support is wired up but
   structurally can never authenticate anyone — the protocol gives no email attribute, the account
   model requires one, so login always throws. Cosmetically present, functionally a trap for whoever
-  picks it from a dropdown.
+  picks it from a dropdown. *(As of this audit's 2026-09-13 snapshot. CAS 1.0 support was since
+  removed entirely — CAS 3.0, which does report an email attribute and does provision/log in
+  accounts, is now the only option; #3187/#3207.)*
 - **Roughly ten enterprise SSO integrations — LDAP, SAML, CAS, Auth0, Okta, Microsoft, Keycloak,
   GitLab, Twitch, Discord, Slack — documented by the fork's own team as never having been verified
   against a real identity provider**, only mocks. For a self-hoster, "we tested this against a fake
