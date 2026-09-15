@@ -157,6 +157,16 @@ export async function launchUnderSemaphore(
  * (drawing a Mermaid diagram) — three different reasons to open a browser that should still open the
  * exact same browser, and all three funnel through the one semaphore here.
  *
+ * The `puppeteer` version declared in `package.json` matters for more than its API surface: the
+ * `dev/build/Dockerfile` image points this at Debian bookworm's own `chromium` apt package
+ * (`PUPPETEER_EXECUTABLE_PATH`) rather than the Chrome-for-Testing build `puppeteer` would otherwise
+ * download, so `puppeteer`'s pinned CDP protocol target has to stay reasonably close to whatever
+ * Chromium version that apt package currently resolves to. Too far apart and `page.goto()` can fail
+ * outright with `net::ERR_INVALID_ARGUMENT` even though the browser itself launches fine — see
+ * OpenProject #3256 and `docs/decisions/2026-09-14-puppeteer-chromium-protocol-pin.md`, and don't bump
+ * this dependency without re-checking that pairing (`test/puppeteerChromiumVersionPin.test.ts` guards
+ * against doing so silently).
+ *
  * @param errorName The `CustomError` name to fail with. Each caller has its own, so a client can tell
  *   a render failure from an export failure apart despite both sharing this one cause. Also the name
  *   a caller rejected for being over the concurrency ceiling fails with.
