@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { apiReadinessOnRequest } from '../helpers/apiReadiness.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 
 /**
@@ -54,6 +55,16 @@ export async function registerAllSchemas(app: FastifyInstance) {
  * API Routes
  */
 async function routes(app: FastifyInstance) {
+  // -> Refuses every `/_api` request with 503 (+ `Retry-After`) until `postBoot()` has populated the
+  //    caches (`CARDINAL.sites`, auth strategies, groups/locales/approvals/classification) every route
+  //    below reads from — `app.listen()` (`index.ts`) starts accepting connections before `postBoot()`
+  //    runs, and a request landing in that window would otherwise see empty/incomplete data instead
+  //    (OpenProject #3322, e.g. `GET authentication/modules` answering `[]`). Registered first, before
+  //    any route file, so it covers `sites.ts` below (registered directly on this plugin) as well as
+  //    every route inside the guarded `contentApp` encapsulation. `/_live`, `/_ready`, static assets
+  //    and the app-shell fallback are all outside this `/_api`-prefixed plugin and stay unaffected.
+  app.addHook('onRequest', apiReadinessOnRequest)
+
   // Register schemas
   await registerAllSchemas(app)
 
