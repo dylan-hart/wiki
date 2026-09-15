@@ -18,19 +18,19 @@ after(() => wiki.restore())
 
 describe('renderQueue.resolveSiteOrigin (OpenProject #1751)', () => {
   test('builds https://<hostname> for a real site', () => {
-    WIKI.sites = { site1: { hostname: 'wiki.example.com' } } as any
+    CARDINAL.sites = { site1: { hostname: 'wiki.example.com' } } as any
 
     assert.equal((renderQueue as any).resolveSiteOrigin('site1'), 'https://wiki.example.com')
   })
 
   test('returns undefined for the "*" catch-all site, which has no hostname of its own', () => {
-    WIKI.sites = { site1: { hostname: '*' } } as any
+    CARDINAL.sites = { site1: { hostname: '*' } } as any
 
     assert.equal((renderQueue as any).resolveSiteOrigin('site1'), undefined)
   })
 
   test('returns undefined for a siteId with no cached site', () => {
-    WIKI.sites = {} as any
+    CARDINAL.sites = {} as any
 
     assert.equal((renderQueue as any).resolveSiteOrigin('missing'), undefined)
   })

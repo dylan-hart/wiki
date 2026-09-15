@@ -103,7 +103,7 @@ function clearedTfa(): Record<string, any> {
  * about to reject the attempt either way.
  */
 export async function countTfaFailure(token: string): Promise<void> {
-  const rows = await WIKI.db
+  const rows = await CARDINAL.db
     .select({ id: userKeys.id, meta: userKeys.meta, userId: userKeys.userId })
     .from(userKeys)
     .where(eq(userKeys.token, token))
@@ -116,13 +116,13 @@ export async function countTfaFailure(token: string): Promise<void> {
   const meta = (row.meta ?? {}) as Record<string, any>
   const attempts = (meta.attempts ?? 0) + 1
   if (attempts >= maxTfaAttempts) {
-    await WIKI.db.delete(userKeys).where(eq(userKeys.id, row.id))
-    WIKI.models.flags.authDebug(
+    await CARDINAL.db.delete(userKeys).where(eq(userKeys.id, row.id))
+    CARDINAL.models.flags.authDebug(
       `Discarded the 2FA continuation token of user ${row.userId} after ${attempts} incorrect codes`
     )
     return
   }
-  await WIKI.db
+  await CARDINAL.db
     .update(userKeys)
     .set({ meta: { ...meta, attempts } })
     .where(eq(userKeys.id, row.id))
@@ -162,7 +162,7 @@ async function issueRecoveryCodes(): Promise<{
  * what was typed, so there is nothing to hide by skipping it.
  *
  * Exported for direct unit testing — this is the one piece of recovery-code verification that has no
- * database or `WIKI` global in it.
+ * database or `CARDINAL` global in it.
  *
  * @returns The index of the matching entry, or -1
  */
@@ -224,7 +224,7 @@ class UserCredentials {
    * @param mutate Given this strategy's CURRENT entry (undefined when the user has none), returns the
    *   fields to merge into it — or `null` to make the whole call a no-op, which is how a redemption
    *   that finds nothing to redeem, or a replayed TOTP code, declines to write anything at all
-   * @param opts.db Runs the read and the write on this handle rather than `WIKI.db`, so a caller
+   * @param opts.db Runs the read and the write on this handle rather than `CARDINAL.db`, so a caller
    *   already inside a transaction is joined rather than raced
    * @param opts.mirrorInto Copies the freshly-written blob onto a caller's own stale `user` object, so
    *   a login flow holding a row from before this write keeps reading its own change back
@@ -238,9 +238,9 @@ class UserCredentials {
     ) => Record<string, any> | null | Promise<Record<string, any> | null>,
     opts: { db?: WikiDbOrTx; mirrorInto?: { auth: unknown } } = {}
   ): Promise<boolean> {
-    const db = opts.db ?? WIKI.db
+    const db = opts.db ?? CARDINAL.db
     return withAdvisoryLock(authLockKey(userId), async () => {
-      const current = await WIKI.models.users.getById(userId, db)
+      const current = await CARDINAL.models.users.getById(userId, db)
       if (!current) {
         return false
       }
@@ -274,7 +274,7 @@ class UserCredentials {
     strategyId: string,
     opts: { tfaActive?: boolean } = {}
   ): Promise<{ user: any; auth: Record<string, any>; entry: Record<string, any> }> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
       throw new Error('ERR_INVALID_USER')
     }
@@ -299,11 +299,11 @@ class UserCredentials {
   async setUserAuthFlags(
     id: string,
     flags: Record<string, any>,
-    db: WikiDbOrTx = WIKI.db
+    db: WikiDbOrTx = CARDINAL.db
   ): Promise<boolean> {
     return this.patchStrategyAuth(
       id,
-      WIKI.data.systemIds.localAuthId,
+      CARDINAL.data.systemIds.localAuthId,
       (entry) => {
         if (!entry) {
           // -> The user does not use local authentication, so there are no local flags to set
@@ -336,7 +336,7 @@ class UserCredentials {
     mustChangePassword?: boolean
   }): Promise<boolean> {
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-    return this.patchStrategyAuth(id, WIKI.data.systemIds.localAuthId, () => ({
+    return this.patchStrategyAuth(id, CARDINAL.data.systemIds.localAuthId, () => ({
       password: passwordHash,
       mustChangePwd: mustChangePassword
     }))
@@ -350,7 +350,7 @@ class UserCredentials {
    * accounts for the strategy enforcing 2FA for everyone as well as this user being flagged for it.
    */
   async getProfileAuthMethods(userId: string): Promise<UserProfileAuthMethod[]> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
       return []
     }
@@ -382,13 +382,13 @@ class UserCredentials {
     user: any,
     opts: { forProfile?: boolean } = {}
   ): Promise<UserAuthProvider[]> {
-    const strategies = await WIKI.db.select().from(authenticationTable)
+    const strategies = await CARDINAL.db.select().from(authenticationTable)
     const providers: UserAuthProvider[] = []
     for (const [strategyId, rawConfig] of Object.entries(
       (user.auth ?? {}) as Record<string, any>
     )) {
       const strategy = strategies.find((s: any) => s.id === strategyId)
-      const definition = WIKI.data.authentication?.find((d: any) => d.key === strategy?.module)
+      const definition = CARDINAL.data.authentication?.find((d: any) => d.key === strategy?.module)
       const { password, tfaSecret, tfaIsActive, tfaRequired, recoveryCodes, ...rest } =
         rawConfig ?? {}
       const shared = {
@@ -442,7 +442,7 @@ class UserCredentials {
     currentPassword: string
     newPassword: string
   }): Promise<void> {
-    const user = await WIKI.models.users.getById(userId)
+    const user = await CARDINAL.models.users.getById(userId)
     if (!user) {
       throw new Error('ERR_INVALID_USER')
     }
@@ -457,7 +457,7 @@ class UserCredentials {
       throw new Error('ERR_INVALID_STRATEGY')
     }
     if ((await bcrypt.compare(currentPassword, auth[strategyId].password)) !== true) {
-      WIKI.models.flags.authDebug(
+      CARDINAL.models.flags.authDebug(
         `Password change for user ${userId} rejected: the current password did not match`
       )
       throw new Error('ERR_INCORRECT_CURRENT_PASSWORD')
@@ -495,7 +495,7 @@ class UserCredentials {
 
     // -> The flag is only ever read by the local module's `authenticate()`, so setting it on a provider
     //    that authenticates elsewhere would be a switch connected to nothing
-    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (strategy?.module !== 'local' || !entry.password) {
       throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
     }
@@ -506,7 +506,7 @@ class UserCredentials {
 
     await this.patchStrategyAuth(userId, strategyId, () => ({ restrictLogin: !isEnabled }))
 
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `User ${userId} <${user.email}> turned password login ${isEnabled ? 'on' : 'off'}`
     )
   }
@@ -528,11 +528,11 @@ class UserCredentials {
     strategyId: string,
     siteId?: string
   ): Promise<{ secret: string; tfaQRImage: string }> {
-    WIKI.logger.debug('auth', 'generating a new 2FA secret', { user: user.id })
+    CARDINAL.logger.debug('auth', 'generating a new 2FA secret', { user: user.id })
 
     // -> The title is only a label in the user's authenticator app, so any site will do when the one
     //    being logged into cannot be resolved
-    const site = (siteId ? WIKI.sites[siteId] : null) ?? Object.values(WIKI.sites ?? {})[0]
+    const site = (siteId ? CARDINAL.sites[siteId] : null) ?? Object.values(CARDINAL.sites ?? {})[0]
     const issuer = (site as any)?.config?.title || 'Wiki'
 
     const secret = generateTotpSecret()
@@ -570,7 +570,7 @@ class UserCredentials {
       () => ({ tfaIsActive: true, recoveryCodes: entries }),
       { mirrorInto: user }
     )
-    WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
+    CARDINAL.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
     return plaintext
   }
 
@@ -584,13 +584,13 @@ class UserCredentials {
 
     // -> Turning it off would be undone at the next login, which is worth an error rather than a
     //    confusing round trip. The client greys the button out, but that is a client.
-    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (entry.tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa) {
       throw new Error('ERR_TFA_ENFORCED')
     }
 
     await this.patchStrategyAuth(userId, strategyId, clearedTfa)
-    WIKI.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
+    CARDINAL.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
   }
 
   /**
@@ -611,7 +611,7 @@ class UserCredentials {
     const { user } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
 
     await this.patchStrategyAuth(userId, strategyId, clearedTfa)
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
     )
   }
@@ -698,7 +698,9 @@ class UserCredentials {
       { mirrorInto: user }
     )
     if (consumed) {
-      WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
+      CARDINAL.models.flags.authDebug(
+        `User ${user.id} <${user.email}> consumed a 2FA recovery code`
+      )
     }
     return consumed
   }
@@ -746,7 +748,7 @@ class UserCredentials {
 
     const { plaintext, entries } = await issueRecoveryCodes()
     await this.patchStrategyAuth(userId, strategyId, () => ({ recoveryCodes: entries }))
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
     )
     return { recoveryCodes: plaintext, hadUnusedCodes }
@@ -762,7 +764,7 @@ class UserCredentials {
    * redemption ends in, but not before `resetPassword()` has already rewritten the password hash --
    * purging the row here means the token never gets that far.
    */
-  async clearKeysFromUser(userId: string, db: WikiDbOrTx = WIKI.db): Promise<void> {
+  async clearKeysFromUser(userId: string, db: WikiDbOrTx = CARDINAL.db): Promise<void> {
     await db.delete(userKeys).where(eq(userKeys.userId, userId))
   }
 
@@ -775,11 +777,11 @@ class UserCredentials {
     kind: string
     meta?: Record<string, any>
   }): Promise<string> {
-    WIKI.logger.debug('auth', 'generating a token', { kind, user: userId })
+    CARDINAL.logger.debug('auth', 'generating a token', { kind, user: userId })
     // -> 16 bytes = 128 bits, at or above what this field was given before. `randomToken` is
     //    synchronous — no `await` needed.
     const token = randomToken()
-    await WIKI.db.insert(userKeys).values({
+    await CARDINAL.db.insert(userKeys).values({
       kind,
       token,
       meta,
@@ -803,7 +805,7 @@ class UserCredentials {
     token: string
     skipDelete?: boolean
   }): Promise<any> {
-    const res = await WIKI.db.query.userKeys.findFirst({
+    const res = await CARDINAL.db.query.userKeys.findFirst({
       where: {
         kind,
         token
@@ -814,7 +816,7 @@ class UserCredentials {
     })
     if (res) {
       if (skipDelete !== true) {
-        await WIKI.db.delete(userKeys).where(eq(userKeys.id, res.id))
+        await CARDINAL.db.delete(userKeys).where(eq(userKeys.id, res.id))
       }
       // -> BEHAVIOR CHANGE (Temporal migration): this previously read
       //    `DateTime.utc() > DateTime.fromISO(res.validUntil)`. `validUntil` is a `timestamp`
@@ -836,7 +838,7 @@ class UserCredentials {
   }
 
   async destroyToken({ token }: { token: string }) {
-    return WIKI.db.delete(userKeys).where(eq(userKeys.token, token))
+    return CARDINAL.db.delete(userKeys).where(eq(userKeys.token, token))
   }
 
   /**
@@ -847,7 +849,7 @@ class UserCredentials {
    * `pageviews.ts#purgeExpired()`'s shape.
    */
   async purgeExpiredKeys(): Promise<number> {
-    const result = await WIKI.db.delete(userKeys).where(lt(userKeys.validUntil, sql`now()`))
+    const result = await CARDINAL.db.delete(userKeys).where(lt(userKeys.validUntil, sql`now()`))
     return result.rowCount ?? 0
   }
 }

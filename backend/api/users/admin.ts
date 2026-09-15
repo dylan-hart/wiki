@@ -22,7 +22,7 @@ interface UserUpdateBody {
  * name (`db/schema.ts`'s `<table>_<column>_users_id_fkey` naming, confirmed against
  * `db/migrations/*_main/snapshot.json`) -- so the 409 can name the actual relation rather than a
  * hard-coded guess. `remedy` is only ever the reassign advice for the two constraints
- * `WIKI.models.users.reassignContent()` actually clears; `pageEditSubmissions.authorId` has no
+ * `CARDINAL.models.users.reassignContent()` actually clears; `pageEditSubmissions.authorId` has no
  * reassign path (see that method's doc comment), so its remedy points at resolving the submission
  * instead.
  */
@@ -61,7 +61,7 @@ export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> 
     return { authenticated: false }
   }
   const profile = req.session.user?.id
-    ? await WIKI.models.users.getProfile(req.session.user.id)
+    ? await CARDINAL.models.users.getProfile(req.session.user.id)
     : null
   return {
     authenticated: true,
@@ -98,10 +98,10 @@ export async function whoAmI(req: FastifyRequest): Promise<Record<string, any>> 
  * @returns The refusal to throw, or null when the caller may proceed
  */
 async function systemUserGuard(req: FastifyRequest, userId: string): Promise<CustomError | null> {
-  if (WIKI.models.groups.holdsSystemPermission(req)) {
+  if (CARDINAL.models.groups.holdsSystemPermission(req)) {
     return null
   }
-  if (!(await WIKI.models.groups.userHoldsSystemPermission(userId))) {
+  if (!(await CARDINAL.models.groups.userHoldsSystemPermission(userId))) {
     return null
   }
   return new CustomError(
@@ -171,7 +171,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const { page, limit } = req.query
-      const { total, users } = await WIKI.models.users.getUsers({
+      const { total, users } = await CARDINAL.models.users.getUsers({
         filter: req.query.filter ?? '',
         assignableToGroupId: req.query.assignableToGroupId ?? '',
         page,
@@ -231,7 +231,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.users.getRecentLogins({ limit: req.query.limit })
+      return CARDINAL.models.users.getRecentLogins({ limit: req.query.limit })
     }
   )
 
@@ -281,7 +281,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.users.getFallbackAccounts()
+      return CARDINAL.models.users.getFallbackAccounts()
     }
   )
 
@@ -348,7 +348,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.config.userDefaults
+      return CARDINAL.config.userDefaults
     }
   )
 
@@ -411,11 +411,11 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('userDefaultsEmpty', 'No user defaults provided to update.')
       }
 
-      const previousDefaults = WIKI.config.userDefaults
-      WIKI.config.userDefaults = { ...previousDefaults, ...patch }
+      const previousDefaults = CARDINAL.config.userDefaults
+      CARDINAL.config.userDefaults = { ...previousDefaults, ...patch }
 
-      if (!(await WIKI.configSvc.saveToDb(['userDefaults']))) {
-        WIKI.config.userDefaults = previousDefaults
+      if (!(await CARDINAL.configSvc.saveToDb(['userDefaults']))) {
+        CARDINAL.config.userDefaults = previousDefaults
         return reply.internalServerError('Failed to save user defaults.')
       }
 
@@ -460,7 +460,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getUserDetail(req.params.userId)
+      const user = await CARDINAL.models.users.getUserDetail(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -595,23 +595,23 @@ async function routes(app: FastifyInstance) {
           throw new CustomError('userCreateInvalidName', 'Invalid User Name')
         }
       }
-      if (await WIKI.models.users.getByEmail(req.body.email.toLowerCase())) {
+      if (await CARDINAL.models.users.getByEmail(req.body.email.toLowerCase())) {
         throw new CustomError('userCreateDuplicateEmail', 'A user with this email already exists.')
       }
       // -> Refuse up front, before the user is created, rather than creating it and only then
       //    discovering there is nowhere to send the email from.
-      if (req.body.sendWelcomeEmail && !WIKI.models.mail.isConfigured()) {
+      if (req.body.sendWelcomeEmail && !CARDINAL.models.mail.isConfigured()) {
         throw new CustomError(
           'userCreateWelcomeEmailUnavailable',
           'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
-      if (await WIKI.models.groups.hasUnknownGroupIds(req.body.groups ?? [])) {
+      if (await CARDINAL.models.groups.hasUnknownGroupIds(req.body.groups ?? [])) {
         return reply.badRequest('ERR_UNKNOWN_GROUPS')
       }
 
       try {
-        const id = await WIKI.models.users.createUser({
+        const id = await CARDINAL.models.users.createUser({
           // -> Passed only when the caller authored one: omitting it is what lets
           //    `resolveNameFields` derive and leave the account tracking later half edits.
           name: req.body.name,
@@ -622,7 +622,7 @@ async function routes(app: FastifyInstance) {
           groups: req.body.groups ?? [],
           mustChangePassword: req.body.mustChangePassword ?? false
         })
-        await WIKI.models.auditLog.record({
+        await CARDINAL.models.auditLog.record({
           event: 'user.created',
           actor: actorFromRequest(req),
           targetType: 'user',
@@ -632,12 +632,12 @@ async function routes(app: FastifyInstance) {
         })
         if (req.body.sendWelcomeEmail) {
           try {
-            const token = await WIKI.models.userCredentials.generateToken({
+            const token = await CARDINAL.models.userCredentials.generateToken({
               kind: 'resetPwd',
               userId: id,
-              meta: { strategyId: WIKI.data.systemIds.localAuthId }
+              meta: { strategyId: CARDINAL.data.systemIds.localAuthId }
             })
-            await WIKI.models.mail.sendWelcomeEmail({
+            await CARDINAL.models.mail.sendWelcomeEmail({
               to: req.body.email,
               name: displayName,
               token,
@@ -647,7 +647,7 @@ async function routes(app: FastifyInstance) {
           } catch (err: any) {
             // -> The user already exists; a failed welcome email must not turn this into a failed
             //    creation, same as `resetPassword`'s own sendPasswordResetConfirmed catch.
-            WIKI.logger.warn('mail', 'sending the welcome email failed', {
+            CARDINAL.logger.warn('mail', 'sending the welcome email failed', {
               user: id,
               site: req.body.sendWelcomeEmailFromSiteId,
               error: err
@@ -660,7 +660,7 @@ async function routes(app: FastifyInstance) {
           id
         }
       } catch (err: any) {
-        WIKI.logger.error('http', 'creating a user failed', { error: err, reqId: req.id })
+        CARDINAL.logger.error('http', 'creating a user failed', { error: err, reqId: req.id })
         return reply.internalServerError()
       }
     }
@@ -777,7 +777,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -816,7 +816,7 @@ async function routes(app: FastifyInstance) {
 
       // -> Email is unique, so a clash needs a clearer answer than a constraint violation
       if (patch.email && patch.email.toLowerCase() !== user.email.toLowerCase()) {
-        if (await WIKI.models.users.getByEmail(patch.email.toLowerCase())) {
+        if (await CARDINAL.models.users.getByEmail(patch.email.toLowerCase())) {
           throw new CustomError(
             'userUpdateDuplicateEmail',
             'A user with this email already exists.'
@@ -827,14 +827,14 @@ async function routes(app: FastifyInstance) {
       // -> Group membership is replaced wholesale here, which would otherwise be a way around the
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
-        if (await WIKI.models.groups.hasUnknownGroupIds(req.body.groups)) {
+        if (await CARDINAL.models.groups.hasUnknownGroupIds(req.body.groups)) {
           return reply.badRequest('ERR_UNKNOWN_GROUPS')
         }
 
         // -> The guest account must stay in the guests group and nowhere else. Resending the
         //    membership unchanged is allowed, so that saving another field is not blocked.
         if (user.isSystem) {
-          const current = await WIKI.models.users.getUserGroupIds(req.params.userId)
+          const current = await CARDINAL.models.users.getUserGroupIds(req.params.userId)
           const requested = req.body.groups
           const unchanged =
             current.length === requested.length && current.every((id) => requested.includes(id))
@@ -848,9 +848,9 @@ async function routes(app: FastifyInstance) {
           checked: a user already in such a group is protected by `systemUserGuard` above, which has
           refused this request before it gets here.
         */
-        if (!WIKI.models.groups.holdsSystemPermission(req)) {
-          const current = await WIKI.models.users.getUserGroupIds(req.params.userId)
-          const systemGroupIds = await WIKI.models.groups.systemGroupIds()
+        if (!CARDINAL.models.groups.holdsSystemPermission(req)) {
+          const current = await CARDINAL.models.users.getUserGroupIds(req.params.userId)
+          const systemGroupIds = await CARDINAL.models.groups.systemGroupIds()
           const added = req.body.groups.filter((id) => !current.includes(id))
           if (added.some((id) => systemGroupIds.includes(id))) {
             throw new CustomError(
@@ -861,13 +861,13 @@ async function routes(app: FastifyInstance) {
           }
         }
 
-        const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
-        const wasRootAdmin = await WIKI.models.groups.isUserInGroup(
+        const rootAdminGroupId = CARDINAL.config.auth.rootAdminGroupId
+        const wasRootAdmin = await CARDINAL.models.groups.isUserInGroup(
           rootAdminGroupId,
           req.params.userId
         )
         if (wasRootAdmin && !req.body.groups.includes(rootAdminGroupId)) {
-          if ((await WIKI.models.groups.countUsersInGroup(rootAdminGroupId)) <= 1) {
+          if ((await CARDINAL.models.groups.countUsersInGroup(rootAdminGroupId)) <= 1) {
             return reply.conflict('Cannot remove the last user from the root administrators group.')
           }
         }
@@ -879,12 +879,12 @@ async function routes(app: FastifyInstance) {
         //    clearing on deactivation/group-change (OpenProject #936) and outstanding-token purging on
         //    deactivation (OpenProject #2094) are both folded into the same method -- see
         //    `applyUserUpdate`'s own doc comment.
-        await WIKI.models.users.applyUserUpdate(req.params.userId, {
+        await CARDINAL.models.users.applyUserUpdate(req.params.userId, {
           patch,
           groups: req.body.groups,
           authFlags: req.body.auth
         })
-        await WIKI.models.auditLog.record({
+        await CARDINAL.models.auditLog.record({
           event: 'user.updated',
           actor: actorFromRequest(req),
           targetType: 'user',
@@ -901,7 +901,7 @@ async function routes(app: FastifyInstance) {
           message: 'User updated successfully.'
         }
       } catch (err: any) {
-        WIKI.logger.error('http', 'updating a user failed', {
+        CARDINAL.logger.error('http', 'updating a user failed', {
           user: req.params.userId,
           error: err,
           reqId: req.id
@@ -977,7 +977,7 @@ async function routes(app: FastifyInstance) {
         throw systemUserRefusal
       }
 
-      const updated = await WIKI.models.userCredentials.setUserPassword({
+      const updated = await CARDINAL.models.userCredentials.setUserPassword({
         id: req.params.userId,
         newPassword: req.body.newPassword,
         mustChangePassword: req.body.mustChangePassword ?? false
@@ -985,8 +985,8 @@ async function routes(app: FastifyInstance) {
       if (!updated) {
         return reply.notFound('User does not exist.')
       }
-      const user = await WIKI.models.users.getById(req.params.userId)
-      await WIKI.models.auditLog.record({
+      const user = await CARDINAL.models.users.getById(req.params.userId)
+      await CARDINAL.models.auditLog.record({
         event: 'user.passwordReset',
         actor: actorFromRequest(req),
         targetType: 'user',
@@ -1043,11 +1043,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
-      const passkeys = await WIKI.models.passkeys.list(req.params.userId)
+      const passkeys = await CARDINAL.models.passkeys.list(req.params.userId)
       return {
         ok: true,
         passkeys
@@ -1093,7 +1093,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -1103,7 +1103,7 @@ async function routes(app: FastifyInstance) {
         throw systemUserRefusal
       }
 
-      if (!(await WIKI.models.passkeys.remove(req.params.userId, req.params.passkeyId))) {
+      if (!(await CARDINAL.models.passkeys.remove(req.params.userId, req.params.passkeyId))) {
         return reply.notFound('This user has no passkey with this ID.')
       }
       return reply.code(204).send()
@@ -1160,7 +1160,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -1171,12 +1171,15 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.userCredentials.adminInvalidateTfa(req.params.userId, req.body.strategyId)
+        await CARDINAL.models.userCredentials.adminInvalidateTfa(
+          req.params.userId,
+          req.body.strategyId
+        )
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'user.tfaDisabledByAdmin',
         actor: actorFromRequest(req),
         targetType: 'user',
@@ -1249,7 +1252,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -1260,7 +1263,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        const result = await WIKI.models.users.reassignContent(user.id, req.body.targetUserId)
+        const result = await CARDINAL.models.users.reassignContent(user.id, req.body.targetUserId)
         return {
           ok: true,
           message: 'Content reassigned successfully.',
@@ -1306,7 +1309,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -1331,16 +1334,16 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> Emptying the root administrators group would lock everyone out of system management
-      const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
-      if (await WIKI.models.groups.isUserInGroup(rootAdminGroupId, user.id)) {
-        if ((await WIKI.models.groups.countUsersInGroup(rootAdminGroupId)) <= 1) {
+      const rootAdminGroupId = CARDINAL.config.auth.rootAdminGroupId
+      if (await CARDINAL.models.groups.isUserInGroup(rootAdminGroupId, user.id)) {
+        if ((await CARDINAL.models.groups.countUsersInGroup(rootAdminGroupId)) <= 1) {
           return reply.conflict('Cannot delete the last user of the root administrators group.')
         }
       }
 
       try {
-        await WIKI.models.users.deleteUser(user.id)
-        await WIKI.models.auditLog.record({
+        await CARDINAL.models.users.deleteUser(user.id)
+        await CARDINAL.models.auditLog.record({
           event: 'user.deleted',
           actor: actorFromRequest(req),
           targetType: 'user',
@@ -1362,7 +1365,7 @@ async function routes(app: FastifyInstance) {
               : 'Cannot delete a user who still owns pages or assets. Reassign them first.'
           )
         }
-        WIKI.logger.error('http', 'deleting a user failed', {
+        CARDINAL.logger.error('http', 'deleting a user failed', {
           user: req.params.userId,
           error: err,
           reqId: req.id

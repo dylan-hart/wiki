@@ -100,13 +100,13 @@ async function routes(app: FastifyInstance) {
         )
       }
       const [mode, items, root] = await Promise.all([
-        WIKI.models.navigation.getMode(req.params.siteId, req.params.navId),
-        WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
-          actor: WIKI.models.groups.actorForRequest(req),
+        CARDINAL.models.navigation.getMode(req.params.siteId, req.params.navId),
+        CARDINAL.models.navigation.getNav(req.params.siteId, req.params.navId, {
+          actor: CARDINAL.models.groups.actorForRequest(req),
           userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
           unfiltered
         }),
-        WIKI.models.navigation.getNavRoot(req.params.siteId, req.params.navId)
+        CARDINAL.models.navigation.getNavRoot(req.params.siteId, req.params.navId)
       ])
       return { mode, items, ...root }
     }
@@ -153,7 +153,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
-      return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
+      return { mode: await CARDINAL.models.navigation.getMode(req.params.siteId, req.params.navId) }
     }
   )
 
@@ -195,7 +195,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
       return {
-        navigationId: await WIKI.models.navigation.inheritedNavId(
+        navigationId: await CARDINAL.models.navigation.inheritedNavId(
           req.params.siteId,
           req.params.pageId
         )
@@ -244,7 +244,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
       return {
-        navigationId: await WIKI.models.navigation.ensureSiteNav(
+        navigationId: await CARDINAL.models.navigation.ensureSiteNav(
           req.params.siteId,
           req.query.locale
         )
@@ -289,7 +289,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
-      return WIKI.models.navigation.siteRoots(req.params.siteId)
+      return CARDINAL.models.navigation.siteRoots(req.params.siteId)
     }
   )
 
@@ -344,7 +344,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
-      await WIKI.models.sites.updateSite(req.params.siteId, {
+      await CARDINAL.models.sites.updateSite(req.params.siteId, {
         config: { pathDisplayCase: req.body.caseStyle }
       })
       return {
@@ -404,7 +404,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
-      return WIKI.models.navigation.listOverrides(req.params.siteId, {
+      return CARDINAL.models.navigation.listOverrides(req.params.siteId, {
         locale: req.query.locale
       })
     }
@@ -466,7 +466,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
       assertValidNavItems(req.body.items)
-      await WIKI.models.navigation.setNavItems(
+      await CARDINAL.models.navigation.setNavItems(
         req.params.siteId,
         req.params.navId,
         req.body.items,
@@ -554,7 +554,7 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden()
       }
-      await WIKI.models.navigation.copyNav({
+      await CARDINAL.models.navigation.copyNav({
         sourceSiteId,
         sourceId: req.body.sourceNavId,
         targetSiteId: req.params.siteId,
@@ -642,7 +642,7 @@ async function routes(app: FastifyInstance) {
       if (req.body.items) {
         assertValidNavItems(req.body.items)
       }
-      const result = await WIKI.models.navigation.updateNavigation({
+      const result = await CARDINAL.models.navigation.updateNavigation({
         siteId: req.params.siteId,
         pageId: req.params.pageId,
         mode: req.body.mode,

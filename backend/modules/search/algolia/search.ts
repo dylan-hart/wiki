@@ -169,7 +169,7 @@ interface BatchDocumentsResult {
  * silently losing every other, correctly-sized page already read for that batch and every page still
  * unread behind it — with nothing admin-visible beyond "the rebuild job failed" (OpenProject #830,
  * upstream discussion #3675: an oversized page failed indexing, and nothing said why). `rebuild()`
- * logs one `WIKI.logger.warn` per skipped page and keeps going, so a single oversized page costs that
+ * logs one `CARDINAL.logger.warn` per skipped page and keeps going, so a single oversized page costs that
  * page's own findability, not the rest of the site's.
  */
 export function batchDocuments(docs: AlgoliaPageDocument[]): BatchDocumentsResult {
@@ -376,8 +376,8 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
   /**
    * Recompute the whole Algolia index of a site from the pages currently in the database.
    *
-   * Streamed in pages of `PAGE_SIZE` rows via keyset pagination on `id` (`WIKI.db` queries, replacing
-   * 2.5.x's `WIKI.models.knex(...).stream()`), each page immediately regrouped into
+   * Streamed in pages of `PAGE_SIZE` rows via keyset pagination on `id` (`CARDINAL.db` queries, replacing
+   * 2.5.x's `CARDINAL.models.knex(...).stream()`), each page immediately regrouped into
    * Algolia-size-limited batches by `batchDocuments()` and sent with `client.batch()` -- so the whole
    * table is never held in memory at once, the same property the old knex stream had.
    *
@@ -391,7 +391,7 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
     const PAGE_SIZE = 500
     const { client, indexName } = await this.getClient(siteId)
 
-    WIKI.logger.debug('search', 'rebuilding the index', { engine: MODULE_KEY, site: siteId })
+    CARDINAL.logger.debug('search', 'rebuilding the index', { engine: MODULE_KEY, site: siteId })
     await client.deleteBy({
       indexName,
       deleteByParams: { filters: `siteId:"${escapeFilterValue(siteId)}"` }
@@ -405,7 +405,7 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
       const docs = rows.map((row) => pageToDocument(row))
       const { batches, skipped } = batchDocuments(docs)
       for (const doc of skipped) {
-        WIKI.logger.warn('search', 'page skipped, over the object size limit', {
+        CARDINAL.logger.warn('search', 'page skipped, over the object size limit', {
           engine: MODULE_KEY,
           path: doc.path,
           bytes: doc.bytes,
@@ -435,12 +435,12 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
     }
 
     if (skippedTotal.length > 0) {
-      WIKI.logger.warn('search', 'rebuild finished with pages skipped for size', {
+      CARDINAL.logger.warn('search', 'rebuild finished with pages skipped for size', {
         engine: MODULE_KEY,
         skipped: skippedTotal.length
       })
     }
-    WIKI.logger.info('search', 'index rebuild completed', {
+    CARDINAL.logger.info('search', 'index rebuild completed', {
       engine: MODULE_KEY,
       site: siteId,
       pages: total

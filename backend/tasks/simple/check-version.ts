@@ -1,10 +1,10 @@
 import semver from 'semver'
 
 export async function task(): Promise<void> {
-  if (WIKI.config.offline) {
+  if (CARDINAL.config.offline) {
     // -> `debug`: this runs daily and says the same thing every time on a deployment that is
     //    deliberately offline.
-    WIKI.logger.debug('boot', 'skipping version check, offline mode')
+    CARDINAL.logger.debug('boot', 'skipping version check, offline mode')
     return
   }
 
@@ -23,20 +23,20 @@ export async function task(): Promise<void> {
   //    opt-out of the daily `updateLocales` sync, `base.yml`'s `update.locales`), which a bare
   //    assignment here silently discarded on every run after the first, re-enabling locale syncing
   //    for an egress-restricted deployment regardless of what the admin area shows.
-  WIKI.config.update = {
-    ...WIKI.config.update,
+  CARDINAL.config.update = {
+    ...CARDINAL.config.update,
     lastCheckedAt: new Date().toISOString(),
     version: strictVersion,
     versionDate: resp.published_at
   }
-  await WIKI.configSvc.saveToDb(['update'])
+  await CARDINAL.configSvc.saveToDb(['update'])
 
   // -> Silent when this instance is already current (audit X11): the daily "still up to date" line
   //    was pure heartbeat. Only an actual newer release is a state change an operator wants told.
   //    The failure path is not logged here either — it propagates, and the scheduler writes the one
   //    record for it.
-  const current = WIKI.version
+  const current = CARDINAL.version
   if (semver.valid(strictVersion) && semver.valid(current) && semver.gt(strictVersion, current)) {
-    WIKI.logger.info('boot', 'update available', { current, latest: strictVersion })
+    CARDINAL.logger.info('boot', 'update available', { current, latest: strictVersion })
   }
 }

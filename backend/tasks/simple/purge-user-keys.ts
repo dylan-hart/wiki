@@ -8,7 +8,7 @@ import type { TaskResult } from '../../core/scheduler.ts'
  * actually removed something.
  */
 export async function task(): Promise<TaskResult | void> {
-  const count = await WIKI.models.userCredentials.purgeExpiredKeys()
+  const count = await CARDINAL.models.userCredentials.purgeExpiredKeys()
   if (count > 0) {
     return { summary: 'purged expired user keys', purged: count }
   }

@@ -7,8 +7,8 @@ import type { FastifyInstance } from 'fastify'
  * /metrics — Prometheus scrape endpoint
  *
  * SCOPE DECISION (task 594, revisited at task 1939): implemented for real, not descoped. The metric
- * set is ten gauges already computed elsewhere (`GET /_api/system/info`, `WIKI.models.jobs`,
- * `WIKI.dbManager.pool`), so the exposition writer is hand-rolled in `helpers/metrics.ts` rather
+ * set is ten gauges already computed elsewhere (`GET /_api/system/info`, `CARDINAL.models.jobs`,
+ * `CARDINAL.dbManager.pool`), so the exposition writer is hand-rolled in `helpers/metrics.ts` rather
  * than pulling in `prom-client` — there are no counters, histograms or multi-metric registries here
  * to justify a client library's bookkeeping. Task 1939 added the failed-job and db-pool gauges but
  * reaffirmed this call: every new series is still a plain gauge (including `cardinaljs_jobs_failed_total`,
@@ -33,7 +33,7 @@ import type { FastifyInstance } from 'fastify'
  * Because this route sits outside `/_api`, it never runs through the `onRequest` hook in `index.ts`
  * that populates `req.apiKey` for `/_api/*` — that hook is scoped to the `/_api/` prefix on purpose,
  * so a scraper with no session is never mistaken for one. Bearer verification is therefore repeated
- * here, calling the same `WIKI.models.apiKeys.verify(token)` that hook calls, and the same
+ * here, calling the same `CARDINAL.models.apiKeys.verify(token)` that hook calls, and the same
  * `manage:system` global permission check the shared `preHandler` hook applies elsewhere — not the
  * `read:metrics` string the admin UI used to advertise, which named no permission this repo actually
  * grants (the global permission list is closed).
@@ -42,7 +42,7 @@ async function routes(app: FastifyInstance) {
   app.get('/', async (req, reply) => {
     // -> Fail closed before doing anything else: while the feature is off, the endpoint does not
     //    exist as far as any caller — authenticated or not — can tell.
-    if (WIKI.config.metrics.isEnabled !== true) {
+    if (CARDINAL.config.metrics.isEnabled !== true) {
       return reply.notFound()
     }
 
@@ -54,11 +54,11 @@ async function routes(app: FastifyInstance) {
 
     let apiKey
     try {
-      apiKey = await WIKI.models.apiKeys.verify(token)
+      apiKey = await CARDINAL.models.apiKeys.verify(token)
     } catch (err: any) {
       // -> Say why, same as the `/_api/*` bearer hook: the caller holds the credential and can act
       //    on "revoked" or "expired".
-      WIKI.logger.warn('auth', 'API key refused on /metrics', { error: err })
+      CARDINAL.logger.warn('auth', 'API key refused on /metrics', { error: err })
       return reply.unauthorized(err.message)
     }
 
@@ -78,19 +78,19 @@ async function routes(app: FastifyInstance) {
       jobsQueued,
       jobsFailed
     ] = await Promise.all([
-      WIKI.models.jobs.countActive(),
-      WIKI.db.$count(pagesTable),
-      WIKI.db.$count(usersTable),
-      WIKI.db.$count(groupsTable),
+      CARDINAL.models.jobs.countActive(),
+      CARDINAL.db.$count(pagesTable),
+      CARDINAL.db.$count(usersTable),
+      CARDINAL.db.$count(groupsTable),
       getClusterNodes(),
-      WIKI.models.jobs.countPending(),
-      WIKI.models.jobs.countFailed()
+      CARDINAL.models.jobs.countPending(),
+      CARDINAL.models.jobs.countFailed()
     ])
 
     // -> `pool` is typed `Pool | null` (it is only ever null before `dbManager.init()` completes at
     //    boot, long before this route can be serving requests) — defaulted to 0s rather than asserted
     //    non-null, so a scrape never 500s over it.
-    const pool = WIKI.dbManager.pool
+    const pool = CARDINAL.dbManager.pool
     const snapshot: MetricsSnapshot = {
       activeWorkers,
       pagesTotal,

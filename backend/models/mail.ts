@@ -114,13 +114,13 @@ export function mailFailureLevel(failure: ReturnType<typeof classifyMailError>):
 /**
  * Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`),
  * resolved from `mail.watchAction.*` for the recipient's locale (`en` fallback) via
- * `WIKI.models.locales.resolveString`.
+ * `CARDINAL.models.locales.resolveString`.
  */
 async function watchActionLabel(
   action: PageWatchNotifiableAction,
   locale?: string | null
 ): Promise<string> {
-  return WIKI.models.locales.resolveString(locale, `mail.watchAction.${action}`)
+  return CARDINAL.models.locales.resolveString(locale, `mail.watchAction.${action}`)
 }
 
 /**
@@ -194,20 +194,20 @@ export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'se
 /**
  * Mail model
  *
- * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
+ * Builds a single `nodemailer` SMTP transporter from `CARDINAL.config.mail` (CRUD'd by `api/mail.ts`)
  * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
  * registration-collision (the non-enumerating notice `register()` sends the real owner instead of
  * throwing `ERR_EMAIL_ALREADY_EXISTS`), forgot-password (the reset-*request* email, with the actual
  * reset link), password-reset-confirmed (the after-the-fact notice once a reset completes — a
  * distinct email from the request one above), test-email (the admin "Send Test Email" action), and
  * the page-watch notification. Every subject and body is a `mail.*` key in `backend/locales/en.json`,
- * resolved through `WIKI.models.locales.resolveString`/`resolvePluralString` against a `locale` each
+ * resolved through `CARDINAL.models.locales.resolveString`/`resolvePluralString` against a `locale` each
  * send method accepts (typically the recipient's `users.prefs.locale`, `en` as the fallback —
  * OpenProject #1611/#1623) — building a DB-backed, admin-editable template system is a separate,
  * larger scope this deliberately stays out of: there is no `db/schema.ts` table to back one, and
  * none is added by this change.
  *
- * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
+ * `getTransporter()` re-reads `CARDINAL.config.mail` on every call (it is called once per `send()`) and
  * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
  * cheap JSON snapshot. The net effect is the same as constructing a fresh transporter per send — a
  * runtime config edit through the admin area takes effect on the very next email — without the
@@ -228,12 +228,12 @@ class MailModel {
   private unconfiguredKinds = new Set<MailKind>()
 
   /**
-   * Whether enough of `WIKI.config.mail` is filled in to attempt a connection. Only `host` is
+   * Whether enough of `CARDINAL.config.mail` is filled in to attempt a connection. Only `host` is
    * required for a transporter to be buildable at all — everything else nodemailer accepts as
    * empty/absent.
    */
   isConfigured(): boolean {
-    return Boolean(WIKI.config.mail?.host)
+    return Boolean(CARDINAL.config.mail?.host)
   }
 
   /**
@@ -243,7 +243,7 @@ class MailModel {
    * nodemailer's native `dkim` option (only passed once every field it needs is actually set).
    */
   buildTransportOptions(): SMTPTransport.Options {
-    const cfg = WIKI.config.mail ?? {}
+    const cfg = CARDINAL.config.mail ?? {}
     const options: SMTPTransport.Options = {
       host: cfg.host,
       port: cfg.port || (cfg.secure ? 465 : 587),
@@ -294,7 +294,7 @@ class MailModel {
       MAIL_UNCONFIGURED_LOG_WINDOW_MS,
       (summary) => {
         this.unconfiguredKinds.clear()
-        WIKI.logger.warn('mail', `not configured, dropped ${summary.total} notifications`, {
+        CARDINAL.logger.warn('mail', `not configured, dropped ${summary.total} notifications`, {
           dropped: summary.total,
           kinds: kinds || undefined
         })
@@ -326,7 +326,7 @@ class MailModel {
       //    socket, it just holds the options until the first `sendMail`. The value of the line is
       //    that it prints the settings actually in force after the config merge, which is what an
       //    SMTP misconfiguration is diagnosed from — at `debug`, so it costs nothing normally.
-      WIKI.logger.debug('mail', 'transport built', {
+      CARDINAL.logger.debug('mail', 'transport built', {
         host: options.host,
         port: options.port,
         secure: options.secure
@@ -351,7 +351,7 @@ class MailModel {
    */
   async send({ to, subject, html, text, kind, userId }: MailMessage): Promise<void> {
     const transporter = this.getTransporter(kind)
-    const cfg = WIKI.config.mail ?? {}
+    const cfg = CARDINAL.config.mail ?? {}
     const senderEmail = cfg.senderEmail || cfg.user
     // -> An id or an address hash, never the address itself: see `recipientRef`.
     const recipient = recipientRef(to, userId)
@@ -365,7 +365,7 @@ class MailModel {
       })
     } catch (err: any) {
       const failure = classifyMailError(err)
-      WIKI.logger[mailFailureLevel(failure)]('mail', 'delivery failed', {
+      CARDINAL.logger[mailFailureLevel(failure)]('mail', 'delivery failed', {
         kind,
         to: recipient,
         failure,
@@ -373,7 +373,7 @@ class MailModel {
       })
       throw err
     }
-    WIKI.logger.info('mail', 'sent', { kind, to: recipient })
+    CARDINAL.logger.info('mail', 'sent', { kind, to: recipient })
   }
 
   /**
@@ -381,28 +381,28 @@ class MailModel {
    * missing base produces an obviously-relative (and obviously wrong) link rather than a silently
    * broken one.
    *
-   * @param baseURL Overrides `WIKI.config.mail.defaultBaseURL` — used by the page-watch templates to
+   * @param baseURL Overrides `CARDINAL.config.mail.defaultBaseURL` — used by the page-watch templates to
    *   link at the originating site's own hostname instead of the instance-wide default. See
    *   {@link resolveMailBaseURL}.
    */
   buildLink(path: string, baseURL?: string): string {
-    const base = (baseURL ?? WIKI.config.mail?.defaultBaseURL ?? '').replace(/\/+$/, '')
+    const base = (baseURL ?? CARDINAL.config.mail?.defaultBaseURL ?? '').replace(/\/+$/, '')
     return `${base}${path}`
   }
 
   /**
    * The base URL a page-watch email should link at: `https://<site hostname>` for a real site, or
-   * `WIKI.config.mail.defaultBaseURL` when there is no site to ask (no `siteId`, an unresolvable
+   * `CARDINAL.config.mail.defaultBaseURL` when there is no site to ask (no `siteId`, an unresolvable
    * one) or the site is the `*` catch-all, which has no hostname of its own to link at. No per-site
    * override setting exists for scheme/port (v1 scope decision, OpenProject #1023) — `https://` is
    * assumed, matching how every other Cardinal.js 3.x site link is built.
    */
   resolveMailBaseURL(siteId?: string): string {
-    const hostname = siteId ? WIKI.sites[siteId]?.hostname : null
+    const hostname = siteId ? CARDINAL.sites[siteId]?.hostname : null
     if (hostname && hostname !== '*') {
       return `https://${hostname}`
     }
-    return WIKI.config.mail?.defaultBaseURL ?? ''
+    return CARDINAL.config.mail?.defaultBaseURL ?? ''
   }
 
   /**
@@ -432,11 +432,13 @@ class MailModel {
       to,
       kind,
       userId,
-      subject: await WIKI.models.locales.resolveString(locale, `mail.${key}.subject`),
+      subject: await CARDINAL.models.locales.resolveString(locale, `mail.${key}.subject`),
       text:
-        (await WIKI.models.locales.resolveString(locale, `mail.${key}.text`, params)) + textSuffix,
+        (await CARDINAL.models.locales.resolveString(locale, `mail.${key}.text`, params)) +
+        textSuffix,
       html:
-        (await WIKI.models.locales.resolveString(locale, `mail.${key}.html`, params)) + htmlSuffix
+        (await CARDINAL.models.locales.resolveString(locale, `mail.${key}.html`, params)) +
+        htmlSuffix
     })
   }
 
@@ -491,14 +493,14 @@ class MailModel {
     locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
-    const cfg = WIKI.config.mail ?? {}
+    const cfg = CARDINAL.config.mail ?? {}
     const signatureText = cfg.senderName
-      ? await WIKI.models.locales.resolveString(locale, 'mail.signature.text', {
+      ? await CARDINAL.models.locales.resolveString(locale, 'mail.signature.text', {
           name: cfg.senderName
         })
       : ''
     const signatureHtml = cfg.senderName
-      ? await WIKI.models.locales.resolveString(locale, 'mail.signature.html', {
+      ? await CARDINAL.models.locales.resolveString(locale, 'mail.signature.html', {
           name: cfg.senderName
         })
       : ''
@@ -520,7 +522,7 @@ class MailModel {
    * caveat {@link sendForgotPassword} documents.
    *
    * @param siteId The site to link at (`sendWelcomeEmailFromSiteId` on the create-user request) —
-   *   see {@link resolveMailBaseURL}. Falls back to `WIKI.config.mail.defaultBaseURL` when omitted
+   *   see {@link resolveMailBaseURL}. Falls back to `CARDINAL.config.mail.defaultBaseURL` when omitted
    *   or unresolvable, same as every other siteId-scoped send.
    * @param locale A brand-new user has no `users.prefs.locale` of their own yet (they have never
    *   logged in) — unlike every other template here, there is no recipient preference to thread, so
@@ -603,7 +605,7 @@ class MailModel {
   }
 
   /**
-   * Sent by the admin area's "Send Test Email" action to confirm the current `WIKI.config.mail`
+   * Sent by the admin area's "Send Test Email" action to confirm the current `CARDINAL.config.mail`
    * settings can actually reach an inbox. Includes the instance's `defaultBaseURL` so the recipient
    * can also confirm that setting is correct — the same value {@link buildLink} stitches onto every
    * other template's links — rather than just proving SMTP connectivity in isolation.
@@ -613,23 +615,35 @@ class MailModel {
    *   dialog), so the sender's own preference is what's threaded through.
    */
   async sendTestEmail({ to, locale }: { to: string; locale?: string | null }): Promise<void> {
-    const baseURL = WIKI.config.mail?.defaultBaseURL
+    const baseURL = CARDINAL.config.mail?.defaultBaseURL
     const baseURLText = baseURL
-      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLConfigured.text', {
-          url: baseURL
-        })
-      : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
+      ? await CARDINAL.models.locales.resolveString(
+          locale,
+          'mail.testEmail.baseURLConfigured.text',
+          {
+            url: baseURL
+          }
+        )
+      : await CARDINAL.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
     const baseURLHtml = baseURL
-      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLConfigured.html', {
-          url: baseURL
-        })
-      : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
+      ? await CARDINAL.models.locales.resolveString(
+          locale,
+          'mail.testEmail.baseURLConfigured.html',
+          {
+            url: baseURL
+          }
+        )
+      : await CARDINAL.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
     await this.send({
       to,
       kind: 'test',
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.text', { baseURLText }),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.html', { baseURLHtml })
+      subject: await CARDINAL.models.locales.resolveString(locale, 'mail.testEmail.subject'),
+      text: await CARDINAL.models.locales.resolveString(locale, 'mail.testEmail.text', {
+        baseURLText
+      }),
+      html: await CARDINAL.models.locales.resolveString(locale, 'mail.testEmail.html', {
+        baseURLHtml
+      })
     })
   }
 
@@ -683,7 +697,7 @@ class MailModel {
    *   the wiki's page route DOES carry a locale segment for a non-primary locale, so `page.locale` and
    *   the site's `locales` config (resolved by the caller) are both required here.
    * @param locales The originating site's locale routing config, resolved by the caller
-   *   (`sendPageWatchNotification` / `sendPageWatchDigest`) from `WIKI.sites[siteId]`, since a
+   *   (`sendPageWatchNotification` / `sendPageWatchDigest`) from `CARDINAL.sites[siteId]`, since a
    *   `pageWatchEvents` row outlives the page but the site config does not need re-resolving per row.
    * @param baseURL The link's host, resolved by the caller via {@link resolveMailBaseURL} for the
    *   same reason as `locales` — once per send, from the one `siteId` every item in a send shares.
@@ -704,14 +718,14 @@ class MailModel {
     const safeActor = escapeHtml(actorName)
     const safeSummary = escapeHtml(summary)
     return {
-      text: await WIKI.models.locales.resolveString(locale, 'mail.watchEventLine.text', {
+      text: await CARDINAL.models.locales.resolveString(locale, 'mail.watchEventLine.text', {
         actor: actorName,
         label,
         title: page.title,
         summary,
         link
       }),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.watchEventLine.html', {
+      html: await CARDINAL.models.locales.resolveString(locale, 'mail.watchEventLine.html', {
         actor: safeActor,
         label,
         title: safeTitle,
@@ -748,7 +762,7 @@ class MailModel {
     userId?: string
     locale?: string | null
   }): Promise<void> {
-    const locales = WIKI.sites[siteId]?.config?.locales
+    const locales = CARDINAL.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
     const label = await watchActionLabel(action, locale)
     const line = await this.renderWatchEventLine(
@@ -760,7 +774,7 @@ class MailModel {
     // -> A submission-decision notice (see `isSuggestionDecision`) is addressed directly at the
     //    author, not resolved from `pageWatching.listWatchers()` -- the ordinary "you are watching
     //    this page" footer would be false for them, so it gets its own locale string instead.
-    const footer = await WIKI.models.locales.resolveString(
+    const footer = await CARDINAL.models.locales.resolveString(
       locale,
       isSuggestionDecision(action)
         ? 'mail.watchNotification.footerSuggestion'
@@ -770,10 +784,14 @@ class MailModel {
       to,
       kind: 'watch',
       userId,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.subject', {
-        label,
-        title: page.title
-      }),
+      subject: await CARDINAL.models.locales.resolveString(
+        locale,
+        'mail.watchNotification.subject',
+        {
+          label,
+          title: page.title
+        }
+      ),
       text: `${line.text}\n\n${footer}`,
       html: `<p>${line.html}</p><p>${footer}</p>`
     })
@@ -809,18 +827,18 @@ class MailModel {
     userId?: string
     locale?: string | null
   }): Promise<void> {
-    const locales = WIKI.sites[siteId]?.config?.locales
+    const locales = CARDINAL.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
     const lines = await Promise.all(
       items.map((item) => this.renderWatchEventLine(item, locales, baseURL, locale))
     )
     const count = items.length
-    const subject = await WIKI.models.locales.resolvePluralString(
+    const subject = await CARDINAL.models.locales.resolvePluralString(
       locale,
       'mail.watchDigest.subject',
       count
     )
-    const footer = await WIKI.models.locales.resolveString(locale, 'mail.watchDigest.footer')
+    const footer = await CARDINAL.models.locales.resolveString(locale, 'mail.watchDigest.footer')
     const text = lines.map((line) => `- ${line.text}`).join('\n')
     const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
     await this.send({
@@ -867,7 +885,7 @@ class MailModel {
     userId?: string
     locale?: string | null
   }): Promise<void> {
-    const label = await WIKI.models.locales.resolveString(
+    const label = await CARDINAL.models.locales.resolveString(
       locale,
       `mail.notificationEventLabel.${event}`
     )
@@ -878,7 +896,7 @@ class MailModel {
         : typeof data.path === 'string'
           ? data.path
           : null
-    const siteName = (siteId ? WIKI.sites[siteId]?.config?.title : null) || 'Wiki'
+    const siteName = (siteId ? CARDINAL.sites[siteId]?.config?.title : null) || 'Wiki'
     const baseURL = this.resolveMailBaseURL(siteId ?? undefined)
     const link = typeof data.path === 'string' ? this.buildLink(`/${data.path}`, baseURL) : baseURL
     const detailText = subjectMatter ? ` (${subjectMatter})` : ''
@@ -888,29 +906,33 @@ class MailModel {
       to,
       kind: 'notificationEvent',
       userId,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.subject', {
-        label,
-        site: siteName
-      }),
+      subject: await CARDINAL.models.locales.resolveString(
+        locale,
+        'mail.notificationEvent.subject',
+        {
+          label,
+          site: siteName
+        }
+      ),
       text:
-        (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.text', {
+        (await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.text', {
           label,
           site: siteName,
           detail: detailText,
           link
         })) +
         '\n\n' +
-        (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.footer', {
+        (await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.footer', {
           label
         })),
       html:
-        (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.html', {
+        (await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.html', {
           label,
           site: escapeHtml(siteName),
           detail: detailHtml,
           link
         })) +
-        `<p>${await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.footer', { label })}</p>`
+        `<p>${await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.footer', { label })}</p>`
     })
   }
 
@@ -971,18 +993,18 @@ class MailModel {
     userId?: string
     locale?: string | null
   }): Promise<void> {
-    const label = await WIKI.models.locales.resolveString(
+    const label = await CARDINAL.models.locales.resolveString(
       locale,
       `mail.notificationEvent.${event}.label`
     )
     const actor =
       actorName ||
-      (await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.unknownActor'))
+      (await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.unknownActor'))
     const target = title ?? path ?? null
 
     let link: string | null = null
     if (path) {
-      const locales = siteId ? WIKI.sites[siteId]?.config?.locales : null
+      const locales = siteId ? CARDINAL.sites[siteId]?.config?.locales : null
       const baseURL = this.resolveMailBaseURL(siteId ?? undefined)
       link = this.buildLink(
         pageLocale ? localizedPagePath(path, pageLocale, locales) : path,
@@ -991,7 +1013,7 @@ class MailModel {
     }
 
     const subject = target
-      ? await WIKI.models.locales.resolveString(
+      ? await CARDINAL.models.locales.resolveString(
           locale,
           'mail.notificationEvent.subjectWithTarget',
           {
@@ -999,18 +1021,18 @@ class MailModel {
             target
           }
         )
-      : await WIKI.models.locales.resolveString(locale, 'mail.notificationEvent.subjectPlain', {
+      : await CARDINAL.models.locales.resolveString(locale, 'mail.notificationEvent.subjectPlain', {
           label
         })
 
-    const footer = await WIKI.models.locales.resolveString(
+    const footer = await CARDINAL.models.locales.resolveString(
       locale,
       'mail.notificationEvent.templateFooter'
     )
     let text: string
     let html: string
     if (target && link) {
-      text = await WIKI.models.locales.resolveString(
+      text = await CARDINAL.models.locales.resolveString(
         locale,
         'mail.notificationEvent.bodyWithTarget.text',
         {
@@ -1020,7 +1042,7 @@ class MailModel {
           link
         }
       )
-      html = await WIKI.models.locales.resolveString(
+      html = await CARDINAL.models.locales.resolveString(
         locale,
         'mail.notificationEvent.bodyWithTarget.html',
         {
@@ -1031,7 +1053,7 @@ class MailModel {
         }
       )
     } else {
-      text = await WIKI.models.locales.resolveString(
+      text = await CARDINAL.models.locales.resolveString(
         locale,
         'mail.notificationEvent.bodyPlain.text',
         {
@@ -1039,7 +1061,7 @@ class MailModel {
           label
         }
       )
-      html = await WIKI.models.locales.resolveString(
+      html = await CARDINAL.models.locales.resolveString(
         locale,
         'mail.notificationEvent.bodyPlain.html',
         {

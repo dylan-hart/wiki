@@ -21,7 +21,7 @@ export async function recordClassificationChange(
   if (from === to) {
     return
   }
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'page.classificationChanged',
     actor: actorFromRequest(req),
     targetType: 'page',
@@ -55,7 +55,7 @@ async function recordClassificationChanges(
       detail: { from, to },
       siteId
     }))
-  await WIKI.models.auditLog.recordMany(entries)
+  await CARDINAL.models.auditLog.recordMany(entries)
 }
 
 /**
@@ -120,7 +120,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Resolving a classification conflict requires a logged in user.')
       }
-      if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
+      if (!CARDINAL.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
       // -> De-duplicate before processing: a repeated id would otherwise be fetched, permission-checked
@@ -130,7 +130,7 @@ async function routes(app: FastifyInstance) {
       //    full two-LEFT-JOIN select pulls `content`, `render`, `searchContent` and the tsvector,
       //    none of which `mayOnPage`/`meetsFloor` below need -- `getPagesByIds` projects only the
       //    five columns that do.
-      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const pageMap = await CARDINAL.models.pages.getPagesByIds(req.params.siteId, pageIds)
       const missingId = pageIds.find((pageId) => !pageMap.has(pageId))
       if (missingId) {
         return reply.notFound('One of these pages does not exist.')
@@ -142,7 +142,7 @@ async function routes(app: FastifyInstance) {
       const orderedTargets = pageIds.map((pageId) => pageMap.get(pageId)!)
       // -> ONE batched parent-classification lookup instead of one `parentClassification` call per
       //    target, over the distinct (locale, parent path) pairs among them.
-      const floorByTarget = await WIKI.models.pageClassification.parentClassifications(
+      const floorByTarget = await CARDINAL.models.pageClassification.parentClassifications(
         req.params.siteId,
         orderedTargets.map((target) => ({ locale: target.locale, path: target.path }))
       )
@@ -155,7 +155,7 @@ async function routes(app: FastifyInstance) {
         //    extra, but this endpoint is not restricted to raises the way the dialog that drives it
         //    is -- a caller asking for an actual lowering still needs manage:classification on it.
         if (
-          WIKI.models.classificationLevels.isLowerThan(
+          CARDINAL.models.classificationLevels.isLowerThan(
             req.body.classification,
             target.classification
           ) &&
@@ -171,7 +171,7 @@ async function routes(app: FastifyInstance) {
         const floorId = floorByTarget.get(`${target.locale}\0${target.path}`) ?? null
         if (
           floorId &&
-          !WIKI.models.classificationLevels.meetsFloor(req.body.classification, floorId)
+          !CARDINAL.models.classificationLevels.meetsFloor(req.body.classification, floorId)
         ) {
           return reply.badRequest(
             "A page's classification cannot be more open than its parent page's."
@@ -179,7 +179,7 @@ async function routes(app: FastifyInstance) {
         }
         targets.push(target)
       }
-      const updated = await WIKI.models.pageClassification.bulkSetClassification(
+      const updated = await CARDINAL.models.pageClassification.bulkSetClassification(
         req.params.siteId,
         pageIds,
         req.body.classification
@@ -241,7 +241,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.pageClassification.classificationReport(req.query.siteId)
+      return CARDINAL.models.pageClassification.classificationReport(req.query.siteId)
     }
   )
 
@@ -300,7 +300,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.pageClassification.listByClassification(req.params.levelId, {
+      return CARDINAL.models.pageClassification.listByClassification(req.params.levelId, {
         siteId: req.query.siteId,
         limit: req.query.limit,
         offset: req.query.offset

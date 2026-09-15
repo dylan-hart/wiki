@@ -88,7 +88,7 @@ describe('defaultPageSource()', () => {
 
   test('locales() reads the distinct locales of one site, in the order postgres returned them', async () => {
     const calls: any[] = []
-    ;(globalThis as any).WIKI.db = {
+    ;(globalThis as any).CARDINAL.db = {
       selectDistinct: (columns: any) => {
         calls.push(columns)
         return {
@@ -107,7 +107,7 @@ describe('defaultPageSource()', () => {
 
   test('pageBatch() asks for one ordered window of one locale of one site', async () => {
     const seen: Record<string, any> = {}
-    ;(globalThis as any).WIKI.db = {
+    ;(globalThis as any).CARDINAL.db = {
       select: () => ({
         from: () => ({
           where: () => ({
@@ -281,10 +281,10 @@ describe('pageStream()', () => {
     wikiHandle.restore()
   })
 
-  /** A fake `WIKI.db` serving successive keyset windows, recording the cursor conditions it saw. */
+  /** A fake `CARDINAL.db` serving successive keyset windows, recording the cursor conditions it saw. */
   function fakeDb(windows: any[][]) {
     const calls: number[] = []
-    ;(globalThis as any).WIKI.db = {
+    ;(globalThis as any).CARDINAL.db = {
       select: () => ({
         from: () => ({
           where: () => ({
@@ -413,7 +413,7 @@ describe('filterVisible()', () => {
   /** Installs a `checkAccess` recording every ref it was asked about, and answering from `allow`. */
   function stubCheckAccess(allow: (ref: any) => boolean) {
     const seen: any[] = []
-    ;(globalThis as any).WIKI.models = {
+    ;(globalThis as any).CARDINAL.models = {
       groups: {
         checkAccess: (_actor: any, permission: string, ref: any) => {
           seen.push({ permission, ref })

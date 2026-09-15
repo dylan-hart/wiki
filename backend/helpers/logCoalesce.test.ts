@@ -8,7 +8,7 @@ import {
 } from './logCoalesce.ts'
 
 /**
- * `helpers/logCoalesce.ts` is a pure helper — no `WIKI`, no database, no logger — so this suite runs
+ * `helpers/logCoalesce.ts` is a pure helper — no `CARDINAL`, no database, no logger — so this suite runs
  * as plain unit tests against the module's own state, with `node:test`'s mock timers standing in for
  * the window rather than a real `setTimeout` a test would have to sleep through.
  *

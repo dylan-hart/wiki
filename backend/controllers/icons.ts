@@ -66,12 +66,12 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest('No icons requested.')
       }
 
-      const set = await WIKI.models.icons.getSet(prefix)
+      const set = await CARDINAL.models.icons.getSet(prefix)
       if (!set) {
         return reply.notFound('Icon set not found.')
       }
 
-      const resolved = await WIKI.models.icons.resolveIcons(prefix, names)
+      const resolved = await CARDINAL.models.icons.resolveIcons(prefix, names)
       const payload = {
         prefix,
         icons: resolved.icons,
@@ -91,7 +91,7 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { prefix: string; name: string } }>(
     '/:prefix/:name.svg',
     async (req, reply) => {
-      const svg = await WIKI.models.icons.getIconSvg(
+      const svg = await CARDINAL.models.icons.getIconSvg(
         req.params.prefix.toLowerCase(),
         req.params.name.toLowerCase()
       )

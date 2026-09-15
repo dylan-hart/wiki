@@ -32,7 +32,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.extensions.getExtensions()
+      return CARDINAL.models.extensions.getExtensions()
     }
   )
 
@@ -68,7 +68,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      const extensions = await WIKI.models.extensions.getExtensions()
+      const extensions = await CARDINAL.models.extensions.getExtensions()
       return Object.fromEntries(extensions.map((ext) => [ext.key, ext.isInstalled]))
     }
   )
@@ -130,11 +130,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const definition = WIKI.models.extensions.getDefinition(req.params.extensionKey)
+      const definition = CARDINAL.models.extensions.getDefinition(req.params.extensionKey)
       if (!definition) {
         return reply.notFound('Extension does not exist.')
       }
-      if (!WIKI.models.extensions.isCompatible(definition)) {
+      if (!CARDINAL.models.extensions.isCompatible(definition)) {
         return reply.conflict('This extension is not compatible with this system.')
       }
       if (definition.isInstallable !== true) {
@@ -144,7 +144,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.extensions.install(definition)
+        await CARDINAL.models.extensions.install(definition)
       } catch (err: any) {
         // -> The message carries npm's own output, which is the only thing that explains a failure
         //    like a missing build toolchain. An administrator is the only caller.
@@ -154,9 +154,9 @@ async function routes(app: FastifyInstance) {
       // -> A fresh install is usable at once, since nothing has tried to load it yet. Repairing one this
       //    process already choked on is a different story, and saying so beats leaving an administrator
       //    to wonder why nothing changed.
-      const restartRequired = WIKI.models.extensions.hasLoadFailed(definition)
+      const restartRequired = CARDINAL.models.extensions.hasLoadFailed(definition)
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.extensionInstalled',
         actor: actorFromRequest(req),
         detail: { extensionKey: definition.key, restartRequired }

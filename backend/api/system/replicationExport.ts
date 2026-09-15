@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify'
  * Instance-wide replication snapshot export — the SOURCE side of Epic #2437's scheduled clean-slate
  * replication (prod -> staging mirror), designed in WP #2489. Mirrors `transfer.ts`'s export/download
  * pair (queue a background job, poll/download it once) but produces a whole-instance snapshot
- * (`WIKI.models.replicationExport`) rather than one site's content (`WIKI.models.export`) — a
+ * (`CARDINAL.models.replicationExport`) rather than one site's content (`CARDINAL.models.export`) — a
  * deliberately separate archive format and feature, not a variant of the existing "Export content"
  * system utility.
  *
@@ -61,12 +61,12 @@ async function routes(app: FastifyInstance) {
       //    boundary to check here either: `manage:system` already bypasses the site-pin scope
       //    entirely (see `helpers/apiKeySite.ts`), and a route with no `siteId` in its body has
       //    nothing for that check to compare against.
-      const added = await WIKI.scheduler.addJob({ task: 'exportReplication' })
+      const added = await CARDINAL.scheduler.addJob({ task: 'exportReplication' })
       if (!added?.id) {
         return reply.internalServerError('The scheduler could not queue the replication export.')
       }
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'system.replicationSnapshotExported',
         actor: actorFromRequest(req),
         detail: { jobId: added.id }
@@ -122,7 +122,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      const entry = await CARDINAL.models.jobs.getHistoryEntry(req.params.jobId)
       if (!entry || entry.task !== 'exportReplication') {
         return reply.notFound('No such replication export job.')
       }
@@ -147,7 +147,7 @@ async function routes(app: FastifyInstance) {
       //    happy path here is what keeps a downloaded snapshot from sitting in `<dataPath>/exports/`
       //    until `purgeExpired` gets to it on its own schedule.
       stream.on('close', () => {
-        WIKI.models.replicationExport.deleteExport(result.filePath).catch(() => {})
+        CARDINAL.models.replicationExport.deleteExport(result.filePath).catch(() => {})
       })
 
       reply.header(

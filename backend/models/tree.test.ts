@@ -20,7 +20,7 @@ import type { PageActor, PageInput } from './pages.ts'
  * wants to see what a cascade left behind reads the row itself rather than reaching through the model.
  */
 async function readTreeRow(id: string) {
-  const rows = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
+  const rows = await CARDINAL.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
   return rows[0] ?? null
 }
 
@@ -550,7 +550,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
    * for every descendant page, once each, with the correct old/new paths — and fires none of them for
    * a title-only rename, which changes no page's path (the early return at `tree.ts:960-966`).
    *
-   * Spies on `WIKI.models.search`/`storage`/`glossary` directly, the same pattern
+   * Spies on `CARDINAL.models.search`/`storage`/`glossary` directly, the same pattern
    * `models/pages.test.ts`'s search-dispatcher coverage uses: shadow the real singleton's method as an
    * own property, restore it (`delete`) in `finally` so the next test sees the real implementation
    * again.
@@ -574,9 +574,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         actor
       )
 
-      const searchModel = (globalThis as any).WIKI.models.search
-      const storageModel = (globalThis as any).WIKI.models.storage
-      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      const searchModel = (globalThis as any).CARDINAL.models.search
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const glossaryModel = (globalThis as any).CARDINAL.models.glossary
       const searchCalls: any[] = []
       const storageCalls: any[] = []
       const glossaryCalls: string[] = []
@@ -649,9 +649,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         actor
       )
 
-      const searchModel = (globalThis as any).WIKI.models.search
-      const storageModel = (globalThis as any).WIKI.models.storage
-      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      const searchModel = (globalThis as any).CARDINAL.models.search
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const glossaryModel = (globalThis as any).CARDINAL.models.glossary
       let searchCalled = false
       let storageCalled = false
       let glossaryCalled = false
@@ -715,9 +715,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         actor
       )
 
-      const searchModel = (globalThis as any).WIKI.models.search
-      const storageModel = (globalThis as any).WIKI.models.storage
-      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      const searchModel = (globalThis as any).CARDINAL.models.search
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const glossaryModel = (globalThis as any).CARDINAL.models.glossary
       const searchCalls: any[] = []
       const storageCalls: any[] = []
       const glossaryCalls: string[] = []
@@ -1127,7 +1127,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('throws for a folder id belonging to a different site', async () => {
-      const [otherSite] = await WIKI.db
+      const [otherSite] = await CARDINAL.db
         .insert(sitesTable)
         .values({ hostname: `listdescendants-other-${Date.now()}.example.com`, config: {} })
         .returning({ id: sitesTable.id })
@@ -1156,7 +1156,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
    */
   describe('getFolderById siteId scoping (OpenProject #2127)', () => {
     test('does not resolve a folder belonging to a different site', async () => {
-      const [otherSite] = await WIKI.db
+      const [otherSite] = await CARDINAL.db
         .insert(sitesTable)
         .values({ hostname: `getfolderbyid-other-${Date.now()}.example.com`, config: {} })
         .returning({ id: sitesTable.id })
@@ -1340,7 +1340,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('returns null for an entry belonging to a different site', async () => {
-      const [otherSite] = await WIKI.db
+      const [otherSite] = await CARDINAL.db
         .insert(sitesTable)
         .values({ hostname: `moveentry-other-${Date.now()}.example.com`, config: {} })
         .returning({ id: sitesTable.id })
@@ -1358,7 +1358,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('throws for a folderId belonging to a different site (treeInvalidFolder, 404)', async () => {
-      const [otherSite] = await WIKI.db
+      const [otherSite] = await CARDINAL.db
         .insert(sitesTable)
         .values({ hostname: `moveentry-foreignfolder-${Date.now()}.example.com`, config: {} })
         .returning({ id: sitesTable.id })

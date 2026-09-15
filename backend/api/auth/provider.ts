@@ -96,7 +96,7 @@ function matchCallbackFlow(
       Temporal.Now.instant()
     ) < 0
   ) {
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Callback for strategy ${strategyId} from ${req.ip} did not match this session's login`
     )
     req.session.authFlow = undefined
@@ -106,7 +106,7 @@ function matchCallbackFlow(
   req.session.authFlow = undefined
 
   if (error) {
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Provider refused the login for strategy ${flow.strategyId}: ${error} ${errorDescription ?? ''}`
     )
     throw new CallbackFlowError(redirect, 'ERR_LOGIN_FAILED')
@@ -128,8 +128,8 @@ async function finishProviderLogin(
   redirect: string,
   extra: { code?: string; ticket?: string; body?: Record<string, any>; currentUrl: string }
 ) {
-  const strategy = await WIKI.models.authentication.getStrategyById(flow.strategyId)
-  const instance = WIKI.auth.strategies[flow.strategyId] as any
+  const strategy = await CARDINAL.models.authentication.getStrategyById(flow.strategyId)
+  const instance = CARDINAL.auth.strategies[flow.strategyId] as any
   if (!strategy?.isEnabled || typeof instance?.profile !== 'function') {
     return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_FAILED'))
   }
@@ -150,7 +150,7 @@ async function finishProviderLogin(
       body: extra.body
     })
     profile = resolvedProfile
-    const result = await WIKI.models.login.loginWithProvider(
+    const result = await CARDINAL.models.login.loginWithProvider(
       { siteId: flow.siteId, strategy, profile: resolvedProfile, ip: req.ip },
       req
     )
@@ -168,7 +168,7 @@ async function finishProviderLogin(
         : redirect
     return reply.redirect(target)
   } catch (err: any) {
-    WIKI.models.flags.authDebug(
+    CARDINAL.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
     )
     /*
@@ -182,7 +182,7 @@ async function finishProviderLogin(
       inside an existing account's login, so `profile.email` (when the module got that far) is the
       best identifier there is.
     */
-    await WIKI.models.auditLog.record({
+    await CARDINAL.models.auditLog.record({
       event: 'login.failed',
       actor: { id: null, name: profile?.email ?? '', ip: req.ip },
       targetType: 'user',
@@ -247,8 +247,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const strategy = await WIKI.models.authentication.getStrategyById(req.params.strategyId)
-      const instance = WIKI.auth.strategies[req.params.strategyId] as any
+      const strategy = await CARDINAL.models.authentication.getStrategyById(req.params.strategyId)
+      const instance = CARDINAL.auth.strategies[req.params.strategyId] as any
       if (!strategy?.isEnabled || typeof instance?.authorizationUrl !== 'function') {
         return reply.notFound('There is no such login provider.')
       }
@@ -299,7 +299,7 @@ async function routes(app: FastifyInstance) {
           codeVerifier: flow.codeVerifier,
           authnRequestId: flow.authnRequestId
         })
-        WIKI.models.flags.authDebug(
+        CARDINAL.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
         )
         // -> A module answers with a URL to redirect to, or — see `SamlAuthorizationResult` — an HTML
@@ -308,7 +308,7 @@ async function routes(app: FastifyInstance) {
           ? reply.redirect(authorization)
           : reply.type('text/html').send(authorization.html)
       } catch (err: any) {
-        WIKI.logger.warn('auth', 'could not start a login at the provider', {
+        CARDINAL.logger.warn('auth', 'could not start a login at the provider', {
           module: strategy.module,
           strategy: strategy.id,
           error: err

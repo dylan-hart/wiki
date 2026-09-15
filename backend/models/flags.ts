@@ -44,7 +44,7 @@ class Flags {
    * Every flag, with anything missing from the stored blob reported as off
    */
   getFlags(): Record<Flag, boolean> {
-    const flags = WIKI.config.flags ?? {}
+    const flags = CARDINAL.config.flags ?? {}
     return Object.fromEntries(FLAG_KEYS.map((key) => [key, flags[key] === true])) as Record<
       Flag,
       boolean
@@ -58,7 +58,7 @@ class Flags {
    * on the other instances of a cluster, which reload their config when this one saves.
    */
   isEnabled(flag: Flag): boolean {
-    return WIKI.config.flags?.[flag] === true
+    return CARDINAL.config.flags?.[flag] === true
   }
 
   /**
@@ -80,16 +80,16 @@ class Flags {
    * @returns Whether the flags were saved
    */
   async updateFlags(patch: Partial<Record<Flag, boolean>>): Promise<boolean> {
-    const previous = WIKI.config.flags
-    WIKI.config.flags = { ...previous, ...patch }
+    const previous = CARDINAL.config.flags
+    CARDINAL.config.flags = { ...previous, ...patch }
 
-    if (!(await WIKI.configSvc.saveToDb(['flags']))) {
-      WIKI.config.flags = previous
+    if (!(await CARDINAL.configSvc.saveToDb(['flags']))) {
+      CARDINAL.config.flags = previous
       return false
     }
 
     for (const [key, value] of Object.entries(patch)) {
-      WIKI.logger.info('config', 'system flag changed', { key, enabled: Boolean(value) })
+      CARDINAL.logger.info('config', 'system flag changed', { key, enabled: Boolean(value) })
     }
     return true
   }
@@ -98,7 +98,7 @@ class Flags {
    * The two log-scope flags, as the override map `core/logger.ts` resolves a line's threshold
    * against — `index.ts` hands `logger.init()` a thunk over this, re-read on every line.
    *
-   * Read off `WIKI.config.flags` like every other flag, so flipping one in the admin area takes
+   * Read off `CARDINAL.config.flags` like every other flag, so flipping one in the admin area takes
    * effect on the next line across the whole cluster with no restart. Nothing is returned for a
    * flag that is off: absence means "this scope has no override", which is what lets `logScopes:`
    * and then `logLevel` answer instead.
@@ -113,14 +113,14 @@ class Flags {
   /**
    * Log an authentication detail.
    *
-   * A thin wrapper over `WIKI.logger.debug('auth', …)` and nothing more: the flag no longer gates
+   * A thin wrapper over `CARDINAL.logger.debug('auth', …)` and nothing more: the flag no longer gates
    * the call here, it raises the `auth` scope's threshold (see `logScopeOverrides()` above), so the
    * one decision about whether this line is worth emitting is made in one place. `debug` is the
    * honest level for a per-attempt line — before per-scope thresholds existed it had to be `info`
    * to clear the default floor, which is exactly the conflation #2663 removed.
    */
   authDebug(message: string): void {
-    WIKI.logger.debug('auth', message)
+    CARDINAL.logger.debug('auth', message)
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * Splits a page's already-rendered plain-text content into overlapping word-based
  * passages, for downstream embedding (WP #3095/#3097/#3098). Pure text-in/chunks-out:
- * no `WIKI` global, no database, no embedding model.
+ * no `CARDINAL` global, no database, no embedding model.
  *
  * The returned shape (`{ index, text }`, in order) maps 1:1 onto the
  * `pageEmbeddingChunks` table's `chunkIndex`/`chunkText` columns with no bespoke glue.

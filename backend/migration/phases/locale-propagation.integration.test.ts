@@ -138,12 +138,12 @@ describe(
 
       // -> Sanity check before touching anything: the fixture site starts at the destination's
       //    ordinary pre-migration default.
-      assert.equal(WIKI.sites[fixtures.siteId]!.config.locales.primary, 'en')
+      assert.equal(CARDINAL.sites[fixtures.siteId]!.config.locales.primary, 'en')
 
       const settingsResult = await settingsPhase.run(ctx)
       assert.equal(settingsResult.status, 'ok')
       assert.equal(
-        WIKI.sites[fixtures.siteId]!.config.locales.primary,
+        CARDINAL.sites[fixtures.siteId]!.config.locales.primary,
         'fr',
         "the settings phase actually changed the destination site's real primary locale"
       )

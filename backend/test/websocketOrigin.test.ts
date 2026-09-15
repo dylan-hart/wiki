@@ -26,11 +26,11 @@ import { installTestWiki } from './mocks.ts'
  * actually calls `verifyClient` before a route's own handler ever runs, for both routes, off the one
  * registration.
  *
- * No `WIKI` global beyond `WIKI.collab.capture`/`.refuse` (both called synchronously off the top of
+ * No `CARDINAL` global beyond `CARDINAL.collab.capture`/`.refuse` (both called synchronously off the top of
  * `controllers/collab.ts`'s handler, before any other check) is needed: every assertion below is
  * settled by either the handshake being refused outright (`verifyClient`, before the handler runs at
  * all) or by each controller's own *first* check — `terminal.ts`'s `req.session?.authenticated`,
- * `collab.ts`'s `isValidUuid` (itself refused via `WIKI.collab.refuse`, not a bare `conn.close()`) —
+ * `collab.ts`'s `isValidUuid` (itself refused via `CARDINAL.collab.refuse`, not a bare `conn.close()`) —
  * neither of which touches a database or a model.
  */
 describe('WebSocket verifyClient (OpenProject #2120)', () => {
@@ -57,9 +57,9 @@ describe('WebSocket verifyClient (OpenProject #2120)', () => {
         capture: () => ({}),
         // -> Every refusal branch in controllers/collab.ts -- including the very first, the
         //    isValidUuid check the "same-origin handshake reaches the controller" case below relies
-        //    on -- calls WIKI.collab.refuse(conn, code, reason) instead of conn.close() directly (see
+        //    on -- calls CARDINAL.collab.refuse(conn, code, reason) instead of conn.close() directly (see
         //    that method's own doc comment on core/collab.ts). Without a stub here, that call throws
-        //    "WIKI.collab.refuse is not a function" inside the handler, which @fastify/websocket does
+        //    "CARDINAL.collab.refuse is not a function" inside the handler, which @fastify/websocket does
         //    not turn into a close frame -- the socket is left open, and this suite's own
         //    `ws.once('close', ...)` wait (no timeout) then hangs forever. Mirrors the real
         //    implementation closely enough for this suite's purposes: a plain close, no grace-period
@@ -150,8 +150,8 @@ describe('WebSocket verifyClient (OpenProject #2120)', () => {
 
       test('a handshake whose Origin is another site on this same instance is also accepted', async () => {
         // -> `second-site.example.com` is neither `evil.example.com` (rejected above) nor the `host`
-        //    header itself — it is only accepted because it is one of `WIKI.sitesMappings`' own
-        //    hostnames, the "optionally also allowing a hostname in `WIKI.sitesMappings`" clause.
+        //    header itself — it is only accepted because it is one of `CARDINAL.sitesMappings`' own
+        //    hostnames, the "optionally also allowing a hostname in `CARDINAL.sitesMappings`" clause.
         const ws = await app.injectWS(path, {
           headers: { origin: 'https://second-site.example.com', host: 'wiki.example.com' },
           socket: NON_TLS_SOCKET

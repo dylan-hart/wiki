@@ -111,7 +111,7 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
   /** An asset was created, or an existing one had its bytes replaced. */
   async function assetUploaded(target: StorageTarget, data: Record<string, any>): Promise<void> {
     const client = await getClient(target)
-    const content = await WIKI.models.assets.getContent(data.id)
+    const content = await CARDINAL.models.assets.getContent(data.id)
     if (!content) {
       // -> Deleted again between the write that triggered this and this handler actually running;
       //    nothing left to push
@@ -155,7 +155,7 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     const client = await getClient(target)
 
     let exported = 0
-    for await (const asset of WIKI.models.assets.streamAll(target.siteId)) {
+    for await (const asset of CARDINAL.models.assets.streamAll(target.siteId)) {
       if (!belongsInTarget(asset, target.contentTypes)) {
         continue
       }
@@ -165,7 +165,7 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
       )
       exported++
     }
-    WIKI.logger.info('storage', 'exported every asset', {
+    CARDINAL.logger.info('storage', 'exported every asset', {
       module: target.module,
       target: target.id,
       assets: exported,

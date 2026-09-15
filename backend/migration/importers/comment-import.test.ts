@@ -10,7 +10,7 @@ import type {
 
 const SITE_ID = 'site-1'
 
-/** In-memory fake standing in for `WIKI.models.comments` — records every call so tests can assert on
+/** In-memory fake standing in for `CARDINAL.models.comments` — records every call so tests can assert on
  * what `importComment`/`resolveCommentReplies` actually sent it. */
 class FakeCommentsModel implements CommentsWriteModel {
   created: Parameters<CommentsWriteModel['create']>[0][] = []

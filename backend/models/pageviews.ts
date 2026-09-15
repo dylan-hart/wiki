@@ -97,7 +97,7 @@ function emptyPageviewSummary(): PageviewSummary {
  * in the same database, and `api`/`mcp` views hash an API key's UUID, a set small enough to
  * enumerate and pre-hash. Neither is secret, so without a key `visitorHash` would only be
  * *pseudonymous* in name -- a single join re-identifies every surviving session's pageviews. `key`
- * is what stands between the column and that re-identification: `WIKI.config.pageviews.hashKey`,
+ * is what stands between the column and that re-identification: `CARDINAL.config.pageviews.hashKey`,
  * generated once at first run (`models/settings.ts#init()`) and never derived from the raw id, so
  * two different keys hash the same raw id to two unrelated, uncorrelatable outputs.
  */
@@ -128,7 +128,7 @@ class Pageviews {
    * Log one page view, best-effort. Never throws -- serving the page itself must never fail because
    * logging that it happened did, so neither call site needs its own try/catch around this.
    *
-   * No-ops entirely (no row is ever inserted) while `WIKI.config.pageviews.isEnabled` is off, which is
+   * No-ops entirely (no row is ever inserted) while `CARDINAL.config.pageviews.isEnabled` is off, which is
    * the whole of the admin opt-out's mechanism -- turning tracking off stops the write, it does not
    * merely hide what already got written.
    */
@@ -148,31 +148,34 @@ class Pageviews {
    *   keep hashing consistently under the key that is actually still in effect.
    */
   async rotateHashKey(): Promise<boolean> {
-    const previousConfig = WIKI.config.pageviews
-    WIKI.config.pageviews = { ...previousConfig, hashKey: crypto.randomBytes(32).toString('hex') }
+    const previousConfig = CARDINAL.config.pageviews
+    CARDINAL.config.pageviews = {
+      ...previousConfig,
+      hashKey: crypto.randomBytes(32).toString('hex')
+    }
     // -> Propagates as `reloadConfig`, so every other instance is holding the new key immediately.
-    if (!(await WIKI.configSvc.saveToDb(['pageviews']))) {
-      WIKI.config.pageviews = previousConfig
+    if (!(await CARDINAL.configSvc.saveToDb(['pageviews']))) {
+      CARDINAL.config.pageviews = previousConfig
       return false
     }
 
-    WIKI.logger.info('config', 'rotated the pageview hash key')
+    CARDINAL.logger.info('config', 'rotated the pageview hash key')
     return true
   }
 
   async record(params: RecordPageviewParams): Promise<void> {
-    if (WIKI.config.pageviews?.isEnabled !== true) {
+    if (CARDINAL.config.pageviews?.isEnabled !== true) {
       return
     }
     try {
-      await WIKI.db.insert(pageviewsTable).values({
+      await CARDINAL.db.insert(pageviewsTable).values({
         siteId: params.siteId,
         pageId: params.pageId,
         clientType: params.clientType,
-        visitorHash: hashVisitor(params.visitorRawId, WIKI.config.pageviews.hashKey)
+        visitorHash: hashVisitor(params.visitorRawId, CARDINAL.config.pageviews.hashKey)
       })
     } catch (err: any) {
-      WIKI.logger.warn('pages', 'recording a pageview failed', {
+      CARDINAL.logger.warn('pages', 'recording a pageview failed', {
         page: params.pageId,
         error: err
       })
@@ -183,12 +186,12 @@ class Pageviews {
    * Instance-wide totals for `AdminPageviews.vue`'s stats panel -- OpenProject #2335: the admin page
    * used to be a bare on/off toggle with no way to tell whether the write path (`record()` above) was
    * actually inserting anything. Unlike `countsForGraph()`, this is NOT gated on
-   * `WIKI.config.pageviews.isEnabled` -- an admin who just turned tracking off (or is checking what
+   * `CARDINAL.config.pageviews.isEnabled` -- an admin who just turned tracking off (or is checking what
    * was recorded before doing so) still needs to see the real counts, and this only runs when that one
    * admin page is loaded, not on every page read the way the write path is.
    */
   async summary(): Promise<PageviewSummary> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         totalViews: sql<number>`count(*)::int`,
         last24h: sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '24 hours' then 1 end)::int`,
@@ -245,7 +248,7 @@ class Pageviews {
     //    stops new rows from ever landing (`record()` above), but the table can still hold up to two
     //    years of rows from before it was turned off; there is no reason for every `/graph` request
     //    to run this six-way aggregate over them when the feature they'd size nodes for is disabled.
-    if (WIKI.config.pageviews?.isEnabled !== true) {
+    if (CARDINAL.config.pageviews?.isEnabled !== true) {
       return new Map()
     }
 
@@ -256,7 +259,7 @@ class Pageviews {
     const total6mo = sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last6mo)}' then 1 end)::int`
     const total2yr = sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last2yr)}' then 1 end)::int`
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         pageId: pageviewsTable.pageId,
         clientType: pageviewsTable.clientType,
@@ -303,7 +306,7 @@ class Pageviews {
    * has run. Mirrors `rateLimits.purgeStale()`'s shape: one statement, no batching.
    */
   async purgeExpired(): Promise<number> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(pageviewsTable)
       .where(lt(pageviewsTable.viewedAt, sql`now() - interval '2 years'`))
     return result.rowCount ?? 0

@@ -2,7 +2,7 @@
  * Tests for the `syncUntracked`, `importAll` and `purge` actions.
  *
  * Same approach as `content.test.ts`/`sync.test.ts`: a real `git` binary via `simple-git` against a
- * throwaway temp directory, and a minimal `WIKI` stub covering only what these actions read.
+ * throwaway temp directory, and a minimal `CARDINAL` stub covering only what these actions read.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
@@ -39,7 +39,7 @@ interface AssetRow {
   fileSize?: number
 }
 
-/** Installs a `WIKI` stub. `pages`/`assets` back both the listing and per-item lookup calls. */
+/** Installs a `CARDINAL` stub. `pages`/`assets` back both the listing and per-item lookup calls. */
 function installWiki(
   rootPath: string,
   { pages = [], assets = [] }: { pages?: PageRow[]; assets?: AssetRow[] } = {}
@@ -409,7 +409,7 @@ describe('git storage: importAll', () => {
 
   test('does nothing when no user matches the configured default author email', async () => {
     const calls = installWiki(rootPath, { pages: [] })
-    ;(globalThis as any).WIKI.models.users.getByEmail = mock.fn(async () => null)
+    ;(globalThis as any).CARDINAL.models.users.getByEmail = mock.fn(async () => null)
     const { repoPath } = await ensureRepo(target)
     await fs.writeFile(path.join(repoPath, 'welcome.md'), '# Welcome')
 
@@ -449,7 +449,7 @@ describe('git storage: purge', () => {
     assert.equal(remotes.find((r) => r.name === 'origin')?.refs.fetch, target.config.repoUrl)
   })
 
-  test('refuses to purge when localRepoPath resolves to WIKI.ROOTPATH itself', async () => {
+  test('refuses to purge when localRepoPath resolves to CARDINAL.ROOTPATH itself', async () => {
     installWiki(rootPath)
     const rootTarget = makeTarget({ config: { ...target.config, localRepoPath: '.' } })
 

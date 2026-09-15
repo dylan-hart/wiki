@@ -73,7 +73,7 @@ export async function handleCreatePage(
   //    "unset" there too, not a locale of its own.
   const locale = args.locale || defaultLocale(site.id)
   if (
-    !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
+    !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
       path: args.path,
       locale,
       siteId: site.id,
@@ -87,7 +87,7 @@ export async function handleCreatePage(
 
   let page
   try {
-    page = await WIKI.models.pages.createPage(
+    page = await CARDINAL.models.pages.createPage(
       site.id,
       {
         path: args.path,
@@ -108,7 +108,7 @@ export async function handleCreatePage(
   // -> #1118: instance-wide visibility that an agent wrote this, separate from the page's own
   //   `pageHistory` attribution (#1119) -- see `models/auditLog.ts`'s `AUDIT_EVENTS` doc comment for
   //   why only the write tools log here, not every read.
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),
     targetType: 'page',

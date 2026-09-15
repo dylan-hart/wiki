@@ -37,7 +37,11 @@ describe(
       // -> Puppeteer is never installed in this test environment. Stubbed to succeed by default; the
       //    refusal itself gets its own narrower override below (mirrors `pages.test.ts`'s own
       //    OpenProject #1716 describe block).
-      ensureCanRenderMock = mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+      ensureCanRenderMock = mock.method(
+        CARDINAL.models.renderQueue,
+        'ensureCanRender',
+        async () => {}
+      )
     })
 
     after(async () => {

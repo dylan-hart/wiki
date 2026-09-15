@@ -41,12 +41,15 @@ const ADMIN_ACTOR = { groupIds: [] as string[], permissions: ['manage:system'] }
  * describe block further down this file.
  */
 async function forceStaticMode(navId: string): Promise<void> {
-  await WIKI.db.update(navigationTable).set({ mode: 'static' }).where(eq(navigationTable.id, navId))
+  await CARDINAL.db
+    .update(navigationTable)
+    .set({ mode: 'static' })
+    .where(eq(navigationTable.id, navId))
 }
 
 /**
  * OpenProject #2208 §3: pure unit coverage of the item-target validation `setNavItems`,
- * `updateNavigation` and `copyNav` all now call before writing — no `WIKI` global and no database
+ * `updateNavigation` and `copyNav` all now call before writing — no `CARDINAL` global and no database
  * needed, per this repo's own preference for a pure test over a DB-backed one wherever the thing
  * under test is not itself SQL orchestration. The
  * DB-backed `setNavItems`/`copyNav` describe blocks further down in this file cover the write/copy
@@ -243,7 +246,7 @@ describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, (
 
   test('a folder entry overriding navigation shows up too', async () => {
     const folderId = crypto.randomUUID()
-    await WIKI.db.insert(treeTable).values({
+    await CARDINAL.db.insert(treeTable).values({
       id: folderId,
       folderPath: '',
       fileName: 'reference-folder',
@@ -536,7 +539,7 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
    * into a fresh menu via a plain "copy from locale". A safe target still travels over unchanged.
    *
    * `setNavItems` itself now refuses a `javascript:` target outright (`assertValidNavItems`), so the
-   * poisoned source row here is written straight to the table with a raw `WIKI.db.update` -- exactly
+   * poisoned source row here is written straight to the table with a raw `CARDINAL.db.update` -- exactly
    * the "predates this validation" scenario `sanitizeNavItemTargets`'s own doc comment describes --
    * rather than through the model, which this test would never get past otherwise.
    */
@@ -546,7 +549,7 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await forceStaticMode(sourceId)
     await forceStaticMode(targetId)
 
-    await WIKI.db
+    await CARDINAL.db
       .update(navigationTable)
       .set({
         items: [
@@ -743,7 +746,7 @@ describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('returns one root per active locale, matching what ensureSiteNav resolves for each', async () => {
-    WIKI.sites[fixtures.siteId]!.config.locales.active = ['en', 'fr']
+    CARDINAL.sites[fixtures.siteId]!.config.locales.active = ['en', 'fr']
 
     const roots = await navigationModel.siteRoots(fixtures.siteId)
 
@@ -760,7 +763,7 @@ describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('creates the row on demand for a locale that has never been edited', async () => {
-    WIKI.sites[fixtures.siteId]!.config.locales.active = ['pt']
+    CARDINAL.sites[fixtures.siteId]!.config.locales.active = ['pt']
 
     const roots = await navigationModel.siteRoots(fixtures.siteId)
 
@@ -775,7 +778,7 @@ describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('returns an empty array when the site has no active locales configured', async () => {
-    WIKI.sites[fixtures.siteId]!.config.locales.active = undefined
+    CARDINAL.sites[fixtures.siteId]!.config.locales.active = undefined
 
     const roots = await navigationModel.siteRoots(fixtures.siteId)
 
@@ -826,7 +829,7 @@ describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDat
     assert.equal(result.mode, 'auto')
     assert.ok(result.navigationId)
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
       .where(eq(navigationTable.id, result.navigationId!))
@@ -860,7 +863,7 @@ describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDat
       menuMode: 'mixed'
     })
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ mode: navigationTable.mode, items: navigationTable.items })
       .from(navigationTable)
       .where(eq(navigationTable.id, page.id))
@@ -895,7 +898,7 @@ describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDat
     })
 
     assert.equal(result.mode, undefined)
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
       .where(eq(navigationTable.id, page.id))
@@ -950,7 +953,7 @@ describe(
         items
       })
 
-      const rows = await WIKI.db
+      const rows = await CARDINAL.db
         .select({ mode: navigationTable.mode })
         .from(navigationTable)
         .where(eq(navigationTable.id, navigationId!))
@@ -981,7 +984,7 @@ describe(
         mode: 'override'
       })
 
-      const rows = await WIKI.db
+      const rows = await CARDINAL.db
         .select({ mode: navigationTable.mode })
         .from(navigationTable)
         .where(eq(navigationTable.id, navigationId!))
@@ -1012,7 +1015,7 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   test('ensureSiteNav creates a row defaulting to auto (OpenProject #2745)', async () => {
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
       .where(eq(navigationTable.id, navId))
@@ -1024,19 +1027,22 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   test('mode accepts auto and mixed', async () => {
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
 
-    await WIKI.db.update(navigationTable).set({ mode: 'auto' }).where(eq(navigationTable.id, navId))
-    let rows = await WIKI.db
+    await CARDINAL.db
+      .update(navigationTable)
+      .set({ mode: 'auto' })
+      .where(eq(navigationTable.id, navId))
+    let rows = await CARDINAL.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
       .where(eq(navigationTable.id, navId))
       .limit(1)
     assert.equal(rows[0]?.mode, 'auto')
 
-    await WIKI.db
+    await CARDINAL.db
       .update(navigationTable)
       .set({ mode: 'mixed' })
       .where(eq(navigationTable.id, navId))
-    rows = await WIKI.db
+    rows = await CARDINAL.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
       .where(eq(navigationTable.id, navId))
@@ -1048,13 +1054,13 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(await navigationModel.getMode(fixtures.siteId, randomUUID()), 'static')
 
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-    await WIKI.db
+    await CARDINAL.db
       .update(navigationTable)
       .set({ mode: 'mixed' })
       .where(eq(navigationTable.id, navId))
     assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'mixed')
 
-    await WIKI.db
+    await CARDINAL.db
       .update(navigationTable)
       .set({ mode: 'static' })
       .where(eq(navigationTable.id, navId))
@@ -1068,12 +1074,12 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
    * already pairs `id` with `siteId`; this locks `getMode()` down the same way.
    */
   test('getMode does not return a row belonging to a different site', async () => {
-    const [otherSite] = await WIKI.db
+    const [otherSite] = await CARDINAL.db
       .insert(sitesTable)
       .values({ hostname: `getmode-other-${randomUUID()}.example.com`, config: {} })
       .returning({ id: sitesTable.id })
     const otherNavId = await navigationModel.ensureSiteNav(otherSite!.id, 'en')
-    await WIKI.db
+    await CARDINAL.db
       .update(navigationTable)
       .set({ mode: 'auto' })
       .where(eq(navigationTable.id, otherNavId))
@@ -1625,7 +1631,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
   })
 
   async function setMode(navId: string, mode: 'static' | 'auto' | 'mixed') {
-    await WIKI.db.update(navigationTable).set({ mode }).where(eq(navigationTable.id, navId))
+    await CARDINAL.db.update(navigationTable).set({ mode }).where(eq(navigationTable.id, navId))
   }
 
   test('static mode returns the stored items unchanged, unaffected by mode wiring', async () => {
@@ -1775,7 +1781,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
    * regardless of `rootFolderPath`, and there was no `getNavRoot` at all.
    */
   test("an override's generated top-level items and getNavRoot both resolve to the override's own section root, not the locale root", async () => {
-    const [sectionFolder] = await WIKI.db
+    const [sectionFolder] = await CARDINAL.db
       .select()
       .from(treeTable)
       .where(
@@ -1929,7 +1935,7 @@ describe(
       ;({ groups: groupsModel } = await import('./groups.ts'))
       adminActor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
 
-      const restrictedLevel = await WIKI.models.classificationLevels.create({
+      const restrictedLevel = await CARDINAL.models.classificationLevels.create({
         name: 'Filtering Test Restricted'
       })
       restrictedClassificationId = restrictedLevel.id
@@ -1937,7 +1943,7 @@ describe(
       // -> Broadly allows read:pages, then carves out a path DENY and a classification DENY on top --
       //    exactly the "a plain path DENY leaks here too" and "a classification DENY leaks here too"
       //    scenarios #2150/#2155 describe.
-      const [group] = await WIKI.db
+      const [group] = await CARDINAL.db
         .insert(groupsTable)
         .values({
           name: 'Filtering Test Denied Reader',
@@ -1987,7 +1993,7 @@ describe(
 
     async function autoMenu(): Promise<string> {
       const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-      await WIKI.db
+      await CARDINAL.db
         .update(navigationTable)
         .set({ mode: 'auto' })
         .where(eq(navigationTable.id, siteNavId))
@@ -3302,7 +3308,7 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
   })
 
   async function setMode(navId: string, mode: 'static' | 'auto' | 'mixed') {
-    await WIKI.db.update(navigationTable).set({ mode }).where(eq(navigationTable.id, navId))
+    await CARDINAL.db.update(navigationTable).set({ mode }).where(eq(navigationTable.id, navId))
   }
 
   test('a warm cache survives a direct tree mutation that bypasses every model write path, until invalidateCache runs', async () => {
@@ -3324,7 +3330,7 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
 
     // -> Bypasses every model write path this feature invalidates from -- a genuine "nothing told the
     //    cache" probe, not just a fast-follow write that happened to invalidate anyway
-    await WIKI.db
+    await CARDINAL.db
       .update(treeTable)
       .set({ title: 'Mutated Behind The Cache' })
       .where(eq(treeTable.id, page.id))
@@ -3582,14 +3588,14 @@ describe('navigation lifecycle log lines (DB-backed)', { skip: !hasTestDatabase(
 
   beforeEach(() => {
     infoCalls = []
-    originalInfo = WIKI.logger.info
-    WIKI.logger.info = ((scope: string, message: string, fields: Record<string, any> = {}) => {
+    originalInfo = CARDINAL.logger.info
+    CARDINAL.logger.info = ((scope: string, message: string, fields: Record<string, any> = {}) => {
       infoCalls.push({ scope, message, fields })
     }) as any
   })
 
   afterEach(() => {
-    WIKI.logger.info = originalInfo
+    CARDINAL.logger.info = originalInfo
   })
 
   function navLines() {

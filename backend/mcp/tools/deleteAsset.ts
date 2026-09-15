@@ -36,7 +36,7 @@ export async function handleDeleteAsset(
 ): Promise<CallToolResult> {
   const site = resolveRequestedSite(ctx, args.siteId)
 
-  const doomed = await WIKI.models.assets.getAsset(site.id, args.assetId)
+  const doomed = await CARDINAL.models.assets.getAsset(site.id, args.assetId)
   if (!doomed) {
     throw new McpToolError('This asset does not exist.')
   }
@@ -45,7 +45,7 @@ export async function handleDeleteAsset(
   //    `FastifyRequest` to resolve its actor from, which an MCP tool call has no equivalent of, so
   //    the same `folderPath`/`fileName` -> path shape is rebuilt here against `actorFor(ctx)` instead.
   if (
-    !WIKI.models.groups.checkAccess(actorFor(ctx), 'manage:assets', {
+    !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'manage:assets', {
       path: doomed.folderPath ? `${doomed.folderPath}/${doomed.fileName}` : doomed.fileName,
       siteId: site.id,
       locale: doomed.locale,
@@ -59,13 +59,15 @@ export async function handleDeleteAsset(
   // -> Can still be false here: the asset existed at the `getAsset()` lookup above but was removed
   //    concurrently before this call landed. The REST route treats that the same as never having
   //    found it -- a 404, not a silently-successful delete -- so this does too.
-  if (!(await WIKI.models.assets.deleteAsset(site.id, args.assetId, { authorId: ctx.userId }))) {
+  if (
+    !(await CARDINAL.models.assets.deleteAsset(site.id, args.assetId, { authorId: ctx.userId }))
+  ) {
     throw new McpToolError('This asset does not exist.')
   }
 
   // -> #1118: same reasoning as `updatePage.ts`'s own instrumentation -- instance-wide visibility
   //   that an agent deleted this, distinct from any per-page attribution.
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),
     targetType: 'asset',

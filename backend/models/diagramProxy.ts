@@ -31,7 +31,7 @@ const DEFAULT_SERVERS: Record<DiagramProxyEngine, string> = {
  * `block-plantuml`'s own former client-side encoders, removed by OpenProject task 3229 — about 1.4
  * characters of encoded URL per character of source, so 8,000 was already a source well
  * under 6,000 characters), while still bounded: Fastify's own body-size backstop
- * (`WIKI.config.bodyParserLimit`, 5 MB default — `core/http/server.ts`) exists for the request as a
+ * (`CARDINAL.config.bodyParserLimit`, 5 MB default — `core/http/server.ts`) exists for the request as a
  * whole, not a clear diagram-specific explanation, so this is a narrower, better-explained ceiling in
  * front of it.
  */
@@ -106,7 +106,7 @@ class DiagramProxy {
     }
     const format: DiagramProxyFormat = request.format === 'png' ? 'png' : 'svg'
 
-    if (WIKI.config.offline) {
+    if (CARDINAL.config.offline) {
       throw new CustomError(
         'diagramProxyOffline',
         'Cardinal.js is in offline mode and cannot reach a diagram server to render this.',
@@ -134,7 +134,7 @@ class DiagramProxy {
    * site has none, has no such block row at all, or `siteId` itself is unknown.
    */
   private async resolveServer(engine: DiagramProxyEngine, siteId: string): Promise<string> {
-    const siteBlocks = await WIKI.models.blocks.getSiteBlocks(siteId)
+    const siteBlocks = await CARDINAL.models.blocks.getSiteBlocks(siteId)
     const block = siteBlocks.find((b) => b.block === engine)
     const configured = typeof block?.config?.server === 'string' ? block.config.server.trim() : ''
     return configured || DEFAULT_SERVERS[engine]

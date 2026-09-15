@@ -20,8 +20,8 @@ if (typeof (globalThis as any).Temporal === 'undefined') {
 }
 
 /**
- * `checkItem`'s two input guards run before it ever touches `WIKI.db`, so they are testable with no
- * database and no `WIKI` global at all — unlike the rest of this file, this suite always runs.
+ * `checkItem`'s two input guards run before it ever touches `CARDINAL.db`, so they are testable with no
+ * database and no `CARDINAL` global at all — unlike the rest of this file, this suite always runs.
  */
 describe('checklists model — validation (no database)', () => {
   test('rejects an empty itemKey', async () => {
@@ -68,7 +68,7 @@ describe('checklists model — validation (no database)', () => {
 })
 
 /**
- * `itemKey` shape validation runs after `_ensureActiveExecution`, which needs `WIKI.db` — so unlike
+ * `itemKey` shape validation runs after `_ensureActiveExecution`, which needs `CARDINAL.db` — so unlike
  * the guards above, these two need the DB-backed fixture even though what they are asserting is pure
  * input validation, not SQL behavior.
  */

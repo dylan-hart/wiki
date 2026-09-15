@@ -14,15 +14,15 @@ import { sessionStoreAdapter } from '../../models/sessions.ts'
 export function registerSession(app: FastifyInstance): void {
   // Fail closed rather than silently register the session/cookie plugins with a missing or
   // too-short secret -- see `helpers/authSecret.ts` for why this exists.
-  assertValidAuthSecret(WIKI.config.auth.secret)
+  assertValidAuthSecret(CARDINAL.config.auth.secret)
 
   // `authSecretSigner` (OpenProject #2172) hands both plugins an object that reads
-  // `WIKI.config.auth.secret` at call time instead of a value captured once here at registration, so
+  // `CARDINAL.config.auth.secret` at call time instead of a value captured once here at registration, so
   // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
   // takes effect on a still-running instance immediately: this instance signs and verifies against the
   // rotated secret starting with the very next request, and so does every other instance the moment
-  // `WIKI.events.inbound`'s `reloadConfig` (already fanned out by `saveToDb()`) reassigns its own
-  // `WIKI.config`. No restart, and no plugin re-registration, required.
+  // `CARDINAL.events.inbound`'s `reloadConfig` (already fanned out by `saveToDb()`) reassigns its own
+  // `CARDINAL.config`. No restart, and no plugin re-registration, required.
   app.register(fastifyCookie, {
     secret: authSecretSigner,
     hook: 'onRequest'
@@ -61,7 +61,7 @@ export function registerSession(app: FastifyInstance): void {
         the chain (not even a proxy) fails closed -- no session cookie at all, rather than an insecure
         one -- which is the point.
       */
-      secure: WIKI.config.security?.cookieSecure !== false,
+      secure: CARDINAL.config.security?.cookieSecure !== false,
       // -> Explicit, not left to 'auto' forcing it only on the non-https branch (task 2109 / WP
       //    2105 §2): a correctly-deployed HTTPS instance was emitting `Secure` with NO `SameSite`
       //    at all, which is exactly backwards for CSRF exposure. 'lax', never 'strict' -- the
@@ -100,7 +100,7 @@ export function registerSession(app: FastifyInstance): void {
   //    Registered after the session cookie is parsed but does not depend on it; placement here is
   //    just "grouped with the rest of the cookie/session wiring it explains".
   app.addHook('onRequest', (req, reply, done) => {
-    WIKI.models.security.observeRequest(req.headers, req.protocol)
+    CARDINAL.models.security.observeRequest(req.headers, req.protocol)
     done()
   })
 }

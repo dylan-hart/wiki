@@ -28,7 +28,7 @@ const PICKER_AUTHOR_ROLES = ['write:pages', 'manage:pages']
  * silently refused every author, since nobody's group-wide list legitimately carries either.
  */
 function mayUseIconPicker(req: FastifyRequest): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
+  const actor = CARDINAL.models.groups.actorForRequest(req)
   if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
@@ -36,7 +36,7 @@ function mayUseIconPicker(req: FastifyRequest): boolean {
   //    route carries no `siteId` to narrow by -- genuinely the same site-blind case
   //    `mayHoldPermissionSomewhere()`'s own doc comment carves out, not an oversight (OpenProject
   //    #2146/#2162).
-  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES, null)
+  return CARDINAL.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES, null)
 }
 
 /**
@@ -74,7 +74,7 @@ async function routes(app: FastifyInstance) {
       if (!mayUseIconPicker(req)) {
         return reply.forbidden()
       }
-      return WIKI.models.icons.getSets()
+      return CARDINAL.models.icons.getSets()
     }
   )
 
@@ -125,7 +125,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const set = await WIKI.models.icons.addSet(req.body.prefix.toLowerCase())
+        const set = await CARDINAL.models.icons.addSet(req.body.prefix.toLowerCase())
         return {
           ok: true,
           message: `The ${set.name} icon set has been added.`,
@@ -193,10 +193,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const prefix = req.params.prefix.toLowerCase()
-      if (!(await WIKI.models.icons.getSet(prefix))) {
+      if (!(await CARDINAL.models.icons.getSet(prefix))) {
         return reply.notFound('Icon set has not been added.')
       }
-      await WIKI.models.icons.setSetState(prefix, req.body.isEnabled)
+      await CARDINAL.models.icons.setSetState(prefix, req.body.isEnabled)
       return {
         ok: true,
         message: `The ${prefix} icon set has been ${req.body.isEnabled ? 'enabled' : 'disabled'}.`
@@ -252,10 +252,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const prefix = req.params.prefix.toLowerCase()
-      if (!(await WIKI.models.icons.getSet(prefix))) {
+      if (!(await CARDINAL.models.icons.getSet(prefix))) {
         return reply.notFound('Icon set has not been added.')
       }
-      const deletedIcons = await WIKI.models.icons.deleteSet(prefix)
+      const deletedIcons = await CARDINAL.models.icons.deleteSet(prefix)
       return {
         ok: true,
         message: `The ${prefix} icon set has been deleted.`,
@@ -292,9 +292,9 @@ async function routes(app: FastifyInstance) {
     },
     async (_req, reply) => {
       try {
-        return await WIKI.models.icons.getAvailableSets()
+        return await CARDINAL.models.icons.getAvailableSets()
       } catch (err: any) {
-        WIKI.logger.warn('icons', 'could not list the available sets from the Iconify API', {
+        CARDINAL.logger.warn('icons', 'could not list the available sets from the Iconify API', {
           error: err
         })
         return reply.badGateway(`Could not reach the Iconify API: ${err.message}`)
@@ -340,14 +340,16 @@ async function routes(app: FastifyInstance) {
     },
     async (_req, reply) => {
       try {
-        const refreshed = await WIKI.models.icons.refreshSets()
+        const refreshed = await CARDINAL.models.icons.refreshSets()
         return {
           ok: true,
           message: `Refreshed ${refreshed} icon sets.`,
           refreshed
         }
       } catch (err: any) {
-        WIKI.logger.warn('icons', 'could not refresh the sets from the Iconify API', { error: err })
+        CARDINAL.logger.warn('icons', 'could not refresh the sets from the Iconify API', {
+          error: err
+        })
         return reply.badGateway(`Could not reach the Iconify API: ${err.message}`)
       }
     }
@@ -402,7 +404,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.icons.sideloadFromDataPath()
+      return CARDINAL.models.icons.sideloadFromDataPath()
     }
   )
 
@@ -464,14 +466,14 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden()
       }
       try {
-        const icons = await WIKI.models.icons.searchIcons({
+        const icons = await CARDINAL.models.icons.searchIcons({
           query: req.query.query,
           prefixes: req.query.prefixes?.split(',').filter(Boolean),
           limit: req.query.limit
         })
         return { icons }
       } catch (err: any) {
-        WIKI.logger.warn('icons', 'could not search the Iconify API', { error: err })
+        CARDINAL.logger.warn('icons', 'could not search the Iconify API', { error: err })
         return reply.badGateway(`Could not reach the Iconify API: ${err.message}`)
       }
     }
@@ -527,7 +529,7 @@ async function routes(app: FastifyInstance) {
       }
       const prefix = req.params.prefix.toLowerCase()
       try {
-        return { prefix, icons: await WIKI.models.icons.listSetIcons(prefix) }
+        return { prefix, icons: await CARDINAL.models.icons.listSetIcons(prefix) }
       } catch (err: any) {
         // -> No log line, same as the add-set route above: admin-only, and the reply says why.
         return reply.badRequest(err.message)
@@ -593,7 +595,7 @@ async function routes(app: FastifyInstance) {
       if (!mayUseIconPicker(req)) {
         return reply.forbidden()
       }
-      const failed = await WIKI.models.icons.materializeIcons(req.body.icons)
+      const failed = await CARDINAL.models.icons.materializeIcons(req.body.icons)
       return {
         ok: failed.length < 1,
         message:
@@ -651,7 +653,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.icons.getStats()
+      return CARDINAL.models.icons.getStats()
     }
   )
 
@@ -688,7 +690,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      await WIKI.models.icons.purgeCache()
+      await CARDINAL.models.icons.purgeCache()
       return {
         ok: true,
         message: 'The icon cache has been purged.'

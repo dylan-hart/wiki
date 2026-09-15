@@ -257,10 +257,10 @@ describe('POST /sites/:siteId/assets/batch', () => {
   })
 
   /**
-   * `@fastify/multipart`'s `limits` are read from `WIKI.config.security` once, at
+   * `@fastify/multipart`'s `limits` are read from `CARDINAL.config.security` once, at
    * plugin-registration time — exactly like `blocks.test.ts`'s own upload-size-cap test, and for the
    * same reason `assets.ts`'s route comment gives for `addContentTypeParser`'s `bodyLimit`. A
-   * separate app instance is built here (reusing the same installed `WIKI` global, mutated first)
+   * separate app instance is built here (reusing the same installed `CARDINAL` global, mutated first)
    * so each test proves the configured limit is actually wired up, rather than only asserting the
    * source line reads the config key.
    */
@@ -272,7 +272,7 @@ describe('POST /sites/:siteId/assets/batch', () => {
      * entry.
      */
     test('an oversized file fails only its own entry, not the whole batch', async () => {
-      WIKI.config.security.uploadMaxFileSize = 4
+      CARDINAL.config.security.uploadMaxFileSize = 4
       const smallApp = await buildTestApp({ routes, ajv: true, session: 'header' })
       try {
         const { payload, contentType } = await buildMultipartPayload([
@@ -295,7 +295,7 @@ describe('POST /sites/:siteId/assets/batch', () => {
         assert.equal(uploadCalls.length, 1)
       } finally {
         await closeTestApp(smallApp)
-        WIKI.config.security.uploadMaxFileSize = undefined
+        CARDINAL.config.security.uploadMaxFileSize = undefined
       }
     })
 
@@ -305,7 +305,7 @@ describe('POST /sites/:siteId/assets/batch', () => {
      * whole-request 413 with nothing uploaded, rather than a partial per-file result.
      */
     test('a batch with more files than the configured per-request limit answers 413, with nothing uploaded', async () => {
-      WIKI.config.security.uploadMaxFilesPerBatch = 1
+      CARDINAL.config.security.uploadMaxFilesPerBatch = 1
       const smallApp = await buildTestApp({ routes, ajv: true, session: 'header' })
       try {
         const { payload, contentType } = await buildMultipartPayload([
@@ -323,12 +323,12 @@ describe('POST /sites/:siteId/assets/batch', () => {
         assert.equal(uploadCalls.length, 0)
       } finally {
         await closeTestApp(smallApp)
-        WIKI.config.security.uploadMaxFilesPerBatch = undefined
+        CARDINAL.config.security.uploadMaxFilesPerBatch = undefined
       }
     })
 
     test('a batch at or under the configured limit still succeeds', async () => {
-      WIKI.config.security.uploadMaxFilesPerBatch = 2
+      CARDINAL.config.security.uploadMaxFilesPerBatch = 2
       const smallApp = await buildTestApp({ routes, ajv: true, session: 'header' })
       try {
         const { payload, contentType } = await buildMultipartPayload([
@@ -345,7 +345,7 @@ describe('POST /sites/:siteId/assets/batch', () => {
         assert.equal(uploadCalls.length, 2)
       } finally {
         await closeTestApp(smallApp)
-        WIKI.config.security.uploadMaxFilesPerBatch = undefined
+        CARDINAL.config.security.uploadMaxFilesPerBatch = undefined
       }
     })
   })

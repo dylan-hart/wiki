@@ -15,13 +15,13 @@ import path from 'node:path'
  * the per-module `definition.yml`-declares-its-own-props assertions and the discovery/sort checks
  * were deleted — nothing gates them, and nothing user-facing is lost, since an admin filling the
  * config form would see a missing prop immediately. What survives is the one real branch: a failed
- * scan must still leave `WIKI.data.analytics` an array, not `undefined`.
+ * scan must still leave `CARDINAL.data.analytics` an array, not `undefined`.
  */
 
 let analyticsModel: typeof import('./analytics.ts').analytics
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  ;(globalThis as any).CARDINAL = {
     SERVERPATH: path.join(import.meta.dirname, '..'),
     data: {},
     logger: {
@@ -35,25 +35,25 @@ before(async () => {
 })
 
 after(() => {
-  delete (globalThis as any).WIKI
+  delete (globalThis as any).CARDINAL
 })
 
 /**
- * A failed scan must still leave `WIKI.data.analytics` an array: `base.yml` declares no `analytics`
+ * A failed scan must still leave `CARDINAL.data.analytics` an array: `base.yml` declares no `analytics`
  * key, so the field only exists because `refreshFromDisk()` put it there — the same invariant
- * `models/authentication.test.ts` locks down for its own `WIKI.data.authentication` readers.
+ * `models/authentication.test.ts` locks down for its own `CARDINAL.data.authentication` readers.
  */
-test('a scan that fails leaves WIKI.data.analytics an empty array rather than undefined', async () => {
-  const previousServerPath = (globalThis as any).WIKI.SERVERPATH
+test('a scan that fails leaves CARDINAL.data.analytics an empty array rather than undefined', async () => {
+  const previousServerPath = (globalThis as any).CARDINAL.SERVERPATH
   // -> A directory that does not exist: `readdir` rejects before a single definition is read.
-  ;(globalThis as any).WIKI.SERVERPATH = path.join(import.meta.dirname, '..', '__no-such-dir__')
-  ;(globalThis as any).WIKI.data = {}
+  ;(globalThis as any).CARDINAL.SERVERPATH = path.join(import.meta.dirname, '..', '__no-such-dir__')
+  ;(globalThis as any).CARDINAL.data = {}
   try {
     await analyticsModel.refreshFromDisk()
-    assert.deepEqual(WIKI.data.analytics, [])
+    assert.deepEqual(CARDINAL.data.analytics, [])
     assert.deepEqual(analyticsModel.getModules(), [])
   } finally {
-    ;(globalThis as any).WIKI.SERVERPATH = previousServerPath
-    ;(globalThis as any).WIKI.data = {}
+    ;(globalThis as any).CARDINAL.SERVERPATH = previousServerPath
+    ;(globalThis as any).CARDINAL.data = {}
   }
 })

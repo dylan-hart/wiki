@@ -123,7 +123,7 @@ class PageWatchEvents {
     if (events.length < 1) {
       return []
     }
-    return WIKI.db
+    return CARDINAL.db
       .insert(pageWatchEventsTable)
       .values(events)
       .returning({ id: pageWatchEventsTable.id, userId: pageWatchEventsTable.userId })
@@ -134,7 +134,7 @@ class PageWatchEvents {
    * already covered.
    */
   async markDelivered(id: string): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .update(pageWatchEventsTable)
       .set({ deliveredAt: sql`now()` })
       .where(eq(pageWatchEventsTable.id, id))
@@ -156,7 +156,7 @@ class PageWatchEvents {
    * works the backlog down over successive nights rather than reprocessing the same rows forever.
    */
   async listPendingForDigest(): Promise<PendingDigestEvent[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pageWatchEventsTable.id,
         userId: pageWatchEventsTable.userId,
@@ -189,7 +189,7 @@ class PageWatchEvents {
    * `tasks/simple/purge-page-watch-events.ts` on its own daily cron entry.
    */
   async purgeExpired(): Promise<number> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(pageWatchEventsTable)
       .where(lt(pageWatchEventsTable.createdAt, sql`now() - interval '90 days'`))
     return result.rowCount ?? 0
@@ -204,7 +204,7 @@ class PageWatchEvents {
     if (ids.length < 1) {
       return
     }
-    await WIKI.db
+    await CARDINAL.db
       .update(pageWatchEventsTable)
       .set({ deliveredAt: sql`now()` })
       .where(inArray(pageWatchEventsTable.id, ids))
@@ -229,7 +229,7 @@ class PageWatchEvents {
    * this feature (`pageWatching.ts`).
    */
   async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: pageWatchEventsTable.id,
         pageId: pageWatchEventsTable.pageId,
@@ -281,7 +281,7 @@ class PageWatchEvents {
       return []
     }
     const pageIds = [...new Set(events.map((event) => event.pageId).filter((id) => id !== null))]
-    const liveRows = await WIKI.db
+    const liveRows = await CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -293,10 +293,10 @@ class PageWatchEvents {
       .where(inArray(pagesTable.id, pageIds))
     const livePages = new Map(liveRows.map((row) => [row.id, row]))
 
-    const actor = await WIKI.models.groups.actorForUserId(userId)
+    const actor = await CARDINAL.models.groups.actorForUserId(userId)
     return events.filter((event) => {
       const live = event.pageId === null ? undefined : livePages.get(event.pageId)
-      return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+      return CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
         path: live?.path ?? event.pagePath,
         siteId: event.siteId,
         locale: live?.locale ?? event.pageLocale,
@@ -316,7 +316,7 @@ class PageWatchEvents {
    * that follows a no-op update is what makes a SECOND call also answer `true` instead of `false`.
    */
   async markRead(id: string, userId: string): Promise<boolean> {
-    const updated = await WIKI.db
+    const updated = await CARDINAL.db
       .update(pageWatchEventsTable)
       .set({ readAt: sql`now()` })
       .where(
@@ -330,7 +330,7 @@ class PageWatchEvents {
     if (updated.length > 0) {
       return true
     }
-    const existing = await WIKI.db
+    const existing = await CARDINAL.db
       .select({ id: pageWatchEventsTable.id })
       .from(pageWatchEventsTable)
       .where(and(eq(pageWatchEventsTable.id, id), eq(pageWatchEventsTable.userId, userId)))
@@ -344,7 +344,7 @@ class PageWatchEvents {
    * `INBOX_LIST_LIMIT` instead of capping out at the list's own page size.
    */
   async unreadCount(userId: string, siteId: string): Promise<number> {
-    return WIKI.db.$count(
+    return CARDINAL.db.$count(
       pageWatchEventsTable,
       and(
         eq(pageWatchEventsTable.userId, userId),

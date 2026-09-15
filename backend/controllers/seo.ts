@@ -173,7 +173,7 @@ export function paginateSitemap(
  */
 async function routes(app: FastifyInstance) {
   app.get('/robots.txt', async (req, reply) => {
-    const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
+    const site = await CARDINAL.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site) {
       return reply.notFound()
     }
@@ -188,7 +188,7 @@ async function routes(app: FastifyInstance) {
   })
 
   app.get<{ Querystring: { page?: string } }>('/sitemap.xml', async (req, reply) => {
-    const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
+    const site = await CARDINAL.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site || !site.config?.sitemap) {
       return reply.notFound()
     }
@@ -198,7 +198,7 @@ async function routes(app: FastifyInstance) {
       return reply
     }
 
-    const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
+    const pages = await CARDINAL.models.pages.listPagesForSitemap(site.id)
     const baseUrl = requestOrigin(req.protocol, req.hostname)
     // -> Past the per-file cap, this route doubles as a sitemap index over `SITEMAP_URL_LIMIT`-sized
     //    child sitemaps, addressed by a `?page=` query string rather than a new root-level filename

@@ -22,7 +22,7 @@ export function registerOpenApi(app: FastifyInstance): void {
       openapi: '3.1.0',
       info: {
         title: 'Cardinal.js API',
-        version: WIKI.version
+        version: CARDINAL.version
       },
       components: {
         securitySchemes: OPENAPI_SECURITY_SCHEMES

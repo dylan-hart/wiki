@@ -58,7 +58,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       // -> The session decides part of the answer, so no shared cache may hold on to it
       reply.preventCache()
-      const site = await WIKI.models.sites.getSiteByHostname({
+      const site = await CARDINAL.models.sites.getSiteByHostname({
         hostname: req.query.hostname ?? req.hostname
       })
       if (!site) {
@@ -72,7 +72,7 @@ async function routes(app: FastifyInstance) {
       }
       return {
         site: await buildSitePayload(site),
-        flags: WIKI.models.flags.getFlags(),
+        flags: CARDINAL.models.flags.getFlags(),
         user: await whoAmI(req)
       }
     }

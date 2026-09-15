@@ -36,7 +36,7 @@ after(async () => {
 
 /**
  * `findOrCreateProviderUser()` (private, exercised directly rather than through `loginWithProvider()`
- * so these don't also need a live `WIKI.auth.strategies` entry and a session-bearing `req` just to
+ * so these don't also need a live `CARDINAL.auth.strategies` entry and a session-bearing `req` just to
  * reach `afterLoginChecks()`) is SQL orchestration in the same sense `register()`'s suite above is: a
  * user lookup, an identity check against what is already stored, and a write. `strategy` is handed in
  * directly as a plain object matching `AuthStrategy` rather than round-tripped through
@@ -63,7 +63,7 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
   }
 
   before(async () => {
-    WIKI.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
+    CARDINAL.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
   })
 
   test('refuses a profile whose address belongs to a system account', async () => {
@@ -434,7 +434,7 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
 
   /**
    * Feature #3208 / OpenProject #3236: the shared call site this Task owns -- `profile.picture` reaches
-   * `WIKI.models.users.syncAvatarFromProvider()` on every login, not just account creation. The
+   * `CARDINAL.models.users.syncAvatarFromProvider()` on every login, not just account creation. The
    * precedence rule (manual upload always wins) and the caching itself are `syncAvatarFromProvider`'s
    * own concern (Task #3235, covered by `models/users.profile.test.ts`); this only proves the call site
    * wires a profile's `picture` into it, and that no `picture` means no call at all.
@@ -540,11 +540,11 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
     const localStrategyId = 'local-strategy-relink-test'
 
     before(() => {
-      WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+      CARDINAL.data.systemIds = { localAuthId: localStrategyId } as any
     })
 
     after(() => {
-      WIKI.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
+      CARDINAL.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
     })
 
     test('clears mustChangePwd and the marker when the local entry is a migrated fallback', async () => {
@@ -683,12 +683,12 @@ describe('login.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, ()
   }
 
   function registerLiveStrategies(): void {
-    ;(WIKI.auth.strategies as any)[localStrategyId] = { config: {} }
-    ;(WIKI.auth.strategies as any)[providerStrategyId] = { config: {} }
+    ;(CARDINAL.auth.strategies as any)[localStrategyId] = { config: {} }
+    ;(CARDINAL.auth.strategies as any)[providerStrategyId] = { config: {} }
   }
 
   async function createLocalUser(email: string, name: string): Promise<string> {
-    WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: localStrategyId } as any
     return users.createUser({ name, email, password: 'originalpwd1', isVerified: true })
   }
 

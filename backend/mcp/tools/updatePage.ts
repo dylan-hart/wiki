@@ -68,19 +68,22 @@ export async function handleUpdatePage(
     )
   }
 
-  const target = await WIKI.models.pages.getPage({ siteId: site.id, id: args.pageId })
+  const target = await CARDINAL.models.pages.getPage({ siteId: site.id, id: args.pageId })
   if (!target) {
     throw new McpToolError('This page does not exist.')
   }
   if (
-    !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:pages', { ...target, siteId: site.id })
+    !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
+      ...target,
+      siteId: site.id
+    })
   ) {
     throw new McpToolError('You are not allowed to edit this page.')
   }
 
   let page
   try {
-    page = await WIKI.models.pages.updatePage(
+    page = await CARDINAL.models.pages.updatePage(
       site.id,
       args.pageId,
       {
@@ -101,7 +104,7 @@ export async function handleUpdatePage(
 
   // -> #1118: same reasoning as `createPage.ts`'s own instrumentation -- instance-wide visibility that
   //   an agent wrote this, separate from `pageHistory`'s own per-page attribution (#1119).
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),
     targetType: 'page',

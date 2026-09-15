@@ -77,7 +77,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      return WIKI.models.checklists.listExecutions(page.id, req.params.blockKey)
+      return CARDINAL.models.checklists.listExecutions(page.id, req.params.blockKey)
     }
   )
 
@@ -118,7 +118,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      return WIKI.models.checklists.getLatestExecution(page.id, req.params.blockKey)
+      return CARDINAL.models.checklists.getLatestExecution(page.id, req.params.blockKey)
     }
   )
 
@@ -147,7 +147,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      const execution = await WIKI.models.checklists.getExecutionDetail(req.params.executionId)
+      const execution = await CARDINAL.models.checklists.getExecutionDetail(req.params.executionId)
       // -> Belt and suspenders: an id from a different page/block must 404 exactly like one that does
       //    not exist, rather than leaking another checklist's run log to a reader who can only read
       //    THIS page.
@@ -209,7 +209,7 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'write:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to check off items on this page.')
       }
-      return WIKI.models.checklists.checkItem({
+      return CARDINAL.models.checklists.checkItem({
         siteId: req.params.siteId,
         pageId: page.id,
         blockKey: req.params.blockKey,

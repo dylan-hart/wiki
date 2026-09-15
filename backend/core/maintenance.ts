@@ -36,14 +36,14 @@ export default {
    */
   disconnectWebsockets(): number {
     let count = 0
-    for (const client of WIKI.app.websocketServer.clients) {
+    for (const client of CARDINAL.app.websocketServer.clients) {
       if (client.readyState !== client.OPEN) {
         continue
       }
       client.close(1012, 'Disconnected by an administrator')
       count++
     }
-    WIKI.logger.info('cluster', 'closed websocket connections', { connections: count })
+    CARDINAL.logger.info('cluster', 'closed websocket connections', { connections: count })
     return count
   },
 
@@ -56,27 +56,27 @@ export default {
    * before this returns rather than left for the next visitor to pay for.
    */
   async flushCaches(): Promise<void> {
-    WIKI.cache.clear()
-    await WIKI.models.assetServing.purgeCache()
-    await WIKI.models.icons.purgeCache()
+    CARDINAL.cache.clear()
+    await CARDINAL.models.assetServing.purgeCache()
+    await CARDINAL.models.icons.purgeCache()
 
-    await WIKI.models.locales.reloadCache()
-    await WIKI.models.sites.reloadCache()
-    await WIKI.models.groups.reloadCache()
-    await WIKI.models.approvalRules.reloadCache()
-    await WIKI.models.classificationLevels.reloadCache()
+    await CARDINAL.models.locales.reloadCache()
+    await CARDINAL.models.sites.reloadCache()
+    await CARDINAL.models.groups.reloadCache()
+    await CARDINAL.models.approvalRules.reloadCache()
+    await CARDINAL.models.classificationLevels.reloadCache()
 
-    WIKI.logger.info('cluster', 'flushed all caches')
+    CARDINAL.logger.info('cluster', 'flushed all caches')
   },
 
   /**
    * Subscribe to HA propagation events
    */
   subscribeToEvents(): void {
-    WIKI.events.inbound.on('disconnectWebsockets', () => {
+    CARDINAL.events.inbound.on('disconnectWebsockets', () => {
       this.disconnectWebsockets()
     })
-    WIKI.events.inbound.on('flushCaches', async () => {
+    CARDINAL.events.inbound.on('flushCaches', async () => {
       await this.flushCaches()
     })
   }

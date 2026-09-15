@@ -418,7 +418,7 @@ export class AzureSearchModule extends ExternalSearchModule {
    * completed with this engine's own `definition.yml` defaults.
    *
    * Read through `models/search.ts`'s `getEngineConfig`, the same path `algolia` and `elasticsearch`
-   * already used, rather than straight off `WIKI.sites`. This module used to read the raw stored
+   * already used, rather than straight off `CARDINAL.sites`. This module used to read the raw stored
    * object instead, on the grounds that `getEngineConfig` needs `search.definitions` to have been
    * populated by `refreshFromDisk()` first — but `index.ts` does call `refreshFromDisk()` before
    * `initActiveEngines()`, and before any request can reach a hook here, so that precondition always
@@ -452,7 +452,7 @@ export class AzureSearchModule extends ExternalSearchModule {
     const indexName = config.indexName
     const client = this.clientFor(siteId, config)
     await client.createOrUpdateIndex(buildIndexSchema(indexName))
-    WIKI.logger.info('search', 'index provisioned', {
+    CARDINAL.logger.info('search', 'index provisioned', {
       engine: MODULE_KEY,
       index: indexName,
       site: siteId
@@ -730,7 +730,7 @@ export class AzureSearchModule extends ExternalSearchModule {
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
-    WIKI.logger.debug('search', 'rebuilding the index', {
+    CARDINAL.logger.debug('search', 'rebuilding the index', {
       engine: MODULE_KEY,
       site: siteId,
       locales: locales.length
@@ -752,7 +752,7 @@ export class AzureSearchModule extends ExternalSearchModule {
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
-      WIKI.logger.debug('search', 'locale reindexed', {
+      CARDINAL.logger.debug('search', 'locale reindexed', {
         engine: MODULE_KEY,
         locale,
         pages: localePages
@@ -764,14 +764,14 @@ export class AzureSearchModule extends ExternalSearchModule {
       for (const idBatch of chunk(staleIds, REBUILD_BATCH_SIZE)) {
         await client.deleteDocuments('id', idBatch)
       }
-      WIKI.logger.info('search', 'purged stale documents', {
+      CARDINAL.logger.info('search', 'purged stale documents', {
         engine: MODULE_KEY,
         site: siteId,
         documents: staleIds.length
       })
     }
 
-    WIKI.logger.info('search', 'index rebuild completed', {
+    CARDINAL.logger.info('search', 'index rebuild completed', {
       engine: MODULE_KEY,
       site: siteId,
       pages: result.pages,

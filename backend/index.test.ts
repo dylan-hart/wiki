@@ -106,7 +106,7 @@ describe('rate limiter hook wiring (index.ts)', () => {
       hits.set(key, n)
       return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
     })
-    ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 1
+    ;(globalThis as any).CARDINAL.config.security.apiRateLimitMax = 1
 
     // First /_api/ request consumes the /_api/ bucket's one allowed slot.
     const firstApi = await app.inject({ method: 'GET', url: '/_api/pages' })
@@ -128,7 +128,7 @@ describe('rate limiter hook wiring (index.ts)', () => {
  * (`/_thumb`) regardless of whether a valid token was sent — silently defeating those controllers'
  * own `enforceApiKeySite()` calls (`files.ts`, `site.ts`) and `actorForRequest()`-mediated site-pin
  * check (`thumb.ts`). Wired here exactly as `index.ts` wires it (same `isBearerAuthenticatedPath`
- * gate, same header parsing, same `WIKI.models.apiKeys.verify()` and `limitApiKey()` calls), so the
+ * gate, same header parsing, same `CARDINAL.models.apiKeys.verify()` and `limitApiKey()` calls), so the
  * only thing under test is the wiring: that `req.apiKey` now actually gets populated on the three
  * newly-covered prefixes, and still doesn't on a route this fix deliberately leaves alone.
  */
@@ -175,7 +175,7 @@ describe('API-key population hook wiring (index.ts)', () => {
         return
       }
       try {
-        ;(req as any).apiKey = await WIKI.models.apiKeys.verify(token)
+        ;(req as any).apiKey = await CARDINAL.models.apiKeys.verify(token)
       } catch (err: any) {
         return reply.unauthorized(err.message)
       }
@@ -261,10 +261,10 @@ describe('API-key population hook wiring (index.ts)', () => {
 })
 
 /**
- * OpenProject #2048: `WIKI.db = await dbManager.init()` used to run *before* `preBoot()`'s
+ * OpenProject #2048: `CARDINAL.db = await dbManager.init()` used to run *before* `preBoot()`'s
  * `try` opened, and nothing in `backend/` installs an `unhandledRejection` handler -- so a
  * migration or connection failure at boot killed the process with a bare unhandled-rejection
- * stack instead of the same deliberate "database initialization failed" + `WIKI.logger.error` +
+ * stack instead of the same deliberate "database initialization failed" + `CARDINAL.logger.error` +
  * `process.exit(1)` every other preBoot failure (e.g. an empty settings table) already got.
  * Fixed by moving the `try` up to wrap the db init calls too.
  *
@@ -368,7 +368,7 @@ test(
  * docs-*.test.ts files in this directory lock down structural properties of otherwise-unexecutable
  * targets.
  *
- * Regression coverage for OpenProject #2062: `WIKI.server.setReady()` must not fire until `postBoot()`
+ * Regression coverage for OpenProject #2062: `CARDINAL.server.setReady()` must not fire until `postBoot()`
  * has resolved. `postBoot()` is what actually makes the instance able to answer a page request --
  * `sites.reloadCache()` in particular, without which every request resolves to `not-found`. Signalling
  * ready any earlier (the old behavior: the last statement of `initHTTPServer()`, right after the
@@ -402,7 +402,7 @@ function extractFunctionBody(source: string, name: string): string {
 }
 
 describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
-  test('initHTTPServer() no longer calls WIKI.server.setReady()', () => {
+  test('initHTTPServer() no longer calls CARDINAL.server.setReady()', () => {
     const body = extractFunctionBody(indexTs, 'initHTTPServer')
     assert.doesNotMatch(body, /setReady/)
   })
@@ -411,7 +411,7 @@ describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
     const preBootIdx = indexTs.indexOf('await preBoot()')
     const initHTTPServerIdx = indexTs.indexOf('await initHTTPServer()')
     const postBootIdx = indexTs.indexOf('runBootPhaseOrExit(postBoot,')
-    const setReadyIdx = indexTs.lastIndexOf('WIKI.server.setReady()')
+    const setReadyIdx = indexTs.lastIndexOf('CARDINAL.server.setReady()')
 
     assert.notEqual(preBootIdx, -1, 'expected a module-level `await preBoot()`')
     assert.notEqual(initHTTPServerIdx, -1, 'expected a module-level `await initHTTPServer()`')
@@ -420,7 +420,7 @@ describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
       -1,
       'expected a module-level `await runBootPhaseOrExit(postBoot, ...)`'
     )
-    assert.notEqual(setReadyIdx, -1, 'expected a module-level `WIKI.server.setReady()` call')
+    assert.notEqual(setReadyIdx, -1, 'expected a module-level `CARDINAL.server.setReady()` call')
 
     assert.ok(preBootIdx < initHTTPServerIdx, 'preBoot() must be awaited before initHTTPServer()')
     assert.ok(initHTTPServerIdx < postBootIdx, 'initHTTPServer() must be awaited before postBoot()')
@@ -431,8 +431,8 @@ describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
   })
 
   test('setReady() is the final statement of the boot sequence, with nothing after it', () => {
-    const setReadyIdx = indexTs.lastIndexOf('WIKI.server.setReady()')
-    const trailing = indexTs.slice(setReadyIdx + 'WIKI.server.setReady()'.length)
+    const setReadyIdx = indexTs.lastIndexOf('CARDINAL.server.setReady()')
+    const trailing = indexTs.slice(setReadyIdx + 'CARDINAL.server.setReady()'.length)
     // Only whitespace (and an optional trailing newline) should remain in the file after it.
     assert.match(trailing, /^\s*$/)
   })
@@ -447,7 +447,7 @@ describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
  */
 describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
   test('the starting line reports the resolved config path and the honoured overrides', () => {
-    const startingIdx = indexTs.indexOf("WIKI.logger.info('boot', 'starting'")
+    const startingIdx = indexTs.indexOf("CARDINAL.logger.info('boot', 'starting'")
     assert.notEqual(startingIdx, -1, "expected one `info('boot', 'starting', …)` call")
     const call = indexTs.slice(startingIdx, indexTs.indexOf('})', startingIdx))
 
@@ -459,17 +459,17 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
   })
 
   test('the provenance comes back from configSvc.init(), not from a second read of the environment', () => {
-    assert.match(indexTs, /const configProvenance = await WIKI\.configSvc\.init\(\)/)
-    // -> `init()` runs before `WIKI.logger` exists, so it returns this rather than logging it.
-    const initIdx = indexTs.indexOf('await WIKI.configSvc.init()')
+    assert.match(indexTs, /const configProvenance = await CARDINAL\.configSvc\.init\(\)/)
+    // -> `init()` runs before `CARDINAL.logger` exists, so it returns this rather than logging it.
+    const initIdx = indexTs.indexOf('await CARDINAL.configSvc.init()')
     // -> Matched as a call prefix, not an exact `init()`: the logger now takes an options object
     //    (OpenProject #2663), and this assertion is about ordering, not about its arguments.
-    const loggerInitIdx = indexTs.indexOf('WIKI.logger = logger.init(')
+    const loggerInitIdx = indexTs.indexOf('CARDINAL.logger = logger.init(')
     assert.ok(initIdx < loggerInitIdx, 'config must still be loaded before the logger is built')
   })
 
   /** Whitespace-tolerant, so reformatting the call across lines does not read as a missing line. */
-  const READY_CALL = /WIKI\.logger\.info\(\s*'boot',\s*'ready',/
+  const READY_CALL = /CARDINAL\.logger\.info\(\s*'boot',\s*'ready',/
 
   test('the ready line is emitted exactly once, after postBoot() and before setReady()', () => {
     const readyMatch = READY_CALL.exec(indexTs)
@@ -482,7 +482,7 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
     )
 
     const postBootIdx = indexTs.indexOf('runBootPhaseOrExit(postBoot,')
-    const setReadyIdx = indexTs.lastIndexOf('WIKI.server.setReady()')
+    const setReadyIdx = indexTs.lastIndexOf('CARDINAL.server.setReady()')
     assert.ok(postBootIdx < readyIdx, 'every postBoot() summary must land before the ready line')
     // -> Before `setReady()`, not after: `setReady()` logs nothing, so this is still the last line
     //    written, and the "nothing follows setReady()" assertion above stays true.
@@ -495,11 +495,11 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
     const call = indexTs.slice(readyIdx, indexTs.indexOf('\n)', readyIdx))
 
     assert.match(call, /readyFields\(\{/)
-    assert.match(call, /sites: WIKI\.sites/)
-    assert.match(call, /bindIP: WIKI\.config\.bindIP/)
-    assert.match(call, /port: WIKI\.config\.port/)
-    // -> Wall time since the `WIKI` literal's own `Temporal.Now.instant()`, as a number, which is
+    assert.match(call, /sites: CARDINAL\.sites/)
+    assert.match(call, /bindIP: CARDINAL\.config\.bindIP/)
+    assert.match(call, /port: CARDINAL\.config\.port/)
+    // -> Wall time since the `CARDINAL` literal's own `Temporal.Now.instant()`, as a number, which is
     //    what the text renderer needs to print it as a closing `in 1.2s` clause.
-    assert.match(call, /ms: Temporal\.Now\.instant\(\)\.epochMilliseconds - WIKI\.startedAt\./)
+    assert.match(call, /ms: Temporal\.Now\.instant\(\)\.epochMilliseconds - CARDINAL\.startedAt\./)
   })
 })

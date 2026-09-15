@@ -11,7 +11,7 @@ import type { GroupRule } from '../../models/groups.ts'
  * Route-wiring tests for `GET /sites/:siteId/pages/deleted` and
  * `POST /sites/:siteId/pages/deleted/:versionId/recover`.
  *
- * `WIKI.models.pageHistory` and `WIKI.models.groups` are stubbed rather than backed by a real
+ * `CARDINAL.models.pageHistory` and `CARDINAL.models.groups` are stubbed rather than backed by a real
  * database — the model layer (listRecoverable, getDeletedVersion, recoverDeletedPage) already has
  * its own coverage from the task that added it. What this file checks is the route's own logic: that
  * the list is filtered per row by `read:history` rather than answered as a whole-list 403, that
@@ -298,10 +298,10 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted forwards limit and cursor query params to the model', async () => {
-    const original = (globalThis as any).WIKI.models.pageHistory.listRecoverable
+    const original = (globalThis as any).CARDINAL.models.pageHistory.listRecoverable
     let seenOpts: any
     try {
-      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = async (
+      ;(globalThis as any).CARDINAL.models.pageHistory.listRecoverable = async (
         _siteId: string,
         opts: any
       ) => {
@@ -318,7 +318,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       assert.equal(res.statusCode, 200)
       assert.deepEqual(seenOpts, { limit: 10, cursor: 'abc123' })
     } finally {
-      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = original
+      ;(globalThis as any).CARDINAL.models.pageHistory.listRecoverable = original
     }
   })
 
@@ -751,7 +751,7 @@ describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () =
 /**
  * OpenProject #1864: `GET /sites/:siteId/pages/deleted`'s per-row `read:history` filter used to call
  * `mayOnPage(req, ...)` once per row, which rebuilds the actor internally on every call. It now
- * hoists `WIKI.models.groups.actorForRequest(req)` once per request and calls `checkAccess(actor,
+ * hoists `CARDINAL.models.groups.actorForRequest(req)` once per request and calls `checkAccess(actor,
  * ...)` per row directly -- the same shape `tree.ts`'s `visibleTreeItems()` and the graph route use.
  */
 describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row filter (OpenProject #1864)', () => {

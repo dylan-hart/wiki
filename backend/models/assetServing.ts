@@ -77,7 +77,7 @@ class AssetServing {
       return cached.asset
     }
 
-    const asset = await WIKI.models.assets.getAssetByPath(siteId, filePath)
+    const asset = await CARDINAL.models.assets.getAssetByPath(siteId, filePath)
     if (!asset) {
       // -> A path with nothing at it is not remembered as empty: a file uploaded there has no way to
       //    find the entry and clear it, and it would answer 404 for as long as the entry lived
@@ -134,7 +134,7 @@ class AssetServing {
     siteId: string,
     asset?: { kind: AssetKind; fileSize: number }
   ): Promise<StorageTarget | null> {
-    const targets = await WIKI.models.storage.getSiteTargets(siteId)
+    const targets = await CARDINAL.models.storage.getSiteTargets(siteId)
     if (asset) {
       const directAccessTarget = targets.find(
         (t) =>
@@ -161,7 +161,7 @@ class AssetServing {
     if (!target.assetDelivery.directAccess || !target.assetDelivery.isDirectAccessSupported) {
       return null
     }
-    const mod = await WIKI.models.storage.ensureModule(target.module)
+    const mod = await CARDINAL.models.storage.ensureModule(target.module)
     if (!mod?.getDirectUrl) {
       return null
     }
@@ -216,7 +216,7 @@ class AssetServing {
       }
     }
 
-    const content = await WIKI.models.assets.getContent(asset.id)
+    const content = await CARDINAL.models.assets.getContent(asset.id)
     if (!content) {
       return null
     }
@@ -290,7 +290,10 @@ class AssetServing {
       await fs.writeFile(tempPath, data)
       await fs.rename(tempPath, filePath)
     } catch (err: any) {
-      WIKI.logger.warn('assets', 'writing to the file cache failed', { path: filePath, error: err })
+      CARDINAL.logger.warn('assets', 'writing to the file cache failed', {
+        path: filePath,
+        error: err
+      })
       await fs.rm(tempPath, { force: true }).catch(() => {})
       return
     }
@@ -370,9 +373,9 @@ class AssetServing {
         total -= file.size
         removed++
       }
-      WIKI.logger.debug('assets', 'trimmed the file cache', { files: removed })
+      CARDINAL.logger.debug('assets', 'trimmed the file cache', { files: removed })
     } catch (err: any) {
-      WIKI.logger.warn('assets', 'sweeping the file cache failed', { error: err })
+      CARDINAL.logger.warn('assets', 'sweeping the file cache failed', { error: err })
     } finally {
       this.sweeping = false
     }
@@ -391,17 +394,17 @@ class AssetServing {
     this.writtenSinceSweep = 0
     await fs.rm(this.cachePath, { recursive: true, force: true })
     await fs.mkdir(this.cachePath, { recursive: true })
-    WIKI.logger.info('assets', 'purged the file cache')
+    CARDINAL.logger.info('assets', 'purged the file cache')
   }
 
   /** Where the disk cache lives. Derived data — deleting it costs a refill and nothing else. */
   get cachePath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'cache/files')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'cache/files')
   }
 
   /** How large the disk cache may grow, in bytes. Zero turns it off. */
   get cacheMaxSize(): number {
-    return WIKI.config.files?.cacheMaxSize ?? DEFAULT_CACHE_MAX_SIZE
+    return CARDINAL.config.files?.cacheMaxSize ?? DEFAULT_CACHE_MAX_SIZE
   }
 }
 

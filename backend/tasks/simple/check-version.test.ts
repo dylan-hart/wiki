@@ -5,8 +5,8 @@ import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `task()` is the daily `checkVersion` scheduled job: it fetches the latest release off GitHub and
- * saves it into `WIKI.config.update`. No database or real network involved — `fetch` and
- * `WIKI.configSvc.saveToDb` are stubbed, the same no-`WIKI`-global-until-`beforeEach` pattern
+ * saves it into `CARDINAL.config.update`. No database or real network involved — `fetch` and
+ * `CARDINAL.configSvc.saveToDb` are stubbed, the same no-`CARDINAL`-global-until-`beforeEach` pattern
  * `send-watch-digests.test.ts` uses.
  */
 
@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('check-version.task', () => {
-  test('fetches the latest release and saves it to WIKI.config.update', async () => {
+  test('fetches the latest release and saves it to CARDINAL.config.update', async () => {
     globalThis.fetch = mock.fn(
       async () =>
         new Response(JSON.stringify({ tag_name: 'v3.1.0', published_at: '2026-08-01T00:00:00Z' }), {
@@ -47,16 +47,16 @@ describe('check-version.task', () => {
 
     await checkVersion()
 
-    assert.equal(WIKI.config.update.version, '3.1.0')
-    assert.equal(WIKI.config.update.versionDate, '2026-08-01T00:00:00Z')
+    assert.equal(CARDINAL.config.update.version, '3.1.0')
+    assert.equal(CARDINAL.config.update.versionDate, '2026-08-01T00:00:00Z')
     assert.equal(saveToDb.mock.callCount(), 1)
   })
 
-  test('merges into WIKI.config.update rather than replacing it, preserving an existing locales opt-out (OpenProject #2059)', async () => {
+  test('merges into CARDINAL.config.update rather than replacing it, preserving an existing locales opt-out (OpenProject #2059)', async () => {
     // -> 2026-08-24 audit finding §5 / OpenProject #2059: `update` also holds `locales` (an
     //    operator's opt-out of the daily `updateLocales` sync, `base.yml`'s `update.locales`) -- a
     //    bare assignment previously discarded it on every run after the first.
-    WIKI.config.update = { locales: false }
+    CARDINAL.config.update = { locales: false }
     globalThis.fetch = mock.fn(
       async () =>
         new Response(JSON.stringify({ tag_name: 'v3.1.0', published_at: '2026-08-01T00:00:00Z' }), {
@@ -66,15 +66,15 @@ describe('check-version.task', () => {
 
     await checkVersion()
 
-    assert.equal(WIKI.config.update.locales, false)
-    assert.equal(WIKI.config.update.version, '3.1.0')
-    assert.equal(WIKI.config.update.versionDate, '2026-08-01T00:00:00Z')
-    assert.ok(WIKI.config.update.lastCheckedAt)
+    assert.equal(CARDINAL.config.update.locales, false)
+    assert.equal(CARDINAL.config.update.version, '3.1.0')
+    assert.equal(CARDINAL.config.update.versionDate, '2026-08-01T00:00:00Z')
+    assert.ok(CARDINAL.config.update.lastCheckedAt)
     assert.equal(saveToDb.mock.callCount(), 1)
   })
 
   test('does nothing when the instance is in offline mode (OpenProject #820)', async () => {
-    WIKI.config = { offline: true }
+    CARDINAL.config = { offline: true }
     const fetchSpy = mock.fn()
     globalThis.fetch = fetchSpy as unknown as typeof fetch
 

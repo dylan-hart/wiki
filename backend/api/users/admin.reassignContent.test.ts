@@ -9,7 +9,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * covers `reassignContent()`'s own SQL orchestration and validation against a real database, so what
  * is left to verify here is the route's own wiring — user lookup, the `systemUserGuard` reuse it
  * shares with every other mutation on a `userId`, and turning a thrown `ERR_*` into a 400 the way
- * `rethrowAsBadRequest` does everywhere else in this file. `WIKI.models.users` and `WIKI.models.groups`
+ * `rethrowAsBadRequest` does everywhere else in this file. `CARDINAL.models.users` and `CARDINAL.models.groups`
  * are stubbed so the request never touches the database.
  */
 

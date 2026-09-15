@@ -36,7 +36,7 @@ export async function handleListNavigation(
   }
 
   const locale = args.locale ?? defaultLocale(site.id)
-  const level = await WIKI.models.tree.browse({
+  const level = await CARDINAL.models.tree.browse({
     siteId: site.id,
     path: args.path,
     locale,
@@ -52,7 +52,7 @@ export async function handleListNavigation(
   return toResult({
     ...level,
     items: level.items.filter((item) =>
-      WIKI.models.groups.checkAccess(actor, 'read:pages', {
+      CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
         path: item.path,
         siteId: site.id,
         locale,

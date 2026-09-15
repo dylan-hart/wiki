@@ -259,26 +259,26 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
  * providers now declare `isAvailable: false` instead -- `codeTemplate` remains a descriptive field
  * on the definition (still read off disk below), it just no longer feeds `isSelectable()`.
  *
- * No `WIKI` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
+ * No `CARDINAL` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
  * reads disk, and points at this repo's own real `modules/comments/` directory (not a fixture) so
  * this test exercises the actual Disqus/Commento/Artalk/default definitions rather than stand-ins.
  */
 describe('commentProviders (definition loading)', () => {
-  let previousWiki: WikiGlobal | undefined
+  let previousWiki: CardinalGlobal | undefined
   let commentProvidersModel: typeof import('./commentProviders.ts').commentProviders
 
   before(async () => {
-    previousWiki = global.WIKI
-    global.WIKI = {
+    previousWiki = global.CARDINAL
+    global.CARDINAL = {
       SERVERPATH: path.join(import.meta.dirname, '..'),
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
-    } as unknown as WikiGlobal
+    } as unknown as CardinalGlobal
     ;({ commentProviders: commentProvidersModel } = await import('./commentProviders.ts'))
     await commentProvidersModel.refreshFromDisk()
   })
 
   after(() => {
-    global.WIKI = previousWiki as WikiGlobal
+    global.CARDINAL = previousWiki as CardinalGlobal
   })
 
   test('reads codeTemplate off each definition.yml, defaulting to false when absent', () => {

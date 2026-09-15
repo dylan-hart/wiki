@@ -87,7 +87,7 @@ export async function handleUploadAsset(
   if (data.length < 1) {
     throw new McpToolError('No file content was sent.')
   }
-  const maxFileSize = WIKI.config.security?.uploadMaxFileSize ?? 10485760
+  const maxFileSize = CARDINAL.config.security?.uploadMaxFileSize ?? 10485760
   if (data.length > maxFileSize) {
     throw new McpToolError(
       `This file (${data.length} bytes) exceeds the ${maxFileSize}-byte upload limit for this instance.`
@@ -98,7 +98,9 @@ export async function handleUploadAsset(
 
   // -> Scoped by siteId (mirrors OpenProject #2127): a caller-supplied folderId belonging to another
   //    site resolves to nothing here, same as an unknown id.
-  const folder = args.folderId ? await WIKI.models.tree.getFolderById(args.folderId, site.id) : null
+  const folder = args.folderId
+    ? await CARDINAL.models.tree.getFolderById(args.folderId, site.id)
+    : null
   if (args.folderId && !folder) {
     throw new McpToolError('This folder does not exist.')
   }
@@ -109,7 +111,7 @@ export async function handleUploadAsset(
     : parentPath
 
   if (
-    !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:assets', {
+    !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'write:assets', {
       path: destination ? `${destination}/${args.fileName}` : args.fileName,
       siteId: site.id,
       locale,
@@ -127,7 +129,7 @@ export async function handleUploadAsset(
     ? folder!.id
     : parentPath
       ? (
-          await WIKI.models.tree.getFolder({
+          await CARDINAL.models.tree.getFolder({
             path: parentPath,
             locale,
             siteId: site.id,
@@ -138,7 +140,7 @@ export async function handleUploadAsset(
 
   let asset
   try {
-    asset = await WIKI.models.assets.upload({
+    asset = await CARDINAL.models.assets.upload({
       siteId: site.id,
       locale,
       folderId,
@@ -153,7 +155,7 @@ export async function handleUploadAsset(
 
   // -> #1118: same instance-wide-visibility reasoning as `create_page`/`update_page`'s own
   //   instrumentation, extended to the asset write tools.
-  await WIKI.models.auditLog.record({
+  await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),
     targetType: 'asset',

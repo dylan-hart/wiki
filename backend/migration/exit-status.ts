@@ -3,7 +3,7 @@ import type { MigrationPhaseId, PhaseResult } from './context.ts'
 /**
  * Pure exit-code policy for `tasks/migrate.ts`'s CLI — pulled into its own module (rather than living
  * inline in `migrate.ts`, where it started, or being exported from there) specifically so it can be
- * unit-tested with no live `WIKI`/db needed. `tasks/migrate.ts` cannot safely be `import`ed by a test
+ * unit-tested with no live `CARDINAL`/db needed. `tasks/migrate.ts` cannot safely be `import`ed by a test
  * file at all: its own module-top-level `main().catch(...)` call runs unconditionally the moment the
  * module loads, attempting to parse `process.argv` as migration CLI args and boot a real destination
  * connection — exactly the "never import this file" constraint `migrate.test.ts`'s own module doc

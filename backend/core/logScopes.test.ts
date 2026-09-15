@@ -4,7 +4,7 @@ import { LOG_SCOPES, type LogScope } from './logScopes.ts'
 import { LOG_SCOPES as reexported } from './logger.ts'
 
 /**
- * Pure unit test: the vocabulary is a plain array, so nothing here needs a `WIKI` global, a database
+ * Pure unit test: the vocabulary is a plain array, so nothing here needs a `CARDINAL` global, a database
  * or the logger's renderer.
  */
 describe('LOG_SCOPES', () => {

@@ -60,7 +60,7 @@ export interface NotifyPageWatchersPayload {
  *
  * OpenProject #2173: `read:pages` is re-checked once more here, right before the immediate-send loop
  * — a scheduler backlog can put real time between `notifyWatchers`'s own synchronous check (at page-
- * change time) and this job actually running. Checked with `WIKI.models.pageWatchEvents.filterReadable`
+ * change time) and this job actually running. Checked with `CARDINAL.models.pageWatchEvents.filterReadable`
  * (shared with the in-app inbox's read-time re-check and the digest job's own send-time one) against
  * the live page where one still exists, falling back to this payload's own `pagePath`/`pageLocale` for
  * a `deleted` action, whose page row is already gone by the time this runs. Only gates the immediate
@@ -88,7 +88,7 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
   try {
     recorded = recordedEvents
       ? recordedEvents
-      : await WIKI.models.pageWatchEvents.recordMany(
+      : await CARDINAL.models.pageWatchEvents.recordMany(
           watchers.map((watcher) => ({
             siteId,
             pageId,
@@ -103,7 +103,7 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
           }))
         )
   } catch (err: any) {
-    WIKI.logger.error('hooks', 'failed to record page watch notifications', {
+    CARDINAL.logger.error('hooks', 'failed to record page watch notifications', {
       page: pageId,
       error: err
     })
@@ -116,7 +116,7 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
   }
 
   const eventIdByUserId = new Map(recorded.map((row) => [row.userId, row.id]))
-  const actorUser = await WIKI.models.users.getById(actorId)
+  const actorUser = await CARDINAL.models.users.getById(actorId)
   const actorName = actorUser?.name ?? 'Someone'
 
   for (const watcher of immediateWatchers) {
@@ -127,23 +127,23 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
     // -> OpenProject #2173: re-checked once more, right before the send -- see this file's own doc
     //    comment above. A single-item batch: `filterReadable` is keyed to one user's events, and each
     //    watcher here is a different user.
-    const readable = await WIKI.models.pageWatchEvents.filterReadable(watcher.userId, [
+    const readable = await CARDINAL.models.pageWatchEvents.filterReadable(watcher.userId, [
       { pageId, pagePath, pageLocale, siteId }
     ])
     if (readable.length < 1) {
       continue
     }
     try {
-      const recipient = await WIKI.models.users.getById(watcher.userId)
+      const recipient = await CARDINAL.models.users.getById(watcher.userId)
       if (!recipient?.email) {
         // -> `debug`: recurs on every run for the same account (see `notify-event-subscribers.ts`).
-        WIKI.logger.debug('hooks', 'immediate watch notification skipped, no email address', {
+        CARDINAL.logger.debug('hooks', 'immediate watch notification skipped, no email address', {
           page: pageId,
           user: watcher.userId
         })
         continue
       }
-      await WIKI.models.mail.sendPageWatchNotification({
+      await CARDINAL.models.mail.sendPageWatchNotification({
         to: recipient.email,
         siteId,
         page: { title: pageTitle, path: pagePath, locale: pageLocale },
@@ -153,11 +153,11 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
         userId: watcher.userId,
         locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
-      await WIKI.models.pageWatchEvents.markDelivered(eventId)
+      await CARDINAL.models.pageWatchEvents.markDelivered(eventId)
     } catch (err: any) {
       // -> Logged loudly, not thrown: the pending row above already guarantees this is not lost, and
       //    throwing here would retry `recordMany` too (see this file's own doc comment).
-      WIKI.logger.error('hooks', 'failed to send immediate watch notification', {
+      CARDINAL.logger.error('hooks', 'failed to send immediate watch notification', {
         page: pageId,
         user: watcher.userId,
         error: err

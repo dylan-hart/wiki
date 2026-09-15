@@ -134,7 +134,7 @@ const MAX_CONTENT_LENGTH = 32768
 const DEFAULT_LIMIT = 25
 
 /** Guest identity columns (`guestName`/`guestEmail`/`guestIp`) are retained no longer than this by
- *  default -- admin-configurable via `WIKI.config.comments?.guestPiiRetentionDays`. See
+ *  default -- admin-configurable via `CARDINAL.config.comments?.guestPiiRetentionDays`. See
  *  `purgeGuestPii()`. Mirrors `auditLog`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS` shape. */
 const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
 
@@ -151,7 +151,7 @@ const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
  * Two things this deliberately does NOT do, both on purpose:
  *
  * - **No permission checks.** Neither `models/pages.ts` nor `models/pageWatching.ts` calls
- *   `WIKI.models.groups.checkAccess()` from inside the model — that happens one layer up, in the API
+ *   `CARDINAL.models.groups.checkAccess()` from inside the model — that happens one layer up, in the API
  *   route handler, which is where `FastifyRequest` and the session/actor legitimately live
  *   (`mayOnPage` in `helpers/pageAccess.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
  *   follows the same layering: no `FastifyRequest` import, no embedded access check.
@@ -224,7 +224,7 @@ class Comments {
       throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .insert(commentsTable)
       .values({
         siteId,
@@ -255,7 +255,7 @@ class Comments {
    * real id does a second pass resolve and patch each one's true `replyTo` in with this method.
    */
   async setReplyTo(id: string, replyTo: string): Promise<void> {
-    await WIKI.db.update(commentsTable).set({ replyTo }).where(eq(commentsTable.id, id))
+    await CARDINAL.db.update(commentsTable).set({ replyTo }).where(eq(commentsTable.id, id))
   }
 
   /**
@@ -274,7 +274,7 @@ class Comments {
       throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .update(commentsTable)
       .set({
         content: trimmed,
@@ -293,7 +293,11 @@ class Comments {
    * directly rather than searching a page's whole `listForPage` tree for one id.
    */
   async get(id: string): Promise<Comment | null> {
-    const rows = await WIKI.db.select().from(commentsTable).where(eq(commentsTable.id, id)).limit(1)
+    const rows = await CARDINAL.db
+      .select()
+      .from(commentsTable)
+      .where(eq(commentsTable.id, id))
+      .limit(1)
     return rows[0] ?? null
   }
 
@@ -307,7 +311,7 @@ class Comments {
    */
   async delete(id: string): Promise<void> {
     const existing = await this.get(id)
-    await WIKI.db.delete(commentsTable).where(eq(commentsTable.id, id))
+    await CARDINAL.db.delete(commentsTable).where(eq(commentsTable.id, id))
     if (existing) {
       await this.emitEvent('comment:delete', existing)
     }
@@ -329,7 +333,7 @@ class Comments {
     const cutoff = new Date(
       Temporal.Now.instant().subtract({ hours: retentionDays * 24 }).epochMilliseconds
     )
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(commentsTable)
       .set({ guestName: null, guestEmail: null, guestIp: null })
       .where(
@@ -345,7 +349,7 @@ class Comments {
       )
     const purged = result.rowCount ?? 0
     if (purged > 0) {
-      WIKI.logger.info('pages', 'purged guest PII from old comments', {
+      CARDINAL.logger.info('pages', 'purged guest PII from old comments', {
         comments: purged,
         retentionDays
       })
@@ -355,7 +359,7 @@ class Comments {
 
   /** The configured guest-PII retention window, in days. */
   getGuestPiiRetentionDays(): number {
-    return WIKI.config.comments?.guestPiiRetentionDays ?? DEFAULT_GUEST_PII_RETENTION_DAYS
+    return CARDINAL.config.comments?.guestPiiRetentionDays ?? DEFAULT_GUEST_PII_RETENTION_DAYS
   }
 
   /**
@@ -374,7 +378,7 @@ class Comments {
    * to the top level (which would misrepresent an orphaned reply as a fresh comment) or throwing.
    */
   async listForPage(pageId: string): Promise<ThreadedComment[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: commentsTable.id,
         siteId: commentsTable.siteId,
@@ -398,7 +402,7 @@ class Comments {
 
   /** How many comments a page has, replies included. */
   async countForPage(pageId: string): Promise<number> {
-    return WIKI.db.$count(commentsTable, eq(commentsTable.pageId, pageId))
+    return CARDINAL.db.$count(commentsTable, eq(commentsTable.pageId, pageId))
   }
 
   /**
@@ -418,7 +422,7 @@ class Comments {
     if (pathFilter) {
       conditions.push(ilike(pagesTable.path, `${pathFilter}%`))
     }
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: pagesTable.id,
         path: pagesTable.path,
@@ -471,7 +475,7 @@ class Comments {
     const fetchSlice = (ids: string[] | null, sliceLimit: number, sliceOffset: number) => {
       const where = and(...baseConditions, ...(ids ? [inArray(commentsTable.pageId, ids)] : []))
       return Promise.all([
-        WIKI.db
+        CARDINAL.db
           .select({
             id: commentsTable.id,
             siteId: commentsTable.siteId,
@@ -491,7 +495,7 @@ class Comments {
           .orderBy(desc(commentsTable.createdAt))
           .limit(sliceLimit)
           .offset(sliceOffset),
-        WIKI.db
+        CARDINAL.db
           .select({ count: sql<number>`count(*)::int` })
           .from(commentsTable)
           .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
@@ -532,7 +536,7 @@ class Comments {
 
   /** A single comment plus enough of its page to decide `manage:comments` against, or `null`. */
   async getWithPage(id: string): Promise<AdminCommentWithPage | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: commentsTable.id,
         siteId: commentsTable.siteId,
@@ -576,7 +580,7 @@ class Comments {
     guestName: string | null
   }): Promise<string> {
     if (comment.authorId) {
-      const user = await WIKI.models.users.getById(comment.authorId)
+      const user = await CARDINAL.models.users.getById(comment.authorId)
       if (user) {
         return user.name
       }
@@ -602,7 +606,7 @@ class Comments {
       authorId: comment.authorId,
       isGuest: comment.authorId === null
     }
-    await WIKI.models.hooks.emit(
+    await CARDINAL.models.hooks.emit(
       event,
       comment.siteId,
       event === 'comment:delete'

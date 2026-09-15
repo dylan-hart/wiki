@@ -60,7 +60,7 @@ class RateLimits {
     */
     const rolledOver = sql`"rateLimits"."bannedUntil" is not null or "rateLimits"."windowStartedAt" <= now() - ${window}`
     const stillBanned = sql`"rateLimits"."bannedUntil" > now()`
-    const rows = await WIKI.db.execute(sql`
+    const rows = await CARDINAL.db.execute(sql`
       insert into "rateLimits" ("key", "hits", "windowStartedAt", "updatedAt")
       values (${key}, 1, now(), now())
       on conflict ("key") do update set
@@ -98,7 +98,7 @@ class RateLimits {
    * Forget a key, e.g. once the attempt it was counting has succeeded.
    */
   async reset(key: string): Promise<void> {
-    await WIKI.db.delete(rateLimitsTable).where(sql`${rateLimitsTable.key} = ${key}`)
+    await CARDINAL.db.delete(rateLimitsTable).where(sql`${rateLimitsTable.key} = ${key}`)
   }
 
   /**
@@ -111,7 +111,7 @@ class RateLimits {
    * @returns How many rows were dropped
    */
   async purgeStale(): Promise<number> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(rateLimitsTable)
       .where(lt(rateLimitsTable.updatedAt, sql`now() - interval '1 day'`))
     return result.rowCount ?? 0

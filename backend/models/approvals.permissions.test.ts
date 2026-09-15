@@ -20,7 +20,7 @@ import type { GroupRule, AccessActor } from './groups.ts'
  * an assertion helper is what it actually was, so it lives here now rather than on the model.
  */
 async function countOpenSubmissions(pageId: string): Promise<number> {
-  return WIKI.db.$count(
+  return CARDINAL.db.$count(
     submissionsTable,
     and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.status, 'open'))
   )
@@ -79,9 +79,9 @@ describe(
       // -> A second group, granted `write:pages` too, for the "and still succeeds for one who does
       //    hold it" half of the done-when.
       //
-      // -> `updateGroup()` -> `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId`
-      //    unconditionally; the minimal `WIKI` from `setupTestDb()` leaves `WIKI.data` empty.
-      WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+      // -> `updateGroup()` -> `clampGuestPatch()` reads `CARDINAL.data.systemIds.guestsGroupId`
+      //    unconditionally; the minimal `CARDINAL` from `setupTestDb()` leaves `CARDINAL.data` empty.
+      CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
       const writeGroupId = await groupsModel.createGroup('WP2165 reviewers, with write:pages')
       await groupsModel.updateGroup(writeGroupId, {
         rules: [rule({ id: 'rule-write', roles: ['read:pages', 'write:pages'] })]

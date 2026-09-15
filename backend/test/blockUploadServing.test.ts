@@ -33,7 +33,7 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       // -> `installTestWiki()` (`test/db.ts`) leaves `config: {}` -- the upload route reads
-      //    `WIKI.config.security?.uploadMaxFileSize`, which is fine left undefined (its own `?? default`
+      //    `CARDINAL.config.security?.uploadMaxFileSize`, which is fine left undefined (its own `?? default`
       //    covers that), so nothing needs setting here beyond what `setupTestDb()` already did.
 
       app = fastify()

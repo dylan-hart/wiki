@@ -56,7 +56,7 @@ export interface PathAssignmentOptions {
   /** Whether `(locale, parentPath, fileName)` is already occupied by a pre-existing 3.0 tree entry in
    * `siteId`'s tree. Injected rather than queried directly: this module has no db access of its own,
    * matching `content-staging.ts`'s "stages, never writes" contract. `phases/content.ts` wires the
-   * real lookup against `WIKI.models.tree`; tests pass a plain function. */
+   * real lookup against `CARDINAL.models.tree`; tests pass a plain function. */
   existingEntry: (
     siteId: string,
     locale: string,

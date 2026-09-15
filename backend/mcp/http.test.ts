@@ -18,7 +18,7 @@ let wikiHandle: { restore(): void }
  * the rate limiter, and the session lifecycle the MCP SDK's `WebStandardStreamableHTTPServerTransport`
  * expects, all glued into Fastify's request/reply cycle including `reply.hijack()` and `webBridge.ts`'s
  * Fastify↔Web-Standard conversion. The transport's own protocol-framing correctness is the SDK's
- * problem, not this suite's; `WIKI.models.apiKeys.verify` and `WIKI.models.rateLimits.consume` are
+ * problem, not this suite's; `CARDINAL.models.apiKeys.verify` and `CARDINAL.models.rateLimits.consume` are
  * stubbed so no database is touched. `app` here is built with no explicit `bodyLimit`, so it runs
  * under Fastify's own 1 MiB default — exactly what the body-size-limit test below relies on.
  */

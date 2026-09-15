@@ -18,7 +18,7 @@ export interface LocaleRoutingConfig {
  * `models/pages.ts#defaultLocale`).
  */
 export function defaultLocale(siteId: string): string {
-  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
+  return CARDINAL.sites[siteId]?.config?.locales?.primary ?? 'en'
 }
 
 /**
@@ -32,7 +32,7 @@ export function defaultLocale(siteId: string): string {
  * @throws CustomError `pageInvalidLocale` (400) when the locale is not enabled on this site
  */
 export function assertLocaleActive(siteId: string, locale: string): void {
-  const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+  const activeLocales: string[] = CARDINAL.sites[siteId]?.config?.locales?.active ?? [
     defaultLocale(siteId)
   ]
   if (!activeLocales.includes(locale)) {
@@ -55,7 +55,7 @@ export function assertLocaleActive(siteId: string, locale: string): void {
  */
 export async function assertPathNotReservedLocale(path: string): Promise<void> {
   const firstSegment = path.split('/')[0] ?? ''
-  if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+  if (await CARDINAL.models.locales.isReservedLocaleCode(firstSegment)) {
     throw new CustomError(
       'pageReservedLocaleSegment',
       `"${firstSegment}" is an installed locale code and cannot begin a page path.`,

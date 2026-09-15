@@ -34,9 +34,9 @@ class ClassificationLevels extends ClusterReloaded {
    * through `broadcastReload()` instead, or the change never reaches the rest of the cluster.
    */
   async reloadCache(): Promise<void> {
-    const rows = await WIKI.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
+    const rows = await CARDINAL.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
     levelsCache = rows
-    WIKI.logger.debug('config', 'reloaded the classification levels', {
+    CARDINAL.logger.debug('config', 'reloaded the classification levels', {
       levels: levelsCache.length
     })
   }
@@ -141,11 +141,11 @@ class ClassificationLevels extends ClusterReloaded {
     if (name.length < 1) {
       throw new CustomError('classificationNameMissing', 'A classification level needs a name.')
     }
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({ max: sql<number>`coalesce(max(${levelsTable.sortOrder}), -1)` })
       .from(levelsTable)
     const sortOrder = (row?.max ?? -1) + 1
-    const inserted = await WIKI.db.insert(levelsTable).values({ name, sortOrder }).returning()
+    const inserted = await CARDINAL.db.insert(levelsTable).values({ name, sortOrder }).returning()
     await this.broadcastReload()
     return inserted[0]
   }
@@ -164,7 +164,7 @@ class ClassificationLevels extends ClusterReloaded {
       }
       values.name = name
     }
-    const updated = await WIKI.db
+    const updated = await CARDINAL.db
       .update(levelsTable)
       .set(values)
       .where(eq(levelsTable.id, id))
@@ -184,7 +184,7 @@ class ClassificationLevels extends ClusterReloaded {
    * real `0..N-1` positions once every row is out of that range.
    */
   async reorder(orderedIds: string[]): Promise<void> {
-    await WIKI.db.transaction(async (tx) => {
+    await CARDINAL.db.transaction(async (tx) => {
       const currentMin = Math.min(0, ...levelsCache.map((level) => level.sortOrder))
       const stagingBase = currentMin - orderedIds.length - 1
       for (const [index, id] of orderedIds.entries()) {
@@ -227,7 +227,7 @@ class ClassificationLevels extends ClusterReloaded {
         'At least one classification level must exist.'
       )
     }
-    const inUseByPages = await WIKI.db
+    const inUseByPages = await CARDINAL.db
       .select({ id: pagesTable.id })
       .from(pagesTable)
       .where(eq(pagesTable.classification, id))
@@ -239,7 +239,7 @@ class ClassificationLevels extends ClusterReloaded {
         409
       )
     }
-    const inUseByKeys = await WIKI.db
+    const inUseByKeys = await CARDINAL.db
       .select({ id: apiKeysTable.id })
       .from(apiKeysTable)
       .where(sql`${apiKeysTable.allowedClassifications} @> ${JSON.stringify([id])}::jsonb`)
@@ -251,7 +251,7 @@ class ClassificationLevels extends ClusterReloaded {
         409
       )
     }
-    const deleted = await WIKI.db.transaction(async (tx) => {
+    const deleted = await CARDINAL.db.transaction(async (tx) => {
       const result = await tx.delete(levelsTable).where(eq(levelsTable.id, id))
       if ((result.rowCount ?? 0) === 0) {
         return false
@@ -281,12 +281,12 @@ class ClassificationLevels extends ClusterReloaded {
    * hold pages backfills them rather than the migration failing outright. This call therefore always
    * finds them already present on every real boot (`core/config.ts#initDbValues()` only reaches here
    * after migrations have run) and is a no-op; it stays idempotent regardless, rather than depending
-   * on that ordering never changing, since a caller with no rows yet (a test building `WIKI` by hand
+   * on that ordering never changing, since a caller with no rows yet (a test building `CARDINAL` by hand
    * rather than through migrations) still gets seeded correctly.
    */
   async init(ids: SystemIds): Promise<void> {
-    WIKI.logger.debug('config', 'seeding the default classification levels')
-    await WIKI.db
+    CARDINAL.logger.debug('config', 'seeding the default classification levels')
+    await CARDINAL.db
       .insert(levelsTable)
       .values([
         { id: ids.classificationPublicId, name: 'Public', sortOrder: 0 },

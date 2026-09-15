@@ -72,15 +72,15 @@ export function isFollowableRedirectTarget(
 }
 
 /**
- * Whether `WIKI.config.security.disallowOpenRedirect` permits an absolute (off-site) redirect target
+ * Whether `CARDINAL.config.security.disallowOpenRedirect` permits an absolute (off-site) redirect target
  * right now — the shared on/off switch for the login/logout/authorize sinks. Off by inversion: the
  * setting is phrased as "disallow", `isFollowableRedirectTarget`'s option as "allow" — an absolute
  * target is refused only while the setting is explicitly `true` ("on"), matching the schema's own
  * wording (`api/schemas/security.ts`: "When on (the default)..."). A real boot always resolves this
  * to a concrete boolean (`base.yml` defaults it `true`, same as "on"), so the un-set case below only
- * ever arises where `WIKI.config` hasn't gone through that merge — a minimal test stub, for instance —
+ * ever arises where `CARDINAL.config` hasn't gone through that merge — a minimal test stub, for instance —
  * and is treated the same as "not on" rather than defensively as "on".
  */
 export function absoluteRedirectsAllowed(): boolean {
-  return WIKI.config.security?.disallowOpenRedirect !== true
+  return CARDINAL.config.security?.disallowOpenRedirect !== true
 }

@@ -43,10 +43,10 @@ export const SESSION_COOKIE_NAME_INSECURE = 'wikiSession'
  * logout's `clearCookie`, and the two places that forward the raw cookie value to the PDF export's
  * headless browser — calls this instead of the bare constant, so the choice can only ever drift in
  * one place. `shouldBlockCrossOriginApiRequest` below takes it as a parameter instead of calling this
- * directly, to stay a pure function with no `WIKI` dependency.
+ * directly, to stay a pure function with no `CARDINAL` dependency.
  */
 export function sessionCookieName(): string {
-  return WIKI.config.security?.cookieSecure === false
+  return CARDINAL.config.security?.cookieSecure === false
     ? SESSION_COOKIE_NAME_INSECURE
     : SESSION_COOKIE_NAME
 }
@@ -325,7 +325,7 @@ export function corsOrigin(security: {
         }
         return new RegExp(`^(?:${pattern})$`)
       } catch (err: any) {
-        WIKI.logger.warn(
+        CARDINAL.logger.warn(
           'config',
           'the CORS regex pattern is invalid, falling back to same-origin only',
           { error: err }

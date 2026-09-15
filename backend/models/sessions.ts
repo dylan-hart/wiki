@@ -14,7 +14,7 @@ class Sessions {
    * @returns Session data
    */
   async get(id: string): Promise<any> {
-    const res = await WIKI.db.select().from(sessionsTable).where(eq(sessionsTable.id, id))
+    const res = await CARDINAL.db.select().from(sessionsTable).where(eq(sessionsTable.id, id))
     return res?.[0]?.data ?? null
   }
 
@@ -25,7 +25,7 @@ class Sessions {
    * @param data Session Data
    */
   async set(id: string, data: any): Promise<void> {
-    await WIKI.db
+    await CARDINAL.db
       .insert(sessionsTable)
       .values([
         {
@@ -50,7 +50,7 @@ class Sessions {
    * @param id Session ID
    */
   async destroy(id: string) {
-    return WIKI.db.delete(sessionsTable).where(eq(sessionsTable.id, id))
+    return CARDINAL.db.delete(sessionsTable).where(eq(sessionsTable.id, id))
   }
 
   /**
@@ -64,7 +64,7 @@ class Sessions {
    *
    * @param userId User ID
    */
-  async clearSessionsFromUser(userId: string, db: WikiDbOrTx = WIKI.db) {
+  async clearSessionsFromUser(userId: string, db: WikiDbOrTx = CARDINAL.db) {
     return db.delete(sessionsTable).where(eq(sessionsTable.userId, userId))
   }
 
@@ -82,14 +82,14 @@ class Sessions {
    * @returns How many sessions were ended
    */
   async clearSessionsForGroup(groupId: string): Promise<number> {
-    const members = await WIKI.db
+    const members = await CARDINAL.db
       .select({ userId: userGroupsTable.userId })
       .from(userGroupsTable)
       .where(eq(userGroupsTable.groupId, groupId))
     if (members.length < 1) {
       return 0
     }
-    const result = await WIKI.db.delete(sessionsTable).where(
+    const result = await CARDINAL.db.delete(sessionsTable).where(
       inArray(
         sessionsTable.userId,
         members.map((m) => m.userId)
@@ -106,11 +106,11 @@ class Sessions {
    * browser — on every instance, since the rows are shared — starts a new, anonymous one. Rotating
    * the secret is what makes the cookies themselves worthless, and that takes effect immediately too:
    * @fastify/session and @fastify/cookie are handed `helpers/authSecretSigner.ts` (`index.ts`), which
-   * reads `WIKI.config.auth.secret` at call time rather than a value captured once at plugin
+   * reads `CARDINAL.config.auth.secret` at call time rather than a value captured once at plugin
    * registration, so this instance starts signing and verifying against the new secret on its very
    * next request, no restart required. Verified under a real two-instance HA setup for task 589 (back
    * when the secret WAS captured by value — OpenProject #2172 closed that gap): every other
-   * still-running instance picks up the rotated secret the same way, the moment `WIKI.config` is
+   * still-running instance picks up the rotated secret the same way, the moment `CARDINAL.config` is
    * replaced in response to the `reloadConfig` event this call's `saveToDb()` fans out.
    *
    * The API key keypair is untouched: it carries its own passphrase (`models/apiKeys.ts`), so keys
@@ -119,18 +119,18 @@ class Sessions {
    * @returns How many sessions were ended, or null if the settings failed to save
    */
   async rotateSecret(): Promise<number | null> {
-    const previousAuth = WIKI.config.auth
-    WIKI.config.auth = { ...previousAuth, secret: crypto.randomBytes(32).toString('hex') }
+    const previousAuth = CARDINAL.config.auth
+    CARDINAL.config.auth = { ...previousAuth, secret: crypto.randomBytes(32).toString('hex') }
     // -> Propagates as `reloadConfig`, so the other instances are holding the new secret the next
     //    time any of them restarts
-    if (!(await WIKI.configSvc.saveToDb(['auth']))) {
-      WIKI.config.auth = previousAuth
+    if (!(await CARDINAL.configSvc.saveToDb(['auth']))) {
+      CARDINAL.config.auth = previousAuth
       return null
     }
 
-    const result = await WIKI.db.delete(sessionsTable)
+    const result = await CARDINAL.db.delete(sessionsTable)
     const ended = result.rowCount ?? 0
-    WIKI.logger.info('session', 'rotated the session secret', { ended })
+    CARDINAL.logger.info('session', 'rotated the session secret', { ended })
     return ended
   }
 
@@ -150,7 +150,7 @@ class Sessions {
    * @returns How many rows were dropped
    */
   async purgeExpiredSessions(): Promise<number> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(sessionsTable)
       .where(lt(sessionsTable.updatedAt, sql`now() - interval '30 days'`))
     return result.rowCount ?? 0
@@ -184,17 +184,17 @@ async function settle(op: () => Promise<any>, clb: SessionStoreCallback): Promis
  * wrapper — written out three times inline in `index.ts` until CORE-F12 collapsed them onto one
  * `settle()` here, beside the methods they adapt.
  *
- * Reads `WIKI.models.sessions` rather than the `sessions` instance above, exactly as the inline
+ * Reads `CARDINAL.models.sessions` rather than the `sessions` instance above, exactly as the inline
  * version did: the store is built once at registration, and everything else in the request path goes
  * through the model registry.
  */
 export function sessionStoreAdapter() {
   return {
     get: (sessionId: string, clb: SessionStoreCallback) =>
-      settle(() => WIKI.models.sessions.get(sessionId), clb),
+      settle(() => CARDINAL.models.sessions.get(sessionId), clb),
     set: (sessionId: string, sessionData: any, clb: SessionStoreCallback) =>
-      settle(() => WIKI.models.sessions.set(sessionId, sessionData), clb),
+      settle(() => CARDINAL.models.sessions.set(sessionId, sessionData), clb),
     destroy: (sessionId: string, clb: SessionStoreCallback) =>
-      settle(() => WIKI.models.sessions.destroy(sessionId), clb)
+      settle(() => CARDINAL.models.sessions.destroy(sessionId), clb)
   }
 }

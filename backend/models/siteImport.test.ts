@@ -37,7 +37,7 @@ async function buildArchive(dir: string, entries: Record<string, Buffer>): Promi
 }
 
 /**
- * `readArchive`'s size ceilings, in isolation — no database, no `WIKI` global. Custom `maxEntryBytes`
+ * `readArchive`'s size ceilings, in isolation — no database, no `CARDINAL` global. Custom `maxEntryBytes`
  * / `maxTotalBytes` are what make this fast: tripping the real production ceilings (500 MB / 2 GB)
  * would mean building gigabyte fixtures, where a handful of small archives and a tiny override prove
  * the exact same abort logic.
@@ -121,12 +121,12 @@ describe('importModel.saveUpload (pure, no DB)', () => {
     ;({ importModel } = await import('./siteImport.ts'))
     ;({ Readable } = await import('node:stream'))
     dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-saveupload-test-'))
-    ;(globalThis as any).WIKI = { ROOTPATH: process.cwd(), config: { dataPath } }
+    ;(globalThis as any).CARDINAL = { ROOTPATH: process.cwd(), config: { dataPath } }
   })
 
   after(async () => {
     await fs.rm(dataPath, { recursive: true, force: true })
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   test('saveUpload streams the body to a file under <dataPath>/imports rather than buffering it', async () => {
@@ -202,7 +202,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;({ pages: pagesModel } = await import('./pages.ts'))
 
     dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-'))
-    WIKI.config.dataPath = dataPath
+    CARDINAL.config.dataPath = dataPath
 
     const [targetSite] = await fixtures.db
       .insert(sitesTable)
@@ -213,7 +213,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning()
     targetSiteId = targetSite!.id
-    WIKI.sites[targetSiteId] = targetSite! as SiteRow
+    CARDINAL.sites[targetSiteId] = targetSite! as SiteRow
   })
 
   after(async () => {
@@ -727,7 +727,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning()
     const bulkSourceSiteId = bulkSourceSite!.id
-    WIKI.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
+    CARDINAL.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
 
     // -> One real page, created through the model so its row has every column a genuine export would
     //    produce -- then exported and used as a template. `ROW_COUNT` synthetic pages/tree entries are
@@ -827,7 +827,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning()
     const failTargetSiteId = failTargetSite!.id
-    WIKI.sites[failTargetSiteId] = failTargetSite! as SiteRow
+    CARDINAL.sites[failTargetSiteId] = failTargetSite! as SiteRow
 
     const preExistingPage = await pagesModel.createPage(
       failTargetSiteId,
@@ -864,7 +864,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning()
     const bulkSourceSiteId = bulkSourceSite!.id
-    WIKI.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
+    CARDINAL.sites[bulkSourceSiteId] = bulkSourceSite! as SiteRow
 
     // -> One real page, created through the model so it auto-records one `pageHistory` row and (via
     //    `models/navigation.ts#ensureSiteNav`) the site's one default `navigation` row -- both used as

@@ -27,11 +27,11 @@ import type { ScopedLogger } from '../../../core/logger.ts'
 
 /**
  * The `storage` logger every line this module writes goes through, already carrying the two fields
- * that say which target it is talking about. Built per call rather than once at import time: `WIKI`
+ * that say which target it is talking about. Built per call rather than once at import time: `CARDINAL`
  * does not exist yet when this module is loaded, and a target's identity is per-invocation anyway.
  */
 export function gitLog(target: StorageTarget): ScopedLogger {
-  return WIKI.logger.scope('storage', { module: 'git', target: target.id })
+  return CARDINAL.logger.scope('storage', { module: 'git', target: target.id })
 }
 
 /** Key of the `git` extension in `modules/extensions/`, used for the pre-flight detection check. */
@@ -47,9 +47,11 @@ export interface EnsuredRepo {
   repoPath: string
 }
 
-/** Resolve `config.localRepoPath` to an absolute path, relative to `WIKI.ROOTPATH` when not already one. */
+/** Resolve `config.localRepoPath` to an absolute path, relative to `CARDINAL.ROOTPATH` when not already one. */
 export function resolveRepoPath(localRepoPath: string): string {
-  return path.isAbsolute(localRepoPath) ? localRepoPath : path.join(WIKI.ROOTPATH, localRepoPath)
+  return path.isAbsolute(localRepoPath)
+    ? localRepoPath
+    : path.join(CARDINAL.ROOTPATH, localRepoPath)
 }
 
 /** Whether `repoPath` already has a `.git` directory, i.e. is an initialized git working copy. */
@@ -65,18 +67,18 @@ async function isGitRepo(repoPath: string): Promise<boolean> {
 /**
  * Confirm the `git` extension is detected before any git invocation.
  *
- * Detection itself lives in `WIKI.models.extensions` (PATH scanning for the `git` command) — this
+ * Detection itself lives in `CARDINAL.models.extensions` (PATH scanning for the `git` command) — this
  * only reads that result and turns a negative into a clear, actionable error instead of letting
  * simple-git fail later with an opaque "spawn git ENOENT".
  *
  * @throws If the `git` extension has no definition, or is not detected on this system.
  */
 async function assertGitAvailable(): Promise<void> {
-  const definition = WIKI.models.extensions.getDefinition(GIT_EXTENSION_KEY)
+  const definition = CARDINAL.models.extensions.getDefinition(GIT_EXTENSION_KEY)
   if (!definition) {
     throw new Error('The git extension has no definition on disk — cannot verify it is available.')
   }
-  if (!(await WIKI.models.extensions.isInstalled(definition))) {
+  if (!(await CARDINAL.models.extensions.isInstalled(definition))) {
     throw new Error(
       'The git extension is not detected on this system. Install a git binary (or set the Git Binary Path config) before using the Git storage target.'
     )

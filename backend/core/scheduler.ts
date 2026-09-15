@@ -30,7 +30,7 @@ import type { PoolClient } from 'pg'
  *
  * Deliberately NOT written to `jobHistory.result`. That column is a task's own channel to a follow-up
  * route (`exportContent`'s `{ filePath, fileSize }`, which `GET /_api/system/export/:jobId/download`
- * reads back), written by the task itself through `WIKI.models.jobs.setResult()`; a summary landing
+ * reads back), written by the task itself through `CARDINAL.models.jobs.setResult()`; a summary landing
  * silently on top of it would break the routes that read it. The two are separate on purpose — see
  * `models/jobs.ts#setResult`.
  */
@@ -44,7 +44,7 @@ export interface TaskResult {
  *
  * `jobId` is this task's own row in `jobHistory` — most tasks have no use for it, but one that wants
  * to hand something back (`exportContent`'s `{ filePath, fileSize }`) writes it there via
- * `WIKI.models.jobs.setResult(jobId, ...)`, which is what lets a follow-up route find it later.
+ * `CARDINAL.models.jobs.setResult(jobId, ...)`, which is what lets a follow-up route find it later.
  *
  * A task that returns a `TaskResult` is telling the scheduler what its run amounted to, so the outcome
  * is logged ONCE, by the one caller that also knows the job id, the attempt and how long it took (see
@@ -124,7 +124,7 @@ const SHUTDOWN_DRAIN_GRACE = 1000
  * Nothing here awaits a notification: a job being added or finishing should not wait on a round trip,
  * and `processJob` runs concurrently with itself, so two notifications easily meet on the one client.
  */
-const notifier = createNotifier(() => WIKI.scheduler.pubsubClient, 'scheduler')
+const notifier = createNotifier(() => CARDINAL.scheduler.pubsubClient, 'scheduler')
 
 /**
  * Tell every instance that a job has finished, so an `addJob({ promise: true })` caller waiting on
@@ -142,7 +142,7 @@ function notifyJobCompleted(
   notifier.send(
     'scheduler',
     JSON.stringify({
-      source: WIKI.INSTANCE_ID,
+      source: CARDINAL.INSTANCE_ID,
       event: 'jobCompleted',
       state,
       id,
@@ -186,7 +186,7 @@ export interface AddJobOptions {
  * caller: everything after the claim succeeds or fails per job, not as a single unit with this.
  */
 function claimStrandedJobs(cutoff: Date, staleAfter: number) {
-  return WIKI.db
+  return CARDINAL.db
     .update(jobHistoryTable)
     .set({
       state: 'interrupted',
@@ -210,13 +210,13 @@ export default {
   inFlightJobs: new Set<Promise<void>>(),
   async init() {
     this.maxWorkers =
-      WIKI.config.scheduler.workers === 'auto'
+      CARDINAL.config.scheduler.workers === 'auto'
         ? os.cpus().length - 1
-        : WIKI.config.scheduler.workers
+        : CARDINAL.config.scheduler.workers
     if (this.maxWorkers < 1) {
       this.maxWorkers = 1
     }
-    const workerFile = path.join(WIKI.SERVERPATH, 'worker.ts')
+    const workerFile = path.join(CARDINAL.SERVERPATH, 'worker.ts')
     /*
       Unlike poolifier's separate `FixedThreadPool`/`DynamicThreadPool` classes -- the latter of
       which refused a minimum equal to its maximum ("Use a fixed pool instead"), which crashed
@@ -235,27 +235,27 @@ export default {
       //    logger exists. One object for the whole pool — the per-worker half of the id is the
       //    thread's own `threadId`, not anything sent from here. `capabilities` rides along the same
       //    object for the same reason: it's settled once, here, after the db boot phase that
-      //    populates `WIKI.capabilities`, and a worker thread never calls `syncSchemas()` itself to
+      //    populates `CARDINAL.capabilities`, and a worker thread never calls `syncSchemas()` itself to
       //    learn it (OpenProject #3124) — without this a worker-thread task guarding on
-      //    `WIKI.capabilities?.semanticSearch` always reads `undefined` and silently no-ops.
-      workerData: { parentInstanceId: WIKI.INSTANCE_ID, capabilities: WIKI.capabilities }
+      //    `CARDINAL.capabilities?.semanticSearch` always reads `undefined` and silently no-ops.
+      workerData: { parentInstanceId: CARDINAL.INSTANCE_ID, capabilities: CARDINAL.capabilities }
     })
     // -> Piscina is an `EventEmitterAsyncResource`, not a constructor-option callback trio: the
     //    `errorHandler`/`exitHandler`/`onlineHandler` poolifier took at construction time become
     //    listeners on the pool instance itself.
     this.workerPool.on('error', (err: Error) =>
-      WIKI.logger.warn('worker', 'worker pool error', { error: err })
+      CARDINAL.logger.warn('worker', 'worker pool error', { error: err })
     )
-    this.workerPool.on('workerDestroy', () => WIKI.logger.debug('worker', 'worker offline'))
-    this.workerPool.on('workerCreate', () => WIKI.logger.debug('worker', 'worker online'))
+    this.workerPool.on('workerDestroy', () => CARDINAL.logger.debug('worker', 'worker offline'))
+    this.workerPool.on('workerCreate', () => CARDINAL.logger.debug('worker', 'worker online'))
     this.tasks = {}
-    for (const f of await fs.readdir(path.join(WIKI.SERVERPATH, 'tasks/simple'))) {
+    for (const f of await fs.readdir(path.join(CARDINAL.SERVERPATH, 'tasks/simple'))) {
       // -> `tasks/simple/` carries this repo's usual co-located `*.test.ts` files
       //    (send-watch-digests.test.ts, update-locales.test.ts) alongside the real task modules.
       //    Without this filter, `readdir` returns those too, and the unconditional `import()`
       //    below executes their `node:test` suites live as a side effect of every boot -- caught
       //    only now, running this loop for the first time against a real filesystem listing rather
-      //    than a fake WIKI in a unit test. `[^.]+\.[jt]s$` requires no dot before the extension,
+      //    than a fake CARDINAL in a unit test. `[^.]+\.[jt]s$` requires no dot before the extension,
       //    so `name.ts`/`name.js` match but `name.test.ts` does not.
       if (!/^[^.]+\.[jt]s$/.test(f)) {
         continue
@@ -269,19 +269,19 @@ export default {
       //    `import()` actually wants for an absolute path; a raw POSIX path happens to also parse
       //    (no colon before the first `/`), which is why this went unnoticed until run on Windows.
       this.tasks[taskName] = (
-        await import(pathToFileURL(path.join(WIKI.SERVERPATH, 'tasks/simple', f)).href)
+        await import(pathToFileURL(path.join(CARDINAL.SERVERPATH, 'tasks/simple', f)).href)
       ).task
     }
     return this
   },
   async start(): Promise<void> {
-    const connectionAppName = `Cardinal.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
+    const connectionAppName = `Cardinal.js - ${CARDINAL.INSTANCE_ID}:SCHEDULER`
 
     // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
     //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
-      pool: WIKI.dbManager.listenerPool!,
+      pool: CARDINAL.dbManager.listenerPool!,
       applicationName: connectionAppName,
       channels: ['scheduler'],
       label: 'scheduler',
@@ -328,7 +328,7 @@ export default {
       this.addScheduled()
       this.reapStaleJobs()
       this.expireCompletionPromises()
-    }, WIKI.config.scheduler.scheduledCheck * 1000)
+    }, CARDINAL.config.scheduler.scheduledCheck * 1000)
 
     // -> Add scheduled jobs on init
     const planned = await this.addScheduled()
@@ -343,9 +343,9 @@ export default {
     // -> Start job polling
     this.pollingRef = setInterval(async () => {
       this.processJob()
-    }, WIKI.config.scheduler.pollingCheck * 1000)
+    }, CARDINAL.config.scheduler.pollingCheck * 1000)
 
-    WIKI.logger.info('jobs', 'scheduler started', { workers: this.maxWorkers, planned })
+    CARDINAL.logger.info('jobs', 'scheduler started', { workers: this.maxWorkers, planned })
   },
   /**
    * Add a job to the scheduler
@@ -362,15 +362,15 @@ export default {
     try {
       const jobId = crypto.randomUUID()
       const jobDefer = createDeferred()
-      await WIKI.db.insert(jobsTable).values({
+      await CARDINAL.db.insert(jobsTable).values({
         id: jobId,
         task,
         useWorker: !(typeof this.tasks![task] === 'function'),
         payload,
-        maxRetries: maxRetries ?? WIKI.config.scheduler.maxRetries,
+        maxRetries: maxRetries ?? CARDINAL.config.scheduler.maxRetries,
         isScheduled,
         waitUntil,
-        createdBy: WIKI.INSTANCE_ID
+        createdBy: CARDINAL.INSTANCE_ID
       })
       // -> Registered only once the row genuinely exists: pushed before the insert, a failed insert
       //    would leave this deferred tracked in `completionPromises` with no caller ever having
@@ -390,7 +390,7 @@ export default {
         notifier.send(
           'scheduler',
           JSON.stringify({
-            source: WIKI.INSTANCE_ID,
+            source: CARDINAL.INSTANCE_ID,
             event: 'newJob',
             id: jobId
           })
@@ -401,7 +401,7 @@ export default {
         ...(promise && { promise: jobDefer.promise })
       }
     } catch (err: any) {
-      WIKI.logger.warn('jobs', 'failed to queue job', { task, error: err })
+      CARDINAL.logger.warn('jobs', 'failed to queue job', { task, error: err })
     }
   },
   /**
@@ -417,7 +417,7 @@ export default {
    */
   expireCompletionPromises(): void {
     const ttlSeconds =
-      (WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT) *
+      (CARDINAL.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT) *
       COMPLETION_PROMISE_TTL_MULTIPLIER
     const cutoff = Temporal.Now.instant().subtract({ seconds: ttlSeconds })
     const expired = remove(
@@ -453,7 +453,7 @@ export default {
    * with the usual backoff.
    */
   async executeOnWorker(job: { task: string; payload?: any }): Promise<void> {
-    const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
+    const timeoutMs = (CARDINAL.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     await withTimeout(
       // -> No `INSTANCE_ID` rider on the payload any more: a worker settles its own id from
       //    `workerData` at boot (see `init()` above), so sending one per job only ever
@@ -494,14 +494,16 @@ export default {
     //    reports how many rows it actually got.
     const availableWorkers = this.maxWorkers - this.activeWorkers
     if (availableWorkers < 1) {
-      WIKI.logger.debug('jobs', 'all workers busy, nothing claimed', { workers: this.maxWorkers })
+      CARDINAL.logger.debug('jobs', 'all workers busy, nothing claimed', {
+        workers: this.maxWorkers
+      })
       return
     }
     this.activeWorkers += availableWorkers
 
     let jobs: any[] = []
     try {
-      jobs = await WIKI.db.transaction(async (trx: any) => {
+      jobs = await CARDINAL.db.transaction(async (trx: any) => {
         const claimed = await trx
           .delete(jobsTable)
           .where(
@@ -530,7 +532,7 @@ export default {
               payload: job.payload,
               attempt: job.retries + 1,
               maxRetries: job.maxRetries,
-              executedBy: WIKI.INSTANCE_ID,
+              executedBy: CARDINAL.INSTANCE_ID,
               createdAt: job.createdAt
             })
             .onConflictDoUpdate({
@@ -543,7 +545,7 @@ export default {
               //    requeued indefinitely instead of eventually being abandoned.
               set: {
                 state: 'active',
-                executedBy: WIKI.INSTANCE_ID,
+                executedBy: CARDINAL.INSTANCE_ID,
                 startedAt: sql`now()`,
                 attempt: job.retries + 1,
                 // -> Cleared on every reclaim, not just left over from whatever attempt last wrote it:
@@ -560,7 +562,7 @@ export default {
       // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued. Correct the
       //    up-front reservation back down to what was actually claimed (zero).
       this.activeWorkers -= availableWorkers
-      WIKI.logger.warn('jobs', 'failed to claim jobs', { error: err })
+      CARDINAL.logger.warn('jobs', 'failed to claim jobs', { error: err })
       return
     }
 
@@ -608,7 +610,7 @@ export default {
    * through the shared `helpers/timeout.ts#withTimeout` every other bounded step in the repo uses.
    *
    * The task itself runs inside `runWithJobExecutionContext()` (OpenProject #2351): since it cannot
-   * actually be cancelled, a task that calls `WIKI.models.jobs.setResult(jobId, ...)` after this
+   * actually be cancelled, a task that calls `CARDINAL.models.jobs.setResult(jobId, ...)` after this
    * ceiling has already given up on it does so from a "stale" continuation that outlives this call.
    * The context carries the attempt number this specific claim is running as, so that late write can
    * be fenced against a later retry's result -- see `helpers/jobExecutionContext.ts` for the full
@@ -620,7 +622,7 @@ export default {
     id?: string
     retries?: number
   }): Promise<TaskResult | void> {
-    const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
+    const timeoutMs = (CARDINAL.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     const runTask = () => this.tasks![job.task](job.payload, job.id)
     // -> `Promise.resolve`, since a task may be written as a synchronous function: `Promise.race`
     //    accepted a bare value, `withTimeout` takes a promise
@@ -655,7 +657,7 @@ export default {
     //    "two down, two to go" off a single line without knowing that convention.
     const attempts = job.maxRetries + 1
     const startedAt = Date.now()
-    WIKI.logger.debug('jobs', `${job.task} started`, {
+    CARDINAL.logger.debug('jobs', `${job.task} started`, {
       job: job.id,
       attempt: `${attempt}/${attempts}`
     })
@@ -663,7 +665,7 @@ export default {
       const outcome = job.useWorker
         ? await this.executeOnWorker(job)
         : await this.executeInProcess(job)
-      await WIKI.db
+      await CARDINAL.db
         .update(jobHistoryTable)
         .set({
           state: 'completed',
@@ -678,14 +680,14 @@ export default {
       const summary = taskSummary(outcome)
       if (summary) {
         const { summary: sentence, ...summaryFields } = summary
-        WIKI.logger.info('jobs', `${job.task} ${sentence}`, {
+        CARDINAL.logger.info('jobs', `${job.task} ${sentence}`, {
           job: job.id,
           attempt: `${attempt}/${attempts}`,
           ...summaryFields,
           ms: Date.now() - startedAt
         })
       } else {
-        WIKI.logger.debug('jobs', `${job.task} finished`, {
+        CARDINAL.logger.debug('jobs', `${job.task} finished`, {
           job: job.id,
           attempt: `${attempt}/${attempts}`,
           ms: Date.now() - startedAt
@@ -711,17 +713,17 @@ export default {
       const nextRun = retriesExhausted
         ? null
         : Temporal.Now.instant().add({
-            seconds: 2 ** job.retries * WIKI.config.scheduler.retryBackoff
+            seconds: 2 ** job.retries * CARDINAL.config.scheduler.retryBackoff
           })
       if (retriesExhausted) {
-        WIKI.logger.error('jobs', `${job.task} failed, no attempts left`, {
+        CARDINAL.logger.error('jobs', `${job.task} failed, no attempts left`, {
           job: job.id,
           attempts,
           ms: Date.now() - startedAt,
           error: err
         })
       } else {
-        WIKI.logger.warn('jobs', `${job.task} failed, retrying`, {
+        CARDINAL.logger.warn('jobs', `${job.task} failed, retrying`, {
           job: job.id,
           attempt: `${attempt}/${attempts}`,
           next: nextRun!.toString({ smallestUnit: 'millisecond' }),
@@ -730,7 +732,7 @@ export default {
         })
       }
       try {
-        await WIKI.db
+        await CARDINAL.db
           .update(jobHistoryTable)
           .set({
             attempt: job.retries + 1,
@@ -742,7 +744,7 @@ export default {
         // -> Reschedule for retry, at exactly the instant the `warn` above told the operator to
         //    expect it
         if (nextRun) {
-          await WIKI.db.insert(jobsTable).values({
+          await CARDINAL.db.insert(jobsTable).values({
             ...job,
             retries: job.retries + 1,
             waitUntil: new Date(nextRun.epochMilliseconds),
@@ -752,7 +754,7 @@ export default {
       } catch (recordErr: any) {
         // -> The task's failure is already logged; this is the database refusing to hear about it,
         //    which leaves the job looking active until `reapStaleJobs` picks it up
-        WIKI.logger.warn('jobs', 'failed to record job failure', {
+        CARDINAL.logger.warn('jobs', 'failed to record job failure', {
           job: job.id,
           task: job.task,
           error: recordErr
@@ -787,7 +789,7 @@ export default {
    * @returns How many jobs were requeued
    */
   async reapStaleJobs(): Promise<number> {
-    const staleAfter = WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
+    const staleAfter = CARDINAL.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
     const cutoff = new Date(
       Temporal.Now.instant().subtract({ seconds: staleAfter }).epochMilliseconds
     )
@@ -796,7 +798,7 @@ export default {
     try {
       stranded = await claimStrandedJobs(cutoff, staleAfter)
     } catch (err: any) {
-      WIKI.logger.warn('jobs', 'failed to requeue interrupted jobs', { error: err })
+      CARDINAL.logger.warn('jobs', 'failed to requeue interrupted jobs', { error: err })
       return 0
     }
 
@@ -806,7 +808,7 @@ export default {
         // -> Its remaining attempts are what they were: being interrupted is a failed attempt, and a
         //    job that had already used them up is not owed another one
         if (job.attempt > job.maxRetries) {
-          WIKI.logger.warn('jobs', `${job.task} interrupted, no attempts left`, {
+          CARDINAL.logger.warn('jobs', `${job.task} interrupted, no attempts left`, {
             job: job.id,
             attempt: `${job.attempt}/${job.maxRetries + 1}`
           })
@@ -822,7 +824,7 @@ export default {
         //    remaining stranded job in this batch `interrupted` in history with nothing back in the
         //    queue — permanently dropped, since a later sweep filters on `state = 'active'` and will
         //    never see an `interrupted` row again.
-        const inserted = await WIKI.db
+        const inserted = await CARDINAL.db
           .insert(jobsTable)
           .values({
             id: job.id,
@@ -842,7 +844,7 @@ export default {
             //    ever produces satisfying that invariant, rather than defending against `null` at every
             //    site that reads it.
             waitUntil: new Date(),
-            createdBy: WIKI.INSTANCE_ID
+            createdBy: CARDINAL.INSTANCE_ID
           })
           .onConflictDoNothing({ target: jobsTable.id })
           .returning()
@@ -852,7 +854,7 @@ export default {
         //    has its own `jobHistory` row marked `interrupted`, and without a per-job catch here, a
         //    single insert failure aborted the whole loop and left the rest permanently unrequeued —
         //    a later sweep only ever looks at `state = 'active'` rows, so it never revisits them.
-        WIKI.logger.warn('jobs', 'failed to requeue job', {
+        CARDINAL.logger.warn('jobs', 'failed to requeue job', {
           job: job.id,
           task: job.task,
           error: err
@@ -872,12 +874,12 @@ export default {
     //    sweep is `debug` — it runs on a timer and finding nothing is the healthy case, but saying so
     //    is what tells someone with `debug` on that the sweep is running at all.
     if (stranded.length > 0) {
-      WIKI.logger.warn('jobs', 'requeued interrupted jobs', {
+      CARDINAL.logger.warn('jobs', 'requeued interrupted jobs', {
         found: stranded.length,
         requeued
       })
     } else {
-      WIKI.logger.debug('jobs', 'no interrupted jobs found')
+      CARDINAL.logger.debug('jobs', 'no interrupted jobs found')
     }
     return requeued
   },
@@ -888,12 +890,12 @@ export default {
   async addScheduled(): Promise<number> {
     let totalAdded = 0
     try {
-      await WIKI.db.transaction(async (trx: any) => {
+      await CARDINAL.db.transaction(async (trx: any) => {
         // -> Acquire lock
         const jobLock = await trx
           .update(jobLockTable)
           .set({
-            lastCheckedBy: WIKI.INSTANCE_ID,
+            lastCheckedBy: CARDINAL.INSTANCE_ID,
             lastCheckedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
           })
           .where(
@@ -905,7 +907,7 @@ export default {
 
         if (jobLock.rowCount > 0) {
           // -> Both selects read through `trx`, the same physical connection the lock UPDATE just
-          //    took, rather than the ambient `WIKI.db` pool handle. Under READ COMMITTED this does not
+          //    took, rather than the ambient `CARDINAL.db` pool handle. Under READ COMMITTED this does not
           //    change what rows are visible (a `trx.select()` after the lock UPDATE sees exactly the
           //    same committed rows a pool read would), but it does stop every scheduled task's inserts
           //    from checking out a *second* pool connection while this one is still held open by the
@@ -985,12 +987,12 @@ export default {
                 }
               }
             }
-            WIKI.logger.debug('jobs', 'planned jobs reconciled', { added: totalAdded })
+            CARDINAL.logger.debug('jobs', 'planned jobs reconciled', { added: totalAdded })
           }
         }
       })
     } catch (err: any) {
-      WIKI.logger.warn('jobs', 'failed to schedule future planned jobs', { error: err })
+      CARDINAL.logger.warn('jobs', 'failed to schedule future planned jobs', { error: err })
     }
     return totalAdded
   },
@@ -1025,7 +1027,7 @@ export default {
     // -> `debug`, not `info`: `core/http/server.ts`'s `boot stopping` / `boot stopped  ms=` pair is
     //    the shutdown narrative now, and this runs inside it as one of the graceful server's own
     //    `closePromises`. An operator wanting to see which teardown step is slow turns on `debug`.
-    WIKI.logger.debug('jobs', 'scheduler stopped')
+    CARDINAL.logger.debug('jobs', 'scheduler stopped')
   },
   /**
    * Waits for whatever `processJob` currently has in flight, bounded so a hung task cannot hold
@@ -1042,10 +1044,10 @@ export default {
       return
     }
     const timeoutMs =
-      (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
+      (CARDINAL.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
     // -> `debug jobs`, for the same reason as `scheduler stopped` above: the drain's cost is already
     //    reported by `boot stopped  ms=`, and this is the detail behind that number.
-    WIKI.logger.debug('jobs', 'waiting for in-flight jobs', {
+    CARDINAL.logger.debug('jobs', 'waiting for in-flight jobs', {
       jobs: this.inFlightJobs.size,
       timeout: timeoutMs
     })

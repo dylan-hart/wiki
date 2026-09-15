@@ -7,7 +7,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * A unit-level test of the route's own wiring — the shared site preHandler, the block-enabled gate,
- * response pass-through — with `WIKI.sites`/`models.blocks`/`models.liveData` stubbed rather than a real database or
+ * response pass-through — with `CARDINAL.sites`/`models.blocks`/`models.liveData` stubbed rather than a real database or
  * network call. `models/liveData.test.ts` proves `resolve()` itself (caching, credential resolution,
  * JSONPath extraction, upstream error handling).
  */
@@ -213,7 +213,7 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
   })
 
   test("propagates the model's error status (e.g. a 502 from an unreachable endpoint)", async () => {
-    ;(WIKI.models.liveData.resolve as any) = async () => {
+    ;(CARDINAL.models.liveData.resolve as any) = async () => {
       const err: any = new Error('Could not reach the endpoint: fetch failed')
       err.name = 'Bad Gateway'
       err.statusCode = 502

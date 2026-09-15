@@ -23,7 +23,7 @@ function systemGroupGuard(
   if (!group.permissions.includes(SYSTEM_PERMISSION)) {
     return null
   }
-  if (WIKI.models.groups.holdsSystemPermission(req)) {
+  if (CARDINAL.models.groups.holdsSystemPermission(req)) {
     return null
   }
   return new CustomError(
@@ -76,7 +76,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.groups.getAllGroups()
+      return CARDINAL.models.groups.getAllGroups()
     }
   )
 
@@ -136,8 +136,8 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        const id = await WIKI.models.groups.createGroup(req.body.name)
-        await WIKI.models.auditLog.record({
+        const id = await CARDINAL.models.groups.createGroup(req.body.name)
+        await CARDINAL.models.auditLog.record({
           event: 'group.created',
           actor: actorFromRequest(req),
           targetType: 'group',
@@ -150,7 +150,7 @@ async function routes(app: FastifyInstance) {
           id
         }
       } catch (err: any) {
-        WIKI.logger.error('http', 'creating a group failed', { error: err, reqId: req.id })
+        CARDINAL.logger.error('http', 'creating a group failed', { error: err, reqId: req.id })
         return reply.internalServerError()
       }
     }
@@ -192,7 +192,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const group = await WIKI.models.groups.getGroupById(req.params.groupId)
+      const group = await CARDINAL.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
       }
@@ -282,7 +282,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const group = await WIKI.models.groups.getGroupById(req.params.groupId)
+      const group = await CARDINAL.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
       }
@@ -335,7 +335,7 @@ async function routes(app: FastifyInstance) {
       // -> The root administrators group must keep its permissions, or the instance becomes
       //    unmanageable with no way to grant `manage:system` back. Resending the current set is
       //    allowed, so that a client editing other fields can still submit the whole group.
-      if (patch.permissions && group.id === WIKI.config.auth.rootAdminGroupId) {
+      if (patch.permissions && group.id === CARDINAL.config.auth.rootAdminGroupId) {
         const isUnchanged =
           patch.permissions.length === group.permissions.length &&
           patch.permissions.every((p) => group.permissions.includes(p))
@@ -352,7 +352,7 @@ async function routes(app: FastifyInstance) {
         redirects, every other permission -- but may not turn that one permission on or off. Granting
         it is handing over the instance; revoking it is locking the real administrators out.
       */
-      if (patch.permissions && !WIKI.models.groups.holdsSystemPermission(req)) {
+      if (patch.permissions && !CARDINAL.models.groups.holdsSystemPermission(req)) {
         const held = group.permissions.includes(SYSTEM_PERMISSION)
         if (held !== patch.permissions.includes(SYSTEM_PERMISSION)) {
           throw new CustomError(
@@ -372,7 +372,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.groups.updateGroup(group.id, patch)
+        await CARDINAL.models.groups.updateGroup(group.id, patch)
         // -> OpenProject #936: `permissions` (the global, group-wide list) is flattened onto every
         //    member's `session.permissions` at login, and otherwise stays live for up to the 30-day
         //    cookie age -- a revoked permission needs the same immediate cutoff a deactivation gets.
@@ -380,9 +380,9 @@ async function routes(app: FastifyInstance) {
         //    the in-memory rules cache on every request (`groups.checkAccess()`), so a rule change
         //    already takes effect on the very next one with no session involved at all.
         if (patch.permissions !== undefined) {
-          await WIKI.models.sessions.clearSessionsForGroup(group.id)
+          await CARDINAL.models.sessions.clearSessionsForGroup(group.id)
         }
-        await WIKI.models.auditLog.record({
+        await CARDINAL.models.auditLog.record({
           event: 'group.updated',
           actor: actorFromRequest(req),
           targetType: 'group',
@@ -395,7 +395,7 @@ async function routes(app: FastifyInstance) {
           message: 'Group updated successfully.'
         }
       } catch (err: any) {
-        WIKI.logger.error('http', 'updating a group failed', {
+        CARDINAL.logger.error('http', 'updating a group failed', {
           group: group.id,
           error: err,
           reqId: req.id
@@ -442,7 +442,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const group = await WIKI.models.groups.getGroupById(req.params.groupId)
+      const group = await CARDINAL.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
       }
@@ -457,8 +457,8 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.groups.deleteGroup(group.id)
-        await WIKI.models.auditLog.record({
+        await CARDINAL.models.groups.deleteGroup(group.id)
+        await CARDINAL.models.auditLog.record({
           event: 'group.deleted',
           actor: actorFromRequest(req),
           targetType: 'group',
@@ -467,7 +467,7 @@ async function routes(app: FastifyInstance) {
         })
         return reply.code(204).send()
       } catch (err: any) {
-        WIKI.logger.error('http', 'deleting a group failed', {
+        CARDINAL.logger.error('http', 'deleting a group failed', {
           group: group.id,
           error: err,
           reqId: req.id
@@ -539,13 +539,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const group = await WIKI.models.groups.getGroupById(req.params.groupId)
+      const group = await CARDINAL.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
       }
 
       const { page, limit } = req.query
-      const { total, users } = await WIKI.models.groups.getGroupUsers(group.id, {
+      const { total, users } = await CARDINAL.models.groups.getGroupUsers(group.id, {
         filter: req.query.filter,
         page,
         limit
@@ -604,11 +604,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const group = await WIKI.models.groups.getGroupById(req.params.groupId)
+      const group = await CARDINAL.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
       }
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (!user) {
         return reply.notFound('User does not exist.')
       }
@@ -624,21 +624,21 @@ async function routes(app: FastifyInstance) {
         the one definition of that, shared with `setUserGroups`, which is what the user editor and
         provider enrolment go through.
       */
-      const violation = WIKI.models.groups.guestMembershipViolation(group.id, user)
+      const violation = CARDINAL.models.groups.guestMembershipViolation(group.id, user)
       if (violation) {
         return reply.conflict(violation)
       }
 
-      const assigned = await WIKI.models.groups.assignUserToGroup(group.id, req.params.userId)
+      const assigned = await CARDINAL.models.groups.assignUserToGroup(group.id, req.params.userId)
       if (!assigned) {
         return reply.conflict('User is already assigned to this group.')
       }
       // -> OpenProject #936: `session.groups` is a snapshot taken at login, so this user's open
       //    sessions would otherwise go on pooling rules from their OLD group membership until they
       //    next log in -- same reasoning as the permission-revocation fix on PUT /:groupId above.
-      await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
+      await CARDINAL.models.sessions.clearSessionsFromUser(req.params.userId)
 
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'group.memberAdded',
         actor: actorFromRequest(req),
         targetType: 'group',
@@ -694,11 +694,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const group = await WIKI.models.groups.getGroupById(req.params.groupId)
+      const group = await CARDINAL.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
       }
-      if (!(await WIKI.models.groups.isUserInGroup(group.id, req.params.userId))) {
+      if (!(await CARDINAL.models.groups.isUserInGroup(group.id, req.params.userId))) {
         return reply.notFound('User is not assigned to this group.')
       }
 
@@ -710,23 +710,23 @@ async function routes(app: FastifyInstance) {
       // -> Removing the guest account from the guests group would strip anonymous visitors of the
       //    permissions that group carries, with no way to put it back. `unassignUserFromGroup`
       //    refuses that pair as well; this answers it as a conflict rather than as a failure.
-      const user = await WIKI.models.users.getById(req.params.userId)
+      const user = await CARDINAL.models.users.getById(req.params.userId)
       if (user?.isSystem) {
         return reply.conflict('Cannot unassign a system user from a group.')
       }
 
       // -> Emptying the root administrators group would lock everyone out of system management
-      if (group.id === WIKI.config.auth.rootAdminGroupId) {
-        if ((await WIKI.models.groups.countUsersInGroup(group.id)) <= 1) {
+      if (group.id === CARDINAL.config.auth.rootAdminGroupId) {
+        if ((await CARDINAL.models.groups.countUsersInGroup(group.id)) <= 1) {
           return reply.conflict('Cannot remove the last user from the root administrators group.')
         }
       }
 
-      await WIKI.models.groups.unassignUserFromGroup(group.id, req.params.userId)
+      await CARDINAL.models.groups.unassignUserFromGroup(group.id, req.params.userId)
       // -> OpenProject #936: same reasoning as ASSIGN above -- a removed member's open sessions must
       //    stop pooling this group's rules/permissions immediately, not on their next login.
-      await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.sessions.clearSessionsFromUser(req.params.userId)
+      await CARDINAL.models.auditLog.record({
         event: 'group.memberRemoved',
         actor: actorFromRequest(req),
         targetType: 'group',

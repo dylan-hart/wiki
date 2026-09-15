@@ -27,11 +27,11 @@ test('HOOK_EVENTS and EMITTED_EVENTS stay in parity', () => {
  * an event, does queuing a delivery actually happen, and does the `includeMetadata`/`includeContent`
  * split behave.
  *
- * `WIKI.db` is stubbed rather than backed by a real database: `emit()`'s only SQL is a plain
+ * `CARDINAL.db` is stubbed rather than backed by a real database: `emit()`'s only SQL is a plain
  * `select ... where event = ANY(events)`, and what this suite cares about is the JS-level logic layered
  * on top of that result (the metadata/content strip, the job payload shape, the queued count) — not
  * whether Postgres's `ANY()` operator matches correctly, which the query itself does not exercise here
- * either way. `WIKI.scheduler.addJob` is stubbed to capture what gets queued instead of touching the
+ * either way. `CARDINAL.scheduler.addJob` is stubbed to capture what gets queued instead of touching the
  * real job table.
  *
  * `comment:new` is used as the demonstrating event throughout, since that is what task 610 asks this
@@ -45,7 +45,7 @@ describe('Hooks.emit (unit)', () => {
   let emailSubscribers: { id: string }[]
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       logger: { warn: mock.fn(), debug: mock.fn(), info: mock.fn() },
       INSTANCE_ID: 'test-instance',
       config: { scheduler: {} },
@@ -178,7 +178,7 @@ describe('Hooks.emit (unit)', () => {
 /**
  * Task 2481: `emit()`'s email fan-out (`notifyEmailSubscribers`) — a second, independent job queued
  * alongside (or, per the last two tests here, entirely apart from) the webhook deliveries the suite
- * above already covers. `WIKI.models.users.listEmailSubscribers` stands in for the real query, since
+ * above already covers. `CARDINAL.models.users.listEmailSubscribers` stands in for the real query, since
  * what this suite cares about is `emit()`'s own wiring, not `models/users.ts`'s SQL (covered by its
  * own suite).
  */
@@ -191,7 +191,7 @@ describe('Hooks.emit email fan-out (unit)', () => {
 
   before(async () => {
     listEmailSubscribers = mock.fn(async () => emailSubscribers)
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       logger: { warn: mock.fn(), debug: mock.fn(), info: mock.fn() },
       INSTANCE_ID: 'test-instance',
       config: { scheduler: {} },
@@ -278,7 +278,7 @@ describe('Hooks.emit email fan-out (unit)', () => {
   })
 
   test('a broken webhook lookup does not stop the email queueing', async () => {
-    ;(globalThis as any).WIKI.db.select = () => ({
+    ;(globalThis as any).CARDINAL.db.select = () => ({
       from: () => ({
         where: () => Promise.reject(new Error('db unavailable'))
       })
@@ -291,7 +291,7 @@ describe('Hooks.emit email fan-out (unit)', () => {
     assert.equal(queuedJobs.filter((job) => job.task === 'notifyEventSubscribers').length, 1)
 
     // -> Restore the working stub for any test that runs after this one in the same file.
-    ;(globalThis as any).WIKI.db.select = () => ({
+    ;(globalThis as any).CARDINAL.db.select = () => ({
       from: () => ({
         where: () => Promise.resolve(subscribed)
       })
@@ -312,7 +312,7 @@ describe('Hooks.emit event-subscriber fan-out (unit)', () => {
   let queuedJobs: any[]
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       logger: { warn: mock.fn(), debug: mock.fn(), info: mock.fn() },
       INSTANCE_ID: 'test-instance',
       config: { scheduler: {} },
@@ -425,11 +425,11 @@ describe('hooks per-site scoping (DB-backed)', { skip: !hasTestDatabase() }, () 
     await teardownTestDb()
   })
 
-  // -> `emit()` never throws, but it does queue through `WIKI.scheduler.addJob` — the piece of the
-  //    real scheduler this suite's minimal `WIKI` (see `test/db.ts`) does not install.
+  // -> `emit()` never throws, but it does queue through `CARDINAL.scheduler.addJob` — the piece of the
+  //    real scheduler this suite's minimal `CARDINAL` (see `test/db.ts`) does not install.
   before(() => {
     addJob = mock.fn(async () => ({ id: 'job-id' }))
-    ;(globalThis as any).WIKI.scheduler = { addJob }
+    ;(globalThis as any).CARDINAL.scheduler = { addJob }
   })
 
   test('a hook scoped to site A does not fire for an event on site B; the unscoped hook does', async () => {
@@ -646,12 +646,12 @@ describe('hooks getDeliveryHistory (DB-backed)', { skip: !hasTestDatabase() }, (
 })
 
 /**
- * `emit()`'s per-hook rate limit (mocked `WIKI`, no database)
+ * `emit()`'s per-hook rate limit (mocked `CARDINAL`, no database)
  *
  * `models/rateLimits.ts#consume()`'s own fixed-window algorithm is a separate, already-existing unit
  * with its own concerns (DB-backed, concurrency-safe upsert). What this covers is whether
  * `emit()` actually consults it before queuing each delivery, honors a refusal by skipping
- * `WIKI.scheduler.addJob` and logging a warn line rather than silently dropping the delivery, and
+ * `CARDINAL.scheduler.addJob` and logging a warn line rather than silently dropping the delivery, and
  * queues again once the window has rolled over — the behavior this task adds. A small in-memory
  * fixed-window stand-in for `consume()`, driven by a controllable clock, makes the "resets after the
  * window" half of that verifiable without a real wait or a live Postgres connection (none is reachable
@@ -682,11 +682,11 @@ describe('hooks emit rate limiting (mocked)', () => {
   }
 
   beforeEach(async () => {
-    previousWiki = (globalThis as any).WIKI
+    previousWiki = (globalThis as any).CARDINAL
     nowMs = 0
     addJobCalls = []
     warnCalls = []
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       INSTANCE_ID: 'test-instance',
       config: {
         scheduler: {
@@ -709,7 +709,7 @@ describe('hooks emit rate limiting (mocked)', () => {
         eventSubscriptions: { listSubscribers: async () => [] }
       },
       scheduler: {
-        // -> No `update`/`insert` stub exists on the fake `WIKI.db` below: if a throttled delivery
+        // -> No `update`/`insert` stub exists on the fake `CARDINAL.db` below: if a throttled delivery
         //    ever touched the persisted hook row, that branch would throw "is not a function" and
         //    fail these tests, which is the enforcement that it must not.
         addJob: mock.fn(async (job: any) => {
@@ -729,7 +729,7 @@ describe('hooks emit rate limiting (mocked)', () => {
   })
 
   afterEach(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('queues only up to the configured cap, then skips and warns without throwing', async () => {
@@ -796,7 +796,7 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
 
   beforeEach(() => {
     addJobCalls = []
-    ;(globalThis as any).WIKI.scheduler = {
+    ;(globalThis as any).CARDINAL.scheduler = {
       addJob: mock.fn(async (job: any) => {
         addJobCalls.push(job)
         return { id: `job-${addJobCalls.length}` }
@@ -855,7 +855,7 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
 
 /**
  * Declared/emitted parity for `page:classification-changed` (OpenProject #1935): a pure check of the
- * two plain array exports, no `WIKI` or database needed. `api/hooks.test.ts` already asserts the same
+ * two plain array exports, no `CARDINAL` or database needed. `api/hooks.test.ts` already asserts the same
  * kind of parity generically (every `HOOK_EVENTS` entry's `isEmitted` flag against `EMITTED_EVENTS`)
  * for the `GET /hooks/events` response; this pins the specific new entry at the source-of-truth level
  * so a future edit that declares the event without wiring its `emit()` call (or vice versa) fails here
@@ -909,16 +909,16 @@ describe(
       await teardownTestDb()
     })
 
-    // -> `emit()` never throws, but it does queue through `WIKI.scheduler.addJob` — the piece of the
-    //    real scheduler `test/db.ts`'s minimal `WIKI` does not install (same reasoning as the sibling
+    // -> `emit()` never throws, but it does queue through `CARDINAL.scheduler.addJob` — the piece of the
+    //    real scheduler `test/db.ts`'s minimal `CARDINAL` does not install (same reasoning as the sibling
     //    DB-backed describes above).
     beforeEach(() => {
       addJob = mock.fn(async () => ({ id: 'job-id' }))
-      ;(globalThis as any).WIKI.scheduler = { addJob }
+      ;(globalThis as any).CARDINAL.scheduler = { addJob }
     })
 
     test('a subscribed user is queued a notification; an unsubscribed user is not', async () => {
-      await WIKI.models.eventSubscriptions.subscribe(fixtures.userId, 'page:edit')
+      await CARDINAL.models.eventSubscriptions.subscribe(fixtures.userId, 'page:edit')
       // -> `unsubscribedUserId` deliberately has no `eventSubscriptions` row at all.
 
       await hooksModel.emit('page:edit', fixtures.siteId, { id: 'page-1' })
@@ -932,8 +932,8 @@ describe(
     })
 
     test('unsubscribing removes the user from future fan-outs', async () => {
-      await WIKI.models.eventSubscriptions.subscribe(fixtures.userId, 'page:delete')
-      await WIKI.models.eventSubscriptions.unsubscribe(fixtures.userId, 'page:delete')
+      await CARDINAL.models.eventSubscriptions.subscribe(fixtures.userId, 'page:delete')
+      await CARDINAL.models.eventSubscriptions.unsubscribe(fixtures.userId, 'page:delete')
 
       await hooksModel.emit('page:delete', fixtures.siteId, { id: 'page-2' })
 
@@ -944,7 +944,7 @@ describe(
     })
 
     test('a subscription to a different event does not fire for this one', async () => {
-      await WIKI.models.eventSubscriptions.subscribe(fixtures.userId, 'page:rename')
+      await CARDINAL.models.eventSubscriptions.subscribe(fixtures.userId, 'page:rename')
 
       await hooksModel.emit('page:create', fixtures.siteId, { id: 'page-3' })
 

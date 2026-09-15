@@ -24,7 +24,7 @@ const withFormBody: FastifyPluginAsync = async (instance) => {
  * `SAMLResponse` and `RelayState` this way, `RelayState` carrying this route's `state` since SAML
  * defines no `state` parameter of its own (see `AuthFlow.state` in `models/authentication.ts`).
  *
- * `WIKI.auth.strategies[...].profile()` and `WIKI.models.login.loginWithProvider()` are stubbed:
+ * `CARDINAL.auth.strategies[...].profile()` and `CARDINAL.models.login.loginWithProvider()` are stubbed:
  * what is under test here is the route's flow-matching/expiry/`state` wiring and body parsing, not a
  * real protocol module or the login model, which have their own coverage.
  */

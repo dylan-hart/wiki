@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { deriveDisplayName, resolveNameFields } from './users.ts'
 
 /**
- * The insert half of Feature #2608's `name` derivation invariant, as pure functions — no `WIKI`, no
+ * The insert half of Feature #2608's `name` derivation invariant, as pure functions — no `CARDINAL`, no
  * database. The update half needs a stored row to reconcile against and so is covered by
  * `models/users.names.db.test.ts` instead.
  */

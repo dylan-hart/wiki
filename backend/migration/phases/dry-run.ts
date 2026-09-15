@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
  * The dry-run/live split every phase's injected write model uses.
  *
  * `ctx.dryRun` is deliberately checked *inside* each write model's own method body rather than at
- * `entities()`-construction time, so a `dryRun: true` run never touches the ambient `WIKI` global at
+ * `entities()`-construction time, so a `dryRun: true` run never touches the ambient `CARDINAL` global at
  * all, and each importer's own classification logic (collision checks, folder resolution, actor
  * fallback, navigation item mapping) still runs identically in both modes — only the
  * destination-touching half is swapped out.

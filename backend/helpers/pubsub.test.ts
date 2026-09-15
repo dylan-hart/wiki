@@ -238,12 +238,12 @@ describe('connectListener', () => {
   })
 
   test('checks out from whichever pool it is handed, and never from a separate pool also in scope (task 1887)', async () => {
-    // -> Stands in for `WIKI.dbManager.listenerPool`, the dedicated pool `createListenerPool` builds.
+    // -> Stands in for `CARDINAL.dbManager.listenerPool`, the dedicated pool `createListenerPool` builds.
     const listenerPool = new FakePool()
     const client = new FakeClient()
     listenerPool.queueClient(client)
 
-    // -> Stands in for `WIKI.dbManager.pool`, the main query pool -- `connectOnce` must never touch
+    // -> Stands in for `CARDINAL.dbManager.pool`, the main query pool -- `connectOnce` must never touch
     //    this one, which is the whole point of task 1887 moving the listeners off it.
     const queryPool = new FakePool()
 
@@ -298,8 +298,8 @@ describe('createListenerPool', () => {
 describe('createNotifier', () => {
   /**
    * Regression coverage for task 2015: `core/db.ts`'s module-scope notifier reads
-   * `WIKI.dbManager.pubsubClient` in its client getter, a member the worker thread's minimal `WIKI`
-   * never sets (`worker.ts`'s literal is asserted to the full `WikiGlobal`, so `tsc` cannot catch the
+   * `CARDINAL.dbManager.pubsubClient` in its client getter, a member the worker thread's minimal `CARDINAL`
+   * never sets (`worker.ts`'s literal is asserted to the full `CardinalGlobal`, so `tsc` cannot catch the
    * gap). The fix makes the getter itself defensive; this exercises `createNotifier`'s own contract
    * that a getter returning `null` is a silent no-op, which is what makes that defensiveness safe to
    * rely on regardless of which caller's getter it is.

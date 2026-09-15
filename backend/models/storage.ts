@@ -244,7 +244,7 @@ export interface StorageTarget {
    * `api/schemas/storage.ts` doesn't list it, and every route it's needed on is already scoped to a
    * site of its own), but a module implementation needs it: `executeAction()` hands a module only the
    * target, never the site, so an action handler that needs to reach
-   * `WIKI.models.pages`/`WIKI.models.assets` (a two-way `sync`, chiefly, or `exportAll`) has no other
+   * `CARDINAL.models.pages`/`CARDINAL.models.assets` (a two-way `sync`, chiefly, or `exportAll`) has no other
    * way to learn whose content it is looking at.
    */
   siteId: string
@@ -321,7 +321,7 @@ export interface StorageTargetInput {
  * contract: pages get the bare verb, assets are prefixed because `renamed` would otherwise collide
  * between the two content types. `data` is the same object the write-path call passed to `dispatch()`
  * (id, path/fileName, siteId, ...) — a handler that needs the actual page render or asset bytes fetches
- * them itself via `WIKI.models.pages` / `WIKI.models.assets`, so the queued job stays small and
+ * them itself via `CARDINAL.models.pages` / `CARDINAL.models.assets`, so the queued job stays small and
  * JSON-serializable rather than carrying content through the job table.
  */
 export interface StorageModule {
@@ -398,7 +398,7 @@ class Storage {
    * Load the storage module definitions from disk.
    */
   async refreshFromDisk(): Promise<void> {
-    const storagePath = path.join(WIKI.SERVERPATH, 'modules/storage')
+    const storagePath = path.join(CARDINAL.SERVERPATH, 'modules/storage')
     try {
       const definitions = await readModuleDefinitions<StorageDefinition>(storagePath, {
         parseProps: true,
@@ -437,12 +437,12 @@ class Storage {
           ? await this.moduleSupportsContentSync(definition.key)
           : false
       }
-      WIKI.logger.debug('storage', 'loaded module definitions', {
+      CARDINAL.logger.debug('storage', 'loaded module definitions', {
         modules: this.definitions.length
       })
     } catch (err: any) {
       this.definitions = []
-      WIKI.logger.error('storage', 'reading the module definitions failed', {
+      CARDINAL.logger.error('storage', 'reading the module definitions failed', {
         path: storagePath,
         error: err
       })
@@ -453,7 +453,7 @@ class Storage {
    * Whether the module has any code to run, as opposed to only a definition
    */
   async hasImplementation(key: string): Promise<boolean> {
-    return moduleHasFile(WIKI.SERVERPATH, 'modules/storage', key, 'storage.ts')
+    return moduleHasFile(CARDINAL.SERVERPATH, 'modules/storage', key, 'storage.ts')
   }
 
   /**
@@ -514,11 +514,11 @@ class Storage {
    * Register the installed storage modules for every site. Called at boot, after the sites cache.
    */
   async syncAllSites(): Promise<void> {
-    const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    const sites = await CARDINAL.db.select({ id: sitesTable.id }).from(sitesTable)
     for (const site of sites) {
-      await WIKI.models.storage.syncSite(site.id)
+      await CARDINAL.models.storage.syncSite(site.id)
     }
-    WIKI.logger.info('storage', 'registered targets', { sites: sites.length })
+    CARDINAL.logger.info('storage', 'registered targets', { sites: sites.length })
   }
 
   /**
@@ -532,7 +532,7 @@ class Storage {
       siteId ? eq(storageTable.siteId, siteId) : undefined,
       enabledOnly ? eq(storageTable.isEnabled, true) : undefined
     ].filter(Boolean)
-    return WIKI.db
+    return CARDINAL.db
       .select()
       .from(storageTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -770,7 +770,7 @@ class Storage {
       return false
     }
 
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(storageTable)
       .set(values)
       .where(and(eq(storageTable.siteId, siteId), eq(storageTable.id, target.id)))
@@ -855,7 +855,7 @@ class Storage {
         if (!this.targetCoversEvent(target, event, data)) {
           continue
         }
-        const added = await WIKI.scheduler.addJob({
+        const added = await CARDINAL.scheduler.addJob({
           task: 'dispatchStorage',
           payload: {
             targetId: target.id,
@@ -872,7 +872,7 @@ class Storage {
       }
       return queued
     } catch (err: any) {
-      WIKI.logger.warn('storage', 'queueing the dispatch failed', { event, error: err })
+      CARDINAL.logger.warn('storage', 'queueing the dispatch failed', { event, error: err })
       return 0
     }
   }
@@ -943,7 +943,7 @@ class Storage {
       try {
         due = isScheduleDue(scheduleStr as string, lastTick, now)
       } catch (err: any) {
-        WIKI.logger.warn('storage', 'unparseable sync schedule, skipping the target', {
+        CARDINAL.logger.warn('storage', 'unparseable sync schedule, skipping the target', {
           target: row.id,
           schedule: scheduleStr,
           error: err
@@ -953,14 +953,14 @@ class Storage {
       if (!due) {
         continue
       }
-      const added = await WIKI.scheduler.addJob({
+      const added = await CARDINAL.scheduler.addJob({
         task: 'dispatchStorage',
         payload: { targetId: row.id, siteId: row.siteId, handler: 'sync', data: {} }
       })
       if (!added?.id) {
         continue
       }
-      await WIKI.db
+      await CARDINAL.db
         .update(storageTable)
         .set({ lastTickAt: new Date(now.epochMilliseconds) })
         .where(eq(storageTable.id, row.id))
@@ -990,7 +990,7 @@ class Storage {
    * @returns How many targets' backups ran successfully, and how many failed
    */
   async runDailyBackups(): Promise<{ ran: number; failed: number }> {
-    const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    const sites = await CARDINAL.db.select({ id: sitesTable.id }).from(sitesTable)
     let ran = 0
     let failed = 0
     for (const site of sites) {
@@ -1008,7 +1008,7 @@ class Storage {
           ran++
         } catch (err: any) {
           failed++
-          WIKI.logger.warn('storage', 'daily backup failed', {
+          CARDINAL.logger.warn('storage', 'daily backup failed', {
             target: target.id,
             module: target.module,
             site: site.id,

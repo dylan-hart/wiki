@@ -37,7 +37,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Custom block not found')
       }
 
-      const code = await WIKI.models.blocks.getCustomBlockCode(req.params.siteId, blockId)
+      const code = await CARDINAL.models.blocks.getCustomBlockCode(req.params.siteId, blockId)
       if (!code) {
         return reply.notFound('Custom block not found')
       }

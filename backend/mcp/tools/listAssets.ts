@@ -39,7 +39,7 @@ export interface ListedAsset {
  * `backend/api/assets.ts` (the REST route this feature otherwise wraps — upload/get/download/rename/
  * delete) has no listing route of its own: asset listing lives in `GET /sites/:siteId/tree`
  * (`api/tree.ts`), one call filtered to `types: ['asset']`, which is also what the file manager itself
- * calls. This tool calls that same model method, `WIKI.models.tree.getTree()`, directly — the same
+ * calls. This tool calls that same model method, `CARDINAL.models.tree.getTree()`, directly — the same
  * "call the model method the REST route calls" pattern `list_navigation` already uses for
  * `tree.browse()` — then applies the per-item permission filter `helpers/pageAccess.ts#mayOnAsset`/
  * `visibleTreeItems` apply on the REST side: `read:assets`, judged on the asset's own path, with a
@@ -60,7 +60,7 @@ export async function handleListAssets(
   const site = resolveRequestedSite(ctx, args.siteId)
   const locale = args.locale ?? defaultLocale(site.id)
 
-  const items = await WIKI.models.tree.getTree({
+  const items = await CARDINAL.models.tree.getTree({
     siteId: site.id,
     parentPath: args.path,
     locale,
@@ -70,7 +70,7 @@ export async function handleListAssets(
   const actor = actorFor(ctx)
   const assets: ListedAsset[] = items
     .filter((item) =>
-      WIKI.models.groups.checkAccess(actor, 'read:assets', {
+      CARDINAL.models.groups.checkAccess(actor, 'read:assets', {
         path: item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName,
         siteId: site.id,
         locale,

@@ -36,7 +36,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.authentication.getModules()
+      return CARDINAL.models.authentication.getModules()
     }
   )
 
@@ -66,7 +66,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.authentication.getActiveStrategies({ mask: true })
+      return CARDINAL.models.authentication.getActiveStrategies({ mask: true })
     }
   )
 
@@ -92,7 +92,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      const counts = await WIKI.models.authentication.getVisibleSiteCounts()
+      const counts = await CARDINAL.models.authentication.getVisibleSiteCounts()
       return Object.entries(counts).map(([id, visibleSiteCount]) => ({ id, visibleSiteCount }))
     }
   )
@@ -128,7 +128,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const strategy = await WIKI.models.authentication.getStrategyById(req.params.strategyId, {
+      const strategy = await CARDINAL.models.authentication.getStrategyById(req.params.strategyId, {
         mask: true
       })
       if (!strategy) {
@@ -179,13 +179,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const mod = WIKI.models.authentication.getModule(req.body.module)
+      const mod = CARDINAL.models.authentication.getModule(req.body.module)
       if (!mod) {
         return reply.badRequest('ERR_UNKNOWN_AUTH_MODULE')
       }
 
       const invalid =
-        (await WIKI.models.authentication.validateStrategy({
+        (await CARDINAL.models.authentication.validateStrategy({
           module: req.body.module,
           displayName: req.body.displayName,
           isEnabled: req.body.isEnabled,
@@ -193,12 +193,12 @@ async function routes(app: FastifyInstance) {
           allowedEmailDomains: req.body.allowedEmailDomains,
           autoEnrollGroups: req.body.autoEnrollGroups,
           mappableGroups: req.body.mappableGroups
-        })) ?? WIKI.models.authentication.validateConfig(req.body.module, req.body.config)
+        })) ?? CARDINAL.models.authentication.validateConfig(req.body.module, req.body.config)
       if (invalid) {
         return reply.badRequest(invalid)
       }
 
-      const id = await WIKI.models.authentication.createStrategy(req.body as any)
+      const id = await CARDINAL.models.authentication.createStrategy(req.body as any)
 
       return {
         ok: true,
@@ -255,7 +255,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const current = await WIKI.models.authentication.getStrategyById(req.params.strategyId)
+      const current = await CARDINAL.models.authentication.getStrategyById(req.params.strategyId)
       if (!current) {
         return reply.notFound('Authentication strategy does not exist.')
       }
@@ -285,23 +285,23 @@ async function routes(app: FastifyInstance) {
       }
 
       const invalid =
-        (await WIKI.models.authentication.validateStrategy({
+        (await CARDINAL.models.authentication.validateStrategy({
           id: current.id,
           module: current.module,
           ...patch
-        })) ?? WIKI.models.authentication.validateConfig(current.module, patch.config)
+        })) ?? CARDINAL.models.authentication.validateConfig(current.module, patch.config)
       if (invalid) {
         return reply.badRequest(invalid)
       }
 
-      if (!(await WIKI.models.authentication.updateStrategy(req.params.strategyId, patch))) {
+      if (!(await CARDINAL.models.authentication.updateStrategy(req.params.strategyId, patch))) {
         return reply.internalServerError('Failed to update the authentication strategy.')
       }
 
       // -> Config holds OAuth client secrets and LDAP bind passwords, so `detail` names which
       //    top-level fields changed rather than their values -- `changedFields` never descends into
       //    `patch.config` itself. Mirrors `storage.targetUpdated` in `api/storage.ts`.
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'auth.strategyUpdated',
         actor: actorFromRequest(req),
         targetType: 'authStrategy',
@@ -356,15 +356,15 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const strategy = await WIKI.models.authentication.getStrategyById(req.params.strategyId)
+      const strategy = await CARDINAL.models.authentication.getStrategyById(req.params.strategyId)
       if (!strategy) {
         return reply.notFound('Authentication strategy does not exist.')
       }
-      if (strategy.id === WIKI.data.systemIds.localAuthId) {
+      if (strategy.id === CARDINAL.data.systemIds.localAuthId) {
         return reply.conflict('The built-in local strategy cannot be deleted.')
       }
 
-      await WIKI.models.authentication.deleteStrategy(req.params.strategyId)
+      await CARDINAL.models.authentication.deleteStrategy(req.params.strategyId)
       return reply.code(204).send()
     }
   )
@@ -394,7 +394,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.authentication.getGroupSyncWarnings()
+      return CARDINAL.models.authentication.getGroupSyncWarnings()
     }
   )
 }

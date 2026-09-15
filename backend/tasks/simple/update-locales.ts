@@ -28,14 +28,14 @@ export function isFlatStringMap(value: unknown): value is Record<string, string>
 }
 
 export async function task(): Promise<TaskResult | void> {
-  if (WIKI.config.offline) {
+  if (CARDINAL.config.offline) {
     // -> `debug`: this runs daily and says the same thing every time on a deployment that is
     //    deliberately offline. Sideload locale packs into <dataPath>/locales/ instead — see
     //    docs/offline-deployment.md.
-    WIKI.logger.debug('locale', 'skipping localization data update, offline mode')
+    CARDINAL.logger.debug('locale', 'skipping localization data update, offline mode')
     return
   }
-  if (WIKI.config.update?.locales === false) {
+  if (CARDINAL.config.update?.locales === false) {
     return
   }
 
@@ -62,7 +62,7 @@ export async function task(): Promise<TaskResult | void> {
 
   const languages = metadata.languages.slice(0, MAX_LANGUAGES)
   if (metadata.languages.length > MAX_LANGUAGES) {
-    WIKI.logger.warn('locale', 'metadata listed more languages than one run processes', {
+    CARDINAL.logger.warn('locale', 'metadata listed more languages than one run processes', {
       listed: metadata.languages.length,
       processing: MAX_LANGUAGES
     })
@@ -80,7 +80,7 @@ export async function task(): Promise<TaskResult | void> {
     }
     const langFilename = langFilenameParts.join('-')
 
-    WIKI.logger.debug('locale', 'fetching updates', { locale: langFilename })
+    CARDINAL.logger.debug('locale', 'fetching updates', { locale: langFilename })
 
     const stringsResp = await fetch(
       `https://raw.githubusercontent.com/requarks/wiki-locales/main/locales/${encodeURIComponent(langFilename)}.json`,
@@ -89,7 +89,7 @@ export async function task(): Promise<TaskResult | void> {
     const strings = stringsResp.ok ? await stringsResp.json() : null
 
     if (strings && isFlatStringMap(strings)) {
-      await WIKI.db
+      await CARDINAL.db
         .insert(localesTable)
         .values({
           code: langFilename,
@@ -106,13 +106,13 @@ export async function task(): Promise<TaskResult | void> {
           set: { strings, updatedAt: sql`now()` }
         })
       updated++
-      WIKI.logger.debug('locale', 'updated strings', { locale: langFilename })
+      CARDINAL.logger.debug('locale', 'updated strings', { locale: langFilename })
     } else if (strings) {
-      WIKI.logger.warn('locale', 'rejected a strings payload that is not a flat string map', {
+      CARDINAL.logger.warn('locale', 'rejected a strings payload that is not a flat string map', {
         locale: langFilename
       })
     } else {
-      WIKI.logger.warn('locale', 'no strings file on wiki-locales', { locale: langFilename })
+      CARDINAL.logger.warn('locale', 'no strings file on wiki-locales', { locale: langFilename })
     }
 
     await setTimeout(100)
@@ -125,11 +125,11 @@ export async function task(): Promise<TaskResult | void> {
   //    the next restart -- on every instance, including this one. Broadcasts too, so a peer instance
   //    picks it up without waiting for its own restart.
   if (updated > 0) {
-    await WIKI.models.locales.broadcastReload()
+    await CARDINAL.models.locales.broadcastReload()
     return { summary: 'synced localization data', updated, of: languages.length }
   }
   // -> Not a summary: nothing changed, so the run itself is `debug` — but "checked N languages and
   //    none had moved" is a different fact from the scheduler's bare `finished`, and it is the one
   //    that says the sync is actually reaching upstream.
-  WIKI.logger.debug('locale', 'localization data unchanged', { of: languages.length })
+  CARDINAL.logger.debug('locale', 'localization data unchanged', { of: languages.length })
 }

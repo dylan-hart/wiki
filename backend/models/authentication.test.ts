@@ -16,8 +16,8 @@ import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
  * all, so it correctly declares no `refs`.
  */
 
-// -> A minimal WIKI global: `refreshStrategiesFromDisk()` only touches SERVERPATH, logger and data.
-;(globalThis as any).WIKI = {
+// -> A minimal CARDINAL global: `refreshStrategiesFromDisk()` only touches SERVERPATH, logger and data.
+;(globalThis as any).CARDINAL = {
   SERVERPATH: path.join(import.meta.dirname, '..'),
   logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
   data: {}
@@ -73,11 +73,11 @@ describe('authentication module definitions: provisionable', () => {
 })
 
 /**
- * A failed scan must still leave `WIKI.data.authentication` an array.
+ * A failed scan must still leave `CARDINAL.data.authentication` an array.
  *
  * `base.yml` declares no `authentication` key, so this field only ever exists because
  * `refreshStrategiesFromDisk()` put it there — and `models/users.ts`'s login and registration paths
- * (`WIKI.data.authentication.find(...)`) and `api/auth/strategies.ts`'s strategy listing all read it
+ * (`CARDINAL.data.authentication.find(...)`) and `api/auth/strategies.ts`'s strategy listing all read it
  * unguarded. Left `undefined` by a scan that threw, the very next login answers a `TypeError` 500
  * instead of "no such strategy", which is the failure mode this locks down.
  */
@@ -85,21 +85,25 @@ describe('authentication.refreshStrategiesFromDisk: a scan that fails', () => {
   let previousServerPath: string
 
   before(() => {
-    previousServerPath = (globalThis as any).WIKI.SERVERPATH
+    previousServerPath = (globalThis as any).CARDINAL.SERVERPATH
     // -> A directory that does not exist: `readdir` rejects, so the scan fails before it can read a
     //    single definition — the same shape as an unreadable or missing `modules/authentication`.
-    ;(globalThis as any).WIKI.SERVERPATH = path.join(import.meta.dirname, '..', '__no-such-dir__')
-    ;(globalThis as any).WIKI.data = {}
+    ;(globalThis as any).CARDINAL.SERVERPATH = path.join(
+      import.meta.dirname,
+      '..',
+      '__no-such-dir__'
+    )
+    ;(globalThis as any).CARDINAL.data = {}
   })
 
   after(() => {
-    ;(globalThis as any).WIKI.SERVERPATH = previousServerPath
-    ;(globalThis as any).WIKI.data = {}
+    ;(globalThis as any).CARDINAL.SERVERPATH = previousServerPath
+    ;(globalThis as any).CARDINAL.data = {}
   })
 
-  test('leaves WIKI.data.authentication an empty array rather than undefined', async () => {
+  test('leaves CARDINAL.data.authentication an empty array rather than undefined', async () => {
     await authentication.refreshStrategiesFromDisk()
-    assert.deepEqual(WIKI.data.authentication, [])
+    assert.deepEqual(CARDINAL.data.authentication, [])
     assert.deepEqual(authentication.getModules(), [])
   })
 })
@@ -107,14 +111,14 @@ describe('authentication.refreshStrategiesFromDisk: a scan that fails', () => {
 /**
  * `validateStrategy`'s `mappableGroups` check mirrors `autoEnrollGroups`'s own validation
  * (guests refused, unknown group id refused) — this is the allow-list column added for the group
- * mapping constraint. `WIKI.db` is stubbed to a fixed group list rather than run against a real
+ * mapping constraint. `CARDINAL.db` is stubbed to a fixed group list rather than run against a real
  * database: what is under test here is the validation branching, not the query itself.
  */
 describe('authentication.validateStrategy: mappableGroups', () => {
   const guestsGroupId = 'group-guests'
 
   function stubDb(existingGroupIds: string[]) {
-    ;(globalThis as any).WIKI.db = {
+    ;(globalThis as any).CARDINAL.db = {
       select: () => ({
         from: async () => existingGroupIds.map((id) => ({ id }))
       })
@@ -122,14 +126,14 @@ describe('authentication.validateStrategy: mappableGroups', () => {
   }
 
   before(() => {
-    ;(globalThis as any).WIKI = {
-      ...(globalThis as any).WIKI,
+    ;(globalThis as any).CARDINAL = {
+      ...(globalThis as any).CARDINAL,
       data: { systemIds: { guestsGroupId } }
     }
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   test('accepts an empty mappableGroups list', async () => {
@@ -172,8 +176,8 @@ describe('authentication.validateStrategy: mappableGroups', () => {
 /**
  * OpenProject #2469: `allowedEmailDomains` is a per-strategy list of domains, a friendlier
  * alternative to `allowedEmailRegex` for the common case. `validateStrategy`'s format check touches
- * no database and no `WIKI` global, so this is a pure unit suite -- the same "no I/O" reasoning as
- * the mappableGroups describe above, minus even its `WIKI.db` stub.
+ * no database and no `CARDINAL` global, so this is a pure unit suite -- the same "no I/O" reasoning as
+ * the mappableGroups describe above, minus even its `CARDINAL.db` stub.
  */
 describe('authentication.validateStrategy: allowedEmailDomains', () => {
   test('accepts an empty allowedEmailDomains list', async () => {
@@ -228,10 +232,10 @@ describe(
       //    the DB connection and migrated schema `setupTestDb()` sets up as a side effect.
       await setupTestDb()
       // -> `updateStrategy`/`getActiveStrategies`'s sort calls `isBuiltInLocal`, which reads
-      //    `WIKI.data.systemIds.localAuthId` -- `setupTestDb()`'s own minimal WIKI has no
+      //    `CARDINAL.data.systemIds.localAuthId` -- `setupTestDb()`'s own minimal CARDINAL has no
       //    `systemIds` at all, since no other DB-backed suite needs one. A value that matches no
       //    strategy this suite creates is all `isBuiltInLocal` needs to answer false for all of them.
-      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      ;(CARDINAL.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
       await authentication.refreshStrategiesFromDisk()
     })
 
@@ -295,8 +299,8 @@ describe(
 
     before(async () => {
       await setupTestDb()
-      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite', guestsGroupId }
-      ;(WIKI.config as any).auth = { rootAdminGroupId }
+      ;(CARDINAL.data as any).systemIds = { localAuthId: 'unused-in-this-suite', guestsGroupId }
+      ;(CARDINAL.config as any).auth = { rootAdminGroupId }
       await authentication.refreshStrategiesFromDisk()
     })
 
@@ -309,9 +313,11 @@ describe(
     })
 
     test('names only the genuinely revocable groups of enabled, mapGroups-on strategies', async () => {
-      const editorsGroupId = await WIKI.models.groups.createGroup('Sync Warning Editors')
-      const autoEnrolledGroupId = await WIKI.models.groups.createGroup('Sync Warning AutoEnrolled')
-      const [adminRow] = await WIKI.db
+      const editorsGroupId = await CARDINAL.models.groups.createGroup('Sync Warning Editors')
+      const autoEnrolledGroupId = await CARDINAL.models.groups.createGroup(
+        'Sync Warning AutoEnrolled'
+      )
+      const [adminRow] = await CARDINAL.db
         .insert(groupsTable)
         .values({ name: 'Sync Warning Admins', permissions: ['manage:system'], rules: [] })
         .returning({ id: groupsTable.id })
@@ -370,7 +376,7 @@ describe(
   () => {
     before(async () => {
       await setupTestDb()
-      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      ;(CARDINAL.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
       await authentication.refreshStrategiesFromDisk()
     })
 
@@ -439,7 +445,7 @@ describe(
     before(async () => {
       const fixtures = await setupTestDb()
       fixtureSiteId = fixtures.siteId
-      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      ;(CARDINAL.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
       await authentication.refreshStrategiesFromDisk()
     })
 
@@ -450,18 +456,18 @@ describe(
     test('appends the new strategy as visible to a site with no authStrategies configured yet', async () => {
       const id = await authentication.createStrategy({ module: 'local' })
 
-      const site = await WIKI.models.sites.getSiteById({ id: fixtureSiteId })
+      const site = await CARDINAL.models.sites.getSiteById({ id: fixtureSiteId })
       const entry = (site!.config as any).authStrategies.find((s: any) => s.id === id)
       assert.ok(entry, 'the new strategy should have an entry in the site config')
       assert.equal(entry.isVisible, true)
     })
 
     test('appends without disturbing an existing entry, and both sites gain the new strategy', async () => {
-      const secondSite = await WIKI.models.sites.createSite('second-strategy-site.localhost')
+      const secondSite = await CARDINAL.models.sites.createSite('second-strategy-site.localhost')
 
       const id = await authentication.createStrategy({ module: 'local' })
 
-      const firstSite = await WIKI.models.sites.getSiteById({ id: fixtureSiteId })
+      const firstSite = await CARDINAL.models.sites.getSiteById({ id: fixtureSiteId })
       const firstEntries = (firstSite!.config as any).authStrategies as Array<{
         id: string
         order: number
@@ -477,7 +483,7 @@ describe(
       assert.ok(firstNewEntry)
       assert.equal(firstNewEntry!.isVisible, true)
 
-      const reloadedSecondSite = await WIKI.models.sites.getSiteById({ id: secondSite.id })
+      const reloadedSecondSite = await CARDINAL.models.sites.getSiteById({ id: secondSite.id })
       const secondEntries = (reloadedSecondSite!.config as any).authStrategies as Array<{
         id: string
         isVisible: boolean
@@ -500,7 +506,7 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
 
   before(async () => {
     fixtures = await setupTestDb()
-    ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+    ;(CARDINAL.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
     await authentication.refreshStrategiesFromDisk()
   })
 
@@ -513,7 +519,7 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
     // -> createStrategy itself seeds a visible entry for the new strategy into every existing site
     //    (OpenProject #2556), so the fixture site already references `id` at this point -- wipe that
     //    seed to exercise the genuinely-unreferenced-anywhere case this test is actually about.
-    await WIKI.models.sites.updateSite(fixtures.siteId, { config: { authStrategies: [] } })
+    await CARDINAL.models.sites.updateSite(fixtures.siteId, { config: { authStrategies: [] } })
     const counts = await authentication.getVisibleSiteCounts()
     assert.equal(counts[id], undefined)
   })
@@ -525,7 +531,7 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
 
     // -> The fixture's own seeded site: visible for two of the three, and carries an isVisible:
     //    false entry for the third -- the exact fallback shape `api/auth/site.ts` reads.
-    await WIKI.models.sites.updateSite(fixtures.siteId, {
+    await CARDINAL.models.sites.updateSite(fixtures.siteId, {
       config: {
         authStrategies: [
           { id: visibleEverywhereId, order: 0, isVisible: true },

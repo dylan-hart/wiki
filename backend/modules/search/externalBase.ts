@@ -90,7 +90,7 @@ export abstract class ExternalSearchModule implements SearchModule {
     try {
       await work()
     } catch (err: any) {
-      WIKI.logger.warn('search', message, { engine: this.engine, ...fields, error: err })
+      CARDINAL.logger.warn('search', message, { engine: this.engine, ...fields, error: err })
     }
   }
 }

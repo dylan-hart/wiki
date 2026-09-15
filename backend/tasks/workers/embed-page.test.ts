@@ -66,9 +66,9 @@ describe('tasks/workers/embed-page (DB-backed)', { skip: !hasTestDatabase() }, (
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('../../models/pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
-    mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
+    mock.method(CARDINAL.models.renderQueue, 'ensureCanRender', async () => {})
     pgvectorAvailable = await ensurePageEmbeddingChunksTable(fixtures.db)
-    WIKI.capabilities = { semanticSearch: true }
+    CARDINAL.capabilities = { semanticSearch: true }
   })
 
   after(async () => {
@@ -97,7 +97,7 @@ describe('tasks/workers/embed-page (DB-backed)', { skip: !hasTestDatabase() }, (
       t.skip('pgvector extension is not installed on this postgres')
       return
     }
-    const addJob = WIKI.scheduler.addJob as unknown as {
+    const addJob = CARDINAL.scheduler.addJob as unknown as {
       mock: { calls: Array<{ arguments: unknown[] }>; resetCalls: () => void }
     }
     addJob.mock.resetCalls()
@@ -152,13 +152,13 @@ describe('tasks/workers/embed-page (DB-backed)', { skip: !hasTestDatabase() }, (
     }
 
     const page = await pagesModel.createPage(fixtures.siteId, longRenderInput(), actor)
-    WIKI.capabilities = { semanticSearch: false }
+    CARDINAL.capabilities = { semanticSearch: false }
     try {
       await embedPage(page.id)
       const rows = await chunkRows(fixtures.db, page.id)
       assert.equal(rows.length, 0)
     } finally {
-      WIKI.capabilities = { semanticSearch: true }
+      CARDINAL.capabilities = { semanticSearch: true }
     }
   })
 

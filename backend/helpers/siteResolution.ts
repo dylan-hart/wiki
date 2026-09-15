@@ -68,11 +68,11 @@ export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
 export const SITE_MISSING_MESSAGE = 'This site does not exist.'
 
 /**
- * The one place a hostname is folded to the form `WIKI.sitesMappings` is keyed and looked up by
+ * The one place a hostname is folded to the form `CARDINAL.sitesMappings` is keyed and looked up by
  * (OpenProject #2127).
  *
  * DNS names are case-insensitive, but `models/sites.ts#reloadCache()` used to key
- * `WIKI.sitesMappings` by `site.hostname` exactly as stored (already constrained to lowercase by
+ * `CARDINAL.sitesMappings` by `site.hostname` exactly as stored (already constrained to lowercase by
  * the site create/update schemas — see `api/sites.ts`'s `^(\*|[a-z0-9.-]+)$` pattern — so the
  * WRITE side was already fine) while every READ side indexed it with `req.hostname` exactly as
  * Fastify's `hostname` getter delivers it — case preserved, only the port stripped. A `Host:
@@ -91,7 +91,7 @@ export function normalizeHostname(hostname: string): string {
 }
 
 /**
- * Which site a request's hostname resolves to, as `WIKI.sitesMappings` answers it.
+ * Which site a request's hostname resolves to, as `CARDINAL.sitesMappings` answers it.
  *
  * The other half of `normalizeHostname`'s job (OpenProject #2127): folding the hostname is only
  * useful if every lookup actually does it, and the lookup itself — `sitesMappings[normalized]`,
@@ -108,11 +108,11 @@ export function siteIdForHostname(
   hostname: string | undefined,
   { strict = false }: { strict?: boolean } = {}
 ): string | undefined {
-  const direct = hostname ? WIKI.sitesMappings[normalizeHostname(hostname)] : undefined
+  const direct = hostname ? CARDINAL.sitesMappings[normalizeHostname(hostname)] : undefined
   if (strict) {
     return direct
   }
-  return direct || WIKI.sitesMappings['*']
+  return direct || CARDINAL.sitesMappings['*']
 }
 
 /**
@@ -127,7 +127,7 @@ export async function siteForHostname(
   hostname: string | undefined,
   { strict = false }: { strict?: boolean } = {}
 ): Promise<any> {
-  return hostname ? await WIKI.models.sites.getSiteByHostname({ hostname, strict }) : null
+  return hostname ? await CARDINAL.models.sites.getSiteByHostname({ hostname, strict }) : null
 }
 
 /**
@@ -149,9 +149,9 @@ export async function resolveSiteParam(
     return siteForHostname(hostname, { strict })
   }
   if (isValidUuid(param)) {
-    return WIKI.models.sites.getSiteById({ id: param })
+    return CARDINAL.models.sites.getSiteById({ id: param })
   }
-  return WIKI.models.sites.getSiteByHostname({ hostname: param, strict })
+  return CARDINAL.models.sites.getSiteByHostname({ hostname: param, strict })
 }
 
 /**
@@ -171,7 +171,7 @@ export async function resolveSiteParam(
  *
  * A caller that already resolved a site row (`bootstrap.ts`, `controllers/site.ts`,
  * `controllers/files.ts`) passes it directly. A caller scoped only to a bare `siteId` (the
- * `/sites/:siteId/...` API routes) passes `WIKI.sites[siteId]` — `undefined` for an id that does not
+ * `/sites/:siteId/...` API routes) passes `CARDINAL.sites[siteId]` — `undefined` for an id that does not
  * exist, which this deliberately treats as "nothing to guard here" rather than a second 404: the one
  * `:siteId` caller left, `siteEnabledPreHandler` below, has already answered that 404 itself before
  * it ever asks this function anything.
@@ -256,8 +256,8 @@ export function applyEmbedFrameAncestors(
  *
  * The unknown-site `404` is the same consolidation one step further out. Thirty-six route handlers
  * across ten files opened with a hand-written site-existence preamble in two spellings — an `await
- * WIKI.models.sites.getSiteById(...)` (which is just `WIKI.sites[id]`, `models/sites.ts`) answering
- * `'Site does not exist.'`, and a bare `WIKI.sites[...]` lookup answering `'This site does not
+ * CARDINAL.models.sites.getSiteById(...)` (which is just `CARDINAL.sites[id]`, `models/sites.ts`) answering
+ * `'Site does not exist.'`, and a bare `CARDINAL.sites[...]` lookup answering `'This site does not
  * exist.'` — while every OTHER `:siteId` route (all of `pages.ts`, `assets.ts`, `checklists.ts`,
  * `watching.ts`, `notifications.ts`, `graph.ts`, ...) simply never checked, answering "page does not
  * exist" or an empty list for a site id that was never real. One condition, checked in one place,
@@ -292,11 +292,11 @@ export function siteEnabledPreHandler(
 ): void {
   const siteId = (req.params as { siteId?: string } | undefined)?.siteId
   if (siteId) {
-    if (!WIKI.sites[siteId]) {
+    if (!CARDINAL.sites[siteId]) {
       reply.notFound(SITE_MISSING_MESSAGE)
       return
     }
-    if (guardSiteEnabled(WIKI.sites[siteId], reply)) {
+    if (guardSiteEnabled(CARDINAL.sites[siteId], reply)) {
       return
     }
   }

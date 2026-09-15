@@ -7,7 +7,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 /**
  * Task 535's API surface: `GET /sites/:siteId/notifications`, `GET
  * .../notifications/unread-count`, and `PATCH .../notifications/:notificationId/read`.
- * `WIKI.models.pageWatchEvents` and `WIKI.models.users` are stubbed — the model's own persistence and
+ * `CARDINAL.models.pageWatchEvents` and `CARDINAL.models.users` are stubbed — the model's own persistence and
  * filtering behavior is `models/pageWatchEvents.test.ts`'s DB-backed coverage; this is only the
  * route's request/response wiring, its 401/404 branching, and the actor-name resolution.
  */

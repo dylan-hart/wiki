@@ -14,7 +14,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  *
  * Route-level only, following `classification.test.ts`'s pattern directly above it (the direct
  * precedent this check's "changed AND different from current" shape is modeled on): a real Fastify
- * instance with `WIKI.models.pages`/`WIKI.models.groups` stubbed to the smallest surface each test
+ * instance with `CARDINAL.models.pages`/`CARDINAL.models.groups` stubbed to the smallest surface each test
  * needs, rather than a database.
  */
 describe('pages API — publish/write role separation (OpenProject #2421)', () => {

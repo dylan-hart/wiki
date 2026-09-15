@@ -26,7 +26,7 @@ let wikiHandle: { restore(): void }
  * newly added route cannot silently regress the control" the work package's own description asks
  * for.
  *
- * No database and no real `WIKI` global beyond what plugin REGISTRATION touches (route/schema
+ * No database and no real `CARDINAL` global beyond what plugin REGISTRATION touches (route/schema
  * declarations only — see the stub below): nothing here ever calls `app.inject()`, so no route
  * handler ever actually runs.
  */
@@ -41,7 +41,7 @@ let routes: { method: string; url: string }[]
 
 before(async () => {
   // -> Only what `api/index.ts`'s plugin tree touches at REGISTRATION time (not per-request) --
-  //    `api/assets.ts` reads `WIKI.config.security?.uploadMaxFileSize` once, up front, to size its
+  //    `api/assets.ts` reads `CARDINAL.config.security?.uploadMaxFileSize` once, up front, to size its
   //    raw-body content-type parser.
   wikiHandle = installTestWiki({ config: { security: {} } })
 

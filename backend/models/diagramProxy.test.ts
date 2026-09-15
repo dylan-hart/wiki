@@ -11,7 +11,7 @@ describe('DiagramProxy.render', () => {
   let diagramProxy: typeof import('./diagramProxy.ts').diagramProxy
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: { offline: false },
       models: {
         blocks: {
@@ -20,17 +20,17 @@ describe('DiagramProxy.render', () => {
       }
     }
     ;({ diagramProxy } = await import('./diagramProxy.ts'))
-    getSiteBlocks = (globalThis as any).WIKI.models.blocks.getSiteBlocks
+    getSiteBlocks = (globalThis as any).CARDINAL.models.blocks.getSiteBlocks
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   beforeEach(() => {
     getSiteBlocks.mock.resetCalls()
     getSiteBlocks.mock.mockImplementation(async () => [])
-    ;(globalThis as any).WIKI.config.offline = false
+    ;(globalThis as any).CARDINAL.config.offline = false
     ;(globalThis as any).fetch = undefined
   })
 
@@ -58,7 +58,7 @@ describe('DiagramProxy.render', () => {
   })
 
   test('refuses when the instance is in offline mode', async () => {
-    ;(globalThis as any).WIKI.config.offline = true
+    ;(globalThis as any).CARDINAL.config.offline = true
     await assert.rejects(
       diagramProxy.render('site-1', { engine: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
       (err: any) => {

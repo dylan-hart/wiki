@@ -205,7 +205,7 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
 
 /**
  * `createUser()` atomicity (OpenProject #1607 / #1584): the insert and its group assignment now
- * share one `WIKI.db.transaction()`, so a failure in `setUserGroups` after the insert must leave no
+ * share one `CARDINAL.db.transaction()`, so a failure in `setUserGroups` after the insert must leave no
  * orphaned user row behind, and the ordinary path must still land both.
  */
 describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -213,7 +213,7 @@ describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() },
     // -> Matches `login.forgotPassword / resetPassword`'s own `createLocalUser` helper above: nothing
     //    under test here logs in, so this needs no matching `authentication` row, just a key for
     //    `createUser()` to store the password hash under.
-    WIKI.data.systemIds = { localAuthId: 'atomic-create-test-strategy' } as any
+    CARDINAL.data.systemIds = { localAuthId: 'atomic-create-test-strategy' } as any
   })
 
   test('rolls back the user insert when group assignment fails', async (t) => {
@@ -269,7 +269,7 @@ describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() },
  * the delete had already committed on its own, the user was left in *no* groups at all: no admin
  * access, no page rules, with the caller's error saying nothing about membership having been wiped.
  * `setUserGroups` now wraps both statements in one transaction, so a failed insert rolls the delete
- * back with it. The two tests below prove this two different ways: sabotaging `WIKI.db.transaction`
+ * back with it. The two tests below prove this two different ways: sabotaging `CARDINAL.db.transaction`
  * itself to delete a group mid-transaction (reproducing the real FK-violation race), and handing the
  * transaction callback a `tx` stand-in whose `insert` is forced to throw outright.
  */
@@ -280,10 +280,10 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
   before(async () => {
     ;({ users: usersModel } = await import('./users.ts'))
-    // -> `setUserGroups` -> `groups.guestMembershipViolation` reads `WIKI.data.systemIds.guestsGroupId`
-    //    -- a full-boot value the minimal test `WIKI` does not carry. Neither group id used below is
+    // -> `setUserGroups` -> `groups.guestMembershipViolation` reads `CARDINAL.data.systemIds.guestsGroupId`
+    //    -- a full-boot value the minimal test `CARDINAL` does not carry. Neither group id used below is
     //    this one, so it never actually matches; it only has to be present for the read not to throw.
-    WIKI.data.systemIds = { guestsGroupId: 'ffffffff-ffff-ffff-ffff-ffffffffffff' } as any
+    CARDINAL.data.systemIds = { guestsGroupId: 'ffffffff-ffff-ffff-ffff-ffffffffffff' } as any
 
     // -> No guests group in this fixture's seed data; `setUserGroups` reads this to keep the guest
     //    account/guests group pairing intact, and a value that matches neither group under test is
@@ -323,11 +323,11 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
       Sabotages the transaction from the outside, at exactly the point `setUserGroups` opens it --
       deleting the target group out from under the still-to-run insert reproduces the real race: a
       group deleted in the window between `setUserGroups` reading it as valid and the insert actually
-      running. `WIKI.db.transaction` itself, and everything `setUserGroups` does inside it, run for
+      running. `CARDINAL.db.transaction` itself, and everything `setUserGroups` does inside it, run for
       real and unmocked; only the timing of the group's deletion is engineered.
     */
-    const originalTransaction = WIKI.db.transaction.bind(WIKI.db)
-    const transactionSpy = mock.method(WIKI.db, 'transaction', (fn: any) =>
+    const originalTransaction = CARDINAL.db.transaction.bind(CARDINAL.db)
+    const transactionSpy = mock.method(CARDINAL.db, 'transaction', (fn: any) =>
       originalTransaction(async (tx: any) => {
         await fixtures.db.delete(groupsTable).where(eq(groupsTable.id, raceGroup!.id))
         return fn(tx)
@@ -503,7 +503,7 @@ describe('users.importLocalUser (DB-backed)', { skip: !hasTestDatabase() }, () =
 
   before(async () => {
     ;({ users: usersModel } = await import('./users.ts'))
-    WIKI.data.systemIds = { localAuthId: 'import-local-auth-strategy-id' } as any
+    CARDINAL.data.systemIds = { localAuthId: 'import-local-auth-strategy-id' } as any
   })
 
   test('persists a passed isActive: false and the source createdAt, rather than the old hardcoded defaults', async () => {
@@ -549,7 +549,7 @@ describe('users.importLocalUser (DB-backed)', { skip: !hasTestDatabase() }, () =
 
 /**
  * `applyUserUpdate()` atomicity (OpenProject #1609 / #1584): the profile patch, group replacement,
- * auth-flag write and session clear now share one `WIKI.db.transaction()` -- this is what
+ * auth-flag write and session clear now share one `CARDINAL.db.transaction()` -- this is what
  * `PUT /users/:userId` calls in place of its previously separate, non-transactional sequence. A
  * failure partway through must leave every earlier write in the same call rolled back too.
  */
@@ -558,7 +558,7 @@ describe('users.applyUserUpdate atomicity (DB-backed)', { skip: !hasTestDatabase
   const localStrategyId = 'atomic-update-test-strategy'
 
   before(async () => {
-    WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+    CARDINAL.data.systemIds = { localAuthId: localStrategyId } as any
 
     targetUserId = await users.createUser({
       name: 'Apply Update Target',

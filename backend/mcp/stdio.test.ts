@@ -20,7 +20,7 @@ import { installTestWiki } from '../test/mocks.ts'
  *  - Direct behavioral tests of `reverifyOnToolCall` (below the `describe` block) — importing
  *    `stdio.ts` itself for this is safe: everything that behaves like a running CLI server (console
  *    overrides, signal handlers, calling `main()`) is gated on `isEntryPoint`, which is false for an
- *    import. `WIKI.models.apiKeys.verify` is mocked so no database is touched — the same pattern
+ *    import. `CARDINAL.models.apiKeys.verify` is mocked so no database is touched — the same pattern
  *    `auth.test.ts` uses for `authenticateApiKey`, which this indirectly re-exercises on every
  *    simulated tool call.
  */

@@ -30,7 +30,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.analytics.getModules()
+      return CARDINAL.models.analytics.getModules()
     }
   )
 }

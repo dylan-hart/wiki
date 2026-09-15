@@ -38,7 +38,7 @@ import { registerSideloadIconsTool } from './sideloadIcons.ts'
  * lesser-privilege path — `sideload_locales` mirroring `POST /_api/locales/sideload`'s own route
  * permission, unlike `render_diagram`'s use of that same permission merely to exempt a caller from its
  * rate limit (see `sideloadLocales.ts`'s own doc comment) — and `sideload_icons` wrapping the same
- * `WIKI.models.icons.sideloadFromDataPath()` the `POST /_api/icons/sideload` route calls.
+ * `CARDINAL.models.icons.sideloadFromDataPath()` the `POST /_api/icons/sideload` route calls.
  *
  * `getCtx` rather than a plain `McpAuthContext`: see that type's doc comment in `mcp/auth.ts` for why a
  * long-lived HTTP session re-resolves it per request instead of fixing it at session-open time.

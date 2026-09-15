@@ -57,7 +57,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      return WIKI.models.pageHistory.list(req.params.siteId, req.params.pageId, {
+      return CARDINAL.models.pageHistory.list(req.params.siteId, req.params.pageId, {
         limit: req.query.limit,
         cursor: req.query.cursor
       })
@@ -109,7 +109,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      const version = await WIKI.models.pageHistory.getVersion(
+      const version = await CARDINAL.models.pageHistory.getVersion(
         req.params.siteId,
         req.params.pageId,
         req.params.versionId
@@ -164,7 +164,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      const { items, nextCursor } = await WIKI.models.pageHistory.listRecoverable(
+      const { items, nextCursor } = await CARDINAL.models.pageHistory.listRecoverable(
         req.params.siteId,
         {
           limit: req.query.limit,
@@ -174,10 +174,10 @@ async function routes(app: FastifyInstance) {
       // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
       //    on every call. See `graph.ts`'s graph route and `tree.ts`'s `visibleTreeItems()` for the
       //    same shape.
-      const actor = WIKI.models.groups.actorForRequest(req)
+      const actor = CARDINAL.models.groups.actorForRequest(req)
       return {
         items: items.filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:history', {
+          CARDINAL.models.groups.checkAccess(actor, 'read:history', {
             path: row.path,
             locale: row.locale,
             tags: row.tags,
@@ -254,7 +254,7 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Recovering a page requires a logged in user.')
       }
-      const version = await WIKI.models.pageHistory.getDeletedVersion(
+      const version = await CARDINAL.models.pageHistory.getDeletedVersion(
         req.params.siteId,
         req.params.versionId
       )
@@ -290,7 +290,7 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to recover a page here.')
       }
-      const page = await WIKI.models.pageHistory.recoverDeletedPage(
+      const page = await CARDINAL.models.pageHistory.recoverDeletedPage(
         req.params.siteId,
         req.params.versionId,
         actor,

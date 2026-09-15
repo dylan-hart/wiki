@@ -34,7 +34,7 @@ async function routes(app: FastifyInstance) {
         socket is open, which is well before the checks below have finished asking the database
         anything. See `capture` in `core/collab.ts`.
       */
-      const session = WIKI.collab.capture(socket)
+      const session = CARDINAL.collab.capture(socket)
 
       /*
         Refusals close the socket rather than answering with anything: the client is y-websocket, which
@@ -43,29 +43,33 @@ async function routes(app: FastifyInstance) {
         how the editor tells "you may not edit this" apart from "the connection dropped" and knows not
         to reconnect. See `composables/collab.js`.
 
-        `WIKI.collab.refuse()`, not `socket.close()` directly: a client that ignores the close frame
+        `CARDINAL.collab.refuse()`, not `socket.close()` directly: a client that ignores the close frame
         keeps `capture()`'s pre-auth listener attached for `ws`'s full 30s closing-handshake grace
         period otherwise. See that method's doc comment.
       */
       if (!isValidUuid(siteId) || !isValidUuid(pageId)) {
-        return WIKI.collab.refuse(socket, 4400, 'Invalid site or page id')
+        return CARDINAL.collab.refuse(socket, 4400, 'Invalid site or page id')
       }
       if (!req.session?.authenticated) {
-        return WIKI.collab.refuse(socket, 4401, 'Authentication is required')
+        return CARDINAL.collab.refuse(socket, 4401, 'Authentication is required')
       }
-      if (!WIKI.sites[siteId]?.config?.features?.collaborativeEditing) {
-        return WIKI.collab.refuse(socket, 4403, 'Collaborative editing is disabled on this site')
+      if (!CARDINAL.sites[siteId]?.config?.features?.collaborativeEditing) {
+        return CARDINAL.collab.refuse(
+          socket,
+          4403,
+          'Collaborative editing is disabled on this site'
+        )
       }
 
-      const page = await WIKI.models.pages.getPage({ siteId, id: pageId })
+      const page = await CARDINAL.models.pages.getPage({ siteId, id: pageId })
       if (!page) {
-        return WIKI.collab.refuse(socket, 4404, 'This page does not exist')
+        return CARDINAL.collab.refuse(socket, 4404, 'This page does not exist')
       }
       if (!mayOnPage(req, 'write:pages', siteId, page)) {
-        return WIKI.collab.refuse(socket, 4403, 'You are not allowed to edit this page')
+        return CARDINAL.collab.refuse(socket, 4403, 'You are not allowed to edit this page')
       }
 
-      await WIKI.collab.join(socket, { id: pageId, siteId }, session, {
+      await CARDINAL.collab.join(socket, { id: pageId, siteId }, session, {
         userId: req.session.user!.id,
         address: req.ip
       })

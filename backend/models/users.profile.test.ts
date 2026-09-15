@@ -45,7 +45,7 @@ after(async () => {
  * `updateProfile` is the write path for the profile screen's preferences, `users.prefs.locale`
  * (OpenProject #1619) included -- exercised DB-backed since it round-trips through `getById()` /
  * `updateUser()`, and `locale` validation reads the installed locale list through
- * `WIKI.models.locales.getLocales()`.
+ * `CARDINAL.models.locales.getLocales()`.
  */
 describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let usersModel: typeof import('./users.ts').users

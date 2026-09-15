@@ -13,7 +13,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * hostname match silently fell back to the wildcard site instead of getting a 404. Fixed by reading
  * `req.query.strict` through the route's existing `Querystring` generic.
  *
- * `WIKI.models.sites.getSiteByHostname` is stubbed to reproduce the real model's strict-vs-wildcard
+ * `CARDINAL.models.sites.getSiteByHostname` is stubbed to reproduce the real model's strict-vs-wildcard
  * semantics (see `models/sites.ts`) rather than pulling in the db/schema/drizzle graph, keeping this
  * a self-contained unit test of the route's querystring wiring.
  */
@@ -53,7 +53,7 @@ async function getSiteBlocks(_siteId: string) {
 
 let app: FastifyInstance
 
-/** Toggled per-test to drive `WIKI.models.renderQueue.isAvailable()`'s stubbed answer. */
+/** Toggled per-test to drive `CARDINAL.models.renderQueue.isAvailable()`'s stubbed answer. */
 let renderingAvailable = true
 
 /**
@@ -141,7 +141,7 @@ async function isHostnameUnique(hostname: string) {
 
 /**
  * Bug #2650: `POST /` and `PUT /:siteId` used to wrap their model call in a private
- * `try/catch` that logged a bare `WIKI.logger.warn(err)` and answered `reply.internalServerError()`
+ * `try/catch` that logged a bare `CARDINAL.logger.warn(err)` and answered `reply.internalServerError()`
  * itself, so a crashed request never reached `apiErrorHandler` and never got the request context
  * that correlates it. Both catches are gone; these two flags plant the failure that proves it.
  */
@@ -177,7 +177,7 @@ async function deleteSite(id: string) {
 
 /**
  * Task #2527: `buildSitePayload()` resolves the site's default menu id via
- * `WIKI.models.navigation.ensureSiteNav(siteId, locale)` and surfaces it as `navigationId`, so a
+ * `CARDINAL.models.navigation.ensureSiteNav(siteId, locale)` and surfaces it as `navigationId`, so a
  * non-content route (the knowledge graph, tags browse) can learn a real nav id without a content-page
  * fetch. Captures the calls so a test can assert the exact `(siteId, locale)` pair passed, alongside
  * `getSiteByHostname`/`getSiteById` above.
@@ -285,8 +285,8 @@ beforeEach(() => {
   hostnamesTakenByUnique = new Set()
   createSiteFailure = null
   updateSiteFailure = null
-  ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
-  ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+  ;(globalThis as any).CARDINAL.logger.error.mock.resetCalls()
+  ;(globalThis as any).CARDINAL.logger.warn.mock.resetCalls()
 })
 
 test('a schema-valid hostname creates the site', async () => {
@@ -341,7 +341,7 @@ test('an uppercase hostname is rejected by the schema and never reaches createSi
     method: 'POST',
     url: '/',
     headers: { 'x-test-permissions': 'manage:sites' },
-    payload: { hostname: 'WIKI.example.org', title: 'My Wiki' }
+    payload: { hostname: 'CARDINAL.example.org', title: 'My Wiki' }
   })
   assert.equal(res.statusCode, 400)
   assert.equal(createSiteCalls.length, 0)
@@ -415,7 +415,7 @@ test('an unexpected createSite failure reaches the shared error handler and is l
   })
   // -> The thrown message named a table; the client is told none of it.
   assert.equal(res.body.includes('relation'), false)
-  const errorCalls = (globalThis as any).WIKI.logger.error.mock.calls
+  const errorCalls = (globalThis as any).CARDINAL.logger.error.mock.calls
   assert.equal(errorCalls.length, 1)
   assert.equal(errorCalls[0].arguments[0], 'http')
   assert.match(errorCalls[0].arguments[2].error.message, /relation "sites" does not exist/)
@@ -423,7 +423,7 @@ test('an unexpected createSite failure reaches the shared error handler and is l
   //    since #2667 it is spread into the same fields object as the error itself.
   assert.equal(errorCalls[0].arguments[2].method, 'POST')
   assert.equal(typeof errorCalls[0].arguments[2].reqId, 'string')
-  assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+  assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
 })
 
 /**
@@ -468,12 +468,12 @@ test('an unexpected updateSite failure reaches the shared error handler and is l
   })
   assert.equal(res.statusCode, 500)
   assert.equal(res.json().error, 'Internal Server Error')
-  const errorCalls = (globalThis as any).WIKI.logger.error.mock.calls
+  const errorCalls = (globalThis as any).CARDINAL.logger.error.mock.calls
   assert.equal(errorCalls.length, 1)
   assert.equal(errorCalls[0].arguments[0], 'http')
   assert.match(errorCalls[0].arguments[2].error.message, /deadlock detected/)
   assert.equal(errorCalls[0].arguments[2].method, 'PUT')
-  assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+  assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
 })
 
 beforeEach(() => {
@@ -563,7 +563,7 @@ test('a features patch does not synthesize a legacy ratings alias key', async ()
  * actually called, with the fields the patch actually touched.
  */
 test('a successful update records a site.settingsUpdated audit log entry', async () => {
-  ;(globalThis as any).WIKI.models.auditLog.record.mock.resetCalls()
+  ;(globalThis as any).CARDINAL.models.auditLog.record.mock.resetCalls()
   const res = await app.inject({
     method: 'PUT',
     url: `/${PUT_SITE_ID}`,
@@ -571,7 +571,7 @@ test('a successful update records a site.settingsUpdated audit log entry', async
     payload: { title: 'Renamed Again' }
   })
   assert.equal(res.statusCode, 200)
-  const calls = (globalThis as any).WIKI.models.auditLog.record.mock.calls
+  const calls = (globalThis as any).CARDINAL.models.auditLog.record.mock.calls
   assert.equal(calls.length, 1)
   const call = calls[0].arguments[0]
   assert.equal(call.event, 'site.settingsUpdated')
@@ -822,8 +822,8 @@ test('accepts a rooted path for auth.logoutRedirect', async () => {
 })
 
 test('accepts a complete https:// URL for auth.logoutRedirect once disallowOpenRedirect is off', async () => {
-  const original = WIKI.config.security.disallowOpenRedirect
-  WIKI.config.security.disallowOpenRedirect = false
+  const original = CARDINAL.config.security.disallowOpenRedirect
+  CARDINAL.config.security.disallowOpenRedirect = false
   try {
     updateSiteCalls = []
     const res = await app.inject({
@@ -835,7 +835,7 @@ test('accepts a complete https:// URL for auth.logoutRedirect once disallowOpenR
     assert.equal(res.statusCode, 200)
     assert.equal(updateSiteCalls[0].patch.config.auth.logoutRedirect, 'https://example.com/goodbye')
   } finally {
-    WIKI.config.security.disallowOpenRedirect = original
+    CARDINAL.config.security.disallowOpenRedirect = original
   }
 })
 
@@ -1112,7 +1112,7 @@ test('userPermissions returns an empty array for an anonymous caller', async () 
 })
 
 /**
- * Task 500: `pdfExportAvailable` surfaces `WIKI.models.renderQueue.isAvailable()` (whether the
+ * Task 500: `pdfExportAvailable` surfaces `CARDINAL.models.renderQueue.isAvailable()` (whether the
  * Puppeteer extension is installed) on the same payload `siteStore.loadSite` already fetches, so the
  * frontend can gate the PDF export option without a second round trip.
  */
@@ -1137,17 +1137,17 @@ test('pdfExportAvailable reflects the rendering model when the extension is not 
 })
 
 /**
- * OpenProject #3137: `features.semanticSearch` is the AND of `WIKI.capabilities.semanticSearch` (the
+ * OpenProject #3137: `features.semanticSearch` is the AND of `CARDINAL.capabilities.semanticSearch` (the
  * instance-wide, boot-time pgvector flag) and the site's own `search.config.semanticEnabled` admin
  * toggle — the exact path `api/search.ts`'s PATCH handler saves to and `models/search.ts#getConfig()`
  * reads back (`{ config: { search: { config: { semanticEnabled } } } }`). The flag used to read one
  * level shallower (`config.search?.semanticEnabled`), which never matched the saved shape and so
- * always reported `false` regardless of either half. `WIKI.capabilities` is mutated directly on the
+ * always reported `false` regardless of either half. `CARDINAL.capabilities` is mutated directly on the
  * installed global per test, mirroring `api/search.test.ts`'s own convention, since `buildTestApp`
- * only installs the `WIKI` stub once for the whole file.
+ * only installs the `CARDINAL` stub once for the whole file.
  */
 test('features.semanticSearch is true only when the capability and the correctly-nested setting are both on', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
   sites[WILDCARD_SITE_ID].config.search = { config: { semanticEnabled: true } }
   const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
   assert.equal(res.statusCode, 200)
@@ -1156,7 +1156,7 @@ test('features.semanticSearch is true only when the capability and the correctly
 })
 
 test('features.semanticSearch stays false when the setting is only present at the old, wrong nesting level', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: true }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: true }
   sites[WILDCARD_SITE_ID].config.search = { semanticEnabled: true }
   const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
   assert.equal(res.statusCode, 200)
@@ -1165,7 +1165,7 @@ test('features.semanticSearch stays false when the setting is only present at th
 })
 
 test('features.semanticSearch stays false when the capability is off, even with the setting correctly enabled', async () => {
-  ;(globalThis as any).WIKI.capabilities = { semanticSearch: false }
+  ;(globalThis as any).CARDINAL.capabilities = { semanticSearch: false }
   sites[WILDCARD_SITE_ID].config.search = { config: { semanticEnabled: true } }
   const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
   assert.equal(res.statusCode, 200)
@@ -1174,11 +1174,11 @@ test('features.semanticSearch stays false when the capability is off, even with 
 })
 
 /**
- * OpenProject #1922: `docsBase` surfaces `WIKI.config.docsBase` (a `base.yml` default, not per-site
+ * OpenProject #1922: `docsBase` surfaces `CARDINAL.config.docsBase` (a `base.yml` default, not per-site
  * config) on the same site-info payload `pdfExportAvailable` above already does, so
  * `siteStore.docsBase` never needs a hardcoded frontend fallback.
  */
-test('docsBase reflects WIKI.config.docsBase', async () => {
+test('docsBase reflects CARDINAL.config.docsBase', async () => {
   const res = await app.inject({
     method: 'GET',
     url: '/somehost.example.com'
@@ -1189,7 +1189,7 @@ test('docsBase reflects WIKI.config.docsBase', async () => {
 
 /**
  * Task #2527: `navigationId` on the site payload resolves through
- * `WIKI.models.navigation.ensureSiteNav(siteId, defaultLocale(siteId))` -- asserts both the value
+ * `CARDINAL.models.navigation.ensureSiteNav(siteId, defaultLocale(siteId))` -- asserts both the value
  * reaches the response and that it was resolved for THIS site's id and its default locale, not some
  * other pair.
  */

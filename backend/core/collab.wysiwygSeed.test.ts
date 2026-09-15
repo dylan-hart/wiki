@@ -73,11 +73,11 @@ describe('claimWysiwygSeed: cross-instance, a peer already holds the claim', () 
     a.peerPresence = { known: false, checkedAt: Date.now() }
     b.peerPresence = { known: true, checkedAt: Date.now() }
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'A'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'A'
     await harness.openRoom(a, { id: 'page-4', siteId: 'site-1' })
     assert.equal(await a.claimWysiwygSeed('page-4'), true)
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'B'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
     await harness.openRoom(b, { id: 'page-4', siteId: 'site-1' })
     const granted = await b.claimWysiwygSeed('page-4')
 
@@ -93,7 +93,7 @@ describe('claimWysiwygSeed: cross-instance, nobody answers in time', () => {
     // -> No peers yet for room creation itself, so `ensureRoom()` falls back to `buildSeed()`
     //    immediately rather than waiting on a (real, unmocked at this point) peerState() of its own.
     b.peerPresence = { known: false, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'B'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
     await harness.openRoom(b, { id: 'page-5', siteId: 'site-1' })
 
     // -> Only now, once the room already exists, do timers get faked and peers "appear" -- the ask
@@ -119,7 +119,7 @@ describe('claimWysiwygSeed: cross-instance, nobody answers in time', () => {
 describe('receiveRelay: wysiwyg-claim', () => {
   test('replies wysiwyg-claimed only when this instance already holds the claim', () => {
     const inst = makeInstance('X')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'X'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'X'
     const relayCalls: any[] = []
     inst.relay = (envelope: any) => relayCalls.push(envelope)
     inst.rooms.set('page-6', { pageId: 'page-6', wysiwygSeeded: true })
@@ -131,7 +131,7 @@ describe('receiveRelay: wysiwyg-claim', () => {
 
   test('answers with silence when this instance has no claim on the room (or no room at all)', () => {
     const inst = makeInstance('X')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'X'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'X'
     const relayCalls: any[] = []
     inst.relay = (envelope: any) => relayCalls.push(envelope)
     inst.rooms.set('page-7', { pageId: 'page-7', wysiwygSeeded: false })

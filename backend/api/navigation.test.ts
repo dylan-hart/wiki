@@ -35,7 +35,7 @@ const DEEP_NAV_TREE = [
   }
 ]
 
-/** Calls made to `WIKI.models.sites.updateSite` -- asserted by the `pathDisplay` route's tests. */
+/** Calls made to `CARDINAL.models.sites.updateSite` -- asserted by the `pathDisplay` route's tests. */
 let updateSiteCalls: Array<{ id: string; patch: any }> = []
 
 let currentSitePermissionHeader: string | undefined
@@ -219,13 +219,13 @@ test('GET .../navigation/:navId includes the generator root alongside mode and i
 /**
  * OpenProject #2155: `getNav()` now requires an `actor` so `generateFromTree()` can run every
  * generated entry through `read:pages` — this pins that the route actually builds and passes one
- * (via `WIKI.models.groups.actorForRequest(req)`), the same actor every other page-scoped check in
+ * (via `CARDINAL.models.groups.actorForRequest(req)`), the same actor every other page-scoped check in
  * this codebase is built from, rather than leaving the parameter to default away silently.
  */
 test('GET .../navigation/:navId passes the request-resolved actor through to getNav', async () => {
-  const originalGetNav = (globalThis as any).WIKI.models.navigation.getNav
+  const originalGetNav = (globalThis as any).CARDINAL.models.navigation.getNav
   const calls: any[] = []
-  ;(globalThis as any).WIKI.models.navigation.getNav = async (
+  ;(globalThis as any).CARDINAL.models.navigation.getNav = async (
     siteId: string,
     navId: string,
     opts: any
@@ -244,13 +244,13 @@ test('GET .../navigation/:navId passes the request-resolved actor through to get
     assert.ok(calls[0].actor, 'expected an actor to be passed to getNav()')
     assert.deepEqual(calls[0].actor.permissions, ['read:pages'])
   } finally {
-    ;(globalThis as any).WIKI.models.navigation.getNav = originalGetNav
+    ;(globalThis as any).CARDINAL.models.navigation.getNav = originalGetNav
   }
 })
 
 /**
  * WP #2577: `PUT .../navigation/pathDisplay` stores the site's path-display case style
- * (`config.pathDisplayCase`) via `WIKI.models.sites.updateSite`, gated the same way as every other
+ * (`config.pathDisplayCase`) via `CARDINAL.models.sites.updateSite`, gated the same way as every other
  * `site:navigation` surface in this file rather than through `api/sites.ts`'s general `PUT
  * /:siteId` -- see that route's own header comment for why.
  */
@@ -528,7 +528,7 @@ describe('site:navigation delegation on the six previously route-gated endpoints
   })
 })
 
-/** The session-derived actor the Task 472 describe's own `WIKI.models.groups` stub answers from. */
+/** The session-derived actor the Task 472 describe's own `CARDINAL.models.groups` stub answers from. */
 function sessionActor(req: any) {
   return {
     groupIds: [],

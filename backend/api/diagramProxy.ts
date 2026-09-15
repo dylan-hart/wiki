@@ -59,7 +59,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const result = await WIKI.models.diagramProxy.render(req.params.siteId, req.body)
+      const result = await CARDINAL.models.diagramProxy.render(req.params.siteId, req.body)
       // -> Freshly drawn from whatever source was posted, and cheap to ask for again — nothing here
       //    is worth a client or intermediary holding onto. Same choice `api/diagrams.ts` makes.
       reply.header('Cache-Control', 'no-store')

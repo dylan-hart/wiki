@@ -7,7 +7,7 @@ import { assertValidAuthSecret } from './authSecret.ts'
  * turns a missing or too-short secret (a boot-ordering regression, or a code path that skips
  * `loadFromDb()`) into a boot failure instead of a silent downgrade to a guessable/absent value.
  * `index.ts#initHTTPServer()` calls it immediately before registering `@fastify/cookie` and
- * `@fastify/session`, both of which sign with `WIKI.config.auth.secret`.
+ * `@fastify/session`, both of which sign with `CARDINAL.config.auth.secret`.
  */
 
 test('assertValidAuthSecret throws for a missing secret', () => {

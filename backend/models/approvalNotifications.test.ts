@@ -99,8 +99,8 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
 
   /**
    * Inserted directly rather than through `groups.assignUserToGroup`: that method also enforces the
-   * guests-group membership rule, which reads `WIKI.data.systemIds.guestsGroupId` -- a full-boot value
-   * this fixture's minimal `WIKI` deliberately does not set (see `test/db.ts`). Membership itself is
+   * guests-group membership rule, which reads `CARDINAL.data.systemIds.guestsGroupId` -- a full-boot value
+   * this fixture's minimal `CARDINAL` deliberately does not set (see `test/db.ts`). Membership itself is
    * nothing more than a row in `userGroups`.
    */
   async function assignToGroup(groupId: string, userId: string) {
@@ -367,7 +367,9 @@ describe(
     beforeEach(() => {
       // -> A stub installed by one test must not leak into the next.
       mail.sendPageWatchNotification = originalSendPageWatchNotification
-      ;(WIKI.scheduler.addJob as unknown as { mock: { resetCalls: () => void } }).mock.resetCalls()
+      ;(
+        CARDINAL.scheduler.addJob as unknown as { mock: { resetCalls: () => void } }
+      ).mock.resetCalls()
     })
 
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
@@ -383,7 +385,7 @@ describe(
 
     /** Every `notifyPageWatchers` job queued since the last reset, decoded from the stub scheduler. */
     function queuedNotifyJobs(): { task: string; payload: any }[] {
-      const addJob = WIKI.scheduler.addJob as unknown as {
+      const addJob = CARDINAL.scheduler.addJob as unknown as {
         mock: { calls: { arguments: [{ task: string; payload: any }] }[] }
       }
       return addJob.mock.calls
@@ -438,7 +440,7 @@ describe(
         },
         actor
       )
-      await WIKI.models.pageWatching.watch({
+      await CARDINAL.models.pageWatching.watch({
         siteId: fixtures.siteId,
         pageId: page.id,
         userId: authorId
@@ -483,7 +485,7 @@ describe(
         },
         actor
       )
-      await WIKI.models.pageWatching.watch({
+      await CARDINAL.models.pageWatching.watch({
         siteId: fixtures.siteId,
         pageId: page.id,
         userId: authorId

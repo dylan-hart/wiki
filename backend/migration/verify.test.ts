@@ -491,7 +491,7 @@ describe('compareAgainstDryRunReports', () => {
  * The class of bug that let Critical #2 through in the first place: the tests above hand-feed
  * synthetic `found`/count numbers that already assume the correct arithmetic, which passes whether or
  * not `verify.ts` actually matches what the real phases report. This suite instead runs the REAL
- * `usersPhase`/`assetsPhase` (`dryRun: true`, so no live `WIKI`/db needed — `createDryRunWriter()`/each
+ * `usersPhase`/`assetsPhase` (`dryRun: true`, so no live `CARDINAL`/db needed — `createDryRunWriter()`/each
  * phase's own placeholder-id branch handles it) against a fixture connector, and asserts
  * `compareAgainstDryRunReports` reports `'match'` against the resulting REAL `PhaseReport`s — so a
  * future entity added to either phase without a matching `verify.ts` update fails this suite instead of

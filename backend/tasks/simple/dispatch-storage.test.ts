@@ -289,7 +289,7 @@ test('a handler failure still releases the lock — withLock is not left permane
 // one of those two connections held by an unrelated caller for the run's whole duration -- exactly
 // "the pool is at its configured max" from the outside. The fixed ordering frees the lock's own
 // connection the moment the handler (the callback) returns, which is what leaves a slot for
-// `recordSuccess`'s own `WIKI.db` write; the old ordering would starve on it forever.
+// `recordSuccess`'s own `CARDINAL.db` write; the old ordering would starve on it forever.
 //
 // Skipped unless DATABASE_URL points at a real, migratable Postgres instance -- see `test/db.ts`.
 // ---------------------------------------------------------------------------------------------
@@ -342,8 +342,8 @@ describe('deadlock regression: recordSuccess after the lock, not inside it', () 
       //    in-flight network I/O) -- leaves exactly one slot free in the pool.
       const holderClient = await smallPool.connect()
 
-      const originalDb = WIKI.db
-      WIKI.db = smallDb
+      const originalDb = CARDINAL.db
+      CARDINAL.db = smallDb
       try {
         const payload = {
           targetId,
@@ -358,7 +358,7 @@ describe('deadlock regression: recordSuccess after the lock, not inside it', () 
           task(payload, undefined, {
             storage: {
               getSiteTargetById: async () => ({ id: targetId, module: 'test-module' }) as any,
-              // -> No `WIKI.db` query of its own -- represents the module's real (non-db) network
+              // -> No `CARDINAL.db` query of its own -- represents the module's real (non-db) network
               //    I/O, e.g. a git push or an S3 PUT. Only `recordSuccess`, below, touches the db.
               ensureModule: async () => ({ created: async () => {} })
             } as any,
@@ -388,7 +388,7 @@ describe('deadlock regression: recordSuccess after the lock, not inside it', () 
         assert.ok(state, 'expected a contentSyncState row from recordSuccess')
         assert.equal(state!.lastError, null)
       } finally {
-        WIKI.db = originalDb
+        CARDINAL.db = originalDb
         holderClient.release()
         await smallPool.end()
       }

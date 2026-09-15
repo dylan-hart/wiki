@@ -9,7 +9,7 @@ import { installTestWiki } from '../test/mocks.ts'
  * to the hostname the request was addressed to (see `docs/security-reviews/` for the full review this
  * grew out of — task 435, feature 356).
  *
- * These are pure-function tests: no `WIKI` global, no db. `resolveOrigin` never touches either.
+ * These are pure-function tests: no `CARDINAL` global, no db. `resolveOrigin` never touches either.
  */
 describe('models/passkeys resolveOrigin', () => {
   test('a matching https origin is echoed back verbatim', () => {
@@ -134,7 +134,7 @@ describe('models/passkeys verifyLogin — login.failed audit recording', () => {
         /ERR_LOGIN_FAILED/
       )
 
-      const record = (WIKI as any).models.auditLog.record as ReturnType<typeof mock.fn>
+      const record = (CARDINAL as any).models.auditLog.record as ReturnType<typeof mock.fn>
       assert.equal(record.mock.callCount(), 1)
       const entry = (record.mock.calls[0].arguments as any)[0]
       assert.equal(entry.event, 'login.failed')
@@ -142,7 +142,7 @@ describe('models/passkeys verifyLogin — login.failed audit recording', () => {
       assert.equal(entry.targetType, 'user')
       assert.equal(entry.targetId, userId)
       assert.equal(entry.targetLabel, 'ada@example.com')
-      assert.equal(entry.detail.strategyId, (WIKI as any).data.systemIds.localAuthId)
+      assert.equal(entry.detail.strategyId, (CARDINAL as any).data.systemIds.localAuthId)
       assert.equal(entry.siteId, 'site-1')
     } finally {
       wiki.restore()
@@ -160,7 +160,7 @@ describe('models/passkeys verifyLogin — login.failed audit recording', () => {
         /ERR_LOGIN_FAILED/
       )
       assert.equal(getById.mock.callCount(), 0)
-      const record = (WIKI as any).models.auditLog.record as ReturnType<typeof mock.fn>
+      const record = (CARDINAL as any).models.auditLog.record as ReturnType<typeof mock.fn>
       assert.equal(record.mock.callCount(), 0)
     } finally {
       wiki.restore()

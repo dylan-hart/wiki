@@ -10,7 +10,7 @@ import type { WikiDb } from '../core/db.ts'
  * `bootstrapPromoteAdminRuntime()` -- that half only wires up config/db/models the same way
  * `worker.ts`/`migration/bootstrap.ts` already do and has no logic of its own worth a DB round trip
  * for. `setupTestDb()` seeds one group (`groupId`) which stands in for the instance's Administrators
- * group here -- what matters to the code under test is that `WIKI.config.auth.rootAdminGroupId` names
+ * group here -- what matters to the code under test is that `CARDINAL.config.auth.rootAdminGroupId` names
  * a real `groups` row, not that it is named "Administrators".
  */
 describe('promoteUserToAdmin()', { skip: !hasTestDatabase() }, () => {
@@ -22,7 +22,7 @@ describe('promoteUserToAdmin()', { skip: !hasTestDatabase() }, () => {
     const fixtures = await setupTestDb()
     db = fixtures.db
     rootAdminGroupId = fixtures.groupId
-    WIKI.config.auth = { rootAdminGroupId }
+    CARDINAL.config.auth = { rootAdminGroupId }
 
     const [other] = await db
       .insert(groupsTable)
@@ -53,18 +53,18 @@ describe('promoteUserToAdmin()', { skip: !hasTestDatabase() }, () => {
     const email = 'promote-me@example.com'
     const userId = await seedUser({ email })
 
-    const result = await promoteUserToAdmin(WIKI, email)
+    const result = await promoteUserToAdmin(CARDINAL, email)
 
     assert.deepEqual(result, { status: 'promoted', userId })
-    assert.equal(await WIKI.models.groups.isUserInGroup(rootAdminGroupId, userId), true)
+    assert.equal(await CARDINAL.models.groups.isUserInGroup(rootAdminGroupId, userId), true)
   })
 
   test('is a no-op when the user is already an admin', async () => {
     const email = 'already-admin@example.com'
     const userId = await seedUser({ email })
-    await WIKI.models.groups.assignUserToGroup(rootAdminGroupId, userId)
+    await CARDINAL.models.groups.assignUserToGroup(rootAdminGroupId, userId)
 
-    const result = await promoteUserToAdmin(WIKI, email)
+    const result = await promoteUserToAdmin(CARDINAL, email)
 
     assert.deepEqual(result, { status: 'already-admin', userId })
   })
@@ -72,17 +72,17 @@ describe('promoteUserToAdmin()', { skip: !hasTestDatabase() }, () => {
   test('preserves the user’s existing non-admin group memberships', async () => {
     const email = 'has-other-group@example.com'
     const userId = await seedUser({ email })
-    await WIKI.models.groups.assignUserToGroup(otherGroupId, userId)
+    await CARDINAL.models.groups.assignUserToGroup(otherGroupId, userId)
 
-    await promoteUserToAdmin(WIKI, email)
+    await promoteUserToAdmin(CARDINAL, email)
 
-    assert.equal(await WIKI.models.groups.isUserInGroup(otherGroupId, userId), true)
-    assert.equal(await WIKI.models.groups.isUserInGroup(rootAdminGroupId, userId), true)
+    assert.equal(await CARDINAL.models.groups.isUserInGroup(otherGroupId, userId), true)
+    assert.equal(await CARDINAL.models.groups.isUserInGroup(rootAdminGroupId, userId), true)
   })
 
   test('throws for an unknown email', async () => {
     await assert.rejects(
-      () => promoteUserToAdmin(WIKI, 'nobody-here@example.com'),
+      () => promoteUserToAdmin(CARDINAL, 'nobody-here@example.com'),
       /No user found with email/
     )
   })
@@ -100,25 +100,25 @@ describe('promoteUserToAdmin()', { skip: !hasTestDatabase() }, () => {
       .returning({ id: usersTable.id })
 
     await assert.rejects(
-      () => promoteUserToAdmin(WIKI, 'guest-account@example.com'),
+      () => promoteUserToAdmin(CARDINAL, 'guest-account@example.com'),
       /cannot be a member of any group/
     )
-    assert.equal(await WIKI.models.groups.isUserInGroup(rootAdminGroupId, guest!.id), false)
+    assert.equal(await CARDINAL.models.groups.isUserInGroup(rootAdminGroupId, guest!.id), false)
   })
 
   test('throws when the Administrators group id cannot be resolved', async () => {
     const email = 'no-admin-group-configured@example.com'
     await seedUser({ email })
-    const savedAuth = WIKI.config.auth
-    WIKI.config.auth = {}
+    const savedAuth = CARDINAL.config.auth
+    CARDINAL.config.auth = {}
 
     try {
       await assert.rejects(
-        () => promoteUserToAdmin(WIKI, email),
+        () => promoteUserToAdmin(CARDINAL, email),
         /Could not resolve the Administrators group id/
       )
     } finally {
-      WIKI.config.auth = savedAuth
+      CARDINAL.config.auth = savedAuth
     }
   })
 })

@@ -40,7 +40,7 @@ export interface CachedGlossaryTerm {
 }
 
 /**
- * The actor-blind shape actually cached under `WIKI.cache` (OpenProject #1127) -- everything
+ * The actor-blind shape actually cached under `CARDINAL.cache` (OpenProject #1127) -- everything
  * `getCachedTerms` needs to resolve a `link` per actor, without a `link` baked in for any one of
  * them. `pagePath` null means the term has no canonical page at all, the same "renders as plain text"
  * case a denied actor now also gets.
@@ -141,8 +141,8 @@ const INVALIDATE_EVENT = 'invalidateGlossaryCache'
  * content, unlike `models/tags.ts`. `getCachedTerms` is the one method the rendering pipeline calls:
  * it resolves each term's canonical page (if any) to a link, per the calling actor's `read:pages`
  * access (OpenProject #1127) — a term whose page that actor may not read renders as plain, unlinked
- * text. Only the raw term→page mapping is cached under `WIKI.cache` (`getRawCachedTerms`), invalidated
- * by every write below the same way `models/locales.ts` refreshes its own `WIKI.cache` entry; the link
+ * text. Only the raw term→page mapping is cached under `CARDINAL.cache` (`getRawCachedTerms`), invalidated
+ * by every write below the same way `models/locales.ts` refreshes its own `CARDINAL.cache` entry; the link
  * resolution itself is never cached, so it stays correct per actor without needing its own
  * invalidation whenever a group's rules change.
  *
@@ -157,7 +157,7 @@ const INVALIDATE_EVENT = 'invalidateGlossaryCache'
  */
 class Glossary {
   async listTerms(siteId: string): Promise<GlossaryTerm[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select()
       .from(glossaryTermsTable)
       .where(eq(glossaryTermsTable.siteId, siteId))
@@ -165,7 +165,7 @@ class Glossary {
   }
 
   async getTerm(siteId: string, id: string): Promise<GlossaryTerm | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select()
       .from(glossaryTermsTable)
       .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
@@ -209,7 +209,7 @@ class Glossary {
 
     let inserted
     try {
-      inserted = await WIKI.db.transaction(async (tx) => {
+      inserted = await CARDINAL.db.transaction(async (tx) => {
         const rows = await tx
           .insert(glossaryTermsTable)
           .values({ siteId, term, definition, aliases, isAcronym, pageId })
@@ -228,7 +228,7 @@ class Glossary {
     this.invalidateCache(siteId)
     const row = inserted[0]!
     if (actor) {
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'glossaryTerm.created',
         actor,
         targetType: 'glossaryTerm',
@@ -299,7 +299,7 @@ class Glossary {
 
     let updated
     try {
-      updated = await WIKI.db.transaction(async (tx) => {
+      updated = await CARDINAL.db.transaction(async (tx) => {
         const rows = await tx
           .update(glossaryTermsTable)
           .set(values)
@@ -322,7 +322,7 @@ class Glossary {
     this.invalidateCache(siteId)
     const row = updated[0]!
     if (actor) {
-      await WIKI.models.auditLog.record({
+      await CARDINAL.models.auditLog.record({
         event: 'glossaryTerm.updated',
         actor,
         targetType: 'glossaryTerm',
@@ -340,7 +340,7 @@ class Glossary {
    *  actually deleted. */
   async deleteTerm(siteId: string, id: string, actor?: GlossaryActor): Promise<boolean> {
     const existing = actor ? await this.getTerm(siteId, id) : null
-    const deleted = await WIKI.db.transaction(async (tx) => {
+    const deleted = await CARDINAL.db.transaction(async (tx) => {
       const rows = await tx
         .delete(glossaryTermsTable)
         .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
@@ -353,7 +353,7 @@ class Glossary {
     if (deleted.length > 0) {
       this.invalidateCache(siteId)
       if (actor && existing) {
-        await WIKI.models.auditLog.record({
+        await CARDINAL.models.auditLog.record({
           event: 'glossaryTerm.deleted',
           actor,
           targetType: 'glossaryTerm',
@@ -371,11 +371,11 @@ class Glossary {
    * The full term list, portable and ready to hand to an external editor (OpenProject #1114) -- e.g.
    * an LLM asked to iterate on definitions. See `GlossaryExportTerm`'s own comment for the shape.
    *
-   * `db` defaults to the ambient `WIKI.db`, but `recordVersionIn` passes its own open transaction so a
+   * `db` defaults to the ambient `CARDINAL.db`, but `recordVersionIn` passes its own open transaction so a
    * snapshot it takes reads back the rows that same transaction just wrote, not a separate connection
    * that cannot see them yet.
    */
-  async exportTerms(siteId: string, db: WikiDbOrTx = WIKI.db): Promise<GlossaryExport> {
+  async exportTerms(siteId: string, db: WikiDbOrTx = CARDINAL.db): Promise<GlossaryExport> {
     const rows = await db
       .select({
         term: glossaryTermsTable.term,
@@ -489,7 +489,7 @@ class Glossary {
    * `replaceAllRowsIn` directly instead of going through this wrapper.
    */
   private async replaceAllRows(siteId: string, rows: ResolvedTermRow[]): Promise<GlossaryTerm[]> {
-    const inserted = await WIKI.db.transaction((tx) => this.replaceAllRowsIn(tx, siteId, rows))
+    const inserted = await CARDINAL.db.transaction((tx) => this.replaceAllRowsIn(tx, siteId, rows))
     this.invalidateCache(siteId)
     return inserted
   }
@@ -516,7 +516,7 @@ class Glossary {
       return null
     }
     const normalized = normalizePagePath(path)
-    const page = await WIKI.models.pages.getPage({ siteId, hash: generatePathHash(normalized) })
+    const page = await CARDINAL.models.pages.getPage({ siteId, hash: generatePathHash(normalized) })
     if (!page) {
       throw new CustomError(
         'glossaryInvalidPage',
@@ -545,7 +545,7 @@ class Glossary {
     actor: GlossaryActor
   ): Promise<{ terms: GlossaryTerm[]; version: GlossaryVersionSummary }> {
     const resolved = await this.resolveExportTerms(siteId, terms)
-    const result = await WIKI.db.transaction(async (tx) => {
+    const result = await CARDINAL.db.transaction(async (tx) => {
       const savedTerms = await this.replaceAllRowsIn(tx, siteId, resolved)
       const version = await this.recordVersionIn(tx, siteId, actor)
       return { terms: savedTerms, version }
@@ -556,7 +556,7 @@ class Glossary {
 
   /** Every saved version's metadata, most recent first -- no `snapshot` payload; see `getVersion`. */
   async listVersions(siteId: string): Promise<GlossaryVersionSummary[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select({
         id: glossaryVersionsTable.id,
         termCount: glossaryVersionsTable.termCount,
@@ -571,7 +571,7 @@ class Glossary {
 
   /** One saved version, snapshot included -- what a diff or a restore reads from. */
   async getVersion(siteId: string, versionId: string): Promise<GlossaryVersion | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select()
       .from(glossaryVersionsTable)
       .where(and(eq(glossaryVersionsTable.siteId, siteId), eq(glossaryVersionsTable.id, versionId)))
@@ -609,7 +609,7 @@ class Glossary {
       throw new CustomError('glossaryVersionNotFound', 'This glossary version does not exist.', 404)
     }
     const resolved = await this.resolveExportTerms(siteId, target.snapshot.terms)
-    const result = await WIKI.db.transaction(async (tx) => {
+    const result = await CARDINAL.db.transaction(async (tx) => {
       const terms = await this.replaceAllRowsIn(tx, siteId, resolved)
       const version = await this.recordVersionIn(tx, siteId, actor)
       return { terms, version }
@@ -648,17 +648,17 @@ class Glossary {
   }
 
   /**
-   * The raw, actor-blind term→page mapping, cached under `WIKI.cache` — the part that is genuinely
+   * The raw, actor-blind term→page mapping, cached under `CARDINAL.cache` — the part that is genuinely
    * the same for everyone (which page a term points at). `getCachedTerms` is what turns this into a
    * `link`, fresh per actor, on every call.
    */
   private async getRawCachedTerms(siteId: string): Promise<CachedGlossaryEntry[]> {
     const key = cacheKey(siteId)
-    if (WIKI.cache.has(key)) {
-      return WIKI.cache.get(key) as CachedGlossaryEntry[]
+    if (CARDINAL.cache.has(key)) {
+      return CARDINAL.cache.get(key) as CachedGlossaryEntry[]
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         term: glossaryTermsTable.term,
         definition: glossaryTermsTable.definition,
@@ -684,7 +684,7 @@ class Glossary {
       pageTags: row.pageTags ?? []
     }))
 
-    WIKI.cache.set(key, entries, { ttl: CACHE_TTL_MS })
+    CARDINAL.cache.set(key, entries, { ttl: CACHE_TTL_MS })
     return entries
   }
 
@@ -697,7 +697,7 @@ class Glossary {
    */
   async getCachedTerms(siteId: string, actor: AccessActor): Promise<CachedGlossaryTerm[]> {
     const entries = await this.getRawCachedTerms(siteId)
-    const locales = WIKI.sites[siteId]?.config?.locales
+    const locales = CARDINAL.sites[siteId]?.config?.locales
     return entries.map((entry) => ({
       term: entry.term,
       definition: entry.definition,
@@ -705,7 +705,7 @@ class Glossary {
       isAcronym: entry.isAcronym,
       link:
         entry.pagePath &&
-        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
           path: entry.pagePath,
           locale: entry.pageLocale,
           siteId,
@@ -750,7 +750,7 @@ class Glossary {
    * (the same rule `models/groups.ts`'s `broadcastReload()` documents for `reloadCache()`).
    */
   dropLocalCache(siteId: string): void {
-    WIKI.cache.delete(cacheKey(siteId))
+    CARDINAL.cache.delete(cacheKey(siteId))
   }
 
   /**
@@ -762,7 +762,7 @@ class Glossary {
    */
   invalidateCache(siteId: string): void {
     this.dropLocalCache(siteId)
-    WIKI.events.outbound.emit(INVALIDATE_EVENT, { siteId })
+    CARDINAL.events.outbound.emit(INVALIDATE_EVENT, { siteId })
   }
 
   /**
@@ -773,7 +773,7 @@ class Glossary {
    * `core/db.test.ts`'s "echoing this same instance" test for the same shape read the same way.
    */
   subscribeToEvents(): void {
-    WIKI.events.inbound.on(INVALIDATE_EVENT, (evt: { data?: { siteId?: string } }) => {
+    CARDINAL.events.inbound.on(INVALIDATE_EVENT, (evt: { data?: { siteId?: string } }) => {
       const siteId = evt?.data?.siteId
       if (siteId) {
         this.dropLocalCache(siteId)
@@ -789,7 +789,7 @@ class Glossary {
     if (!pageId) {
       return null
     }
-    const page = await WIKI.models.pages.getPage({ siteId, id: pageId })
+    const page = await CARDINAL.models.pages.getPage({ siteId, id: pageId })
     if (!page) {
       throw new CustomError(
         'glossaryInvalidPage',
@@ -814,7 +814,7 @@ class Glossary {
     excludeId?: string
   ): Promise<void> {
     const surfaceForms = new Set([term.toLowerCase(), ...aliases.map((a) => a.value.toLowerCase())])
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: glossaryTermsTable.id,
         term: glossaryTermsTable.term,

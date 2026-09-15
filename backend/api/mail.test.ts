@@ -7,7 +7,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `POST /_api/mail/test` — the manual verification path for the whole mail transport feature.
- * `WIKI.models.mail.sendTestEmail` is stubbed rather than pulling in the real nodemailer transporter
+ * `CARDINAL.models.mail.sendTestEmail` is stubbed rather than pulling in the real nodemailer transporter
  * (that mapping, and the template content itself, are covered directly in `models/mail.test.ts`),
  * keeping this a self-contained test of the route's request/response wiring: which errors from the
  * model become which HTTP statuses.
@@ -48,8 +48,8 @@ after(() => closeTestApp(app))
 
 beforeEach(() => {
   sendTestEmailMock = mock.fn(async () => {})
-  WIKI.config.mail = {}
-  WIKI.configSvc.saveToDb = mock.fn(async () => true)
+  CARDINAL.config.mail = {}
+  CARDINAL.configSvc.saveToDb = mock.fn(async () => true)
 })
 
 test('sends the test email and reports success', async () => {
@@ -104,7 +104,7 @@ test('answers 500 and logs when the send genuinely fails', async () => {
   })
 
   assert.equal(res.statusCode, 500)
-  assert.equal((WIKI.logger.warn as any).mock.calls.length, 1)
+  assert.equal((CARDINAL.logger.warn as any).mock.calls.length, 1)
 })
 
 test('rejects a malformed recipientEmail before calling the model', async () => {
@@ -196,7 +196,7 @@ test('answers 422 with a specific message when the recipient is rejected by the 
  */
 
 test('masks a stored dkimPrivateKey on GET, like pass', async () => {
-  WIKI.config.mail = {
+  CARDINAL.config.mail = {
     pass: 'super-secret-password',
     dkimPrivateKey: '-----BEGIN RSA PRIVATE KEY-----\nMII...\n-----END RSA PRIVATE KEY-----'
   }
@@ -210,7 +210,7 @@ test('masks a stored dkimPrivateKey on GET, like pass', async () => {
 })
 
 test('returns an empty dkimPrivateKey on GET when none is stored', async () => {
-  WIKI.config.mail = { pass: '' }
+  CARDINAL.config.mail = { pass: '' }
 
   const res = await app.inject({ method: 'GET', url: '/mail/config' })
 
@@ -220,7 +220,7 @@ test('returns an empty dkimPrivateKey on GET when none is stored', async () => {
 
 test('echoing the dkimPrivateKey mask on PUT leaves the stored key byte-identical', async () => {
   const originalKey = '-----BEGIN RSA PRIVATE KEY-----\nMII...\n-----END RSA PRIVATE KEY-----'
-  WIKI.config.mail = {
+  CARDINAL.config.mail = {
     pass: 'super-secret-password',
     dkimPrivateKey: originalKey
   }
@@ -235,12 +235,12 @@ test('echoing the dkimPrivateKey mask on PUT leaves the stored key byte-identica
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.mail.pass, 'super-secret-password')
-  assert.equal(WIKI.config.mail.dkimPrivateKey, originalKey)
+  assert.equal(CARDINAL.config.mail.pass, 'super-secret-password')
+  assert.equal(CARDINAL.config.mail.dkimPrivateKey, originalKey)
 })
 
 test('PUT with a new dkimPrivateKey overwrites the stored key', async () => {
-  WIKI.config.mail = { dkimPrivateKey: 'old-key' }
+  CARDINAL.config.mail = { dkimPrivateKey: 'old-key' }
 
   const res = await app.inject({
     method: 'PUT',
@@ -249,5 +249,5 @@ test('PUT with a new dkimPrivateKey overwrites the stored key', async () => {
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.mail.dkimPrivateKey, 'new-key')
+  assert.equal(CARDINAL.config.mail.dkimPrivateKey, 'new-key')
 })

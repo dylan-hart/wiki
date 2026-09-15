@@ -43,7 +43,7 @@ export interface UnmappableEntry {
  * written even though it isn't a genuine conflict either — there is no single shared idempotency
  * module behind this; each phase makes its own call instead. `content`'s `pages`
  * entity checks the real destination tree for a collision (`pagesDeps.existingEntry`, backed by
- * `WIKI.models.tree.getEntryAt()`); `users`' three entities route a `'skipped'`/`'flagged'`
+ * `CARDINAL.models.tree.getEntryAt()`); `users`' three entities route a `'skipped'`/`'flagged'`
  * `RecordStatus` the importer's own per-record converter already decided (an unconvertible or
  * already-a-system-object record, not a live destination lookup — see `phases/users.ts#routeOutcome()`'s
  * own doc comment); `settings` reports a `flagged` authentication/storage row whose module is

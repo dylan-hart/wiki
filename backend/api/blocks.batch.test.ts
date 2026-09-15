@@ -271,7 +271,7 @@ describe('POST /sites/:siteId/blocks/batch', () => {
   })
 
   /**
-   * `@fastify/multipart`'s `limits` are read from `WIKI.config.security` once, at
+   * `@fastify/multipart`'s `limits` are read from `CARDINAL.config.security` once, at
    * plugin-registration time — see `api/assets.batch.test.ts`'s identical describe for the full
    * reasoning (matching `blocks.test.ts`'s existing upload-size-cap precedent).
    */
@@ -279,7 +279,7 @@ describe('POST /sites/:siteId/blocks/batch', () => {
     test('an oversized file fails only its own entry, not the whole batch', async () => {
       // -> Large enough that a genuine `blockSource(...)` fixture (~260 bytes) fits comfortably
       //    under it, so only the deliberately-padded "toobig" file below trips the cap.
-      WIKI.config.security.uploadMaxFileSize = 500
+      CARDINAL.config.security.uploadMaxFileSize = 500
       const smallApp = await buildTestApp({ routes, ajv: true })
       try {
         const { payload, contentType } = await buildMultipartPayload([
@@ -301,12 +301,12 @@ describe('POST /sites/:siteId/blocks/batch', () => {
         assert.equal(body.results[1].ok, true)
       } finally {
         await closeTestApp(smallApp)
-        WIKI.config.security.uploadMaxFileSize = undefined
+        CARDINAL.config.security.uploadMaxFileSize = undefined
       }
     })
 
     test('a batch with more files than the configured per-request limit answers 413, with nothing created', async () => {
-      WIKI.config.security.uploadMaxFilesPerBatch = 1
+      CARDINAL.config.security.uploadMaxFilesPerBatch = 1
       const smallApp = await buildTestApp({ routes, ajv: true })
       try {
         const { payload, contentType } = await buildMultipartPayload([
@@ -324,7 +324,7 @@ describe('POST /sites/:siteId/blocks/batch', () => {
         assert.equal(createCustomBlockCalls.length, 0)
       } finally {
         await closeTestApp(smallApp)
-        WIKI.config.security.uploadMaxFilesPerBatch = undefined
+        CARDINAL.config.security.uploadMaxFilesPerBatch = undefined
       }
     })
   })

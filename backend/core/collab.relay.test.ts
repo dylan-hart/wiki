@@ -40,7 +40,7 @@ describe('(a) peer handshake: a room seeds from a live peer, not a duplicated st
 
     // A opens first, with nobody else around yet: it falls back to the stored page.
     a.peerPresence = { known: false, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'A'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'A'
     const roomA = await harness.openRoom(a, page)
     assert.equal(harness.getPage().mock.calls.length, 1)
     assert.equal(roomA.doc.getText('content').toString(), STORED_PAGE.content)
@@ -54,7 +54,7 @@ describe('(a) peer handshake: a room seeds from a live peer, not a duplicated st
 
     // B now opens the same page, knowing A is around.
     b.peerPresence = { known: true, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'B'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
     const roomB = await harness.openRoom(b, page)
 
     assert.equal(roomB.doc.getText('content').toString(), expectedContent)
@@ -73,7 +73,7 @@ describe('(b) peer handshake timeout when the peer instance is gone before it an
     // before it could reply looks identical to nobody answering at all.
     b.publish = () => {}
     b.peerPresence = { known: true, checkedAt: Date.now() }
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'B'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
 
     const roomPromise = b.ensureRoom({ id: 'page-2', siteId: 'site-1' }).then((room: any) => {
       harness.trackRoom(room)
@@ -113,9 +113,9 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
     sender.peerPresence = { known: false, checkedAt: Date.now() }
     receiver.peerPresence = { known: false, checkedAt: Date.now() }
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'SENDER'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'SENDER'
     const senderRoom = await harness.openRoom(sender, { id: pageId, siteId: 'site-1' })
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'RECEIVER'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'RECEIVER'
     const receiverRoom = await harness.openRoom(receiver, { id: pageId, siteId: 'site-1' })
 
     assert.equal(
@@ -124,7 +124,7 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
       "sanity check: both instances' independent stored-page fallback must be byte-identical"
     )
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'SENDER'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'SENDER'
     senderRoom.doc.transact(() => {
       senderRoom.doc.getText('content').insert(0, `BIG EDIT: ${'z'.repeat(20000)}`)
     })
@@ -141,7 +141,7 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
     const { receiver, receiverRoom, sentChunks } = await setupSenderAndReceiver('page-3')
     const before = receiverRoom.doc.getText('content').toString()
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'RECEIVER'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'RECEIVER'
     // The sender is killed right after the first chunk - the rest of the burst never arrives.
     receiver.receiveRelay(sentChunks[0])
     assert.equal(receiver.partials.size, 1)
@@ -162,7 +162,7 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
     const { receiver, senderRoom, receiverRoom, sentChunks } =
       await setupSenderAndReceiver('page-3b')
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'RECEIVER'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'RECEIVER'
     receiver.receiveRelay(sentChunks[0])
     t.mock.timers.tick(RELAY_REASSEMBLY_TIMEOUT - 1)
     assert.equal(receiver.partials.size, 1, 'must not be dropped before the timeout elapses')
@@ -182,7 +182,7 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
     const { receiver, senderRoom, receiverRoom, sentChunks } =
       await setupSenderAndReceiver('page-4')
 
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'RECEIVER'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'RECEIVER'
     for (const chunk of sentChunks) {
       receiver.receiveRelay(chunk)
     }
@@ -234,7 +234,7 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
 
   test('a relayed "saved" notice for a page with no open room - e.g. an instance mid-restart - is a safe no-op', () => {
     const inst = makeInstance('Y')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'Y'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'Y'
     const info = { versionDate: '2026-08-18T00:00:00.000Z', authorId: 'u1', authorName: 'Ada' }
 
     assert.doesNotThrow(() => {
@@ -249,7 +249,7 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
 
   test('a relayed "saved" notice is applied to the doc when the room does exist', () => {
     const inst = makeInstance('Y')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'Y'
+    ;(globalThis as any).CARDINAL.INSTANCE_ID = 'Y'
     const doc = new Y.Doc()
     inst.rooms.set('page-8', { doc, pageId: 'page-8', provisional: false })
     const info = { versionDate: '2026-08-18T00:00:00.000Z', authorId: 'u1', authorName: 'Ada' }
@@ -307,7 +307,7 @@ describe('buildSeed', () => {
 describe('RELAY_CHUNK_SIZE', () => {
   test('the worst-case relay envelope stays under the 8000-byte NOTIFY cap (task 478)', () => {
     // -> Every optional field populated, each at its real worst-case length: `i`/`to` are a 10-char
-    //    random hex id (see `WIKI.INSTANCE_ID` in `index.ts`), `r` a full 36-char page uuid, `t` the longest
+    //    random hex id (see `CARDINAL.INSTANCE_ID` in `index.ts`), `r` a full 36-char page uuid, `t` the longest
     //    of the five message types, and `m`/`c`/`n` generously long numbers — this is what `relay()`
     //    actually sends for a chunk of a large `update`/`state` message, not a hypothetical worse case.
     const worstCase = {

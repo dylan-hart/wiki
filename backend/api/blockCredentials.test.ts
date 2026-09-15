@@ -8,7 +8,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * A unit-level test of the route's own wiring — the shared site preHandler, the `manage:sites`/
- * `site:blocks` gate, response shape — with `WIKI.sites`/`models.blockCredentials`/`models.groups`
+ * `site:blocks` gate, response shape — with `CARDINAL.sites`/`models.blockCredentials`/`models.groups`
  * stubbed rather than a real database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers
  * the same `checkSiteAdminAccess` gate.
  * `models/blockCredentials.test.ts` is what proves the model itself against a real database.

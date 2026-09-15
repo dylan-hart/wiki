@@ -18,10 +18,10 @@ describe('users.getFallbackAccounts (DB-backed)', { skip: !hasTestDatabase() }, 
       return
     }
     fixtures = await setupTestDb()
-    // -> `setupTestDb()`'s WIKI stub defaults `data.systemIds` to `{}` (see `test/mocks.ts`) —
-    //    `getFallbackAccounts()` reads `WIKI.data.systemIds.localAuthId` directly, the same way
+    // -> `setupTestDb()`'s CARDINAL stub defaults `data.systemIds` to `{}` (see `test/mocks.ts`) —
+    //    `getFallbackAccounts()` reads `CARDINAL.data.systemIds.localAuthId` directly, the same way
     //    `models/login.ts#clearMigratedFallbackLocalAuth` does, so this suite supplies one.
-    WIKI.data.systemIds.localAuthId = localStrategyId
+    CARDINAL.data.systemIds.localAuthId = localStrategyId
   })
 
   after(async () => {

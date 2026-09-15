@@ -153,7 +153,7 @@ const SITE_ID = '11111111-1111-4111-8111-111111111111'
  * regardless of whether any rule actually reached that path.
  *
  * `mayBypassPassword()` now takes the page and asks `mayOnPage()` — the same per-page check every
- * other page-scoped decision goes through — so this stubs `WIKI.models.groups.checkAccess` to behave
+ * other page-scoped decision goes through — so this stubs `CARDINAL.models.groups.checkAccess` to behave
  * like a real page rule: it grants `write:pages` only to a specific group, only under a specific path
  * prefix, and ignores the session's global permission list entirely (mirroring a session with NO
  * global permissions at all, since a page rule needs none).
@@ -314,7 +314,7 @@ describe('mayBypassPassword / unlockedFor', () => {
     })
 
     after(() => {
-      ;(globalThis as any).WIKI = undefined
+      ;(globalThis as any).CARDINAL = undefined
     })
 
     const req = {
@@ -401,8 +401,8 @@ describe('mayOnPage / pagePermissionsFor — siteId threading', () => {
 
   test('mayOnPage: threads siteId into the RulePageRef passed to checkAccess', () => {
     const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -420,14 +420,14 @@ describe('mayOnPage / pagePermissionsFor — siteId threading', () => {
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
       assert.equal(calls[0].path, 'foo/bar')
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 
   test('pagePermissionsFor: threads siteId into every RulePageRef it checks', () => {
     const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
       _permission: string,
       page: any
@@ -443,7 +443,7 @@ describe('mayOnPage / pagePermissionsFor — siteId threading', () => {
         assert.equal(page.path, 'foo/bar')
       }
     } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+      ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
     }
   })
 })

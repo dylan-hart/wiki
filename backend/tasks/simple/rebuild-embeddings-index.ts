@@ -7,7 +7,7 @@ import { embedPage } from '../workers/embed-page.ts'
  *
  * Mirrors `tasks/simple/rebuild-search-index.ts`'s shape (queued from the request, run here so the
  * HTTP response never waits on per-page work) but loops itself rather than delegating to a single
- * model method: unlike a full-text engine's `rebuild()`, there is no `WIKI.models.semanticSearch
+ * model method: unlike a full-text engine's `rebuild()`, there is no `CARDINAL.models.semanticSearch
  * .rebuild()` — `embedPage(pageId)` (Task #3098) already does the whole delete-existing-chunks /
  * re-render / re-chunk / re-embed / insert cycle for one page and is safe to call again for a page
  * that already has current chunks, which is what makes calling it once per page here idempotent:
@@ -29,5 +29,5 @@ export async function task(payload: { siteId: string }): Promise<void> {
       pages++
     }
   }
-  WIKI.logger.info('jobs', 'rebuildEmbeddingsIndex finished', { site: payload.siteId, pages })
+  CARDINAL.logger.info('jobs', 'rebuildEmbeddingsIndex finished', { site: payload.siteId, pages })
 }

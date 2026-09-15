@@ -130,14 +130,14 @@ class Checklists {
       throw new Error(`itemKey must be a valid item position for this checklist, e.g. "item-0".`)
     }
 
-    await WIKI.db
+    await CARDINAL.db
       .insert(checklistItemChecksTable)
       .values({ executionId: execution.id, itemKey, checkedBy: userId })
       .onConflictDoNothing({
         target: [checklistItemChecksTable.executionId, checklistItemChecksTable.itemKey]
       })
 
-    const checkedCount = await WIKI.db.$count(
+    const checkedCount = await CARDINAL.db.$count(
       checklistItemChecksTable,
       eq(checklistItemChecksTable.executionId, execution.id)
     )
@@ -145,7 +145,7 @@ class Checklists {
     if (checkedCount >= execution.itemCount) {
       // -> Guarded by `isNull` so a concurrent request that also just crossed the threshold cannot
       //    overwrite the completion already recorded by whichever of the two committed first.
-      await WIKI.db
+      await CARDINAL.db
         .update(checklistExecutionsTable)
         .set({
           completedAt: new Date(Temporal.Now.instant().epochMilliseconds),
@@ -192,7 +192,7 @@ class Checklists {
       return active
     }
 
-    const inserted = await WIKI.db
+    const inserted = await CARDINAL.db
       .insert(checklistExecutionsTable)
       .values({ siteId, pageId, blockKey, itemCount, startedBy: userId })
       .onConflictDoNothing({
@@ -215,7 +215,7 @@ class Checklists {
     pageId: string,
     blockKey: string
   ): Promise<{ id: string; itemCount: number } | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: checklistExecutionsTable.id, itemCount: checklistExecutionsTable.itemCount })
       .from(checklistExecutionsTable)
       .where(
@@ -234,7 +234,7 @@ class Checklists {
     pageId: string,
     blockKey: string
   ): Promise<ChecklistExecutionDetail | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: checklistExecutionsTable.id })
       .from(checklistExecutionsTable)
       .where(
@@ -251,7 +251,7 @@ class Checklists {
 
   /** One execution, item checks included, or `null` when it does not exist. */
   async getExecutionDetail(executionId: string): Promise<ChecklistExecutionDetail | null> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select(executionColumns)
       .from(checklistExecutionsTable)
       .leftJoin(startedByUsers, eq(startedByUsers.id, checklistExecutionsTable.startedBy))
@@ -263,7 +263,7 @@ class Checklists {
       return null
     }
 
-    const items = await WIKI.db
+    const items = await CARDINAL.db
       .select({
         itemKey: checklistItemChecksTable.itemKey,
         checkedAt: checklistItemChecksTable.checkedAt,
@@ -289,7 +289,7 @@ class Checklists {
     blockKey: string,
     limit: number = DEFAULT_HISTORY_LIMIT
   ): Promise<ChecklistExecutionSummary[]> {
-    const executions = await WIKI.db
+    const executions = await CARDINAL.db
       .select(executionColumns)
       .from(checklistExecutionsTable)
       .leftJoin(startedByUsers, eq(startedByUsers.id, checklistExecutionsTable.startedBy))
@@ -307,7 +307,7 @@ class Checklists {
       return []
     }
 
-    const counts = await WIKI.db
+    const counts = await CARDINAL.db
       .select({
         executionId: checklistItemChecksTable.executionId,
         count: sql<number>`count(*)::int`

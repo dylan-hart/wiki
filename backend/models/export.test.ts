@@ -33,7 +33,7 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;({ pages: pagesModel } = await import('./pages.ts'))
 
     dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-export-test-'))
-    WIKI.config.dataPath = dataPath
+    CARDINAL.config.dataPath = dataPath
   })
 
   after(async () => {

@@ -1,5 +1,5 @@
 /* eslint-disable no-console -- a one-off generator script: its stdout IS its result, and it runs
-   outside a booted `WIKI`. */
+   outside a booted `CARDINAL`. */
 /*
   Vendors the Tabler icon set from the `@iconify-json/tabler` npm package into
   `assets/icon-sets/tabler.json` — a full Iconify collection export in exactly the shape

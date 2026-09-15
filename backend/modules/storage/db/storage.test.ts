@@ -23,7 +23,7 @@ import {
 } from '../../../test/db.ts'
 
 /**
- * Exercises `purge()` against a real Postgres instance rather than a mocked `WIKI.db` chain, because
+ * Exercises `purge()` against a real Postgres instance rather than a mocked `CARDINAL.db` chain, because
  * what it has to get right is SQL correctness — that the `WHERE siteId = ...` scopes to the right site
  * and only the `data`/`preview` columns move, never the row's other metadata or its `tree` entry. A
  * mock of the query builder would only prove that the code calls what it calls, not that the SQL it
@@ -57,10 +57,10 @@ before(async () => {
 
   // -> `dropCachedContent()`'s `cachePath` getter reads both of these; pointed at a throwaway temp
   //    directory so this test never touches a real instance's file cache.
-  WIKI.ROOTPATH = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
-  WIKI.config.dataPath = '.'
+  CARDINAL.ROOTPATH = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-db-storage-test-'))
+  CARDINAL.config.dataPath = '.'
 
-  const [other] = await WIKI.db
+  const [other] = await CARDINAL.db
     .insert(sitesTable)
     .values({ hostname: `db-storage-purge-test-other-${Date.now()}.example.com`, config: {} })
     .returning({ id: sitesTable.id })
@@ -90,7 +90,7 @@ async function makeAsset(
     siteId: forSiteId,
     meta: { fileSize: 4, fileExt: 'png', mimeType: 'image/png' }
   })
-  await WIKI.db.insert(assetsTable).values({
+  await CARDINAL.db.insert(assetsTable).values({
     id: entry.id,
     siteId: forSiteId,
     authorId: userId,
@@ -146,7 +146,10 @@ test(
     assert.equal(metadata!.kind, 'image')
     assert.equal(metadata!.mimeType, 'image/png')
     assert.equal(metadata!.fileSize, 4)
-    const [treeRow] = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, purgedAsset.id))
+    const [treeRow] = await CARDINAL.db
+      .select()
+      .from(treeTable)
+      .where(eq(treeTable.id, purgedAsset.id))
     assert.ok(treeRow, 'expected the tree entry to still exist')
     assert.equal(treeRow.fileName, purgedAsset.fileName)
     assert.equal(treeRow.type, 'asset')
@@ -159,13 +162,13 @@ test(
 )
 
 test('purge is a no-op for a site with no assets', { skip }, async () => {
-  const [emptySite] = await WIKI.db
+  const [emptySite] = await CARDINAL.db
     .insert(sitesTable)
     .values({ hostname: `db-storage-purge-empty-${Date.now()}.example.com`, config: {} })
     .returning({ id: sitesTable.id })
   try {
     await assert.doesNotReject(purge({ siteId: emptySite.id } as StorageTarget))
   } finally {
-    await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, emptySite.id))
+    await CARDINAL.db.delete(sitesTable).where(eq(sitesTable.id, emptySite.id))
   }
 })

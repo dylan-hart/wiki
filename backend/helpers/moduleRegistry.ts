@@ -81,7 +81,7 @@ export async function readModuleDefinitions<T extends ModuleDefinitionRecord>(
     }
     definitions.push(opts.decorate ? await opts.decorate(parsed, dir) : (parsed as T))
     if (opts.logEach) {
-      WIKI.logger.debug('ext', 'definition loaded', { kind: opts.label, module: dir })
+      CARDINAL.logger.debug('ext', 'definition loaded', { kind: opts.label, module: dir })
     }
   }
   return definitions
@@ -207,7 +207,7 @@ export function validateModuleConfig(
  *
  * @param segments The file to probe for, as `path.join` segments — the modules directory, the module
  *   key, the file name. Joined *inside* the `try`, deliberately: a caller reaching this before
- *   `WIKI.SERVERPATH` is set (a unit test with a partial `WIKI` global, say) then answers `false` —
+ *   `CARDINAL.SERVERPATH` is set (a unit test with a partial `CARDINAL` global, say) then answers `false` —
  *   the same thing an absent file means — instead of throwing out of a probe whose whole contract is
  *   to answer yes or no.
  */
@@ -245,10 +245,10 @@ export async function loadModule<M>(
   }
   try {
     cache[key] = (await importer()).default
-    WIKI.logger.debug('ext', 'module activated', { kind: label, module: key })
+    CARDINAL.logger.debug('ext', 'module activated', { kind: label, module: key })
     return cache[key]
   } catch (err: any) {
-    WIKI.logger.warn('ext', 'loading a module failed', { kind: label, module: key, error: err })
+    CARDINAL.logger.warn('ext', 'loading a module failed', { kind: label, module: key, error: err })
     return null
   }
 }
@@ -274,7 +274,7 @@ export async function syncSiteModuleRows<
   definitions: D[],
   rowFor: (definition: D) => R
 ): Promise<void> {
-  const existing = await WIKI.db
+  const existing = await CARDINAL.db
     .select({ module: table.module })
     .from(table)
     .where(eq(table.siteId, siteId))
@@ -289,7 +289,7 @@ export async function syncSiteModuleRows<
     //    table, so drizzle has no `$inferInsert` to check against here. The row itself is still
     //    fully type-checked, at the call site: each caller annotates `rowFor`'s return as
     //    `Omit<typeof <its>Table.$inferInsert, 'siteId' | 'module'>`.
-    await WIKI.db
+    await CARDINAL.db
       .insert(table)
       .values({ siteId, module: definition.key, ...rowFor(definition) } as never)
   }
@@ -297,7 +297,7 @@ export async function syncSiteModuleRows<
   // -> A module removed from disk should not linger in the admin list
   const orphaned = existingKeys.filter((key) => !definedKeys.includes(key))
   if (orphaned.length > 0) {
-    await WIKI.db
+    await CARDINAL.db
       .delete(table)
       .where(and(eq(table.siteId, siteId), inArray(table.module, orphaned)))
   }

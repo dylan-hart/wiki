@@ -16,14 +16,14 @@ class FakeCachedModel extends ClusterReloaded {
 let wikiHandle: { restore(): void }
 
 /**
- * Installs just the `WIKI.events` member `ClusterReloaded` reads, and hands back the INSTALLED
+ * Installs just the `CARDINAL.events` member `ClusterReloaded` reads, and hands back the INSTALLED
  * stub — not the local one: `createWikiStub` merges an `events` override into its own default rather
  * than replacing it, so a test that later swaps one of these mock functions has to swap it on the
  * object the code under test actually reads.
  */
 function installEvents() {
   wikiHandle = installTestWiki({ events: createEventsStub() })
-  return WIKI.events as unknown as ReturnType<typeof createEventsStub>
+  return CARDINAL.events as unknown as ReturnType<typeof createEventsStub>
 }
 
 afterEach(() => {

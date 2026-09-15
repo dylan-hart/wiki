@@ -6,7 +6,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * Route-wiring test for `POST /sites/:siteId/pages/:pageId/collab/wysiwyg-seed-claim` (OpenProject
- * #2516). `WIKI.collab.claimWysiwygSeed` is stubbed -- its own coordination logic is covered by
+ * #2516). `CARDINAL.collab.claimWysiwygSeed` is stubbed -- its own coordination logic is covered by
  * `core/collab.wysiwygSeed.test.ts`. What this file checks is the route's own logic: that it needs
  * `write:pages` on the page (never a route-level permission, since this is a page-scoped one granted
  * by a rule), that a missing page answers 404, that a locked page is not a barrier (matching the

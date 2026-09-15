@@ -737,7 +737,7 @@ describe('createGroupConverter', () => {
 
 /**
  * Coverage for `createDrizzleWriter()`'s group-write path (Task 730): groups are written through
- * `WIKI.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)`.
+ * `CARDINAL.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)`.
  */
 describe('createDrizzleWriter insertGroup', () => {
   let restoreWiki: (() => void) | undefined
@@ -747,7 +747,7 @@ describe('createDrizzleWriter insertGroup', () => {
     restoreWiki = undefined
   })
 
-  test('delegates to WIKI.models.groups.createGroupFromImport rather than inserting the row directly', async () => {
+  test('delegates to CARDINAL.models.groups.createGroupFromImport rather than inserting the row directly', async () => {
     const calls: any[] = []
     const handle = installTestWiki({
       models: {

@@ -86,7 +86,7 @@ async function rejectUnknownGroups(
   reply: FastifyReply,
   groupIds: (string[] | undefined)[]
 ): Promise<boolean> {
-  if (await WIKI.models.groups.hasUnknownGroupIds(groupIds.flatMap((ids) => ids ?? []))) {
+  if (await CARDINAL.models.groups.hasUnknownGroupIds(groupIds.flatMap((ids) => ids ?? []))) {
     reply.badRequest('ERR_UNKNOWN_GROUPS')
     return true
   }
@@ -129,7 +129,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
-      return WIKI.models.approvalRules.getRules(req.params.siteId)
+      return CARDINAL.models.approvalRules.getRules(req.params.siteId)
     }
   )
 
@@ -191,7 +191,7 @@ async function routes(app: FastifyInstance) {
         return reply
       }
 
-      const rule = await WIKI.models.approvalRules.createRule(req.params.siteId, req.body)
+      const rule = await CARDINAL.models.approvalRules.createRule(req.params.siteId, req.body)
       return {
         ok: true,
         rule
@@ -249,7 +249,10 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
-      const current = await WIKI.models.approvalRules.getRule(req.params.siteId, req.params.ruleId)
+      const current = await CARDINAL.models.approvalRules.getRule(
+        req.params.siteId,
+        req.params.ruleId
+      )
       if (!current) {
         return reply.notFound('Approval rule does not exist.')
       }
@@ -275,7 +278,7 @@ async function routes(app: FastifyInstance) {
         return reply
       }
 
-      const rule = await WIKI.models.approvalRules.updateRule(
+      const rule = await CARDINAL.models.approvalRules.updateRule(
         req.params.siteId,
         req.params.ruleId,
         req.body
@@ -333,7 +336,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
-      if (!(await WIKI.models.approvalRules.deleteRule(req.params.siteId, req.params.ruleId))) {
+      if (!(await CARDINAL.models.approvalRules.deleteRule(req.params.siteId, req.params.ruleId))) {
         return reply.notFound('Approval rule does not exist.')
       }
       return reply.code(204).send()
@@ -363,10 +366,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      return WIKI.models.approvals.getReviewableSubmissions(
+      return CARDINAL.models.approvals.getReviewableSubmissions(
         req.params.siteId,
-        WIKI.models.groups.actorForRequest(req),
-        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
+        CARDINAL.models.groups.actorForRequest(req),
+        CARDINAL.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
     }
   )
@@ -398,11 +401,11 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      const submission = await WIKI.models.approvals.getSubmissionForReview(
+      const submission = await CARDINAL.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        WIKI.models.groups.actorForRequest(req),
-        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
+        CARDINAL.models.groups.actorForRequest(req),
+        CARDINAL.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
@@ -474,17 +477,17 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized()
       }
-      const submission = await WIKI.models.approvals.getSubmissionForReview(
+      const submission = await CARDINAL.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        WIKI.models.groups.actorForRequest(req),
-        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
+        CARDINAL.models.groups.actorForRequest(req),
+        CARDINAL.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
       }
 
-      const applied = await WIKI.models.approvals.approveSubmission({
+      const applied = await CARDINAL.models.approvals.approveSubmission({
         siteId: req.params.siteId,
         submissionId: req.params.submissionId,
         content: req.body.content ?? submission.content,
@@ -574,16 +577,16 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized()
       }
-      const submission = await WIKI.models.approvals.getSubmissionForReview(
+      const submission = await CARDINAL.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        WIKI.models.groups.actorForRequest(req),
-        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
+        CARDINAL.models.groups.actorForRequest(req),
+        CARDINAL.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
       }
-      await WIKI.models.approvals.rejectSubmission(
+      await CARDINAL.models.approvals.rejectSubmission(
         req.params.siteId,
         req.params.submissionId,
         req.body?.reason?.trim() || null,
@@ -665,7 +668,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const actor = actorFrom(req)
-      const groupIds = WIKI.models.approvals.getActorGroupIds(req)
+      const groupIds = CARDINAL.models.approvals.getActorGroupIds(req)
       const pageRef: ApprovalPageRef = {
         id: page.id,
         path: page.path,
@@ -674,12 +677,19 @@ async function routes(app: FastifyInstance) {
         allowContributions: page.allowContributions,
         classification: page.classification
       }
-      const rule = await WIKI.models.approvals.findSubmitRule(req.params.siteId, pageRef, groupIds)
+      const rule = await CARDINAL.models.approvals.findSubmitRule(
+        req.params.siteId,
+        pageRef,
+        groupIds
+      )
       if (!rule) {
         return { canSubmit: false, isGuest: !actor, submission: null }
       }
 
-      const submission = await WIKI.models.approvals.getOwnSubmission(page.id, actor?.id ?? null)
+      const submission = await CARDINAL.models.approvals.getOwnSubmission(
+        page.id,
+        actor?.id ?? null
+      )
       return {
         canSubmit: true,
         isGuest: !actor,
@@ -751,7 +761,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const actor = actorFrom(req)
-      const groupIds = WIKI.models.approvals.getActorGroupIds(req)
+      const groupIds = CARDINAL.models.approvals.getActorGroupIds(req)
       const pageRef: ApprovalPageRef = {
         id: page.id,
         path: page.path,
@@ -760,7 +770,11 @@ async function routes(app: FastifyInstance) {
         allowContributions: page.allowContributions,
         classification: page.classification
       }
-      const rule = await WIKI.models.approvals.findSubmitRule(req.params.siteId, pageRef, groupIds)
+      const rule = await CARDINAL.models.approvals.findSubmitRule(
+        req.params.siteId,
+        pageRef,
+        groupIds
+      )
       if (!rule) {
         return reply.forbidden('This page does not accept edit suggestions from you.')
       }
@@ -778,7 +792,7 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      const submission = await WIKI.models.approvals.saveSubmission({
+      const submission = await CARDINAL.models.approvals.saveSubmission({
         siteId: req.params.siteId,
         page: pageRef,
         baseContent: page.content ?? '',

@@ -156,13 +156,13 @@ function actorMayPopulate(
 ): boolean {
   const candidate = { path, siteId, locale, classification: null }
   return (
-    WIKI.models.groups.checkAccess(actor, 'write:pages', candidate) ||
-    WIKI.models.groups.checkAccess(actor, 'manage:pages', candidate)
+    CARDINAL.models.groups.checkAccess(actor, 'write:pages', candidate) ||
+    CARDINAL.models.groups.checkAccess(actor, 'manage:pages', candidate)
   )
 }
 
 /**
- * The `WIKI.cache` key `getGeneratedTree` caches `generateFromTree`'s output under (OpenProject
+ * The `CARDINAL.cache` key `getGeneratedTree` caches `generateFromTree`'s output under (OpenProject
  * #1825) -- one per menu per locale per `accessKey` (see `actorAccessKey` below), scoped to the site
  * so `invalidateCache` can drop a whole site's worth without touching another site's warm entries.
  */
@@ -320,9 +320,9 @@ export function sanitizeNavItemTargets(items: NavigationItem[]): NavigationItem[
 class Navigation {
   /**
    * Every `getGeneratedTree` cache key issued for a site, so `invalidateCache` can drop them all
-   * without asking `WIKI.cache` to enumerate its own keys -- the shared `LRUCache` holds entries for
+   * without asking `CARDINAL.cache` to enumerate its own keys -- the shared `LRUCache` holds entries for
    * other models too, and the test-only stub in `test/mocks.ts` has no `keys()` at all. In-memory and
-   * per-instance, same as `WIKI.cache` itself: nothing here needs to survive a restart or be visible
+   * per-instance, same as `CARDINAL.cache` itself: nothing here needs to survive a restart or be visible
    * to another instance in an HA deployment.
    */
   private cacheKeysBySite = new Map<string, Set<string>>()
@@ -379,7 +379,7 @@ class Navigation {
       unfiltered = false
     }: { actor: AccessActor; userGroups?: string[]; unfiltered?: boolean }
   ): Promise<NavigationItem[]> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         items: navigationTable.items,
         mode: navigationTable.mode,
@@ -461,7 +461,7 @@ class Navigation {
    * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
    */
   async getMode(siteId: string, id: string): Promise<NavigationSourceMode> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
       .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
@@ -494,7 +494,7 @@ class Navigation {
     siteId: string,
     id: string
   ): Promise<{ rootPath: string; rootId: string | null }> {
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ locale: navigationTable.locale })
       .from(navigationTable)
       .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
@@ -565,7 +565,7 @@ class Navigation {
       return null
     }
     const { folderPath, fileName } = splitPath(encodedFolderPath)
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({ id: treeTable.id })
       .from(treeTable)
       .where(
@@ -595,7 +595,7 @@ class Navigation {
    * before it) is what every row created here should get.
    */
   async ensureSiteNav(siteId: string, locale: string): Promise<string> {
-    const inserted = await WIKI.db
+    const inserted = await CARDINAL.db
       .insert(navigationTable)
       .values({ siteId, locale, items: [] })
       .onConflictDoNothing({ target: [navigationTable.siteId, navigationTable.locale] })
@@ -603,7 +603,7 @@ class Navigation {
     if (inserted[0]) {
       return inserted[0].id
     }
-    const existing = await WIKI.db
+    const existing = await CARDINAL.db
       .select({ id: navigationTable.id })
       .from(navigationTable)
       .where(and(eq(navigationTable.siteId, siteId), eq(navigationTable.locale, locale)))
@@ -619,12 +619,12 @@ class Navigation {
    * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
    *
    * Reads `siteId`'s active locales from the cached site config rather than taking them as a
-   * parameter, same as `defaultLocale` in `helpers/localeRouting.ts` reaching into `WIKI.sites` directly —
+   * parameter, same as `defaultLocale` in `helpers/localeRouting.ts` reaching into `CARDINAL.sites` directly —
    * a site with none configured (or one this instance doesn't know about) resolves to an empty list
    * rather than an error, since there is nothing to enumerate.
    */
   async siteRoots(siteId: string): Promise<{ locale: string; navigationId: string }[]> {
-    const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? []
+    const activeLocales: string[] = CARDINAL.sites[siteId]?.config?.locales?.active ?? []
     return Promise.all(
       activeLocales.map(async (locale) => ({
         locale,
@@ -650,7 +650,7 @@ class Navigation {
     if (ids.length < 1) {
       return
     }
-    await WIKI.db.delete(navigationTable).where(inArray(navigationTable.id, ids))
+    await CARDINAL.db.delete(navigationTable).where(inArray(navigationTable.id, ids))
     this.invalidateCache(siteId)
   }
 
@@ -673,7 +673,7 @@ class Navigation {
       conditions.push(eq(treeTable.locale, locale))
     }
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: treeTable.id,
         type: treeTable.type,
@@ -695,7 +695,7 @@ class Navigation {
   }
 
   /**
-   * `generateFromTree`'s result, cached under `WIKI.cache` (OpenProject #1825) -- the actual expensive
+   * `generateFromTree`'s result, cached under `CARDINAL.cache` (OpenProject #1825) -- the actual expensive
    * part of resolving an `auto`/`mixed` menu (one query per folder level, each carrying a correlated
    * `EXISTS`; F folders means F+1 queries with nothing cached). Cached BEFORE `getNav`'s `userGroups`
    * visibility pass, deliberately: `visibilityGroups` filtering only ever narrows the row's own
@@ -722,8 +722,8 @@ class Navigation {
     actor: AccessActor | null
   ): Promise<NavigationItem[]> {
     const key = navCacheKey(siteId, navId, locale, actorAccessKey(actor))
-    if (WIKI.cache.has(key)) {
-      return WIKI.cache.get(key) as NavigationItem[]
+    if (CARDINAL.cache.has(key)) {
+      return CARDINAL.cache.get(key) as NavigationItem[]
     }
     const generated = await this.generateFromTree(
       siteId,
@@ -733,7 +733,7 @@ class Navigation {
       0,
       rootFolderId
     )
-    WIKI.cache.set(key, generated)
+    CARDINAL.cache.set(key, generated)
     let keys = this.cacheKeysBySite.get(siteId)
     if (!keys) {
       keys = new Set()
@@ -763,7 +763,7 @@ class Navigation {
       return
     }
     for (const key of keys) {
-      WIKI.cache.delete(key)
+      CARDINAL.cache.delete(key)
     }
     this.cacheKeysBySite.delete(siteId)
   }
@@ -833,7 +833,7 @@ class Navigation {
     //    statement ever carries both.
     const holdsVisiblePages = holdsVisiblePagesUnder(rootFolderPath, true, 'NavGen')
 
-    const rows = await WIKI.db
+    const rows = await CARDINAL.db
       .select({
         id: treeTable.id,
         type: treeTable.type,
@@ -863,7 +863,7 @@ class Navigation {
       )
 
     const parentPath = decodeTreePath(rootFolderPath) ?? ''
-    const locales = WIKI.sites[siteId]?.config?.locales
+    const locales = CARDINAL.sites[siteId]?.config?.locales
 
     const candidates = rows
       // -> An empty folder is a dead end for a reader who could never add anything there -- but not
@@ -895,7 +895,7 @@ class Navigation {
           return true
         }
         const path = parentPath ? `${parentPath}/${row.fileName}` : row.fileName
-        return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        return CARDINAL.models.groups.checkAccess(actor, 'read:pages', {
           path,
           siteId,
           locale,
@@ -990,7 +990,7 @@ class Navigation {
     // -> `locale` comes along on a select this method already makes: it is set only for a site-wide
     //    default row (null for a tree-entry override — see `db/schema.ts`), which is exactly the
     //    distinction the log line wants to draw, and reading it here costs nothing.
-    const existing = await WIKI.db
+    const existing = await CARDINAL.db
       .select({ id: navigationTable.id, locale: navigationTable.locale })
       .from(navigationTable)
       .where(and(eq(navigationTable.id, navId), eq(navigationTable.siteId, siteId)))
@@ -1002,7 +1002,7 @@ class Navigation {
       await this.getEntry(siteId, navId)
     }
 
-    await WIKI.db
+    await CARDINAL.db
       .insert(navigationTable)
       .values({ id: navId, siteId, items })
       .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
@@ -1012,7 +1012,7 @@ class Navigation {
     //    so a rewrite of one is worth an `info` line even though it is not a page — and it is
     //    emitted from the model so the admin menu editor and the page-context editor
     //    (`updateNavigation` below) read the same in the log.
-    WIKI.logger.info('nav', 'updated', {
+    CARDINAL.logger.info('nav', 'updated', {
       site: siteId,
       nav: navId,
       ...(existing[0]?.locale ? { locale: existing[0].locale } : {}),
@@ -1061,7 +1061,7 @@ class Navigation {
     targetId: string
     mode: NavCopyMode
   } & NavigationWriteActor): Promise<void> {
-    const sourceRows = await WIKI.db
+    const sourceRows = await CARDINAL.db
       .select({ items: navigationTable.items })
       .from(navigationTable)
       .where(and(eq(navigationTable.id, sourceId), eq(navigationTable.siteId, sourceSiteId)))
@@ -1071,7 +1071,7 @@ class Navigation {
       throw new CustomError('navCopySourceNotFound', 'The source menu does not exist.', 404)
     }
 
-    const targetRows = await WIKI.db
+    const targetRows = await CARDINAL.db
       .select({ items: navigationTable.items })
       .from(navigationTable)
       .where(and(eq(navigationTable.id, targetId), eq(navigationTable.siteId, targetSiteId)))
@@ -1089,13 +1089,13 @@ class Navigation {
         ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]
         : clonedItems
 
-    await WIKI.db.update(navigationTable).set({ items }).where(eq(navigationTable.id, targetId))
+    await CARDINAL.db.update(navigationTable).set({ items }).where(eq(navigationTable.id, targetId))
 
     // -> The third way a menu gets rewritten, and the same line the other two emit (OpenProject
     //    #2674) -- the target really does navigate differently afterwards, so it must not be the one
     //    rewrite invisible in the log. `from` names where the items came from, which is the whole of
     //    what distinguishes this from an ordinary save.
-    WIKI.logger.info('nav', 'updated', {
+    CARDINAL.logger.info('nav', 'updated', {
       site: targetSiteId,
       nav: targetId,
       from: sourceId,
@@ -1107,7 +1107,7 @@ class Navigation {
 
   /** The tree entry a navigation change is addressed to. */
   private async getEntry(siteId: string, pageId: string) {
-    const entries = await WIKI.db
+    const entries = await CARDINAL.db
       .select()
       .from(treeTable)
       .where(and(eq(treeTable.id, pageId), eq(treeTable.siteId, siteId)))
@@ -1135,7 +1135,7 @@ class Navigation {
     if (!folderPath) {
       return this.ensureSiteNav(siteId, locale)
     }
-    const result = await WIKI.db.execute(sql`
+    const result = await CARDINAL.db.execute(sql`
       SELECT "navigationId"
       FROM tree
       WHERE "siteId" = ${siteId}
@@ -1255,7 +1255,7 @@ class Navigation {
         unregressed.
       */
       const insertMode = menuMode ?? (items ? 'static' : undefined)
-      await WIKI.db
+      await CARDINAL.db
         .insert(navigationTable)
         .values({
           id: targetNavId,
@@ -1276,7 +1276,7 @@ class Navigation {
       the block above in this same call, or from an earlier one -- rather than clobbering its items.
     */
     if ((mode === 'override' || mode === 'overrideExact') && !(items || menuMode)) {
-      await WIKI.db
+      await CARDINAL.db
         .insert(navigationTable)
         .values({ id: ownNavId, siteId, items: [] })
         .onConflictDoNothing()
@@ -1322,7 +1322,7 @@ class Navigation {
       }
     }
 
-    await WIKI.db
+    await CARDINAL.db
       .update(treeTable)
       .set({ navigationMode: mode, navigationId: navId })
       .where(eq(treeTable.id, entry.id))
@@ -1333,7 +1333,7 @@ class Navigation {
       //    counts as "under" a boundary) are collected once into a CTE rather than recomputed by a
       //    correlated NOT EXISTS on every candidate row — same boundary set, same containment
       //    predicate, evaluated per boundary instead of per row.
-      await WIKI.db.execute(sql`
+      await CARDINAL.db.execute(sql`
         WITH boundaries AS (
           SELECT (tc."folderPath" || tc."fileName") AS "boundaryPath"
           FROM tree tc
@@ -1368,7 +1368,7 @@ class Navigation {
     //    are what this path knows and that one does not: the sidebar was edited from a page, and the
     //    page's own cascade setting may have moved with it. `items` is absent for a bare mode switch,
     //    which writes no items at all.
-    WIKI.logger.info('nav', 'updated', {
+    CARDINAL.logger.info('nav', 'updated', {
       site: siteId,
       ...(navId ? { nav: navId } : {}),
       locale: entry.locale,

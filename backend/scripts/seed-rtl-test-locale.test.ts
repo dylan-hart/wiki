@@ -1,5 +1,5 @@
 /**
- * Pure-unit coverage for the RTL test locale seed's own data shape -- no `WIKI` global, no database
+ * Pure-unit coverage for the RTL test locale seed's own data shape -- no `CARDINAL` global, no database
  * (this is not SQL orchestration worth a real Postgres instance
  * for; the only logic worth locking down is the shape of the row and the `upsert` call it builds).
  */

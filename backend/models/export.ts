@@ -71,17 +71,17 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
 class ExportModel {
   /** `<dataPath>/exports` — created on first use, same as the icon and asset caches. */
   get exportsPath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'exports')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'exports')
   }
 
   /**
    * Build the tarball for one site.
    *
    * @returns The path it was written to and its final size, which the caller (`exportContent`'s task)
-   *   records on the job's history row via `WIKI.models.jobs.setResult`.
+   *   records on the job's history row via `CARDINAL.models.jobs.setResult`.
    */
   async exportSite(siteId: string): Promise<ExportResult> {
-    const siteRows = await WIKI.db
+    const siteRows = await CARDINAL.db
       .select()
       .from(sitesTable)
       .where(eq(sitesTable.id, siteId))
@@ -93,22 +93,22 @@ class ExportModel {
 
     const [pageRows, treeRows, assetRows, pageHistoryRows, navigationRows, groupRows] =
       await Promise.all([
-        WIKI.db.select().from(pagesTable).where(eq(pagesTable.siteId, siteId)),
-        WIKI.db.select().from(treeTable).where(eq(treeTable.siteId, siteId)),
-        WIKI.db.select().from(assetsTable).where(eq(assetsTable.siteId, siteId)),
-        WIKI.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
-        WIKI.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
+        CARDINAL.db.select().from(pagesTable).where(eq(pagesTable.siteId, siteId)),
+        CARDINAL.db.select().from(treeTable).where(eq(treeTable.siteId, siteId)),
+        CARDINAL.db.select().from(assetsTable).where(eq(assetsTable.siteId, siteId)),
+        CARDINAL.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
+        CARDINAL.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
         // -> Groups are global, not site-scoped — a site's
         //    access model cannot be reconstructed from its own rows alone. `isSystem` rows
         //    (Administrators/Users/Guests, seeded by `models/groups.ts#init`) are excluded:
         //    `importSite` upserts groups by id, and the three behave differently on a *different*
         //    target instance -- Users/Guests sit at fixed cross-instance ids
-        //    (`WIKI.data.systemIds`, `base.yml`), so restoring them overwrites that instance's own
+        //    (`CARDINAL.data.systemIds`, `base.yml`), so restoring them overwrites that instance's own
         //    Users/Guests wholesale, while Administrators is per-instance random and would land as
         //    a non-privileged duplicate instead. The 2.5.x importer made the same call already
         //    (`migration/importers/users-groups.ts` -- "an equivalent is already seeded by this
         //    install's own `Groups.init()`").
-        WIKI.db.select().from(groupsTable).where(eq(groupsTable.isSystem, false))
+        CARDINAL.db.select().from(groupsTable).where(eq(groupsTable.isSystem, false))
       ])
 
     await fs.mkdir(this.exportsPath, { recursive: true })
@@ -121,7 +121,7 @@ class ExportModel {
         JSON.stringify(
           {
             formatVersion: EXPORT_FORMAT_VERSION,
-            wikiVersion: WIKI.version,
+            wikiVersion: CARDINAL.version,
             exportedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
             siteId
           },

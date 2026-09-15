@@ -59,7 +59,7 @@ class BlockCredentials {
   }
   /** A site's stored credentials, secrets excluded. What the admin credential list is built from. */
   async getSiteCredentials(siteId: string): Promise<BlockCredential[]> {
-    return WIKI.db
+    return CARDINAL.db
       .select(publicSelection)
       .from(blockCredentialsTable)
       .where(eq(blockCredentialsTable.siteId, siteId))
@@ -77,7 +77,7 @@ class BlockCredentials {
     siteId: string,
     id: string
   ): Promise<{ secret: string; allowedOrigins: string[] } | undefined> {
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .select({
         secret: blockCredentialsTable.secret,
         allowedOrigins: blockCredentialsTable.allowedOrigins
@@ -94,7 +94,7 @@ class BlockCredentials {
     allowedOrigins: string[]
   ): Promise<BlockCredential> {
     this.assertValidAllowedOrigins(allowedOrigins)
-    const [row] = await WIKI.db
+    const [row] = await CARDINAL.db
       .insert(blockCredentialsTable)
       .values({ siteId, name, secret, allowedOrigins })
       .returning(publicSelection)
@@ -109,7 +109,7 @@ class BlockCredentials {
    * @returns Whether a matching row was found and updated
    */
   async rotateSecret(siteId: string, id: string, secret: string): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(blockCredentialsTable)
       .set({ secret, updatedAt: new Date() })
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
@@ -130,7 +130,7 @@ class BlockCredentials {
     allowedOrigins: string[]
   ): Promise<boolean> {
     this.assertValidAllowedOrigins(allowedOrigins)
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(blockCredentialsTable)
       .set({ allowedOrigins, updatedAt: new Date() })
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
@@ -138,7 +138,7 @@ class BlockCredentials {
   }
 
   async deleteCredential(siteId: string, id: string): Promise<boolean> {
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .delete(blockCredentialsTable)
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
     return (result.rowCount ?? 0) > 0

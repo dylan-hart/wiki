@@ -4,7 +4,7 @@ import { workerInstanceId } from '../../helpers/bootSummary.ts'
 /**
  * Fixture for `core/schedulerWorkerIdentity.test.ts`'s worker-identity suite (OpenProject #2671).
  *
- * `worker.ts` itself cannot be imported by a test — it boots a whole minimal `WIKI`, reads config
+ * `worker.ts` itself cannot be imported by a test — it boots a whole minimal `CARDINAL`, reads config
  * off disk and constructs its own async handler at import time — so this is the same three lines it
  * uses to settle its `INSTANCE_ID`, run in a real thread. What it proves is the half
  * `helpers/bootSummary.test.ts` cannot: that piscina's `workerData` option actually reaches the

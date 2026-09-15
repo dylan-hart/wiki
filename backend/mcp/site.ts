@@ -2,7 +2,7 @@ import { assertSiteInScope, McpToolError } from './auth.ts'
 import type { McpAuthContext } from './auth.ts'
 
 /**
- * A site as `WIKI.sites` caches it, narrowed to the fields `mcp/` actually reads. `WIKI.sites[id]`
+ * A site as `CARDINAL.sites` caches it, narrowed to the fields `mcp/` actually reads. `CARDINAL.sites[id]`
  * itself is now the real Drizzle row type (`db/schema.ts`'s `SiteRow`, OpenProject #3144) rather than
  * `any`, but that type's `config` stays `Record<string, any>` -- this interface keeps its own
  * narrower `config` projection (the specific keys `mcp/` reads) rather than deriving `SiteRow`
@@ -28,7 +28,7 @@ export interface McpSite {
  * unknown id as "not my problem" the way that preHandler does.
  */
 export function resolveSite(siteId: string): McpSite {
-  const site = WIKI.sites[siteId] as McpSite | undefined
+  const site = CARDINAL.sites[siteId] as McpSite | undefined
   if (!site) {
     throw new McpToolError('This site does not exist.')
   }
@@ -48,7 +48,9 @@ export function resolveDefaultSiteId(ctx: McpAuthContext): string | null {
   if (ctx.siteId) {
     return ctx.siteId
   }
-  const enabled = Object.values(WIKI.sites as Record<string, McpSite>).filter((s) => s.isEnabled)
+  const enabled = Object.values(CARDINAL.sites as Record<string, McpSite>).filter(
+    (s) => s.isEnabled
+  )
   return enabled.length === 1 ? enabled[0].id : null
 }
 

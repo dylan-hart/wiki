@@ -7,5 +7,5 @@
 export async function task(): Promise<void> {
   // -> No try/catch: `pull()`'s own failure propagates, and the scheduler writes the one record for
   //    it with the job id and attempt attached. A second, contextless pair here said less.
-  await WIKI.models.replication.pull()
+  await CARDINAL.models.replication.pull()
 }

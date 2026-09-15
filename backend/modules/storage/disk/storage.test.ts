@@ -19,8 +19,8 @@ import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * Exercises `validateConfig`, `dump` and `backup` entirely against the real filesystem (temp
- * directories, cleaned up after each test) with `WIKI.db` / `WIKI.models.pages` /
- * `WIKI.models.assets` stubbed rather than a real Postgres instance — what this module has to get
+ * directories, cleaned up after each test) with `CARDINAL.db` / `CARDINAL.models.pages` /
+ * `CARDINAL.models.assets` stubbed rather than a real Postgres instance — what this module has to get
  * right is filesystem behavior (paths, directory creation, archive contents, surfacing a write
  * failure), not SQL, so a stub answering the exact `select().from().where().orderBy()` chain
  * `listSiteEntries` builds is enough to drive it.
@@ -43,7 +43,7 @@ function makeTarget(dir: string): StorageTarget {
   return { siteId: 'site-1', config: { path: dir } } as unknown as StorageTarget
 }
 
-/** Points `WIKI` at fakes answering exactly what `dump()` calls: the tree query, pages, assets. */
+/** Points `CARDINAL` at fakes answering exactly what `dump()` calls: the tree query, pages, assets. */
 function fakeDumpDeps({
   rows = [],
   getPage = async () => null,
@@ -294,7 +294,7 @@ function makeImportTarget(dir: string): StorageTarget {
 }
 
 /**
- * Points `WIKI` at fakes answering exactly what `importAll()` calls: the site's active locales, the
+ * Points `CARDINAL` at fakes answering exactly what `importAll()` calls: the site's active locales, the
  * system actor id, and `tree`/`pages`/`assets` model methods. Each model method defaults to a stub
  * that would fail loudly if actually invoked, and callers override only the ones their scenario
  * exercises -- so a test that never expects e.g. `assets.upload` to run finds out immediately if it

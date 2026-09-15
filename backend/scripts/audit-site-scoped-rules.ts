@@ -1,4 +1,4 @@
-/* eslint-disable no-console -- a one-off operator script: its stdout IS its result, and it runs outside a booted `WIKI`. */
+/* eslint-disable no-console -- a one-off operator script: its stdout IS its result, and it runs outside a booted `CARDINAL`. */
 /*
   One-off pre-deploy diagnostic for "Per-site page-rule enforcement" (feature 406).
 
@@ -17,7 +17,7 @@
 
     node backend/scripts/audit-site-scoped-rules.ts
 
-  It connects to the database the same way `models/groups.ts`'s `reloadCache()` does (via `WIKI.db`,
+  It connects to the database the same way `models/groups.ts`'s `reloadCache()` does (via `CARDINAL.db`,
   Drizzle), reads every group's `rules` column, and prints (group name, rule name, rule.sites,
   rule.roles, rule.mode) for each rule whose `sites` array is non-empty. It makes no changes.
 
@@ -85,12 +85,12 @@ async function main() {
   } as unknown as CardinalGlobal
   global.CARDINAL = CARDINAL
 
-  await WIKI.configSvc.init(true)
-  WIKI.logger = logger.init()
-  WIKI.dbManager = dbManager
-  WIKI.db = await dbManager.init(true)
+  await CARDINAL.configSvc.init(true)
+  CARDINAL.logger = logger.init()
+  CARDINAL.dbManager = dbManager
+  CARDINAL.db = await dbManager.init(true)
 
-  const rows = await WIKI.db
+  const rows = await CARDINAL.db
     .select({ id: groupsTable.id, name: groupsTable.name, rules: groupsTable.rules })
     .from(groupsTable)
 

@@ -48,7 +48,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
-      return WIKI.models.blockCredentials.getSiteCredentials(req.params.siteId)
+      return CARDINAL.models.blockCredentials.getSiteCredentials(req.params.siteId)
     }
   )
 
@@ -99,7 +99,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
-      return WIKI.models.blockCredentials.createCredential(
+      return CARDINAL.models.blockCredentials.createCredential(
         req.params.siteId,
         req.body.name,
         req.body.secret,
@@ -148,7 +148,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
-      const rotated = await WIKI.models.blockCredentials.rotateSecret(
+      const rotated = await CARDINAL.models.blockCredentials.rotateSecret(
         req.params.siteId,
         req.params.credentialId,
         req.body.secret
@@ -210,7 +210,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
-      const updated = await WIKI.models.blockCredentials.updateAllowedOrigins(
+      const updated = await CARDINAL.models.blockCredentials.updateAllowedOrigins(
         req.params.siteId,
         req.params.credentialId,
         req.body.allowedOrigins
@@ -252,7 +252,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
-      const deleted = await WIKI.models.blockCredentials.deleteCredential(
+      const deleted = await CARDINAL.models.blockCredentials.deleteCredential(
         req.params.siteId,
         req.params.credentialId
       )

@@ -48,7 +48,7 @@ describe('icons DEFAULT_SETS', () => {
  * `getSet()` (OpenProject #2272): a single-row query by prefix, with no `count()` aggregate over the
  * (potentially large) `icons` table -- the public `/_icons` batch route calls this on every request.
  *
- * A fake `WIKI.db` distinguishing the two tables `select().from()` could be pointed at, rather than a
+ * A fake `CARDINAL.db` distinguishing the two tables `select().from()` could be pointed at, rather than a
  * real database: what is under test is which query shape `getSet()` issues, not any actual row data,
  * so recording call counts against each table's own chain is a more direct check than reading back
  * values a real Postgres round trip would launder through anyway.
@@ -95,11 +95,11 @@ describe('icons.getSet', () => {
   beforeEach(() => {
     calls.setsRowQuery = 0
     calls.setsCountAggregate = 0
-    ;(globalThis as any).WIKI = { db: makeFakeDb() }
+    ;(globalThis as any).CARDINAL = { db: makeFakeDb() }
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
   it('issues exactly one row-scoped query and no count() aggregate', async () => {
@@ -111,7 +111,7 @@ describe('icons.getSet', () => {
   })
 
   it('returns null, still with no aggregate, when the prefix has not been added', async () => {
-    ;(globalThis as any).WIKI.db = {
+    ;(globalThis as any).CARDINAL.db = {
       select: () => ({
         from: (table: any) => {
           if (table === iconSetsTable) {
@@ -129,7 +129,7 @@ describe('icons.getSet', () => {
 /**
  * `notFoundCache` bound (OpenProject #2272): it is an `LRUCache` with `max: NOT_FOUND_CACHE_MAX`, so
  * inserting past that bound through `rememberMissing()` evicts the oldest (least recently used) entry
- * automatically. No `WIKI` needed -- this exercises the cache directly, with no I/O.
+ * automatically. No `CARDINAL` needed -- this exercises the cache directly, with no I/O.
  */
 describe('icons.rememberMissing (notFoundCache bound)', () => {
   afterEach(() => {
@@ -166,14 +166,14 @@ describe('icons.rememberMissing (notFoundCache bound)', () => {
  */
 describe('icons.apiFetch upstream-not-found detection', () => {
   beforeEach(() => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: { offline: false, icons: {} },
       logger: { debug: mock.fn() }
     }
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
     mock.restoreAll()
   })
 
@@ -261,7 +261,7 @@ describe('icons.fetchIconsUpstream logging level', () => {
   }
 
   beforeEach(() => {
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       db: makeFakeDb(),
       config: { offline: false, icons: {} },
       logger: { debug: mock.fn(), warn: mock.fn() }
@@ -269,7 +269,7 @@ describe('icons.fetchIconsUpstream logging level', () => {
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
     mock.restoreAll()
     icons.notFoundCache.clear()
   })
@@ -279,7 +279,7 @@ describe('icons.fetchIconsUpstream logging level', () => {
       throw new IconNotFoundUpstreamError('upstream has nothing for this')
     })
     await icons.fetchIconsUpstream('wp2889', ['unknown-icon-a'])
-    const wiki = (globalThis as any).WIKI
+    const wiki = (globalThis as any).CARDINAL
     assert.equal(wiki.logger.debug.mock.calls.length, 1)
     assert.equal(wiki.logger.warn.mock.calls.length, 0)
     const [scope, message, fields] = wiki.logger.debug.mock.calls[0].arguments
@@ -293,7 +293,7 @@ describe('icons.fetchIconsUpstream logging level', () => {
       throw new Error('network exploded')
     })
     await icons.fetchIconsUpstream('wp2889', ['unknown-icon-b'])
-    const wiki = (globalThis as any).WIKI
+    const wiki = (globalThis as any).CARDINAL
     assert.equal(wiki.logger.warn.mock.calls.length, 1)
     assert.equal(wiki.logger.debug.mock.calls.length, 0)
   })
@@ -303,7 +303,7 @@ describe('icons.fetchIconsUpstream logging level', () => {
  * `searchIcons()` degrading gracefully when Iconify is unreachable (OpenProject #3041): offline mode
  * skips the network attempt entirely, and a genuine upstream failure is caught and logged rather than
  * left to reject -- both fall back to `searchIconsLocally()`, a plain query over the icons already
- * materialized in the permanent record. A fake `WIKI.db` distinguishes `iconSetsTable` (what
+ * materialized in the permanent record. A fake `CARDINAL.db` distinguishes `iconSetsTable` (what
  * `getEnabledPrefixes()` reads) from `iconsTable` (what the local fallback searches), the same
  * per-table dispatch `icons.getSet`'s fake db above uses.
  */
@@ -341,7 +341,7 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   beforeEach(() => {
     calls.fetch = 0
     calls.localSearch = 0
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       db: makeFakeDb(),
       config: { offline: false, icons: {} },
       logger: { debug: mock.fn(), warn: mock.fn() }
@@ -353,13 +353,13 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
     mock.restoreAll()
   })
 
   it('goes straight to the local fallback in offline mode, never attempting the network', async () => {
-    ;(globalThis as any).WIKI.config.offline = true
-    ;(globalThis as any).WIKI.db = makeFakeDb({
+    ;(globalThis as any).CARDINAL.config.offline = true
+    ;(globalThis as any).CARDINAL.db = makeFakeDb({
       localRows: [{ prefix: 'tabler', name: 'home' }]
     })
     const result = await icons.searchIcons({ query: 'home' })
@@ -376,7 +376,7 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   })
 
   it('falls back to local icons and logs a warning when Iconify cannot be reached', async () => {
-    ;(globalThis as any).WIKI.db = makeFakeDb({
+    ;(globalThis as any).CARDINAL.db = makeFakeDb({
       localRows: [{ prefix: 'tabler', name: 'home' }]
     })
     mock.method(globalThis, 'fetch', async () => {
@@ -384,7 +384,7 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
     })
     const result = await icons.searchIcons({ query: 'home' })
     assert.deepEqual(result, ['tabler:home'])
-    const wiki = (globalThis as any).WIKI
+    const wiki = (globalThis as any).CARDINAL
     assert.equal(wiki.logger.warn.mock.calls.length, 1)
     const [scope, message] = wiki.logger.warn.mock.calls[0].arguments
     assert.equal(scope, 'icons')
@@ -470,9 +470,9 @@ describe('parseSideloadIconCollection()', () => {
 
 /**
  * `sideloadFromDataPath()` (OpenProject #2945): the actual disk -> DB path. A real temp directory
- * (not a real Postgres instance -- this file's whole suite is pure-unit, stubbing `WIKI.db` the same
+ * (not a real Postgres instance -- this file's whole suite is pure-unit, stubbing `CARDINAL.db` the same
  * way `icons.getSet`/`icons.fetchIconsUpstream logging level` above already do) stands in for
- * `<dataPath>/icons/`, and a fake `WIKI.db` records every `insert(...)` call so the test can assert
+ * `<dataPath>/icons/`, and a fake `CARDINAL.db` records every `insert(...)` call so the test can assert
  * both WHAT was written and the write ORDER -- the `iconSets` row must land before any of that
  * prefix's `icons` rows, since `icons.prefix` has a foreign key on `iconSets.prefix`.
  */
@@ -502,7 +502,7 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
   beforeEach(async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'icons-sideload-'))
     writes.length = 0
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       db: makeFakeDb(),
       ROOTPATH: tmpRoot,
       config: { dataPath: '.' },
@@ -511,7 +511,7 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
   })
 
   afterEach(async () => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
     await fs.rm(tmpRoot, { recursive: true, force: true })
   })
 
@@ -652,7 +652,7 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
     await fs.writeFile(path.join(dir, 'broken.json'), '{ not valid json')
 
     await icons.sideloadFromDataPath()
-    const wiki = (globalThis as any).WIKI
+    const wiki = (globalThis as any).CARDINAL
     assert.equal(wiki.logger.warn.mock.calls.length, 1)
     const [scope] = wiki.logger.warn.mock.calls[0].arguments
     assert.equal(scope, 'icons')
@@ -685,15 +685,15 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
 /**
  * `vendoredIconSetsPath()` (OpenProject #3043): the committed, read-only release-asset directory
  * `init()` materializes Tabler from -- distinct from `sideloadPath()`'s writeable data-volume one,
- * and resolved off `WIKI.SERVERPATH` (the backend directory) rather than `WIKI.ROOTPATH`.
+ * and resolved off `CARDINAL.SERVERPATH` (the backend directory) rather than `CARDINAL.ROOTPATH`.
  */
 describe('icons.vendoredIconSetsPath()', () => {
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
   })
 
-  it('resolves to assets/icon-sets under WIKI.SERVERPATH', () => {
-    ;(globalThis as any).WIKI = { SERVERPATH: '/srv/cardinal/backend' }
+  it('resolves to assets/icon-sets under CARDINAL.SERVERPATH', () => {
+    ;(globalThis as any).CARDINAL = { SERVERPATH: '/srv/cardinal/backend' }
     assert.equal(
       icons.vendoredIconSetsPath(),
       path.join('/srv/cardinal/backend', 'assets/icon-sets')
@@ -736,7 +736,7 @@ describe('icons.init() (DB-backed, fake db)', () => {
   beforeEach(async () => {
     tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'icons-init-'))
     writes.length = 0
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       db: makeFakeDb(),
       ROOTPATH: tmpRoot,
       SERVERPATH: tmpRoot,
@@ -746,7 +746,7 @@ describe('icons.init() (DB-backed, fake db)', () => {
   })
 
   afterEach(async () => {
-    delete (globalThis as any).WIKI
+    delete (globalThis as any).CARDINAL
     await fs.rm(tmpRoot, { recursive: true, force: true })
   })
 

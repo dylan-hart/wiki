@@ -50,7 +50,7 @@ export function makeActor(overrides: Record<string, any> = {}) {
   }
 }
 
-/** A `WIKI.sites[id]` entry — the cached per-site config a route or model reads locales off. */
+/** A `CARDINAL.sites[id]` entry — the cached per-site config a route or model reads locales off. */
 export function makeSite(overrides: Record<string, any> = {}): SiteRow {
   return {
     id: 'site-1',
@@ -165,7 +165,7 @@ export function makeIndexablePage(
 }
 
 /**
- * A `WIKI.db` stand-in serving one page of rows, then an empty page — the keyset-loop shape
+ * A `CARDINAL.db` stand-in serving one page of rows, then an empty page — the keyset-loop shape
  * `modules/search/shared.ts#pageStream` walks, and all `algolia`/`elasticsearch` `rebuild()` needs to
  * see a whole site go by.
  *
@@ -198,7 +198,7 @@ export function stubPageStreamDb(pages: SearchIndexablePage[]) {
  * the full set in the batches it should have, rather than only checking the final tally.
  *
  * The shape `azure-search` rebuilds through (see `modules/search/shared.ts`'s `RebuildPageSource` doc
- * for why it takes an injected source at all rather than reading `WIKI.db` the way `stubPageStreamDb`
+ * for why it takes an injected source at all rather than reading `CARDINAL.db` the way `stubPageStreamDb`
  * above stands in for).
  */
 export function makeRebuildPageSource(

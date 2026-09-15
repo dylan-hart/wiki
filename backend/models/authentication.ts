@@ -258,7 +258,7 @@ function normalizeEmailDomains(domains: string[]): string[] {
  * the local module holds no credentials and is as disposable as any other strategy.
  */
 function isBuiltInLocal(id: string): boolean {
-  return id === WIKI.data.systemIds.localAuthId
+  return id === CARDINAL.data.systemIds.localAuthId
 }
 
 /**
@@ -266,7 +266,7 @@ function isBuiltInLocal(id: string): boolean {
  */
 class Authentication {
   async getStrategies({ enabledOnly = false }: { enabledOnly?: boolean } = {}) {
-    return WIKI.db
+    return CARDINAL.db
       .select()
       .from(authenticationTable)
       .where(enabledOnly ? eq(authenticationTable.isEnabled, true) : undefined)
@@ -276,7 +276,7 @@ class Authentication {
    * The authentication modules found on disk, in the order the admin area lists them
    */
   getModules(): AuthModule[] {
-    return [...((WIKI.data.authentication ?? []) as AuthModule[])].sort((a, b) =>
+    return [...((CARDINAL.data.authentication ?? []) as AuthModule[])].sort((a, b) =>
       a.key === LOCAL_MODULE ? -1 : b.key === LOCAL_MODULE ? 1 : a.title.localeCompare(b.title)
     )
   }
@@ -299,12 +299,12 @@ class Authentication {
    *   `helpers/moduleProps.ts#maskSensitiveConfig`. Defaults to false: `updateStrategy()`'s own merge
    *   reads through this method too, and needs the real values to preserve an untouched secret
    *   correctly. The actual login flow never reads config from here at all -- it goes through the
-   *   raw `getStrategies()` below, used only to build `WIKI.auth.strategies` -- so masking here by
+   *   raw `getStrategies()` below, used only to build `CARDINAL.auth.strategies` -- so masking here by
    *   default would not even protect that path, only complicate this one. Only an admin-facing read
    *   that serializes `config` straight into an HTTP response should pass `{ mask: true }`.
    */
   async getActiveStrategies({ mask = false }: { mask?: boolean } = {}): Promise<AuthStrategy[]> {
-    const strategies = await WIKI.db
+    const strategies = await CARDINAL.db
       .select()
       .from(authenticationTable)
       .orderBy(asc(authenticationTable.displayName))
@@ -346,9 +346,9 @@ class Authentication {
     if (mapping.length < 1) {
       return []
     }
-    const guestsGroupId = WIKI.data.systemIds.guestsGroupId
-    const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
-    const systemGroupIds = await WIKI.models.groups.systemGroupIds()
+    const guestsGroupId = CARDINAL.data.systemIds.guestsGroupId
+    const rootAdminGroupId = CARDINAL.config.auth.rootAdminGroupId
+    const systemGroupIds = await CARDINAL.models.groups.systemGroupIds()
 
     const byGroup = new Map<string, GroupSyncWarningStrategy[]>()
     for (const stg of mapping) {
@@ -381,7 +381,7 @@ class Authentication {
    */
   async getVisibleSiteCounts(): Promise<Record<string, number>> {
     const counts: Record<string, number> = {}
-    for (const site of await WIKI.models.sites.getAllSites()) {
+    for (const site of await CARDINAL.models.sites.getAllSites()) {
       const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
         id: string
         isVisible?: boolean
@@ -457,10 +457,10 @@ class Authentication {
       }
     }
     if (strategy.autoEnrollGroups && strategy.autoEnrollGroups.length > 0) {
-      if (strategy.autoEnrollGroups.includes(WIKI.data.systemIds.guestsGroupId)) {
+      if (strategy.autoEnrollGroups.includes(CARDINAL.data.systemIds.guestsGroupId)) {
         return 'The guests group cannot be used for auto-enrollment.'
       }
-      const existing = await WIKI.db.select({ id: groupsTable.id }).from(groupsTable)
+      const existing = await CARDINAL.db.select({ id: groupsTable.id }).from(groupsTable)
       const existingIds = existing.map((g) => g.id)
       const unknown = strategy.autoEnrollGroups.find((id) => !existingIds.includes(id))
       if (unknown) {
@@ -468,10 +468,10 @@ class Authentication {
       }
     }
     if (strategy.mappableGroups && strategy.mappableGroups.length > 0) {
-      if (strategy.mappableGroups.includes(WIKI.data.systemIds.guestsGroupId)) {
+      if (strategy.mappableGroups.includes(CARDINAL.data.systemIds.guestsGroupId)) {
         return 'The guests group cannot be mapped from a provider.'
       }
-      const existing = await WIKI.db.select({ id: groupsTable.id }).from(groupsTable)
+      const existing = await CARDINAL.db.select({ id: groupsTable.id }).from(groupsTable)
       const existingIds = existing.map((g) => g.id)
       const unknown = strategy.mappableGroups.find((id) => !existingIds.includes(id))
       if (unknown) {
@@ -500,7 +500,7 @@ class Authentication {
     config?: Record<string, any>
   }): Promise<string> {
     const mod = this.getModule(values.module)!
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .insert(authenticationTable)
       .values({
         module: values.module,
@@ -526,14 +526,14 @@ class Authentication {
     //    (`createSite()`, above) -- the same "read the full array, append, write the whole array
     //    back" shape `deleteStrategy()` below already uses, since `updateSite()` replaces an array
     //    wholesale rather than merging it index-wise.
-    for (const site of await WIKI.models.sites.getAllSites()) {
+    for (const site of await CARDINAL.models.sites.getAllSites()) {
       const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
         id: string
         order?: number
         isVisible?: boolean
       }>
       const nextOrder = configured.reduce((max, s) => Math.max(max, s.order ?? 0), -1) + 1
-      await WIKI.models.sites.updateSite(site.id, {
+      await CARDINAL.models.sites.updateSite(site.id, {
         config: {
           authStrategies: [...configured, { id: newId, order: nextOrder, isVisible: true }]
         }
@@ -607,7 +607,7 @@ class Authentication {
       return false
     }
 
-    const result = await WIKI.db
+    const result = await CARDINAL.db
       .update(authenticationTable)
       .set(values)
       .where(eq(authenticationTable.id, id))
@@ -628,18 +628,20 @@ class Authentication {
    * @returns Whether a strategy was deleted
    */
   async deleteStrategy(id: string): Promise<boolean> {
-    const result = await WIKI.db.delete(authenticationTable).where(eq(authenticationTable.id, id))
+    const result = await CARDINAL.db
+      .delete(authenticationTable)
+      .where(eq(authenticationTable.id, id))
     if ((result.rowCount ?? 0) < 1) {
       return false
     }
 
     // -> Sites keep their own ordered list of strategy IDs, which would otherwise keep a dangling one
-    for (const site of await WIKI.models.sites.getAllSites()) {
+    for (const site of await CARDINAL.models.sites.getAllSites()) {
       const configured = ((site.config as Record<string, any>)?.authStrategies ?? []) as Array<{
         id: string
       }>
       if (configured.some((s) => s.id === id)) {
-        await WIKI.models.sites.updateSite(site.id, {
+        await CARDINAL.models.sites.updateSite(site.id, {
           config: { authStrategies: configured.filter((s) => s.id !== id) }
         })
       }
@@ -652,15 +654,15 @@ class Authentication {
   async refreshStrategiesFromDisk(): Promise<void> {
     // -> Emptied before the scan, not merely reassigned on success: `base.yml` declares no
     //    `authentication` key, and `models/users.ts`'s login/registration paths and
-    //    `api/auth/strategies.ts`'s strategy listing all call `WIKI.data.authentication.find(...)`
+    //    `api/auth/strategies.ts`'s strategy listing all call `CARDINAL.data.authentication.find(...)`
     //    unguarded. A failed scan has to leave them an empty list to walk, not `undefined` to throw
     //    a 500 on -- the same "reset, then refill" the other module-backed models do in their catch.
-    WIKI.data.authentication = []
+    CARDINAL.data.authentication = []
     try {
       // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
       //    not actually ship an implementation for must not reach the admin area's picker.
-      WIKI.data.authentication = await readModuleDefinitions<AuthModule>(
-        path.join(WIKI.SERVERPATH, 'modules/authentication'),
+      CARDINAL.data.authentication = await readModuleDefinitions<AuthModule>(
+        path.join(CARDINAL.SERVERPATH, 'modules/authentication'),
         {
           label: 'authentication module',
           parseProps: true,
@@ -669,27 +671,27 @@ class Authentication {
         }
       )
 
-      WIKI.logger.debug('auth', 'loaded module definitions', {
-        modules: WIKI.data.authentication.length
+      CARDINAL.logger.debug('auth', 'loaded module definitions', {
+        modules: CARDINAL.data.authentication.length
       })
     } catch (err: any) {
-      WIKI.logger.error('auth', 'reading the module definitions failed', { error: err })
+      CARDINAL.logger.error('auth', 'reading the module definitions failed', { error: err })
     }
   }
 
   async activateStrategies(): Promise<void> {
     // Unload any active strategies
     try {
-      for (const strKey in WIKI.auth.strategies) {
-        const strategy = WIKI.auth.strategies[strKey] as any
+      for (const strKey in CARDINAL.auth.strategies) {
+        const strategy = CARDINAL.auth.strategies[strKey] as any
         if (typeof strategy.destroy === 'function') {
           await strategy.destroy()
         }
       }
     } catch (err: any) {
-      WIKI.logger.warn('auth', 'unloading the active strategies failed', { error: err })
+      CARDINAL.logger.warn('auth', 'unloading the active strategies failed', { error: err })
     }
-    WIKI.auth.strategies = {}
+    CARDINAL.auth.strategies = {}
 
     // Load enabled strategies
     const enabledStrategies = await this.getStrategies({ enabledOnly: true })
@@ -700,7 +702,7 @@ class Authentication {
           await import(`../modules/authentication/${stg.module}/authentication.ts`)
         ).default
         const strategy = new StrategyModule(stg.id, stg.config)
-        WIKI.auth.strategies[stg.id] = strategy
+        CARDINAL.auth.strategies[stg.id] = strategy
         strategy.module = stg.module
         if (typeof strategy.init === 'function') {
           await strategy.init()
@@ -708,7 +710,7 @@ class Authentication {
 
         enabled.push(stg.module)
       } catch (err: any) {
-        WIKI.logger.error('auth', 'enabling the strategy failed', {
+        CARDINAL.logger.error('auth', 'enabling the strategy failed', {
           strategy: stg.id,
           module: stg.module,
           error: err
@@ -717,7 +719,7 @@ class Authentication {
     }
     // -> One line for the activation pass rather than one per strategy: an operator reads this to
     //    learn which ways in are open, and the module keys are that answer.
-    WIKI.logger.info(
+    CARDINAL.logger.info(
       'auth',
       `enabled ${enabled.length} ${enabled.length === 1 ? 'strategy' : 'strategies'}`,
       { keys: enabled.join(', ') }
@@ -725,7 +727,7 @@ class Authentication {
   }
 
   async init(ids: SystemIds): Promise<void> {
-    await WIKI.db.insert(authenticationTable).values({
+    await CARDINAL.db.insert(authenticationTable).values({
       id: ids.authModuleId,
       module: 'local',
       isEnabled: true,

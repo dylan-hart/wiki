@@ -5,7 +5,7 @@
     "node": true
   },
   "globals": {
-    "WIKI": "readonly"
+    "CARDINAL": "readonly"
   },
   "categories": {
     "correctness": "error"

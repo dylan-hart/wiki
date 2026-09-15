@@ -9,7 +9,7 @@ import { ensureTemporal } from '../../test/temporal.ts'
  * Route-wiring tests for `GET /sites/:siteId/pages/search`'s `includeLocaleStatus` flag
  * (OpenProject #2476) -- the admin pages view's per-locale staleness/missing column.
  *
- * `WIKI.models.search.query` is stubbed outright (the search engine's own behavior has its own
+ * `CARDINAL.models.search.query` is stubbed outright (the search engine's own behavior has its own
  * coverage elsewhere -- `modules/search/db/search.test.ts`, `test/searchModuleContract.ts`), so this
  * exercises only what `read.ts` itself does with the flag: leaving `localeStatus` off every result
  * by default, and attaching it -- one batched `getTranslationRows` call, joined against the site's

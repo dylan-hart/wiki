@@ -162,7 +162,7 @@ describe('SearchEngineDefinition', () => {
 /**
  * `search.refreshFromDisk()` / `hasImplementation()` / `getDefinition()`, task #558.
  *
- * Reads the same way `Storage.refreshFromDisk()` does (`models/storage.ts`): `WIKI.SERVERPATH` points
+ * Reads the same way `Storage.refreshFromDisk()` does (`models/storage.ts`): `CARDINAL.SERVERPATH` points
  * at a throwaway fixture directory rather than the real repo, so this covers the scanning/sorting/prop
  * -normalization logic without depending on what actually ships under `modules/search/*` today.
  */
@@ -203,15 +203,15 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
     )
     await writeFile(path.join(dir, 'modules/search/zzz-engine/search.ts'), 'export default {}\n')
 
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
       SERVERPATH: dir,
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
   })
 
   after(async () => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
     await rm(dir, { recursive: true, force: true })
   })
 
@@ -251,10 +251,10 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
  *
  * Unlike `refreshFromDisk()`/`hasImplementation()`, the dynamic import inside `ensureModule()` is a
  * fixed relative specifier (`../modules/search/${key}/search.ts`, resolved from `models/search.ts`'s
- * own location) rather than something built off `WIKI.SERVERPATH` — that's exactly what makes it the
+ * own location) rather than something built off `CARDINAL.SERVERPATH` — that's exactly what makes it the
  * "extension-sensitive dynamic path" this codebase tracks by hand. So this writes real, throwaway fixture modules
  * under the actual `backend/modules/search/` directory (cleaned up in `after`) instead of a tmp dir,
- * and points `WIKI.SERVERPATH` at the real backend root so `hasImplementation()`'s gate agrees with it.
+ * and points `CARDINAL.SERVERPATH` at the real backend root so `hasImplementation()`'s gate agrees with it.
  */
 describe('search.ensureModule()', () => {
   const fixtureKey = '__test-fixture-ensure-module'
@@ -272,15 +272,15 @@ describe('search.ensureModule()', () => {
     await mkdir(throwingDir, { recursive: true })
     await writeFile(path.join(throwingDir, 'search.ts'), 'throw new Error("boom")\n')
 
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
       SERVERPATH: backendDir,
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
   })
 
   after(async () => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
     await rm(fixtureDir, { recursive: true, force: true })
     await rm(throwingDir, { recursive: true, force: true })
   })
@@ -307,7 +307,7 @@ describe('search.ensureModule()', () => {
 
 /**
  * `search.getConfig(siteId)`, task #563: `dictOverrides` moved from the instance-wide
- * `WIKI.config.search` to the per-site `WIKI.sites[siteId].config.search.config`, a sibling of
+ * `CARDINAL.config.search` to the per-site `CARDINAL.sites[siteId].config.search.config`, a sibling of
  * `search.engine` seeded by `models/sites.ts`'s per-site defaults. `termHighlighting` used to live
  * here too, until task #574 moved it into the `db` engine's own per-engine config -- see
  * `search.getEngineConfig()` below.
@@ -316,19 +316,19 @@ describe('search.getConfig()', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
       sites: {},
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('reads dictOverrides off the named site, not off any other site', () => {
-    ;(globalThis as any).WIKI.sites['site-a'] = {
+    ;(globalThis as any).CARDINAL.sites['site-a'] = {
       id: 'site-a',
       config: {
         search: {
@@ -337,7 +337,7 @@ describe('search.getConfig()', () => {
         }
       }
     }
-    ;(globalThis as any).WIKI.sites['site-b'] = {
+    ;(globalThis as any).CARDINAL.sites['site-b'] = {
       id: 'site-b',
       config: { search: { engine: 'db', config: { dictOverrides: {} } } }
     }
@@ -353,7 +353,7 @@ describe('search.getConfig()', () => {
   })
 
   test('reads semanticEnabled off the named site', () => {
-    ;(globalThis as any).WIKI.sites['site-c'] = {
+    ;(globalThis as any).CARDINAL.sites['site-c'] = {
       id: 'site-c',
       config: { search: { engine: 'db', config: { dictOverrides: {}, semanticEnabled: true } } }
     }
@@ -365,7 +365,7 @@ describe('search.getConfig()', () => {
   })
 
   test('defaults to an empty dictOverrides and semanticEnabled: false for a site with no search config', () => {
-    ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
+    ;(globalThis as any).CARDINAL.sites['site-bare'] = { id: 'site-bare', config: {} }
 
     assert.deepEqual(search.getConfig('site-bare'), {
       dictOverrides: {},
@@ -373,7 +373,7 @@ describe('search.getConfig()', () => {
     })
   })
 
-  test('defaults the same way for a siteId nothing in WIKI.sites knows about', () => {
+  test('defaults the same way for a siteId nothing in CARDINAL.sites knows about', () => {
     assert.deepEqual(search.getConfig('site-nonexistent'), {
       dictOverrides: {},
       semanticEnabled: false
@@ -383,34 +383,34 @@ describe('search.getConfig()', () => {
 
 /**
  * `search.query()` / `.rebuild()` / `.created()` / `.updated()` / `.deleted()` / `.renamed()`, task
- * #561: the dispatcher resolves `WIKI.sites[siteId]?.config?.search?.engine` (falling back to `db`)
+ * #561: the dispatcher resolves `CARDINAL.sites[siteId]?.config?.search?.engine` (falling back to `db`)
  * and delegates to whatever `SearchModule` that key loads.
  *
  * Modules are injected straight into `search.modules` rather than through real fixture directories:
  * `ensureModule()` already checks that cache before touching disk (see the `describe` above), so
- * seeding it here exercises exactly the dispatcher's resolution logic — reading `WIKI.sites`, falling
+ * seeding it here exercises exactly the dispatcher's resolution logic — reading `CARDINAL.sites`, falling
  * back to `db`, forwarding every argument — without needing a `db/search.ts` capable of running real
- * SQL against a `WIKI.db` this suite has none of.
+ * SQL against a `CARDINAL.db` this suite has none of.
  */
 describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', () => {
   let previousWiki: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
       sites: {},
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('a site with no configured engine dispatches to the db module', async () => {
     const { calls, module: dbModule } = makeFakeSearchModule()
     search.modules.db = dbModule
-    ;(globalThis as any).WIKI.sites['site-default'] = { id: 'site-default', config: {} }
+    ;(globalThis as any).CARDINAL.sites['site-default'] = { id: 'site-default', config: {} }
 
     const result = await search.query({ siteId: 'site-default', query: 'wiki' })
 
@@ -428,7 +428,7 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
     const { calls: customCalls, module: customModule } = makeFakeSearchModule()
     search.modules.db = dbModule
     search.modules['custom-engine'] = customModule
-    ;(globalThis as any).WIKI.sites['site-custom'] = {
+    ;(globalThis as any).CARDINAL.sites['site-custom'] = {
       id: 'site-custom',
       config: { search: { engine: 'custom-engine' } }
     }
@@ -478,7 +478,7 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
     const { calls, module: dbModule } = makeFakeSearchModule()
     search.modules.db = dbModule
     delete search.modules['missing-engine']
-    ;(globalThis as any).WIKI.sites['site-missing'] = {
+    ;(globalThis as any).CARDINAL.sites['site-missing'] = {
       id: 'site-missing',
       config: { search: { engine: 'missing-engine' } }
     }
@@ -491,7 +491,7 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
   test('throws when neither the configured engine nor db has a loaded implementation', async () => {
     delete search.modules.db
     delete search.modules['missing-engine']
-    ;(globalThis as any).WIKI.sites['site-none'] = {
+    ;(globalThis as any).CARDINAL.sites['site-none'] = {
       id: 'site-none',
       config: { search: { engine: 'missing-engine' } }
     }
@@ -575,8 +575,8 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
   }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    previousWiki = (globalThis as any).CARDINAL
+    ;(globalThis as any).CARDINAL = {
       sites: {},
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
@@ -585,13 +585,13 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
     search.definitions = previousDefinitions
   })
 
   describe('getSiteEngines()', () => {
     test('lists every definition, marking the site’s configured engine as selected', async () => {
-      ;(globalThis as any).WIKI.sites['site-a'] = {
+      ;(globalThis as any).CARDINAL.sites['site-a'] = {
         id: 'site-a',
         config: { search: { engine: 'custom-engine', engines: {} } }
       }
@@ -607,7 +607,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('defaults to the db engine selected for a site with no engine configured', async () => {
-      ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
+      ;(globalThis as any).CARDINAL.sites['site-bare'] = { id: 'site-bare', config: {} }
 
       const engines = await search.getSiteEngines('site-bare')
 
@@ -615,7 +615,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('hasImplementation reflects whether a search.ts sits next to the definition', async () => {
-      ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
+      ;(globalThis as any).CARDINAL.sites['site-bare'] = { id: 'site-bare', config: {} }
 
       const engines = await search.getSiteEngines('site-bare')
 
@@ -625,7 +625,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('completes stored config with the engine defaults for a prop never saved', async () => {
-      ;(globalThis as any).WIKI.sites['site-c'] = {
+      ;(globalThis as any).CARDINAL.sites['site-c'] = {
         id: 'site-c',
         config: {
           search: {
@@ -642,7 +642,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('keeps a non-selected engine’s stored config rather than dropping it', async () => {
-      ;(globalThis as any).WIKI.sites['site-d'] = {
+      ;(globalThis as any).CARDINAL.sites['site-d'] = {
         id: 'site-d',
         config: {
           search: {
@@ -660,7 +660,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('a sensitive prop (apiKey) never leaves a masked read, and default (unmasked) stays real', async () => {
-      ;(globalThis as any).WIKI.sites['site-e'] = {
+      ;(globalThis as any).CARDINAL.sites['site-e'] = {
         id: 'site-e',
         config: {
           search: {
@@ -689,7 +689,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
 
   describe('getEngineConfig()', () => {
     test('reads one engine’s stored config for a site, completed with defaults', () => {
-      ;(globalThis as any).WIKI.sites['site-f'] = {
+      ;(globalThis as any).CARDINAL.sites['site-f'] = {
         id: 'site-f',
         config: {
           search: {
@@ -703,7 +703,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('falls back to the engine’s declared defaults for a site with nothing stored for it', () => {
-      ;(globalThis as any).WIKI.sites['site-g'] = { id: 'site-g', config: {} }
+      ;(globalThis as any).CARDINAL.sites['site-g'] = { id: 'site-g', config: {} }
 
       assert.deepEqual(search.getEngineConfig('site-g', 'db'), { termHighlighting: false })
     })
@@ -817,13 +817,13 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
   })
 
   describe('selectEngine()', () => {
-    test('writes engine + built config through WIKI.models.sites.updateSite', async () => {
+    test('writes engine + built config through CARDINAL.models.sites.updateSite', async () => {
       const calls: any[] = []
-      ;(globalThis as any).WIKI.sites['site-e'] = {
+      ;(globalThis as any).CARDINAL.sites['site-e'] = {
         id: 'site-e',
         config: { search: { engine: 'db', engines: {} } }
       }
-      ;(globalThis as any).WIKI.models = {
+      ;(globalThis as any).CARDINAL.models = {
         sites: {
           updateSite: async (siteId: string, patch: any) => {
             calls.push([siteId, patch])
@@ -851,7 +851,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('starts from the engine’s previously-stored config when incoming omits a prop', async () => {
-      ;(globalThis as any).WIKI.sites['site-f'] = {
+      ;(globalThis as any).CARDINAL.sites['site-f'] = {
         id: 'site-f',
         config: {
           search: {
@@ -861,7 +861,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
         }
       }
       let written: any
-      ;(globalThis as any).WIKI.models = {
+      ;(globalThis as any).CARDINAL.models = {
         sites: {
           updateSite: async (_siteId: string, patch: any) => {
             written = patch
@@ -885,11 +885,11 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     test('calls the newly selected engine’s init() with the config that was just built and stored', async () => {
       const { calls: initCalls, module: fakeModule } = makeFakeSearchModule()
       search.modules['custom-engine'] = fakeModule
-      ;(globalThis as any).WIKI.sites['site-h'] = {
+      ;(globalThis as any).CARDINAL.sites['site-h'] = {
         id: 'site-h',
         config: { search: { engine: 'db', engines: {} } }
       }
-      ;(globalThis as any).WIKI.models = {
+      ;(globalThis as any).CARDINAL.models = {
         sites: { updateSite: async () => true }
       }
 
@@ -905,11 +905,11 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
 
     test('does not call init() when the engine has no loaded implementation', async () => {
       delete search.modules['custom-engine']
-      ;(globalThis as any).WIKI.sites['site-i'] = {
+      ;(globalThis as any).CARDINAL.sites['site-i'] = {
         id: 'site-i',
         config: { search: { engine: 'db', engines: {} } }
       }
-      ;(globalThis as any).WIKI.models = {
+      ;(globalThis as any).CARDINAL.models = {
         sites: { updateSite: async () => true }
       }
 
@@ -922,11 +922,11 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     test('does not call init() when the site write itself failed', async () => {
       const { calls: initCalls, module: fakeModule } = makeFakeSearchModule()
       search.modules['custom-engine'] = fakeModule
-      ;(globalThis as any).WIKI.sites['site-j'] = {
+      ;(globalThis as any).CARDINAL.sites['site-j'] = {
         id: 'site-j',
         config: { search: { engine: 'db', engines: {} } }
       }
-      ;(globalThis as any).WIKI.models = {
+      ;(globalThis as any).CARDINAL.models = {
         sites: { updateSite: async () => false }
       }
 
@@ -962,20 +962,20 @@ describe('search.initActiveEngines()', () => {
   }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
+    previousWiki = (globalThis as any).CARDINAL
     previousDefinitions = search.definitions
     search.definitions = [customDefinition]
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
     search.definitions = previousDefinitions
   })
 
   test('provisions every site’s active engine with its resolved config', async () => {
     const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
     const { calls: customCalls, module: customModule } = makeFakeSearchModule()
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sites: {
         'site-default': { id: 'site-default', config: {} },
         'site-custom': {
@@ -1006,7 +1006,7 @@ describe('search.initActiveEngines()', () => {
   test('a site whose engine has no implementation on disk falls back to db and logs once', async () => {
     const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
     const warnings: { message: string; fields?: Record<string, any> }[] = []
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sites: {
         'site-retired': {
           id: 'site-retired',
@@ -1052,7 +1052,7 @@ describe('search.initActiveEngines()', () => {
       }
     }
     const warnings: { message: string; fields?: Record<string, any> }[] = []
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sites: {
         'site-broken': {
           id: 'site-broken',
@@ -1089,7 +1089,7 @@ describe('search.initActiveEngines()', () => {
       init: () => new Promise<void>(() => {}) // never resolves or rejects
     }
     const warnings: { message: string; fields?: Record<string, any> }[] = []
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sites: {
         'site-hanging': {
           id: 'site-hanging',
@@ -1142,7 +1142,7 @@ describe('search.initActiveEngines()', () => {
       init: () => new Promise<void>(() => {}) // never resolves or rejects
     }
     const warnings: { message: string; fields?: Record<string, any> }[] = []
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       sites: {
         'site-hanging-a': {
           id: 'site-hanging-a',
@@ -1200,7 +1200,7 @@ describe('search.initActiveEngines()', () => {
  * through `getEngineConfig()`, which completes the stored values with the props declared in that
  * engine's `definition.yml` — and those props only exist once `refreshFromDisk()` has read them off
  * disk. `azure-search` and `aws-cloudsearch` used to sidestep that by reading
- * `WIKI.sites[...].config.search.engines[key]` raw and re-applying each default by hand at every use
+ * `CARDINAL.sites[...].config.search.engines[key]` raw and re-applying each default by hand at every use
  * site; they no longer do, so the ordering `index.ts` has always had is now something a reorder could
  * silently break — an engine would come up with an empty config rather than a defaulted one.
  *
@@ -1214,11 +1214,19 @@ describe("index.ts boots search's definitions before it provisions any engine", 
 
     // -> Matched with the `await ` prefix so a mention in a comment (or an unawaited call, which
     //    would break the ordering just as surely) cannot satisfy or skew this
-    const refresh = source.indexOf('await WIKI.models.search.refreshFromDisk()')
-    const init = source.indexOf('await WIKI.models.search.initActiveEngines()')
+    const refresh = source.indexOf('await CARDINAL.models.search.refreshFromDisk()')
+    const init = source.indexOf('await CARDINAL.models.search.initActiveEngines()')
 
-    assert.notEqual(refresh, -1, 'index.ts no longer awaits WIKI.models.search.refreshFromDisk()')
-    assert.notEqual(init, -1, 'index.ts no longer awaits WIKI.models.search.initActiveEngines()')
+    assert.notEqual(
+      refresh,
+      -1,
+      'index.ts no longer awaits CARDINAL.models.search.refreshFromDisk()'
+    )
+    assert.notEqual(
+      init,
+      -1,
+      'index.ts no longer awaits CARDINAL.models.search.initActiveEngines()'
+    )
     assert.ok(
       refresh < init,
       'index.ts must call search.refreshFromDisk() before search.initActiveEngines(): every engine resolves its config through getEngineConfig(), which needs the definitions loaded'

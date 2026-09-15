@@ -54,14 +54,14 @@ test('hashVisitor produces different output for the same raw id under two differ
 
 /**
  * `Settings.init()` is what seeds `pageviews.hashKey` at first boot (mirroring `auth.secret`) --
- * verified here as a pure unit test the same way `hooks.test.ts` stubs `WIKI.db` rather than
+ * verified here as a pure unit test the same way `hooks.test.ts` stubs `CARDINAL.db` rather than
  * standing up a real database, since what's under test is the JS-level shape of the seeded value,
  * not SQL orchestration.
  */
 describe('Settings.init seeds pageviews.hashKey', () => {
   test('a fresh boot seeds a non-empty hashKey that is not shared with auth.secret', async () => {
     const inserted: { key: string; value: any }[] = []
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       logger: { info: mock.fn(), warn: mock.fn(), debug: mock.fn() },
       version: 'test',
       releaseDate: 'test',
@@ -108,20 +108,20 @@ describe('Settings.init seeds pageviews.hashKey', () => {
 /**
  * OpenProject #2288: rotating `pageviews.hashKey` so historical rows can no longer be re-linked.
  * Modelled on `models/sessions.ts#rotateSecret()` -- and, like that method's own test coverage, pure
- * config mutation plus a stubbed `WIKI.configSvc.saveToDb()`, no real database needed: what's under
+ * config mutation plus a stubbed `CARDINAL.configSvc.saveToDb()`, no real database needed: what's under
  * test is the swap-and-persist-or-roll-back JS logic, not SQL orchestration.
  */
 describe('rotateHashKey', () => {
-  const previousWiki = (globalThis as any).WIKI
+  const previousWiki = (globalThis as any).CARDINAL
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   })
 
   test('rotates the key, persists it, and makes the same raw id hash differently', async () => {
     const previousKey = 'pre-rotation-key'
     const saveToDb = mock.fn((_keys: string[]) => Promise.resolve(true))
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: { pageviews: { isEnabled: true, hashKey: previousKey } },
       configSvc: { saveToDb },
       logger: { info: mock.fn(), warn: mock.fn() }
@@ -133,10 +133,10 @@ describe('rotateHashKey', () => {
     const rotated = await pageviews.rotateHashKey()
 
     assert.equal(rotated, true)
-    assert.notEqual(WIKI.config.pageviews.hashKey, previousKey)
+    assert.notEqual(CARDINAL.config.pageviews.hashKey, previousKey)
     assert.deepEqual(saveToDb.mock.calls[0]?.arguments[0], ['pageviews'])
     assert.notEqual(
-      hashVisitor(rawId, WIKI.config.pageviews.hashKey),
+      hashVisitor(rawId, CARDINAL.config.pageviews.hashKey),
       hashBeforeRotation,
       'the same raw id must hash differently once the key has rotated'
     )
@@ -144,7 +144,7 @@ describe('rotateHashKey', () => {
 
   test('restores the previous key and reports failure when the save fails', async () => {
     const previousConfig = { isEnabled: true, hashKey: 'pre-rotation-key' }
-    ;(globalThis as any).WIKI = {
+    ;(globalThis as any).CARDINAL = {
       config: { pageviews: { ...previousConfig } },
       configSvc: { saveToDb: mock.fn(() => Promise.resolve(false)) },
       logger: { info: mock.fn(), warn: mock.fn() }
@@ -154,7 +154,7 @@ describe('rotateHashKey', () => {
 
     assert.equal(rotated, false)
     assert.deepEqual(
-      WIKI.config.pageviews,
+      CARDINAL.config.pageviews,
       previousConfig,
       'a failed save must leave the old key in place, not a half-rotated one'
     )
@@ -162,13 +162,13 @@ describe('rotateHashKey', () => {
 })
 
 /**
- * OpenProject #2269: `countsForGraph` reads the same `WIKI.config.pageviews.isEnabled` flag `record()`
+ * OpenProject #2269: `countsForGraph` reads the same `CARDINAL.config.pageviews.isEnabled` flag `record()`
  * already gates writes on. No database at all here -- the point is that the query never runs in the
  * first place, which a real Postgres round trip couldn't distinguish from "ran and found nothing".
  */
 test('countsForGraph returns an empty map and never touches the database while pageview tracking is disabled', async () => {
-  const previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  const previousWiki = (globalThis as any).CARDINAL
+  ;(globalThis as any).CARDINAL = {
     config: { pageviews: { isEnabled: false } },
     db: new Proxy(
       {},
@@ -183,7 +183,7 @@ test('countsForGraph returns an empty map and never touches the database while p
     const counts = await pageviews.countsForGraph('any-site-id')
     assert.deepEqual(counts, new Map())
   } finally {
-    ;(globalThis as any).WIKI = previousWiki
+    ;(globalThis as any).CARDINAL = previousWiki
   }
 })
 
@@ -218,7 +218,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   })
 
   test('record() inserts a row with a hashed visitor id when tracking is enabled', async () => {
-    WIKI.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
+    CARDINAL.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
 
     await pageviewsModel.record({
       siteId: fixtures.siteId,
@@ -238,7 +238,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   })
 
   test('record() no-ops entirely -- no row inserted -- while tracking is disabled', async () => {
-    WIKI.config.pageviews = { isEnabled: false, hashKey: TEST_HASH_KEY }
+    CARDINAL.config.pageviews = { isEnabled: false, hashKey: TEST_HASH_KEY }
     const before = await fixtures.db.$count(pageviewsTable, eq(pageviewsTable.pageId, pageId))
 
     await pageviewsModel.record({
@@ -253,7 +253,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   })
 
   test('record() never throws when the insert itself fails', async () => {
-    WIKI.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
+    CARDINAL.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
 
     // -> A page that does not exist trips the `pageId` foreign key -- record() must swallow that,
     //    not propagate it, since a logging failure must never break serving the page it rides along
@@ -387,9 +387,9 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       }
     })
 
-    test('is not gated on WIKI.config.pageviews.isEnabled -- still reflects history while disabled', async () => {
-      const previousConfig = WIKI.config.pageviews
-      WIKI.config.pageviews = { isEnabled: false }
+    test('is not gated on CARDINAL.config.pageviews.isEnabled -- still reflects history while disabled', async () => {
+      const previousConfig = CARDINAL.config.pageviews
+      CARDINAL.config.pageviews = { isEnabled: false }
       try {
         const summary = await pageviewsModel.summary()
         assert.equal(
@@ -398,7 +398,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           'existing rows must still be counted while tracking is off'
         )
       } finally {
-        WIKI.config.pageviews = previousConfig
+        CARDINAL.config.pageviews = previousConfig
       }
     })
   })
@@ -410,7 +410,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       // -> countsForGraph now short-circuits on this flag itself (OpenProject #2269), not only
       //    `record()` -- explicit here rather than relying on whichever value an earlier sibling
       //    test in this file happened to leave it at.
-      WIKI.config.pageviews = { isEnabled: true }
+      CARDINAL.config.pageviews = { isEnabled: true }
 
       const page = await pagesModel.createPage(
         fixtures.siteId,

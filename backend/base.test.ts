@@ -81,7 +81,7 @@ test('base.yml does not define a default auth.secret', async () => {
 })
 
 /**
- * OpenProject #2276: `core/db.ts` spreads `WIKI.config.pool` straight into `new Pool({...})`'s
+ * OpenProject #2276: `core/db.ts` spreads `CARDINAL.config.pool` straight into `new Pool({...})`'s
  * options, and until this key existed node-postgres silently applied its own default `max` of 10 —
  * exactly the same number, just never written down anywhere in this repo's own config. Locks that it
  * stays declared, explicit, and a sane positive integer rather than silently reverting to "whatever

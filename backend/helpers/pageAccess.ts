@@ -11,7 +11,7 @@ import { PAGE_PERMISSIONS } from './permissions.ts'
  * body, and what to reply when the answer is no. These used to live in `api/pages.ts`, `api/assets.ts`
  * and `api/tree.ts`, which meant `api/comments.ts`, `api/checklists.ts`, `api/watching.ts`,
  * `api/approvals.ts`, `api/tags.ts`, `api/notifications.ts`, `api/tree.ts` and `controllers/collab.ts`
- * all imported a route file to get at them. They are plain functions over `WIKI.models.groups`, not
+ * all imported a route file to get at them. They are plain functions over `CARDINAL.models.groups`, not
  * routes, so they belong here — where a route file importing one no longer couples itself to another
  * route file's plugin.
  */
@@ -57,7 +57,7 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
   return {
     id: req.session.user.id,
     permissions: req.session.permissions ?? [],
-    groupIds: WIKI.models.groups.groupIdsForRequest(req),
+    groupIds: CARDINAL.models.groups.groupIdsForRequest(req),
     scope: null
   }
 }
@@ -149,11 +149,15 @@ export function mayOnPage(
     classification?: string | null
   }
 ): boolean {
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    ...page,
-    classification: page.classification ?? null,
-    siteId
-  })
+  return CARDINAL.models.groups.checkAccess(
+    CARDINAL.models.groups.actorForRequest(req),
+    permission,
+    {
+      ...page,
+      classification: page.classification ?? null,
+      siteId
+    }
+  )
 }
 
 /**
@@ -175,7 +179,7 @@ export function pagePermissionsFor(
   siteId: string,
   page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): string[] {
-  const actor = WIKI.models.groups.actorForRequest(req)
+  const actor = CARDINAL.models.groups.actorForRequest(req)
   /*
     An administrator holds all of them, and holds them here too. Deriving the list from their
     permissions instead would answer `manage:system` → nothing ending in `:pages` → that an
@@ -185,7 +189,7 @@ export function pagePermissionsFor(
     return PAGE_PERMISSIONS
   }
   return PAGE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkAccess(actor, permission, {
+    CARDINAL.models.groups.checkAccess(actor, permission, {
       ...page,
       classification: page.classification ?? null,
       siteId
@@ -221,7 +225,7 @@ export async function loadReadablePage(
   }: { withContent?: boolean; withPassword?: boolean } = {}
 ): Promise<Page | null> {
   const actor = actorFrom(req)
-  const page = await WIKI.models.pages.getPage({
+  const page = await CARDINAL.models.pages.getPage({
     siteId,
     id: pageId,
     withContent,
@@ -323,15 +327,19 @@ export function mayOnAsset(
   asset: { folderPath?: string | null; fileName: string; locale: string }
 ): boolean {
   const folder = asset.folderPath ?? ''
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
-    siteId,
-    locale: asset.locale,
-    // -> An asset carries no classification of its own (OpenProject #1079 is a page metadata
-    //    field) — a CLASSIFICATION rule never matches an asset, the same as any other unknown
-    //    classification fails closed.
-    classification: null
-  })
+  return CARDINAL.models.groups.checkAccess(
+    CARDINAL.models.groups.actorForRequest(req),
+    permission,
+    {
+      path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
+      siteId,
+      locale: asset.locale,
+      // -> An asset carries no classification of its own (OpenProject #1079 is a page metadata
+      //    field) — a CLASSIFICATION rule never matches an asset, the same as any other unknown
+      //    classification fails closed.
+      classification: null
+    }
+  )
 }
 
 /**
@@ -348,14 +356,18 @@ export function mayOnFolder(
   path: string,
   locale: string
 ): boolean {
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path,
-    siteId,
-    locale,
-    // -> A folder is not a page and carries no classification of its own -- same treatment as
-    //    `mayOnAsset` above.
-    classification: null
-  })
+  return CARDINAL.models.groups.checkAccess(
+    CARDINAL.models.groups.actorForRequest(req),
+    permission,
+    {
+      path,
+      siteId,
+      locale,
+      // -> A folder is not a page and carries no classification of its own -- same treatment as
+      //    `mayOnAsset` above.
+      classification: null
+    }
+  )
 }
 
 /**
@@ -378,11 +390,11 @@ export function visibleTreeItems<
     classification?: string | null
   }
 >(req: FastifyRequest, siteId: string, locale: string, items: T[]): T[] {
-  const actor = WIKI.models.groups.actorForRequest(req)
+  const actor = CARDINAL.models.groups.actorForRequest(req)
   return items.filter((item) => {
     const path = item.folderPath ? `${item.folderPath}/${item.fileName}` : (item.fileName ?? '')
     const permission = item.type === 'asset' ? 'read:assets' : 'read:pages'
-    return WIKI.models.groups.checkAccess(actor, permission, {
+    return CARDINAL.models.groups.checkAccess(actor, permission, {
       path,
       siteId,
       locale,

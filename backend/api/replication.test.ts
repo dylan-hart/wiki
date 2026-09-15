@@ -38,8 +38,8 @@ after(() => closeTestApp(app))
 
 beforeEach(() => {
   recordMock = mock.fn(async () => {})
-  WIKI.config.replication = {}
-  WIKI.configSvc.saveToDb = mock.fn(async () => true)
+  CARDINAL.config.replication = {}
+  CARDINAL.configSvc.saveToDb = mock.fn(async () => true)
 })
 
 /**
@@ -59,7 +59,7 @@ test('returns an empty config with no bearerToken masking when nothing is stored
 })
 
 test('masks a stored bearerToken on GET', async () => {
-  WIKI.config.replication = {
+  CARDINAL.config.replication = {
     isEnabled: true,
     sourceUrl: 'https://prod.example.com',
     bearerToken: 'super-secret-token',
@@ -80,7 +80,7 @@ test('masks a stored bearerToken on GET', async () => {
  */
 
 test('echoing the bearerToken mask on PUT leaves the stored token byte-identical', async () => {
-  WIKI.config.replication = {
+  CARDINAL.config.replication = {
     isEnabled: true,
     sourceUrl: 'https://prod.example.com',
     bearerToken: 'super-secret-token',
@@ -94,11 +94,11 @@ test('echoing the bearerToken mask on PUT leaves the stored token byte-identical
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.replication.bearerToken, 'super-secret-token')
+  assert.equal(CARDINAL.config.replication.bearerToken, 'super-secret-token')
 })
 
 test('PUT with a new bearerToken overwrites the stored token', async () => {
-  WIKI.config.replication = {
+  CARDINAL.config.replication = {
     isEnabled: true,
     sourceUrl: 'https://prod.example.com',
     bearerToken: 'old-token',
@@ -112,7 +112,7 @@ test('PUT with a new bearerToken overwrites the stored token', async () => {
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.replication.bearerToken, 'new-token')
+  assert.equal(CARDINAL.config.replication.bearerToken, 'new-token')
 })
 
 test('never writes the raw bearerToken to the audit log', async () => {
@@ -163,7 +163,7 @@ test('accepts a valid cronSchedule', async () => {
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.replication.cronSchedule, '0 0 * * 0')
+  assert.equal(CARDINAL.config.replication.cronSchedule, '0 0 * * 0')
 })
 
 /**
@@ -200,7 +200,7 @@ test('accepts a cronSchedule that fires exactly once per hour', async () => {
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.replication.cronSchedule, '0 * * * *')
+  assert.equal(CARDINAL.config.replication.cronSchedule, '0 * * * *')
 })
 
 test('rejects enabling replication with no sourceUrl, bearerToken or cronSchedule set', async () => {
@@ -215,7 +215,7 @@ test('rejects enabling replication with no sourceUrl, bearerToken or cronSchedul
 })
 
 test('rejects enabling replication with a sourceUrl but no bearerToken or cronSchedule', async () => {
-  WIKI.config.replication = { sourceUrl: 'https://prod.example.com' }
+  CARDINAL.config.replication = { sourceUrl: 'https://prod.example.com' }
 
   const res = await app.inject({
     method: 'PUT',
@@ -228,7 +228,7 @@ test('rejects enabling replication with a sourceUrl but no bearerToken or cronSc
 })
 
 test('allows enabling replication once sourceUrl, bearerToken and cronSchedule are all set', async () => {
-  WIKI.config.replication = {
+  CARDINAL.config.replication = {
     sourceUrl: 'https://prod.example.com',
     bearerToken: 'a-token',
     cronSchedule: '0 0 * * 0'
@@ -241,7 +241,7 @@ test('allows enabling replication once sourceUrl, bearerToken and cronSchedule a
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.replication.isEnabled, true)
+  assert.equal(CARDINAL.config.replication.isEnabled, true)
 })
 
 test('strips a trailing slash from sourceUrl', async () => {
@@ -252,12 +252,12 @@ test('strips a trailing slash from sourceUrl', async () => {
   })
 
   assert.equal(res.statusCode, 200)
-  assert.equal(WIKI.config.replication.sourceUrl, 'https://prod.example.com')
+  assert.equal(CARDINAL.config.replication.sourceUrl, 'https://prod.example.com')
 })
 
 test('answers 500 and rolls back in-memory config when saveToDb fails', async () => {
-  WIKI.config.replication = { sourceUrl: 'https://old.example.com' }
-  WIKI.configSvc.saveToDb = mock.fn(async () => false)
+  CARDINAL.config.replication = { sourceUrl: 'https://old.example.com' }
+  CARDINAL.configSvc.saveToDb = mock.fn(async () => false)
 
   const res = await app.inject({
     method: 'PUT',
@@ -266,5 +266,5 @@ test('answers 500 and rolls back in-memory config when saveToDb fails', async ()
   })
 
   assert.equal(res.statusCode, 500)
-  assert.equal(WIKI.config.replication.sourceUrl, 'https://old.example.com')
+  assert.equal(CARDINAL.config.replication.sourceUrl, 'https://old.example.com')
 })

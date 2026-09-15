@@ -95,7 +95,7 @@ class ReplicationExportModel {
   /** `<dataPath>/exports` — shared with `models/export.ts`'s per-site archives; both are swept by
    *  the same TTL policy and neither cares which produced a given file. */
   get exportsPath(): string {
-    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'exports')
+    return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'exports')
   }
 
   /**
@@ -103,7 +103,7 @@ class ReplicationExportModel {
    *
    * @returns The path it was written to and its final size, which the caller
    *   (`tasks/simple/export-replication.ts`) records on the job's history row via
-   *   `WIKI.models.jobs.setResult`.
+   *   `CARDINAL.models.jobs.setResult`.
    */
   async buildSnapshot(): Promise<ReplicationExportResult> {
     const [
@@ -119,22 +119,22 @@ class ReplicationExportModel {
       navigationRows,
       commentRows
     ] = await Promise.all([
-      WIKI.db.select().from(sitesTable),
-      WIKI.db.select().from(classificationLevelsTable),
-      WIKI.db.select().from(settingsTable),
-      WIKI.db.select().from(groupsTable),
-      WIKI.db.select().from(usersTable),
-      WIKI.db.select().from(userGroupsTable),
-      WIKI.db.select().from(pagesTable),
-      WIKI.db.select().from(treeTable),
-      WIKI.db.select().from(pageHistoryTable),
-      WIKI.db.select().from(navigationTable),
-      WIKI.db.select().from(commentsTable)
+      CARDINAL.db.select().from(sitesTable),
+      CARDINAL.db.select().from(classificationLevelsTable),
+      CARDINAL.db.select().from(settingsTable),
+      CARDINAL.db.select().from(groupsTable),
+      CARDINAL.db.select().from(usersTable),
+      CARDINAL.db.select().from(userGroupsTable),
+      CARDINAL.db.select().from(pagesTable),
+      CARDINAL.db.select().from(treeTable),
+      CARDINAL.db.select().from(pageHistoryTable),
+      CARDINAL.db.select().from(navigationTable),
+      CARDINAL.db.select().from(commentsTable)
     ])
     // -> Assets travel separately below (their bytea columns need their own staged files), but the
     //    row set itself is fetched here alongside everything else for the same reason: one snapshot,
     //    one point-in-time read of the whole instance.
-    const assetRows = await WIKI.db.select().from(assetsTable)
+    const assetRows = await CARDINAL.db.select().from(assetsTable)
 
     await fs.mkdir(this.exportsPath, { recursive: true })
     const filePath = path.join(this.exportsPath, `${crypto.randomUUID()}.tar.gz`)
@@ -146,7 +146,7 @@ class ReplicationExportModel {
         JSON.stringify(
           {
             formatVersion: REPLICATION_EXPORT_FORMAT_VERSION,
-            wikiVersion: WIKI.version,
+            wikiVersion: CARDINAL.version,
             exportedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
             siteCount: siteRows.length
           },

@@ -95,7 +95,7 @@ function toRecordOutcome(
  * `createDryRunWriter()` up front), the three content importers have no such built-in split — every
  * one of their injected dependencies is an unconditional write. The dry-run split therefore happens
  * here instead, inside each dependency's own closure via `dry-run.ts`'s `writeUnlessDryRun()` (never
- * at `entities()`-construction time, so a `dryRun: true` run never touches the ambient `WIKI` global
+ * at `entities()`-construction time, so a `dryRun: true` run never touches the ambient `CARDINAL` global
  * at all — see `existingEntry`/`createPage`/`insertVersions`/`ensureSiteNav`/`setNavItems` below).
  * `pageImporter.importOne()` and `importNavigation()` are always called directly, never wrapped as
  * `recorder.create()`'s own `write` callback — see `./route.ts` for why — so the real classification
@@ -103,11 +103,11 @@ function toRecordOutcome(
  * modes; only the destination-touching half of each dependency is swapped for a no-op or a
  * placeholder id.
  *
- * `existingEntry` is the one exception worth calling out: in a real CLI run, `WIKI`/the destination db
+ * `existingEntry` is the one exception worth calling out: in a real CLI run, `CARDINAL`/the destination db
  * are always live even under `--dry-run` (only the *write* is skipped), so checking the real tree for a
  * collision is both possible and correct there. But `phases/users.ts`'s own dry-run precedent never
  * reads the destination at all (`createDryRunWriter()`'s methods touch nothing), and this phase's own
- * pure unit tests (`phases.test.ts`) have no live `WIKI`/db to read — so `existingEntry` reports "not
+ * pure unit tests (`phases.test.ts`) have no live `CARDINAL`/db to read — so `existingEntry` reports "not
  * found" unconditionally under `dryRun`, same as every other dependency here, keeping a dry run fully
  * I/O-free rather than a live read plus a stubbed write.
  *
@@ -162,7 +162,7 @@ export const contentPhase = definePhase({
     //    only when live" split every other dependency in this phase uses.
     async function insertHistoryVersions(rows: PageHistoryInsertRow[]): Promise<void> {
       if (ctx.dryRun) return
-      await WIKI.db.insert(pageHistoryTable).values(rows)
+      await CARDINAL.db.insert(pageHistoryTable).values(rows)
     }
 
     const pagesModel: PagesWriteModel = {
@@ -173,7 +173,7 @@ export const contentPhase = definePhase({
           //    object cast through `unknown` is safe here — narrow, deliberate, matching this
           //    codebase's cast convention.
           () => placeholderRow() as unknown as Page,
-          () => WIKI.models.pages.createPage(siteId, input, actor)
+          () => CARDINAL.models.pages.createPage(siteId, input, actor)
         )
     }
 
@@ -185,7 +185,12 @@ export const contentPhase = definePhase({
           //    destination even though one is normally live under a CLI dry run.
           return false
         }
-        const entry = await WIKI.models.tree.getEntryAt({ siteId, locale, parentPath, fileName })
+        const entry = await CARDINAL.models.tree.getEntryAt({
+          siteId,
+          locale,
+          parentPath,
+          fileName
+        })
         return entry !== null
       },
       backfillHistory: (staged, newPageId) =>
@@ -218,7 +223,7 @@ export const contentPhase = definePhase({
         writeUnlessDryRun(
           ctx.dryRun,
           () => placeholderRow().id,
-          () => WIKI.models.navigation.ensureSiteNav(siteId, locale)
+          () => CARDINAL.models.navigation.ensureSiteNav(siteId, locale)
         ),
       async setNavItems(siteId, navId, items) {
         // -> See the module doc comment's "Navigation targets are sanitized" section: setNavItems()
@@ -244,7 +249,7 @@ export const contentPhase = definePhase({
           }
         }
         if (ctx.dryRun) return
-        await WIKI.models.navigation.setNavItems(siteId, navId, sanitized)
+        await CARDINAL.models.navigation.setNavItems(siteId, navId, sanitized)
       }
     }
     const navigationDeps: NavigationImportDeps = { navigationModel }

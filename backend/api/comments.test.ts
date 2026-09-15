@@ -19,7 +19,7 @@ describe('comment provider routes', () => {
   /**
    * Route-level test for `GET/PUT /sites/:siteId/comments/providers` (Task 617, Feature 394).
    *
-   * `WIKI.models.sites` and `WIKI.models.commentProviders` are stubbed rather than pulling in the real
+   * `CARDINAL.models.sites` and `CARDINAL.models.commentProviders` are stubbed rather than pulling in the real
    * db/schema/drizzle graph — `models/commentProviders.test.ts` is what covers the model's own logic
    * (discovery, sync, the single-active-provider invariant) against a real database. This file only
    * proves the route wiring: the shared site preHandler, status codes, and how the model's return values and
@@ -164,12 +164,12 @@ describe('page-scoped comment routes', () => {
    * Unit tests for the comments route wiring (task 607): the list/create/edit/delete endpoints,
    * their permission gating, and the `replyTo` validation edge case.
    *
-   * `WIKI.models.comments` is stubbed with an in-memory fake rather than a real model.
-   * `WIKI.models.users.getById` is also stubbed — `resolveAuthorName` (see `comments.ts`) and the
+   * `CARDINAL.models.comments` is stubbed with an in-memory fake rather than a real model.
+   * `CARDINAL.models.users.getById` is also stubbed — `resolveAuthorName` (see `comments.ts`) and the
    * POST route's own authorEmail lookup both call it to resolve an authenticated author's display
    * name/address, since `create`/`update`/`get` return the flat stored row, not a joined one (only
    * `listForPage`'s own join resolves `authorName` directly).
-   * `WIKI.models.pages.getPage` and `WIKI.models.groups.{actorForRequest,checkAccess}` are stubbed too,
+   * `CARDINAL.models.pages.getPage` and `CARDINAL.models.groups.{actorForRequest,checkAccess}` are stubbed too,
    * standing in for `helpers/pageRules.ts` rule resolution so this stays a self-contained test of THIS
    * file's wiring rather than a re-test of page-rule resolution, which has its own test coverage.
    *
@@ -695,7 +695,7 @@ describe('page-scoped comment routes', () => {
   })
 
   test('POST create: 403 when the site has features.comments off', async () => {
-    ;(globalThis as any).WIKI.sites[SITE_ID].config.features.comments = false
+    ;(globalThis as any).CARDINAL.sites[SITE_ID].config.features.comments = false
     try {
       const res = await app.inject({
         method: 'POST',
@@ -706,7 +706,7 @@ describe('page-scoped comment routes', () => {
       assert.equal(res.statusCode, 403)
       assert.equal(created.length, 0)
     } finally {
-      ;(globalThis as any).WIKI.sites[SITE_ID].config.features.comments = true
+      ;(globalThis as any).CARDINAL.sites[SITE_ID].config.features.comments = true
     }
   })
 

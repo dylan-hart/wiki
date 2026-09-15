@@ -6,7 +6,7 @@ import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `embedPage` (`tasks/workers/embed-page.ts`) is a cross-task coordination stub as of this task
- * (#3104) — see that file's own doc comment — so this suite treats it as a black box: `WIKI.db` is
+ * (#3104) — see that file's own doc comment — so this suite treats it as a black box: `CARDINAL.db` is
  * faked the same way `modules/search/shared.test.ts#pageStream()` fakes it, and the assertions are
  * about what THIS task does with the pages `pageStream` hands it (calls `embedPage` once per page,
  * queues nothing else, logs a completion line with the right count), not about what `embedPage`
@@ -25,7 +25,7 @@ describe('rebuild-embeddings-index task()', () => {
 
   /** Same shape as `modules/search/shared.test.ts#pageStream()`'s own fake — one keyset window. */
   function fakeDb(windows: any[][]) {
-    ;(globalThis as any).WIKI.db = {
+    ;(globalThis as any).CARDINAL.db = {
       select: () => ({
         from: () => ({
           where: () => ({
@@ -43,12 +43,13 @@ describe('rebuild-embeddings-index task()', () => {
     //    set (see `modules/search/shared.test.ts#pageStream()`'s own "stops on the first short
     //    window" case) -- exactly what a real site smaller than one batch looks like.
     fakeDb([[{ id: 'page-a' }, { id: 'page-b' }, { id: 'page-c' }]])
-    ;(globalThis as any).WIKI.logger.info = mock.fn()
+    ;(globalThis as any).CARDINAL.logger.info = mock.fn()
 
     await task({ siteId: 'site-1' })
 
-    assert.equal((globalThis as any).WIKI.logger.info.mock.callCount(), 1)
-    const [scope, message, fields] = (globalThis as any).WIKI.logger.info.mock.calls[0].arguments
+    assert.equal((globalThis as any).CARDINAL.logger.info.mock.callCount(), 1)
+    const [scope, message, fields] = (globalThis as any).CARDINAL.logger.info.mock.calls[0]
+      .arguments
     assert.equal(scope, 'jobs')
     assert.equal(message, 'rebuildEmbeddingsIndex finished')
     assert.deepEqual(fields, { site: 'site-1', pages: 3 })
@@ -56,11 +57,11 @@ describe('rebuild-embeddings-index task()', () => {
 
   test('reports zero pages for a site with none, without throwing', async () => {
     fakeDb([[]])
-    ;(globalThis as any).WIKI.logger.info = mock.fn()
+    ;(globalThis as any).CARDINAL.logger.info = mock.fn()
 
     await task({ siteId: 'site-empty' })
 
-    const [, , fields] = (globalThis as any).WIKI.logger.info.mock.calls[0].arguments
+    const [, , fields] = (globalThis as any).CARDINAL.logger.info.mock.calls[0].arguments
     assert.deepEqual(fields, { site: 'site-empty', pages: 0 })
   })
 })

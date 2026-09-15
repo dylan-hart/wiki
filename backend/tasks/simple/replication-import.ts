@@ -39,7 +39,7 @@ export async function task(
     glossary?: typeof glossary
     assetServing?: typeof assetServing
     jobs?: typeof jobs
-    addJob?: typeof WIKI.scheduler.addJob
+    addJob?: typeof CARDINAL.scheduler.addJob
   } = {}
 ): Promise<TaskResult> {
   const {
@@ -50,13 +50,13 @@ export async function task(
     glossary: glossaryDep = glossary,
     assetServing: assetServingDep = assetServing,
     jobs: jobsDep = jobs,
-    addJob = (opts) => WIKI.scheduler.addJob(opts)
+    addJob = (opts) => CARDINAL.scheduler.addJob(opts)
   } = deps
 
   // -> Announced at `debug` because a wipe-and-replace restore can take minutes. The `try` stays for
   //    the `finally` that deletes the upload; the failure propagates and the scheduler writes the
   //    one record for it.
-  WIKI.logger.debug('storage', 'restoring replication snapshot, wipe-and-replace')
+  CARDINAL.logger.debug('storage', 'restoring replication snapshot, wipe-and-replace')
   try {
     const result = await replicationImportDep.importSnapshot(payload.filePath)
 

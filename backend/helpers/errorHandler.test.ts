@@ -71,9 +71,9 @@ describe('sendNonApiError', () => {
     wikiHandle.restore()
   })
 
-  test('an unmarked error answers a generic 500 with no leaked detail, and is logged via WIKI.logger.error', async () => {
-    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
-    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+  test('an unmarked error answers a generic 500 with no leaked detail, and is logged via CARDINAL.logger.error', async () => {
+    ;(globalThis as any).CARDINAL.logger.error.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.warn.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/boom-generic' })
     assert.equal(res.statusCode, 500)
     assert.deepEqual(res.json(), {
@@ -84,8 +84,9 @@ describe('sendNonApiError', () => {
     })
     assert.ok(!res.body.includes('secret-path'))
     assert.ok(!res.body.includes('ENOENT'))
-    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 1)
-    const [scope, message, fields] = (globalThis as any).WIKI.logger.error.mock.calls[0].arguments
+    assert.equal((globalThis as any).CARDINAL.logger.error.mock.calls.length, 1)
+    const [scope, message, fields] = (globalThis as any).CARDINAL.logger.error.mock.calls[0]
+      .arguments
     assert.equal(scope, 'http')
     assert.equal(message, 'unhandled error outside /_api')
     // -> The error rides `fields.error`, not the message: the renderer is what turns it into
@@ -94,12 +95,12 @@ describe('sendNonApiError', () => {
     // -> Bug #2650: this used to be `warn`, one level below the threshold an operator alerts on, so
     //    a crashed request was invisible to them. Asserted as a level, not merely as "something was
     //    logged".
-    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+    assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
   })
 
   test('a deliberate @fastify/sensible error answers its own status and message, and is NOT logged (Bug #2837)', async () => {
-    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
-    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.error.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.warn.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/boom-sensible' })
     assert.equal(res.statusCode, 404)
     const body = res.json()
@@ -108,8 +109,8 @@ describe('sendNonApiError', () => {
     // -> Bug #2837: a deliberate 4xx (icon-set 404s and the like) is expected, curated-message
     //    behavior, not a bug an operator needs to act on -- mirrors `apiErrorHandler`'s own
     //    statusCode branch, which has never logged.
-    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 0)
-    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+    assert.equal((globalThis as any).CARDINAL.logger.error.mock.calls.length, 0)
+    assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
   })
 })
 
@@ -142,8 +143,8 @@ describe('apiErrorHandler', () => {
   })
 
   test('an error carrying a statusCode answers that status with the { ok, error, statusCode, message } body', async () => {
-    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
-    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.error.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.warn.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/_api/boom-sensible' })
     assert.equal(res.statusCode, 403)
     assert.equal(res.headers['content-type'], 'application/json; charset=utf-8')
@@ -155,12 +156,12 @@ describe('apiErrorHandler', () => {
     })
     // -> A deliberate refusal is not an operator's problem: only the bare-500 branch logs, and
     //    Phase 1's access line (#2660) is what will account for 4xx.
-    assert.equal((globalThis as any).WIKI.logger.error.mock.calls.length, 0)
-    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+    assert.equal((globalThis as any).CARDINAL.logger.error.mock.calls.length, 0)
+    assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
   })
 
   test('an unmarked error answers a generic 500 whose body leaks nothing from the original', async () => {
-    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.error.mock.resetCalls()
     const res = await app.inject({ method: 'GET', url: '/_api/boom-generic' })
     assert.equal(res.statusCode, 500)
     assert.equal(res.headers['content-type'], 'application/json; charset=utf-8')
@@ -174,13 +175,13 @@ describe('apiErrorHandler', () => {
   })
 
   test('the bare-500 branch logs the error with the request context that correlates it', async () => {
-    ;(globalThis as any).WIKI.logger.error.mock.resetCalls()
-    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.error.mock.resetCalls()
+    ;(globalThis as any).CARDINAL.logger.warn.mock.resetCalls()
     await app.inject({ method: 'GET', url: '/_api/boom-generic' })
-    const calls = (globalThis as any).WIKI.logger.error.mock.calls
+    const calls = (globalThis as any).CARDINAL.logger.error.mock.calls
     assert.equal(calls.length, 1)
     // -> Bug #2650: at `error`, never at `warn`.
-    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 0)
+    assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
     const [scope, message, fields] = calls[0].arguments
     assert.equal(scope, 'http')
     assert.equal(message, 'unhandled error, answered 500')

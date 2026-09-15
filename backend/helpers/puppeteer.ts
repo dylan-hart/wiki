@@ -25,8 +25,8 @@ import { CustomError } from './common.ts'
  */
 export function getPuppeteerLaunchArgs(): string[] {
   const args = ['--disable-dev-shm-usage']
-  if (WIKI.config.security.allowPuppeteerNoSandbox) {
-    WIKI.logger.warn(
+  if (CARDINAL.config.security.allowPuppeteerNoSandbox) {
+    CARDINAL.logger.warn(
       'render',
       "launching Puppeteer with --no-sandbox, which disables Chromium's own process sandbox for " +
         'every page render, PDF export and diagram render this instance performs',
@@ -184,7 +184,7 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
   try {
     ;({ default: puppeteer } = await import(specifier))
   } catch (err: any) {
-    WIKI.models.extensions.noteLoadFailure(specifier)
+    CARDINAL.models.extensions.noteLoadFailure(specifier)
     throw new CustomError(errorName, `Could not load the Puppeteer extension: ${err.message}`, 503)
   }
 
@@ -204,8 +204,8 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
  * rendering each asked with a byte-identical two-liner of their own. One question, one answer.
  */
 export async function isPuppeteerAvailable(): Promise<boolean> {
-  const definition = WIKI.models.extensions.getDefinition('puppeteer')
-  return Boolean(definition) && (await WIKI.models.extensions.isInstalled(definition!))
+  const definition = CARDINAL.models.extensions.getDefinition('puppeteer')
+  return Boolean(definition) && (await CARDINAL.models.extensions.isInstalled(definition!))
 }
 
 /**
@@ -238,6 +238,6 @@ export async function closeQuietly(
   try {
     await closable?.close()
   } catch (err: any) {
-    WIKI.logger.debug('render', 'could not close cleanly', { subject: label, error: err })
+    CARDINAL.logger.debug('render', 'could not close cleanly', { subject: label, error: err })
   }
 }

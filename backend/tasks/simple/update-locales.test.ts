@@ -10,7 +10,7 @@ import { installTestWiki } from '../../test/mocks.ts'
  * `isFlatStringMap` is the shape guard OpenProject #2255 added: `strings` comes straight off
  * `raw.githubusercontent.com` with no signature, so it is the one thing standing between a
  * compromised `requarks/wiki-locales` and arbitrary values landing in the `locales.strings` jsonb
- * column. Pure function, no `WIKI`/database needed. The task-level wiring around it (percent-encoded
+ * column. Pure function, no `CARDINAL`/database needed. The task-level wiring around it (percent-encoded
  * URLs, invalid payloads never reaching the insert, a valid payload upserting) is already covered by
  * the "update-locales.task (unit, no DB)" suite below, so this suite sticks to the predicate itself.
  */
@@ -68,7 +68,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 
   beforeEach(() => {
-    WIKI.config = {}
+    CARDINAL.config = {}
   })
 
   /** Builds a single-language metadata payload for a given language/strings pair. */
@@ -155,7 +155,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 
   test('does nothing when update.locales is explicitly disabled', async () => {
-    WIKI.config = { update: { locales: false } }
+    CARDINAL.config = { update: { locales: false } }
     const fetchSpy = mock.fn()
     globalThis.fetch = fetchSpy as unknown as typeof fetch
 
@@ -165,7 +165,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
   })
 
   test('does nothing when the instance is in offline mode (OpenProject #820)', async () => {
-    WIKI.config = { offline: true }
+    CARDINAL.config = { offline: true }
     const fetchSpy = mock.fn()
     globalThis.fetch = fetchSpy as unknown as typeof fetch
 
@@ -212,7 +212,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
   test('reloads the locale cache exactly once when it upserted at least one row', async (t) => {
     stubFetch([makeLang('de-t4', 'German')], { 'de-t4': { welcome: 'Willkommen' } })
-    const reloadCache = t.mock.method(WIKI.models.locales, 'reloadCache')
+    const reloadCache = t.mock.method(CARDINAL.models.locales, 'reloadCache')
 
     await task()
 
@@ -221,7 +221,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
   test('does not reload the locale cache when nothing changed', async (t) => {
     stubFetch([makeLang('it-t5', 'Italian')], {}) // -> no strings file, so nothing upserts
-    const reloadCache = t.mock.method(WIKI.models.locales, 'reloadCache')
+    const reloadCache = t.mock.method(CARDINAL.models.locales, 'reloadCache')
 
     await task()
 
@@ -233,7 +233,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
  * OpenProject #2253/#2255: the fetch/validation hardening around this task — abort timeouts, the
  * missing `ok` check, percent-encoding the derived filename, and rejecting a non-flat `strings`
  * payload before it ever reaches the database. Unlike the suite above, none of this needs a real
- * Postgres instance: `WIKI.db.insert` is stubbed directly (the same manual-stub approach
+ * Postgres instance: `CARDINAL.db.insert` is stubbed directly (the same manual-stub approach
  * `check-version.test.ts` uses), so this runs unconditionally rather than being gated on
  * `DATABASE_URL`.
  */
@@ -263,10 +263,10 @@ describe('update-locales.task (unit, no DB)', () => {
       config: {},
       logger: { info: mock.fn(), error: mock.fn(), warn: loggerWarn, debug: mock.fn() },
       db: { insert: () => ({ values: insertValues }) },
-      // -> `task()` calls `WIKI.models.locales.broadcastReload()` once `anyUpdated` (OpenProject
+      // -> `task()` calls `CARDINAL.models.locales.broadcastReload()` once `anyUpdated` (OpenProject
       //    #2032) -- stubbed the same way `models.locales.reloadCache` is elsewhere in this file.
       //    Deliberately no `reloadCache` method here (OpenProject #2352): if `task()` ever called
-      //    `WIKI.models.locales.reloadCache()` directly instead of routing through the HA
+      //    `CARDINAL.models.locales.reloadCache()` directly instead of routing through the HA
       //    cache-broadcast path, that call would throw rather than silently succeed.
       models: { locales: { broadcastReload } }
     })
@@ -374,9 +374,9 @@ describe('update-locales.task (unit, no DB)', () => {
 
   // -----------------------------------------------------------------------------------------
   // OpenProject #2352: `task()` must route a real update through
-  // `WIKI.models.locales.broadcastReload()` -- which reloads this instance's own cache AND
+  // `CARDINAL.models.locales.broadcastReload()` -- which reloads this instance's own cache AND
   // notifies every other cluster instance to do the same -- rather than a plain, local-only
-  // `reloadCache()` call. The mock WIKI above has no `reloadCache` method at all, so a
+  // `reloadCache()` call. The mock CARDINAL above has no `reloadCache` method at all, so a
   // regression here would surface as `task()` throwing, but these assertions prove the correct
   // *positive* behavior directly rather than relying on that absence alone.
   // -----------------------------------------------------------------------------------------

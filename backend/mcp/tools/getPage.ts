@@ -52,7 +52,7 @@ export async function handleGetPage(
   const actor = actorFor(ctx)
   const path = normalizePagePath(args.path)
 
-  const page = await WIKI.models.pages.getPage({
+  const page = await CARDINAL.models.pages.getPage({
     siteId: site.id,
     hash: generatePathHash(path || 'home'),
     locale: args.locale,
@@ -62,8 +62,8 @@ export async function handleGetPage(
     publicOnly: !pageActorFor(ctx),
     // -> Whoever may write or manage the page is not stopped by its own password
     unlocked: (unlockRef) =>
-      WIKI.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
-      WIKI.models.groups.checkAccess(actor, 'manage:pages', { ...unlockRef, siteId: site.id }),
+      CARDINAL.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
+      CARDINAL.models.groups.checkAccess(actor, 'manage:pages', { ...unlockRef, siteId: site.id }),
     withPassword: false
   })
 
@@ -72,7 +72,7 @@ export async function handleGetPage(
   }
   // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in
   //    `helpers/pageAccess.ts`
-  if (!WIKI.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
+  if (!CARDINAL.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
     throw new McpToolError('This page does not exist.')
   }
 
@@ -82,14 +82,14 @@ export async function handleGetPage(
   //    `recordPageview()` uses for a bearer-key REST caller, and for the same reason: two different
   //    keys are two different visitors, the same key reused is one. This is the `mcp` counterpart to
   //    that route's `api`/`browser` split (OpenProject #1140's "web browser vs. API/MCP access").
-  void WIKI.models.pageviews.record({
+  void CARDINAL.models.pageviews.record({
     siteId: site.id,
     pageId: page.id,
     clientType: 'mcp',
     visitorRawId: ctx.keyId
   })
 
-  const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+  const maySeeSource = CARDINAL.models.groups.checkAccess(actor, 'read:source', {
     ...page,
     siteId: site.id
   })

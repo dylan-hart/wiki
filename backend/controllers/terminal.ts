@@ -60,7 +60,7 @@ async function routes(app: FastifyInstance) {
         is replayed below and the terminal opens on its own arrival. Every other connected terminal
         sees it live, which is the point: who is reading the logs is itself worth logging.
       */
-      WIKI.logger.info('terminal', 'attached', { user: userId })
+      CARDINAL.logger.info('terminal', 'attached', { user: userId })
 
       const send = (frame: LogFrame) => {
         if (socket.readyState !== socket.OPEN || socket.bufferedAmount > MAX_BUFFERED) {
@@ -77,19 +77,19 @@ async function routes(app: FastifyInstance) {
         before anything else, and unchanged in shape, so "the first frame" stays all the client has
         to know to find it.
       */
-      socket.send(JSON.stringify({ instance: WIKI.INSTANCE_ID }))
+      socket.send(JSON.stringify({ instance: CARDINAL.INSTANCE_ID }))
 
       // -> A terminal that opens onto an idle server would otherwise sit empty and look broken
-      for (const frame of WIKI.logger.backlog()) {
+      for (const frame of CARDINAL.logger.backlog()) {
         send(frame)
       }
 
-      WIKI.logger.ws.on('log', send)
+      CARDINAL.logger.ws.on('log', send)
       socket.on('close', () => {
         // -> Off the stream first, so this instance's own goodbye is not sent down a socket that is
         //    already closing
-        WIKI.logger.ws.off('log', send)
-        WIKI.logger.info('terminal', 'detached', { user: userId })
+        CARDINAL.logger.ws.off('log', send)
+        CARDINAL.logger.info('terminal', 'detached', { user: userId })
       })
     }
   )

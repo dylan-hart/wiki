@@ -6,20 +6,20 @@ import { users } from './users.ts'
  * Coverage for `Users.importLocalUser()` (Feature 414, Task 728): the import-capable local-provider
  * creation path that carries a pre-hashed password over verbatim instead of re-hashing it.
  *
- * `Users` reads the ambient `WIKI` global for everything DB/config-related, so each test installs a
- * minimal fake on `globalThis.WIKI` and restores whatever was there before. `getByEmail()` and
+ * `Users` reads the ambient `CARDINAL` global for everything DB/config-related, so each test installs a
+ * minimal fake on `globalThis.CARDINAL` and restores whatever was there before. `getByEmail()` and
  * `setUserGroups()` are real methods on the same singleton `users` instance that `importLocalUser()`
  * calls internally (`this.getByEmail(...)`, `this.setUserGroups(...)`); rather than re-implementing
- * their own DB access in a fake `WIKI.db`, tests stub those two methods directly on the instance —
+ * their own DB access in a fake `CARDINAL.db`, tests stub those two methods directly on the instance —
  * they're already-existing, separately-owned behaviour, not what this task adds.
  */
 
 const LOCAL_STRATEGY_ID = 'local-auth-strategy-uuid'
 
 function installFakeWiki(overrides: { insertResult?: { id: string }; insertError?: any } = {}) {
-  const previous = (globalThis as any).WIKI
+  const previous = (globalThis as any).CARDINAL
   const insertedRows: any[] = []
-  ;(globalThis as any).WIKI = {
+  ;(globalThis as any).CARDINAL = {
     data: { systemIds: { localAuthId: LOCAL_STRATEGY_ID } },
     config: { userDefaults: {} },
     logger: { warn: () => {} },
@@ -48,7 +48,7 @@ function installFakeWiki(overrides: { insertResult?: { id: string }; insertError
   return {
     insertedRows,
     restore: () => {
-      ;(globalThis as any).WIKI = previous
+      ;(globalThis as any).CARDINAL = previous
     }
   }
 }

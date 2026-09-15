@@ -17,7 +17,7 @@ await ensureTemporal()
  * concept out of context. Both were renamed to `cluster` / `clusterTotal`; this pins the new route
  * and field names, plus the row-grouping logic in `getClusterNodes()` (unchanged, just renamed from
  * `getInstances()`), against a fake `pg_stat_activity` result set rather than a real Postgres --
- * `WIKI.db.execute` is stubbed to return two connections for one instance and one for another, which
+ * `CARDINAL.db.execute` is stubbed to return two connections for one instance and one for another, which
  * is exactly the shape `getClusterNodes()` groups by `application_name`.
  */
 describe('GET /cluster (renamed from /instances)', () => {
@@ -142,9 +142,9 @@ describe('GET /cluster parses the instance id by separator, not by offset', () =
  *   {{ dbVersion }}`), but it was never declared in the `response.200.properties`, so the card has
  *   been silently rendering "PostgreSQL" with nothing after it since the route was written.
  * - `httpPort`: declared in the schema, but the handler had hardcoded `httpPort: 0` — dead weight
- *   that the schema promised meant something. Fixed to read the real `WIKI.config.port`.
+ *   that the schema promised meant something. Fixed to read the real `CARDINAL.config.port`.
  *
- * `WIKI.db.$count` / `.execute` are stubbed rather than pulling in the db/schema/drizzle graph,
+ * `CARDINAL.db.$count` / `.execute` are stubbed rather than pulling in the db/schema/drizzle graph,
  * matching `sites.test.ts`'s pattern for a self-contained unit test of the route's response shape.
  */
 describe('GET /info', () => {

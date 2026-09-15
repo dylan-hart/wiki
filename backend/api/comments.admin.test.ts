@@ -18,7 +18,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  * DB-backed route test for `GET/DELETE /sites/:siteId/comments` (Task 625, Feature 394).
  *
  * The whole point of this task is that `manage:comments` is decided PER PAGE, individually, against
- * the real rule-matching in `helpers/pageRules.ts` — a test that stubs `WIKI.models.groups.checkAccess`
+ * the real rule-matching in `helpers/pageRules.ts` — a test that stubs `CARDINAL.models.groups.checkAccess`
  * would only prove the route calls a function, not that the scoping actually works. This suite runs
  * the real routes, the real `groups`/`pages`/`comments` models and a real, migrated database (see
  * `test/db.ts`) — `models/comments.test.ts` covers `listForAdmin`'s own filters and pagination in
@@ -26,7 +26,7 @@ import { buildTestApp, closeTestApp } from '../test/fastify.ts'
  *
  * There is no real session plugin here (`@fastify/session` needs a cookie round trip this suite has
  * no reason to exercise) — `req.session` is set directly by an `onRequest` hook from a
- * per-test-mutable `testSession` variable, which is all `WIKI.models.groups.actorForRequest` reads.
+ * per-test-mutable `testSession` variable, which is all `CARDINAL.models.groups.actorForRequest` reads.
  */
 describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -258,7 +258,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
    * OpenProject #935: the page-scoped DELETE already emitted `comment:delete` (queuing a webhook
    * delivery); this site-wide moderation DELETE did not, so a subscriber mirroring comments missed
    * every deletion done from the admin moderation screen. Asserted through a REAL subscribed hook
-   * row and the real `WIKI.scheduler.addJob` `mock.fn()` (`test/mocks.ts`'s `createSchedulerStub()`)
+   * row and the real `CARDINAL.scheduler.addJob` `mock.fn()` (`test/mocks.ts`'s `createSchedulerStub()`)
    * rather than a stub of `emit()` itself, so this proves the full `models/hooks.ts` queuing path
    * actually ran, not just that some function was called.
    */
@@ -285,7 +285,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       user: { id: fixtures.userId },
       permissions: ['manage:system']
     }
-    const addJobCallsBefore = (WIKI.scheduler.addJob as any).mock.calls.length
+    const addJobCallsBefore = (CARDINAL.scheduler.addJob as any).mock.calls.length
 
     const res = await app.inject({
       method: 'DELETE',
@@ -293,7 +293,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     })
     assert.equal(res.statusCode, 204)
 
-    const newCalls = (WIKI.scheduler.addJob as any).mock.calls.slice(addJobCallsBefore)
+    const newCalls = (CARDINAL.scheduler.addJob as any).mock.calls.slice(addJobCallsBefore)
     assert.equal(newCalls.length, 1)
     const queuedPayload = newCalls[0].arguments[0]
     assert.equal(queuedPayload.task, 'dispatchWebhook')
