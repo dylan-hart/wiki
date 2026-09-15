@@ -562,12 +562,22 @@ function resetPreview() {
 /**
  * Runs the actual request. Not called directly outside this file -- `debouncedFetchPreview` below is
  * what the watcher drives, so a burst of keystrokes collapses into one call.
+ *
+ * Branches on `state.searchMode` (OpenProject #3292) the same way `submitSearch()`/`Search.vue`'s
+ * `performSearch()` do: Semantic mode is a separate route, not a parameter on the keyword one (the
+ * keyword route's querystring schema has no semantic/mode field at all), so a semantic preview calls
+ * `.../pages/search/semantic` with just `query`/`limit` -- mirroring `Search.vue`'s
+ * `performSemanticSearch()` -- instead of the keyword endpoint below.
  */
 async function fetchPreview(query) {
   const token = ++previewRequestToken
   state.previewLoading = true
   try {
-    const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
+    const endpoint =
+      state.searchMode === 'semantic'
+        ? `sites/${siteStore.id}/pages/search/semantic`
+        : `sites/${siteStore.id}/pages/search`
+    const resp = await API_CLIENT.get(endpoint, {
       searchParams: { query, limit: PREVIEW_RESULTS_LIMIT }
     }).json()
     // -> A newer request started (or the field was cleared/unmounted) while this one was in flight

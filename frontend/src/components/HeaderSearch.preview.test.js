@@ -5,6 +5,34 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { mountForPreview } from './headerSearchHarness.js'
 
+/**
+ * OpenProject #3292: `fetchPreview()` must branch on the header's own pending Semantic/Keyword
+ * toggle (`state.searchMode`, OpenProject #3138) exactly the way `submitSearch()` already does for
+ * the full `/_search` navigation -- previously it unconditionally hit the keyword endpoint no matter
+ * what the toggle showed.
+ */
+async function mountForSemanticPreview() {
+  const router = await createTestRouter(['/'])
+
+  const { wrapper, siteStore } = mountWithApp(HeaderSearch, {
+    router,
+    stores: {
+      site: (store) => {
+        store.id = 'site1'
+        store.features.search = true
+        store.features.semanticSearch = true
+        store.popularTagsLoaded = true
+        store.popularTags = []
+      }
+    }
+  })
+
+  await wrapper.find('.header-search-input').trigger('focus')
+  await wrapper.find('.header-search-mode-btn').trigger('click')
+
+  return { wrapper, siteStore }
+}
+
 vi.mock('@/helpers/clipboard', () => ({
   copyToClipboard: vi.fn()
 }))
@@ -440,5 +468,87 @@ describe('HeaderSearch preview edge cases', () => {
     //    they still live in the same panel as the results and tags above.
     await panel.find('.searchpanel-operators-toggle').trigger('click')
     expect(panel.findAll('.searchpanel-tip').length).toBeGreaterThan(0)
+  })
+})
+
+describe('HeaderSearch live-preview fetch respects the semantic mode toggle (OpenProject #3292)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('calls the semantic route, not the keyword one, once the toggle is switched to Semantic', async () => {
+    const { wrapper, siteStore } = await mountForSemanticPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'foo' }], totalHits: 1 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.get).toHaveBeenCalledWith(`sites/${siteStore.id}/pages/search/semantic`, {
+      searchParams: { query: 'ab', limit: 5 }
+    })
+    expect(wrapper.vm.state.previewResults).toEqual([{ path: 'foo' }])
+    expect(wrapper.vm.state.previewTotal).toBe(1)
+  })
+
+  it('still calls the keyword route when the toggle is left at its default', async () => {
+    const { wrapper, siteStore } = await mountForPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(`sites/${siteStore.id}/pages/search`, {
+      searchParams: { query: 'ab', limit: 5 }
+    })
+  })
+
+  it('switches back to the keyword route on the next fetch after toggling back to Keyword mode', async () => {
+    const { wrapper, siteStore } = await mountForSemanticPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'semantic-hit' }], totalHits: 1 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(`sites/${siteStore.id}/pages/search/semantic`, {
+      searchParams: { query: 'ab', limit: 5 }
+    })
+
+    // -> Flip the toggle back to Keyword, then type again -- the very next preview fetch must hit
+    //    the keyword endpoint, proving `state.searchMode` is read fresh per-call rather than latched.
+    await wrapper.find('.header-search-mode-btn').trigger('click')
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'keyword-hit' }], totalHits: 1 })
+    })
+    await wrapper.find('.header-search-input').setValue('abc')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(`sites/${siteStore.id}/pages/search`, {
+      searchParams: { query: 'abc', limit: 5 }
+    })
+    expect(wrapper.vm.state.previewResults).toEqual([{ path: 'keyword-hit' }])
+  })
+
+  it('does not send filter/orderBy params on the semantic preview request, only query and limit', async () => {
+    const { wrapper, siteStore } = await mountForSemanticPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    const [, options] = API_CLIENT.get.mock.calls.at(-1)
+    expect(Object.keys(options.searchParams).sort()).toEqual(['limit', 'query'])
+    expect(siteStore.id).toBeTruthy()
   })
 })
