@@ -102,7 +102,7 @@ const props = defineProps({
   }
 })
 
-const { destination, containsCurrent } = useNavSidebarDestination()
+const { destination, containsCurrent, reanchorGraphOnFolder } = useNavSidebarDestination()
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
 const { isActive: pathDisplayActive, humanize } = usePathDisplay()
 const { isOpen, setOpen } = useNavExpansionState()
@@ -265,6 +265,12 @@ function runExpandCycle(item) {
  * bare click isolates and shift+click falls through instead. "Falls through" means this function
  * simply returns without calling `preventDefault()`/`stopPropagation()`, leaving
  * `WExpansionItem.vue`'s own `@click="toggle"` free to run as it would with no listener here at all.
+ *
+ * That same fall-through is also where a plain click re-anchors the graph on this folder while
+ * `/_graph` is open (OpenProject #3353) -- `reanchorGraphOnFolder()` no-ops everywhere else, so this
+ * is safe to call unconditionally rather than threading another route check through this function.
+ * Never called from the ctrl/shift branches above: the requested behavior is specifically a PLAIN
+ * click re-anchoring, and expand-cycle/isolate keep their existing behavior unchanged.
  */
 function handleHeaderClick(event, item) {
   if (!ownsClickedHeader(event)) {
@@ -277,12 +283,13 @@ function handleHeaderClick(event, item) {
     return
   }
   const shouldIsolate = isolateOnLeftClick() ? !event.shiftKey : event.shiftKey
-  if (!shouldIsolate) {
+  if (shouldIsolate) {
+    event.preventDefault()
+    event.stopPropagation()
+    runIsolateClick(item)
     return
   }
-  event.preventDefault()
-  event.stopPropagation()
-  runIsolateClick(item)
+  reanchorGraphOnFolder(item)
 }
 
 // COMPUTED

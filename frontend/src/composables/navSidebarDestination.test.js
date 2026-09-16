@@ -206,6 +206,73 @@ describe('useNavSidebarDestination#destination -- graph sidebar branch (OpenProj
 })
 
 /**
+ * OpenProject #3353: `reanchorGraphOnFolder()` is the folder-click counterpart to
+ * `graphSidebarBranch()` above -- called directly by `NavSidebarItem.vue`'s header click dispatch
+ * (a populated folder's header never goes through `destination()`), so it acts via `router.replace`
+ * rather than returning a `{ clickable, onClick }` pair.
+ */
+describe('useNavSidebarDestination#reanchorGraphOnFolder (OpenProject #3353)', () => {
+  it('does nothing outside /_graph', async () => {
+    const { reanchorGraphOnFolder, router } = await mountDestination('/some/page')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    reanchorGraphOnFolder({ path: 'docs' })
+    expect(replaceSpy).not.toHaveBeenCalled()
+  })
+
+  it('does nothing for an item with no path', async () => {
+    const { reanchorGraphOnFolder, router } = await mountDestination('/_graph?path=docs/setup')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    reanchorGraphOnFolder({})
+    expect(replaceSpy).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the folder is already the active graph anchor', async () => {
+    const { reanchorGraphOnFolder, router } = await mountDestination('/_graph?path=docs')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    reanchorGraphOnFolder({ path: 'docs' })
+    expect(replaceSpy).not.toHaveBeenCalled()
+  })
+
+  it('replaces the route with the folder path as the new anchor while /_graph is open', async () => {
+    const { reanchorGraphOnFolder, router } = await mountDestination('/_graph?path=docs/setup')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    const pushSpy = vi.spyOn(router, 'push')
+    reanchorGraphOnFolder({ path: 'other-folder' })
+    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'other-folder' } })
+    expect(pushSpy).not.toHaveBeenCalled()
+  })
+
+  it('replaces even from bare /_graph with no active anchor at all', async () => {
+    const { reanchorGraphOnFolder, router } = await mountDestination('/_graph')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    reanchorGraphOnFolder({ path: 'docs' })
+    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'docs' } })
+  })
+})
+
+/**
+ * OpenProject #3353: confirms the WP's third requirement is already met by the existing
+ * `graphSidebarBranch()` -- an empty folder carries `item.path` but no `target`/`children`, renders
+ * through `NavSidebarItem.vue`'s leaf branch, and `destination()` does not distinguish a folder's
+ * `path` from a page's, so it already anchors-only (never navigates like a page) once `/_graph` is
+ * open. No production code change was needed for this case; this is a regression test.
+ */
+describe('useNavSidebarDestination#destination -- empty folder anchors instead of navigating inside /_graph (OpenProject #3353)', () => {
+  it('branches to a clickable anchor, not a `to`, for an empty folder while /_graph is open', async () => {
+    const { destination } = await mountDestination('/_graph?path=docs/setup')
+    const result = destination({ path: 'empty-folder' })
+    expect(result.to).toBeUndefined()
+    expect(result.clickable).toBe(true)
+    expect(typeof result.onClick).toBe('function')
+  })
+
+  it('still navigates like a page for an empty folder outside /_graph, unchanged', async () => {
+    const { destination } = await mountDestination('/some/page')
+    expect(destination({ path: 'empty-folder' })).toEqual({ to: '/empty-folder' })
+  })
+})
+
+/**
  * OpenProject #2848/#3062: `folderIds`/`ancestorIds` are the plain, store-free tree-walk helpers
  * shift+click isolate builds on -- deliberately outside `useNavSidebarDestination()` since they
  * take an already-in-hand tree (`siteStore.nav.items`) rather than resolving anything through the
