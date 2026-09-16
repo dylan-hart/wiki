@@ -96,7 +96,7 @@ export function startSimulation(
   nodes,
   edges,
   { width, height },
-  { groupKeyFor, collideRadiusFor, radiusFor, onTick }
+  { groupKeyFor, collideRadiusFor, radiusFor, onTick, clusterLevels = [1] }
 ) {
   return forceSimulation(nodes)
     .force(
@@ -118,7 +118,7 @@ export function startSimulation(
     )
     .force('collide', forceCollide(collideRadiusFor))
     .force('center', forceCenter(width / 2, height / 2))
-    .force('cluster', clusterForce(groupKeyFor, 0.05))
+    .force('cluster', clusterForce(groupKeyFor, 0.05, clusterLevels))
     .force('parentFan', parentFanForce(0.05))
     .on('tick', onTick)
 }
@@ -145,40 +145,59 @@ export function startSimulation(
 */
 const CLUSTER_PADDING = 24
 
-/** Populates `clusters.value` -- one circle entry per visible group. Every group draws a circle,
- *  never a convex-hull polygon (OpenProject #2836): a hull fits a spread-out or elongated group
- *  tighter, but drawing every group's own best-fit shape read as visually inconsistent across a
- *  graph with many differently-shaped groups, so this trades that tighter fit for a uniform look.
- *  Sized off each node's edge (its centre plus its own `radiusFor()`), not just its centre
- *  (OpenProject #2296) -- `collideRadiusFor()` above already adds `radiusFor(node)` to a constant
- *  the same way, and is the pattern this mirrors. */
-export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }) {
-  const byGroup = new Map()
-  for (const node of nodes) {
-    if (node.x === undefined || node.synthetic) {
-      continue
-    }
-    const key = groupKeyFor(node)
-    const list = byGroup.get(key) ?? []
-    list.push(node)
-    byGroup.set(key, list)
-  }
-
+/** Populates `clusters.value` -- one circle entry per visible group, per requested nesting level.
+ *  Every group draws a circle, never a convex-hull polygon (OpenProject #2836): a hull fits a
+ *  spread-out or elongated group tighter, but drawing every group's own best-fit shape read as
+ *  visually inconsistent across a graph with many differently-shaped groups, so this trades that
+ *  tighter fit for a uniform look. Sized off each node's edge (its centre plus its own
+ *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
+ *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors.
+ *
+ *  `levels` (OpenProject #3339, folder-mode nested grouping circles) defaults to `[1]` -- today's
+ *  single-level behavior, unchanged for any caller that doesn't ask for more. `Graph.vue` passes
+ *  `[1, 2, 3]` so folder mode also gets level-2/3 composite-key clusters; `groupKeyFor(node, level)`
+ *  is what decides those are only ever produced in folder mode (returning `null`/`undefined`
+ *  otherwise, or when a node isn't nested deep enough for that level -- excluded from bucketing
+ *  the same way a `null`/`undefined` key from any grouping mode always was). Each level is its own
+ *  independent `Map`-bucketing pass (one pass per level, never a re-filter per group), so the
+ *  overall cost stays linear in the number of nodes times the number of levels requested -- see the
+ *  parent Feature's complexity analysis. `level` is stamped onto every entry so a consumer (the
+ *  sibling draw-order Task) can sort/select by it explicitly rather than trust `Map`/array order.
+ *  `color` is resolved via `colorForGroup()` for level 1 only -- the categorical palette is an
+ *  outermost-level-only concept (Feature #3338's scope); a level-2/3 entry's `color` is left `null`
+ *  for the draw layer's own shared-neutral-fill decision to fill in. */
+export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor, levels = [1] }) {
   const result = []
-  for (const [key, groupNodes] of byGroup) {
-    const color = colorForGroup(key)
-    const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
-    const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-    // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
-    //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
-    //    come close to that in practice). Sized off each node's edge (its centre plus its own
-    //    `radiusFor()`), not just its centre (OpenProject #2296) -- see the `computeClusters()` doc
-    //    comment above.
-    const maxDist = groupNodes.reduce(
-      (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
-      0
-    )
-    result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + CLUSTER_PADDING } })
+  for (const level of levels) {
+    const byGroup = new Map()
+    for (const node of nodes) {
+      if (node.x === undefined || node.synthetic) {
+        continue
+      }
+      const key = groupKeyFor(node, level)
+      if (key === null || key === undefined) {
+        continue
+      }
+      const list = byGroup.get(key) ?? []
+      list.push(node)
+      byGroup.set(key, list)
+    }
+
+    for (const [key, groupNodes] of byGroup) {
+      const color = level === 1 ? colorForGroup(key) : null
+      const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
+      const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
+      // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's
+      //    ~100-125k argument limit at large group sizes (OpenProject #1837, a latent hazard only;
+      //    no group has come close to that in practice). Sized off each node's edge (its centre
+      //    plus its own `radiusFor()`), not just its centre (OpenProject #2296) -- see the
+      //    `computeClusters()` doc comment above.
+      const maxDist = groupNodes.reduce(
+        (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
+        0
+      )
+      result.push({ key, level, color, circle: { x: cx, y: cy, r: maxDist + CLUSTER_PADDING } })
+    }
   }
   return result
 }
