@@ -77,7 +77,11 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
       pageLocale: 'fr'
     })
 
-    const en = wrapper.vm.nodes.find(
+    // -> Read off `allNodes` (the full fetched graph), not `nodes` (OpenProject #3333's own
+    //    anchor-restricted rendered subset) -- the `en` copy is now excluded from `nodes` entirely
+    //    once anchored to the `fr` copy (see `Graph.anchor.test.js`), so it has to be looked up from
+    //    the unrestricted source to assert it was never pinned.
+    const en = wrapper.vm.allNodes.find(
       (node) => node.path === 'guides/onboarding' && node.locale === 'en'
     )
     const fr = wrapper.vm.nodes.find(
@@ -105,15 +109,19 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     }
   })
 
-  it('does not narrow the visible node/edge set -- only changes the centering/highlight target', async () => {
+  it('narrows the visible node set to the anchor plus its descendants (OpenProject #3333)', async () => {
     const wrapper = await mountGraph({
       graph: MULTI_LOCALE_GRAPH,
       initialPath: '/_graph?path=reference/api',
       pageLocale: 'en'
     })
 
-    // -> Every node from the fixture graph is still present -- the focus param highlights, it does
-    //    not filter (same scope note `computeHighlightedNodeIds`'s own doc comment makes).
-    expect(wrapper.vm.nodes.filter((node) => !node.synthetic)).toHaveLength(3)
+    // -> `reference/api` (en) has no descendants in this fixture, so anchoring to it leaves only
+    //    itself -- the other two nodes (a different path entirely, and the same path in a different
+    //    locale) are both outside its subtree. See `Graph.anchor.test.js` for the full restriction
+    //    behavior; this suite only re-asserts that the ?path= mechanism this file covers now feeds
+    //    that restriction, since prior to OpenProject #3333 it deliberately never narrowed anything.
+    const realPaths = wrapper.vm.nodes.filter((node) => !node.synthetic).map((node) => node.path)
+    expect(realPaths).toEqual(['reference/api'])
   })
 })

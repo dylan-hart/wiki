@@ -446,6 +446,16 @@ const keywordMatches = shallowRef([])
  *  plain `ref` (not `shallowRef`): it only ever holds a primitive string or `null`, never an object. */
 const focusNodeId = ref(null)
 
+/** The `{ path, locale }` of the currently-anchored node (OpenProject #3333, Task #3312's own
+ *  follow-up scope correction), or `null` when no anchor is active -- set alongside `focusNodeId`
+ *  by `applyRouteFocus()`, and read by `applyFilters()` as `computeVisibleSubset()`'s fourth
+ *  argument to restrict the rendered set to the anchor plus its descendants (see that function's
+ *  own doc comment in `graphFilters.js`). A plain object of primitives, not the node itself: the
+ *  node is a `markRaw()`'d, non-reactive entry of `allNodes.value` that `startSimulation()` mutates
+ *  every tick, and this needs to be a reactive value the `watch(focusNodeId, ...)` below can key
+ *  off safely without pulling that mutation churn into Vue's reactivity system. */
+const routeFocusAnchor = ref(null)
+
 /** OpenProject #2533: a second, thin, purely CLIENT-SIDE highlight pass alongside the backend
  *  full-text search above -- a case-insensitive substring check of `keywordQuery` against every
  *  currently-loaded node's `title` (`allNodes`, already in memory, no extra request). The backend's
@@ -1184,7 +1194,14 @@ function attachZoom() {
  *  center rather than the node's own current position, and never released (unlike the hover pin,
  *  which clears on hover-end). Highlighting folds the node's composite id into `focusNodeId`, which
  *  `highlightedNodeIds` above unions in alongside a keyword match, so it draws with the identical
- *  highlight ring `graphDraw.js` already renders -- no draw-layer change needed. */
+ *  highlight ring `graphDraw.js` already renders -- no draw-layer change needed.
+ *
+ *  Also sets `routeFocusAnchor` (OpenProject #3333) to the resolved node's `{ path, locale }` --
+ *  read by `applyFilters()` to restrict the rendered set to the anchor plus its descendants. A
+ *  no-match leaves `routeFocusAnchor` untouched rather than clearing it to `null`, same as
+ *  `focusNodeId`'s own silent no-op above; today (mount-only call) that distinction has no
+ *  observable effect, but it keeps this function's two outputs consistent with each other rather
+ *  than one silently resetting while the other doesn't. */
 function applyRouteFocus() {
   const rawPath = route.query.path
   const path = Array.isArray(rawPath) ? rawPath[0] : rawPath
@@ -1193,6 +1210,7 @@ function applyRouteFocus() {
     return
   }
   focusNodeId.value = nodeId(focusNode)
+  routeFocusAnchor.value = { path: focusNode.path, locale: focusNode.locale }
   const { width, height } = containerRef.value.getBoundingClientRect()
   focusNode.fx = width / 2
   focusNode.fy = height / 2
@@ -1378,9 +1396,20 @@ async function initializeGraphPrefs() {
  *  `link` edges (`computeVisibleSubset`'s `visibleEdges`) are deliberately not used here; see
  *  OpenProject #997. Called on initial load and by the `activeFilters` watcher below. Does not
  *  touch the live simulation itself; that's `syncSimulationToVisibleSet`'s job, since the initial
- *  call here runs before `startSimulation()` has created one. */
+ *  call here runs before `startSimulation()` has created one.
+ *
+ *  Passes `routeFocusAnchor` as `computeVisibleSubset()`'s fourth argument (OpenProject #3333):
+ *  while a non-root anchor is active, this additionally restricts the rendered set to the anchor
+ *  plus its descendants, and reinterprets `activeFilters.folderDepth` as hops-from-the-anchor
+ *  rather than path-segments-from-root -- see that function's own doc comment in `graphFilters.js`
+ *  for the full behavior, including why a root anchor computes identically to no anchor at all. */
 function applyFilters() {
-  const { visibleNodes } = computeVisibleSubset(allNodes.value, allEdges.value, activeFilters)
+  const { visibleNodes } = computeVisibleSubset(
+    allNodes.value,
+    allEdges.value,
+    activeFilters,
+    routeFocusAnchor.value
+  )
   const { syntheticNodes, edges: syntheticEdges } = buildPathHierarchyEdges(
     visibleNodes,
     syntheticNodeCache
@@ -1538,6 +1567,19 @@ watch(
   },
   { deep: true }
 )
+
+/** OpenProject #3333 (Feature #3311's own follow-up scope correction, this round's epic-plan note
+ *  #9742): re-runs the same anchor-plus-descendants restriction `activeFilters`'s own watcher above
+ *  runs for a filter change, but keyed off `focusNodeId` instead -- today that only ever changes
+ *  once, from `loadGraph()`'s own mount-time `applyRouteFocus()` call, but nothing else in this
+ *  round's Group A work (#3334's live sidebar-click re-homing) can make the anchor restriction
+ *  react to a later navigation without this watcher existing to catch the resulting `focusNodeId`
+ *  change. Deliberately NOT `{ deep: true }`: `focusNodeId` is a plain string/`null` ref, matching
+ *  its own doc comment above. */
+watch(focusNodeId, () => {
+  applyFilters()
+  syncSimulationToVisibleSet()
+})
 
 /** OpenProject #2480, extended by #2533: a keyword match -- from EITHER the backend full-text
  *  search or the client-side title-contains pass -- changes only which ALREADY-visible nodes draw
