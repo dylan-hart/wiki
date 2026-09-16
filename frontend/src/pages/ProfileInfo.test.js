@@ -713,6 +713,28 @@ describe('ProfileInfo text field blur/Enter save, Esc revert (OpenProject #3321)
     expect(globalThis.API_CLIENT.put).not.toHaveBeenCalled()
   })
 
+  it('stops the Escape keydown from bubbling to document, so it does not also close the dialog (OpenProject #3351)', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+    globalThis.API_CLIENT.put.mockReturnValue({ json: () => Promise.resolve({ ok: true }) })
+
+    const documentKeydown = vi.fn()
+    document.addEventListener('keydown', documentKeydown)
+    try {
+      const input = wrapper.find('input[aria-label="First Name"]')
+      input.element.focus()
+      await input.setValue('Janet')
+
+      input.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+
+      expect(input.element.value).toBe('Jane')
+      expect(documentKeydown).not.toHaveBeenCalled()
+    } finally {
+      document.removeEventListener('keydown', documentKeydown)
+    }
+  })
+
   it('reverts to the newest saved value, not the originally-loaded one, once a save has landed', async () => {
     const wrapper = mountProfile(FULL_PROFILE)
     await flushPromises()
