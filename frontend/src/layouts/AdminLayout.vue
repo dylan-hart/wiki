@@ -102,6 +102,14 @@
                 target="_blank" />
             </w-item-section>
           </w-item>
+          <!--
+            8 purpose-based groups (Feature #3330), replacing the old flat Site/Users/System scheme.
+            Overview carries no wrapping `v-if` -- Dashboard and Contribute are always reachable once
+            `access:admin` itself has been granted (checked by the route watcher below), same as before.
+          -->
+          <w-item-label class="admin-nav-section" header>{{
+            t('admin.nav.overview')
+          }}</w-item-label>
           <w-item to="/_admin/dashboard" active-class="admin-nav-active">
             <w-item-section avatar>
               <w-icon name="tabler:layout-dashboard" />
@@ -123,8 +131,80 @@
                 :class="countBadgeClass(adminStore.sites.length)" />
             </w-item-section>
           </w-item>
-          <template v-if="siteSectionShown">
-            <w-item-label class="admin-nav-section" header>{{ t('admin.nav.site') }}</w-item-label>
+          <!--
+            Content: Pages and Recovery/Deleted Pages keep the exact `siteSectionShown` condition they
+            were implicitly gated by before (as the two items in the old Site group with no `v-if` of
+            their own); Classification keeps the exact `manage:system` condition it was implicitly
+            gated by as a System item. Glossary/Comments/Approvals keep their own pre-existing `v-if`
+            verbatim -- see the implementation-plan comment on this work package for why the old
+            `siteSectionShown && ownV-if` compound isn't reproduced for them: each already carries its
+            own explicit, backend-mirroring gate, and the `siteSectionShown` AND was an artifact of the
+            old single-Site-group structure, not a deliberate second security layer.
+          -->
+          <template v-if="contentSectionShown">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.content')
+            }}</w-item-label>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/pages`"
+              active-class="admin-nav-active"
+              v-if="siteSectionShown">
+              <w-item-section avatar>
+                <w-icon name="tabler:folder" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.pages.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
+              active-class="admin-nav-active"
+              v-if="siteSectionShown">
+              <w-item-section avatar>
+                <w-icon name="tabler:trash" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.pages.deletedTitle') }}</w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/glossary`"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:glossary`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:list-search" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.glossary.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/comments`"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:sites`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:message" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.comments.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/approvals`"
+              active-class="admin-nav-active"
+              v-if="maySeeApprovals">
+              <w-item-section avatar>
+                <w-icon name="tabler:checkbox" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.approval.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              to="/_admin/classification"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:stack-2" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
+            </w-item>
+          </template>
+          <!-- Site Configuration: unchanged -- every member already carried its own maySee* gate. -->
+          <template v-if="siteConfigurationShown">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.siteConfiguration')
+            }}</w-item-label>
             <w-item class="mb-2">
               <w-item-section>
                 <w-select
@@ -139,7 +219,7 @@
                   option-label="title"
                   emit-value
                   map-options
-                  :aria-label="t('admin.nav.site')" />
+                  :aria-label="t('admin.nav.siteConfiguration')" />
               </w-item-section>
             </w-item>
             <w-item
@@ -152,58 +232,22 @@
               <w-item-section>{{ t('admin.general.title') }}</w-item-section>
             </w-item>
             <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/approvals`"
+              :to="`/_admin/` + adminStore.currentSiteId + `/theme`"
               active-class="admin-nav-active"
-              v-if="maySeeApprovals">
+              v-if="maySeeTheme">
               <w-item-section avatar>
-                <w-icon name="tabler:checkbox" />
+                <w-icon name="tabler:layout-navbar" />
               </w-item-section>
-              <w-item-section>{{ t('admin.approval.title') }}</w-item-section>
+              <w-item-section>{{ t('admin.theme.title') }}</w-item-section>
             </w-item>
             <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/analytics`"
+              :to="`/_admin/` + adminStore.currentSiteId + `/navigation`"
               active-class="admin-nav-active"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="maySeeNavigation">
               <w-item-section avatar>
-                <w-icon name="tabler:chart-line" />
+                <w-icon name="tabler:sitemap" />
               </w-item-section>
-              <w-item-section>{{ t('admin.analytics.title') }}</w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/comments`"
-              active-class="admin-nav-active"
-              v-if="userStore.can(`manage:sites`)">
-              <w-item-section avatar>
-                <w-icon name="tabler:message" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.comments.title') }}</w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/blocks`"
-              active-class="admin-nav-active"
-              v-if="maySeeBlocks">
-              <w-item-section avatar>
-                <w-icon name="tabler:components" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.blocks.title') }}</w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/editors`"
-              active-class="admin-nav-active"
-              v-if="maySeeEditors">
-              <w-item-section avatar>
-                <w-icon name="tabler:writing" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.editors.title') }}</w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/glossary`"
-              active-class="admin-nav-active"
-              v-if="userStore.can(`manage:glossary`)">
-              <w-item-section avatar>
-                <w-icon name="tabler:list-search" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.glossary.title') }}</w-item-section>
+              <w-item-section>{{ t('admin.navigation.title') }}</w-item-section>
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/locale`"
@@ -224,31 +268,6 @@
               <w-item-section>{{ t('admin.login.title') }}</w-item-section>
             </w-item>
             <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/navigation`"
-              active-class="admin-nav-active"
-              v-if="maySeeNavigation">
-              <w-item-section avatar>
-                <w-icon name="tabler:sitemap" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.navigation.title') }}</w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/pages`"
-              active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:folder" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.pages.title') }}</w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
-              active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:trash" />
-              </w-item-section>
-              <w-item-section>{{ t('history.recovery.title') }}</w-item-section>
-            </w-item>
-            <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/storage`"
               active-class="admin-nav-active"
               v-if="maySeeStorage">
@@ -257,18 +276,61 @@
               </w-item-section>
               <w-item-section>{{ t('admin.storage.title') }}</w-item-section>
             </w-item>
+          </template>
+          <!--
+            Editing Tools: Editors/Blocks keep their own maySee* gate; Search Engine/Icons keep the
+            exact `manage:system` condition they were implicitly gated by as System items.
+          -->
+          <template v-if="editingToolsShown">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.editingTools')
+            }}</w-item-label>
             <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/theme`"
+              :to="`/_admin/` + adminStore.currentSiteId + `/editors`"
               active-class="admin-nav-active"
-              v-if="maySeeTheme">
+              v-if="maySeeEditors">
               <w-item-section avatar>
-                <w-icon name="tabler:layout-navbar" />
+                <w-icon name="tabler:writing" />
               </w-item-section>
-              <w-item-section>{{ t('admin.theme.title') }}</w-item-section>
+              <w-item-section>{{ t('admin.editors.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/blocks`"
+              active-class="admin-nav-active"
+              v-if="maySeeBlocks">
+              <w-item-section avatar>
+                <w-icon name="tabler:components" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.blocks.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              to="/_admin/search"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:list-search" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.search.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              to="/_admin/icons"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:star" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
             </w-item>
           </template>
-          <template v-if="usersSectionShown">
-            <w-item-label class="admin-nav-section" header>{{ t('admin.nav.users') }}</w-item-label>
+          <!--
+            Users & Access: Authentication keeps its own pre-existing `manage:system` v-if;
+            Groups/Users keep their own gate; Audit Log keeps the exact `manage:system` condition it
+            was implicitly gated by as a System item.
+          -->
+          <template v-if="usersAccessShown">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.usersAccess')
+            }}</w-item-label>
             <w-item
               to="/_admin/auth"
               active-class="admin-nav-active"
@@ -302,71 +364,32 @@
                   :class="countBadgeClass(adminStore.info.usersTotal)" />
               </w-item-section>
             </w-item>
-          </template>
-          <template v-if="userStore.can(`manage:system`)">
-            <w-item-label class="admin-nav-section" header>{{
-              t('admin.nav.system')
-            }}</w-item-label>
-            <w-item to="/_admin/api" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:api" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.api.title') }}</w-item-section>
-              <w-item-section side>
-                <status-light :color="adminStore.info.isApiEnabled ? `positive` : `negative`" />
-              </w-item-section>
-            </w-item>
-            <w-item to="/_admin/audit" active-class="admin-nav-active">
+            <w-item
+              to="/_admin/audit"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
               <w-item-section avatar>
                 <w-icon name="tabler:file-description" />
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/classification" active-class="admin-nav-active">
+          </template>
+          <!--
+            Monitoring & Health: every member came from the old System group with no gate of its own
+            beyond `manage:system`, and none of them move anywhere else -- one group-level `v-if`
+            reproduces the old effective visibility exactly, same as Security & Advanced below.
+          -->
+          <template v-if="userStore.can(`manage:system`)">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.monitoringHealth')
+            }}</w-item-label>
+            <w-item to="/_admin/system" active-class="admin-nav-active">
               <w-item-section avatar>
-                <w-icon name="tabler:stack-2" />
+                <w-icon name="tabler:cpu" />
               </w-item-section>
-              <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/extensions" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:puzzle" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.extensions.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/icons" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:star" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/cluster" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:binary-tree" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.cluster.title') }}</w-item-section>
+              <w-item-section>{{ t('admin.system.title') }}</w-item-section>
               <w-item-section side>
-                <w-badge
-                  color="dark-3"
-                  :label="adminStore.info.clusterTotal"
-                  :class="countBadgeClass(adminStore.info.clusterTotal)" />
-              </w-item-section>
-            </w-item>
-            <w-item to="/_admin/livelog" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:terminal-2" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.liveLog.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/mail" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:mail" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.mail.title') }}</w-item-section>
-              <w-item-section side>
-                <status-light
-                  :color="adminStore.info.isMailConfigured ? `positive` : `warning`"
-                  :pulse="!adminStore.info.isMailConfigured" />
+                <status-light :color="adminStore.isVersionLatest ? `positive` : `warning`" />
               </w-item-section>
             </w-item>
             <w-item to="/_admin/metrics" active-class="admin-nav-active">
@@ -386,6 +409,24 @@
               <w-item-section side>
                 <status-light
                   :color="adminStore.info.isPageviewsEnabled ? `positive` : `negative`" />
+              </w-item-section>
+            </w-item>
+            <w-item to="/_admin/livelog" active-class="admin-nav-active">
+              <w-item-section avatar>
+                <w-icon name="tabler:terminal-2" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.liveLog.title') }}</w-item-section>
+            </w-item>
+            <w-item to="/_admin/cluster" active-class="admin-nav-active">
+              <w-item-section avatar>
+                <w-icon name="tabler:binary-tree" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.cluster.title') }}</w-item-section>
+              <w-item-section side>
+                <w-badge
+                  color="dark-3"
+                  :label="adminStore.info.clusterTotal"
+                  :class="countBadgeClass(adminStore.info.clusterTotal)" />
               </w-item-section>
             </w-item>
             <w-item to="/_admin/replication" active-class="admin-nav-active">
@@ -409,34 +450,32 @@
                   :pulse="!adminStore.info.isSchedulerHealthy" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/search" active-class="admin-nav-active">
+          </template>
+          <!--
+            Integrations & Automation: API Access/Webhooks/Extensions/Mail keep the exact
+            `manage:system` condition they were implicitly gated by as System items; Analytics keeps
+            its own pre-existing `manage:sites` v-if verbatim.
+          -->
+          <template v-if="integrationsAutomationShown">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.integrationsAutomation')
+            }}</w-item-label>
+            <w-item
+              to="/_admin/api"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
               <w-item-section avatar>
-                <w-icon name="tabler:list-search" />
+                <w-icon name="tabler:api" />
               </w-item-section>
-              <w-item-section>{{ t('admin.search.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/security" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:shield" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.security.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/system" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:cpu" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.system.title') }}</w-item-section>
+              <w-item-section>{{ t('admin.api.title') }}</w-item-section>
               <w-item-section side>
-                <status-light :color="adminStore.isVersionLatest ? `positive` : `warning`" />
+                <status-light :color="adminStore.info.isApiEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item to="/_admin/utilities" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:tool" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.utilities.title') }}</w-item-section>
-            </w-item>
-            <w-item to="/_admin/webhooks" active-class="admin-nav-active">
+            <w-item
+              to="/_admin/webhooks"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
               <w-item-section avatar>
                 <w-icon name="tabler:bolt" />
               </w-item-section>
@@ -448,11 +487,65 @@
                   :class="countBadgeClass(adminStore.info.webhooksTotal)" />
               </w-item-section>
             </w-item>
+            <w-item
+              to="/_admin/extensions"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:puzzle" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.extensions.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              to="/_admin/mail"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:mail" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.mail.title') }}</w-item-section>
+              <w-item-section side>
+                <status-light
+                  :color="adminStore.info.isMailConfigured ? `positive` : `warning`"
+                  :pulse="!adminStore.info.isMailConfigured" />
+              </w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/analytics`"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:sites`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:chart-line" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.analytics.title') }}</w-item-section>
+            </w-item>
+          </template>
+          <!--
+            Security & Advanced: every member came from the old System group with no gate of its own
+            beyond `manage:system`, and none of them move anywhere else -- see the Monitoring & Health
+            comment above.
+          -->
+          <template v-if="userStore.can(`manage:system`)">
+            <w-item-label class="admin-nav-section" header>{{
+              t('admin.nav.securityAdvanced')
+            }}</w-item-label>
+            <w-item to="/_admin/security" active-class="admin-nav-active">
+              <w-item-section avatar>
+                <w-icon name="tabler:shield" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.security.title') }}</w-item-section>
+            </w-item>
             <w-item to="/_admin/flags" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="tabler:flag" />
               </w-item-section>
               <w-item-section>{{ t('admin.dev.flags.title') }}</w-item-section>
+            </w-item>
+            <w-item to="/_admin/utilities" active-class="admin-nav-active">
+              <w-item-section avatar>
+                <w-icon name="tabler:tool" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.utilities.title') }}</w-item-section>
             </w-item>
           </template>
         </w-list>
@@ -665,9 +758,11 @@ const maySeeTheme = computed(() =>
 )
 
 /*
-  Shown once ANY site-scoped surface is reachable, global or delegated -- a delegated administrator
-  holding only `site:general` on the current site has none of the three group-wide permissions this
-  used to check alone, and would otherwise never see the site picker at all.
+  Preserved unchanged from the old single "Site" group's own wrapper condition (shown once ANY
+  site-scoped surface is reachable, global or delegated) -- Pages and Recovery/Deleted Pages carried
+  no `v-if` of their own before Feature #3330's 8-group regroup and were gated purely by this, so
+  attaching it to them directly (see the Content group in the template) keeps their effective
+  visibility identical now that they sit alongside Content items gated by unrelated permissions.
 */
 const siteSectionShown = computed(() => {
   return (
@@ -682,6 +777,45 @@ const siteSectionShown = computed(() => {
     maySeeTheme.value
   )
 })
+
+/*
+  Content group header: shown once any of its six members would render -- Pages/Recovery via
+  `siteSectionShown` above, Glossary/Comments/Classification via their own gate, Approvals via
+  `maySeeApprovals` (already folded into `siteSectionShown`, listed again for clarity).
+*/
+const contentSectionShown = computed(() => {
+  return (
+    siteSectionShown.value ||
+    userStore.can('manage:glossary') ||
+    userStore.can('manage:sites') ||
+    userStore.can('manage:system')
+  )
+})
+
+/*
+  Site Configuration group header: shown once any of its six members -- General, Theme, Navigation,
+  Locale, Login, Storage -- would render.
+*/
+const siteConfigurationShown = computed(() => {
+  return (
+    maySeeGeneral.value ||
+    maySeeTheme.value ||
+    maySeeNavigation.value ||
+    maySeeLocale.value ||
+    maySeeLogin.value ||
+    maySeeStorage.value
+  )
+})
+
+/*
+  Editing Tools group header: shown once any of its four members would render -- Editors/Blocks via
+  their own gate, Search Engine/Icons via the `manage:system` condition they carry over unchanged
+  from the old System group.
+*/
+const editingToolsShown = computed(() => {
+  return maySeeEditors.value || maySeeBlocks.value || userStore.can('manage:system')
+})
+
 /*
   `read:*` grants the list and detail routes without the write ones (see `api/users/admin.ts` /
   `api/groups.ts`), so the nav entry has to open for it too -- otherwise the permission grants access
@@ -693,9 +827,24 @@ const groupsAreVisible = computed(() => {
 const usersAreVisible = computed(() => {
   return userStore.can('read:users') || userStore.can('manage:users')
 })
-const usersSectionShown = computed(() => {
-  return groupsAreVisible.value || usersAreVisible.value
+/*
+  Users & Access group header: shown once any of its four members would render -- Groups/Users via
+  their own gate, Authentication/Audit Log via the `manage:system` condition they carry over
+  unchanged from the old System group (Authentication already had it explicitly; Audit Log did not).
+*/
+const usersAccessShown = computed(() => {
+  return groupsAreVisible.value || usersAreVisible.value || userStore.can('manage:system')
 })
+
+/*
+  Integrations & Automation group header: shown once any of its five members would render -- API
+  Access/Webhooks/Extensions/Mail via the `manage:system` condition they carry over unchanged from
+  the old System group, Analytics via its own pre-existing `manage:sites` gate.
+*/
+const integrationsAutomationShown = computed(() => {
+  return userStore.can('manage:system') || userStore.can('manage:sites')
+})
+
 const overlayIsShown = computed(() => {
   return Boolean(adminStore.overlay)
 })
