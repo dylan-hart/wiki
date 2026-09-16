@@ -1156,11 +1156,13 @@ function attachZoom() {
   zoomTransform.value = zoomIdentity
 }
 
-/** Centers and highlights the page the reader arrived from, addressed by the `path` query param on
- *  `/_graph` (OpenProject #3312, Feature #3311) -- e.g. the header's Graph button, or a
- *  bookmarked/shared link. Called once, from `loadGraph()`'s initial fetch only (mount-only, same
- *  "read once" framing `loadGraph()`'s own `activeFilters.folderDepth` default already uses just
- *  above its call site below) -- a later filter or keyword change must not re-home the focus.
+/** Centers and highlights the anchor the reader arrived from, addressed by the `path` query param on
+ *  `/_graph` (OpenProject #3312, Feature #3311; folder/root anchoring OpenProject #3337) -- e.g. the
+ *  header's Graph button (which sends the current page's nearest containing folder, root for a
+ *  top-level page -- `HeaderNav.vue#onGraphNavClick()`), or a bookmarked/shared link. Called once,
+ *  from `loadGraph()`'s initial fetch only (mount-only, same "read once" framing `loadGraph()`'s own
+ *  `activeFilters.folderDepth` default already uses just above its call site below) -- a later filter
+ *  or keyword change must not re-home the focus.
  *
  *  Locale resolution rule: `route.query.path` is a bare, un-prefixed path -- the same raw form nav
  *  tree items carry (`item.path`, per sibling WP #3313's `composables/navSidebarDestination.js`) --
@@ -1174,9 +1176,16 @@ function attachZoom() {
  *  consistent with #3313's nav-tree-sourced `path`. A guest who lands on `/_graph` with no page ever
  *  loaded this session reads `pageStore`'s own default (`'en'`).
  *
- *  No match -- a missing/blank param, a stale path, or one in the wrong locale -- is a silent no-op:
- *  no pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
+ *  No match -- a missing param, a stale path, or one in the wrong locale -- is a silent no-op: no
+ *  pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
  *  query param) takes the first entry, same convention a `<w-select>`-less bare query reader would.
+ *  Resolves against `nodes.value`, not `allNodes.value`: `applyFilters()` (called just above, in
+ *  `loadGraph()`) has already built this load's synthetic folder/root nodes into `nodes.value`, and
+ *  `resolveFocusNode`'s `includeSynthetic: true` here is what lets a folder/root anchor (`path: ''`
+ *  for the root, per `pageStore.folderPath`'s own doc comment) resolve at all -- the default
+ *  page-only match excludes them. `nodes.value`'s real-node entries are the same object references
+ *  `allNodes.value` holds (`applyFilters()` filters, never clones), so this is a strict superset for
+ *  matching purposes and still pins the exact object the simulation below runs on.
  *
  *  Centering reuses the hover pin's own `fx`/`fy` mechanic (`onCanvasMouseMove` below): the resolved
  *  node is pinned to the exact `(width/2, height/2)` point `startSimulation()`'s own `forceCenter`
@@ -1188,7 +1197,9 @@ function attachZoom() {
 function applyRouteFocus() {
   const rawPath = route.query.path
   const path = Array.isArray(rawPath) ? rawPath[0] : rawPath
-  const focusNode = resolveFocusNode(allNodes.value, path, pageStore.locale)
+  const focusNode = resolveFocusNode(nodes.value, path, pageStore.locale, {
+    includeSynthetic: true
+  })
   if (!focusNode) {
     return
   }

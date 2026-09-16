@@ -339,7 +339,7 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     expect(button.element.tagName).toBe('BUTTON')
   })
 
-  it('from an ordinary content page, opens the graph rooted on the page being read', async () => {
+  it("from an ordinary content page, opens the graph rooted on the page's nearest containing folder, not the page itself (OpenProject #3337)", async () => {
     const { wrapper, siteStore, router } = await mountHeaderNav({
       initialPath: '/docs/setup',
       routes: ['/', '/_graph', CONTENT_ROUTE]
@@ -352,7 +352,23 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     const pushSpy = vi.spyOn(router, 'push')
     await findGraphButton(wrapper).trigger('click')
 
-    expect(pushSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'docs/setup' } })
+    expect(pushSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'docs' } })
+  })
+
+  it('from a top-level content page, anchors on the root -- an explicit empty-string sentinel, not an omitted param (OpenProject #3337)', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({
+      initialPath: '/standalone',
+      routes: ['/', '/_graph', CONTENT_ROUTE]
+    })
+    siteStore.features.browse = true
+    const pageStore = usePageStore()
+    pageStore.path = 'standalone'
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: '' } })
   })
 
   it('from a non-content route, opens the graph with no path query param -- pageStore.path there is stale leftover, not "nothing"', async () => {

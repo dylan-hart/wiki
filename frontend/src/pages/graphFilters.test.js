@@ -193,7 +193,7 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
     expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'en')).toBe(FOCUS_NODES[0])
   })
 
-  it('never matches a synthetic folder/root node, even when its path/locale both match', () => {
+  it('never matches a synthetic folder/root node by default, even when its path/locale both match', () => {
     expect(resolveFocusNode(FOCUS_NODES, 'guides', 'en')).toBeNull()
   })
 
@@ -201,10 +201,38 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
     expect(resolveFocusNode(FOCUS_NODES, 'nonexistent/page', 'en')).toBeNull()
   })
 
-  it('returns null for an empty, null or undefined path -- no query param present', () => {
-    expect(resolveFocusNode(FOCUS_NODES, '', 'en')).toBeNull()
+  it('returns null for a null or undefined path -- no query param present at all', () => {
     expect(resolveFocusNode(FOCUS_NODES, null, 'en')).toBeNull()
     expect(resolveFocusNode(FOCUS_NODES, undefined, 'en')).toBeNull()
+  })
+
+  it('returns null for an empty path when nothing has that path, distinct from the no-param case', () => {
+    // -> No node in this fixture has `path: ''`, so this stays null -- but unlike `null`/`undefined`,
+    //    an empty string is not short-circuited before the search runs (see the root case below).
+    expect(resolveFocusNode(FOCUS_NODES, '', 'en')).toBeNull()
+  })
+
+  describe('includeSynthetic (OpenProject #3337 folder/root anchoring)', () => {
+    it('matches a synthetic folder/root node when opted in', () => {
+      expect(resolveFocusNode(FOCUS_NODES, 'guides', 'en', { includeSynthetic: true })).toBe(
+        FOCUS_NODES[3]
+      )
+    })
+
+    it('resolves the synthetic root node by its own empty-string path', () => {
+      const withRoot = [
+        ...FOCUS_NODES,
+        { path: '', locale: 'en', title: '(root)', synthetic: true, root: true }
+      ]
+      expect(resolveFocusNode(withRoot, '', 'en', { includeSynthetic: true })).toBe(withRoot[4])
+    })
+
+    it('still scopes to locale and still excludes a non-matching real node', () => {
+      expect(resolveFocusNode(FOCUS_NODES, 'guides', 'fr', { includeSynthetic: true })).toBeNull()
+      expect(resolveFocusNode(FOCUS_NODES, 'reference/api', 'en', { includeSynthetic: true })).toBe(
+        FOCUS_NODES[2]
+      )
+    })
   })
 })
 

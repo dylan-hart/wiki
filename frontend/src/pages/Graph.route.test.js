@@ -117,3 +117,45 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     expect(wrapper.vm.nodes.filter((node) => !node.synthetic)).toHaveLength(3)
   })
 })
+
+/*
+ * OpenProject #3337: the Graph nav button now sends the current page's nearest containing folder
+ * (root for a top-level page) rather than the page itself, so `?path=` commonly names a synthetic
+ * folder/root node -- these assert `applyRouteFocus()` resolves, pins and highlights one of those,
+ * not only a real page node.
+ */
+describe('Graph.vue ?path= route focus resolves a synthetic folder/root anchor (OpenProject #3337)', () => {
+  it('resolves, pins and highlights the synthetic folder node named by ?path=', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=guides',
+      pageLocale: 'en'
+    })
+
+    const folderNode = wrapper.vm.nodes.find(
+      (node) => node.synthetic && node.path === 'guides' && node.locale === 'en'
+    )
+    expect(folderNode).toBeTruthy()
+    expect(wrapper.vm.focusNodeId).toBe('en:guides')
+    expect(wrapper.vm.highlightedNodeIds.has('en:guides')).toBe(true)
+    expect(folderNode.fx).toBe(0)
+    expect(folderNode.fy).toBe(0)
+  })
+
+  it('resolves, pins and highlights the synthetic root node for an explicit empty ?path=', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=',
+      pageLocale: 'en'
+    })
+
+    const rootNode = wrapper.vm.nodes.find(
+      (node) => node.synthetic && node.path === '' && node.locale === 'en'
+    )
+    expect(rootNode).toBeTruthy()
+    expect(wrapper.vm.focusNodeId).toBe('en:')
+    expect(wrapper.vm.highlightedNodeIds.has('en:')).toBe(true)
+    expect(rootNode.fx).toBe(0)
+    expect(rootNode.fy).toBe(0)
+  })
+})
