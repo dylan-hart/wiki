@@ -11,8 +11,13 @@
   Derived from the route rather than declared page by page, so the 37 admin pages cannot disagree with
   the sidebar about which group they belong to. The four groups are exactly the sidebar's own
   (`AdminLayout.vue`): the two entries above the first section header are the overview, a site-scoped
-  page is addressed as `/_admin/<siteId>/<page>` and is therefore the only shape with a segment
-  between the prefix and the page name, and the rest split by name.
+  page carries `meta.siteScoped: true` (set on each `:siteid/...` route in `router/routes.js`), and
+  the rest split by name.
+
+  `meta.siteScoped` -- not the shape of the path -- is deliberate: `groups/:id?/:section?` and
+  `users/:id?/:section?` (Users pages, not site-scoped) can carry just as many path segments as a
+  site-scoped route once their optional params are populated (e.g. `/_admin/groups/5/members`), so
+  counting segments after `/_admin` misclassified them (OpenProject #3343).
 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -34,13 +39,12 @@ const sectionKey = computed(() => {
   if (!route?.path) {
     return null
   }
-  const segments = route.path.split('/').filter(Boolean)
-  // -> ['_admin', …]; anything shorter is the bare `/_admin` redirect, which lands on the dashboard
-  const rest = segments.slice(1)
-  if (rest.length > 1) {
+  if (route.meta?.siteScoped) {
     return 'admin.nav.site'
   }
-  const page = rest[0] ?? 'dashboard'
+  const segments = route.path.split('/').filter(Boolean)
+  // -> ['_admin', …]; anything shorter is the bare `/_admin` redirect, which lands on the dashboard
+  const page = segments[1] ?? 'dashboard'
   if (page === 'dashboard' || page === 'sites') {
     return 'admin.nav.overview'
   }

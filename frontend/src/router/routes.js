@@ -48,20 +48,81 @@ const routes = [
       { path: 'dashboard', component: () => import('@/pages/AdminDashboard.vue') },
       { path: 'sites', component: () => import('@/pages/AdminSites.vue') },
       // -> Site
-      { path: ':siteid/general', component: () => import('@/pages/AdminGeneral.vue') },
-      { path: ':siteid/analytics', component: () => import('@/pages/AdminAnalytics.vue') },
-      { path: ':siteid/approvals', component: () => import('@/pages/AdminApprovals.vue') },
-      { path: ':siteid/blocks', component: () => import('@/pages/AdminBlocks.vue') },
-      { path: ':siteid/editors', component: () => import('@/pages/AdminEditors.vue') },
-      { path: ':siteid/glossary', component: () => import('@/pages/AdminGlossary.vue') },
-      { path: ':siteid/locale', component: () => import('@/pages/AdminLocale.vue') },
-      { path: ':siteid/login', component: () => import('@/pages/AdminLogin.vue') },
-      { path: ':siteid/navigation', component: () => import('@/pages/AdminNavigation.vue') },
-      { path: ':siteid/pages', component: () => import('@/pages/AdminPages.vue') },
-      { path: ':siteid/pages/deleted', component: () => import('@/pages/AdminPagesDeleted.vue') },
-      { path: ':siteid/storage/:id?', component: () => import('@/pages/AdminStorage.vue') },
-      { path: ':siteid/comments', component: () => import('@/pages/AdminComments.vue') },
-      { path: ':siteid/theme', component: () => import('@/pages/AdminTheme.vue') },
+      /*
+        `meta.siteScoped` is what `AdminPageEyebrow.vue`'s sectionKey reads to know a page is
+        site-scoped -- explicit here rather than inferred from path shape, since `groups/:id?/:section?`
+        and `users/:id?/:section?` below can carry just as many path segments without being site-scoped.
+      */
+      {
+        path: ':siteid/general',
+        component: () => import('@/pages/AdminGeneral.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/analytics',
+        component: () => import('@/pages/AdminAnalytics.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/approvals',
+        component: () => import('@/pages/AdminApprovals.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/blocks',
+        component: () => import('@/pages/AdminBlocks.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/editors',
+        component: () => import('@/pages/AdminEditors.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/glossary',
+        component: () => import('@/pages/AdminGlossary.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/locale',
+        component: () => import('@/pages/AdminLocale.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/login',
+        component: () => import('@/pages/AdminLogin.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/navigation',
+        component: () => import('@/pages/AdminNavigation.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/pages',
+        component: () => import('@/pages/AdminPages.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/pages/deleted',
+        component: () => import('@/pages/AdminPagesDeleted.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/storage/:id?',
+        component: () => import('@/pages/AdminStorage.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/comments',
+        component: () => import('@/pages/AdminComments.vue'),
+        meta: { siteScoped: true }
+      },
+      {
+        path: ':siteid/theme',
+        component: () => import('@/pages/AdminTheme.vue'),
+        meta: { siteScoped: true }
+      },
       // -> Users
       { path: 'auth', component: () => import('@/pages/AdminAuth.vue') },
       { path: 'groups/:id?/:section?', component: () => import('@/pages/AdminGroups.vue') },
