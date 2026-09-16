@@ -98,7 +98,7 @@
     "@tiptap/core": "3.31.3",
     "@tiptap/y-tiptap": "3.0.9",
     "@vitejs/plugin-vue": "6.0.8",
-    "@vue/test-utils": "2.4.11",
+    "@vue/test-utils": "2.5.0",
     "happy-dom": "20.11.6",
     "js-yaml": "5.3.0",
     "oxfmt": "0.64.0",
