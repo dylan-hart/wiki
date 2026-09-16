@@ -602,14 +602,49 @@ watch(keywordQuery, (newKeyword) => {
   debouncedSearchKeyword(query)
 })
 
-function groupKeyFor(node) {
+/** Every directory segment of a node's own full `path`, excluding its trailing (page) segment --
+ *  e.g. `guides/deep/two` -> `['guides', 'deep']`. Mirrors `graphFilters.js`'s `folderDepthOf()`
+ *  (`path.split('/').length - 1` directory segments), just returning the segments themselves rather
+ *  than their count: both exist because `node.folder` (backend `folderOf()`) is deliberately capped
+ *  at just the first segment (OpenProject #3338/#3339) and can't distinguish `guides/one` from
+ *  `guides/deep/two` -- a level-2/3 clustering key needs the full path, computed client-side. */
+function directorySegmentsOf(node) {
+  return node.path.split('/').slice(0, -1)
+}
+
+/** Cluster-nesting levels `computeClusters()`/`clusterForce()` bucket on (OpenProject #3339) -- 1
+ *  is today's existing single-level grouping, 2/3 are the added folder-mode nesting. Passed to both
+ *  so the simulation's centroid pull and the drawn circles bucket on the exact same set of levels. */
+const CLUSTER_LEVELS = [1, 2, 3]
+
+/** Computes a node's group key at a given nesting `level` (OpenProject #3339) -- `level` defaults
+ *  to `1`, today's existing single-key behavior, so the third call site below (per-node dot color,
+ *  Graph.vue ~1137) that must stay level-1-only needs no change to keep working exactly as before.
+ *  Tag and classification grouping stay single-level: any `level` above 1 for either returns `null`
+ *  (Feature #3338's scope -- neither has a genuine second level to nest), same as `computeClusters`/
+ *  `clusterForce` already treat a `null`/`undefined` key as "exclude this node from this level".
+ *  Folder mode's level 1 is `node.folder`, unchanged; level 2 is the composite key of the node's
+ *  first two directory segments (`directorySegmentsOf()` above), level 3 the first three -- a node
+ *  not nested deep enough for a given level (not enough directory segments) returns `null` for it,
+ *  so it simply gets no cluster circle or centroid pull at that level. */
+function groupKeyFor(node, level = 1) {
+  if (level > 1 && groupBy.value !== 'folder') {
+    return null
+  }
   if (groupBy.value === 'tag') {
     return node.tags?.[0] ?? '(untagged)'
   }
   if (groupBy.value === 'classification') {
     return node.classification ?? '(unclassified)'
   }
-  return node.folder || '(root)'
+  if (level === 1) {
+    return node.folder || '(root)'
+  }
+  const segments = directorySegmentsOf(node)
+  if (segments.length < level) {
+    return null
+  }
+  return segments.slice(0, level).join('/')
 }
 
 /** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
@@ -1124,7 +1159,8 @@ function startSimulation() {
       onTick: () => {
         relayout()
         repaint()
-      }
+      },
+      clusterLevels: CLUSTER_LEVELS
     }
   )
 }
@@ -1144,7 +1180,12 @@ function recomputeClusters() {
  *  that group is, and how large the node draws. */
 function computeClusters() {
   refreshMetricRange()
-  clusters.value = buildClusters(nodes.value, { groupKeyFor, colorForGroup, radiusFor })
+  clusters.value = buildClusters(nodes.value, {
+    groupKeyFor,
+    colorForGroup,
+    radiusFor,
+    levels: CLUSTER_LEVELS
+  })
 }
 
 function attachZoom() {

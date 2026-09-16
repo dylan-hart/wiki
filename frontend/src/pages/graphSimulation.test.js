@@ -139,3 +139,98 @@ describe('computeClusters padding (OpenProject #2562)', () => {
     expect(newFloor.circle.r).toBe(34)
   })
 })
+
+/**
+ * `levels` (OpenProject #3339, folder-mode nested grouping circles) -- `computeClusters()` buckets
+ * on a composite key per level via a `groupKeyFor(node, level)` accessor, e.g. the way `Graph.vue`'s
+ * own `groupKeyFor` computes: level 1 = `node.folder`, level 2 = the first two directory segments of
+ * `node.path` joined, level 3 = the first three. A node not nested deep enough for a level returns
+ * `null` for it, excluding it from that level's bucketing entirely -- same convention any grouping
+ * mode already used for "no key". These tests exercise `computeClusters()` directly against a small
+ * stand-in `groupKeyFor` shaped exactly like that, rather than importing `Graph.vue` itself.
+ */
+describe('computeClusters levels (OpenProject #3339)', () => {
+  const zeroRadius = () => 0
+  const colorForGroup = () => '#000'
+
+  function folderGroupKeyFor(node, level = 1) {
+    const segments = node.path.split('/').slice(0, -1)
+    if (level > segments.length) {
+      return null
+    }
+    return level === 1 ? segments[0] : segments.slice(0, level).join('/')
+  }
+
+  it('a 3-level-deep node buckets correctly at all 3 levels', () => {
+    const nodes = [{ x: 0, y: 0, path: 'guides/deep/very/page' }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: folderGroupKeyFor,
+      colorForGroup,
+      radiusFor: zeroRadius,
+      levels: [1, 2, 3]
+    })
+
+    const level1 = clusters.find((c) => c.level === 1)
+    const level2 = clusters.find((c) => c.level === 2)
+    const level3 = clusters.find((c) => c.level === 3)
+    expect(level1?.key).toBe('guides')
+    expect(level2?.key).toBe('guides/deep')
+    expect(level3?.key).toBe('guides/deep/very')
+    // -> Only the outermost (level 1) level resolves a real color; 2/3 defer to the draw layer's
+    //    own shared-neutral-fill decision (Feature #3338's scope, owned by the sibling Task).
+    expect(level1.color).toBe('#000')
+    expect(level2.color).toBeNull()
+    expect(level3.color).toBeNull()
+  })
+
+  it('a 1-level-deep node (no subfolder) produces no level-2/3 cluster entry for itself', () => {
+    const nodes = [{ x: 0, y: 0, path: 'guides/page' }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: folderGroupKeyFor,
+      colorForGroup,
+      radiusFor: zeroRadius,
+      levels: [1, 2, 3]
+    })
+
+    expect(clusters.some((c) => c.level === 1)).toBe(true)
+    expect(clusters.some((c) => c.level === 2)).toBe(false)
+    expect(clusters.some((c) => c.level === 3)).toBe(false)
+  })
+
+  it('defaults to level 1 only, unchanged from before levels existed', () => {
+    const nodes = [{ x: 0, y: 0, path: 'guides/deep/very/page' }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: folderGroupKeyFor,
+      colorForGroup,
+      radiusFor: zeroRadius
+    })
+
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0].level).toBe(1)
+    expect(clusters[0].key).toBe('guides')
+  })
+
+  it('the composite-key bucketing stays O(N) -- one Map-based pass per level, not repeated filtering', () => {
+    // -> A node's `groupKeyFor` call count should scale with N * levels.length, not N^2: this counts
+    //    calls to prove `computeClusters()` never re-scans `nodes` once per distinct group (which a
+    //    naive "filter per key" implementation would do).
+    const nodes = []
+    for (let i = 0; i < 50; i++) {
+      nodes.push({ x: i, y: 0, path: `folder-${i % 5}/sub-${i % 3}/page-${i}` })
+    }
+    let calls = 0
+    const countingGroupKeyFor = (node, level) => {
+      calls += 1
+      return folderGroupKeyFor(node, level)
+    }
+    computeClusters(nodes, {
+      groupKeyFor: countingGroupKeyFor,
+      colorForGroup,
+      radiusFor: zeroRadius,
+      levels: [1, 2, 3]
+    })
+    // -> Exactly one `groupKeyFor` call per node per level (the bucketing pass) -- a second,
+    //    per-group re-filter pass would multiply this by the number of distinct groups instead.
+    expect(calls).toBe(nodes.length * 3)
+  })
+})

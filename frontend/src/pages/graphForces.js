@@ -16,47 +16,66 @@ import { nodeId } from './graphFilters.js'
  * with the current alpha, so recomputing group centroids from each node's *current* `x`/`y` inside
  * that call is what makes this the "running centroid" `Graph.vue`'s doc comment already promised.
  *
- * @param {(node: object) => string} groupKeyFor - the same grouping-dimension accessor `Graph.vue`
- *   uses for coloring/legend/hulls (folder, tag, or classification) -- passed in rather than
- *   hardcoded so this module stays decoupled from `Graph.vue` and unit-testable on its own.
+ * @param {(node: object, level?: number) => string | null | undefined} groupKeyFor - the same
+ *   grouping-dimension accessor `Graph.vue` uses for coloring/legend/hulls (folder, tag, or
+ *   classification) -- passed in rather than hardcoded so this module stays decoupled from
+ *   `Graph.vue` and unit-testable on its own. Called with each entry of `levels` below; a
+ *   `null`/`undefined` return for a given node+level (OpenProject #3339 -- e.g. a node not nested
+ *   deep enough for level 2/3, or any level above 1 outside folder mode) excludes that node from
+ *   that level's centroid pull entirely, the same way it's excluded from that level's cluster
+ *   circle in `computeClusters()`.
  * @param {number} strength - how strongly a node is nudged toward its group's centroid each tick,
- *   relative to the other forces in the simulation. `0.05` is `Graph.vue`'s tuned starting point.
+ *   relative to the other forces in the simulation. `0.05` is `Graph.vue`'s tuned starting point,
+ *   applied per level below (not split across levels), so a node nested deep enough to belong to
+ *   more than one level's group is pulled toward each of those centroids cumulatively.
+ * @param {number[]} levels - which nesting levels to compute a centroid pull for, most callers
+ *   (and every existing one before OpenProject #3339) needing only `[1]`, today's single-level
+ *   default. `Graph.vue` passes `[1, 2, 3]` for folder mode's nested level-2/3 clustering.
  * @returns {(alpha: number) => void} a d3-force-compatible force: has an `initialize(nodes)` method
  *   (called automatically when attached via `simulation.force(name, force)`) and is itself callable
  *   with the tick's `alpha`.
  */
-export function clusterForce(groupKeyFor, strength = 0.05) {
+export function clusterForce(groupKeyFor, strength = 0.05, levels = [1]) {
   let nodes = []
 
   function force(alpha) {
-    const sums = new Map()
-    for (const node of nodes) {
-      if (node.synthetic || node.x === undefined) {
-        continue
+    for (const level of levels) {
+      const sums = new Map()
+      for (const node of nodes) {
+        if (node.synthetic || node.x === undefined) {
+          continue
+        }
+        const key = groupKeyFor(node, level)
+        if (key === null || key === undefined) {
+          continue
+        }
+        const entry = sums.get(key) ?? { x: 0, y: 0, count: 0 }
+        entry.x += node.x
+        entry.y += node.y
+        entry.count += 1
+        sums.set(key, entry)
       }
-      const key = groupKeyFor(node)
-      const entry = sums.get(key) ?? { x: 0, y: 0, count: 0 }
-      entry.x += node.x
-      entry.y += node.y
-      entry.count += 1
-      sums.set(key, entry)
-    }
 
-    const centroids = new Map()
-    for (const [key, { x, y, count }] of sums) {
-      centroids.set(key, { x: x / count, y: y / count })
-    }
+      const centroids = new Map()
+      for (const [key, { x, y, count }] of sums) {
+        centroids.set(key, { x: x / count, y: y / count })
+      }
 
-    for (const node of nodes) {
-      if (node.synthetic || node.x === undefined) {
-        continue
+      for (const node of nodes) {
+        if (node.synthetic || node.x === undefined) {
+          continue
+        }
+        const key = groupKeyFor(node, level)
+        if (key === null || key === undefined) {
+          continue
+        }
+        const centroid = centroids.get(key)
+        if (!centroid) {
+          continue
+        }
+        node.vx += (centroid.x - node.x) * strength * alpha
+        node.vy += (centroid.y - node.y) * strength * alpha
       }
-      const centroid = centroids.get(groupKeyFor(node))
-      if (!centroid) {
-        continue
-      }
-      node.vx += (centroid.x - node.x) * strength * alpha
-      node.vy += (centroid.y - node.y) * strength * alpha
     }
   }
 
