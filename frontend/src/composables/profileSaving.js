@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 /**
  * Whether any Profile dialog section currently has a save/write request in flight (OpenProject
@@ -41,3 +41,51 @@ export const profileSaving = {
     pendingProfileSaves.value = Math.max(0, pendingProfileSaves.value - 1)
   }
 }
+
+/**
+ * OpenProject #3352: a second, DISPLAY-ONLY derived value for `ProfileOverlay.vue`'s close button --
+ * `pendingProfileSaves` above has to flip true the instant a save starts (it also gates
+ * `MainOverlayDialog.vue`'s dismiss guard, which must never let a close attempted mid-save through
+ * unblocked), but a save that settles in the common ~200-300ms case doesn't need to visibly flash a
+ * "Saving..." spinner+label swap for that long.
+ *
+ * Mirrors `loading.js`'s own `DELAY = 500` show-timer shape, but reacts to `pendingProfileSaves`
+ * itself rather than to explicit `show()`/`hide()` calls -- callers only ever call
+ * `profileSaving.begin()`/`.end()` (or, in tests, set `pendingProfileSaves.value` directly), so
+ * deriving this from the count's own transitions is what keeps it correct regardless of how the count
+ * changed. Only ever flips true 500ms after the count first goes from 0 to above 0; if it drops back
+ * to 0 before that timer fires, the pending timer is cancelled and this never flips true at all. Once
+ * true, it drops back to false the instant the count returns to 0 -- hiding is never delayed, only
+ * showing is.
+ */
+export const isSavingVisible = ref(false)
+
+const SAVING_VISIBLE_DELAY = 500
+
+let savingVisibleTimer = null
+
+watch(
+  pendingProfileSaves,
+  (count) => {
+    if (count > 0) {
+      // -> Already showing, or already counting down to show -- a second/third overlapping save
+      //    must not restart the timer.
+      if (savingVisibleTimer === null && !isSavingVisible.value) {
+        savingVisibleTimer = setTimeout(() => {
+          savingVisibleTimer = null
+          isSavingVisible.value = true
+        }, SAVING_VISIBLE_DELAY)
+      }
+    } else {
+      if (savingVisibleTimer !== null) {
+        clearTimeout(savingVisibleTimer)
+        savingVisibleTimer = null
+      }
+      isSavingVisible.value = false
+    }
+  },
+  // -> `begin()`/`end()` are plain function calls, not something callers ever awaited a Vue tick
+  //    for -- a synchronous watch is what keeps the timer starting/cancelling in the same tick the
+  //    count itself changes, rather than one microtask behind it.
+  { flush: 'sync' }
+)

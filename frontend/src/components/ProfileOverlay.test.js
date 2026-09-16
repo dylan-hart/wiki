@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProfileOverlay from './ProfileOverlay.vue'
 import { mountWithApp } from '../../test/mount.js'
-import { pendingProfileSaves } from '@/composables/profileSaving'
+import { isSavingVisible, pendingProfileSaves } from '@/composables/profileSaving'
 
 /**
  * OpenProject #2532: Profile becomes a true `MainOverlayDialog` entry -- local `ref`/`reactive`
@@ -189,6 +189,12 @@ describe('ProfileOverlay section rail', () => {
 describe('ProfileOverlay close / logout', () => {
   beforeEach(() => {
     pendingProfileSaves.value = 0
+    isSavingVisible.value = false
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('clears siteStore.overlay when the header Close button is clicked', async () => {
@@ -201,15 +207,17 @@ describe('ProfileOverlay close / logout', () => {
   })
 
   /**
-   * OpenProject #3282: the close button reads the shared `pendingProfileSaves` module singleton
-   * (the same one `MainOverlayDialog.vue`'s own dismiss guard reads) rather than any per-section
-   * state, disabling itself and swapping its label/aria-label to "Saving..." while a section save is
-   * in flight -- and a click while disabled must not clear `siteStore.overlay`.
+   * OpenProject #3282/#3352: the close button reads `isSavingVisible`, a display-only value derived
+   * from the shared `pendingProfileSaves` module singleton (`MainOverlayDialog.vue`'s own dismiss
+   * guard still reads `pendingProfileSaves` directly, untouched by #3352) -- disabling itself and
+   * swapping its label/aria-label to "Saving..." only once a save has been pending for 500ms, and a
+   * click while disabled must not clear `siteStore.overlay`.
    */
-  it('disables the Close button and swaps its label while a save is pending', async () => {
+  it('disables the Close button and swaps its label once a save has been pending for 500ms', async () => {
     const { wrapper, siteStore } = mountOverlay()
     siteStore.overlay = 'Profile'
     pendingProfileSaves.value = 1
+    await vi.advanceTimersByTimeAsync(500)
     await wrapper.vm.$nextTick()
 
     const closeButton = wrapper.find('.layout-profile-hdr [aria-label="Saving..."]')
@@ -221,11 +229,30 @@ describe('ProfileOverlay close / logout', () => {
     expect(siteStore.overlay).toBe('Profile')
   })
 
-  it('re-enables the Close button and restores its label once the pending count drops to zero', async () => {
+  /**
+   * OpenProject #3352: the whole point of the delay -- a save that finishes inside the ~200-300ms
+   * common case must never visibly flash the "Saving..." swap at all, not just show it briefly.
+   */
+  it('never shows the Saving indicator for a save that settles within 500ms', async () => {
     const { wrapper, siteStore } = mountOverlay()
     siteStore.overlay = 'Profile'
     pendingProfileSaves.value = 1
+    await vi.advanceTimersByTimeAsync(300)
+    pendingProfileSaves.value = 0
+    await vi.advanceTimersByTimeAsync(300)
     await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.layout-profile-hdr [aria-label="Close"]').exists()).toBe(true)
+    expect(wrapper.find('.layout-profile-hdr [aria-label="Saving..."]').exists()).toBe(false)
+  })
+
+  it('re-enables the Close button and restores its label the instant the pending count drops to zero', async () => {
+    const { wrapper, siteStore } = mountOverlay()
+    siteStore.overlay = 'Profile'
+    pendingProfileSaves.value = 1
+    await vi.advanceTimersByTimeAsync(500)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.layout-profile-hdr [aria-label="Saving..."]').exists()).toBe(true)
 
     pendingProfileSaves.value = 0
     await wrapper.vm.$nextTick()
