@@ -786,3 +786,100 @@ describe('ProfilePreferences theme toggles have no pre-fetch flash (OpenProject 
     ).toBe(true)
   })
 })
+
+/**
+ * OpenProject #3325: two rapid `onFieldChange` calls each fire their own PUT, but nothing sequences
+ * the two RESPONSES. Before this fix, whichever response landed last unconditionally overwrote
+ * `state.config` (and the fields `userStore.$patch` carries) via `applyProfile()`, even when it was
+ * the OLDER of the two in-flight saves -- silently reverting a field the reader had already moved
+ * past locally. `saveGeneration` (mirroring `composables/adminSettings.js`'s `load()` guard from
+ * Task #3195) drops a save's response once a newer save has started since.
+ */
+describe('ProfilePreferences guards against stale, out-of-order save() responses (OpenProject #3325)', () => {
+  it("keeps the later edit's value when the earlier save's response resolves after the later one", async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () => Promise.resolve({ ...FULL_PROFILE, aesthetic: 'site' })
+    })
+    const { wrapper, userStore } = mountWithApp(ProfilePreferences, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        }
+      }
+    })
+    await flushPromises()
+
+    let resolveFirst
+    let resolveSecond
+    globalThis.API_CLIENT.put
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          })
+      })
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve
+          })
+      })
+
+    const aestheticToggle = wrapper.find('[role="radiogroup"][aria-label="profile.aesthetic"]')
+    const ledgerOption = aestheticToggle
+      .findAll('button')
+      .find((btn) => btn.text().includes('profile.aestheticLedger'))
+    const cobaltOption = aestheticToggle
+      .findAll('button')
+      .find((btn) => btn.text().includes('profile.aestheticCobalt'))
+
+    // -> Save #1: aesthetic -> 'ledger'. Its PUT is now in flight, deliberately left unresolved.
+    await ledgerOption.trigger('click')
+    // -> Save #2: aesthetic -> 'cobalt', started before save #1 settled -- the same overlap the
+    //    work package's `onFieldChange` module comment describes as already handled correctly on
+    //    the request side (each PUT carries the field's latest value at send time).
+    await cobaltOption.trigger('click')
+
+    expect(globalThis.API_CLIENT.put).toHaveBeenCalledTimes(2)
+
+    // -> Out of order: the NEWER save's (#2) response lands first...
+    resolveSecond({ profile: { ...FULL_PROFILE, aesthetic: 'cobalt' } })
+    await flushPromises()
+    expect(userStore.aesthetic).toBe('cobalt')
+
+    // -> ...then the STALE, older save's (#1) response lands after it. Applying it unconditionally
+    //    (the bug this guards against) would revert `aesthetic` back to 'ledger'.
+    resolveFirst({ profile: { ...FULL_PROFILE, aesthetic: 'ledger' } })
+    await flushPromises()
+
+    expect(userStore.aesthetic).toBe('cobalt')
+    const cobaltSegment = aestheticToggle
+      .findAll('button')
+      .find((btn) => btn.text().includes('profile.aestheticCobalt'))
+    expect(cobaltSegment.attributes('aria-checked')).toBe('true')
+  })
+
+  it('still applies the response when saves settle in the order they were sent', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () => Promise.resolve({ ...FULL_PROFILE, aesthetic: 'site' })
+    })
+    const { wrapper, userStore } = mountWithApp(ProfilePreferences, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        }
+      }
+    })
+    await flushPromises()
+
+    globalThis.API_CLIENT.put.mockReturnValueOnce({
+      json: () => Promise.resolve({ profile: { ...FULL_PROFILE, aesthetic: 'ledger' } })
+    })
+    await wrapper.vm.save()
+    await flushPromises()
+
+    expect(userStore.aesthetic).toBe('ledger')
+  })
+})

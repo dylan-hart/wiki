@@ -446,6 +446,16 @@ const keywordMatches = shallowRef([])
  *  plain `ref` (not `shallowRef`): it only ever holds a primitive string or `null`, never an object. */
 const focusNodeId = ref(null)
 
+/** The `{ path, locale }` of the currently-anchored node (OpenProject #3333, Task #3312's own
+ *  follow-up scope correction), or `null` when no anchor is active -- set alongside `focusNodeId`
+ *  by `applyRouteFocus()`, and read by `applyFilters()` as `computeVisibleSubset()`'s fourth
+ *  argument to restrict the rendered set to the anchor plus its descendants (see that function's
+ *  own doc comment in `graphFilters.js`). A plain object of primitives, not the node itself: the
+ *  node is a `markRaw()`'d, non-reactive entry of `allNodes.value` that `startSimulation()` mutates
+ *  every tick, and this needs to be a reactive value the `watch(focusNodeId, ...)` below can key
+ *  off safely without pulling that mutation churn into Vue's reactivity system. */
+const routeFocusAnchor = ref(null)
+
 /** OpenProject #2533: a second, thin, purely CLIENT-SIDE highlight pass alongside the backend
  *  full-text search above -- a case-insensitive substring check of `keywordQuery` against every
  *  currently-loaded node's `title` (`allNodes`, already in memory, no extra request). The backend's
@@ -602,14 +612,49 @@ watch(keywordQuery, (newKeyword) => {
   debouncedSearchKeyword(query)
 })
 
-function groupKeyFor(node) {
+/** Every directory segment of a node's own full `path`, excluding its trailing (page) segment --
+ *  e.g. `guides/deep/two` -> `['guides', 'deep']`. Mirrors `graphFilters.js`'s `folderDepthOf()`
+ *  (`path.split('/').length - 1` directory segments), just returning the segments themselves rather
+ *  than their count: both exist because `node.folder` (backend `folderOf()`) is deliberately capped
+ *  at just the first segment (OpenProject #3338/#3339) and can't distinguish `guides/one` from
+ *  `guides/deep/two` -- a level-2/3 clustering key needs the full path, computed client-side. */
+function directorySegmentsOf(node) {
+  return node.path.split('/').slice(0, -1)
+}
+
+/** Cluster-nesting levels `computeClusters()`/`clusterForce()` bucket on (OpenProject #3339) -- 1
+ *  is today's existing single-level grouping, 2/3 are the added folder-mode nesting. Passed to both
+ *  so the simulation's centroid pull and the drawn circles bucket on the exact same set of levels. */
+const CLUSTER_LEVELS = [1, 2, 3]
+
+/** Computes a node's group key at a given nesting `level` (OpenProject #3339) -- `level` defaults
+ *  to `1`, today's existing single-key behavior, so the third call site below (per-node dot color,
+ *  Graph.vue ~1137) that must stay level-1-only needs no change to keep working exactly as before.
+ *  Tag and classification grouping stay single-level: any `level` above 1 for either returns `null`
+ *  (Feature #3338's scope -- neither has a genuine second level to nest), same as `computeClusters`/
+ *  `clusterForce` already treat a `null`/`undefined` key as "exclude this node from this level".
+ *  Folder mode's level 1 is `node.folder`, unchanged; level 2 is the composite key of the node's
+ *  first two directory segments (`directorySegmentsOf()` above), level 3 the first three -- a node
+ *  not nested deep enough for a given level (not enough directory segments) returns `null` for it,
+ *  so it simply gets no cluster circle or centroid pull at that level. */
+function groupKeyFor(node, level = 1) {
+  if (level > 1 && groupBy.value !== 'folder') {
+    return null
+  }
   if (groupBy.value === 'tag') {
     return node.tags?.[0] ?? '(untagged)'
   }
   if (groupBy.value === 'classification') {
     return node.classification ?? '(unclassified)'
   }
-  return node.folder || '(root)'
+  if (level === 1) {
+    return node.folder || '(root)'
+  }
+  const segments = directorySegmentsOf(node)
+  if (segments.length < level) {
+    return null
+  }
+  return segments.slice(0, level).join('/')
 }
 
 /** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
@@ -1124,7 +1169,8 @@ function startSimulation() {
       onTick: () => {
         relayout()
         repaint()
-      }
+      },
+      clusterLevels: CLUSTER_LEVELS
     }
   )
 }
@@ -1144,7 +1190,12 @@ function recomputeClusters() {
  *  that group is, and how large the node draws. */
 function computeClusters() {
   refreshMetricRange()
-  clusters.value = buildClusters(nodes.value, { groupKeyFor, colorForGroup, radiusFor })
+  clusters.value = buildClusters(nodes.value, {
+    groupKeyFor,
+    colorForGroup,
+    radiusFor,
+    levels: CLUSTER_LEVELS
+  })
 }
 
 function attachZoom() {
@@ -1156,11 +1207,35 @@ function attachZoom() {
   zoomTransform.value = zoomIdentity
 }
 
-/** Centers and highlights the page the reader arrived from, addressed by the `path` query param on
- *  `/_graph` (OpenProject #3312, Feature #3311) -- e.g. the header's Graph button, or a
- *  bookmarked/shared link. Called once, from `loadGraph()`'s initial fetch only (mount-only, same
- *  "read once" framing `loadGraph()`'s own `activeFilters.folderDepth` default already uses just
- *  above its call site below) -- a later filter or keyword change must not re-home the focus.
+/** The actual node object `applyRouteFocus()` currently has pinned to the viewport center, if any
+ *  -- not merely its id, which `focusNodeId` already tracks for the highlight ring. Kept so a LIVE
+ *  re-focus (OpenProject #3334) can release the previous target's `fx`/`fy` pin before handing the
+ *  center point to the new one; without this, the old target would stay pinned forever, stacked on
+ *  top of the new one at the exact same point. Plain module state, not a ref -- nothing templates
+ *  or watches off the node object itself, only off `focusNodeId`. Reset alongside
+ *  `syntheticNodeCache` in `loadGraph()`: a fresh fetch is a wholesale new graph, so any node
+ *  identity a previous load pinned no longer exists to release. */
+let pinnedFocusNode = null
+
+/** Centers and highlights the anchor the reader arrived from, addressed by the `path` query param on
+ *  `/_graph` (OpenProject #3312, Feature #3311; folder/root anchoring OpenProject #3337) -- e.g. the
+ *  header's Graph button (which sends the current page's nearest containing folder, root for a
+ *  top-level page -- `HeaderNav.vue#onGraphNavClick()`), or a bookmarked/shared link. Called once,
+ *  mount-only, from `loadGraph()`'s initial fetch (same "read once" framing `loadGraph()`'s own
+ *  `activeFilters.folderDepth` default already uses just above its call site below) -- a later filter
+ *  or keyword change must not re-home the focus.
+ *
+ *  Also re-run live, by the `watch(() => route.query.path, applyRouteFocus)` further down
+ *  (OpenProject #3334): the sidebar's own in-graph re-root branch
+ *  (`navSidebarDestination.js#graphSidebarBranch`, OpenProject #3313) updates `route.query.path` via
+ *  `router.replace()` while `/_graph` stays mounted the whole time -- no remount, so `onMounted`
+ *  (and therefore this function's mount-time call) never re-fires on its own. That watch is what
+ *  makes a live sidebar click while `/_graph` is already open actually move the focus; without it,
+ *  the URL's `path` query param updated but nothing downstream ever noticed. The watch is not
+ *  `immediate: true` -- the initial value is already handled by `loadGraph()`'s own call below, and
+ *  this function no-ops (see the `focusNode === pinnedFocusNode` guard below) whenever the resolved
+ *  node hasn't actually changed, which is what keeps the two call sites from double-running against
+ *  the same target.
  *
  *  Locale resolution rule: `route.query.path` is a bare, un-prefixed path -- the same raw form nav
  *  tree items carry (`item.path`, per sibling WP #3313's `composables/navSidebarDestination.js`) --
@@ -1174,28 +1249,88 @@ function attachZoom() {
  *  consistent with #3313's nav-tree-sourced `path`. A guest who lands on `/_graph` with no page ever
  *  loaded this session reads `pageStore`'s own default (`'en'`).
  *
- *  No match -- a missing/blank param, a stale path, or one in the wrong locale -- is a silent no-op:
- *  no pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
+ *  No match -- a missing param, a stale path, or one in the wrong locale -- is a silent no-op: no
+ *  pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
  *  query param) takes the first entry, same convention a `<w-select>`-less bare query reader would.
+ *  Resolves against a freshly-computed UN-anchored node set -- `computeVisibleSubset(allNodes.value,
+ *  allEdges.value, activeFilters, null)`'s `visibleNodes` plus the synthetic folder/root nodes
+ *  `buildPathHierarchyEdges` builds from them -- rather than `nodes.value` itself, deliberately: on
+ *  a LIVE re-focus (OpenProject #3334) `nodes.value` may already be narrowed to a PREVIOUS anchor's
+ *  descendants (OpenProject #3333/#3337's own restriction, applied by `applyFilters()`), which would
+ *  make a node outside that subtree permanently unresolvable even though it is a perfectly valid new
+ *  anchor. `allNodes.value`/`activeFilters` stay the same regardless of anchor, so recomputing this
+ *  way always offers every tag/locale/depth-eligible node as a candidate. `resolveFocusNode`'s
+ *  `includeSynthetic: true` here is what lets a folder/root anchor (`path: ''` for the root, per
+ *  `pageStore.folderPath`'s own doc comment) resolve at all -- the default page-only match excludes
+ *  them. The real-node entries of this set are the same object references `allNodes.value` holds
+ *  (`computeVisibleSubset` filters, never clones), so a match still pins the exact object the
+ *  simulation below runs on; `nodes.value` itself is narrowed to the new anchor separately, by the
+ *  `watch(focusNodeId, ...)` below re-running `applyFilters()` once this function sets `focusNodeId`.
  *
  *  Centering reuses the hover pin's own `fx`/`fy` mechanic (`onCanvasMouseMove` below): the resolved
  *  node is pinned to the exact `(width/2, height/2)` point `startSimulation()`'s own `forceCenter`
  *  already targets, so d3-force settles the rest of the layout around it -- anchored at the viewport
- *  center rather than the node's own current position, and never released (unlike the hover pin,
- *  which clears on hover-end). Highlighting folds the node's composite id into `focusNodeId`, which
- *  `highlightedNodeIds` above unions in alongside a keyword match, so it draws with the identical
- *  highlight ring `graphDraw.js` already renders -- no draw-layer change needed. */
+ *  center rather than the node's own current position, and never released on its own the way the
+ *  hover pin clears on hover-end -- only ever replaced by a later call's own release of it (below),
+ *  never by anything time- or pointer-based. Highlighting folds the node's composite id into
+ *  `focusNodeId`, which `highlightedNodeIds` above unions in alongside a keyword match, so it draws
+ *  with the identical highlight ring `graphDraw.js` already renders -- no draw-layer change needed.
+ *
+ *  Also sets `routeFocusAnchor` (OpenProject #3333) to the resolved node's `{ path, locale }` --
+ *  read by `applyFilters()` to restrict the rendered set to the anchor plus its descendants. A
+ *  no-match leaves `routeFocusAnchor` untouched rather than clearing it to `null`, same as
+ *  `focusNodeId`'s own silent no-op above; today (mount-only call) that distinction has no
+ *  observable effect, but it keeps this function's two outputs consistent with each other rather
+ *  than one silently resetting while the other doesn't. */
 function applyRouteFocus() {
   const rawPath = route.query.path
   const path = Array.isArray(rawPath) ? rawPath[0] : rawPath
-  const focusNode = resolveFocusNode(allNodes.value, path, pageStore.locale)
-  if (!focusNode) {
+  const { visibleNodes: unanchoredNodes } = computeVisibleSubset(
+    allNodes.value,
+    allEdges.value,
+    activeFilters,
+    null
+  )
+  const { syntheticNodes: unanchoredSyntheticNodes } = buildPathHierarchyEdges(
+    unanchoredNodes,
+    syntheticNodeCache
+  )
+  const focusNode = resolveFocusNode(
+    [...unanchoredNodes, ...unanchoredSyntheticNodes],
+    path,
+    pageStore.locale,
+    { includeSynthetic: true }
+  )
+  // -> No match (a missing/blank param, a stale path, or one in the wrong locale) is a silent
+  //    no-op -- same as before OpenProject #3334, and also what keeps a live re-focus from
+  //    releasing an already-good pin over a transient/bad query value. Likewise a match that IS
+  //    already the pinned target (the mount-time call landing here a second time via the watch
+  //    below with nothing having actually changed, or two rapid clicks on the same sidebar item)
+  //    is a no-op too -- see this function's own doc comment on why the two call sites need this
+  //    guard to not double-run.
+  if (!focusNode || focusNode === pinnedFocusNode) {
     return
   }
+  // -> Release the previously-pinned target (if any) before handing the center point to the new
+  //    one (OpenProject #3334) -- without this, a live re-focus would leave the old target's
+  //    `fx`/`fy` still pinned at the exact same point as the new one, forever.
+  if (pinnedFocusNode) {
+    pinnedFocusNode.fx = null
+    pinnedFocusNode.fy = null
+  }
+  pinnedFocusNode = focusNode
   focusNodeId.value = nodeId(focusNode)
+  routeFocusAnchor.value = { path: focusNode.path, locale: focusNode.locale }
   const { width, height } = containerRef.value.getBoundingClientRect()
   focusNode.fx = width / 2
   focusNode.fy = height / 2
+  // -> Only a LIVE re-focus needs to nudge the simulation back awake -- the mount-time call runs
+  //    before `startSimulation()` has attached one at all (see this function's own doc comment on
+  //    why the pin has to land first), so `simulation` is still `null` there and this is correctly
+  //    a no-op for that call; a later call via the `route.query.path` watch runs against an
+  //    already-settled simulation, which needs a real bump to visibly re-center rather than
+  //    silently update a resting layout's target point.
+  simulation?.alpha(0.4).restart()
 }
 
 /** `sizing` (OpenProject #1863) asks the backend to attach each node's `contributors`/`pageviews`
@@ -1207,8 +1342,11 @@ async function loadGraph() {
   isLoading.value = true
   loadError.value = null
   // -> A fresh fetch is a wholesale new graph (new site, keyword or sizeBy) -- stale synthetic node
-  //    positions from the previous one must not leak into it (OpenProject #2538).
+  //    positions from the previous one must not leak into it (OpenProject #2538). `pinnedFocusNode`
+  //    is the same story for OpenProject #3334's route-focus pin: the node object it may still be
+  //    holding belongs to the graph that is about to be replaced, and has nothing left to release.
   syntheticNodeCache = new Map()
+  pinnedFocusNode = null
   try {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`, {
       searchParams: { sizing: sizeBy.value }
@@ -1378,9 +1516,20 @@ async function initializeGraphPrefs() {
  *  `link` edges (`computeVisibleSubset`'s `visibleEdges`) are deliberately not used here; see
  *  OpenProject #997. Called on initial load and by the `activeFilters` watcher below. Does not
  *  touch the live simulation itself; that's `syncSimulationToVisibleSet`'s job, since the initial
- *  call here runs before `startSimulation()` has created one. */
+ *  call here runs before `startSimulation()` has created one.
+ *
+ *  Passes `routeFocusAnchor` as `computeVisibleSubset()`'s fourth argument (OpenProject #3333):
+ *  while a non-root anchor is active, this additionally restricts the rendered set to the anchor
+ *  plus its descendants, and reinterprets `activeFilters.folderDepth` as hops-from-the-anchor
+ *  rather than path-segments-from-root -- see that function's own doc comment in `graphFilters.js`
+ *  for the full behavior, including why a root anchor computes identically to no anchor at all. */
 function applyFilters() {
-  const { visibleNodes } = computeVisibleSubset(allNodes.value, allEdges.value, activeFilters)
+  const { visibleNodes } = computeVisibleSubset(
+    allNodes.value,
+    allEdges.value,
+    activeFilters,
+    routeFocusAnchor.value
+  )
   const { syntheticNodes, edges: syntheticEdges } = buildPathHierarchyEdges(
     visibleNodes,
     syntheticNodeCache
@@ -1539,6 +1688,19 @@ watch(
   { deep: true }
 )
 
+/** OpenProject #3333 (Feature #3311's own follow-up scope correction, this round's epic-plan note
+ *  #9742): re-runs the same anchor-plus-descendants restriction `activeFilters`'s own watcher above
+ *  runs for a filter change, but keyed off `focusNodeId` instead -- today that only ever changes
+ *  once, from `loadGraph()`'s own mount-time `applyRouteFocus()` call, but nothing else in this
+ *  round's Group A work (#3334's live sidebar-click re-homing) can make the anchor restriction
+ *  react to a later navigation without this watcher existing to catch the resulting `focusNodeId`
+ *  change. Deliberately NOT `{ deep: true }`: `focusNodeId` is a plain string/`null` ref, matching
+ *  its own doc comment above. */
+watch(focusNodeId, () => {
+  applyFilters()
+  syncSimulationToVisibleSet()
+})
+
 /** OpenProject #2480, extended by #2533: a keyword match -- from EITHER the backend full-text
  *  search or the client-side title-contains pass -- changes only which ALREADY-visible nodes draw
  *  highlighted, no node/edge set changes, no simulation restart, just a repaint against the current
@@ -1551,6 +1713,14 @@ watch(
 watch(highlightedNodeIds, () => {
   repaint()
 })
+
+/** OpenProject #3334: re-runs `applyRouteFocus()` on every LIVE change to `route.query.path` --
+ *  see that function's own doc comment for the full story (the sidebar's in-graph re-root branch
+ *  updates the query param via `router.replace()` while `/_graph` stays mounted, which `onMounted`
+ *  never sees) and for why this deliberately is not `immediate: true`. A getter source (not the
+ *  route object itself) so this fires only on the one field the graph's focus actually depends on,
+ *  not on every unrelated query-param or route change `/_graph` might otherwise see. */
+watch(() => route.query.path, applyRouteFocus)
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {

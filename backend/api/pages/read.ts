@@ -331,7 +331,16 @@ async function routes(app: FastifyInstance) {
    */
   app.get<{
     Params: { siteId: string }
-    Querystring: { query: string; locale?: string; offset?: number; limit?: number }
+    Querystring: {
+      query: string
+      path?: string
+      locales?: string
+      tags?: string
+      editor?: string
+      publishState?: string
+      offset?: number
+      limit?: number
+    }
   }>(
     '/sites/:siteId/pages/search/semantic',
     /*
@@ -343,7 +352,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Semantic search pages',
         description:
-          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
+          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\n`path`/`tags`/`locales`/`editor`/`publishState` (OpenProject #3328) are the same filters and names `pages/search` takes, applied identically at both hops so a filtered-out page cannot reappear via the second hop's expansion. There is no `orderBy`/`orderByDirection` — Sort By is explicitly out of scope for semantic search.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
         tags: ['Pages'],
         params: { $ref: 'SiteIdParams#' },
         querystring: {
@@ -356,10 +365,28 @@ async function routes(app: FastifyInstance) {
               maxLength: 2048,
               description: 'The question or phrase to search for. Embedded once, server-side.'
             },
-            locale: {
+            path: {
               type: 'string',
-              maxLength: 10,
-              description: "The site's primary locale when absent."
+              maxLength: 2048,
+              description: 'Only pages whose path starts with this.'
+            },
+            locales: {
+              type: 'string',
+              maxLength: 255,
+              description: "Comma-separated locale codes. The site's primary locale when absent."
+            },
+            tags: {
+              type: 'string',
+              maxLength: 2048,
+              description: 'Comma-separated tags a page must carry all of.'
+            },
+            editor: {
+              type: 'string',
+              maxLength: 255
+            },
+            publishState: {
+              type: 'string',
+              enum: ['draft', 'published', 'scheduled']
             },
             offset: {
               type: 'integer',
@@ -390,14 +417,19 @@ async function routes(app: FastifyInstance) {
         )
       }
       const accessActor = CARDINAL.models.groups.actorForRequest(req)
+      const locales = splitList(req.query.locales)
       return CARDINAL.models.semanticSearch.search(
         req.query.query,
         accessActor,
         siteId,
-        req.query.locale ?? defaultLocale(siteId),
+        locales.length > 0 ? locales : [defaultLocale(siteId)],
         {
           limit: req.query.limit ?? 25,
-          offset: req.query.offset ?? 0
+          offset: req.query.offset ?? 0,
+          path: req.query.path,
+          tags: splitList(req.query.tags),
+          editor: req.query.editor,
+          publishState: req.query.publishState
         }
       )
     }

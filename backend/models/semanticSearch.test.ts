@@ -384,7 +384,10 @@ describe('semanticSearch: merge/rank/paginate', () => {
       })
 
       try {
-        const result = await search('anything', undefined, 'site-1', 'en', { limit: 10, offset: 0 })
+        const result = await search('anything', undefined, 'site-1', ['en'], {
+          limit: 10,
+          offset: 0
+        })
         assert.deepEqual(result, {
           results: [],
           totalHits: 0,
@@ -563,7 +566,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const readerActor = await restrictReaderToOpenBranch()
       const results = await annSearch(basisVector(0), {
         siteId: fixtures.siteId,
-        locale: 'en',
+        locales: ['en'],
         actor: readerActor
       })
 
@@ -591,7 +594,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       await insertChunk(openPage.id, basisVector(0))
       await insertChunk(hiddenPage.id, pad([0.9, 0.1, 0]))
 
-      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locale: 'en' })
+      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locales: ['en'] })
 
       // -> One `setupTestDb()` fixture is shared by every test in this file (per the "Testing
       //    (backend)" convention), so the site/locale this suite scopes to also carries whatever
@@ -631,7 +634,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       await insertChunk(near.id, basisVector(0))
       await insertChunk(mid.id, pad([0.7, 0.7, 0]))
 
-      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locale: 'en' })
+      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locales: ['en'] })
       const own = results.filter((r) => [near.id, mid.id, far.id].includes(r.pageId))
 
       assert.deepEqual(
@@ -671,7 +674,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       await insertChunk(homePage.id, basisVector(0))
       await insertChunk(otherPage.id, basisVector(0))
 
-      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locale: 'en' })
+      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locales: ['en'] })
       const own = results.filter((r) => r.pageId === homePage.id || r.pageId === otherPage.id)
 
       assert.deepEqual(
@@ -699,12 +702,197 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       await insertChunk(enPage.id, basisVector(0))
       await insertChunk(frPage.id, basisVector(0))
 
-      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locale: 'en' })
+      const results = await annSearch(basisVector(0), { siteId: fixtures.siteId, locales: ['en'] })
       const own = results.filter((r) => r.pageId === enPage.id || r.pageId === frPage.id)
 
       assert.deepEqual(
         own.map((r) => r.pageId),
         [enPage.id]
+      )
+    })
+
+    /**
+     * OpenProject #3328: `locales` accepts several values at once, matching keyword search's own
+     * `locales` filter -- a translation in a THIRD locale, named by neither, still never comes back.
+     */
+    test('locales: several values are ORed together, a locale named by neither still never comes back', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const enPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/multi-locale', title: 'Multi Locale', locale: 'en' }),
+        actor
+      )
+      const frPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/multi-locale', title: 'Langue Multiple', locale: 'fr' }),
+        actor
+      )
+      await insertChunk(enPage.id, basisVector(0))
+      await insertChunk(frPage.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en', 'fr']
+      })
+      const own = results
+        .filter((r) => r.pageId === enPage.id || r.pageId === frPage.id)
+        .map((r) => r.pageId)
+        .sort()
+
+      assert.deepEqual(own, [enPage.id, frPage.id].sort())
+    })
+
+    /**
+     * OpenProject #3328: `path` is a prefix match, same semantics as keyword search's own `path`
+     * filter (`escapeLikePattern` + trailing `%`).
+     */
+    test('path: only a page whose path starts with the filter comes back', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const inside = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/guides/inside', title: 'Inside Guides' }),
+        actor
+      )
+      const outside = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/other/outside', title: 'Outside Guides' }),
+        actor
+      )
+      await insertChunk(inside.id, basisVector(0))
+      await insertChunk(outside.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        path: 'docs/guides'
+      })
+      const own = results.filter((r) => r.pageId === inside.id || r.pageId === outside.id)
+
+      assert.deepEqual(
+        own.map((r) => r.pageId),
+        [inside.id]
+      )
+    })
+
+    /**
+     * OpenProject #3328: `tags` requires the page to carry every listed tag (`@>`), same as keyword
+     * search's own `tags` filter -- a page carrying only SOME of the listed tags does not match.
+     */
+    test('tags: a page must carry every listed tag, not merely one of them', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const both = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/tags-both', title: 'Tags Both', tags: ['alpha', 'beta'] }),
+        actor
+      )
+      const onlyOne = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/tags-one', title: 'Tags One', tags: ['alpha'] }),
+        actor
+      )
+      await insertChunk(both.id, basisVector(0))
+      await insertChunk(onlyOne.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        tags: ['alpha', 'beta']
+      })
+      const own = results.filter((r) => r.pageId === both.id || r.pageId === onlyOne.id)
+
+      assert.deepEqual(
+        own.map((r) => r.pageId),
+        [both.id]
+      )
+    })
+
+    /** OpenProject #3328: `editor` is an exact match. */
+    test('editor: only a page using the named editor comes back', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const markdownPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/open/editor-markdown',
+          title: 'Editor Markdown',
+          editor: 'markdown'
+        }),
+        actor
+      )
+      const codePage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/open/editor-code', title: 'Editor Code', editor: 'code' }),
+        actor
+      )
+      await insertChunk(markdownPage.id, basisVector(0))
+      await insertChunk(codePage.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        editor: 'code'
+      })
+      const own = results.filter((r) => r.pageId === markdownPage.id || r.pageId === codePage.id)
+
+      assert.deepEqual(
+        own.map((r) => r.pageId),
+        [codePage.id]
+      )
+    })
+
+    /** OpenProject #3328: `publishState` is an exact match. */
+    test('publishState: only a page in the named state comes back', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      const published = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/open/publish-published',
+          title: 'Publish Published',
+          publishState: 'published'
+        }),
+        actor
+      )
+      const draft = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/open/publish-draft',
+          title: 'Publish Draft',
+          publishState: 'draft'
+        }),
+        actor
+      )
+      await insertChunk(published.id, basisVector(0))
+      await insertChunk(draft.id, basisVector(0))
+
+      const results = await annSearch(basisVector(0), {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        publishState: 'published'
+      })
+      const own = results.filter((r) => r.pageId === published.id || r.pageId === draft.id)
+
+      assert.deepEqual(
+        own.map((r) => r.pageId),
+        [published.id]
       )
     })
 
@@ -791,7 +979,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const readerActor = { groupIds: [fixtures.groupId], permissions: [] }
       const results = await runHop2([seed], {
         siteId: fixtures.siteId,
-        locale: 'en',
+        locales: ['en'],
         actor: readerActor
       })
 
@@ -853,7 +1041,7 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const readerActor = { groupIds: [fixtures.groupId], permissions: [] }
       const results = await runHop2(hop1, {
         siteId: fixtures.siteId,
-        locale: 'en',
+        locales: ['en'],
         actor: readerActor
       })
 
@@ -871,6 +1059,53 @@ describe('semanticSearch (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.ok(
         excludedAppearances.every((r) => r.distance > 0.9),
         "excluded-seed-target's own matching vector (basisVector(23)) was never used as a hop-2 query -- it only ever appears as a distant match under the 3 real seed vectors, never near 0"
+      )
+    })
+
+    /**
+     * OpenProject #3328: the filters apply at hop 2 exactly like hop 1, since both go through the
+     * same `queryChunks` -- a page a filter excludes cannot reappear by way of the second hop's own
+     * expansion, even when it would otherwise be the seed's own nearest match.
+     */
+    test('a page excluded by a filter never reappears via hop-2 expansion', async (t) => {
+      if (!pgvectorAvailable) {
+        t.skip('pgvector extension not installed on this Postgres')
+        return
+      }
+
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules: [hop2AllowAllRule] })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await groupsModel.reloadCache()
+
+      const seedVector = basisVector(30)
+      const excludedByEditor = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'hop2-filtered-out', title: 'Hop2 Filtered Out', editor: 'code' }),
+        actor
+      )
+      // -> Identical to the seed vector, so absent the filter it would be hop 2's own nearest match.
+      await insertChunk(excludedByEditor.id, seedVector)
+
+      const seed = makeRow({
+        pageId: 'seed-page-not-a-real-row',
+        embedding: seedVector,
+        distance: 0.1
+      })
+
+      const readerActor = { groupIds: [fixtures.groupId], permissions: [] }
+      const results = await runHop2([seed], {
+        siteId: fixtures.siteId,
+        locales: ['en'],
+        actor: readerActor,
+        editor: 'markdown'
+      })
+
+      assert.equal(
+        results.some((r) => r.pageId === excludedByEditor.id),
+        false,
+        "the editor='markdown' filter keeps the code-editor page out of hop 2's own results"
       )
     })
   })

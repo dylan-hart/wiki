@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { embedText } from '../helpers/embeddings.ts'
+import { escapeLikePattern } from '../helpers/common.ts'
 import { filterVisible } from '../modules/search/shared.ts'
 import type { AccessActor } from './groups.ts'
 import type { VisibilityRef } from '../modules/search/shared.ts'
@@ -18,16 +19,22 @@ import type { SearchPagesResult } from './search.ts'
  *   second `annSearch` call off a seed chunk's own embedding, reusing `annSearch` itself
  *   unchanged rather than re-deriving its ANN-plus-`filterVisible` logic with a different input
  *   vector.
- * - #3101 (this Task): `bestChunkPerPage`, `dedupeAndRank`, `mergeHopResults` and the
- *   `search(query, actor, siteId, locale, { limit, offset })` entry point that
- *   `api/pages/read.ts` (#3102) wraps — merge/dedupe/penalty/rank plus pagination on top of
+ * - #3101: `bestChunkPerPage`, `dedupeAndRank`, `mergeHopResults` and the `search()` entry point
+ *   (see #3328 below for its current signature) that `api/pages/read.ts` (#3102) wraps —
+ *   merge/dedupe/penalty/rank plus pagination on top of
  *   `annSearch`/`runHop2`'s already-filtered output. Because `annSearch`/`runHop2` return only
  *   the *visible* rows for their hop, `totalHitsApproximate` (which needs to know whether
  *   permission filtering actually dropped a scanned row) is computed off `queryChunks`, the same
  *   private, unfiltered ANN primitive `annSearch` itself is built on — see `hop1Outcome`/
- *   `hop2Outcome` below. This keeps `annSearch`'s and `runHop2`'s own public contracts (and their
- *   #3099/#3100 test coverage) unchanged while giving `search()` the scanned-vs-visible counts it
- *   needs, with one DB round trip per hop either way.
+ *   `hop2Outcome` below.
+ * - #3328 (this Task): `queryChunks`'s single `locale` becomes `locales: string[]`
+ *   (`= ANY(...)`), plus `path`/`tags`/`editor`/`publishState` WHERE-clause filters — mirroring
+ *   `modules/search/db/search.ts`'s own filter semantics exactly (prefix `LIKE` for `path`, `@>`
+ *   "must carry all" for `tags`, exact equality for `editor`/`publishState`). Threaded through the
+ *   one shared `queryChunks`, so `hop1Outcome`/`hop2Outcome` — and therefore `annSearch`/`runHop2`
+ *   — apply the same filters identically at both hops: a filtered-out page cannot reappear via
+ *   hop-2 expansion. `search()`'s trailing options object grows the same four filters; no
+ *   `orderBy`/`orderByDirection` — Sort By stays out of scope for semantic search.
  *
  * `pageEmbeddingChunks` is deliberately **not** declared in `db/schema.ts` / managed by
  * `drizzle-kit generate` — pgvector is an optional extension (not every host permits installing it),
@@ -117,10 +124,26 @@ export interface SemanticSearchResult {
 
 export interface AnnSearchScope {
   siteId: string
-  locale: string
+  /** At least one locale is always present — the route defaults to the site's primary locale when
+   *  the caller names none, the same fallback the singular `locale` param used before #3328. */
+  locales: string[]
   /** Who is asking — see `filterVisible`'s own doc comment for what omitting this means. */
   actor?: AccessActor
+  /** Only pages whose path starts with this (OpenProject #3328), same prefix-match semantics as
+   *  keyword search's own `path` filter. */
+  path?: string
+  /** A page must carry every one of these tags (OpenProject #3328), same as keyword search's `tags`. */
+  tags?: string[]
+  /** Exact `pages.editor` match (OpenProject #3328). */
+  editor?: string
+  /** Exact `pages.publishState` match (OpenProject #3328). */
+  publishState?: string
 }
+
+/** The subset of `AnnSearchScope` that `queryChunks` itself turns into WHERE-clause conditions —
+ *  everything but `siteId` (a separate positional argument) and `actor` (`filterVisible`'s job,
+ *  never SQL). */
+type ChunkFilters = Omit<AnnSearchScope, 'siteId' | 'actor'>
 
 /** The `pages` columns `filterVisible` needs, out of one raw `annSearch` row. */
 function toVisibilityRef(row: SemanticChunkMatch): VisibilityRef {
@@ -170,9 +193,17 @@ function parseVector(raw: unknown): number[] {
 /**
  * The raw ANN query shared by `annSearch` and, for the scanned-count `search()` needs, by
  * `hop1Outcome`/`hop2Outcome` below: nearest `SEMANTIC_SCAN_CAP` `pageEmbeddingChunks` rows (cosine
- * distance, `<=>`) scoped to one site and locale, joined to `pages` for the columns `filterVisible`
- * and the merged result shape need. No permission filtering here — that is every caller's own job,
- * so a caller that needs the pre-filter scan count (for `totalHitsApproximate`) can still get it.
+ * distance, `<=>`) scoped to one site plus the caller's own path/locales/tags/editor/publishState
+ * filters (OpenProject #3328), joined to `pages` for the columns `filterVisible` and the merged
+ * result shape need. No permission filtering here — that is every caller's own job, so a caller that
+ * needs the pre-filter scan count (for `totalHitsApproximate`) can still get it.
+ *
+ * Every filter is applied identically whichever hop calls this — `hop1Outcome`/`hop2Outcome` share
+ * this one function — so a page a filter excludes cannot reappear by way of hop-2 expansion.
+ * `path`/`tags`/`editor`/`publishState` mirror `modules/search/db/search.ts`'s own filter semantics
+ * exactly: `path` is a `LIKE` prefix match (via `escapeLikePattern`), `tags` requires the page to
+ * carry every listed tag (`@>`), `locales` is `= ANY(...)`, `editor`/`publishState` are exact
+ * equality. Every value is bound as a parameter, never string-concatenated into the query.
  *
  * Returned rows carry their own `embedding` (parsed back out of pgvector's text representation) so a
  * caller can re-query with it, and stay in ascending-distance order (postgres's own `ORDER BY`) —
@@ -181,9 +212,31 @@ function parseVector(raw: unknown): number[] {
 async function queryChunks(
   embedding: number[],
   siteId: string,
-  locale: string
+  { locales, path, tags, editor, publishState }: ChunkFilters
 ): Promise<SemanticChunkMatch[]> {
   const vectorLiteral = toVectorLiteral(embedding)
+
+  const conditions = [
+    sql`p."siteId" = ${siteId}`,
+    // -> `sql.param`, because a bare array is expanded into a list of placeholders rather than
+    //    bound as one array value — same reasoning as `modules/search/db/search.ts`'s own locale/tag
+    //    filters.
+    sql`p.locale = ANY(${sql.param(locales)}::text[])`
+  ]
+  if (path) {
+    // -> `escapeLikePattern` makes the filter literal; the trailing `%` is what turns it into a
+    //    prefix match rather than an exact one.
+    conditions.push(sql`p.path LIKE ${`${escapeLikePattern(path)}%`}`)
+  }
+  if (tags && tags.length > 0) {
+    conditions.push(sql`p.tags @> ${sql.param(tags)}::text[]`)
+  }
+  if (editor) {
+    conditions.push(sql`p.editor = ${editor}`)
+  }
+  if (publishState) {
+    conditions.push(sql`p."publishState" = ${publishState}`)
+  }
 
   const result = await CARDINAL.db.execute(sql`
     SELECT
@@ -201,7 +254,7 @@ async function queryChunks(
       p.classification AS classification
     FROM "pageEmbeddingChunks" pec
     JOIN pages p ON p.id = pec."pageId"
-    WHERE p."siteId" = ${siteId} AND p.locale = ${locale}
+    WHERE ${sql.join(conditions, sql` AND `)}
     ORDER BY pec.embedding <=> ${vectorLiteral}::vector
     LIMIT ${SEMANTIC_SCAN_CAP}
   `)
@@ -224,7 +277,8 @@ async function queryChunks(
 
 /**
  * Hop-1 ANN search: given a pre-computed embedding vector, finds the `SEMANTIC_SCAN_CAP` nearest
- * `pageEmbeddingChunks` rows scoped to one site and locale, then filters through `filterVisible`
+ * `pageEmbeddingChunks` rows scoped to one site plus the caller's filters, then filters through
+ * `filterVisible`
  * unchanged — the same page-permission guarantee full-text search already gives, so semantic
  * search is never a way around page rules.
  *
@@ -237,9 +291,9 @@ async function queryChunks(
  */
 export async function annSearch(
   embedding: number[],
-  { siteId, locale, actor }: AnnSearchScope
+  { siteId, locales, actor, path, tags, editor, publishState }: AnnSearchScope
 ): Promise<SemanticChunkMatch[]> {
-  const rows = await queryChunks(embedding, siteId, locale)
+  const rows = await queryChunks(embedding, siteId, { locales, path, tags, editor, publishState })
   return filterVisible(rows, actor, siteId, toVisibilityRef)
 }
 
@@ -291,9 +345,15 @@ export async function runHop2(
  */
 async function hop1Outcome(
   queryVector: number[],
-  { siteId, locale, actor }: AnnSearchScope
+  { siteId, locales, actor, path, tags, editor, publishState }: AnnSearchScope
 ): Promise<HopOutcome> {
-  const scanned = await queryChunks(queryVector, siteId, locale)
+  const scanned = await queryChunks(queryVector, siteId, {
+    locales,
+    path,
+    tags,
+    editor,
+    publishState
+  })
   const visible = filterVisible(scanned, actor, siteId, toVisibilityRef)
   return { scanned, visible }
 }
@@ -306,10 +366,12 @@ async function hop1Outcome(
  */
 async function hop2Outcome(
   seeds: SemanticChunkMatch[],
-  { siteId, locale, actor }: AnnSearchScope
+  { siteId, locales, actor, path, tags, editor, publishState }: AnnSearchScope
 ): Promise<HopOutcome> {
   const scannedBatches = await Promise.all(
-    seeds.map((seed) => queryChunks(seed.embedding, siteId, locale))
+    seeds.map((seed) =>
+      queryChunks(seed.embedding, siteId, { locales, path, tags, editor, publishState })
+    )
   )
   const scanned = scannedBatches.flat()
   const visible = filterVisible(scanned, actor, siteId, toVisibilityRef)
@@ -418,20 +480,39 @@ const EMPTY_HOP_OUTCOME: HopOutcome = { scanned: [], visible: [] }
  * (#3102) wraps. Degrades to an empty, non-approximate result set when local embedding inference is
  * unavailable (`embedText` returns `null`) — the same "hide rather than fail" posture
  * `CARDINAL.capabilities.semanticSearch` gives the rest of this feature (design doc's scope decision 8).
+ *
+ * `locales` replaces the earlier single `locale` (OpenProject #3328) — always at least one entry, the
+ * route's own job to default. `path`/`tags`/`editor`/`publishState` join the trailing options object
+ * rather than becoming further positional arguments, applied identically to both hops via the shared
+ * `AnnSearchScope`. No `orderBy`/`orderByDirection` — Sort By is out of scope for semantic search.
  */
 export async function search(
   query: string,
   actor: AccessActor | undefined,
   siteId: string,
-  locale: string,
-  { limit, offset }: { limit: number; offset: number }
+  locales: string[],
+  {
+    limit,
+    offset,
+    path,
+    tags,
+    editor,
+    publishState
+  }: {
+    limit: number
+    offset: number
+    path?: string
+    tags?: string[]
+    editor?: string
+    publishState?: string
+  }
 ): Promise<SemanticSearchPagesResult> {
   const queryVector = await embedText(query)
   if (!queryVector) {
     return { results: [], totalHits: 0, totalHitsApproximate: false, suggestion: null }
   }
 
-  const scope: AnnSearchScope = { siteId, locale, actor }
+  const scope: AnnSearchScope = { siteId, locales, actor, path, tags, editor, publishState }
   const hop1Result = await hop1Outcome(queryVector, scope)
   const seeds = selectHop2Seeds(hop1Result.visible)
   const hop2Result = seeds.length > 0 ? await hop2Outcome(seeds, scope) : EMPTY_HOP_OUTCOME

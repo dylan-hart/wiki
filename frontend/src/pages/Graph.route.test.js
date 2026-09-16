@@ -77,7 +77,11 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
       pageLocale: 'fr'
     })
 
-    const en = wrapper.vm.nodes.find(
+    // -> Read off `allNodes` (the full fetched graph), not `nodes` (OpenProject #3333's own
+    //    anchor-restricted rendered subset) -- the `en` copy is now excluded from `nodes` entirely
+    //    once anchored to the `fr` copy (see `Graph.anchor.test.js`), so it has to be looked up from
+    //    the unrestricted source to assert it was never pinned.
+    const en = wrapper.vm.allNodes.find(
       (node) => node.path === 'guides/onboarding' && node.locale === 'en'
     )
     const fr = wrapper.vm.nodes.find(
@@ -105,15 +109,130 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     }
   })
 
-  it('does not narrow the visible node/edge set -- only changes the centering/highlight target', async () => {
+  it('narrows the visible node set to the anchor plus its descendants (OpenProject #3333)', async () => {
     const wrapper = await mountGraph({
       graph: MULTI_LOCALE_GRAPH,
       initialPath: '/_graph?path=reference/api',
       pageLocale: 'en'
     })
 
-    // -> Every node from the fixture graph is still present -- the focus param highlights, it does
-    //    not filter (same scope note `computeHighlightedNodeIds`'s own doc comment makes).
-    expect(wrapper.vm.nodes.filter((node) => !node.synthetic)).toHaveLength(3)
+    // -> `reference/api` (en) has no descendants in this fixture, so anchoring to it leaves only
+    //    itself -- the other two nodes (a different path entirely, and the same path in a different
+    //    locale) are both outside its subtree. See `Graph.anchor.test.js` for the full restriction
+    //    behavior; this suite only re-asserts that the ?path= mechanism this file covers now feeds
+    //    that restriction, since prior to OpenProject #3333 it deliberately never narrowed anything.
+    const realPaths = wrapper.vm.nodes.filter((node) => !node.synthetic).map((node) => node.path)
+    expect(realPaths).toEqual(['reference/api'])
+  })
+})
+
+/*
+ * OpenProject #3334: `applyRouteFocus()` used to run exactly once, at mount, from `loadGraph()`'s
+ * initial fetch -- the sidebar's own in-graph re-root branch (`navSidebarDestination.js`
+ * `graphSidebarBranch()`, #3313) updates `route.query.path` via `router.replace()` while `/_graph`
+ * stays mounted the whole time, so nothing downstream ever noticed a LATER change. These assert the
+ * `watch(() => route.query.path, applyRouteFocus)` fix: a live query-param change re-centers and
+ * re-highlights, releases the previously-focused node's pin rather than stacking a second pin on
+ * top of it, and a redundant re-navigation to the already-active path is a no-op.
+ */
+describe('Graph.vue live route-focus re-application on ?path= change (OpenProject #3334)', () => {
+  it('re-centers and re-highlights when route.query.path changes after mount, with no remount', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+    expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
+
+    await wrapper.vm.$router.replace({ path: '/_graph', query: { path: 'guides/onboarding' } })
+    await wrapper.vm.$nextTick()
+
+    const newTarget = wrapper.vm.nodes.find(
+      (node) => node.path === 'guides/onboarding' && node.locale === 'en'
+    )
+    expect(wrapper.vm.focusNodeId).toBe('en:guides/onboarding')
+    expect(wrapper.vm.highlightedNodeIds.has('en:guides/onboarding')).toBe(true)
+    expect(newTarget.fx).toBe(0)
+    expect(newTarget.fy).toBe(0)
+  })
+
+  it('releases the previously-focused node pin instead of leaving it stacked on the new one', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+    const oldTarget = wrapper.vm.nodes.find(
+      (node) => node.path === 'reference/api' && node.locale === 'en'
+    )
+    expect(oldTarget.fx).toBe(0)
+
+    await wrapper.vm.$router.replace({ path: '/_graph', query: { path: 'guides/onboarding' } })
+    await wrapper.vm.$nextTick()
+
+    expect(oldTarget.fx == null).toBe(true)
+    expect(oldTarget.fy == null).toBe(true)
+    expect(wrapper.vm.highlightedNodeIds.has('en:reference/api')).toBe(false)
+  })
+
+  it('re-navigating to the already-active path is a no-op -- focus and pin stay exactly as they were', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+    const target = wrapper.vm.nodes.find(
+      (node) => node.path === 'reference/api' && node.locale === 'en'
+    )
+    expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
+
+    await wrapper.vm.$router.replace({ path: '/_graph', query: { path: 'reference/api' } })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
+    expect(target.fx).toBe(0)
+    expect(target.fy).toBe(0)
+  })
+})
+
+/*
+ * OpenProject #3337: the Graph nav button now sends the current page's nearest containing folder
+ * (root for a top-level page) rather than the page itself, so `?path=` commonly names a synthetic
+ * folder/root node -- these assert `applyRouteFocus()` resolves, pins and highlights one of those,
+ * not only a real page node.
+ */
+describe('Graph.vue ?path= route focus resolves a synthetic folder/root anchor (OpenProject #3337)', () => {
+  it('resolves, pins and highlights the synthetic folder node named by ?path=', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=guides',
+      pageLocale: 'en'
+    })
+
+    const folderNode = wrapper.vm.nodes.find(
+      (node) => node.synthetic && node.path === 'guides' && node.locale === 'en'
+    )
+    expect(folderNode).toBeTruthy()
+    expect(wrapper.vm.focusNodeId).toBe('en:guides')
+    expect(wrapper.vm.highlightedNodeIds.has('en:guides')).toBe(true)
+    expect(folderNode.fx).toBe(0)
+    expect(folderNode.fy).toBe(0)
+  })
+
+  it('resolves, pins and highlights the synthetic root node for an explicit empty ?path=', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=',
+      pageLocale: 'en'
+    })
+
+    const rootNode = wrapper.vm.nodes.find(
+      (node) => node.synthetic && node.path === '' && node.locale === 'en'
+    )
+    expect(rootNode).toBeTruthy()
+    expect(wrapper.vm.focusNodeId).toBe('en:')
+    expect(wrapper.vm.highlightedNodeIds.has('en:')).toBe(true)
+    expect(rootNode.fx).toBe(0)
+    expect(rootNode.fy).toBe(0)
   })
 })

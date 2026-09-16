@@ -77,22 +77,35 @@ export function nodeId(node) {
 }
 
 /**
- * The real node named by a `path`/`locale` pair, or `null` when nothing matches (OpenProject #3312,
+ * The node named by a `path`/`locale` pair, or `null` when nothing matches (OpenProject #3312,
  * Feature #3311) -- `Graph.vue`'s resolution for the `/_graph?path=` query param that centers and
- * highlights the page the reader arrived from. `path` alone is ambiguous on a multi-locale site (see
- * `nodeId()`'s own doc comment above: two locales' translations of a page share a `path` by design),
- * so this always scopes the match to the given `locale` too, rather than returning the first node
- * whose `path` happens to match. A synthetic folder/root node (`node.synthetic`) is never a valid
- * match: it has no page of its own for a reader to have arrived from, the same reasoning
- * `navigateToNode()`/`fallbackNodes` already apply. `path` falsy (no query param at all) or `nodes`
- * empty (the graph hasn't loaded yet) both return `null` with no further work, same as "no match."
+ * highlights the page (or, per OpenProject #3337, the folder/root anchor) the reader arrived from.
+ * `path` alone is ambiguous on a multi-locale site (see `nodeId()`'s own doc comment above: two
+ * locales' translations of a page share a `path` by design), so this always scopes the match to the
+ * given `locale` too, rather than returning the first node whose `path` happens to match.
+ *
+ * By default a synthetic folder/root node (`node.synthetic`) is never a valid match: it has no page
+ * of its own for a reader to have arrived from, the same reasoning `navigateToNode()`/`fallbackNodes`
+ * already apply. `Graph.vue#applyRouteFocus()` opts into matching one too, via `includeSynthetic:
+ * true` (OpenProject #3337) -- the header's Graph button now anchors on the current page's nearest
+ * containing folder (root for a top-level page), which is commonly a synthetic node rather than a
+ * real page. Any other/future caller not passing the option keeps today's page-only behavior.
+ *
+ * `path` missing entirely (`null`/`undefined`, i.e. no query param at all) returns `null` with no
+ * further work, same as "no match" -- but a `path` of `''` is a DELIBERATE, distinct request (the
+ * synthetic root node's own path) and is not short-circuited the same way, unlike a plain falsy
+ * check would. `nodes` empty (the graph hasn't loaded yet) also returns `null`, same as any other
+ * no-match case.
  */
-export function resolveFocusNode(nodes, path, locale) {
-  if (!path) {
+export function resolveFocusNode(nodes, path, locale, { includeSynthetic = false } = {}) {
+  if (path === null || path === undefined) {
     return null
   }
   return (
-    nodes.find((node) => !node.synthetic && node.path === path && node.locale === locale) ?? null
+    nodes.find(
+      (node) =>
+        (includeSynthetic || !node.synthetic) && node.path === path && node.locale === locale
+    ) ?? null
   )
 }
 
@@ -122,20 +135,51 @@ function folderDepthOf(node) {
 }
 
 /**
+ * Whether `node` is the anchor itself or nested under it (OpenProject #3333) -- `anchorPath` is a
+ * directory-style prefix match against `node.path`, the same "path segments" notion `folderDepthOf`
+ * already uses, not a substring match: `guides/one` is a descendant of `guides`, but `guides-other`
+ * is not. `anchorPath === ''` (the site/locale root) matches every path -- a root anchor's
+ * "descendants" is the entire tree, which is also why anchoring at the root is a no-op compared to
+ * having no anchor at all (see `computeVisibleSubset`'s own doc comment).
+ */
+function isDescendantPath(path, anchorPath) {
+  return anchorPath === '' || path === anchorPath || path.startsWith(`${anchorPath}/`)
+}
+
+/**
  * The AND of every active filter (OpenProject #875's design) — a node passes only if it passes
  * every non-empty filter, and an edge survives only if both endpoints do. `null`/`undefined` on
  * any filter means "no restriction" for that dimension -- `folderDepth` in particular must use
  * this explicit check rather than truthiness, because `0` (root-only) is itself a real, active
  * filter value and must not be treated the same as "unset" (OpenProject #898/#900).
+ *
+ * `anchor` (OpenProject #3333, Task #3312's own follow-up scope correction) is `{ path, locale }`
+ * naming the page the graph is currently anchored to via `?path=` (`Graph.vue#applyRouteFocus()`),
+ * or `null`/`undefined` when no anchor is active -- matching every pre-#3333 call site unchanged.
+ * With an anchor active, the visible set is additionally restricted to the anchor node itself plus
+ * its descendants (same-locale nodes nested under its path, `isDescendantPath` above) -- a node in a
+ * different locale, or outside the anchor's own subtree, never passes regardless of the other
+ * filters. `folderDepth` is reinterpreted alongside it: instead of measuring path segments from the
+ * site root, it measures hops from the anchor (`folderDepthOf(node) - folderDepthOf(anchor)`, valid
+ * because a descendant's path is always the anchor's path plus whole extra segments). Anchoring at
+ * the root (`anchor.path === ''`) leaves both of these unchanged from the no-anchor case: every node
+ * is a "descendant" of the root, and hops-from-root-anchor is the same number `folderDepthOf` always
+ * computed, so root-anchored and un-anchored behavior are computed identically on purpose, not as a
+ * special case.
  */
-export function computeVisibleSubset(nodes, edges, filters) {
+export function computeVisibleSubset(nodes, edges, filters, anchor = null) {
   const passesTag = (node) =>
     filters.tags.length === 0 || filters.tags.some((t) => node.tags?.includes(t))
   const passesLocale = (node) => !filters.locale || node.locale === filters.locale
+  const passesAnchor = (node) =>
+    !anchor || (node.locale === anchor.locale && isDescendantPath(node.path, anchor.path))
+  const anchorDepth = anchor ? folderDepthOf({ path: anchor.path }) : 0
   const passesFolderDepth = (node) =>
-    filters.folderDepth == null || folderDepthOf(node) <= filters.folderDepth
+    filters.folderDepth == null || folderDepthOf(node) - anchorDepth <= filters.folderDepth
 
-  const visibleNodes = nodes.filter((n) => passesTag(n) && passesLocale(n) && passesFolderDepth(n))
+  const visibleNodes = nodes.filter(
+    (n) => passesTag(n) && passesLocale(n) && passesAnchor(n) && passesFolderDepth(n)
+  )
   const visibleIds = new Set(visibleNodes.map(nodeId))
   const visibleEdges = edges.filter(
     (e) => visibleIds.has(endpointId(e.source)) && visibleIds.has(endpointId(e.target))
