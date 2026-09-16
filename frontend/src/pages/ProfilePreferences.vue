@@ -359,12 +359,24 @@ function clearFieldErrors() {
   revalidateFieldRefs()
 }
 
+/*
+  OpenProject #3325: two rapid `onFieldChange` calls (see the module comment above it) each send
+  their own PUT built synchronously from `state.config`, but nothing sequences the two RESPONSES --
+  whichever lands last would otherwise unconditionally overwrite `state.config` via `applyProfile()`
+  below, even when it is the OLDER of the two in-flight saves and so carries a value the reader has
+  already moved past locally. `saveGeneration` is incremented at the start of every `save()` call; a
+  response is applied only if no newer `save()` has started since, the same shape
+  `composables/adminSettings.js`'s `load()` already uses to drop a stale response (Task #3195).
+*/
+let saveGeneration = 0
+
 async function save() {
   clearFieldErrors()
   // -> OpenProject #3282: counted around the request so ProfileOverlay.vue's close button and
   //    MainOverlayDialog.vue's dismiss guard both see this save while it's in flight, even if the
   //    reader switches away from this section (which unmounts it) before it settles.
   profileSaving.begin()
+  const generation = ++saveGeneration
   try {
     const resp = await API_CLIENT.put('users/profile', {
       json: {
@@ -388,20 +400,25 @@ async function save() {
         locale: commonStore.locale
       }
     }).json()
-    if (resp.profile) {
-      applyProfile(resp.profile)
+    // -> OpenProject #3325: this save has been superseded by a newer one since it was sent -- drop
+    //    the response rather than let it clobber whatever the newer save already applied (or is
+    //    still applying). See the comment above `saveGeneration`.
+    if (generation === saveGeneration) {
+      if (resp.profile) {
+        applyProfile(resp.profile)
+      }
+      // -> Only the fields this page owns editing -- the identity fields are ProfileInfo.vue's to
+      //    patch onto the store.
+      userStore.$patch({
+        timezone: state.config.timezone,
+        dateFormat: state.config.dateFormat,
+        timeFormat: state.config.timeFormat,
+        aesthetic: state.config.aesthetic,
+        appearance: state.config.appearance,
+        contentWidth: state.config.contentWidth,
+        cvd: state.config.cvd
+      })
     }
-    // -> Only the fields this page owns editing -- the identity fields are ProfileInfo.vue's to
-    //    patch onto the store.
-    userStore.$patch({
-      timezone: state.config.timezone,
-      dateFormat: state.config.dateFormat,
-      timeFormat: state.config.timeFormat,
-      aesthetic: state.config.aesthetic,
-      appearance: state.config.appearance,
-      contentWidth: state.config.contentWidth,
-      cvd: state.config.cvd
-    })
     // -> Task #3220/#3320: ambient auto-save -- no success toast.
   } catch (err) {
     applyFieldErrors(err)
