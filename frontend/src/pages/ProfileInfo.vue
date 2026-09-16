@@ -449,10 +449,18 @@ function commitTextField(field) {
  * the reader could still type back over -- and it routes back through `commitTextField` via the
  * field's own `@blur` handler above, which no-ops once the values already match rather than this
  * function needing its own duplicate skip-save logic.
+ *
+ * OpenProject #3351: `stopPropagation()` keeps this first Escape from also closing the dialog. This
+ * target-phase handler runs before the event ever bubbles to `document`, where
+ * `composables/escapeStack.js`'s single bubble-phase listener would otherwise route it to
+ * `WDialog.vue`'s `handleEscape` and close the (non-persistent) Profile overlay in the same
+ * keypress that reverted the field. A second, separate Escape press -- the field already blurred,
+ * so this handler no longer runs -- bubbles normally and closes the dialog as before.
  */
 function revertTextField(field, event) {
   state.config[field] = lastSaved[field]
   event.target.blur()
+  event.stopPropagation()
 }
 
 const debouncedAutoSave = debounce(save, AUTO_SAVE_DEBOUNCE_MS)

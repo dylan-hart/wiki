@@ -68,6 +68,51 @@ describe('edit route', () => {
 })
 
 /**
+ * Regression coverage for OpenProject #3343: `AdminPageEyebrow.vue`'s sectionKey used to infer
+ * site-scoping from `route.path`'s segment count, which misread `groups/:id?/:section?` and
+ * `users/:id?/:section?` as site-scoped once their optional params were populated (e.g.
+ * `/_admin/groups/5/members`). The fix is `meta.siteScoped`, declared explicitly on each `:siteid/...`
+ * child route -- this asserts every one of the 13 carries it, and that the three Users routes with
+ * their own optional segments (`groups`, `users`, and `auth` for good measure) do not.
+ */
+describe('admin site-scoped route meta (OpenProject #3343)', () => {
+  const adminRoute = routes.find((route) => route.path === '/_admin')
+  const siteChildren = adminRoute.children
+
+  const SITE_SCOPED_PATHS = [
+    ':siteid/general',
+    ':siteid/analytics',
+    ':siteid/approvals',
+    ':siteid/blocks',
+    ':siteid/editors',
+    ':siteid/glossary',
+    ':siteid/locale',
+    ':siteid/login',
+    ':siteid/navigation',
+    ':siteid/pages',
+    ':siteid/pages/deleted',
+    ':siteid/storage/:id?',
+    ':siteid/comments',
+    ':siteid/theme'
+  ]
+
+  it.each(SITE_SCOPED_PATHS)('marks %s as site-scoped', (path) => {
+    const route = siteChildren.find((r) => r.path === path)
+    expect(route).toBeDefined()
+    expect(route.meta?.siteScoped).toBe(true)
+  })
+
+  it.each(['auth', 'groups/:id?/:section?', 'users/:id?/:section?'])(
+    'does not mark %s as site-scoped',
+    (path) => {
+      const route = siteChildren.find((r) => r.path === path)
+      expect(route).toBeDefined()
+      expect(route.meta?.siteScoped).toBeFalsy()
+    }
+  )
+})
+
+/**
  * Regression coverage for OpenProject #2512: `MainLayout.vue`'s `isSidebarMini` scopes its
  * `!pageStore.navigationId` fallback to `route.meta.contentPage`, so this flag has to actually be
  * true on every route that renders `Index.vue` (and therefore runs a page through

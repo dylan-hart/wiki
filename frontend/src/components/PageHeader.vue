@@ -108,6 +108,19 @@
       holds while a page is being read is a handful of icons for a wide screen, but while a page is
       being WRITTEN it holds the only way to save or to get back out. See the stylesheet.
     -->
+    <!--
+      Task/Feature #3350: while `isEditing` is true, Tab is meant to flow title -> description ->
+      the markdown editor's own content, not through this row -- which sits between the two in plain
+      DOM order. `:tabindex="isEditing ? -1 : undefined"` on the docs-help, Discard, Create Page and
+      Save/Save & Close buttons below takes them out of the Tab sequence for exactly that window,
+      still reachable by click, and back in the Tab order the moment `isEditing` goes false again
+      (e.g. the "pending changes, no editor open" state the properties panel can leave behind, where
+      title/description are plain, non-editable spans and there is no Tab-order conflict to avoid).
+      Watch/Print/Edit/Suggest-edits never render while `isEditing` can be true
+      (`v-if="!editorStore.isActive"`), so they need no such guard. The Submit-edits button
+      (`isSuggesting`) is the same story from the other direction: it never renders while `isEditing`
+      is true (suggest mode leaves title/description read-only), so it is left untouched too.
+    -->
     <div
       class="page-header-actions flex-none p-4 flex items-center justify-end"
       :class="{ 'has-editor-actions': hasEditorActions }">
@@ -185,7 +198,8 @@
           color="slate-soft"
           :href="siteStore.docsBase + `/guide/editors/${editorStore.editor}`"
           target="_blank"
-          type="a">
+          type="a"
+          :tabindex="isEditing ? -1 : undefined">
           <w-tooltip labels>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
       </template>
@@ -248,6 +262,7 @@
           :aria-label="
             editorStore.hasPendingChanges ? t(`common.actions.discard`) : t(`common.actions.close`)
           "
+          :tabindex="isEditing ? -1 : undefined"
           @click="discardChanges" />
         <w-btn
           class="ms-2"
@@ -265,6 +280,7 @@
           color="positive"
           :label="t(`editor.createPage`)"
           :aria-label="t(`editor.createPage`)"
+          :tabindex="isEditing ? -1 : undefined"
           @click="createPage" />
         <w-btn-group class="ms-2" v-else>
           <w-btn
@@ -273,6 +289,7 @@
             :label="t(`common.actions.saveChanges`)"
             :aria-label="t(`common.actions.saveChanges`)"
             :disabled="!editorStore.hasPendingChanges"
+            :tabindex="isEditing ? -1 : undefined"
             @click.exact="saveChanges(false)"
             @click.ctrl.exact="saveChanges(true)" />
           <template v-if="editorStore.isActive">
@@ -282,6 +299,7 @@
               color="positive"
               :aria-label="t(`common.actions.saveAndClose`)"
               :disabled="!editorStore.hasPendingChanges"
+              :tabindex="isEditing ? -1 : undefined"
               @click="saveChanges(true)">
               <w-tooltip>{{ t(`common.actions.saveAndClose`) }}</w-tooltip>
             </w-btn>

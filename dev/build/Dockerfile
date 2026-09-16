@@ -121,4 +121,11 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -fsS http://localhost:3000/_ready || exit 1
 
-CMD ["node", "backend"]
+# --no-experimental-webstorage (OpenProject #3349): lib0 (a transitive dependency of yjs/y-protocols,
+# both direct backend deps for collaborative editing) feature-detects the `localStorage` global at
+# module load. On Node 26, merely referencing that global -- regardless of whether anything is ever
+# stored in it -- fires an `ExperimentalWarning` as a side effect of the property getter itself. The
+# backend has no use for `localStorage`/`sessionStorage` of its own, and lib0 already falls back
+# correctly to an in-memory polyfill the instant the global is unavailable, so disabling it changes
+# nothing observable other than silencing the warning.
+CMD ["node", "--no-experimental-webstorage", "backend"]

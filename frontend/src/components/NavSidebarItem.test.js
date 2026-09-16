@@ -1,5 +1,5 @@
 import { defineComponent, h } from 'vue'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import NavSidebarItem from './NavSidebarItem.vue'
 import WTooltip from './shared/WTooltip.vue'
@@ -835,6 +835,94 @@ describe('NavSidebarItem: ctrl+click expand-all is capped to 3 levels below the 
     expect(isExpanded(wrapper, 'deepL4')).toBe(true) // -> 3 levels below deepL1 -- still inside the cap
     expect(isExpanded(wrapper, 'deepL5')).toBe(false) // -> 4 levels below deepL1 -- past the cap
     expect(isExpanded(wrapper, 'deepRoot')).toBe(false) // -> the clicked node's own ancestor, untouched
+  })
+})
+
+/**
+ * OpenProject #3353: a plain click on a POPULATED folder's header, while `/_graph` is open, must
+ * both keep its ordinary expand/collapse (unchanged) AND re-anchor the graph on that folder --
+ * never navigate to the folder as if it were a page (this branch never binds a `to`/`href` at all).
+ * Mounted with a real router at `/_graph?path=...` so `useNavSidebarDestination()`'s
+ * `reanchorGraphOnFolder()` reads a genuine `/_graph` route.
+ */
+const GRAPH_TREE = [
+  {
+    id: 'docs',
+    label: 'Docs',
+    path: 'docs',
+    children: [{ id: 'docs-leaf', label: 'Setup', path: 'docs/setup', target: '/docs/setup' }]
+  }
+]
+
+async function mountGraphTree(initialPath) {
+  const Host = defineComponent({
+    name: 'GraphTestHost',
+    setup() {
+      useProvideNavExpansionState()
+      return () => h(NavSidebarItem, { item: GRAPH_TREE[0] })
+    }
+  })
+
+  const router = await createTestRouter(routes, initialPath)
+  const { wrapper } = mountWithApp(Host, {
+    router,
+    stores: {
+      site: (store) => {
+        store.nav.items = GRAPH_TREE
+      }
+    }
+  })
+  await wrapper.vm.$nextTick()
+  return { wrapper, router }
+}
+
+describe('NavSidebarItem: plain click on a populated folder re-anchors the graph (OpenProject #3353)', () => {
+  it('toggles expand/collapse AND replaces the route query while /_graph is open', async () => {
+    const { wrapper, router } = await mountGraphTree('/_graph?path=other/page')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    expect(isExpanded(wrapper, 'docs')).toBe(false)
+
+    plainClick(itemWrapper(wrapper, 'docs').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'docs')).toBe(true)
+    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'docs' } })
+  })
+
+  it('toggling closed again still no-ops the router once already the active anchor', async () => {
+    const { wrapper, router } = await mountGraphTree('/_graph?path=docs')
+    const replaceSpy = vi.spyOn(router, 'replace')
+
+    plainClick(itemWrapper(wrapper, 'docs').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'docs')).toBe(true) // -> ordinary toggle still ran
+    expect(replaceSpy).not.toHaveBeenCalled() // -> already the active anchor, no spam
+  })
+
+  it('does not touch the router outside /_graph -- plain click still only toggles', async () => {
+    const { wrapper, router } = await mountGraphTree('/')
+    const replaceSpy = vi.spyOn(router, 'replace')
+
+    plainClick(itemWrapper(wrapper, 'docs').find('.w-expansion-item__header').element)
+    await wrapper.vm.$nextTick()
+
+    expect(isExpanded(wrapper, 'docs')).toBe(true)
+    expect(replaceSpy).not.toHaveBeenCalled()
+  })
+
+  it('never binds a navigable `to`/`href` on the folder header -- ctrl/shift clicks still only toggle or isolate', async () => {
+    const { wrapper, router } = await mountGraphTree('/_graph?path=other/page')
+    const replaceSpy = vi.spyOn(router, 'replace')
+
+    // -> ctrl+click cycles/expands, never re-anchors
+    const header = itemWrapper(wrapper, 'docs').find('.w-expansion-item__header').element
+    header.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })
+    )
+    await wrapper.vm.$nextTick()
+    expect(replaceSpy).not.toHaveBeenCalled()
+    expect(isExpanded(wrapper, 'docs')).toBe(true)
   })
 })
 

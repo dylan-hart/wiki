@@ -165,13 +165,40 @@ const CLUSTER_PADDING = 24
  *  sibling draw-order Task) can sort/select by it explicitly rather than trust `Map`/array order.
  *  `color` is resolved via `colorForGroup()` for level 1 only -- the categorical palette is an
  *  outermost-level-only concept (Feature #3338's scope); a level-2/3 entry's `color` is left `null`
- *  for the draw layer's own shared-neutral-fill decision to fill in. */
-export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor, levels = [1] }) {
+ *  for the draw layer's own shared-neutral-fill decision to fill in.
+ *
+ *  A folder/synthetic node (OpenProject #3355) is a MEMBER of its own parent folder's circle at
+ *  LEVEL 1 ONLY, not excluded outright the way it used to be -- e.g. Folder B nested inside Folder A
+ *  now draws inside Folder A's level-1 circle, alongside any real page directly in Folder A. #3355's
+ *  own scope is explicitly "cluster membership at the existing single level," predating this
+ *  function's `levels` support (#3339) -- level 2/3 membership for a synthetic node is not something
+ *  either Task specified or tested, so it stays excluded there, unchanged. `groupKeyFor` still
+ *  answers "what circle is a REAL node in" exactly as before; a synthetic node instead goes through
+ *  the optional `parentGroupKeyFor` accessor at level 1, which is asked for the key of the circle the
+ *  node belongs to as a MEMBER (its parent's), never the key it would itself produce for its own
+ *  children -- that distinction is what keeps a folder out of the circle it is itself the namer of.
+ *  Two nodes are still never counted as members of anything: the true root (`node.root` -- it has no
+ *  parent circle), and any synthetic node when the caller passes no `parentGroupKeyFor` at all, which
+ *  keeps every pre-#3355 call site (this file's own unit tests included) unchanged. */
+export function computeClusters(
+  nodes,
+  { groupKeyFor, colorForGroup, radiusFor, levels = [1], parentGroupKeyFor }
+) {
   const result = []
   for (const level of levels) {
     const byGroup = new Map()
     for (const node of nodes) {
-      if (node.x === undefined || node.synthetic) {
+      if (node.x === undefined) {
+        continue
+      }
+      if (node.synthetic) {
+        if (level !== 1 || node.root || !parentGroupKeyFor) {
+          continue
+        }
+        const key = parentGroupKeyFor(node)
+        const list = byGroup.get(key) ?? []
+        list.push(node)
+        byGroup.set(key, list)
         continue
       }
       const key = groupKeyFor(node, level)

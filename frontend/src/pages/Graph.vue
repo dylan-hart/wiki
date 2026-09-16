@@ -657,6 +657,31 @@ function groupKeyFor(node, level = 1) {
   return segments.slice(0, level).join('/')
 }
 
+/** A synthetic folder/root node's own MEMBERSHIP key (OpenProject #3355) -- which circle it belongs
+ *  to as a member of its PARENT folder's grouping, never the key it would itself produce for its own
+ *  children (`buildClusters()`'s own doc comment explains why that distinction matters). Only
+ *  `groupBy: 'folder'` needs real path logic: a folder/root node carries no `tags`/`classification`
+ *  of its own, so `groupKeyFor(node)` called directly on it already answers correctly for those two
+ *  modes (the same `'(untagged)'`/`'(unclassified)'` catch-all bucket every other untagged node
+ *  falls into).
+ *
+ *  `node.folder` (backend `folderOf()`) is deliberately just a path's FIRST segment (see
+ *  `graphFilters.js#folderDepthOf`'s own doc comment) -- which is why a folder node's PARENT-folder
+ *  key is simply its own `path`'s first segment too, whenever it has one: first-segment doesn't care
+ *  how many segments follow, so it's identical whether taken from the folder's own path or its
+ *  parent's. Only a top-level folder (no `/` in its `path` at all) differs -- its parent IS the root,
+ *  which has no folder key of its own, so that case reads `'(root)'` the same way a folder-less real
+ *  page does. This is what keeps a folder out of the circle it is itself the namer of: a nested
+ *  folder's parent key coincides with the SAME top-level circle its own descendants already share
+ *  (the existing single-level grouping this WP's scope is limited to -- multi-level nesting is the
+ *  sibling Task's job), never with a circle keyed off the folder's own identity. */
+function parentGroupKeyFor(node) {
+  if (groupBy.value !== 'folder') {
+    return groupKeyFor(node)
+  }
+  return node.path.includes('/') ? node.path.split('/')[0] : '(root)'
+}
+
 /** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
  *  reader announces the graph as nothing, so this is the minimum text alternative: a live summary
  *  of what's currently drawn. Reads `nodes.value`/`edges.value`/`groupBy` -- already-held reactive
@@ -1194,7 +1219,8 @@ function computeClusters() {
     groupKeyFor,
     colorForGroup,
     radiusFor,
-    levels: CLUSTER_LEVELS
+    levels: CLUSTER_LEVELS,
+    parentGroupKeyFor
   })
 }
 

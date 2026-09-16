@@ -185,7 +185,33 @@ export function useNavSidebarDestination() {
     return (item.children ?? []).some((child) => isCurrent(child) || containsCurrent(child))
   }
 
-  return { destination, isCurrent, containsCurrent }
+  /**
+   * OpenProject #3353: the folder-click counterpart to `graphSidebarBranch()` above. While `/_graph`
+   * is open, clicking a POPULATED folder's header must both keep doing its ordinary expand/collapse
+   * (`NavSidebarItem.vue`'s `<w-expansion-item>` header never binds `destination()` at all, only
+   * `@click.capture` for ctrl/shift) and re-anchor the graph on that folder + its descendants -- but
+   * unlike a page item, it must never be treated as navigable to on its own, so this re-anchors
+   * directly with `router.replace()` rather than handing back a `{ clickable, onClick }` pair whose
+   * caller would bind it in place of the toggle.
+   *
+   * Same guard `graphSidebarBranch()` uses -- no-ops outside `/_graph`, for an item with no `path`,
+   * or when this folder is already the active anchor -- so repeatedly clicking an already-anchored
+   * folder just keeps toggling it open and closed without spamming `router.replace()` or restarting
+   * the graph's re-center animation on every click.
+   *
+   * Called directly from `NavSidebarItem.vue#handleHeaderClick()`'s plain-click fallthrough, not
+   * wired through `destination()`: an EMPTY folder (no `children`) needs no equivalent here, since it
+   * renders through the leaf branch and already reaches `graphSidebarBranch()` via `destination()` --
+   * that function does not distinguish a folder's `item.path` from a page's.
+   */
+  function reanchorGraphOnFolder(item) {
+    if (route.path !== GRAPH_ROUTE_PATH || !item.path || item.path === route.query.path) {
+      return
+    }
+    router.replace({ path: GRAPH_ROUTE_PATH, query: { path: item.path } })
+  }
+
+  return { destination, isCurrent, containsCurrent, reanchorGraphOnFolder }
 }
 
 /**
