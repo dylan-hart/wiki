@@ -69,15 +69,37 @@ export function drawEdges(ctx, edges, dark) {
   }
 }
 
+/** Shared, mode-independent fill for level-2/3 cluster circles (OpenProject #3340). Level-1 clusters
+ *  keep today's categorical color-coding (`colorForGroup()`, `Graph.vue`) -- nesting depth beyond
+ *  that doesn't carry its own semantic grouping identity, so every level-2/3 circle shares one fill
+ *  instead of a second categorical palette. Follows the existing `SYNTHETIC_NODE_COLOR` (`#9e9e9e`,
+ *  `Graph.vue`) precedent: a mid-gray reads clearly enough on both the light and dark canvas surface
+ *  that it needs no light/dark pair of its own. Not imported from `Graph.vue` -- that constant isn't
+ *  exported, and the two are allowed to drift independently since they mark unrelated things (a
+ *  synthetic node vs. a nesting-depth circle) that only happen to want the same neutral today. */
+const NESTED_CLUSTER_FILL_COLOR = '#9e9e9e'
+
 /** Draws each group's tint as a circle (OpenProject #2836: always a circle, never a convex-hull
  *  polygon, for a uniform look across every grouping). `computeClusters()` is the only producer of
- *  `clusters`, and it now populates `circle` unconditionally. */
+ *  `clusters`, and it now populates `circle` unconditionally.
+ *
+ *  Draws outermost-to-innermost -- level-1 circles first, then level-2, then level-3 (OpenProject
+ *  #3340) -- so a nested circle's tint visibly stacks on top of its parent's instead of being
+ *  painted underneath it. Sorted explicitly by each entry's own `level` field on a copy of
+ *  `clusters`, rather than trusting the producer's (`computeClusters()`, OpenProject #3339) `Map`/
+ *  array iteration order, which carries no ordering guarantee and isn't this function's contract to
+ *  rely on. An entry with no `level` (today's tag/classification grouping modes, which stay
+ *  single-level) sorts and paints as level 1. Level-2/3 entries always fill with
+ *  `NESTED_CLUSTER_FILL_COLOR` regardless of `cluster.color`/whatever palette slot their key landed
+ *  on -- level-1 is the only level colored per-group. */
 export function drawClusterHulls(ctx, clusters) {
-  for (const cluster of clusters) {
+  const ordered = [...clusters].sort((a, b) => (a.level ?? 1) - (b.level ?? 1))
+  for (const cluster of ordered) {
     if (!cluster.circle) {
       continue
     }
-    ctx.fillStyle = cluster.color
+    const level = cluster.level ?? 1
+    ctx.fillStyle = level >= 2 ? NESTED_CLUSTER_FILL_COLOR : cluster.color
     ctx.globalAlpha = 0.12
     ctx.beginPath()
     ctx.arc(cluster.circle.x, cluster.circle.y, cluster.circle.r, 0, Math.PI * 2)

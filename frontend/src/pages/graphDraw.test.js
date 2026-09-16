@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  drawClusterHulls,
   drawEdges,
   drawLabels,
   drawNodes,
@@ -69,6 +70,72 @@ describe('drawEdges', () => {
 })
 
 const radiusFor = () => 5
+
+describe('drawClusterHulls (OpenProject #3340)', () => {
+  const NESTED_CLUSTER_FILL_COLOR = '#9e9e9e'
+
+  it('fills a level-1 cluster with its own color', () => {
+    const ctx = makeCtx()
+    const clusters = [{ level: 1, color: '#2a78d6', circle: { x: 0, y: 0, r: 40 } }]
+    drawClusterHulls(ctx, clusters)
+    expect(ctx.fillStyle).toBe('#2a78d6')
+  })
+
+  it("treats a cluster entry with no level field as level 1 (today's tag/classification modes)", () => {
+    const ctx = makeCtx()
+    const clusters = [{ color: '#eb6834', circle: { x: 0, y: 0, r: 40 } }]
+    drawClusterHulls(ctx, clusters)
+    expect(ctx.fillStyle).toBe('#eb6834')
+  })
+
+  it('fills level-2 and level-3 clusters with the shared neutral color, ignoring their own color', () => {
+    const ctx = makeCtx()
+    const fillStyles = []
+    ctx.fill.mockImplementation(() => fillStyles.push(ctx.fillStyle))
+    const clusters = [
+      // -> Each entry's own `color` is a distinct, real palette slot -- if the neutral override
+      //    were broken, this would fail by drawing the group's own categorical color instead.
+      { level: 2, color: '#eda100', circle: { x: 0, y: 0, r: 30 } },
+      { level: 3, color: '#4a3aa7', circle: { x: 0, y: 0, r: 20 } }
+    ]
+    drawClusterHulls(ctx, clusters)
+    expect(fillStyles).toEqual([NESTED_CLUSTER_FILL_COLOR, NESTED_CLUSTER_FILL_COLOR])
+  })
+
+  it('draws outermost-to-innermost (level 1, then 2, then 3) regardless of input order', () => {
+    const ctx = makeCtx()
+    const drawnLevels = []
+    ctx.arc.mockImplementation((x, y, r) => drawnLevels.push(r))
+    // -> Deliberately out of level order (3, 1, 2) -- a Map/array producer makes no ordering
+    //    guarantee, so this asserts `drawClusterHulls()` sorts explicitly rather than trusting
+    //    input order.
+    const clusters = [
+      { level: 3, color: '#000', circle: { x: 0, y: 0, r: 3 } },
+      { level: 1, color: '#000', circle: { x: 0, y: 0, r: 1 } },
+      { level: 2, color: '#000', circle: { x: 0, y: 0, r: 2 } }
+    ]
+    drawClusterHulls(ctx, clusters)
+    expect(drawnLevels).toEqual([1, 2, 3])
+  })
+
+  it('sorts a copy, never mutating the caller-owned clusters array', () => {
+    const ctx = makeCtx()
+    const clusters = [
+      { level: 2, color: '#000', circle: { x: 0, y: 0, r: 2 } },
+      { level: 1, color: '#000', circle: { x: 0, y: 0, r: 1 } }
+    ]
+    const original = [...clusters]
+    drawClusterHulls(ctx, clusters)
+    expect(clusters).toEqual(original)
+  })
+
+  it('skips an entry with no circle, at any level', () => {
+    const ctx = makeCtx()
+    const clusters = [{ level: 2, color: '#000' }]
+    expect(() => drawClusterHulls(ctx, clusters)).not.toThrow()
+    expect(ctx.arc).not.toHaveBeenCalled()
+  })
+})
 
 describe('drawNodes (OpenProject #2480)', () => {
   it('with no highlightedIds, draws every node at full opacity and never strokes a ring', () => {
