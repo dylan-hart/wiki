@@ -25,8 +25,8 @@
   "type": "module",
   "main": "index.ts",
   "scripts": {
-    "start": "cd .. && node backend",
-    "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json --signal SIGTERM",
+    "start": "cd .. && node --no-experimental-webstorage backend",
+    "dev": "cd .. && nodemon --exec \"node --no-experimental-webstorage\" backend --watch backend --ext js,ts,json --signal SIGTERM",
     "migrate": "cd .. && node backend/tasks/migrate.ts",
     "verify-migration": "cd .. && node backend/tasks/verify-migration.ts",
     "promote-admin": "cd .. && node backend/tasks/promote-admin.ts",
