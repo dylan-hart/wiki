@@ -92,12 +92,27 @@ export function chargeStrengthFor(node, radiusFor) {
   return -(CHARGE_BASE_STRENGTH + radiusFor(node) * CHARGE_RADIUS_FACTOR)
 }
 
+/** Which levels beyond the outermost `computeClusters()`/`startSimulation()` optionally bucket
+ *  nodes into nested grouping circles for (OpenProject #3354, Feature #3338's "2 additional levels"
+ *  scope -- a 4th level was never part of the confirmed spec). Exported so `Graph.vue` never hand-
+ *  types a second copy of this list when it builds `clusterForce`'s per-level accessor array; both
+ *  `computeClusters()` below and `startSimulation()` read this same one. */
+export const NESTED_CLUSTER_LEVELS = [2, 3]
+
 export function startSimulation(
   nodes,
   edges,
   { width, height },
-  { groupKeyFor, collideRadiusFor, radiusFor, onTick }
+  { groupKeyFor, collideRadiusFor, radiusFor, nestedLevelKeyFor, onTick }
 ) {
+  // -> `nestedLevelKeyFor(node, level)` (OpenProject #3354) is optional -- omitted, `clusterForce`
+  //    gets no extra levels and behaves exactly as it did before this WP. When supplied, it's
+  //    expanded into one single-arg accessor per `NESTED_CLUSTER_LEVELS` entry here rather than
+  //    `Graph.vue` building that array itself, so both this function and `computeClusters()` below
+  //    share one call shape (`(node, level) -> key|null`) for the same underlying concept.
+  const nestedLevelKeyFors = nestedLevelKeyFor
+    ? NESTED_CLUSTER_LEVELS.map((level) => (node) => nestedLevelKeyFor(node, level))
+    : []
   return forceSimulation(nodes)
     .force(
       'link',
@@ -118,7 +133,7 @@ export function startSimulation(
     )
     .force('collide', forceCollide(collideRadiusFor))
     .force('center', forceCenter(width / 2, height / 2))
-    .force('cluster', clusterForce(groupKeyFor, 0.05))
+    .force('cluster', clusterForce(groupKeyFor, 0.05, nestedLevelKeyFors))
     .force('parentFan', parentFanForce(0.05))
     .on('tick', onTick)
 }
@@ -145,14 +160,62 @@ export function startSimulation(
 */
 const CLUSTER_PADDING = 24
 
+/** One group's fallback circle: centred on its members' centroid, sized off each member's own edge
+ *  (its centre plus its own `radiusFor()`), not just its centre (OpenProject #2296) --
+ *  `collideRadiusFor()` above already adds `radiusFor(node)` to a constant the same way, and is the
+ *  pattern this mirrors. Shared by `computeClusters()`'s outermost-level pass and its OpenProject
+ *  #3354 nested-level pass below, so the circle math itself is written once. */
+function buildClusterCircle(key, groupNodes, color, radiusFor) {
+  const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
+  const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
+  // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
+  //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
+  //    come close to that in practice).
+  const maxDist = groupNodes.reduce(
+    (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
+    0
+  )
+  return { key, color, circle: { x: cx, y: cy, r: maxDist + CLUSTER_PADDING } }
+}
+
+/** Fallback neutral fill for a level-2/3 nested circle (OpenProject #3354) when the caller doesn't
+ *  supply its own `nestedLevelColor` -- matches `Graph.vue`'s `SYNTHETIC_NODE_COLOR` value, the same
+ *  "one shared neutral tint, not a second palette" precedent that constant already documents: only
+ *  the outermost level keeps `colorForGroup()`'s categorical coloring, so a deeper level's circle
+ *  needs no color identity of its own. `Graph.vue#computeClusters()` always passes its own
+ *  `SYNTHETIC_NODE_COLOR` through explicitly, so this default exists purely for a bare unit-test call
+ *  that doesn't bother supplying one. */
+const DEFAULT_NESTED_CLUSTER_COLOR = '#9e9e9e'
+
 /** Populates `clusters.value` -- one circle entry per visible group. Every group draws a circle,
  *  never a convex-hull polygon (OpenProject #2836): a hull fits a spread-out or elongated group
  *  tighter, but drawing every group's own best-fit shape read as visually inconsistent across a
  *  graph with many differently-shaped groups, so this trades that tighter fit for a uniform look.
- *  Sized off each node's edge (its centre plus its own `radiusFor()`), not just its centre
- *  (OpenProject #2296) -- `collideRadiusFor()` above already adds `radiusFor(node)` to a constant
- *  the same way, and is the pattern this mirrors. */
-export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }) {
+ *
+ *  `nestedLevelKeyFor(node, level)` (OpenProject #3354, Feature #3338's "2 additional levels" scope)
+ *  is optional -- omitted (every pre-#3354 caller, including every existing test in this file), the
+ *  result is exactly the single outermost-level circle set this function has always produced. Passed,
+ *  it adds one MORE bucketing pass per `NESTED_CLUSTER_LEVELS` entry (a plain `Map` bucket per level,
+ *  the same O(N)-per-level shape the outermost pass above already uses -- never a re-filter per
+ *  group), each pass skipping any node for which `nestedLevelKeyFor` returns `null` (not nested that
+ *  deep at that level -- draws no extra circle there, per this WP's acceptance criteria) and coloring
+ *  every circle it does produce with `nestedLevelColor` (`DEFAULT_NESTED_CLUSTER_COLOR` unless the
+ *  caller supplies its own), never `colorForGroup()` -- only the outermost level is categorical.
+ *  Nested circles are appended to `result` AFTER the outermost pass and in ascending level order, so
+ *  a level's own circle paints on top of its shallower ancestors' tint (`graphDraw.js#drawClusterHulls`
+ *  draws `clusters` in array order) -- the visual "nesting" this WP's name describes. Each entry also
+ *  carries its own `level` (`2`/`3`) alongside `key`/`color`/`circle`; the outermost level's entries
+ *  are unchanged and carry no `level` field at all, preserving every existing caller's shape. */
+export function computeClusters(
+  nodes,
+  {
+    groupKeyFor,
+    colorForGroup,
+    radiusFor,
+    nestedLevelKeyFor,
+    nestedLevelColor = DEFAULT_NESTED_CLUSTER_COLOR
+  }
+) {
   const byGroup = new Map()
   for (const node of nodes) {
     if (node.x === undefined || node.synthetic) {
@@ -166,20 +229,33 @@ export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }
 
   const result = []
   for (const [key, groupNodes] of byGroup) {
-    const color = colorForGroup(key)
-    const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
-    const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-    // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
-    //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
-    //    come close to that in practice). Sized off each node's edge (its centre plus its own
-    //    `radiusFor()`), not just its centre (OpenProject #2296) -- see the `computeClusters()` doc
-    //    comment above.
-    const maxDist = groupNodes.reduce(
-      (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
-      0
-    )
-    result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + CLUSTER_PADDING } })
+    result.push(buildClusterCircle(key, groupNodes, colorForGroup(key), radiusFor))
   }
+
+  if (nestedLevelKeyFor) {
+    for (const level of NESTED_CLUSTER_LEVELS) {
+      const byLevelGroup = new Map()
+      for (const node of nodes) {
+        if (node.x === undefined || node.synthetic) {
+          continue
+        }
+        const key = nestedLevelKeyFor(node, level)
+        if (key == null) {
+          continue
+        }
+        const list = byLevelGroup.get(key) ?? []
+        list.push(node)
+        byLevelGroup.set(key, list)
+      }
+      for (const [key, groupNodes] of byLevelGroup) {
+        result.push({
+          ...buildClusterCircle(key, groupNodes, nestedLevelColor, radiusFor),
+          level
+        })
+      }
+    }
+  }
+
   return result
 }
 

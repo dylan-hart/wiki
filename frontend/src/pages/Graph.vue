@@ -612,6 +612,43 @@ function groupKeyFor(node) {
   return node.folder || '(root)'
 }
 
+/** Composite key for a page's level-2/3 nested folder grouping circle (OpenProject #3354, Feature
+ *  #3338's "2 additional levels" scope) -- derived directly from `node.path`'s own directory
+ *  segments, never from `node.folder` (the backend's `folderOf()` is deliberately capped at the
+ *  path's first segment, per `graphFilters.js#folderDepthOf`'s own doc comment, so it can't tell a
+ *  page's 2nd/3rd directory segment apart from its 1st at all). A directory segment is everything in
+ *  `path` before its own last `/`-separated piece -- `path.split('/').slice(0, -1)` -- the same
+ *  convention `folderDepthOf` uses, so a page 2 directory segments deep there is also 2 deep here.
+ *
+ *  The key returned is the FULL prefix through `level` segments (e.g. `'docs/guides'` for level 2 on
+ *  a page at `docs/guides/setup`), not the bare `level`-th segment alone -- a composite, not a leaf
+ *  name, is what keeps two unrelated top-level folders' same-named subfolders (`docs/api` and
+ *  `guides/api`) from bucketing into the very same level-2 circle: a nested circle must sit only
+ *  inside its own parent's circle, never merge across branches.
+ *
+ *  Returns `null` when `node` isn't nested `level` directory segments deep -- `computeClusters()`/
+ *  `clusterForce()` (both in `graphSimulation.js`/`graphForces.js`) read `null` as "skip this node
+ *  for this level" rather than a literal empty-string group, which is what makes a page only 1 level
+ *  deep draw no level-2/3 circle at all (this WP's own acceptance criteria). Also returns `null`
+ *  whenever `groupBy` isn't `'folder'` -- reading the live ref here (not snapshotted by a caller at
+ *  attach time) is what lets `startSimulation()`'s once-attached cluster force go inert the moment
+ *  the reader switches grouping dimension, the same "no re-attachment needed" reactivity
+ *  `graphSimulation.js`'s own doc comment already describes for `groupKeyFor` above. A synthetic
+ *  folder/root node is left for its caller to exclude -- both call sites below already skip
+ *  `node.synthetic` before ever reaching here (this WP owns the multi-level nesting mechanism only,
+ *  not synthetic-node cluster membership at any level -- the sibling Task #3355 owns that, at the
+ *  existing single level, no overlap). */
+function folderLevelKeyFor(node, level) {
+  if (groupBy.value !== 'folder') {
+    return null
+  }
+  const segments = node.path.split('/').slice(0, -1)
+  if (segments.length < level) {
+    return null
+  }
+  return segments.slice(0, level).join('/')
+}
+
 /** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
  *  reader announces the graph as nothing, so this is the minimum text alternative: a live summary
  *  of what's currently drawn. Reads `nodes.value`/`edges.value`/`groupBy` -- already-held reactive
@@ -1121,6 +1158,7 @@ function startSimulation() {
       groupKeyFor,
       collideRadiusFor,
       radiusFor,
+      nestedLevelKeyFor: folderLevelKeyFor,
       onTick: () => {
         relayout()
         repaint()
@@ -1141,10 +1179,20 @@ function recomputeClusters() {
 
 /** Rebuilds `clusters.value` from the current node positions. `graphSimulation.js` owns the hull
  *  geometry; the page supplies the three answers only it has -- how a node is grouped, what colour
- *  that group is, and how large the node draws. */
+ *  that group is, and how large the node draws -- plus, since OpenProject #3354, `folderLevelKeyFor`
+ *  for the optional level-2/3 nested circles and `SYNTHETIC_NODE_COLOR` as their shared neutral fill
+ *  (only the outermost level keeps `colorForGroup()`'s categorical coloring). `folderLevelKeyFor`
+ *  itself goes inert (every call returns `null`) outside `folder` mode, so this is a no-op addition
+ *  for `tag`/`classification` grouping. */
 function computeClusters() {
   refreshMetricRange()
-  clusters.value = buildClusters(nodes.value, { groupKeyFor, colorForGroup, radiusFor })
+  clusters.value = buildClusters(nodes.value, {
+    groupKeyFor,
+    colorForGroup,
+    radiusFor,
+    nestedLevelKeyFor: folderLevelKeyFor,
+    nestedLevelColor: SYNTHETIC_NODE_COLOR
+  })
 }
 
 function attachZoom() {

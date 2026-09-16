@@ -21,20 +21,39 @@ import { nodeId } from './graphFilters.js'
  *   hardcoded so this module stays decoupled from `Graph.vue` and unit-testable on its own.
  * @param {number} strength - how strongly a node is nudged toward its group's centroid each tick,
  *   relative to the other forces in the simulation. `0.05` is `Graph.vue`'s tuned starting point.
+ * @param {((node: object) => (string | null))[]} nestedLevelKeyFors - OpenProject #3354: zero or more
+ *   ADDITIONAL grouping-dimension accessors, each pulling every node toward its own level's running
+ *   centroid the exact same way `groupKeyFor` above does, layered on top of it rather than replacing
+ *   it -- a node nested deep enough gets nudged toward its level-1 AND level-2 AND level-3 centroids
+ *   every tick, which is what visually pulls it into every nested circle it belongs to at once, not
+ *   just the outermost one. Defaults to `[]` (every pre-#3354 caller, including every existing test
+ *   in this file), which reproduces the old single-level behavior exactly -- this parameter adds a
+ *   capability, it never changes what `groupKeyFor` alone already did. An accessor returning `null`
+ *   for a given node (not nested that deep at that level, `Graph.vue#folderLevelKeyFor`'s own
+ *   contract) simply skips that node for that one level's pull, same as `groupKeyFor` returning a key
+ *   with no other member ever would.
  * @returns {(alpha: number) => void} a d3-force-compatible force: has an `initialize(nodes)` method
  *   (called automatically when attached via `simulation.force(name, force)`) and is itself callable
  *   with the tick's `alpha`.
  */
-export function clusterForce(groupKeyFor, strength = 0.05) {
+export function clusterForce(groupKeyFor, strength = 0.05, nestedLevelKeyFors = []) {
   let nodes = []
 
-  function force(alpha) {
+  /** One level's running-centroid pull, exactly the math the single-level force always did --
+   *  factored out so `force()` below can apply it once for `groupKeyFor` and again for each of
+   *  `nestedLevelKeyFors` without duplicating the two-pass (sum-then-nudge) shape. `levelKeyFor`
+   *  returning `null` for a node (OpenProject #3354's "not nested this deep" case) excludes it from
+   *  both passes for this level, the same way `node.synthetic`/`node.x === undefined` already do. */
+  function pullTowardLevelCentroids(levelKeyFor, alpha) {
     const sums = new Map()
     for (const node of nodes) {
       if (node.synthetic || node.x === undefined) {
         continue
       }
-      const key = groupKeyFor(node)
+      const key = levelKeyFor(node)
+      if (key == null) {
+        continue
+      }
       const entry = sums.get(key) ?? { x: 0, y: 0, count: 0 }
       entry.x += node.x
       entry.y += node.y
@@ -51,12 +70,23 @@ export function clusterForce(groupKeyFor, strength = 0.05) {
       if (node.synthetic || node.x === undefined) {
         continue
       }
-      const centroid = centroids.get(groupKeyFor(node))
+      const key = levelKeyFor(node)
+      if (key == null) {
+        continue
+      }
+      const centroid = centroids.get(key)
       if (!centroid) {
         continue
       }
       node.vx += (centroid.x - node.x) * strength * alpha
       node.vy += (centroid.y - node.y) * strength * alpha
+    }
+  }
+
+  function force(alpha) {
+    pullTowardLevelCentroids(groupKeyFor, alpha)
+    for (const levelKeyFor of nestedLevelKeyFors) {
+      pullTowardLevelCentroids(levelKeyFor, alpha)
     }
   }
 

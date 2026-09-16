@@ -69,6 +69,75 @@ describe('clusterForce (OpenProject #1158)', () => {
   })
 })
 
+/**
+ * OpenProject #3354: `clusterForce()`'s optional third argument -- zero or more ADDITIONAL
+ * grouping-dimension accessors, each pulling nodes toward their own level's centroid on top of the
+ * `groupKeyFor` pull every test above already exercises with no third argument at all.
+ */
+describe('clusterForce nested levels (OpenProject #3354)', () => {
+  it('omitted, behaves exactly as before (no extra pull)', () => {
+    const nodeA = { path: 'a', x: 0, y: 0, vx: 0, vy: 0, group: 'g1' }
+    const nodeB = { path: 'b', x: 10, y: 10, vx: 0, vy: 0, group: 'g1' }
+    const withoutLevels = clusterForce((n) => n.group, 0.1)
+    withoutLevels.initialize([nodeA, nodeB])
+    withoutLevels(1)
+    const baselineVx = nodeA.vx
+
+    const nodeA2 = { path: 'a', x: 0, y: 0, vx: 0, vy: 0, group: 'g1' }
+    const nodeB2 = { path: 'b', x: 10, y: 10, vx: 0, vy: 0, group: 'g1' }
+    const withEmptyLevels = clusterForce((n) => n.group, 0.1, [])
+    withEmptyLevels.initialize([nodeA2, nodeB2])
+    withEmptyLevels(1)
+
+    expect(nodeA2.vx).toBe(baselineVx)
+  })
+
+  it('also nudges a node toward its own extra level centroid, on top of the base groupKeyFor pull', () => {
+    // -> nodeA/nodeB share level-1 group 'g1' (the base pull alone moves both toward that shared
+    //    (5, 5) centroid); nodeC shares nodeA's level-2 group only, off to one side, so ONLY nodeA
+    //    (and nodeC) feel the extra level-2 pull, not nodeB.
+    const baseFixture = () => [
+      { path: 'a', x: 0, y: 0, vx: 0, vy: 0, group: 'g1', level2: 'g1/x' },
+      { path: 'b', x: 10, y: 10, vx: 0, vy: 0, group: 'g1', level2: null },
+      { path: 'c', x: 200, y: 0, vx: 0, vy: 0, group: 'g2', level2: 'g1/x' }
+    ]
+
+    const [baseA] = baseFixture()
+    const baseOnly = clusterForce((n) => n.group, 0.1)
+    baseOnly.initialize([baseA, ...baseFixture().slice(1)])
+    baseOnly(1)
+
+    const [levelA] = baseFixture()
+    const withLevel2 = clusterForce((n) => n.group, 0.1, [(n) => n.level2])
+    withLevel2.initialize([levelA, ...baseFixture().slice(1)])
+    withLevel2(1)
+
+    // -> nodeA's level-2 group centroid (100, 0, averaging nodeA and nodeC) sits further from
+    //    nodeA along x than its level-1 group centroid alone did, so the extra pull strictly adds
+    //    to nodeA's total x-nudge relative to a force with no extra levels at all.
+    expect(levelA.vx).not.toBe(baseA.vx)
+    expect(levelA.vx).toBeGreaterThan(baseA.vx)
+  })
+
+  it("a node whose extra-level accessor returns null is skipped for that level's pull entirely", () => {
+    const nodeA = { path: 'a', x: 0, y: 0, vx: 0, vy: 0, group: 'g1' }
+    const nodeB = { path: 'b', x: 10, y: 10, vx: 0, vy: 0, group: 'g1' }
+    const nullLevel = () => null
+    const force = clusterForce((n) => n.group, 0.1, [nullLevel])
+    force.initialize([nodeA, nodeB])
+    force(1)
+
+    const baseline = clusterForce((n) => n.group, 0.1)
+    const nodeA2 = { path: 'a', x: 0, y: 0, vx: 0, vy: 0, group: 'g1' }
+    const nodeB2 = { path: 'b', x: 10, y: 10, vx: 0, vy: 0, group: 'g1' }
+    baseline.initialize([nodeA2, nodeB2])
+    baseline(1)
+
+    expect(nodeA.vx).toBe(nodeA2.vx)
+    expect(nodeA.vy).toBe(nodeA2.vy)
+  })
+})
+
 describe('clusterForce settles a cold-load simulation without a directional wedge (OpenProject #1158)', () => {
   it('keeps edge-direction concentration low after a full real d3-force settle', () => {
     const FOLDERS = ['docs', 'guides', 'faq', 'reference']

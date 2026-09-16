@@ -139,3 +139,90 @@ describe('computeClusters padding (OpenProject #2562)', () => {
     expect(newFloor.circle.r).toBe(34)
   })
 })
+
+/**
+ * OpenProject #3354: `computeClusters()`'s optional `nestedLevelKeyFor(node, level)` -- the
+ * level-2/3 nested grouping circles, layered on top of the always-present outermost-level pass
+ * every test above already covers untouched (none of them pass `nestedLevelKeyFor` at all).
+ */
+describe('computeClusters nested levels (OpenProject #3354)', () => {
+  const zeroRadius = () => 0
+  // -> Mirrors `Graph.vue#folderLevelKeyFor()`'s own contract: the FULL prefix through `level`
+  //    directory segments, `null` when `node` isn't nested that deep.
+  const nestedLevelKeyFor = (node, level) => {
+    const segments = node.path.split('/').slice(0, -1)
+    return segments.length < level ? null : segments.slice(0, level).join('/')
+  }
+
+  it('omitted, produces exactly the old single-level circle set (no `level` field anywhere)', () => {
+    const nodes = [{ x: 0, y: 0, path: 'a/b/c/page', folder: 'a' }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: () => 'a',
+      colorForGroup: () => '#111',
+      radiusFor: zeroRadius
+    })
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0].level).toBeUndefined()
+  })
+
+  it('a page 3 directory segments deep gets a circle at every level, 2/3 colored with nestedLevelColor', () => {
+    const nodes = [{ x: 0, y: 0, path: 'a/b/c/page', folder: 'a' }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: () => 'a',
+      colorForGroup: () => '#111',
+      radiusFor: zeroRadius,
+      nestedLevelKeyFor,
+      nestedLevelColor: '#9e9e9e'
+    })
+
+    const outer = clusters.find((c) => c.level === undefined)
+    const level2 = clusters.find((c) => c.level === 2)
+    const level3 = clusters.find((c) => c.level === 3)
+    expect(outer.key).toBe('a')
+    expect(outer.color).toBe('#111')
+    expect(level2.key).toBe('a/b')
+    expect(level2.color).toBe('#9e9e9e')
+    expect(level3.key).toBe('a/b/c')
+    expect(level3.color).toBe('#9e9e9e')
+    expect(clusters).toHaveLength(3)
+  })
+
+  it('a page only 1 directory segment deep draws no level-2/3 circle at all', () => {
+    const nodes = [{ x: 0, y: 0, path: 'a/page', folder: 'a' }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: () => 'a',
+      colorForGroup: () => '#111',
+      radiusFor: zeroRadius,
+      nestedLevelKeyFor
+    })
+    expect(clusters).toHaveLength(1)
+    expect(clusters.some((c) => c.level === 2)).toBe(false)
+    expect(clusters.some((c) => c.level === 3)).toBe(false)
+  })
+
+  it('two different top-level branches with same-named subfolders bucket into two distinct level-2 circles (composite key)', () => {
+    const nodes = [
+      { x: 0, y: 0, path: 'docs/api/page', folder: 'docs' },
+      { x: 500, y: 500, path: 'guides/api/page', folder: 'guides' }
+    ]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: (n) => n.folder,
+      colorForGroup: () => '#111',
+      radiusFor: zeroRadius,
+      nestedLevelKeyFor
+    })
+    const level2Keys = clusters.filter((c) => c.level === 2).map((c) => c.key)
+    expect(level2Keys.sort()).toEqual(['docs/api', 'guides/api'])
+  })
+
+  it('a synthetic node is excluded from every nested level, same as the outermost level', () => {
+    const nodes = [{ x: 0, y: 0, path: 'a/b/c', folder: 'a', synthetic: true }]
+    const clusters = computeClusters(nodes, {
+      groupKeyFor: () => 'a',
+      colorForGroup: () => '#111',
+      radiusFor: zeroRadius,
+      nestedLevelKeyFor
+    })
+    expect(clusters).toHaveLength(0)
+  })
+})
