@@ -139,6 +139,36 @@ describe('Graph.vue layout, reactivity and repaint', () => {
     expect(clusterC.circle.r).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
   })
 
+  it("includes a nested folder node as a member of its parent folder's circle (OpenProject #3355)", async () => {
+    const wrapper = await mountGraph()
+
+    // -> Folder B nested inside Folder A, plus a real page directly in Folder A -- the WP's own
+    //    acceptance example. `groupBy` defaults to 'folder', so both should end up members of the
+    //    same 'A' circle.
+    const pageA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    pageA.folder = 'A'
+    pageA.x = 0
+    pageA.y = 0
+
+    const folderB = {
+      path: 'A/B',
+      locale: 'en',
+      title: 'B',
+      synthetic: true,
+      x: 200,
+      y: 0
+    }
+    wrapper.vm.nodes.push(folderB)
+
+    wrapper.vm.computeClusters()
+
+    const clusterA = wrapper.vm.clusters.find((c) => c.key === 'A')
+    expect(clusterA).toBeDefined()
+    // -> The centroid sits between pageA and folderB (0 and 200) -- proof folderB was actually
+    //    folded into the circle as a member, not still silently excluded.
+    expect(clusterA.circle.x).toBeCloseTo(100)
+  })
+
   it("drawLabels draws a real node's label at the node's own center, not offset past its edge (OpenProject #2593)", async () => {
     const wrapper = await mountGraph()
 
