@@ -324,6 +324,156 @@ describe('ProfilePreferences pendingProfileSaves (OpenProject #3282)', () => {
 })
 
 /**
+ * OpenProject #3344: `onFieldChange()` calls `save()` directly on every field change with no
+ * debounce and nothing sequencing overlapping requests, so two saves fired in quick succession can
+ * have their PUT responses land out of order. `save()`'s `saveGeneration` guard drops a response
+ * whose call has since been superseded by a newer one, on both the success and the failure branch.
+ */
+describe('ProfilePreferences save() drops stale responses across overlapping saves (OpenProject #3344)', () => {
+  it('drops a stale SUCCESS response that lands after a newer save already applied its own outcome', async () => {
+    globalThis.API_CLIENT.get.mockReturnValue({
+      json: () => Promise.resolve({ ...FULL_PROFILE, timezone: 'UTC' })
+    })
+    const { wrapper, userStore } = mountWithApp(ProfilePreferences, {
+      messages: { common: { actions: { saveChanges: 'Save Changes' } } },
+      stores: {
+        site: (store) => {
+          store.features.profile = true
+        }
+      }
+    })
+    await flushPromises()
+
+    let resolveFirst
+    let resolveSecond
+    globalThis.API_CLIENT.put
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          })
+      })
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve
+          })
+      })
+
+    const firstSave = wrapper.vm.save()
+    await flushPromises()
+    const secondSave = wrapper.vm.save()
+    await flushPromises()
+
+    // The second (newer) call's response lands first and applies its own timezone.
+    resolveSecond({ profile: { ...FULL_PROFILE, timezone: 'America/New_York' } })
+    await secondSave
+    await flushPromises()
+    expect(userStore.timezone).toBe('America/New_York')
+
+    // The first (now stale) call's response lands after -- must be dropped, not overwrite the
+    // newer state.
+    resolveFirst({ profile: { ...FULL_PROFILE, timezone: 'Europe/London' } })
+    await firstSave
+    await flushPromises()
+
+    expect(userStore.timezone).toBe('America/New_York')
+  })
+
+  it('drops a stale FAILURE response (no toast, no field-error pin) that lands after a newer save already succeeded', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    let rejectFirst
+    let resolveSecond
+    globalThis.API_CLIENT.put
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject
+          })
+      })
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve
+          })
+      })
+
+    const firstSave = wrapper.vm.save()
+    await flushPromises()
+    const secondSave = wrapper.vm.save()
+    await flushPromises()
+
+    resolveSecond({ ok: true })
+    await secondSave
+    await flushPromises()
+
+    notifyQueue.splice(0, notifyQueue.length)
+
+    const err = new Error('Bad Request')
+    err.data = {
+      ok: false,
+      error: 'userProfileInvalidTimezone',
+      statusCode: 400,
+      message: 'Not a recognized IANA time zone.'
+    }
+    rejectFirst(err)
+    await firstSave
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(false)
+    expect(wrapper.text()).not.toContain('Not a recognized IANA time zone.')
+  })
+
+  it('still applies a FAILURE response when it is the latest call, even after an earlier call resolved first', async () => {
+    const wrapper = mountProfile(FULL_PROFILE)
+    await flushPromises()
+
+    let resolveFirst
+    let rejectSecond
+    globalThis.API_CLIENT.put
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve
+          })
+      })
+      .mockReturnValueOnce({
+        json: () =>
+          new Promise((_resolve, reject) => {
+            rejectSecond = reject
+          })
+      })
+
+    const firstSave = wrapper.vm.save()
+    await flushPromises()
+    const secondSave = wrapper.vm.save()
+    await flushPromises()
+
+    resolveFirst({ ok: true })
+    await firstSave
+    await flushPromises()
+
+    notifyQueue.splice(0, notifyQueue.length)
+
+    const err = new Error('Bad Request')
+    err.data = {
+      ok: false,
+      error: 'userProfileInvalidTimezone',
+      statusCode: 400,
+      message: 'Not a recognized IANA time zone.'
+    }
+    rejectSecond(err)
+    await secondSave
+    await flushPromises()
+
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    expect(wrapper.text()).toContain('Not a recognized IANA time zone.')
+  })
+})
+
+/**
  * OpenProject #3315: this page owns editing the theme/time/accessibility fields now -- the
  * load/send/patch/default shape each one exercises is unchanged from `ProfileInfo.vue`'s own
  * pre-split tests, just mounted on the new page and with the identity fields (name/email/...)
