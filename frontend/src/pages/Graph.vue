@@ -1217,11 +1217,13 @@ function attachZoom() {
  *  identity a previous load pinned no longer exists to release. */
 let pinnedFocusNode = null
 
-/** Centers and highlights the page the reader arrived from, addressed by the `path` query param on
- *  `/_graph` (OpenProject #3312, Feature #3311) -- e.g. the header's Graph button, or a
- *  bookmarked/shared link. Called once, mount-only, from `loadGraph()`'s initial fetch (same "read
- *  once" framing `loadGraph()`'s own `activeFilters.folderDepth` default already uses just above
- *  its call site below) -- a later filter or keyword change must not re-home the focus.
+/** Centers and highlights the anchor the reader arrived from, addressed by the `path` query param on
+ *  `/_graph` (OpenProject #3312, Feature #3311; folder/root anchoring OpenProject #3337) -- e.g. the
+ *  header's Graph button (which sends the current page's nearest containing folder, root for a
+ *  top-level page -- `HeaderNav.vue#onGraphNavClick()`), or a bookmarked/shared link. Called once,
+ *  mount-only, from `loadGraph()`'s initial fetch (same "read once" framing `loadGraph()`'s own
+ *  `activeFilters.folderDepth` default already uses just above its call site below) -- a later filter
+ *  or keyword change must not re-home the focus.
  *
  *  Also re-run live, by the `watch(() => route.query.path, applyRouteFocus)` further down
  *  (OpenProject #3334): the sidebar's own in-graph re-root branch
@@ -1247,9 +1249,23 @@ let pinnedFocusNode = null
  *  consistent with #3313's nav-tree-sourced `path`. A guest who lands on `/_graph` with no page ever
  *  loaded this session reads `pageStore`'s own default (`'en'`).
  *
- *  No match -- a missing/blank param, a stale path, or one in the wrong locale -- is a silent no-op:
- *  no pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
+ *  No match -- a missing param, a stale path, or one in the wrong locale -- is a silent no-op: no
+ *  pin, no highlight, same as before this WP existed. `route.query.path` as an array (a repeated
  *  query param) takes the first entry, same convention a `<w-select>`-less bare query reader would.
+ *  Resolves against a freshly-computed UN-anchored node set -- `computeVisibleSubset(allNodes.value,
+ *  allEdges.value, activeFilters, null)`'s `visibleNodes` plus the synthetic folder/root nodes
+ *  `buildPathHierarchyEdges` builds from them -- rather than `nodes.value` itself, deliberately: on
+ *  a LIVE re-focus (OpenProject #3334) `nodes.value` may already be narrowed to a PREVIOUS anchor's
+ *  descendants (OpenProject #3333/#3337's own restriction, applied by `applyFilters()`), which would
+ *  make a node outside that subtree permanently unresolvable even though it is a perfectly valid new
+ *  anchor. `allNodes.value`/`activeFilters` stay the same regardless of anchor, so recomputing this
+ *  way always offers every tag/locale/depth-eligible node as a candidate. `resolveFocusNode`'s
+ *  `includeSynthetic: true` here is what lets a folder/root anchor (`path: ''` for the root, per
+ *  `pageStore.folderPath`'s own doc comment) resolve at all -- the default page-only match excludes
+ *  them. The real-node entries of this set are the same object references `allNodes.value` holds
+ *  (`computeVisibleSubset` filters, never clones), so a match still pins the exact object the
+ *  simulation below runs on; `nodes.value` itself is narrowed to the new anchor separately, by the
+ *  `watch(focusNodeId, ...)` below re-running `applyFilters()` once this function sets `focusNodeId`.
  *
  *  Centering reuses the hover pin's own `fx`/`fy` mechanic (`onCanvasMouseMove` below): the resolved
  *  node is pinned to the exact `(width/2, height/2)` point `startSimulation()`'s own `forceCenter`
@@ -1269,7 +1285,22 @@ let pinnedFocusNode = null
 function applyRouteFocus() {
   const rawPath = route.query.path
   const path = Array.isArray(rawPath) ? rawPath[0] : rawPath
-  const focusNode = resolveFocusNode(allNodes.value, path, pageStore.locale)
+  const { visibleNodes: unanchoredNodes } = computeVisibleSubset(
+    allNodes.value,
+    allEdges.value,
+    activeFilters,
+    null
+  )
+  const { syntheticNodes: unanchoredSyntheticNodes } = buildPathHierarchyEdges(
+    unanchoredNodes,
+    syntheticNodeCache
+  )
+  const focusNode = resolveFocusNode(
+    [...unanchoredNodes, ...unanchoredSyntheticNodes],
+    path,
+    pageStore.locale,
+    { includeSynthetic: true }
+  )
   // -> No match (a missing/blank param, a stale path, or one in the wrong locale) is a silent
   //    no-op -- same as before OpenProject #3334, and also what keeps a live re-focus from
   //    releasing an already-good pin over a transient/bad query value. Likewise a match that IS

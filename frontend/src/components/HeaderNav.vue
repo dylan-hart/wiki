@@ -458,13 +458,21 @@ function openInbox() {
 /**
  * OpenProject #3313: the Graph nav button branches on whether `/_graph` is already open.
  *
- * From an ordinary page, it opens the graph rooted on the page being read -- `pageStore.path`, the
- * raw un-prefixed path the Feature's shared `path` query param is written in (#3311/#3312), only
- * trustworthy while `route.meta.contentPage` is set: on any other non-graph route (admin, tags
- * browse, ...) `pageStore.path` is stale leftover from whichever page was last actually read, not
- * "nothing", so it is read only on a route that genuinely renders one (`router/routes.js`'s own
- * `contentPage` meta flag, the same one `NavSidebar.vue`'s `effectiveNavigationId` already trusts
- * for the identical reason).
+ * From an ordinary page, it opens the graph rooted on that page's nearest containing folder -- root
+ * for a top-level page (OpenProject #3337) -- rather than the page itself: `pageStore.folderPath`
+ * (`stores/page.js`), derived from `pageStore.path`, the raw un-prefixed path the Feature's shared
+ * `path` query param is written in (#3311/#3312). `pageStore.path`/`folderPath` are only trustworthy
+ * while `route.meta.contentPage` is set: on any other non-graph route (admin, tags browse, ...) they
+ * are stale leftover from whichever page was last actually read, not "nothing", so they are read
+ * only on a route that genuinely renders one (`router/routes.js`'s own `contentPage` meta flag, the
+ * same one `NavSidebar.vue`'s `effectiveNavigationId` already trusts for the identical reason).
+ *
+ * The branch on whether to send a `path` query param at all is on `route.meta.contentPage` itself,
+ * not on whether `folderPath` is truthy -- `folderPath` is `''` for both a top-level page and the
+ * homepage (its own doc comment), and that empty string is a real, deliberate root-anchor request
+ * (`Graph.vue#applyRouteFocus()` resolves it against the synthetic root node), not the same thing as
+ * "no anchor requested at all" from a non-content route. Branching on truthiness would silently
+ * collapse the two.
  *
  * Clicked again from inside the graph, it exits back to `lastNonGraphPath` -- not wherever the
  * graph's root ended up, which the sidebar can move independently while the reader stays in graph
@@ -479,8 +487,11 @@ function onGraphNavClick() {
     router.push(lastNonGraphPath.value)
     return
   }
-  const path = route.meta.contentPage ? pageStore.path : ''
-  router.push(path ? { path: GRAPH_ROUTE_PATH, query: { path } } : GRAPH_ROUTE_PATH)
+  if (route.meta.contentPage) {
+    router.push({ path: GRAPH_ROUTE_PATH, query: { path: pageStore.folderPath } })
+    return
+  }
+  router.push(GRAPH_ROUTE_PATH)
 }
 </script>
 
