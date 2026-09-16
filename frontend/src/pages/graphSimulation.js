@@ -151,11 +151,35 @@ const CLUSTER_PADDING = 24
  *  graph with many differently-shaped groups, so this trades that tighter fit for a uniform look.
  *  Sized off each node's edge (its centre plus its own `radiusFor()`), not just its centre
  *  (OpenProject #2296) -- `collideRadiusFor()` above already adds `radiusFor(node)` to a constant
- *  the same way, and is the pattern this mirrors. */
-export function computeClusters(nodes, { groupKeyFor, colorForGroup, radiusFor }) {
+ *  the same way, and is the pattern this mirrors.
+ *
+ *  A folder/synthetic node (OpenProject #3355) is a MEMBER of its own parent folder's circle, not
+ *  excluded outright the way it used to be -- e.g. Folder B nested inside Folder A now draws inside
+ *  Folder A's circle, alongside any real page directly in Folder A. `groupKeyFor` still answers "what
+ *  circle is a REAL node in" exactly as before; a synthetic node instead goes through the optional
+ *  `parentGroupKeyFor` accessor, which is asked for the key of the circle the node belongs to as a
+ *  MEMBER (its parent's), never the key it would itself produce for its own children -- that
+ *  distinction is what keeps a folder out of the circle it is itself the namer of. Two nodes are
+ *  still never counted as members of anything: the true root (`node.root` -- it has no parent
+ *  circle), and any synthetic node when the caller passes no `parentGroupKeyFor` at all, which keeps
+ *  every pre-#3355 call site (this file's own unit tests included) unchanged. */
+export function computeClusters(
+  nodes,
+  { groupKeyFor, colorForGroup, radiusFor, parentGroupKeyFor }
+) {
   const byGroup = new Map()
   for (const node of nodes) {
-    if (node.x === undefined || node.synthetic) {
+    if (node.x === undefined) {
+      continue
+    }
+    if (node.synthetic) {
+      if (node.root || !parentGroupKeyFor) {
+        continue
+      }
+      const key = parentGroupKeyFor(node)
+      const list = byGroup.get(key) ?? []
+      list.push(node)
+      byGroup.set(key, list)
       continue
     }
     const key = groupKeyFor(node)

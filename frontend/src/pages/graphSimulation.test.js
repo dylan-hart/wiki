@@ -139,3 +139,85 @@ describe('computeClusters padding (OpenProject #2562)', () => {
     expect(newFloor.circle.r).toBe(34)
   })
 })
+
+describe('computeClusters synthetic-node membership (OpenProject #3355)', () => {
+  const zeroRadius = () => 0
+  // -> Mirrors `Graph.vue#groupKeyFor`'s own `'(root)'` fallback for a folder-less real page, not
+  //    just the earlier `describe` blocks' bare `n.folder` (which never needed it -- none of their
+  //    fixtures used an empty/root folder).
+  const groupKeyFor = (n) => n.folder || '(root)'
+  const parentGroupKeyFor = (n) => (n.path.includes('/') ? n.path.split('/')[0] : '(root)')
+
+  it("a nested folder node joins its parent folder's circle as a member", () => {
+    const pageA = { x: 0, y: 0, path: 'A/page', folder: 'A' }
+    const folderB = { x: 300, y: 0, path: 'A/B', synthetic: true }
+    const nodes = [pageA, folderB]
+
+    const clusters = computeClusters(nodes, {
+      groupKeyFor,
+      parentGroupKeyFor,
+      colorForGroup: () => '#000',
+      radiusFor: zeroRadius
+    })
+
+    const clusterA = clusters.find((c) => c.key === 'A')
+    expect(clusterA).toBeDefined()
+    // -> With only pageA and folderB as members, the centroid sits exactly between them -- proof
+    //    folderB was actually folded into the average, not silently dropped the way it used to be.
+    expect(clusterA.circle.x).toBeCloseTo(150)
+    expect(clusterA.circle.y).toBeCloseTo(0)
+  })
+
+  it('the true root node is never a member of any circle, even with parentGroupKeyFor supplied', () => {
+    const root = { x: 0, y: 0, path: '', synthetic: true, root: true }
+    const page = { x: 100, y: 0, path: 'a', folder: '' }
+
+    const clusters = computeClusters([root, page], {
+      groupKeyFor,
+      parentGroupKeyFor,
+      colorForGroup: () => '#000',
+      radiusFor: zeroRadius
+    })
+
+    const rootCluster = clusters.find((c) => c.key === '(root)')
+    // -> Only `page` (folder: '') is a member -- if `root` had been folded in too, the centroid
+    //    would sit at (50, 0), not exactly on `page`.
+    expect(rootCluster.circle.x).toBeCloseTo(100)
+  })
+
+  it('a top-level folder never lands inside the circle it is itself the namer of', () => {
+    const folderA = { x: 500, y: 500, path: 'A', synthetic: true }
+    const pageInA = { x: 0, y: 0, path: 'A/page', folder: 'A' }
+
+    const clusters = computeClusters([folderA, pageInA], {
+      groupKeyFor,
+      parentGroupKeyFor,
+      colorForGroup: () => '#000',
+      radiusFor: zeroRadius
+    })
+
+    // -> folderA's own parent key is '(root)' (its path has no '/'), never 'A' -- the key its own
+    //    children use -- so the 'A' circle has exactly one member: pageInA.
+    const clusterA = clusters.find((c) => c.key === 'A')
+    expect(clusterA.circle.x).toBeCloseTo(0)
+    expect(clusterA.circle.y).toBeCloseTo(0)
+    const rootCluster = clusters.find((c) => c.key === '(root)')
+    expect(rootCluster.circle.x).toBeCloseTo(500)
+    expect(rootCluster.circle.y).toBeCloseTo(500)
+  })
+
+  it('a synthetic node is still excluded outright when the caller passes no parentGroupKeyFor (pre-#3355 call sites)', () => {
+    const folder = { x: 0, y: 0, path: 'A', synthetic: true }
+    const page = { x: 100, y: 0, path: 'A/page', folder: 'A' }
+
+    const clusters = computeClusters([folder, page], {
+      groupKeyFor,
+      colorForGroup: () => '#000',
+      radiusFor: zeroRadius
+    })
+
+    const clusterA = clusters.find((c) => c.key === 'A')
+    expect(clusterA.circle.x).toBeCloseTo(100)
+    expect(clusters.length).toBe(1)
+  })
+})
