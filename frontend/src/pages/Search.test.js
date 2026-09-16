@@ -825,7 +825,7 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
   })
 
-  it('sends locale only when exactly one locale filter is selected', async () => {
+  it('sends locales as a single-element comma-joined list when one locale filter is selected', async () => {
     const { wrapper } = await mountSearchWithMode({
       semanticEnabled: true,
       firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
@@ -841,12 +841,12 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith(
       'sites/site-1/pages/search/semantic',
       expect.objectContaining({
-        searchParams: expect.objectContaining({ locale: 'en' })
+        searchParams: expect.objectContaining({ locales: 'en' })
       })
     )
   })
 
-  it('omits locale when zero or multiple locales are selected', async () => {
+  it('sends locales as a comma-joined list when multiple locale filters are selected', async () => {
     const { wrapper } = await mountSearchWithMode({
       semanticEnabled: true,
       firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
@@ -859,18 +859,19 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     wrapper.vm.setSearchMode('semantic')
     await flushPromises()
 
-    const lastCall = API_CLIENT.get.mock.calls.at(-1)
-    expect(lastCall[1].searchParams).not.toHaveProperty('locale')
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ locales: 'en,fr' })
+      })
+    )
   })
 
-  it('hides the keyword-only sort/filter sidebar while Semantic mode is active', async () => {
+  it('omits locales when no locale filter is selected', async () => {
     const { wrapper } = await mountSearchWithMode({
       semanticEnabled: true,
       firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
     })
-    expect(wrapper.find('.layout-search-sd').attributes('style') ?? '').not.toContain(
-      'display: none'
-    )
 
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
@@ -878,7 +879,82 @@ describe('Search.vue Keyword/Semantic mode toggle (OpenProject #3105)', () => {
     wrapper.vm.setSearchMode('semantic')
     await flushPromises()
 
-    expect(wrapper.find('.layout-search-sd').attributes('style')).toContain('display: none')
+    const lastCall = API_CLIENT.get.mock.calls.at(-1)
+    expect(lastCall[1].searchParams).not.toHaveProperty('locales')
+  })
+
+  it('sends path/tags/editor/publishState filters in Semantic mode, matching the Keyword param names', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    wrapper.vm.state.params.filterPath = 'docs'
+    wrapper.vm.state.selectedTags = ['alpha', 'beta']
+    wrapper.vm.state.params.filterEditor = 'markdown'
+    wrapper.vm.state.params.filterPublishState = 'published'
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search/semantic',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({
+          path: 'docs',
+          tags: 'alpha,beta',
+          editor: 'markdown',
+          publishState: 'published'
+        })
+      })
+    )
+  })
+
+  it('omits path/tags/editor/publishState from the semantic request when unset', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    const lastCall = API_CLIENT.get.mock.calls.at(-1)
+    expect(lastCall[1].searchParams).not.toHaveProperty('path')
+    expect(lastCall[1].searchParams).not.toHaveProperty('tags')
+    expect(lastCall[1].searchParams).not.toHaveProperty('editor')
+    expect(lastCall[1].searchParams).not.toHaveProperty('publishState')
+  })
+
+  it('keeps the sort/filter sidebar visible in Semantic mode, hiding only Sort By', async () => {
+    const { wrapper } = await mountSearchWithMode({
+      semanticEnabled: true,
+      firstResponse: { results: [FIXTURE_PAGE], totalHits: 1, suggestion: null }
+    })
+    expect(wrapper.find('.layout-search-sd').attributes('style') ?? '').not.toContain(
+      'display: none'
+    )
+    expect(wrapper.findAll('.section-header').at(0).text()).toBe('search.sortBy')
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0, suggestion: null })
+    })
+    wrapper.vm.setSearchMode('semantic')
+    await flushPromises()
+
+    // -> Still shown, not hidden entirely: Path/Tags/Locale/Editor/Publish State remain usable
+    expect(wrapper.find('.layout-search-sd').attributes('style') ?? '').not.toContain(
+      'display: none'
+    )
+    // -> Sort By is the one control still gone -- its section-header text no longer appears, and
+    //    "Filters" (the only remaining section-header inside the sidebar) is now first
+    expect(wrapper.findAll('.section-header').map((el) => el.text())).not.toContain('search.sortBy')
+    expect(wrapper.findAll('.section-header').at(0).text()).toBe('search.filters')
   })
 
   it('an empty query resets results in Semantic mode instead of calling the API', async () => {

@@ -193,7 +193,7 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
     expect(resolveFocusNode(FOCUS_NODES, 'guides/onboarding', 'en')).toBe(FOCUS_NODES[0])
   })
 
-  it('never matches a synthetic folder/root node, even when its path/locale both match', () => {
+  it('never matches a synthetic folder/root node by default, even when its path/locale both match', () => {
     expect(resolveFocusNode(FOCUS_NODES, 'guides', 'en')).toBeNull()
   })
 
@@ -201,10 +201,38 @@ describe('resolveFocusNode (OpenProject #3312)', () => {
     expect(resolveFocusNode(FOCUS_NODES, 'nonexistent/page', 'en')).toBeNull()
   })
 
-  it('returns null for an empty, null or undefined path -- no query param present', () => {
-    expect(resolveFocusNode(FOCUS_NODES, '', 'en')).toBeNull()
+  it('returns null for a null or undefined path -- no query param present at all', () => {
     expect(resolveFocusNode(FOCUS_NODES, null, 'en')).toBeNull()
     expect(resolveFocusNode(FOCUS_NODES, undefined, 'en')).toBeNull()
+  })
+
+  it('returns null for an empty path when nothing has that path, distinct from the no-param case', () => {
+    // -> No node in this fixture has `path: ''`, so this stays null -- but unlike `null`/`undefined`,
+    //    an empty string is not short-circuited before the search runs (see the root case below).
+    expect(resolveFocusNode(FOCUS_NODES, '', 'en')).toBeNull()
+  })
+
+  describe('includeSynthetic (OpenProject #3337 folder/root anchoring)', () => {
+    it('matches a synthetic folder/root node when opted in', () => {
+      expect(resolveFocusNode(FOCUS_NODES, 'guides', 'en', { includeSynthetic: true })).toBe(
+        FOCUS_NODES[3]
+      )
+    })
+
+    it('resolves the synthetic root node by its own empty-string path', () => {
+      const withRoot = [
+        ...FOCUS_NODES,
+        { path: '', locale: 'en', title: '(root)', synthetic: true, root: true }
+      ]
+      expect(resolveFocusNode(withRoot, '', 'en', { includeSynthetic: true })).toBe(withRoot[4])
+    })
+
+    it('still scopes to locale and still excludes a non-matching real node', () => {
+      expect(resolveFocusNode(FOCUS_NODES, 'guides', 'fr', { includeSynthetic: true })).toBeNull()
+      expect(resolveFocusNode(FOCUS_NODES, 'reference/api', 'en', { includeSynthetic: true })).toBe(
+        FOCUS_NODES[2]
+      )
+    })
   })
 })
 
@@ -333,6 +361,176 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
     })
     expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'shared'])
     expect(visibleEdges).toEqual([])
+  })
+})
+
+// Anchor fixture (OpenProject #3333): a folder tree deep enough to exercise ancestor/sibling/
+// descendant/cross-locale exclusion all at once, plus enough depth to exercise the anchor-relative
+// `folderDepth` reinterpretation. `guides/onboarding` (en) is the anchor most tests below use.
+const ANCHOR_NODES = [
+  { path: 'guides', locale: 'en', tags: [] }, // ancestor of the anchor -- must be excluded
+  { path: 'guides/onboarding', locale: 'en', tags: [] }, // the anchor itself -- must be included
+  { path: 'guides/onboarding/step1', locale: 'en', tags: ['x'] }, // direct child -- hop 1
+  { path: 'guides/onboarding/step1/detail', locale: 'en', tags: [] }, // grandchild -- hop 2
+  { path: 'guides/other', locale: 'en', tags: [] }, // sibling -- must be excluded
+  { path: 'reference', locale: 'en', tags: [] }, // unrelated tree -- must be excluded
+  { path: 'guides/onboarding', locale: 'fr', tags: [] }, // same path, OTHER locale -- must be excluded
+  { path: 'guides/onboarding/step1', locale: 'fr', tags: [] }
+]
+const ANCHOR_EDGES = [
+  { source: 'en:guides', target: 'en:guides/onboarding', type: 'path' },
+  { source: 'en:guides/onboarding', target: 'en:guides/onboarding/step1', type: 'path' },
+  {
+    source: 'en:guides/onboarding/step1',
+    target: 'en:guides/onboarding/step1/detail',
+    type: 'path'
+  },
+  { source: 'en:guides', target: 'en:guides/other', type: 'path' },
+  { source: 'fr:guides/onboarding', target: 'fr:guides/onboarding/step1', type: 'path' }
+]
+const NO_ACTIVE_FILTERS = { tags: [], folderDepth: null, locale: null }
+
+describe('computeVisibleSubset: anchor + descendants restriction (OpenProject #3333)', () => {
+  it('with no anchor argument, behaves exactly as before -- the whole filtered graph is visible', () => {
+    const { visibleNodes } = computeVisibleSubset(ANCHOR_NODES, ANCHOR_EDGES, NO_ACTIVE_FILTERS)
+    expect(visibleNodes).toHaveLength(ANCHOR_NODES.length)
+  })
+
+  it('with a non-root anchor, restricts to the anchor node itself plus its descendants', () => {
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const { visibleNodes } = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      NO_ACTIVE_FILTERS,
+      anchor
+    )
+    expect(visibleNodes.map((n) => n.path).sort()).toEqual([
+      'guides/onboarding',
+      'guides/onboarding/step1',
+      'guides/onboarding/step1/detail'
+    ])
+  })
+
+  it('excludes an ancestor and a sibling of the anchor', () => {
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const { visibleNodes } = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      NO_ACTIVE_FILTERS,
+      anchor
+    )
+    const paths = visibleNodes.map((n) => n.path)
+    expect(paths).not.toContain('guides')
+    expect(paths).not.toContain('guides/other')
+    expect(paths).not.toContain('reference')
+  })
+
+  it('excludes a same-path node in a different locale than the anchor', () => {
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const { visibleNodes } = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      NO_ACTIVE_FILTERS,
+      anchor
+    )
+    expect(visibleNodes.some((n) => n.locale === 'fr')).toBe(false)
+  })
+
+  it('does not match a sibling whose path merely shares the anchor as a string prefix', () => {
+    // 'guides/onboarding-legacy' starts with 'guides/onboarding' as a bare string but is not nested
+    // under it as a path segment -- must not be swept in by a naive startsWith(anchorPath) check.
+    const nodes = [...ANCHOR_NODES, { path: 'guides/onboarding-legacy', locale: 'en', tags: [] }]
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const { visibleNodes } = computeVisibleSubset(nodes, ANCHOR_EDGES, NO_ACTIVE_FILTERS, anchor)
+    expect(visibleNodes.map((n) => n.path)).not.toContain('guides/onboarding-legacy')
+  })
+
+  it('drops an edge with an endpoint outside the anchor subtree', () => {
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const { visibleEdges } = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      NO_ACTIVE_FILTERS,
+      anchor
+    )
+    // Only the two edges wholly inside `guides/onboarding`'s own subtree survive.
+    expect(visibleEdges).toEqual([
+      { source: 'en:guides/onboarding', target: 'en:guides/onboarding/step1', type: 'path' },
+      {
+        source: 'en:guides/onboarding/step1',
+        target: 'en:guides/onboarding/step1/detail',
+        type: 'path'
+      }
+    ])
+  })
+
+  it('a root anchor (path "") is unrestricted -- identical to passing no anchor at all', () => {
+    const rootAnchorEn = { path: '', locale: 'en' }
+    const anchored = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      NO_ACTIVE_FILTERS,
+      rootAnchorEn
+    )
+    const unanchored = computeVisibleSubset(ANCHOR_NODES, ANCHOR_EDGES, {
+      ...NO_ACTIVE_FILTERS,
+      locale: 'en'
+    })
+    expect(anchored.visibleNodes.map((n) => n.path).sort()).toEqual(
+      unanchored.visibleNodes.map((n) => n.path).sort()
+    )
+  })
+
+  it('tag and locale filters still AND on top of the anchor restriction', () => {
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const { visibleNodes } = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      { tags: ['x'], folderDepth: null, locale: null },
+      anchor
+    )
+    expect(visibleNodes.map((n) => n.path)).toEqual(['guides/onboarding/step1'])
+  })
+
+  it('reinterprets folderDepth as hops-from-the-anchor rather than path segments from root', () => {
+    const anchor = { path: 'guides/onboarding', locale: 'en' }
+    const depth0 = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      { tags: [], folderDepth: 0, locale: null },
+      anchor
+    )
+    const depth1 = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      { tags: [], folderDepth: 1, locale: null },
+      anchor
+    )
+    // Depth 0 relative to the anchor is the anchor alone -- despite it sitting two path segments
+    // below the actual site root, which is what a root-relative depth 0 would have excluded it at.
+    expect(depth0.visibleNodes.map((n) => n.path)).toEqual(['guides/onboarding'])
+    expect(depth1.visibleNodes.map((n) => n.path).sort()).toEqual([
+      'guides/onboarding',
+      'guides/onboarding/step1'
+    ])
+  })
+
+  it('folderDepth relative to a root anchor matches the un-anchored, root-relative depth exactly', () => {
+    const rootAnchorEn = { path: '', locale: 'en' }
+    const anchored = computeVisibleSubset(
+      ANCHOR_NODES,
+      ANCHOR_EDGES,
+      { tags: [], folderDepth: 1, locale: null },
+      rootAnchorEn
+    )
+    const unanchored = computeVisibleSubset(ANCHOR_NODES, ANCHOR_EDGES, {
+      tags: [],
+      folderDepth: 1,
+      locale: 'en'
+    })
+    expect(anchored.visibleNodes.map((n) => n.path).sort()).toEqual(
+      unanchored.visibleNodes.map((n) => n.path).sort()
+    )
   })
 })
 

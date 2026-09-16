@@ -13,11 +13,12 @@ import { ensureTemporal } from '../../test/temporal.ts'
  * logic has its own coverage in `models/semanticSearch.test.ts` (Feature #3092). This suite covers
  * only what `read.ts` itself does: the unknown-site 404, the `features.semanticSearch` 503 gate (both
  * halves — the boot-time capability flag AND the site's own admin setting, so neither alone can turn
- * the route on), that query/locale/limit/offset reach `search()` as documented, and that the route
- * forwards the caller's actor through to `search()` rather than doing its own filtering (or none at
- * all). The stub's returned rows use the real `SemanticSearchResult` shape (`pageId`/`chunkText`/
- * `chunkIndex`/`distance`/`hop`, OpenProject #3122) rather than the earlier stub's full-text-
- * `SearchResult` shape, so this suite would catch a route/schema drift back toward that stale shape.
+ * the route on), that query/locales/limit/offset/path/tags/editor/publishState (OpenProject #3328)
+ * reach `search()` as documented, and that the route forwards the caller's actor through to
+ * `search()` rather than doing its own filtering (or none at all). The stub's returned rows use the
+ * real `SemanticSearchResult` shape (`pageId`/`chunkText`/`chunkIndex`/`distance`/`hop`, OpenProject
+ * #3122) rather than the earlier stub's full-text-`SearchResult` shape, so this suite would catch a
+ * route/schema drift back toward that stale shape.
  */
 
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -27,8 +28,15 @@ let searchCalls: Array<{
   query: string
   actor: { id: string } | undefined
   siteId: string
-  locale: string
-  options: { limit: number; offset: number }
+  locales: string[]
+  options: {
+    limit: number
+    offset: number
+    path?: string
+    tags?: string[]
+    editor?: string
+    publishState?: string
+  }
 }>
 /** Every "page" the stub model could return, each visible only to the actor named in `visibleTo`. */
 let allPages: Array<{ id: string; path: string; visibleTo: string | null }>
@@ -46,10 +54,17 @@ async function search(
   query: string,
   actor: { id: string } | undefined,
   siteId: string,
-  locale: string,
-  options: { limit: number; offset: number }
+  locales: string[],
+  options: {
+    limit: number
+    offset: number
+    path?: string
+    tags?: string[]
+    editor?: string
+    publishState?: string
+  }
 ) {
-  searchCalls.push({ query, actor, siteId, locale, options })
+  searchCalls.push({ query, actor, siteId, locales, options })
   // -> Mimics what the real `models/semanticSearch.ts#search()` does with `filterVisible`: a page
   //    only appears for the actor it names, or for everyone when it names none. Proves the route
   //    passes the actor through rather than filtering itself (or not filtering at all).
@@ -170,18 +185,25 @@ test('503s when the setting is present but at the old, un-nested `search.semanti
   assert.equal(searchCalls.length, 0)
 })
 
-test('calls the model with query/locale/limit/offset and returns its results when both flags are on', async () => {
+test('calls the model with query/locales/limit/offset and returns its results when both flags are on', async () => {
   const res = await app.inject({
     method: 'GET',
-    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&locale=fr&limit=10&offset=5`
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&locales=fr&limit=10&offset=5`
   })
   assert.equal(res.statusCode, 200)
   assert.equal(searchCalls.length, 1)
   const call = searchCalls[0]!
   assert.equal(call.query, 'hello')
   assert.equal(call.siteId, SITE_ID)
-  assert.equal(call.locale, 'fr')
-  assert.deepEqual(call.options, { limit: 10, offset: 5 })
+  assert.deepEqual(call.locales, ['fr'])
+  assert.deepEqual(call.options, {
+    limit: 10,
+    offset: 5,
+    path: undefined,
+    tags: [],
+    editor: undefined,
+    publishState: undefined
+  })
 
   const body = res.json()
   assert.deepEqual(
@@ -205,7 +227,7 @@ test('calls the model with query/locale/limit/offset and returns its results whe
   assert.equal('highlight' in result, false)
 })
 
-test('defaults locale, limit and offset when omitted', async () => {
+test('defaults locales, limit and offset when omitted', async () => {
   const res = await app.inject({
     method: 'GET',
     url: `/sites/${SITE_ID}/pages/search/semantic?query=hello`
@@ -213,8 +235,45 @@ test('defaults locale, limit and offset when omitted', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(searchCalls.length, 1)
   const call = searchCalls[0]!
-  assert.equal(call.locale, 'en')
-  assert.deepEqual(call.options, { limit: 25, offset: 0 })
+  assert.deepEqual(call.locales, ['en'])
+  assert.deepEqual(call.options, {
+    limit: 25,
+    offset: 0,
+    path: undefined,
+    tags: [],
+    editor: undefined,
+    publishState: undefined
+  })
+})
+
+test('forwards path/tags/editor/publishState to the model (OpenProject #3328)', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/pages/search/semantic?query=hello` +
+      '&path=docs%2Fguides&tags=foo,bar&editor=markdown&publishState=published'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(searchCalls.length, 1)
+  const call = searchCalls[0]!
+  assert.deepEqual(call.options, {
+    limit: 25,
+    offset: 0,
+    path: 'docs/guides',
+    tags: ['foo', 'bar'],
+    editor: 'markdown',
+    publishState: 'published'
+  })
+})
+
+test('accepts several comma-separated locales', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search/semantic?query=hello&locales=en,fr`
+  })
+  assert.equal(res.statusCode, 200)
+  const call = searchCalls[0]!
+  assert.deepEqual(call.locales, ['en', 'fr'])
 })
 
 test('a page visible to everyone appears for an anonymous caller, a page scoped to another actor does not', async () => {

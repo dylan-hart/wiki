@@ -18,7 +18,7 @@
           The chevron turns rather than being swapped for a second icon, so the two states are one drawing.
         -->
         <w-btn
-          v-if="isFiltersCollapsed && !isSemanticMode"
+          v-if="isFiltersCollapsed"
           class="layout-search-filterbtn"
           flat
           :label="t(`search.filters`)"
@@ -30,47 +30,48 @@
             name="tabler:chevron-down" />
         </w-btn>
         <!--
-          Hidden entirely in Semantic mode, not merely disabled: none of these controls (sort order,
-          path/tag/locale/editor/publish-state filters) are part of the semantic route's contract
-          (OpenProject #3105), so leaving them visible would offer a control that silently does
-          nothing.
+          Shown in both modes: Path/Tags/Locale/Editor/Publish State are part of the semantic route's
+          contract too (OpenProject #3329, sibling backend Task #3328 in Feature #3327). Sort By stays
+          hidden in Semantic mode (`v-if="!isSemanticMode"` on its own block below) -- semantic results
+          are implicitly ordered by similarity and the route takes no `orderBy` -- so it, and only it,
+          would offer a control that silently does nothing.
         -->
-        <div
-          class="layout-search-sd"
-          v-show="!isSemanticMode && (!isFiltersCollapsed || state.filtersOpen)">
-          <div class="section-header">{{ t('search.sortBy') }}</div>
-          <w-list dense padding>
-            <w-item
-              v-for="item of orderByOptions"
-              :key="item.value"
-              clickable
-              :active="item.value === state.params.orderBy"
-              @click="setOrderBy(item.value)">
-              <!--
-                `accent`, not `primary`: this is the white-text-fill role (the mockup's active
-                "Relevance" row is the accent red, `#c8303c`, not the link blue `--color-primary`
-                links use), same reasoning as the `.layout-search-plate` accent-color comment below.
-              -->
-              <w-item-section side>
-                <w-icon
-                  :name="item.icon"
-                  :color="item.value === state.params.orderBy ? `accent` : ``" />
-              </w-item-section>
-              <w-item-section
-                ><w-item-label>{{ item.label }}</w-item-label></w-item-section
-              >
-              <w-item-section v-if="item.value === state.params.orderBy" side>
-                <w-icon
-                  :name="
-                    state.params.orderByDirection === `desc`
-                      ? `tabler:arrow-bar-down`
-                      : `tabler:arrow-bar-up`
-                  "
-                  size="sm"
-                  color="accent" />
-              </w-item-section>
-            </w-item>
-          </w-list>
+        <div class="layout-search-sd" v-show="!isFiltersCollapsed || state.filtersOpen">
+          <template v-if="!isSemanticMode">
+            <div class="section-header">{{ t('search.sortBy') }}</div>
+            <w-list dense padding>
+              <w-item
+                v-for="item of orderByOptions"
+                :key="item.value"
+                clickable
+                :active="item.value === state.params.orderBy"
+                @click="setOrderBy(item.value)">
+                <!--
+                  `accent`, not `primary`: this is the white-text-fill role (the mockup's active
+                  "Relevance" row is the accent red, `#c8303c`, not the link blue `--color-primary`
+                  links use), same reasoning as the `.layout-search-plate` accent-color comment below.
+                -->
+                <w-item-section side>
+                  <w-icon
+                    :name="item.icon"
+                    :color="item.value === state.params.orderBy ? `accent` : ``" />
+                </w-item-section>
+                <w-item-section
+                  ><w-item-label>{{ item.label }}</w-item-label></w-item-section
+                >
+                <w-item-section v-if="item.value === state.params.orderBy" side>
+                  <w-icon
+                    :name="
+                      state.params.orderByDirection === `desc`
+                        ? `tabler:arrow-bar-down`
+                        : `tabler:arrow-bar-up`
+                    "
+                    size="sm"
+                    color="accent" />
+                </w-item-section>
+              </w-item>
+            </w-list>
+          </template>
           <div class="section-header">{{ t('search.filters') }}</div>
           <div class="p-2">
             <w-input
@@ -556,16 +557,15 @@ async function runSearchRequest(endpoint, searchParams, append) {
 }
 
 /**
- * The Semantic-mode half of `performSearch()` (OpenProject #3105). Task #3102's route contract takes
- * only `query`/`locale`/`limit`/`offset` -- no path/tag/editor/publish-state filters, no `orderBy` --
- * so unlike the keyword path this sends the reader's query text through untouched (no `#tag`
- * extraction: a semantic query has no filter meaning to extract from it) and ignores every sidebar
- * filter, which is also why the sidebar itself is hidden while this mode is active.
+ * The Semantic-mode half of `performSearch()` (OpenProject #3105, filters added by #3329/backend
+ * Task #3328 in Feature #3327). Unlike the keyword path this sends the reader's query text through
+ * untouched -- no `#tag` extraction: a semantic query has no filter meaning to extract from it --
+ * so the tag filter reads from `state.selectedTags` directly (the sidebar's own selection) rather
+ * than from tags parsed out of the query. No `orderBy`/`orderByDirection` is sent: results stay
+ * implicitly ordered by similarity, and Sort By is the one sidebar control still hidden in this mode.
  *
- * `locale` is only sent when exactly one is selected in the (hidden-but-not-cleared) locale filter,
- * matching the route's singular `locale` param -- unlike keyword's comma-joined `locales`. Zero or
- * multiple selected means "let the server decide" (its own locale-scoping default) rather than this
- * page guessing which one the reader meant.
+ * `filterLocale` is sent as the comma-joined `locales` param, same shape and name as keyword's own
+ * `locales` -- the route's old singular `locale` param is gone (#3328).
  */
 function performSemanticSearch(append) {
   const q = (siteStore.search ?? '').trim().replaceAll(/\s\s+/g, ' ')
@@ -575,11 +575,21 @@ function performSemanticSearch(append) {
     return undefined
   }
 
+  const filters = {
+    ...(state.params.filterPath ? { path: state.params.filterPath } : {}),
+    ...(state.selectedTags.length > 0 ? { tags: state.selectedTags.join(',') } : {}),
+    ...(state.params.filterLocale.length > 0
+      ? { locales: state.params.filterLocale.join(',') }
+      : {}),
+    ...(state.params.filterEditor ? { editor: state.params.filterEditor } : {}),
+    ...(state.params.filterPublishState ? { publishState: state.params.filterPublishState } : {})
+  }
+
   return runSearchRequest(
     `sites/${siteStore.id}/pages/search/semantic`,
     {
       query: q,
-      ...(state.params.filterLocale.length === 1 ? { locale: state.params.filterLocale[0] } : {})
+      ...filters
     },
     append
   )

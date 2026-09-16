@@ -69,6 +69,75 @@ describe('clusterForce (OpenProject #1158)', () => {
   })
 })
 
+describe('clusterForce levels (OpenProject #3339)', () => {
+  /** Same shape as `Graph.vue`'s real `groupKeyFor`: level 1 is a node's top folder, level 2/3 are
+   *  composite keys of its first 2/3 directory segments (from `path`), `null` when a node isn't
+   *  nested deep enough for that level. */
+  function folderGroupKeyFor(node, level = 1) {
+    const segments = node.path.split('/').slice(0, -1)
+    if (level > segments.length) {
+      return null
+    }
+    return level === 1 ? segments[0] : segments.slice(0, level).join('/')
+  }
+
+  it('defaults to level 1 only -- unchanged from before levels existed', () => {
+    const nodeA = { path: 'guides/deep/a', x: 0, y: 0, vx: 0, vy: 0 }
+    const nodeB = { path: 'guides/other/b', x: 10, y: 10, vx: 0, vy: 0 }
+    const force = clusterForce(folderGroupKeyFor, 0.1)
+    force.initialize([nodeA, nodeB])
+    force(1)
+
+    // Both share level-1 key 'guides' -- pulled toward each other's shared centroid, exactly the
+    // single-level behavior this WP must not change for a caller that doesn't opt into `levels`.
+    expect(nodeA.vx).toBeGreaterThan(0)
+    expect(nodeA.vy).toBeGreaterThan(0)
+    expect(nodeB.vx).toBeLessThan(0)
+    expect(nodeB.vy).toBeLessThan(0)
+  })
+
+  it('a node nested deep enough for level 2 gets an additional pull on top of its level-1 pull', () => {
+    // -> Two nodes share level-1 ('guides') AND level-2 ('guides/deep') keys -- with levels [1, 2]
+    //    each contributes its own centroid pull, so the combined nudge is strictly larger than the
+    //    level-1-only pull between the same two positions.
+    const levelOneOnly = { path: 'guides/deep/a', x: 0, y: 0, vx: 0, vy: 0 }
+    const levelOneOnlyPeer = { path: 'guides/deep/b', x: 10, y: 10, vx: 0, vy: 0 }
+    const levelOneForce = clusterForce(folderGroupKeyFor, 0.1, [1])
+    levelOneForce.initialize([levelOneOnly, levelOneOnlyPeer])
+    levelOneForce(1)
+
+    const bothLevels = { path: 'guides/deep/a', x: 0, y: 0, vx: 0, vy: 0 }
+    const bothLevelsPeer = { path: 'guides/deep/b', x: 10, y: 10, vx: 0, vy: 0 }
+    const force = clusterForce(folderGroupKeyFor, 0.1, [1, 2])
+    force.initialize([bothLevels, bothLevelsPeer])
+    force(1)
+
+    // Identical positions/keys at both levels here, so the level-2 pull exactly doubles the level-1
+    // one -- a direct, non-flaky comparison rather than only a directional assertion.
+    expect(bothLevels.vx).toBeCloseTo(levelOneOnly.vx * 2)
+    expect(bothLevels.vy).toBeCloseTo(levelOneOnly.vy * 2)
+  })
+
+  it('a node not nested deep enough for level 2 gets no level-2 pull, only its level-1 one', () => {
+    const shallow = { path: 'guides/a', x: 0, y: 0, vx: 0, vy: 0 }
+    const shallowPeer = { path: 'guides/b', x: 10, y: 10, vx: 0, vy: 0 }
+    const levelOneForce = clusterForce(folderGroupKeyFor, 0.1, [1])
+    levelOneForce.initialize([shallow, shallowPeer])
+    levelOneForce(1)
+
+    const shallowAgain = { path: 'guides/a', x: 0, y: 0, vx: 0, vy: 0 }
+    const shallowAgainPeer = { path: 'guides/b', x: 10, y: 10, vx: 0, vy: 0 }
+    const multiLevelForce = clusterForce(folderGroupKeyFor, 0.1, [1, 2, 3])
+    multiLevelForce.initialize([shallowAgain, shallowAgainPeer])
+    multiLevelForce(1)
+
+    // Neither node has 2 directory segments, so levels 2/3 contribute nothing -- the multi-level
+    // force's nudge equals the level-1-only force's, not some multiple of it.
+    expect(shallowAgain.vx).toBeCloseTo(shallow.vx)
+    expect(shallowAgain.vy).toBeCloseTo(shallow.vy)
+  })
+})
+
 describe('clusterForce settles a cold-load simulation without a directional wedge (OpenProject #1158)', () => {
   it('keeps edge-direction concentration low after a full real d3-force settle', () => {
     const FOLDERS = ['docs', 'guides', 'faq', 'reference']
