@@ -169,9 +169,10 @@ export function monacoMock() {
   }
 }
 
-export async function mountEditorMarkdown(EditorMarkdown, initialContent = '') {
+export async function mountEditorMarkdown(EditorMarkdown, initialContent = '', { attachTo } = {}) {
   const { wrapper, pageStore } = mountWithApp(EditorMarkdown, {
-    stores: { page: { content: initialContent } }
+    stores: { page: { content: initialContent } },
+    ...(attachTo ? { attachTo } : {})
   })
 
   /*

@@ -1,11 +1,32 @@
 <template>
   <div class="editor-markdown" :class="{ 'is-resizing': isDragging }">
     <div class="editor-markdown-main">
-      <div class="editor-markdown-sidebar">
+      <div
+        class="editor-markdown-sidebar"
+        ref="sideToolbarRef"
+        role="toolbar"
+        aria-orientation="vertical"
+        :aria-label="t('editor.markup.insertToolbarLabel')"
+        @keydown="sideToolbarRoving.onKeydown"
+        @focusin="sideToolbarRoving.onFocusin">
         <!-- ------------------------------------------------------- -->
         <!-- SIDE TOOLBAR -->
         <!-- ------------------------------------------------------- -->
-        <w-btn icon="tabler:link-plus" padding="sm sm" flat @click="insertLink">
+        <!--
+          A WAI-ARIA APG "Toolbar" (Task/Feature #3350, `composables/toolbarRovingTabindex.js`): this
+          rail is ONE Tab stop rather than ten, so Tab from the page description above goes straight
+          to the Monaco editor rather than through every button here first. Each button below carries
+          a `:tabindex` from `sideToolbarRoving.tabindexFor(N)` -- a literal index per button, matching
+          its position in the DOM -- and the container's own `@keydown`/`@focusin` move both real
+          focus and which one is the `"0"` as arrow keys are pressed. Every button stays reachable by
+          click or by arrowing to it; none of them lose their own Enter/Space activation.
+        -->
+        <w-btn
+          icon="tabler:link-plus"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(0)"
+          @click="insertLink">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertLink')
           }}</w-tooltip>
@@ -13,12 +34,17 @@
         <!-- -> Straight to the File Manager. The menu this replaces offered two other sources: a remote
                 URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
                 now has no caller. -->
-        <w-btn icon="tabler:photo-plus" padding="sm sm" flat @click="insertAssets">
+        <w-btn
+          icon="tabler:photo-plus"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(1)"
+          @click="insertAssets">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:json" padding="sm sm" flat>
+        <w-btn icon="tabler:json" padding="sm sm" flat :tabindex="sideToolbarRoving.tabindexFor(2)">
           <editor-code-block-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -27,27 +53,51 @@
             t('editor.markup.insertCodeBlock')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:table-plus" padding="sm sm" flat @click="insertTable">
+        <w-btn
+          icon="tabler:table-plus"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(3)"
+          @click="insertTable">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTable')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:browser-plus" padding="sm sm" flat @click="insertTabset">
+        <w-btn
+          icon="tabler:browser-plus"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(4)"
+          @click="insertTabset">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTabset')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:puzzle" padding="sm sm" flat @click="insertBlock">
+        <w-btn
+          icon="tabler:puzzle"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(5)"
+          @click="insertBlock">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertBlock')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:book-upload" padding="sm sm" flat @click="insertFootnote">
+        <w-btn
+          icon="tabler:book-upload"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(6)"
+          @click="insertFootnote">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertFootnote')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:mood-plus" padding="sm sm" flat>
+        <w-btn
+          icon="tabler:mood-plus"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(7)">
           <editor-emoji-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -58,7 +108,11 @@
         </w-btn>
         <!-- -> Icons only: what goes in is a `:tabler:home:` shortcode, and the picker's other tab hands
                 back an `img:` URL, which is not something that syntax can say -->
-        <w-btn icon="tabler:seeding" padding="sm sm" flat>
+        <w-btn
+          icon="tabler:seeding"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(8)">
           <w-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -69,7 +123,12 @@
             t('editor.markup.insertIcon')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:scan" padding="sm sm" flat @click="insertHorizontalBar">
+        <w-btn
+          icon="tabler:scan"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(9)"
+          @click="insertHorizontalBar">
           <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertHorizontalBar')
           }}</w-tooltip>
@@ -81,13 +140,37 @@
         <!-- ------------------------------------------------------- -->
         <!-- TOP TOOLBAR -->
         <!-- ------------------------------------------------------- -->
-        <div class="editor-markdown-toolbar">
-          <w-btn icon="tabler:bold" padding="xs sm" flat @click="toggleMarkup({ start: `**` })">
+        <!--
+          A second, independent toolbar in the same sense as the sidebar above -- its own single Tab
+          stop, its own `topToolbarRoving` instance (horizontal: Left/Right rather than Up/Down). The
+          preview-toggle button at the end is the toolbar's only conditionally-rendered member
+          (`v-if="!state.previewShown"`), so it takes the next free index (12) rather than any of the
+          fixed buttons ahead of it being renumbered.
+        -->
+        <div
+          class="editor-markdown-toolbar"
+          ref="topToolbarRef"
+          role="toolbar"
+          aria-orientation="horizontal"
+          :aria-label="t('editor.markup.formattingToolbarLabel')"
+          @keydown="topToolbarRoving.onKeydown"
+          @focusin="topToolbarRoving.onFocusin">
+          <w-btn
+            icon="tabler:bold"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(0)"
+            @click="toggleMarkup({ start: `**` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.bold')
             }}</w-tooltip>
           </w-btn>
-          <w-btn icon="tabler:italic" padding="xs sm" flat @click="toggleMarkup({ start: `*` })">
+          <w-btn
+            icon="tabler:italic"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(1)"
+            @click="toggleMarkup({ start: `*` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.italic')
             }}</w-tooltip>
@@ -96,6 +179,7 @@
             icon="tabler:strikethrough"
             padding="xs sm"
             flat
+            :tabindex="topToolbarRoving.tabindexFor(2)"
             @click="toggleMarkup({ start: `~~` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.strikethrough')
@@ -108,7 +192,11 @@
             and contribute no box of their own, so the chevron is the only thing the slot adds to the
             button's own layout.
           -->
-          <w-btn icon="tabler:heading" padding="xs sm" flat>
+          <w-btn
+            icon="tabler:heading"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(3)">
             <w-icon class="editor-markdown-toolbar-caret" name="tabler:chevron-down" size="9px" />
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.header')
@@ -126,7 +214,12 @@
               </w-list>
             </w-menu>
           </w-btn>
-          <w-btn icon="tabler:subscript" padding="xs sm" flat @click="toggleMarkup({ start: `~` })">
+          <w-btn
+            icon="tabler:subscript"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(4)"
+            @click="toggleMarkup({ start: `~` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.subscript')
             }}</w-tooltip>
@@ -135,6 +228,7 @@
             icon="tabler:superscript"
             padding="xs sm"
             flat
+            :tabindex="topToolbarRoving.tabindexFor(5)"
             @click="toggleMarkup({ start: `^` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.superscript')
@@ -142,7 +236,11 @@
           </w-btn>
           <!-- -> The design rules the inline-markup group off from the block-level group here -->
           <w-separator class="editor-markdown-toolbar-rule" vertical />
-          <w-btn icon="tabler:quote" padding="xs sm" flat>
+          <w-btn
+            icon="tabler:quote"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(6)">
             <w-icon class="editor-markdown-toolbar-caret" name="tabler:chevron-down" size="9px" />
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.blockquoteAdmonitions')
@@ -218,6 +316,7 @@
             icon="tabler:list"
             padding="xs sm"
             flat
+            :tabindex="topToolbarRoving.tabindexFor(7)"
             @click="insertBeforeEachLine({ content: `- ` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.unorderedList')
@@ -227,12 +326,17 @@
             icon="tabler:list-numbers"
             padding="xs sm"
             flat
+            :tabindex="topToolbarRoving.tabindexFor(8)"
             @click="insertBeforeEachLine({ content: `1. ` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.orderedList')
             }}</w-tooltip>
           </w-btn>
-          <w-btn icon="tabler:list-check" padding="xs sm" flat>
+          <w-btn
+            icon="tabler:list-check"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(9)">
             <w-icon class="editor-markdown-toolbar-caret" name="tabler:chevron-down" size="9px" />
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.taskList')
@@ -250,7 +354,12 @@
               </w-list>
             </w-menu>
           </w-btn>
-          <w-btn icon="tabler:code" padding="xs sm" flat @click="toggleMarkup({ start: '`' })">
+          <w-btn
+            icon="tabler:code"
+            padding="xs sm"
+            flat
+            :tabindex="topToolbarRoving.tabindexFor(10)"
+            @click="toggleMarkup({ start: '`' })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.inlineCode')
             }}</w-tooltip>
@@ -259,6 +368,7 @@
             icon="tabler:keyboard"
             padding="xs sm"
             flat
+            :tabindex="topToolbarRoving.tabindexFor(11)"
             @click="toggleMarkup({ start: `<kbd>`, end: `</kbd>` })">
             <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.keyboardKey')
@@ -271,6 +381,7 @@
               icon="tabler:layout-columns"
               padding="xs sm"
               flat
+              :tabindex="topToolbarRoving.tabindexFor(12)"
               @click="state.previewShown = true">
               <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
@@ -368,6 +479,7 @@ import {
   usePreviewResize
 } from '@/composables/previewResize'
 import { useMinWidth } from '@/composables/screen'
+import { useToolbarRovingTabindex } from '@/composables/toolbarRovingTabindex'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
@@ -507,6 +619,17 @@ const monacoRef = ref(null)
 const editorPreviewContainerRef = ref(null)
 const editorMidRef = ref(null)
 const previewPaneRef = ref(null)
+
+/*
+  The two toolbars' own roving-tabindex controllers (Task/Feature #3350,
+  `composables/toolbarRovingTabindex.js`) -- the side insert-toolbar is a vertical column (Up/Down),
+  the top formatting toolbar a horizontal row (Left/Right). See the template's own comments beside
+  each `role="toolbar"` container for how the two are wired to their buttons.
+*/
+const sideToolbarRef = ref(null)
+const topToolbarRef = ref(null)
+const sideToolbarRoving = useToolbarRovingTabindex(sideToolbarRef, { orientation: 'vertical' })
+const topToolbarRoving = useToolbarRovingTabindex(topToolbarRef, { orientation: 'horizontal' })
 
 /**
  * Whether the preview pane has already played its entrance once this mount.
