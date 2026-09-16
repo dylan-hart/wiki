@@ -100,7 +100,9 @@ const sectionKey = computed(() => {
   // name itself. Whether to strip it is read from route.meta, never re-derived from segment count
   // (OpenProject #3343): `groups/:id?/:section?` and `users/:id?/:section?` can carry just as many
   // segments as a site-scoped route without being one.
-  const page = route.meta?.siteScoped ? (rest.slice(1).join('/') || 'dashboard') : (rest[0] ?? 'dashboard')
+  const page = route.meta?.siteScoped
+    ? rest.slice(1).join('/') || 'dashboard'
+    : (rest[0] ?? 'dashboard')
   return PAGE_GROUPS.get(page) ?? null
 })
 
