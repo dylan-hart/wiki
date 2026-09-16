@@ -15,6 +15,13 @@ import { mountWithApp } from '../../test/mount.js'
  * exercise the explicit page-name -> group table directly through real routes rather than assuming
  * shape still implies group.
  *
+ * OpenProject #3343: the same segment-count shape was also, separately, how the component used to
+ * decide whether to strip a leading `<siteId>` segment before the page-name lookup -- which
+ * misclassified `groups/:id?/:section?`/`users/:id?/:section?` as site-scoped once their optional
+ * params were populated (e.g. `/_admin/groups/5/members`). The routes below carry the real
+ * `meta.siteScoped` flag from `router/routes.js` (rather than a catch-all stub) specifically so this
+ * suite exercises that fix, not just the group table.
+ *
  * Mock `messages` stand in for `backend/locales/en.json`'s real `admin.nav.*` keys -- this component
  * only *consumes* those keys (owned by sibling Task #3331, see Epic 336 comment #9741) and must not
  * add its own entries to that file, including for test fixtures.
@@ -36,9 +43,55 @@ const MESSAGES = {
 }
 
 const SITE_ID = 'a1b2c3d4-e5f6-4789-a012-3456789abcde'
+const STUB = { template: '<div />' }
+const scoped = (path) => ({ path, component: STUB, meta: { siteScoped: true } })
+const unscoped = (path) => ({ path, component: STUB })
+
+// Mirrors `router/routes.js`'s real `/_admin` children -- path and `meta.siteScoped` only, no lazy
+// component imports (this suite never renders one, only reads `route.path`/`route.meta`).
+const ROUTES = [
+  unscoped('/_admin/dashboard'),
+  unscoped('/_admin/sites'),
+  scoped('/_admin/:siteid/pages'),
+  scoped('/_admin/:siteid/pages/deleted'),
+  scoped('/_admin/:siteid/glossary'),
+  scoped('/_admin/:siteid/comments'),
+  scoped('/_admin/:siteid/approvals'),
+  unscoped('/_admin/classification'),
+  scoped('/_admin/:siteid/general'),
+  scoped('/_admin/:siteid/theme'),
+  scoped('/_admin/:siteid/navigation'),
+  scoped('/_admin/:siteid/locale'),
+  scoped('/_admin/:siteid/login'),
+  scoped('/_admin/:siteid/storage/:id?'),
+  scoped('/_admin/:siteid/editors'),
+  scoped('/_admin/:siteid/blocks'),
+  unscoped('/_admin/search'),
+  unscoped('/_admin/icons'),
+  unscoped('/_admin/auth'),
+  unscoped('/_admin/groups/:id?/:section?'),
+  unscoped('/_admin/users/:id?/:section?'),
+  unscoped('/_admin/audit'),
+  unscoped('/_admin/system'),
+  unscoped('/_admin/metrics'),
+  unscoped('/_admin/pageviews'),
+  unscoped('/_admin/livelog'),
+  unscoped('/_admin/cluster'),
+  unscoped('/_admin/replication'),
+  unscoped('/_admin/scheduler'),
+  unscoped('/_admin/api'),
+  unscoped('/_admin/webhooks'),
+  unscoped('/_admin/extensions'),
+  unscoped('/_admin/mail'),
+  scoped('/_admin/:siteid/analytics'),
+  unscoped('/_admin/security'),
+  unscoped('/_admin/flags'),
+  unscoped('/_admin/utilities'),
+  unscoped('/:pathMatch(.*)*')
+]
 
 async function mountAt(path) {
-  const router = await createTestRouter(['/:pathMatch(.*)*'], path)
+  const router = await createTestRouter(ROUTES, path)
   return mountWithApp(AdminPageEyebrow, { router, messages: MESSAGES }).wrapper
 }
 
@@ -103,5 +156,21 @@ describe('AdminPageEyebrow group derivation', () => {
     const wrapper = mountWithApp(AdminPageEyebrow, { messages: MESSAGES }).wrapper
 
     expect(wrapper.text()).toBe('Admin')
+  })
+
+  describe('OpenProject #3343 regression: meta.siteScoped, not segment count', () => {
+    it('does not misclassify groups/:id?/:section? as site-scoped once both optional params are populated', async () => {
+      // -> The exact regression: /_admin/groups/5/members used to read as site-scoped by segment
+      // count, stripping "5" as a siteId and looking up "members" (no match) instead of "groups".
+      const wrapper = await mountAt('/_admin/groups/5/members')
+
+      expect(wrapper.text()).toBe('Admin · Users & Access')
+    })
+
+    it('does not misclassify users/:id?/:section? as site-scoped once both optional params are populated', async () => {
+      const wrapper = await mountAt('/_admin/users/5/groups')
+
+      expect(wrapper.text()).toBe('Admin · Users & Access')
+    })
   })
 })

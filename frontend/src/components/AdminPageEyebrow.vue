@@ -13,15 +13,14 @@
   (`AdminLayout.vue`, Feature #3330's reorganization): the two entries above the first section header
   are the overview, and every other page is looked up by name in `PAGE_GROUPS` below.
 
-  This used to be inferred structurally -- any route with a segment between `_admin` and the page name
-  (i.e. any site-scoped `/_admin/<siteId>/<page>` route) was unconditionally the "Site" group, with
-  everything else split between "Users" and "System" by name. That worked only because the old 3-group
-  taxonomy was exactly "all site-scoped pages = Site, else Users/System" -- a 1:1 split between route
-  shape and group. The 8-group taxonomy breaks that split: Content, Editing Tools and Integrations &
-  Automation each mix site-scoped and non-site-scoped pages (e.g. Content holds both the site-scoped
-  `pages` and the non-site-scoped `classification`), so route shape alone no longer implies a group.
-  Route shape is still used to extract the page's own name out of a site-scoped path (which has an
-  extra `<siteId>` segment in the way), but the name-to-group mapping itself is now an explicit table.
+  A site-scoped page (`/_admin/<siteId>/<page>`) has one extra path segment ahead of the page name, so
+  extracting the page name needs to know whether to strip it. This used to be inferred from segment
+  count alone (`rest.length > 1`) -- that worked only while every route with an extra segment really
+  was site-scoped, which broke once `groups/:id?/:section?` and `users/:id?/:section?` (Users pages,
+  not site-scoped) started carrying just as many segments whenever their optional params were
+  populated, e.g. `/_admin/groups/5/members` misread as site-scoped (OpenProject #3343). The fix reads
+  `route.meta.siteScoped` -- set explicitly on each `:siteid/...` route in `router/routes.js` -- instead
+  of parsing the path shape.
 */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -98,9 +97,10 @@ const sectionKey = computed(() => {
   // -> ['_admin', …]; anything shorter is the bare `/_admin` redirect, which lands on the dashboard
   const rest = segments.slice(1)
   // A site-scoped page's path is `/_admin/<siteId>/<page...>` -- one extra segment ahead of the page
-  // name itself -- so strip it off before looking the page up; a non-site-scoped page has no siteId
-  // segment to strip.
-  const page = rest.length > 1 ? rest.slice(1).join('/') : (rest[0] ?? 'dashboard')
+  // name itself. Whether to strip it is read from route.meta, never re-derived from segment count
+  // (OpenProject #3343): `groups/:id?/:section?` and `users/:id?/:section?` can carry just as many
+  // segments as a site-scoped route without being one.
+  const page = route.meta?.siteScoped ? (rest.slice(1).join('/') || 'dashboard') : (rest[0] ?? 'dashboard')
   return PAGE_GROUPS.get(page) ?? null
 })
 
