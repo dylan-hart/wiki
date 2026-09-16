@@ -122,20 +122,51 @@ function folderDepthOf(node) {
 }
 
 /**
+ * Whether `node` is the anchor itself or nested under it (OpenProject #3333) -- `anchorPath` is a
+ * directory-style prefix match against `node.path`, the same "path segments" notion `folderDepthOf`
+ * already uses, not a substring match: `guides/one` is a descendant of `guides`, but `guides-other`
+ * is not. `anchorPath === ''` (the site/locale root) matches every path -- a root anchor's
+ * "descendants" is the entire tree, which is also why anchoring at the root is a no-op compared to
+ * having no anchor at all (see `computeVisibleSubset`'s own doc comment).
+ */
+function isDescendantPath(path, anchorPath) {
+  return anchorPath === '' || path === anchorPath || path.startsWith(`${anchorPath}/`)
+}
+
+/**
  * The AND of every active filter (OpenProject #875's design) — a node passes only if it passes
  * every non-empty filter, and an edge survives only if both endpoints do. `null`/`undefined` on
  * any filter means "no restriction" for that dimension -- `folderDepth` in particular must use
  * this explicit check rather than truthiness, because `0` (root-only) is itself a real, active
  * filter value and must not be treated the same as "unset" (OpenProject #898/#900).
+ *
+ * `anchor` (OpenProject #3333, Task #3312's own follow-up scope correction) is `{ path, locale }`
+ * naming the page the graph is currently anchored to via `?path=` (`Graph.vue#applyRouteFocus()`),
+ * or `null`/`undefined` when no anchor is active -- matching every pre-#3333 call site unchanged.
+ * With an anchor active, the visible set is additionally restricted to the anchor node itself plus
+ * its descendants (same-locale nodes nested under its path, `isDescendantPath` above) -- a node in a
+ * different locale, or outside the anchor's own subtree, never passes regardless of the other
+ * filters. `folderDepth` is reinterpreted alongside it: instead of measuring path segments from the
+ * site root, it measures hops from the anchor (`folderDepthOf(node) - folderDepthOf(anchor)`, valid
+ * because a descendant's path is always the anchor's path plus whole extra segments). Anchoring at
+ * the root (`anchor.path === ''`) leaves both of these unchanged from the no-anchor case: every node
+ * is a "descendant" of the root, and hops-from-root-anchor is the same number `folderDepthOf` always
+ * computed, so root-anchored and un-anchored behavior are computed identically on purpose, not as a
+ * special case.
  */
-export function computeVisibleSubset(nodes, edges, filters) {
+export function computeVisibleSubset(nodes, edges, filters, anchor = null) {
   const passesTag = (node) =>
     filters.tags.length === 0 || filters.tags.some((t) => node.tags?.includes(t))
   const passesLocale = (node) => !filters.locale || node.locale === filters.locale
+  const passesAnchor = (node) =>
+    !anchor || (node.locale === anchor.locale && isDescendantPath(node.path, anchor.path))
+  const anchorDepth = anchor ? folderDepthOf({ path: anchor.path }) : 0
   const passesFolderDepth = (node) =>
-    filters.folderDepth == null || folderDepthOf(node) <= filters.folderDepth
+    filters.folderDepth == null || folderDepthOf(node) - anchorDepth <= filters.folderDepth
 
-  const visibleNodes = nodes.filter((n) => passesTag(n) && passesLocale(n) && passesFolderDepth(n))
+  const visibleNodes = nodes.filter(
+    (n) => passesTag(n) && passesLocale(n) && passesAnchor(n) && passesFolderDepth(n)
+  )
   const visibleIds = new Set(visibleNodes.map(nodeId))
   const visibleEdges = edges.filter(
     (e) => visibleIds.has(endpointId(e.source)) && visibleIds.has(endpointId(e.target))
