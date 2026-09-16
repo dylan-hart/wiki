@@ -193,6 +193,25 @@ describe('drawNodes (OpenProject #2480)', () => {
     expect(ctx.globalAlpha).toBe(1)
   })
 
+  it('an explicit empty dimmingIds draws every node at full opacity even while highlightedIds rings one (Graph.vue#3312 revert)', () => {
+    const ctx = makeCtx()
+    const nodes = [
+      { path: 'anchor', locale: 'en', x: 1, y: 1 },
+      { path: 'other', locale: 'en', x: 2, y: 2 }
+    ]
+
+    const fillAlphas = []
+    ctx.fill.mockImplementation(() => fillAlphas.push(ctx.globalAlpha))
+
+    // -> `highlightedIds` rings the anchor (e.g. a resolved `?path=` focus node), but `dimmingIds`
+    //    is explicitly empty (no keyword filter active) -- nothing should dim.
+    drawNodes(ctx, nodes, radiusFor, new Set(['en:anchor']), null, new Set())
+
+    expect(fillAlphas).toEqual([1, 1])
+    // -> The ring still strokes for the anchor -- only the dimming decision changed.
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+  })
+
   it('still skips a node with no position, same as with no highlightedIds', () => {
     const ctx = makeCtx()
     const nodes = [{ path: 'pending', locale: 'en' }]

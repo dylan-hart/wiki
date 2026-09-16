@@ -490,6 +490,17 @@ const highlightedNodeIds = computed(() => {
   return ids
 })
 
+/** Reverts #3312's side effect of dimming the whole graph around a route-focused "anchor" node with
+ *  no keyword filter active. `highlightedNodeIds` above unions in `focusNodeId` so the anchor still
+ *  gets its highlight ring (`graphDraw.js#drawNodes`'s `highlightedIds` param, unchanged) -- but
+ *  `repaint()` passes THIS set as `dimmingIds`, which gates the actual dimming and deliberately
+ *  excludes `focusNodeId`. Landing on `/_graph?path=...` with no keyword typed must draw every node
+ *  at full strength except the ones an active keyword filter didn't match -- the anchor being
+ *  resolved is not itself a reason to dim anything. */
+const keywordHighlightedNodeIds = computed(
+  () => new Set([...computeHighlightedNodeIds(keywordMatches.value), ...titleMatchNodeIds.value])
+)
+
 /** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
  *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
  *  (OpenProject #899). Deriving from `allNodes` rather than `nodes` matters once Task 26 (#901)
@@ -1037,6 +1048,7 @@ function repaint() {
     minRadius: MIN_NODE_RADIUS,
     dark: dark.isActive,
     highlightedIds: highlightedNodeIds.value,
+    dimmingIds: keywordHighlightedNodeIds.value,
     hoveredNode: hoveredNode.value
   })
 }

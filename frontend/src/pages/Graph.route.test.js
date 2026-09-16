@@ -70,6 +70,21 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     expect(target.fy).toBe(0)
   })
 
+  it('does not treat the resolved anchor alone as a reason to dim the rest of the graph (revert of a #3312 side effect)', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+
+    // -> The anchor still gets its highlight ring: `highlightedNodeIds` (which drives the ring in
+    //    `graphDraw.js#drawNodes`) contains it.
+    expect(wrapper.vm.highlightedNodeIds.has('en:reference/api')).toBe(true)
+    // -> But with no keyword filter typed, nothing should be dimmed -- `keywordHighlightedNodeIds`
+    //    (passed as `repaint()`'s `dimmingIds`) must stay empty even though the anchor is resolved.
+    expect(wrapper.vm.keywordHighlightedNodeIds.size).toBe(0)
+  })
+
   it('scopes the match to pageStore.locale -- a same-path node in a DIFFERENT locale is not pinned', async () => {
     const wrapper = await mountGraph({
       graph: MULTI_LOCALE_GRAPH,

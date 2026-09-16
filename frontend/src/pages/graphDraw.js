@@ -110,8 +110,16 @@ export function drawClusterHulls(ctx, clusters) {
 
 /** `highlightedIds` (OpenProject #2480) is an optional `Set` of composite node ids -- omitted, `null`
  *  or empty, every node draws exactly as before. Non-empty: a matching node gets a highlight ring on
- *  top of its normal fill; every other node dims (see `DIMMED_ALPHA`) rather than being skipped, so
- *  the "non-filtering" requirement holds at the paint layer too, not just in what `nodes` contains.
+ *  top of its normal fill.
+ *
+ *  `dimmingIds` (OpenProject #3312's revert) is a SEPARATE optional `Set` gating which nodes dim
+ *  (see `DIMMED_ALPHA`) -- defaulting to `highlightedIds` so a caller that only ever had one set (every
+ *  test in this file included) keeps behaving exactly as before. `Graph.vue` is the one caller that
+ *  passes the two apart: `highlightedIds` there is keyword matches UNION the route-focused "anchor"
+ *  node (so the anchor still draws its ring), but `dimmingIds` is keyword matches ALONE -- the anchor
+ *  being set must never by itself dim every other node, only an active keyword filter may. The
+ *  "non-filtering" requirement (a keyword search highlights, never hides) still holds either way: a
+ *  dimmed node stays drawn and clickable, just de-emphasized.
  *
  *  `node.root` (OpenProject #2563) gets its own ring, drawn independently of `highlightedIds` --
  *  the folder-hierarchy root is a permanent landmark, not a search-result state, so it strokes every
@@ -122,15 +130,23 @@ export function drawClusterHulls(ctx, clusters) {
  *  `hoveredNode` (the object `Graph.vue#findNodeAt()` returns, or `null`) gets the white-overlay
  *  tint above -- compared by reference, not by id, since it is the very same node object this
  *  function is already iterating. */
-export function drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode) {
+export function drawNodes(
+  ctx,
+  nodes,
+  radiusFor,
+  highlightedIds,
+  hoveredNode,
+  dimmingIds = highlightedIds
+) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
+  const hasDimming = dimmingIds && dimmingIds.size > 0
   for (const node of nodes) {
     if (node.x === undefined) {
       continue
     }
     const isMatch = hasHighlights && highlightedIds.has(nodeId(node))
     const radius = radiusFor(node)
-    ctx.globalAlpha = hasHighlights && !isMatch ? DIMMED_ALPHA : 1
+    ctx.globalAlpha = hasDimming && !isMatch ? DIMMED_ALPHA : 1
     ctx.beginPath()
     ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
     ctx.fillStyle = node.color ?? '#888'
@@ -342,11 +358,21 @@ function labelBaseFontFor(radius, minRadius) {
  *  `Graph.vue`-local, retuned more than once, and only the value the caller actually hands in stays
  *  correct by construction rather than by a hand-copied duplicate silently drifting out of step.
  *
- *  `highlightedIds` (OpenProject #2480), same optional-`Set` contract as `drawNodes` above: a
- *  non-matching label dims along with its node rather than staying full-strength while its dot
- *  fades, which would read as two disagreeing signals for the same node. */
-export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds, minRadius) {
+ *  `highlightedIds`/`dimmingIds` (OpenProject #2480, #3312's revert), same optional-`Set` contract as
+ *  `drawNodes` above: a non-matching label dims along with its node rather than staying full-strength
+ *  while its dot fades, which would read as two disagreeing signals for the same node. */
+export function drawLabels(
+  ctx,
+  nodes,
+  radiusFor,
+  scale,
+  dark,
+  highlightedIds,
+  minRadius,
+  dimmingIds = highlightedIds
+) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
+  const hasDimming = dimmingIds && dimmingIds.size > 0
   const zoomCappedFontPx = LABEL_MAX_EFFECTIVE_FONT_PX / scale
   ctx.textBaseline = 'middle'
   ctx.lineJoin = 'round'
@@ -375,7 +401,7 @@ export function drawLabels(ctx, nodes, radiusFor, scale, dark, highlightedIds, m
       }
     }
     const isMatch = hasHighlights && highlightedIds.has(nodeId(node))
-    ctx.globalAlpha = hasHighlights && !isMatch ? DIMMED_ALPHA : 1
+    ctx.globalAlpha = hasDimming && !isMatch ? DIMMED_ALPHA : 1
     //    Halo first, fill second -- stroking after the fill would eat into the glyphs' own edges.
     ctx.strokeText(text, x, node.y)
     ctx.fillText(text, x, node.y)
@@ -397,7 +423,8 @@ export function paintGraph({
   minRadius,
   dark,
   highlightedIds,
-  hoveredNode
+  hoveredNode,
+  dimmingIds = highlightedIds
 }) {
   if (!ctx) {
     return
@@ -411,7 +438,7 @@ export function paintGraph({
   }
   drawEdges(ctx, edges, dark)
   drawClusterHulls(ctx, clusters)
-  drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode)
-  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds, minRadius)
+  drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode, dimmingIds)
+  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds, minRadius, dimmingIds)
   ctx.restore()
 }
