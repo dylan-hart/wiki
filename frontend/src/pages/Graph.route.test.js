@@ -117,3 +117,72 @@ describe('Graph.vue ?path= route focus (OpenProject #3312)', () => {
     expect(wrapper.vm.nodes.filter((node) => !node.synthetic)).toHaveLength(3)
   })
 })
+
+/*
+ * OpenProject #3334: `applyRouteFocus()` used to run exactly once, at mount, from `loadGraph()`'s
+ * initial fetch -- the sidebar's own in-graph re-root branch (`navSidebarDestination.js`
+ * `graphSidebarBranch()`, #3313) updates `route.query.path` via `router.replace()` while `/_graph`
+ * stays mounted the whole time, so nothing downstream ever noticed a LATER change. These assert the
+ * `watch(() => route.query.path, applyRouteFocus)` fix: a live query-param change re-centers and
+ * re-highlights, releases the previously-focused node's pin rather than stacking a second pin on
+ * top of it, and a redundant re-navigation to the already-active path is a no-op.
+ */
+describe('Graph.vue live route-focus re-application on ?path= change (OpenProject #3334)', () => {
+  it('re-centers and re-highlights when route.query.path changes after mount, with no remount', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+    expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
+
+    await wrapper.vm.$router.replace({ path: '/_graph', query: { path: 'guides/onboarding' } })
+    await wrapper.vm.$nextTick()
+
+    const newTarget = wrapper.vm.nodes.find(
+      (node) => node.path === 'guides/onboarding' && node.locale === 'en'
+    )
+    expect(wrapper.vm.focusNodeId).toBe('en:guides/onboarding')
+    expect(wrapper.vm.highlightedNodeIds.has('en:guides/onboarding')).toBe(true)
+    expect(newTarget.fx).toBe(0)
+    expect(newTarget.fy).toBe(0)
+  })
+
+  it('releases the previously-focused node pin instead of leaving it stacked on the new one', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+    const oldTarget = wrapper.vm.nodes.find(
+      (node) => node.path === 'reference/api' && node.locale === 'en'
+    )
+    expect(oldTarget.fx).toBe(0)
+
+    await wrapper.vm.$router.replace({ path: '/_graph', query: { path: 'guides/onboarding' } })
+    await wrapper.vm.$nextTick()
+
+    expect(oldTarget.fx == null).toBe(true)
+    expect(oldTarget.fy == null).toBe(true)
+    expect(wrapper.vm.highlightedNodeIds.has('en:reference/api')).toBe(false)
+  })
+
+  it('re-navigating to the already-active path is a no-op -- focus and pin stay exactly as they were', async () => {
+    const wrapper = await mountGraph({
+      graph: MULTI_LOCALE_GRAPH,
+      initialPath: '/_graph?path=reference/api',
+      pageLocale: 'en'
+    })
+    const target = wrapper.vm.nodes.find(
+      (node) => node.path === 'reference/api' && node.locale === 'en'
+    )
+    expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
+
+    await wrapper.vm.$router.replace({ path: '/_graph', query: { path: 'reference/api' } })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.focusNodeId).toBe('en:reference/api')
+    expect(target.fx).toBe(0)
+    expect(target.fy).toBe(0)
+  })
+})

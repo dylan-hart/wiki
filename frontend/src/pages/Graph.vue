@@ -1156,11 +1156,33 @@ function attachZoom() {
   zoomTransform.value = zoomIdentity
 }
 
+/** The actual node object `applyRouteFocus()` currently has pinned to the viewport center, if any
+ *  -- not merely its id, which `focusNodeId` already tracks for the highlight ring. Kept so a LIVE
+ *  re-focus (OpenProject #3334) can release the previous target's `fx`/`fy` pin before handing the
+ *  center point to the new one; without this, the old target would stay pinned forever, stacked on
+ *  top of the new one at the exact same point. Plain module state, not a ref -- nothing templates
+ *  or watches off the node object itself, only off `focusNodeId`. Reset alongside
+ *  `syntheticNodeCache` in `loadGraph()`: a fresh fetch is a wholesale new graph, so any node
+ *  identity a previous load pinned no longer exists to release. */
+let pinnedFocusNode = null
+
 /** Centers and highlights the page the reader arrived from, addressed by the `path` query param on
  *  `/_graph` (OpenProject #3312, Feature #3311) -- e.g. the header's Graph button, or a
- *  bookmarked/shared link. Called once, from `loadGraph()`'s initial fetch only (mount-only, same
- *  "read once" framing `loadGraph()`'s own `activeFilters.folderDepth` default already uses just
- *  above its call site below) -- a later filter or keyword change must not re-home the focus.
+ *  bookmarked/shared link. Called once, mount-only, from `loadGraph()`'s initial fetch (same "read
+ *  once" framing `loadGraph()`'s own `activeFilters.folderDepth` default already uses just above
+ *  its call site below) -- a later filter or keyword change must not re-home the focus.
+ *
+ *  Also re-run live, by the `watch(() => route.query.path, applyRouteFocus)` further down
+ *  (OpenProject #3334): the sidebar's own in-graph re-root branch
+ *  (`navSidebarDestination.js#graphSidebarBranch`, OpenProject #3313) updates `route.query.path` via
+ *  `router.replace()` while `/_graph` stays mounted the whole time -- no remount, so `onMounted`
+ *  (and therefore this function's mount-time call) never re-fires on its own. That watch is what
+ *  makes a live sidebar click while `/_graph` is already open actually move the focus; without it,
+ *  the URL's `path` query param updated but nothing downstream ever noticed. The watch is not
+ *  `immediate: true` -- the initial value is already handled by `loadGraph()`'s own call below, and
+ *  this function no-ops (see the `focusNode === pinnedFocusNode` guard below) whenever the resolved
+ *  node hasn't actually changed, which is what keeps the two call sites from double-running against
+ *  the same target.
  *
  *  Locale resolution rule: `route.query.path` is a bare, un-prefixed path -- the same raw form nav
  *  tree items carry (`item.path`, per sibling WP #3313's `composables/navSidebarDestination.js`) --
@@ -1181,21 +1203,44 @@ function attachZoom() {
  *  Centering reuses the hover pin's own `fx`/`fy` mechanic (`onCanvasMouseMove` below): the resolved
  *  node is pinned to the exact `(width/2, height/2)` point `startSimulation()`'s own `forceCenter`
  *  already targets, so d3-force settles the rest of the layout around it -- anchored at the viewport
- *  center rather than the node's own current position, and never released (unlike the hover pin,
- *  which clears on hover-end). Highlighting folds the node's composite id into `focusNodeId`, which
- *  `highlightedNodeIds` above unions in alongside a keyword match, so it draws with the identical
- *  highlight ring `graphDraw.js` already renders -- no draw-layer change needed. */
+ *  center rather than the node's own current position, and never released on its own the way the
+ *  hover pin clears on hover-end -- only ever replaced by a later call's own release of it (below),
+ *  never by anything time- or pointer-based. Highlighting folds the node's composite id into
+ *  `focusNodeId`, which `highlightedNodeIds` above unions in alongside a keyword match, so it draws
+ *  with the identical highlight ring `graphDraw.js` already renders -- no draw-layer change needed. */
 function applyRouteFocus() {
   const rawPath = route.query.path
   const path = Array.isArray(rawPath) ? rawPath[0] : rawPath
   const focusNode = resolveFocusNode(allNodes.value, path, pageStore.locale)
-  if (!focusNode) {
+  // -> No match (a missing/blank param, a stale path, or one in the wrong locale) is a silent
+  //    no-op -- same as before OpenProject #3334, and also what keeps a live re-focus from
+  //    releasing an already-good pin over a transient/bad query value. Likewise a match that IS
+  //    already the pinned target (the mount-time call landing here a second time via the watch
+  //    below with nothing having actually changed, or two rapid clicks on the same sidebar item)
+  //    is a no-op too -- see this function's own doc comment on why the two call sites need this
+  //    guard to not double-run.
+  if (!focusNode || focusNode === pinnedFocusNode) {
     return
   }
+  // -> Release the previously-pinned target (if any) before handing the center point to the new
+  //    one (OpenProject #3334) -- without this, a live re-focus would leave the old target's
+  //    `fx`/`fy` still pinned at the exact same point as the new one, forever.
+  if (pinnedFocusNode) {
+    pinnedFocusNode.fx = null
+    pinnedFocusNode.fy = null
+  }
+  pinnedFocusNode = focusNode
   focusNodeId.value = nodeId(focusNode)
   const { width, height } = containerRef.value.getBoundingClientRect()
   focusNode.fx = width / 2
   focusNode.fy = height / 2
+  // -> Only a LIVE re-focus needs to nudge the simulation back awake -- the mount-time call runs
+  //    before `startSimulation()` has attached one at all (see this function's own doc comment on
+  //    why the pin has to land first), so `simulation` is still `null` there and this is correctly
+  //    a no-op for that call; a later call via the `route.query.path` watch runs against an
+  //    already-settled simulation, which needs a real bump to visibly re-center rather than
+  //    silently update a resting layout's target point.
+  simulation?.alpha(0.4).restart()
 }
 
 /** `sizing` (OpenProject #1863) asks the backend to attach each node's `contributors`/`pageviews`
@@ -1207,8 +1252,11 @@ async function loadGraph() {
   isLoading.value = true
   loadError.value = null
   // -> A fresh fetch is a wholesale new graph (new site, keyword or sizeBy) -- stale synthetic node
-  //    positions from the previous one must not leak into it (OpenProject #2538).
+  //    positions from the previous one must not leak into it (OpenProject #2538). `pinnedFocusNode`
+  //    is the same story for OpenProject #3334's route-focus pin: the node object it may still be
+  //    holding belongs to the graph that is about to be replaced, and has nothing left to release.
   syntheticNodeCache = new Map()
+  pinnedFocusNode = null
   try {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`, {
       searchParams: { sizing: sizeBy.value }
@@ -1551,6 +1599,14 @@ watch(
 watch(highlightedNodeIds, () => {
   repaint()
 })
+
+/** OpenProject #3334: re-runs `applyRouteFocus()` on every LIVE change to `route.query.path` --
+ *  see that function's own doc comment for the full story (the sidebar's in-graph re-root branch
+ *  updates the query param via `router.replace()` while `/_graph` stays mounted, which `onMounted`
+ *  never sees) and for why this deliberately is not `immediate: true`. A getter source (not the
+ *  route object itself) so this fires only on the one field the graph's focus actually depends on,
+ *  not on every unrelated query-param or route change `/_graph` might otherwise see. */
+watch(() => route.query.path, applyRouteFocus)
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
