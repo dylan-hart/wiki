@@ -1548,7 +1548,13 @@ async function initializeGraphPrefs() {
  *  while a non-root anchor is active, this additionally restricts the rendered set to the anchor
  *  plus its descendants, and reinterprets `activeFilters.folderDepth` as hops-from-the-anchor
  *  rather than path-segments-from-root -- see that function's own doc comment in `graphFilters.js`
- *  for the full behavior, including why a root anchor computes identically to no anchor at all. */
+ *  for the full behavior, including why a root anchor computes identically to no anchor at all.
+ *
+ *  Also passes `routeFocusAnchor.value?.path` as `buildPathHierarchyEdges()`'s own anchor cap
+ *  (OpenProject #3361) -- without it, that call would still climb every already-restricted
+ *  `visibleNodes` entry's full ancestor chain up to the TRUE root regardless of the anchor,
+ *  re-synthesizing everything above the anchor (including root itself) straight back into
+ *  `nodes.value` and defeating the restriction above for exactly the nodes it exists to keep out. */
 function applyFilters() {
   const { visibleNodes } = computeVisibleSubset(
     allNodes.value,
@@ -1558,7 +1564,8 @@ function applyFilters() {
   )
   const { syntheticNodes, edges: syntheticEdges } = buildPathHierarchyEdges(
     visibleNodes,
-    syntheticNodeCache
+    syntheticNodeCache,
+    routeFocusAnchor.value?.path ?? ''
   )
   // -> `visibleNodes` are already-raw objects filtered from `allNodes.value` (markRaw'd in
   //    `loadGraph()`); `syntheticNodes`/`syntheticEdges` are built fresh only for a genuinely new

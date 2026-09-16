@@ -122,10 +122,25 @@ export function useNavSidebarDestination() {
    * the same "exit the graph and go read that page" behavior clicking it from anywhere else already
    * has.
    *
+   * OpenProject #3362: a PAGE item anchors on its own PARENT folder, not itself -- mirroring
+   * `HeaderNav.vue#onGraphNavClick()`'s #3337 fix (`pageStore.folderPath`, not `pageStore.path`) for
+   * the identical reason: anchoring a page on itself shows only that one page (it has no
+   * descendants), not the folder of related pages a reader selecting it almost always wants, and
+   * gives a top-level page no useful anchor at all short of showing the whole wiki -- which is
+   * exactly the parent-folder-is-root case handles. An (empty) FOLDER item -- also routed through
+   * this same leaf branch, since `NavSidebarItem.vue` renders an empty folder as a leaf -- anchors on
+   * ITSELF, unchanged: `reanchorGraphOnFolder()` below establishes that "anchor on the folder, not
+   * its parent" is correct for an intentionally-selected folder (#3353), and an empty one is no
+   * exception. `item.isFolder` (not `item.children?.length > 0`, which is false for an empty folder
+   * by definition) is what `NavSidebarItem.vue` itself already uses to tell the two apart.
+   *
    * Reads `route.query.path` directly, in the same raw un-prefixed form `item.path` already carries
    * (`backend/models/navigation.ts`'s own doc comment on `NavigationItem.path`), rather than
    * anything `pages/Graph.vue` computes internally -- the epic plan's own cross-task file-ownership
-   * split keeps this composable off Graph.vue's locale-scoped node identity entirely.
+   * split keeps this composable off Graph.vue's locale-scoped node identity entirely. The parent-path
+   * computation mirrors `stores/page.js`'s `folderPath` getter exactly (`path.split('/').slice(0,
+   * -1).join('/')`), generalized to an arbitrary nav item's path rather than the currently-read
+   * page's -- there is no shared helper for it since `folderPath` is a store getter, not a function.
    *
    * `router.replace`, not `router.push`: repeatedly re-rooting the graph from the sidebar must not
    * spam the browser history with one entry per click.
@@ -140,9 +155,10 @@ export function useNavSidebarDestination() {
     if (route.path !== GRAPH_ROUTE_PATH || !item.path || item.path === route.query.path) {
       return null
     }
+    const anchorPath = item.isFolder ? item.path : item.path.split('/').slice(0, -1).join('/')
     return {
       clickable: true,
-      onClick: () => router.replace({ path: GRAPH_ROUTE_PATH, query: { path: item.path } })
+      onClick: () => router.replace({ path: GRAPH_ROUTE_PATH, query: { path: anchorPath } })
     }
   }
 

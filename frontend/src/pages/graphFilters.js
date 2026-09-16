@@ -280,8 +280,20 @@ function internSyntheticNode(cache, id, factory) {
  *
  * `cache` defaults to a fresh, empty `Map` when the caller doesn't pass one (e.g. every existing
  * unit test call site) -- with nothing to reuse, behavior is identical to before this cache existed.
+ *
+ * `anchorPath` (OpenProject #3361) caps how far the climb goes: it stops the moment `current`
+ * reaches `anchorPath` itself, rather than always continuing to the true root (`''`). Without this,
+ * calling this function against an already anchor-restricted node set (`Graph.vue#applyFilters()`)
+ * would still climb every one of those nodes' full ancestor chains and re-synthesize everything
+ * above the anchor -- including true root -- right back into the rendered set, silently defeating
+ * `computeVisibleSubset`'s own anchor+descendants restriction (#3333) for exactly the nodes that
+ * restriction exists to keep out. Defaults to `''` (true root), so a caller with no active anchor
+ * (or the deliberately-unanchored resolution pass in `Graph.vue#applyRouteFocus()`, which needs the
+ * full, unrestricted hierarchy to resolve a focus target outside the current subtree) climbs exactly
+ * as far as before this parameter existed -- `current !== anchorPath` is then always true until
+ * `current` reaches `''`, the loop's other, pre-existing terminus.
  */
-export function buildPathHierarchyEdges(nodes, cache = new Map()) {
+export function buildPathHierarchyEdges(nodes, cache = new Map(), anchorPath = '') {
   const byId = new Map(nodes.map((n) => [nodeId(n), n]))
   const synthesized = new Map()
   const edgeKeys = new Set()
@@ -317,7 +329,7 @@ export function buildPathHierarchyEdges(nodes, cache = new Map()) {
   for (const node of nodes) {
     const { locale } = node
     let current = node.path
-    while (current !== '') {
+    while (current !== '' && current !== anchorPath) {
       const parent = parentOf(current)
       ensureFolderNode(locale, parent)
       const key = `${locale}:${parent} ${locale}:${current}`

@@ -52,6 +52,26 @@ describe('Graph.vue anchor + descendants restriction (OpenProject #3333)', () =>
     expect(realPaths).toEqual(['docs/child', 'docs/child/grandchild'])
   })
 
+  it('excludes root and every other ancestor ABOVE the anchor from the synthetic hierarchy too (OpenProject #3361)', async () => {
+    // -> Every other test in this file asserts only against `!node.synthetic` real paths -- which is
+    //    exactly how this bug shipped unnoticed: `buildPathHierarchyEdges()` used to climb every
+    //    already-restricted real node's full ancestor chain regardless of the anchor, re-synthesizing
+    //    root (and any intermediate ancestor) straight back into `nodes.value`. 'docs/child' sits two
+    //    segments deep, so a pre-fix run would have leaked BOTH '' (root) and 'docs' here.
+    const wrapper = await mountGraph({
+      graph: ANCHOR_TREE_GRAPH,
+      initialPath: '/_graph?path=docs/child',
+      pageLocale: 'en'
+    })
+
+    const allPaths = wrapper.vm.nodes.map((node) => node.path)
+    expect(allPaths).not.toContain('')
+    expect(allPaths).not.toContain('docs')
+    // -> The anchor itself ('docs/child') and its own descendant folder chain still draw -- this is
+    //    restriction of what's ABOVE the anchor, not a ban on every synthetic node.
+    expect(allPaths).toContain('docs/child')
+  })
+
   it("excludes the anchor's own ancestor and unrelated trees", async () => {
     const wrapper = await mountGraph({
       graph: ANCHOR_TREE_GRAPH,
