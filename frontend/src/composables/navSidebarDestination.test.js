@@ -177,14 +177,22 @@ describe('useNavSidebarDestination#destination -- graph sidebar branch (OpenProj
     expect(typeof result.onClick).toBe('function')
   })
 
-  it('that onClick replaces the route with the new path query param -- never pushes, to avoid spamming history', async () => {
+  it("that onClick replaces the route with the CLICKED PAGE'S OWN PARENT folder as the new anchor (OpenProject #3362), never pushes", async () => {
     const { destination, router } = await mountDestination('/_graph?path=docs/setup')
     const replaceSpy = vi.spyOn(router, 'replace')
     const pushSpy = vi.spyOn(router, 'push')
     const result = destination({ path: 'other/page' })
     result.onClick()
-    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'other/page' } })
+    // -> 'other', not 'other/page': anchoring a page on itself shows only that one page.
+    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: 'other' } })
     expect(pushSpy).not.toHaveBeenCalled()
+  })
+
+  it('anchors on root ("") for a top-level page, whose parent is the site root (OpenProject #3362)', async () => {
+    const { destination, router } = await mountDestination('/_graph?path=docs/setup')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    destination({ path: 'about' }).onClick()
+    expect(replaceSpy).toHaveBeenCalledWith({ path: '/_graph', query: { path: '' } })
   })
 
   it('navigates normally (falls through to `to`) for the item that IS the currently active graph root', async () => {
@@ -251,24 +259,33 @@ describe('useNavSidebarDestination#reanchorGraphOnFolder (OpenProject #3353)', (
 })
 
 /**
- * OpenProject #3353: confirms the WP's third requirement is already met by the existing
- * `graphSidebarBranch()` -- an empty folder carries `item.path` but no `target`/`children`, renders
- * through `NavSidebarItem.vue`'s leaf branch, and `destination()` does not distinguish a folder's
- * `path` from a page's, so it already anchors-only (never navigates like a page) once `/_graph` is
- * open. No production code change was needed for this case; this is a regression test.
+ * OpenProject #3353: an empty folder carries `item.path`, `item.isFolder: true`, and no
+ * `target`/`children`, and renders through `NavSidebarItem.vue`'s leaf branch same as a page --
+ * `destination()` tells the two apart via `item.isFolder` (OpenProject #3362) so it anchors an empty
+ * folder on ITSELF, never on its own parent the way a page now does.
  */
 describe('useNavSidebarDestination#destination -- empty folder anchors instead of navigating inside /_graph (OpenProject #3353)', () => {
   it('branches to a clickable anchor, not a `to`, for an empty folder while /_graph is open', async () => {
     const { destination } = await mountDestination('/_graph?path=docs/setup')
-    const result = destination({ path: 'empty-folder' })
+    const result = destination({ path: 'empty-folder', isFolder: true })
     expect(result.to).toBeUndefined()
     expect(result.clickable).toBe(true)
     expect(typeof result.onClick).toBe('function')
   })
 
+  it('anchors on ITSELF, not its parent, unlike a page (OpenProject #3362)', async () => {
+    const { destination, router } = await mountDestination('/_graph?path=docs/setup')
+    const replaceSpy = vi.spyOn(router, 'replace')
+    destination({ path: 'docs/empty-folder', isFolder: true }).onClick()
+    expect(replaceSpy).toHaveBeenCalledWith({
+      path: '/_graph',
+      query: { path: 'docs/empty-folder' }
+    })
+  })
+
   it('still navigates like a page for an empty folder outside /_graph, unchanged', async () => {
     const { destination } = await mountDestination('/some/page')
-    expect(destination({ path: 'empty-folder' })).toEqual({ to: '/empty-folder' })
+    expect(destination({ path: 'empty-folder', isFolder: true })).toEqual({ to: '/empty-folder' })
   })
 })
 

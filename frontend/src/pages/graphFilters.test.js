@@ -613,6 +613,56 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
     expect(buildPathHierarchyEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
 
+  describe('anchorPath caps the climb (OpenProject #3361)', () => {
+    it('stops at the anchor instead of continuing to the true root, so root never gets synthesized', () => {
+      const { syntheticNodes, edges } = buildPathHierarchyEdges(
+        [{ path: 'docs/child/page', locale: 'en' }],
+        new Map(),
+        'docs'
+      )
+      // -> 'docs' (the anchor itself) and 'docs/child' (the intermediate folder) are still
+      //    synthesized -- they need to draw. No '' (root) entry: the pre-#3361 behavior synthesized
+      //    ['', 'docs', 'docs/child'] here.
+      expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['docs', 'docs/child'])
+      expect(edges).toEqual([
+        { source: 'en:docs/child', target: 'en:docs/child/page', type: 'path' },
+        { source: 'en:docs', target: 'en:docs/child', type: 'path' }
+      ])
+    })
+
+    it('synthesizes the anchor itself as a folder node when no real page sits at that exact path', () => {
+      const { syntheticNodes, edges } = buildPathHierarchyEdges(
+        [{ path: 'docs/child', locale: 'en' }],
+        new Map(),
+        'docs'
+      )
+      expect(syntheticNodes).toEqual([
+        { path: 'docs', locale: 'en', title: 'docs', synthetic: true }
+      ])
+      expect(edges).toEqual([{ source: 'en:docs', target: 'en:docs/child', type: 'path' }])
+    })
+
+    it('produces nothing to climb for a node that IS the anchor', () => {
+      const { syntheticNodes, edges } = buildPathHierarchyEdges(
+        [{ path: 'docs', locale: 'en' }],
+        new Map(),
+        'docs'
+      )
+      expect(syntheticNodes).toEqual([])
+      expect(edges).toEqual([])
+    })
+
+    it('an empty-string anchorPath (root anchor) climbs exactly as far as the default -- to true root', () => {
+      const withDefault = buildPathHierarchyEdges([{ path: 'docs/child', locale: 'en' }])
+      const withExplicitRootAnchor = buildPathHierarchyEdges(
+        [{ path: 'docs/child', locale: 'en' }],
+        new Map(),
+        ''
+      )
+      expect(withExplicitRootAnchor).toEqual(withDefault)
+    })
+  })
+
   it('gives two locales of the same leaf path their own distinct, separately-addressed edges (OpenProject #1629/#1632)', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
       { path: 'docs/intro', locale: 'en' },
