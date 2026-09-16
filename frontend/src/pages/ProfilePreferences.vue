@@ -359,8 +359,22 @@ function clearFieldErrors() {
   revalidateFieldRefs()
 }
 
+/*
+  OpenProject #3344: `onFieldChange()` (above) calls `save()` directly on every field change, with no
+  debounce and nothing sequencing overlapping requests -- two fields changed in quick succession can
+  have their PUT responses land out of order. `saveGeneration` is incremented on entry to `save()` and
+  captured per call; the captured value is compared back against it before applying either branch's
+  outcome, so a response whose `save()` call has since been superseded by a newer one -- on the
+  success path OR the failure path -- is dropped rather than overwriting whatever the newer save
+  already applied. `profileSaving.begin()`/`.end()` stay outside this guard (OpenProject #3282):
+  they track requests in flight, not which response wins, so every call must run them regardless of
+  whether its own response ends up applied or dropped as stale.
+*/
+let saveGeneration = 0
+
 async function save() {
   clearFieldErrors()
+  const generation = ++saveGeneration
   // -> OpenProject #3282: counted around the request so ProfileOverlay.vue's close button and
   //    MainOverlayDialog.vue's dismiss guard both see this save while it's in flight, even if the
   //    reader switches away from this section (which unmounts it) before it settles.
@@ -388,28 +402,37 @@ async function save() {
         locale: commonStore.locale
       }
     }).json()
-    if (resp.profile) {
-      applyProfile(resp.profile)
+    // -> OpenProject #3344: a newer save() has since started -- this response is stale, drop it
+    //    rather than let it overwrite that newer call's own outcome.
+    if (generation === saveGeneration) {
+      if (resp.profile) {
+        applyProfile(resp.profile)
+      }
+      // -> Only the fields this page owns editing -- the identity fields are ProfileInfo.vue's to
+      //    patch onto the store.
+      userStore.$patch({
+        timezone: state.config.timezone,
+        dateFormat: state.config.dateFormat,
+        timeFormat: state.config.timeFormat,
+        aesthetic: state.config.aesthetic,
+        appearance: state.config.appearance,
+        contentWidth: state.config.contentWidth,
+        cvd: state.config.cvd
+      })
+      // -> Task #3220/#3320: ambient auto-save -- no success toast.
     }
-    // -> Only the fields this page owns editing -- the identity fields are ProfileInfo.vue's to
-    //    patch onto the store.
-    userStore.$patch({
-      timezone: state.config.timezone,
-      dateFormat: state.config.dateFormat,
-      timeFormat: state.config.timeFormat,
-      aesthetic: state.config.aesthetic,
-      appearance: state.config.appearance,
-      contentWidth: state.config.contentWidth,
-      cvd: state.config.cvd
-    })
-    // -> Task #3220/#3320: ambient auto-save -- no success toast.
   } catch (err) {
-    applyFieldErrors(err)
-    notify({
-      type: 'negative',
-      message: t('profile.saveFailed'),
-      caption: apiErrorMessage(err, t('common.error.unexpected'))
-    })
+    // -> OpenProject #3344: same stale-response guard as the success branch above -- a superseded
+    //    failure gets neither the field-error pin nor the toast, since a newer save has already
+    //    applied (or is about to apply) its own outcome over whatever this one would have shown.
+    if (generation === saveGeneration) {
+      applyFieldErrors(err)
+      notify({
+        type: 'negative',
+        message: t('profile.saveFailed'),
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
+      })
+    }
   }
   profileSaving.end()
 }
