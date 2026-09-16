@@ -633,21 +633,45 @@ function directorySegmentsOf(node) {
   return node.path.split('/').slice(0, -1)
 }
 
+/** How many of a path's leading directory segments belong to the current anchor (OpenProject
+ *  #3372) -- `0` with no anchor active or a root anchor (`path: ''`), matching the "root-anchored
+ *  behaves exactly like unanchored" invariant `graphFilters.js#computeVisibleSubset`'s own doc
+ *  comment already establishes elsewhere. Every node `groupKeyFor()`/`parentGroupKeyFor()` below
+ *  ever sees is already restricted to the anchor plus its descendants (`applyFilters()`), so the
+ *  anchor's own segments are always a strict leading prefix of theirs -- safe to subtract outright,
+ *  never a partial/mismatched slice. */
+function anchorSegmentCount() {
+  const anchor = routeFocusAnchor.value
+  return anchor && anchor.path !== '' ? anchor.path.split('/').length : 0
+}
+
 /** Cluster-nesting levels `computeClusters()`/`clusterForce()` bucket on (OpenProject #3339) -- 1
  *  is today's existing single-level grouping, 2/3 are the added folder-mode nesting. Passed to both
  *  so the simulation's centroid pull and the drawn circles bucket on the exact same set of levels. */
 const CLUSTER_LEVELS = [1, 2, 3]
 
-/** Computes a node's group key at a given nesting `level` (OpenProject #3339) -- `level` defaults
- *  to `1`, today's existing single-key behavior, so the third call site below (per-node dot color,
- *  Graph.vue ~1137) that must stay level-1-only needs no change to keep working exactly as before.
- *  Tag and classification grouping stay single-level: any `level` above 1 for either returns `null`
- *  (Feature #3338's scope -- neither has a genuine second level to nest), same as `computeClusters`/
- *  `clusterForce` already treat a `null`/`undefined` key as "exclude this node from this level".
- *  Folder mode's level 1 is `node.folder`, unchanged; level 2 is the composite key of the node's
- *  first two directory segments (`directorySegmentsOf()` above), level 3 the first three -- a node
- *  not nested deep enough for a given level (not enough directory segments) returns `null` for it,
- *  so it simply gets no cluster circle or centroid pull at that level. */
+/** Computes a node's group key at a given nesting `level` (OpenProject #3339, made anchor-relative
+ *  by #3372) -- `level` defaults to `1`, today's existing single-key behavior, so the third call
+ *  site below (per-node dot color, Graph.vue ~1137) that must stay level-1-only needs no change to
+ *  keep working exactly as before. Tag and classification grouping stay single-level: any `level`
+ *  above 1 for either returns `null` (Feature #3338's scope -- neither has a genuine second level to
+ *  nest), same as `computeClusters`/`clusterForce` already treat a `null`/`undefined` key as
+ *  "exclude this node from this level".
+ *
+ *  Folder mode's level 1 stays `node.folder || '(root)'`, UNCHANGED, whenever no anchor (or only a
+ *  root anchor) is active -- `node.folder` is a backend-computed field, not strictly required to
+ *  equal `directorySegmentsOf(node)[0]` (a caller is free to stamp its own `.folder` independent of
+ *  `.path`, as more than one existing suite does), so this only ever swaps to the path-derived
+ *  segments below once there is an anchor depth to subtract; it never silently stops trusting
+ *  `node.folder` for the un-anchored case. WITH a non-root anchor active, grouping restarts at the
+ *  anchor's own children instead of the site root (OpenProject #3372) -- built from
+ *  `directorySegmentsOf(node)` with the anchor's own leading segments dropped
+ *  (`anchorSegmentCount()` above): e.g. anchored on folder A, a page directly in A's subfolder B
+ *  groups under `'B'`, not under `'A'`, matching the anchor-restricted node set already on screen
+ *  (#3333). Level 2 is the composite key of the node's first two segments AFTER that drop, level 3
+ *  the first three -- a node not nested deep enough for a given level (not enough directory segments
+ *  beyond the anchor) returns `null` for it, so it simply gets no cluster circle or centroid pull at
+ *  that level. */
 function groupKeyFor(node, level = 1) {
   if (level > 1 && groupBy.value !== 'folder') {
     return null
@@ -658,39 +682,46 @@ function groupKeyFor(node, level = 1) {
   if (groupBy.value === 'classification') {
     return node.classification ?? '(unclassified)'
   }
-  if (level === 1) {
+  const anchorDepth = anchorSegmentCount()
+  if (level === 1 && anchorDepth === 0) {
     return node.folder || '(root)'
   }
-  const segments = directorySegmentsOf(node)
+  const segments = directorySegmentsOf(node).slice(anchorDepth)
+  if (level === 1) {
+    return segments[0] ?? '(root)'
+  }
   if (segments.length < level) {
     return null
   }
   return segments.slice(0, level).join('/')
 }
 
-/** A synthetic folder/root node's own MEMBERSHIP key (OpenProject #3355) -- which circle it belongs
- *  to as a member of its PARENT folder's grouping, never the key it would itself produce for its own
- *  children (`buildClusters()`'s own doc comment explains why that distinction matters). Only
- *  `groupBy: 'folder'` needs real path logic: a folder/root node carries no `tags`/`classification`
- *  of its own, so `groupKeyFor(node)` called directly on it already answers correctly for those two
- *  modes (the same `'(untagged)'`/`'(unclassified)'` catch-all bucket every other untagged node
- *  falls into).
+/** A synthetic folder/root node's own MEMBERSHIP key (OpenProject #3355, made anchor-relative by
+ *  #3372) -- which circle it belongs to as a member of its PARENT folder's grouping, never the key
+ *  it would itself produce for its own children (`buildClusters()`'s own doc comment explains why
+ *  that distinction matters). Only `groupBy: 'folder'` needs real path logic: a folder/root node
+ *  carries no `tags`/`classification` of its own, so `groupKeyFor(node)` called directly on it
+ *  already answers correctly for those two modes (the same `'(untagged)'`/`'(unclassified)'`
+ *  catch-all bucket every other untagged node falls into).
  *
- *  `node.folder` (backend `folderOf()`) is deliberately just a path's FIRST segment (see
- *  `graphFilters.js#folderDepthOf`'s own doc comment) -- which is why a folder node's PARENT-folder
- *  key is simply its own `path`'s first segment too, whenever it has one: first-segment doesn't care
- *  how many segments follow, so it's identical whether taken from the folder's own path or its
- *  parent's. Only a top-level folder (no `/` in its `path` at all) differs -- its parent IS the root,
- *  which has no folder key of its own, so that case reads `'(root)'` the same way a folder-less real
- *  page does. This is what keeps a folder out of the circle it is itself the namer of: a nested
- *  folder's parent key coincides with the SAME top-level circle its own descendants already share
- *  (the existing single-level grouping this WP's scope is limited to -- multi-level nesting is the
- *  sibling Task's job), never with a circle keyed off the folder's own identity. */
+ *  `node.path`'s own leading segments belonging to the anchor are dropped the same way
+ *  `groupKeyFor()` drops them (`anchorSegmentCount()` above), THEN the first-segment-or-root logic
+ *  runs against what's left -- so a folder node's PARENT-folder key is its own anchor-relative first
+ *  segment. With no anchor (or a root anchor) that drop is a no-op, so this reads exactly as before:
+ *  first-segment doesn't care how many segments follow, so it's identical whether taken from the
+ *  folder's own path or its parent's, and only a top-level folder (no segment beyond the anchor at
+ *  all) differs -- its parent IS the anchor itself, which has no folder key of its own, so that case
+ *  reads `'(root)'` the same way a folder-less real page does. This is what keeps a folder out of the
+ *  circle it is itself the namer of: a nested folder's parent key coincides with the SAME
+ *  anchor-relative top-level circle its own descendants already share (the existing single-level
+ *  grouping this WP's scope is limited to -- multi-level nesting is the sibling Task's job), never
+ *  with a circle keyed off the folder's own identity. */
 function parentGroupKeyFor(node) {
   if (groupBy.value !== 'folder') {
     return groupKeyFor(node)
   }
-  return node.path.includes('/') ? node.path.split('/')[0] : '(root)'
+  const segments = (node.path === '' ? [] : node.path.split('/')).slice(anchorSegmentCount())
+  return segments.length > 1 ? segments[0] : '(root)'
 }
 
 /** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
