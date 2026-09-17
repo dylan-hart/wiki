@@ -153,6 +153,13 @@ class AssetServing {
   /**
    * A direct URL to serve an asset from instead of proxying it, if the governing target both allows
    * one and has a module behind it that can produce one. See `StorageModule.getDirectUrl`.
+   *
+   * A blob target's signing can fail before it ever reaches the SDK's `sign()` call — activation
+   * itself (`blobBase.ts#getClient`) throws on a bad credential or an unreachable bucket, and that
+   * throw would otherwise reach `readContent` unguarded and turn every asset request into a 500.
+   * The bytes always live in the assets table regardless of what a blob target holds, so a signing
+   * failure here is never fatal: it is logged and treated the same as "no direct URL available",
+   * which sends the caller back to streaming from the database.
    */
   async directUrlFor(
     asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
@@ -165,7 +172,21 @@ class AssetServing {
     if (!mod?.getDirectUrl) {
       return null
     }
-    return (await mod.getDirectUrl(asset, target)) ?? null
+    try {
+      return (await mod.getDirectUrl(asset, target)) ?? null
+    } catch (err: any) {
+      CARDINAL.logger.warn(
+        'storage',
+        'generating a direct-access URL failed, falling back to streaming',
+        {
+          target: target.id,
+          module: target.module,
+          asset: asset.id,
+          error: err
+        }
+      )
+      return null
+    }
   }
 
   /**

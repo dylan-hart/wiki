@@ -22,6 +22,17 @@ import type { StorageModule, StorageTarget } from '../../models/storage.ts'
  */
 export const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
 
+/**
+ * How long a failed activation is remembered before the next call is allowed to retry it.
+ *
+ * Long enough that a broken credential is not re-probed (paying the SDK's own connect/retry
+ * latency) on every image request an instance serves in that window; short enough that an admin
+ * who just fixed the target's config sees it recover within one session rather than needing a
+ * restart. Independent of `DIRECT_ACCESS_TTL_SECONDS`, which governs a signed URL's own lifetime,
+ * not how long a failure is cached.
+ */
+const ACTIVATION_FAILURE_TTL_MS = 30_000
+
 /** Where one asset of a target lives in the bucket/container. */
 export function keyFor(target: StorageTarget, folderPath: string, fileName: string): string {
   return objectKeyFor({ siteId: target.siteId, folderPath, fileName })
@@ -79,24 +90,39 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
    * `getClient()`, so the first call any target makes (an admin's "Export All" click, or a dispatched
    * write) both builds the client and verifies its destination.
    */
-  const activated = new Map<string, { configKey: string; ready: Promise<C> }>()
+  const activated = new Map<string, { configKey: string; ready: Promise<C>; failedAt?: number }>()
 
-  /** The activated client for a target, (re-)verifying it whenever the stored config changed. */
+  /**
+   * The activated client for a target, (re-)verifying it whenever the stored config changed.
+   *
+   * A failed activation is cached too, for `ACTIVATION_FAILURE_TTL_MS`: within that window this
+   * replays the same rejection rather than re-probing the SDK, and once it elapses the next call —
+   * the admin retrying the action after fixing credentials, say, or simply the next request that
+   * comes in — verifies again. A successful activation always replaces whatever was cached, failed
+   * or not, so there is no separate "clear the failure" path to call.
+   */
   async function getClient(target: StorageTarget): Promise<C> {
     const configKey = JSON.stringify(target.config)
     const cached = activated.get(target.id)
     if (cached && cached.configKey === configKey) {
-      return cached.ready
+      if (
+        cached.failedAt === undefined ||
+        Date.now() - cached.failedAt < ACTIVATION_FAILURE_TTL_MS
+      ) {
+        return cached.ready
+      }
     }
 
-    const ready = Promise.resolve(driver.build(target.config)).catch((err) => {
-      // -> A failed activation is not remembered as done: the next call — the admin retrying the action
-      //    after fixing credentials, say — has to verify again rather than replay this same rejection
-      activated.delete(target.id)
+    const entry: { configKey: string; ready: Promise<C>; failedAt?: number } = {
+      configKey,
+      ready: Promise.resolve(driver.build(target.config))
+    }
+    entry.ready = entry.ready.catch((err) => {
+      entry.failedAt = Date.now()
       throw err
     })
-    activated.set(target.id, { configKey, ready })
-    return ready
+    activated.set(target.id, entry)
+    return entry.ready
   }
 
   /** Wrap an SDK call so a failure reaches the caller as a readable `Error`, not a raw SDK exception. */
