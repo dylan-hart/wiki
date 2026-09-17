@@ -52,24 +52,25 @@ const PAGE_GROUPS = new Map([
   ['comments', 'admin.nav.content'],
   ['approvals', 'admin.nav.content'],
   ['classification', 'admin.nav.content'],
-  // Site Configuration
+  // Site
   ['general', 'admin.nav.siteConfiguration'],
   ['theme', 'admin.nav.siteConfiguration'],
   ['navigation', 'admin.nav.siteConfiguration'],
   ['locale', 'admin.nav.siteConfiguration'],
   ['login', 'admin.nav.siteConfiguration'],
   ['storage', 'admin.nav.siteConfiguration'],
-  // Editing Tools
+  // Editing & Search
   ['editors', 'admin.nav.editingTools'],
   ['blocks', 'admin.nav.editingTools'],
   ['search', 'admin.nav.editingTools'],
   ['icons', 'admin.nav.editingTools'],
-  // Users & Access
+  // Access
   ['auth', 'admin.nav.usersAccess'],
   ['groups', 'admin.nav.usersAccess'],
   ['users', 'admin.nav.usersAccess'],
   ['audit', 'admin.nav.usersAccess'],
-  // Monitoring & Health
+  ['security', 'admin.nav.usersAccess'],
+  // Monitoring
   ['system', 'admin.nav.monitoringHealth'],
   ['metrics', 'admin.nav.monitoringHealth'],
   ['pageviews', 'admin.nav.monitoringHealth'],
@@ -77,14 +78,13 @@ const PAGE_GROUPS = new Map([
   ['cluster', 'admin.nav.monitoringHealth'],
   ['replication', 'admin.nav.monitoringHealth'],
   ['scheduler', 'admin.nav.monitoringHealth'],
-  // Integrations & Automation
+  // Integrations
   ['api', 'admin.nav.integrationsAutomation'],
   ['webhooks', 'admin.nav.integrationsAutomation'],
   ['extensions', 'admin.nav.integrationsAutomation'],
   ['mail', 'admin.nav.integrationsAutomation'],
   ['analytics', 'admin.nav.integrationsAutomation'],
-  // Security & Advanced
-  ['security', 'admin.nav.securityAdvanced'],
+  // Advanced
   ['flags', 'admin.nav.securityAdvanced'],
   ['utilities', 'admin.nav.securityAdvanced']
 ])

@@ -325,7 +325,9 @@
           <!--
             Users & Access: Authentication keeps its own pre-existing `manage:system` v-if;
             Groups/Users keep their own gate; Audit Log keeps the exact `manage:system` condition it
-            was implicitly gated by as a System item.
+            was implicitly gated by as a System item. Security (OpenProject #3356) moved in from the
+            old Security & Advanced group, gated the same way it always was -- `manage:system`, now
+            declared explicitly on the item itself rather than inherited from that group's template.
           -->
           <template v-if="usersAccessShown">
             <w-item-label class="admin-nav-section" header>{{
@@ -373,11 +375,20 @@
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
             </w-item>
+            <w-item
+              to="/_admin/security"
+              active-class="admin-nav-active"
+              v-if="userStore.can(`manage:system`)">
+              <w-item-section avatar>
+                <w-icon name="tabler:shield" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.security.title') }}</w-item-section>
+            </w-item>
           </template>
           <!--
-            Monitoring & Health: every member came from the old System group with no gate of its own
-            beyond `manage:system`, and none of them move anywhere else -- one group-level `v-if`
-            reproduces the old effective visibility exactly, same as Security & Advanced below.
+            Monitoring: every member came from the old System group with no gate of its own beyond
+            `manage:system`, and none of them move anywhere else -- one group-level `v-if`
+            reproduces the old effective visibility exactly, same as Advanced below.
           -->
           <template v-if="userStore.can(`manage:system`)">
             <w-item-label class="admin-nav-section" header>{{
@@ -521,20 +532,15 @@
             </w-item>
           </template>
           <!--
-            Security & Advanced: every member came from the old System group with no gate of its own
-            beyond `manage:system`, and none of them move anywhere else -- see the Monitoring & Health
-            comment above.
+            Advanced: every member came from the old System group with no gate of its own beyond
+            `manage:system`, and none of them move anywhere else -- see the Monitoring comment above.
+            Security itself moved into Users & Access above (OpenProject #3356), keeping its own
+            `manage:system` gate so its effective visibility is unchanged.
           -->
           <template v-if="userStore.can(`manage:system`)">
             <w-item-label class="admin-nav-section" header>{{
               t('admin.nav.securityAdvanced')
             }}</w-item-label>
-            <w-item to="/_admin/security" active-class="admin-nav-active">
-              <w-item-section avatar>
-                <w-icon name="tabler:shield" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.security.title') }}</w-item-section>
-            </w-item>
             <w-item to="/_admin/flags" active-class="admin-nav-active">
               <w-item-section avatar>
                 <w-icon name="tabler:flag" />
@@ -828,9 +834,11 @@ const usersAreVisible = computed(() => {
   return userStore.can('read:users') || userStore.can('manage:users')
 })
 /*
-  Users & Access group header: shown once any of its four members would render -- Groups/Users via
-  their own gate, Authentication/Audit Log via the `manage:system` condition they carry over
-  unchanged from the old System group (Authentication already had it explicitly; Audit Log did not).
+  Users & Access group header: shown once any of its five members would render -- Groups/Users via
+  their own gate, Authentication/Audit Log/Security via the `manage:system` condition they carry
+  over unchanged from the old System group (Authentication already had it explicitly; Audit Log did
+  not; Security moved in from the old Security & Advanced group under OpenProject #3356, keeping the
+  exact same `manage:system` gate it always had).
 */
 const usersAccessShown = computed(() => {
   return groupsAreVisible.value || usersAreVisible.value || userStore.can('manage:system')
