@@ -152,7 +152,7 @@ export function useNavSidebarDestination() {
    * @returns {{ clickable: true, onClick: Function } | null}
    */
   function graphSidebarBranch(item) {
-    if (route.path !== GRAPH_ROUTE_PATH || !item.path || item.path === route.query.path) {
+    if (route.path !== GRAPH_ROUTE_PATH || !item.path || isAnchor(item)) {
       return null
     }
     const anchorPath = item.isFolder ? item.path : item.path.split('/').slice(0, -1).join('/')
@@ -202,6 +202,24 @@ export function useNavSidebarDestination() {
   }
 
   /**
+   * OpenProject #3362/#3365: whether `item` is the page/folder the knowledge graph is currently
+   * anchored on -- the same three-part check `graphSidebarBranch()` and `reanchorGraphOnFolder()`
+   * already used privately as a no-op guard (OpenProject #3313/#3353), now factored out and
+   * exported so `NavSidebarItem.vue` can bind its anchor indicator off the identical test rather
+   * than a third inline copy. Both guards below call this in place of their own former inline
+   * condition; neither's behavior changes.
+   *
+   * Deliberately compares the RAW, un-prefixed `item.path` against `route.query.path` -- the same
+   * raw form both guards already used and `graphSidebarBranch()`'s own doc comment above explains
+   * (`backend/models/navigation.ts`'s `NavigationItem.path`) -- never through `localizedPagePath()`
+   * or any other normalization, which would drift out of sync with the actual anchor `pages/Graph.vue`
+   * reads and writes.
+   */
+  function isAnchor(item) {
+    return route.path === GRAPH_ROUTE_PATH && Boolean(item.path) && item.path === route.query.path
+  }
+
+  /**
    * OpenProject #3353: the folder-click counterpart to `graphSidebarBranch()` above. While `/_graph`
    * is open, clicking a POPULATED folder's header must both keep doing its ordinary expand/collapse
    * (`NavSidebarItem.vue`'s `<w-expansion-item>` header never binds `destination()` at all, only
@@ -221,13 +239,13 @@ export function useNavSidebarDestination() {
    * that function does not distinguish a folder's `item.path` from a page's.
    */
   function reanchorGraphOnFolder(item) {
-    if (route.path !== GRAPH_ROUTE_PATH || !item.path || item.path === route.query.path) {
+    if (route.path !== GRAPH_ROUTE_PATH || !item.path || isAnchor(item)) {
       return
     }
     router.replace({ path: GRAPH_ROUTE_PATH, query: { path: item.path } })
   }
 
-  return { destination, isCurrent, containsCurrent, reanchorGraphOnFolder }
+  return { destination, isCurrent, isAnchor, containsCurrent, reanchorGraphOnFolder }
 }
 
 /**
