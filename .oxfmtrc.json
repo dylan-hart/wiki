@@ -8,6 +8,7 @@
   "insertFinalNewline": true,
   "ignorePatterns": [
     "**/node_modules/**",
+    "backend/assets/icon-sets/**",
     "backend/db/migrations/**",
     "backend/locales/**",
     "blocks/compiled/**",
