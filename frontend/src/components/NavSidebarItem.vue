@@ -10,6 +10,7 @@
     v-if="item.children?.length > 0"
     dense
     :style="depthStyle"
+    :class="{ 'is-graph-anchor': isAnchor(item) }"
     :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
     @update:model-value="setOpen(item.id, $event)"
     @click.capture="handleHeaderClick($event, item)">
@@ -42,7 +43,11 @@
         :depth="depth + 1" />
     </w-list>
   </w-expansion-item>
-  <w-item v-else v-bind="destination(item)" :style="depthStyle">
+  <w-item
+    v-else
+    v-bind="destination(item)"
+    :style="depthStyle"
+    :class="{ 'is-graph-anchor': isAnchor(item) }">
     <w-item-section side><w-icon :name="iconFor(item)" color="slate-faint" /></w-item-section>
     <w-item-section>
       <span ref="labelEl" class="truncate">{{ displayLabel(item) }}</span>
@@ -102,7 +107,7 @@ const props = defineProps({
   }
 })
 
-const { destination, containsCurrent, reanchorGraphOnFolder } = useNavSidebarDestination()
+const { destination, containsCurrent, isAnchor, reanchorGraphOnFolder } = useNavSidebarDestination()
 const { canUploadAsset, openFolderDialog } = useNavCreateMenu()
 const { isActive: pathDisplayActive, humanize } = usePathDisplay()
 const { isOpen, setOpen } = useNavExpansionState()

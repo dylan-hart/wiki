@@ -446,6 +446,50 @@ const keywordMatches = shallowRef([])
  *  plain `ref` (not `shallowRef`): it only ever holds a primitive string or `null`, never an object. */
 const focusNodeId = ref(null)
 
+/** The composite `${locale}:${path}` id of the node the reader has SELECTED via a first canvas
+ *  click (OpenProject #3363, Feature #3362's "Graph canvas -- selected node" scope), or `null` when
+ *  nothing is selected -- set and cleared by `onCanvasClick()` below. Deliberately its own state,
+ *  independent of the other two per-node states this file already tracks: `hoveredNode` (mouse-over
+ *  only, no click involved) and `focusNodeId`/the anchor (the existing yellow ring, route-driven via
+ *  `applyRouteFocus()`, unchanged by this ref). Not named `focusedNode` or any other synonym for
+ *  "focus"/"anchor" on purpose -- Task #3364 (blocked by this one) paints this selection as its own
+ *  ring, and #3362's own acceptance criterion requires a node to be simultaneously anchored AND
+ *  selected with both rings visually distinguishable, so the two concepts must stay independently
+ *  trackable rather than merged into `focusNodeId`. A plain string/`null` ref, same shape as
+ *  `focusNodeId`, for the same reason: nothing needs the node object itself, only its id. */
+const selectedNodeId = ref(null)
+
+/** The ring/label colors `repaint()` paints `selectedNodeId` with (OpenProject #3364, Feature
+ *  #3362's "Graph canvas -- selected node" scope), resolved off the exact CSS custom properties the
+ *  nav sidebar's own "current row" style is built from (`.router-link-exact-active`, `NavSidebar.vue`
+ *  lines 248-304): `--color-accent-fill`/`--color-ink` under light, `--color-accent-dark`/
+ *  `--color-text-dark` under dark. Both pairs are read off `document.body` rather than hardcoded here
+ *  because both are redefined per aesthetic there (`body.body--cobalt` overrides `--color-ink`/
+ *  `--color-accent-fill`; `body.body--cobalt.body--dark` overrides `--color-accent-dark`/
+ *  `--color-text-dark`, `css/tailwind.css`) -- reading the live computed value is what makes this
+ *  track Cobalt automatically, with no aesthetic-name branch of its own, exactly the way the sidebar
+ *  rule it mirrors already does via the cascade. `graphDraw.js` stays a plain function over a `ctx`
+ *  with no DOM access of its own (its own top-of-file doc comment), so it takes these two resolved
+ *  strings as plain arguments instead of reaching for `getComputedStyle` itself.
+ *
+ *  A `computed` keyed on `dark.isActive` only, not re-read on every animation frame `repaint()` runs
+ *  on: neither token's value ever changes except across a light/dark flip (an aesthetic switch is a
+ *  full page reload via the admin Appearance card, not a live in-session swap), so memoizing on that
+ *  one dependency avoids two `getComputedStyle` reads per frame while a simulation is actively
+ *  settling. */
+const selectedNodeColors = computed(() => {
+  const style = getComputedStyle(document.body)
+  return dark.isActive
+    ? {
+        ring: style.getPropertyValue('--color-accent-dark').trim(),
+        label: style.getPropertyValue('--color-text-dark').trim()
+      }
+    : {
+        ring: style.getPropertyValue('--color-accent-fill').trim(),
+        label: style.getPropertyValue('--color-ink').trim()
+      }
+})
+
 /** The `{ path, locale }` of the currently-anchored node (OpenProject #3333, Task #3312's own
  *  follow-up scope correction), or `null` when no anchor is active -- set alongside `focusNodeId`
  *  by `applyRouteFocus()`, and read by `applyFilters()` as `computeVisibleSubset()`'s fourth
@@ -1080,7 +1124,10 @@ function repaint() {
     dark: dark.isActive,
     highlightedIds: highlightedNodeIds.value,
     dimmingIds: keywordHighlightedNodeIds.value,
-    hoveredNode: hoveredNode.value
+    hoveredNode: hoveredNode.value,
+    selectedId: selectedNodeId.value,
+    selectedRingColor: selectedNodeColors.value.ring,
+    selectedLabelColor: selectedNodeColors.value.label
   })
 }
 
@@ -1164,8 +1211,25 @@ function navigateToNode(node) {
   router.push(fallbackHref(node))
 }
 
+/** A first click on a real node selects it (`selectedNodeId`, no navigation); a second click on the
+ *  SAME already-selected node navigates to its page and clears the selection (the click just left
+ *  the graph, so there is nothing left to show as selected); a click on a DIFFERENT node re-selects
+ *  that one instead of navigating -- three-way behavior required by OpenProject #3363. A click that
+ *  misses every node, or lands on a synthetic folder/root node (no real page to select or navigate
+ *  to), is a no-op and leaves any existing selection exactly as it was, same as `navigateToNode`'s
+ *  own long-standing guard for the miss/synthetic case. */
 function onCanvasClick(event) {
-  navigateToNode(findNodeAt(event.clientX, event.clientY))
+  const node = findNodeAt(event.clientX, event.clientY)
+  if (!node || node.synthetic) {
+    return
+  }
+  const clickedId = nodeId(node)
+  if (selectedNodeId.value === clickedId) {
+    selectedNodeId.value = null
+    navigateToNode(node)
+    return
+  }
+  selectedNodeId.value = clickedId
 }
 
 /** Alpha `simulation.alpha(...).restart()` is bumped to right after a hover push impulse -- small
@@ -1787,6 +1851,15 @@ watch(focusNodeId, () => {
  *  title-only match with no corresponding backend hit would otherwise compute correctly but never
  *  actually repaint the canvas. */
 watch(highlightedNodeIds, () => {
+  repaint()
+})
+
+/** OpenProject #3364: a `selectedNodeId` change (set/cleared by `onCanvasClick()`) changes only
+ *  which already-visible node draws the selected-node ring/bold title, same "no node/edge set
+ *  change, just a repaint" shape as `highlightedNodeIds`'s own watcher above -- needed because the
+ *  d3-force simulation may already be at rest (no more `onTick()` repaints coming) by the time a
+ *  reader clicks a settled node. */
+watch(selectedNodeId, () => {
   repaint()
 })
 

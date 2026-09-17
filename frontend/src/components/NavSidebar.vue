@@ -302,6 +302,28 @@ body.body--cobalt .sidebar-nav .w-list .w-item.router-link-exact-active {
 body.body--cobalt .sidebar-nav .w-list .w-item.router-link-exact-active .w-icon {
   color: var(--color-sidebar-active-text);
 }
+/*
+  OpenProject #3362/#3365: a visual indicator on whichever row is the knowledge graph's current
+  anchor (`route.query.path`) while `/_graph` is open -- `NavSidebarItem.vue` binds `is-graph-anchor`
+  off the shared `isAnchor(item)` predicate (`composables/navSidebarDestination.js`). Colored to the
+  same literal hex as the graph canvas's own anchor ring (`HIGHLIGHT_RING_COLOR`, `#ffd600`,
+  `graphDraw.js`) so a reader can tell the row and the yellow-ringed node are the same page/folder --
+  a ring, not the accent-fill "current page" treatment above, so the two states -- reading a page
+  versus the graph being anchored on it -- stay visually distinct rather than reusing one signal for
+  both. In practice they never coincide anyway: `route.path` stays `/_graph` the whole time the graph
+  is open, so `router-link-exact-active` (which needs a row's own resolved route to match) never
+  fires on any sidebar row while this indicator can.
+
+  `.w-expansion-item.is-graph-anchor > .w-expansion-item__header`, not a bare descendant selector,
+  for the folder case: the class binds on `NavSidebarItem.vue`'s `<w-expansion-item>` tag, which
+  Vue's attribute fallthrough lands on that component's own root `.w-expansion-item` wrapper, not on
+  its nested header row (`WExpansionItem.vue`'s template has the header as a direct child of that
+  wrapper) -- unlike the leaf `<w-item>` branch, whose own root element carries the class directly.
+*/
+.sidebar-nav .w-list .w-item.is-graph-anchor,
+.sidebar-nav .w-list .w-expansion-item.is-graph-anchor > .w-expansion-item__header {
+  box-shadow: inset 0 0 0 1.5px #ffd600;
+}
 .sidebar-nav .w-list {
   /*
     OpenProject #3011: the plain hover/press tint on a non-active row must be a saturated blue

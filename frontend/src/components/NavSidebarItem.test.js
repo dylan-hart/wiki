@@ -16,8 +16,8 @@ import { mountWithApp } from '../../test/mount.js'
  * `generated`) always keeps its label, whatever the setting is, since it may not correspond to a
  * real path at all.
  */
-async function mountItem(item, { pathDisplayCase, acronymMap } = {}) {
-  const router = await createTestRouter(routes, '/')
+async function mountItem(item, { pathDisplayCase, acronymMap, initialPath = '/' } = {}) {
+  const router = await createTestRouter(routes, initialPath)
 
   const { wrapper } = mountWithApp(NavSidebarItem, {
     props: { item },
@@ -964,5 +964,74 @@ describe('NavSidebarItem: depth prop (OpenProject #2932)', () => {
     // -> Leaf branch: the style binds directly to the rendered `<w-item>`.
     const leafStyle = itemWrapper(wrapper, 'deepLeaf').find('.w-item').attributes('style')
     expect(leafStyle).toMatch(/--nav-depth:\s*6/)
+  })
+})
+
+/**
+ * OpenProject #3362/#3365: the nav-tree row for the graph's current anchor (`route.query.path`)
+ * carries an `is-graph-anchor` class -- bound off the shared `isAnchor(item)` predicate
+ * (`composables/navSidebarDestination.js`, see that file's own suite for the predicate's direct
+ * coverage) -- so `NavSidebar.vue`'s CSS can ring it to correlate with the graph canvas's own
+ * yellow anchor ring. Both branches are covered: a leaf page item and a populated folder item can
+ * each be the anchor, since `route.query.path` can name either kind of path.
+ */
+describe('NavSidebarItem: graph anchor indicator (OpenProject #3362/#3365)', () => {
+  it('marks a leaf item as the anchor when its path matches the graph anchor query', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'docs/setup', target: '/docs/setup' },
+      { initialPath: '/_graph?path=docs/setup' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).toContain('is-graph-anchor')
+  })
+
+  it('does not mark a leaf item whose path is not the current graph anchor', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'other', target: '/other' },
+      { initialPath: '/_graph?path=docs/setup' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).not.toContain('is-graph-anchor')
+  })
+
+  it('does not mark a leaf item as the anchor outside /_graph, even with a matching path', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'docs/setup', target: '/docs/setup' },
+      { initialPath: '/some/page' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).not.toContain('is-graph-anchor')
+  })
+
+  it('marks a populated folder as the anchor when its own path matches the graph anchor query', async () => {
+    const wrapper = await mountItem(
+      {
+        id: '1',
+        type: 'link',
+        label: 'Docs Folder',
+        path: 'docs',
+        isFolder: true,
+        children: [{ id: '2', type: 'link', label: 'Child', target: '/docs/child' }]
+      },
+      { initialPath: '/_graph?path=docs' }
+    )
+
+    expect(wrapper.get('.w-expansion-item').classes()).toContain('is-graph-anchor')
+  })
+
+  it('does not mark a populated folder whose path is not the current graph anchor', async () => {
+    const wrapper = await mountItem(
+      {
+        id: '1',
+        type: 'link',
+        label: 'Docs Folder',
+        path: 'docs',
+        isFolder: true,
+        children: [{ id: '2', type: 'link', label: 'Child', target: '/docs/child' }]
+      },
+      { initialPath: '/_graph?path=other' }
+    )
+
+    expect(wrapper.get('.w-expansion-item').classes()).not.toContain('is-graph-anchor')
   })
 })
