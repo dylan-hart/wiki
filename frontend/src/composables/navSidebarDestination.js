@@ -151,6 +151,15 @@ export function useNavSidebarDestination() {
    * hand-authored `static` link (no `item.path`) may not correspond to a real page at all, so it
    * keeps navigating normally even inside the graph.
    *
+   * OpenProject #3364 (corrected scope): this click is also what SELECTS the item, mirrored into
+   * `stores/graph.js#selectedPath` for `isSelected()` (below) to read -- the graph canvas has no
+   * click behavior of its own to drive this from any more (a canvas click always just navigates,
+   * `pages/Graph.vue#onCanvasClick`). Called unconditionally, for a real page AND an empty folder
+   * alike (both reach this same branch): for an empty folder, `graphStore.selectedPath` ends up
+   * equal to `anchorPath` (it anchors on itself, immediately above), which `isSelected()`'s own
+   * anchor-trumps-selected guard resolves to "not visually selected" -- so nothing folder-specific
+   * needs branching here, the predicate already covers it.
+   *
    * @returns {{ clickable: true, onClick: Function } | null}
    */
   function graphSidebarBranch(item) {
@@ -160,7 +169,10 @@ export function useNavSidebarDestination() {
     const anchorPath = item.isFolder ? item.path : item.path.split('/').slice(0, -1).join('/')
     return {
       clickable: true,
-      onClick: () => router.replace({ path: GRAPH_ROUTE_PATH, query: { path: anchorPath } })
+      onClick: () => {
+        graphStore.select(item.path)
+        router.replace({ path: GRAPH_ROUTE_PATH, query: { path: anchorPath } })
+      }
     }
   }
 
@@ -222,16 +234,26 @@ export function useNavSidebarDestination() {
   }
 
   /**
-   * OpenProject #3364 (corrected scope): whether `item` is the page the knowledge graph's reader has
-   * currently SELECTED via a first canvas click (`pages/Graph.vue#onCanvasClick`), mirrored into
-   * `stores/graph.js#selectedPath` -- the sibling of `isAnchor()` above, read the same way by
-   * `NavSidebarItem.vue` to bind `is-graph-selected` instead of drawing anything on the graph canvas
-   * itself. Same raw-path comparison `isAnchor()` uses, for the same reason: `graphStore.selectedPath`
-   * is set from the clicked node's own bare `path`, never run through `localizedPagePath()`.
+   * OpenProject #3364 (corrected scope): whether `item` is the sidebar page the reader has
+   * SELECTED by clicking it while `/_graph` is open (`graphSidebarBranch()`'s own `onClick` above),
+   * mirrored into `stores/graph.js#selectedPath` -- read here, and by `pages/Graph.vue`, to style
+   * that ONE sidebar row exactly like the site's own "currently reading this page" row
+   * (`.router-link-exact-active`, `NavSidebar.vue`) and ring its corresponding graph node, rather
+   * than the graph canvas driving any click state of its own.
+   *
+   * ANCHOR TRUMPS SELECTED, always: `!isAnchor(item)` is load-bearing, not a redundant guard. A
+   * clicked EMPTY folder anchors on itself (`graphSidebarBranch()`'s own `anchorPath`), which also
+   * sets `graphStore.selectedPath` to that identical path -- without this check, that one row would
+   * satisfy both predicates and need to show two conflicting states at once. Per explicit product
+   * direction: a folder becoming the anchor never ALSO reads as "selected" -- nothing is selected,
+   * visually, when the click that fired was a folder click.
    */
   function isSelected(item) {
     return (
-      route.path === GRAPH_ROUTE_PATH && Boolean(item.path) && item.path === graphStore.selectedPath
+      route.path === GRAPH_ROUTE_PATH &&
+      Boolean(item.path) &&
+      item.path === graphStore.selectedPath &&
+      !isAnchor(item)
     )
   }
 

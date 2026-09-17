@@ -53,6 +53,26 @@ const DIMMED_ALPHA = 0.25
  *  own, so this reads as instant on/off exactly by not doing anything special for it. */
 const HOVER_TINT_COLOR = 'rgba(255, 255, 255, 0.3)'
 
+/** Ring drawn around the graph node corresponding to whatever sidebar row the reader has SELECTED
+ *  (OpenProject #3364, corrected scope) -- a pure mirror of sidebar state
+ *  (`composables/navSidebarDestination.js#isSelected`, `stores/graph.js#selectedPath`), not
+ *  anything a canvas click can create: a canvas click always just navigates
+ *  (`pages/Graph.vue#onCanvasClick`), full stop.
+ *
+ *  `selectedRingColor` (`drawNodes` below) is NOT a literal color declared here: `Graph.vue`
+ *  resolves it fresh off `--color-accent-fill`/`--color-accent-dark`, the same tokens the sidebar's
+ *  own "current row" style (`.router-link-exact-active`, `NavSidebar.vue`) already uses for its
+ *  icon -- this file stays a plain function over a `ctx` with no DOM access of its own (see the
+ *  file's own top-of-file doc comment), so it takes the resolved string as a plain argument.
+ *
+ *  `SELECTED_RING_GAP`/`_WIDTH` place this ring OUTSIDE the anchor/highlight ring's own outer edge
+ *  (`HIGHLIGHT_RING_GAP` + `HIGHLIGHT_RING_WIDTH` / 2 = 3px out from the node's own radius) -- in
+ *  practice the anchor and the selection can never coincide on the SAME node (anchor-trumps-selected,
+ *  `isSelected()`'s own doc comment), but keeping them visually layered rather than overlapping costs
+ *  nothing and matches how the highlight ring already stacks outside the root ring above. */
+const SELECTED_RING_GAP = 6
+const SELECTED_RING_WIDTH = 3
+
 export function drawEdges(ctx, edges, dark) {
   ctx.strokeStyle = dark ? EDGE_COLOR.dark : EDGE_COLOR.light
   ctx.lineWidth = 1
@@ -129,14 +149,24 @@ export function drawClusterHulls(ctx, clusters) {
  *
  *  `hoveredNode` (the object `Graph.vue#findNodeAt()` returns, or `null`) gets the white-overlay
  *  tint above -- compared by reference, not by id, since it is the very same node object this
- *  function is already iterating. */
+ *  function is already iterating.
+ *
+ *  `selectedId` (OpenProject #3364, see `SELECTED_RING_GAP`'s own doc comment above) is an optional
+ *  composite `${locale}:${path}` id -- compared by id, unlike `hoveredNode`, since `Graph.vue`
+ *  resolves it from `stores/graph.js#selectedPath` (a bare path) rather than holding the node object
+ *  itself. `selectedRingColor` is the resolved color string to stroke it with; omitted, `null` or a
+ *  falsy `selectedId`/`selectedRingColor` draws no ring at all, same no-op-by-default convention
+ *  `highlightedIds` follows. A selected node still draws its OWN ring even while dimmed by an
+ *  unrelated keyword search, same as the root ring above. */
 export function drawNodes(
   ctx,
   nodes,
   radiusFor,
   highlightedIds,
   hoveredNode,
-  dimmingIds = highlightedIds
+  dimmingIds = highlightedIds,
+  selectedId = null,
+  selectedRingColor = null
 ) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   const hasDimming = dimmingIds && dimmingIds.size > 0
@@ -167,6 +197,13 @@ export function drawNodes(
       ctx.arc(node.x, node.y, radius + HIGHLIGHT_RING_GAP, 0, Math.PI * 2)
       ctx.lineWidth = HIGHLIGHT_RING_WIDTH
       ctx.strokeStyle = HIGHLIGHT_RING_COLOR
+      ctx.stroke()
+    }
+    if (selectedId && selectedRingColor && nodeId(node) === selectedId) {
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, radius + SELECTED_RING_GAP, 0, Math.PI * 2)
+      ctx.lineWidth = SELECTED_RING_WIDTH
+      ctx.strokeStyle = selectedRingColor
       ctx.stroke()
     }
     ctx.globalAlpha = 1
@@ -413,7 +450,12 @@ export function drawLabels(
 
 /** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
  *  only, no layout recomputation. Safe to call on every zoom/pan frame since it draws the `nodes`,
- *  `edges` and `clusters` it is handed as they last stood rather than rebuilding any of them. */
+ *  `edges` and `clusters` it is handed as they last stood rather than rebuilding any of them.
+ *
+ *  `selectedId`/`selectedRingColor` (OpenProject #3364) are optional and forward straight through to
+ *  `drawNodes` alone -- see `SELECTED_RING_GAP`'s own doc comment above for why the color is resolved
+ *  by the caller (`Graph.vue`) rather than owned here. No label treatment: the selected state draws
+ *  as a ring only. */
 export function paintGraph({
   ctx,
   canvas,
@@ -426,7 +468,9 @@ export function paintGraph({
   dark,
   highlightedIds,
   hoveredNode,
-  dimmingIds = highlightedIds
+  dimmingIds = highlightedIds,
+  selectedId = null,
+  selectedRingColor = null
 }) {
   if (!ctx) {
     return
@@ -440,7 +484,16 @@ export function paintGraph({
   }
   drawEdges(ctx, edges, dark)
   drawClusterHulls(ctx, clusters)
-  drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode, dimmingIds)
+  drawNodes(
+    ctx,
+    nodes,
+    radiusFor,
+    highlightedIds,
+    hoveredNode,
+    dimmingIds,
+    selectedId,
+    selectedRingColor
+  )
   drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds, minRadius, dimmingIds)
   ctx.restore()
 }

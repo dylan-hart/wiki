@@ -1077,7 +1077,16 @@ describe('NavSidebarItem: graph selection indicator (OpenProject #3364)', () => 
     expect(wrapper.get('.w-item').classes()).not.toContain('is-graph-selected')
   })
 
-  it('marks a populated folder as selected when its own path matches the graph selection', async () => {
+  /*
+   * A populated folder never gets `is-graph-selected` at all -- unlike `is-graph-anchor`, which
+   * folders legitimately carry, `NavSidebarItem.vue`'s expansion-item branch binds no
+   * `isSelected(item)` class in the first place (see that template's own comment): selection only
+   * ever applies to a leaf row, mirroring `.router-link-exact-active`'s own reach, which likewise
+   * never lands on a folder header. This also covers the "anchor trumps selected" product rule
+   * (a folder click anchors on itself and incidentally sets the same path as `selectedPath`) without
+   * needing the predicate's own guard exercised here -- the class is structurally absent either way.
+   */
+  it('never marks a populated folder as selected, even when its own path matches the graph selection', async () => {
     const wrapper = await mountItem(
       {
         id: '1',
@@ -1090,7 +1099,7 @@ describe('NavSidebarItem: graph selection indicator (OpenProject #3364)', () => 
       { initialPath: '/_graph', selectedPath: 'docs' }
     )
 
-    expect(wrapper.get('.w-expansion-item').classes()).toContain('is-graph-selected')
+    expect(wrapper.get('.w-expansion-item').classes()).not.toContain('is-graph-selected')
   })
 
   it('does not mark a leaf item as selected on /_graph with nothing selected', async () => {

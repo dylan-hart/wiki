@@ -448,23 +448,51 @@ const keywordMatches = shallowRef([])
  *  plain `ref` (not `shallowRef`): it only ever holds a primitive string or `null`, never an object. */
 const focusNodeId = ref(null)
 
-/** The composite `${locale}:${path}` id of the node the reader has SELECTED via a first canvas
- *  click (OpenProject #3363, Feature #3362's "Graph canvas -- selected node" scope), or `null` when
- *  nothing is selected -- set and cleared by `onCanvasClick()` below. Deliberately its own state,
- *  independent of the other two per-node states this file already tracks: `hoveredNode` (mouse-over
- *  only, no click involved) and `focusNodeId`/the anchor (the existing yellow ring, route-driven via
- *  `applyRouteFocus()`, unchanged by this ref). Not named `focusedNode` or any other synonym for
- *  "focus"/"anchor" on purpose -- the two concepts must stay independently trackable rather than
- *  merged into `focusNodeId`. A plain string/`null` ref, same shape as `focusNodeId`, for the same
- *  reason: nothing needs the node object itself, only its id.
+/** The composite `${locale}:${path}` id of the graph node corresponding to whatever sidebar row the
+ *  reader has SELECTED (OpenProject #3364, corrected scope), or `null` when nothing qualifies.
+ *  Selection itself lives entirely in the sidebar now: `composables/navSidebarDestination.js`'s
+ *  `graphSidebarBranch()` sets `stores/graph.js#selectedPath` (a bare path) when a leaf item is
+ *  clicked while `/_graph` is open -- the graph CANVAS has no click state of its own to drive this
+ *  from (`onCanvasClick()` below always just navigates). This computed is the one place that
+ *  resolves that bare path, plus the current locale, into the composite id `drawNodes`/`drawLabels`
+ *  already key their `highlightedIds`/`selectedId` params on.
  *
- *  The graph CANVAS draws no treatment of its own for this state (OpenProject #3364's corrected
- *  scope): the visible highlight lives on the nav sidebar's corresponding row instead
- *  (`stores/graph.js`'s `selectedPath`, read by `composables/navSidebarDestination.js#isSelected`),
- *  the same surface the anchor's own `is-graph-anchor` indicator already uses. `onCanvasClick()`
- *  keeps this composite id (for its own click-toggle comparisons) and separately mirrors the node's
- *  bare `path` into `graphStore.selectedPath` for the sidebar. */
-const selectedNodeId = ref(null)
+ *  ANCHOR TRUMPS SELECTED here too, mirroring `isSelected()`'s own guard: a clicked EMPTY folder
+ *  anchors on itself, which also sets `selectedPath` to that identical path -- resolving it to a
+ *  node here anyway would ring a node the sidebar itself is deliberately NOT marking as selected.
+ *  Comparing the raw `path` (not `nodeId()`'s locale-qualified form) against `route.query.path`
+ *  directly is what `isAnchor()` effectively does too, just read from the graph side instead of the
+ *  sidebar side of the same shared contract. */
+const selectedNodeId = computed(() => {
+  const path = graphStore.selectedPath
+  if (!path) {
+    return null
+  }
+  const anchorRawPath = route.query.path
+  const anchorPath = Array.isArray(anchorRawPath) ? anchorRawPath[0] : anchorRawPath
+  if (path === anchorPath) {
+    return null
+  }
+  const node = nodes.value.find((n) => n.path === path && n.locale === pageStore.locale)
+  return node ? nodeId(node) : null
+})
+
+/** The color `repaint()` rings `selectedNodeId` with (OpenProject #3364, corrected scope), resolved
+ *  off the exact CSS custom property the nav sidebar's own "current row" style uses for its icon
+ *  (`--color-accent-fill`/`--color-accent-dark`, `.router-link-exact-active`, `NavSidebar.vue`) --
+ *  read live off `document.body` (redefined per aesthetic there, e.g. `body.body--cobalt`) rather
+ *  than hardcoded here, so this tracks Cobalt automatically with no aesthetic-name branch of its
+ *  own, the same reasoning `graphDraw.js`'s own doc comment for `SELECTED_RING_GAP` gives. A
+ *  `computed` keyed on `dark.isActive` only, not re-read on every animation frame `repaint()` runs
+ *  on: the token's value never changes except across a light/dark flip. */
+const selectedNodeColor = computed(() => {
+  const style = getComputedStyle(document.body)
+  return (
+    dark.isActive
+      ? style.getPropertyValue('--color-accent-dark')
+      : style.getPropertyValue('--color-accent-fill')
+  ).trim()
+})
 
 /** The `{ path, locale }` of the currently-anchored node (OpenProject #3333, Task #3312's own
  *  follow-up scope correction), or `null` when no anchor is active -- set alongside `focusNodeId`
@@ -1100,7 +1128,9 @@ function repaint() {
     dark: dark.isActive,
     highlightedIds: highlightedNodeIds.value,
     dimmingIds: keywordHighlightedNodeIds.value,
-    hoveredNode: hoveredNode.value
+    hoveredNode: hoveredNode.value,
+    selectedId: selectedNodeId.value,
+    selectedRingColor: selectedNodeColor.value
   })
 }
 
@@ -1184,27 +1214,11 @@ function navigateToNode(node) {
   router.push(fallbackHref(node))
 }
 
-/** A first click on a real node selects it (`selectedNodeId`, no navigation); a second click on the
- *  SAME already-selected node navigates to its page and clears the selection (the click just left
- *  the graph, so there is nothing left to show as selected); a click on a DIFFERENT node re-selects
- *  that one instead of navigating -- three-way behavior required by OpenProject #3363. A click that
- *  misses every node, or lands on a synthetic folder/root node (no real page to select or navigate
- *  to), is a no-op and leaves any existing selection exactly as it was, same as `navigateToNode`'s
- *  own long-standing guard for the miss/synthetic case. */
+/** OpenProject #3364 (corrected scope): a graph click has no state of its own -- it always just
+ *  navigates, full stop. Selection is a SIDEBAR concept now (`composables/navSidebarDestination.js`),
+ *  mirrored onto the corresponding graph node only as a read-only ring (`selectedNodeId` above). */
 function onCanvasClick(event) {
-  const node = findNodeAt(event.clientX, event.clientY)
-  if (!node || node.synthetic) {
-    return
-  }
-  const clickedId = nodeId(node)
-  if (selectedNodeId.value === clickedId) {
-    selectedNodeId.value = null
-    graphStore.clearSelection()
-    navigateToNode(node)
-    return
-  }
-  selectedNodeId.value = clickedId
-  graphStore.select(node.path)
+  navigateToNode(findNodeAt(event.clientX, event.clientY))
 }
 
 /** Alpha `simulation.alpha(...).restart()` is bumped to right after a hover push impulse -- small
@@ -1826,6 +1840,15 @@ watch(focusNodeId, () => {
  *  title-only match with no corresponding backend hit would otherwise compute correctly but never
  *  actually repaint the canvas. */
 watch(highlightedNodeIds, () => {
+  repaint()
+})
+
+/** OpenProject #3364 (corrected scope): a `selectedNodeId` change (driven by a sidebar click, not a
+ *  canvas one -- see that computed's own doc comment) changes only which already-visible node draws
+ *  the selection ring, same "no node/edge set change, just a repaint" shape as `highlightedNodeIds`'s
+ *  own watcher above -- needed because the d3-force simulation may already be at rest (no more
+ *  `onTick()` repaints coming) by the time the sidebar click lands. */
+watch(selectedNodeId, () => {
   repaint()
 })
 

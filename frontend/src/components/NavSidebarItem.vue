@@ -10,7 +10,7 @@
     v-if="item.children?.length > 0"
     dense
     :style="depthStyle"
-    :class="{ 'is-graph-anchor': isAnchor(item), 'is-graph-selected': isSelected(item) }"
+    :class="{ 'is-graph-anchor': isAnchor(item) }"
     :model-value="isOpen(item.id, item.expandByDefault || containsCurrent(item))"
     @update:model-value="setOpen(item.id, $event)"
     @click.capture="handleHeaderClick($event, item)">

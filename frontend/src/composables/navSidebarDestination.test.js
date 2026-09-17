@@ -212,6 +212,17 @@ describe('useNavSidebarDestination#destination -- graph sidebar branch (OpenProj
     expect(result.to).toBeUndefined()
     expect(result.clickable).toBe(true)
   })
+
+  /**
+   * OpenProject #3364 (corrected scope): this click is also what SELECTS the item -- mirrored into
+   * `stores/graph.js#selectedPath` for the sidebar's own `isSelected()` (and `pages/Graph.vue`'s
+   * ring) to read. The graph canvas has no click state of its own to drive this from any more.
+   */
+  it('also mirrors the clicked item into graphStore.selectedPath', async () => {
+    const { destination } = await mountDestination('/_graph?path=docs/setup')
+    destination({ path: 'other/page' }).onClick()
+    expect(useGraphStore().selectedPath).toBe('other/page')
+  })
 })
 
 /**
@@ -365,6 +376,18 @@ describe('useNavSidebarDestination#isSelected (OpenProject #3364)', () => {
   it('is false on /_graph with nothing selected', async () => {
     const { isSelected } = await mountDestination('/_graph')
     expect(isSelected({ path: 'docs' })).toBe(false)
+  })
+
+  /**
+   * Anchor trumps selected, always (explicit product direction): a clicked EMPTY folder anchors on
+   * ITSELF (`graphSidebarBranch()`'s own `anchorPath`), which also mirrors that identical path into
+   * `graphStore.selectedPath` -- without this guard, that one row would satisfy both predicates.
+   * Nothing is selected, visually, when the click that fired was a folder click.
+   */
+  it('is false for an item that is simultaneously the current anchor, even though its path matches the selection', async () => {
+    const { isSelected } = await mountDestination('/_graph?path=docs')
+    useGraphStore().select('docs')
+    expect(isSelected({ path: 'docs', isFolder: true })).toBe(false)
   })
 })
 

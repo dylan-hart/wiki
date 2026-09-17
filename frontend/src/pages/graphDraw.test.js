@@ -326,6 +326,88 @@ describe('drawNodes: hovered-node tint', () => {
   })
 })
 
+/**
+ * OpenProject #3364 (corrected scope): `selectedId`/`selectedRingColor` ring the node
+ * `pages/Graph.vue`'s `selectedNodeId` computed names -- a pure mirror of a SIDEBAR click, never a
+ * canvas one -- compared by composite id (unlike `hoveredNode` above, which compares by object
+ * identity), and drawn strictly OUTSIDE the anchor/keyword `HIGHLIGHT_RING_COLOR` ring so both can
+ * survive on the same node. A ring only -- no label treatment, unlike the first (reverted) attempt
+ * at this Task.
+ */
+describe('drawNodes: selected-node ring (OpenProject #3364)', () => {
+  it('rings the node matching selectedId with the caller-resolved selectedRingColor', () => {
+    const ctx = makeCtx()
+    const nodes = [
+      { path: 'a', locale: 'en', x: 1, y: 1 },
+      { path: 'b', locale: 'en', x: 2, y: 2 }
+    ]
+
+    drawNodes(ctx, nodes, radiusFor, null, null, null, 'en:b', '#e4676b')
+
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+    expect(ctx.strokeStyle).toBe('#e4676b')
+  })
+
+  it('draws no ring at all when selectedId is null (nothing selected)', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    drawNodes(ctx, nodes, radiusFor, null, null, null, null, '#e4676b')
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+
+  it('draws no ring when selectedId is set but selectedRingColor is falsy (color not yet resolvable)', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    drawNodes(ctx, nodes, radiusFor, null, null, null, 'en:a', '')
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+
+  it('draws both the anchor/highlight ring and the selected ring, in two distinguishable colors, on the same node', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    const strokeStyles = []
+    ctx.stroke.mockImplementation(() => strokeStyles.push(ctx.strokeStyle))
+
+    // -> `en:a` is both the anchor/keyword match (highlightedIds) AND the selection.
+    drawNodes(ctx, nodes, radiusFor, new Set(['en:a']), null, null, 'en:a', '#e4676b')
+
+    expect(ctx.stroke).toHaveBeenCalledTimes(2)
+    // -> The existing yellow anchor ring first, then the selected ring in its own distinct color.
+    expect(strokeStyles).toEqual(['#ffd600', '#e4676b'])
+  })
+
+  it('still rings a selected node while a keyword search dims it (its own selection state does not depend on matching the search)', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    const fillAlphas = []
+    ctx.fill.mockImplementation(() => fillAlphas.push(ctx.globalAlpha))
+
+    // -> `dimmingIds` left `undefined` (not `null`) so it falls back to `highlightedIds`, same
+    //    default every other "keyword search active, this node isn't the match" test in this file
+    //    relies on.
+    drawNodes(
+      ctx,
+      nodes,
+      radiusFor,
+      new Set(['en:some-other-page']),
+      null,
+      undefined,
+      'en:a',
+      '#e4676b'
+    )
+
+    expect(fillAlphas[0]).toBeLessThan(1)
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+    expect(ctx.strokeStyle).toBe('#e4676b')
+  })
+})
+
 /** A node big enough to hold a label inside it: at the `10px` base font, `insideNodeTextWidth(20,
  *  10)` is `2 * sqrt(400 - 25) * 0.9`, about `34.9px` -- eight `CHAR_WIDTH_PX` characters. */
 const LABELLED_NODE_RADIUS = 20
@@ -710,6 +792,56 @@ describe('paintGraph (OpenProject #2480)', () => {
   })
 
   it('omitting highlightedIds entirely draws exactly as before this WP', () => {
+    const ctx = makeCtx()
+    const canvas = { width: 100, height: 100 }
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    paintGraph({
+      ctx,
+      canvas,
+      transform: null,
+      nodes,
+      edges: [],
+      clusters: [],
+      radiusFor,
+      minRadius: MIN_RADIUS
+    })
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+})
+
+describe('paintGraph (OpenProject #3364)', () => {
+  it('forwards selectedId/selectedRingColor through to drawNodes, ring only', () => {
+    const ctx = makeCtx()
+    const canvas = { width: 100, height: 100 }
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    // -> Read AT the stroke call, not off `ctx` afterwards -- `drawLabels`'s own halo stroke runs
+    //    after `drawNodes` in `paintGraph`'s sequence and would otherwise overwrite `strokeStyle`,
+    //    same reason the pre-existing "forwards its dark flag" test above reads this way.
+    const strokeStyles = []
+    ctx.stroke.mockImplementation(() => strokeStyles.push(ctx.strokeStyle))
+
+    paintGraph({
+      ctx,
+      canvas,
+      transform: null,
+      nodes,
+      edges: [],
+      clusters: [],
+      radiusFor,
+      minRadius: MIN_RADIUS,
+      selectedId: 'en:a',
+      selectedRingColor: '#e4676b'
+    })
+
+    expect(strokeStyles).toEqual(['#e4676b'])
+    // -> No label treatment: the plain fill color, never bolded/recolored.
+    expect(ctx.fillStyle).toBe('#333')
+  })
+
+  it('omitting the selected-node params entirely draws exactly as before this Task', () => {
     const ctx = makeCtx()
     const canvas = { width: 100, height: 100 }
     const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]

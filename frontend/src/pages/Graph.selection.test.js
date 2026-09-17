@@ -6,18 +6,14 @@ import { useGraphStore } from '@/stores/graph'
 import { mountGraph } from './graphFixtures.js'
 
 /*
- * OpenProject #3363 (Feature #3362's "Graph canvas -- selected node" scope): a first click on a
- * node selects it (highlights via `selectedNodeId`, does not navigate); a second click on the
- * already-selected node navigates to that page; a click on a DIFFERENT node while one is already
- * selected re-selects the new node rather than navigating anywhere.
- *
- * OpenProject #3364 (corrected scope): the visible highlight lives on the nav sidebar's
- * corresponding row, not the canvas, so every selection change here is also asserted against
- * `useGraphStore().selectedPath` (the raw path `NavSidebarItem.vue#isSelected` reads) alongside
- * `selectedNodeId` (the composite id `onCanvasClick()`'s own click-toggle logic compares against).
+ * OpenProject #3364 (corrected scope): a graph canvas click has no state of its own -- a single
+ * click on a real page node always navigates, full stop, exactly as it did before OpenProject
+ * #3363's now-reverted two-click select/navigate toggle ever existed. Selection is a SIDEBAR
+ * concept (`composables/navSidebarDestination.js`), simulated here by writing directly to
+ * `useGraphStore().selectedPath` the same way a sidebar click would.
  */
-describe('Graph.vue selected-node interaction state (OpenProject #3363/#3364)', () => {
-  it('a first click on a node selects it without navigating, and mirrors it into graphStore.selectedPath', async () => {
+describe('Graph.vue canvas clicks (OpenProject #3364, corrected scope)', () => {
+  it('a single click on a real node navigates immediately, with no selection state created', async () => {
     const wrapper = await mountGraph()
     const graphStore = useGraphStore()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
@@ -25,26 +21,23 @@ describe('Graph.vue selected-node interaction state (OpenProject #3363/#3364)', 
     nodeA.y = 500
     wrapper.vm.relayout()
 
-    expect(wrapper.vm.selectedNodeId).toBeNull()
-    expect(graphStore.selectedPath).toBeNull()
-
     await wrapper.find('canvas').trigger('click', { clientX: 500, clientY: 500 })
+    await flushPromises()
 
-    expect(wrapper.vm.selectedNodeId).toBe('en:a')
-    expect(graphStore.selectedPath).toBe('a')
+    expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/a')
+    expect(graphStore.selectedPath).toBeNull()
+  })
+
+  it('a click that misses every node is a no-op', async () => {
+    const wrapper = await mountGraph()
+
+    await wrapper.find('canvas').trigger('click', { clientX: 0, clientY: 5000 })
+
     expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/')
   })
 
-  /*
-   * The simulation keeps running in real time between assertions (no fake timers here, same as
-   * every other Graph.vue suite), so a node's x/y can drift a little between two clicks even with
-   * no explicit repositioning in between -- re-pinning `fx`/`fy` right before the second click
-   * (exactly what a real hover already does elsewhere in this file, see `Graph.hoverPin.test.js`)
-   * keeps this test about the click sequence, not a race against the force layout.
-   */
-  it('a second click on the already-selected node navigates to it and clears the selection', async () => {
+  it('a second click on the same node navigates again -- there is no toggle to clear', async () => {
     const wrapper = await mountGraph()
-    const graphStore = useGraphStore()
     const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
     nodeA.x = 500
     nodeA.y = 500
@@ -53,9 +46,12 @@ describe('Graph.vue selected-node interaction state (OpenProject #3363/#3364)', 
     wrapper.vm.relayout()
 
     await wrapper.find('canvas').trigger('click', { clientX: 500, clientY: 500 })
-    expect(wrapper.vm.selectedNodeId).toBe('en:a')
-    expect(graphStore.selectedPath).toBe('a')
+    await flushPromises()
+    expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/a')
 
+    // -> Simulate returning to the graph and clicking the very same node again: still a plain,
+    //    immediate navigation, not a "second click" of anything.
+    await wrapper.vm.$router.push('/_graph')
     nodeA.x = 500
     nodeA.y = 500
     wrapper.vm.relayout()
@@ -63,69 +59,65 @@ describe('Graph.vue selected-node interaction state (OpenProject #3363/#3364)', 
     await flushPromises()
 
     expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/a')
+  })
+})
+
+/*
+ * `selectedNodeId` resolves `useGraphStore().selectedPath` (set by a sidebar click, simulated here
+ * directly) plus the current locale into the composite id `graphDraw.js#drawNodes` rings -- the same
+ * resolution shape `applyRouteFocus()` already does for the anchor, just off the store instead of
+ * `route.query.path`.
+ */
+describe('Graph.vue selectedNodeId (OpenProject #3364, corrected scope)', () => {
+  it('resolves to null with nothing selected', async () => {
+    const wrapper = await mountGraph()
     expect(wrapper.vm.selectedNodeId).toBeNull()
-    expect(graphStore.selectedPath).toBeNull()
   })
 
-  it('clicking a different node while one is selected re-selects instead of navigating', async () => {
+  it('resolves the composite id of the node matching the store-selected path and current locale', async () => {
     const wrapper = await mountGraph()
     const graphStore = useGraphStore()
-    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
-    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
-    nodeA.x = 500
-    nodeA.y = 500
-    nodeA.fx = 500
-    nodeA.fy = 500
-    nodeB.x = -500
-    nodeB.y = -500
-    nodeB.fx = -500
-    nodeB.fy = -500
-    wrapper.vm.relayout()
 
-    await wrapper.find('canvas').trigger('click', { clientX: 500, clientY: 500 })
+    graphStore.select('a')
+    await wrapper.vm.$nextTick()
+
     expect(wrapper.vm.selectedNodeId).toBe('en:a')
-
-    nodeB.x = -500
-    nodeB.y = -500
-    wrapper.vm.relayout()
-    await wrapper.find('canvas').trigger('click', { clientX: -500, clientY: -500 })
-
-    expect(wrapper.vm.selectedNodeId).toBe('en:b')
-    expect(graphStore.selectedPath).toBe('b')
-    expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/')
   })
 
-  it('a click that misses every node is a no-op and leaves any existing selection untouched', async () => {
+  it('resolves to null when the selected path matches no currently-loaded node', async () => {
     const wrapper = await mountGraph()
     const graphStore = useGraphStore()
-    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
-    nodeA.x = 500
-    nodeA.y = 500
-    nodeA.fx = 500
-    nodeA.fy = 500
-    wrapper.vm.relayout()
 
-    await wrapper.find('canvas').trigger('click', { clientX: 500, clientY: 500 })
-    expect(wrapper.vm.selectedNodeId).toBe('en:a')
+    graphStore.select('does-not-exist')
+    await wrapper.vm.$nextTick()
 
-    // -> Far from every node: `findNodeAt` resolves to null, same miss case `navigateToNode` has
-    //    always no-op'd on.
-    await wrapper.find('canvas').trigger('click', { clientX: 0, clientY: 5000 })
-
-    expect(wrapper.vm.selectedNodeId).toBe('en:a')
-    expect(graphStore.selectedPath).toBe('a')
-    expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/')
+    expect(wrapper.vm.selectedNodeId).toBeNull()
   })
 
-  it('clears graphStore.selectedPath on unmount so a stale selection never outlives the page', async () => {
+  /*
+   * Anchor trumps selected (OpenProject #3364/#3365's shared product rule, `isSelected()`'s own doc
+   * comment): a clicked EMPTY folder anchors the graph on itself, which also happens to set
+   * `selectedPath` to that identical path. The sidebar deliberately shows nothing as "selected" in
+   * that case, and the graph ring must agree -- ringing a node here that the sidebar isn't marking
+   * selected would be two surfaces disagreeing about the same state.
+   */
+  it('resolves to null when the selected path is also the current graph anchor', async () => {
+    const wrapper = await mountGraph({ initialPath: '/_graph?path=a' })
+    const graphStore = useGraphStore()
+
+    graphStore.select('a')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.$route.query.path).toBe('a')
+    expect(wrapper.vm.selectedNodeId).toBeNull()
+  })
+
+  it('clears on unmount, so a stale selection never outlives the page', async () => {
     const wrapper = await mountGraph()
     const graphStore = useGraphStore()
-    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
-    nodeA.x = 500
-    nodeA.y = 500
-    wrapper.vm.relayout()
 
-    await wrapper.find('canvas').trigger('click', { clientX: 500, clientY: 500 })
+    graphStore.select('a')
+    await wrapper.vm.$nextTick()
     expect(graphStore.selectedPath).toBe('a')
 
     wrapper.unmount()
