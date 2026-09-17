@@ -7,7 +7,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import crypto from 'node:crypto'
-import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { acquireAdvisoryLock } from '../helpers/advisoryLock.ts'
+import type { Pool } from 'pg'
 
 /**
  * Config is assembled at runtime from config.yml + base.yml + the `settings` DB table, so its shape
@@ -265,14 +266,26 @@ export default {
    * sequence closes that window: the loser blocks until the winner has fully released the lock, then
    * re-runs its own `loadFromDb()` *inside* the lock and observes a fully-seeded database, correctly
    * skipping `initDbValues()` rather than racing it. The lock key (`wiki:migrate`) is the same one the
-   * migration lock around `db.ts#syncSchemas` uses (or will use), so the two compose into sequential
-   * sections under one key rather than fighting over separate ones.
+   * migration lock around `db.ts#syncSchemas` uses, so the two compose into sequential sections under
+   * one key rather than fighting over separate ones.
+   *
+   * Uses `acquireAdvisoryLock` (blocking `pg_advisory_lock`, no give-up), the same primitive
+   * `db.ts#syncSchemas` takes this key through — not `withAdvisoryLock` (bounded retry/backoff, built
+   * for storage-dispatch jobs that must fail fast and let the scheduler retry). A fresh-install seed
+   * (`models/icons.ts#init()` alone does 6232 sequential inserts) can comfortably outrun
+   * `withAdvisoryLock`'s ~15-19s total backoff, and its give-up path here is `index.ts`'s `preBoot()`
+   * calling `process.exit(1)`: a second HA instance booting during a first instance's fresh seed would
+   * die at boot rather than simply wait its turn (OpenProject #3374). Blocking trades that crash for a
+   * wedged holder blocking boot instead — the same trade `syncSchemas` already accepts for this key —
+   * which a session-scoped lock bounds on its own: it releases the moment a crashed holder's
+   * connection drops, same as `syncSchemas`'s.
    *
    * @returns Whether this call performed the seed (`false` means another holder already had, or the
    *   database was already seeded from a previous boot).
    */
   async ensureSeeded(): Promise<boolean> {
-    return withAdvisoryLock('wiki:migrate', async () => {
+    const lock = await acquireAdvisoryLock(CARDINAL.db.$client as Pool, 'wiki:migrate')
+    try {
       // -> `keys=` is the top-level count of the `settings` blob itself, not of the merged
       //    `CARDINAL.config`: what the operator wants to know here is how much of the running
       //    configuration came from the database rather than from base.yml/config.yml. `seeded=`
@@ -291,7 +304,9 @@ export default {
 
       CARDINAL.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: true })
       return true
-    })
+    } finally {
+      await lock.release()
+    }
   },
   /**
    * Subscribe to HA propagation events

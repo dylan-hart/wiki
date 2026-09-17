@@ -5,12 +5,14 @@ import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { load } from 'js-yaml'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { sql } from 'drizzle-orm'
 import configSvc, { CONFIG_OVERRIDE_VARS } from './config.ts'
+import { AdvisoryLockAcquisitionError } from '../helpers/advisoryLock.ts'
 import { resolvePoolSizeOptions } from './db.ts'
 import { relations } from '../db/relations.ts'
 import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
@@ -594,3 +596,130 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(await configSvc.loadFromDb(), true)
   })
 })
+
+/**
+ * Regression test for OpenProject #3374: `ensureSeeded()` used to take its `wiki:migrate` lock
+ * through `withAdvisoryLock` (`helpers/advisoryLock.ts`), the give-up-after-`maxAttempts` primitive
+ * built for storage-dispatch jobs — whose default backoff totals only ~15-19s. A fresh-install seed
+ * can comfortably outrun that, and its give-up path in production is `index.ts`'s `preBoot()` calling
+ * `process.exit(1)`, so a second HA instance booting during another's fresh seed died at boot rather
+ * than waiting its turn.
+ *
+ * Separate `describe` (and its own fresh schema) from "exactly one of two concurrent callers seeds"
+ * above, rather than a second `test` reusing that block's `before()`-seeded database: that suite's DB
+ * is already seeded by the time this one would run, so `ensureSeeded()` would short-circuit on
+ * `loadFromDb()` before either caller ever contended for the lock — nothing to prove.
+ */
+describe(
+  'ensureSeeded() (DB-backed): loser behind a slow winner',
+  { skip: !hasTestDatabase() },
+  () => {
+    const SYSTEM_IDS = {
+      localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588',
+      guestsGroupId: '10000000-0000-4000-8000-000000000001',
+      usersGroupId: '20000000-0000-4000-8000-000000000002',
+      classificationPublicId: '30000000-0000-4000-8000-000000000001',
+      classificationInternalId: '30000000-0000-4000-8000-000000000002',
+      classificationRestrictedId: '30000000-0000-4000-8000-000000000003'
+    }
+
+    let pool: Pool
+    let schema: string
+    let db: WikiDb
+    let previousDbWiki: any
+
+    before(async () => {
+      schema = `test_${randomBytes(6).toString('hex')}`
+      pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        options: `-c search_path=${schema},public`
+      })
+      db = drizzle({ client: pool, relations }) as WikiDb
+
+      await db.execute(sql.raw(`CREATE SCHEMA "${schema}"`))
+      await createExtensionsSerialized(pool)
+      await migrate(db, {
+        migrationsFolder: path.join(import.meta.dirname, '../db/migrations'),
+        migrationsSchema: schema,
+        migrationsTable: 'migrations'
+      })
+
+      const models = (await import('../models/index.ts')).default
+
+      previousDbWiki = (globalThis as any).CARDINAL
+      wikiHandle = installTestWiki({
+        IS_DEBUG: false,
+        ROOTPATH: process.cwd(),
+        SERVERPATH: path.join(import.meta.dirname, '..'),
+        INSTANCE_ID: 'test',
+        config: {},
+        data: { systemIds: SYSTEM_IDS },
+        db,
+        logger: {
+          error: () => {},
+          warn: () => {},
+          info: () => {},
+          debug: () => {}
+        },
+        cache: createCacheStub(),
+        events: createEventsStub(),
+        scheduler: createSchedulerStub(),
+        models
+      })
+    })
+
+    after(async () => {
+      if (pool && schema) {
+        await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+      }
+      await pool?.end()
+      ;(globalThis as any).CARDINAL = previousDbWiki
+    })
+
+    test('the loser observes the fully-seeded DB, not an AdvisoryLockAcquisitionError', async () => {
+      const originalInitDbValues = configSvc.initDbValues.bind(configSvc)
+
+      // -> Artificially slows the winner's seed well past `withAdvisoryLock`'s OLD worst-case total
+      //    give-up budget (maxAttempts=10, baseDelayMs=100, maxDelayMs=3000: the 9 post-failure delays
+      //    before the 10th and final attempt sum to 17,100ms before jitter, ~20,875ms with the full 25%
+      //    jitter each attempt could add) — standing in for a heavy fresh-install seed (OpenProject
+      //    #3374's `models/icons.ts#init()` doing 6232 sequential inserts) that can genuinely run long
+      //    enough to outrun that budget. This delay is deliberately well past that ceiling (not merely
+      //    "slow"), so this test only passes because `ensureSeeded()` now uses `acquireAdvisoryLock`
+      //    (blocking `pg_advisory_lock`, no attempt ceiling) — the loser waits for exactly as long as
+      //    the winner holds the lock, with no budget to outrun.
+      const initDbValuesMock = mock.method(configSvc, 'initDbValues', async () => {
+        await delay(23_000)
+        return originalInitDbValues()
+      })
+
+      try {
+        const results = await Promise.allSettled([
+          configSvc.ensureSeeded(),
+          configSvc.ensureSeeded()
+        ])
+
+        for (const result of results) {
+          assert.ok(
+            result.status === 'fulfilled',
+            result.status === 'rejected'
+              ? `expected no rejection, got: ${result.reason?.name}: ${result.reason?.message} ` +
+                  `(isAdvisoryLockAcquisitionError=${result.reason instanceof AdvisoryLockAcquisitionError})`
+              : ''
+          )
+        }
+
+        const [first, second] = results.map((r) => (r as PromiseFulfilledResult<boolean>).value)
+        assert.notEqual(first, second, `expected exactly one seed, got [${first}, ${second}]`)
+
+        // -> Proves the loser blocked and then re-checked inside the lock, rather than giving up.
+        assert.equal(await configSvc.loadFromDb(), true)
+
+        const siteCount = await db.$count(sitesTable)
+        assert.equal(siteCount, 1, 'expected exactly one seeded site, not zero or a duplicate')
+      } finally {
+        initDbValuesMock.mock.restore()
+      }
+    })
+  }
+)
