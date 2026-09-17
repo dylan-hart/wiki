@@ -32,12 +32,12 @@ const MESSAGES = {
     nav: {
       overview: 'Overview',
       content: 'Content',
-      siteConfiguration: 'Site Configuration',
-      editingTools: 'Editing Tools',
-      usersAccess: 'Users & Access',
-      monitoringHealth: 'Monitoring & Health',
-      integrationsAutomation: 'Integrations & Automation',
-      securityAdvanced: 'Security & Advanced'
+      siteConfiguration: 'Site',
+      editingTools: 'Editing & Search',
+      usersAccess: 'Access',
+      monitoringHealth: 'Monitoring',
+      integrationsAutomation: 'Integrations',
+      securityAdvanced: 'Advanced'
     }
   }
 }
@@ -105,35 +105,35 @@ describe('AdminPageEyebrow group derivation', () => {
     [`/_admin/${SITE_ID}/comments`, 'Content'],
     [`/_admin/${SITE_ID}/approvals`, 'Content'],
     ['/_admin/classification', 'Content'],
-    [`/_admin/${SITE_ID}/general`, 'Site Configuration'],
-    [`/_admin/${SITE_ID}/theme`, 'Site Configuration'],
-    [`/_admin/${SITE_ID}/navigation`, 'Site Configuration'],
-    [`/_admin/${SITE_ID}/locale`, 'Site Configuration'],
-    [`/_admin/${SITE_ID}/login`, 'Site Configuration'],
-    [`/_admin/${SITE_ID}/storage`, 'Site Configuration'],
-    [`/_admin/${SITE_ID}/editors`, 'Editing Tools'],
-    [`/_admin/${SITE_ID}/blocks`, 'Editing Tools'],
-    ['/_admin/search', 'Editing Tools'],
-    ['/_admin/icons', 'Editing Tools'],
-    ['/_admin/auth', 'Users & Access'],
-    ['/_admin/groups', 'Users & Access'],
-    ['/_admin/users', 'Users & Access'],
-    ['/_admin/audit', 'Users & Access'],
-    ['/_admin/system', 'Monitoring & Health'],
-    ['/_admin/metrics', 'Monitoring & Health'],
-    ['/_admin/pageviews', 'Monitoring & Health'],
-    ['/_admin/livelog', 'Monitoring & Health'],
-    ['/_admin/cluster', 'Monitoring & Health'],
-    ['/_admin/replication', 'Monitoring & Health'],
-    ['/_admin/scheduler', 'Monitoring & Health'],
-    ['/_admin/api', 'Integrations & Automation'],
-    ['/_admin/webhooks', 'Integrations & Automation'],
-    ['/_admin/extensions', 'Integrations & Automation'],
-    ['/_admin/mail', 'Integrations & Automation'],
-    [`/_admin/${SITE_ID}/analytics`, 'Integrations & Automation'],
-    ['/_admin/security', 'Security & Advanced'],
-    ['/_admin/flags', 'Security & Advanced'],
-    ['/_admin/utilities', 'Security & Advanced']
+    [`/_admin/${SITE_ID}/general`, 'Site'],
+    [`/_admin/${SITE_ID}/theme`, 'Site'],
+    [`/_admin/${SITE_ID}/navigation`, 'Site'],
+    [`/_admin/${SITE_ID}/locale`, 'Site'],
+    [`/_admin/${SITE_ID}/login`, 'Site'],
+    [`/_admin/${SITE_ID}/storage`, 'Site'],
+    [`/_admin/${SITE_ID}/editors`, 'Editing & Search'],
+    [`/_admin/${SITE_ID}/blocks`, 'Editing & Search'],
+    ['/_admin/search', 'Editing & Search'],
+    ['/_admin/icons', 'Editing & Search'],
+    ['/_admin/auth', 'Access'],
+    ['/_admin/groups', 'Access'],
+    ['/_admin/users', 'Access'],
+    ['/_admin/audit', 'Access'],
+    ['/_admin/system', 'Monitoring'],
+    ['/_admin/metrics', 'Monitoring'],
+    ['/_admin/pageviews', 'Monitoring'],
+    ['/_admin/livelog', 'Monitoring'],
+    ['/_admin/cluster', 'Monitoring'],
+    ['/_admin/replication', 'Monitoring'],
+    ['/_admin/scheduler', 'Monitoring'],
+    ['/_admin/api', 'Integrations'],
+    ['/_admin/webhooks', 'Integrations'],
+    ['/_admin/extensions', 'Integrations'],
+    ['/_admin/mail', 'Integrations'],
+    [`/_admin/${SITE_ID}/analytics`, 'Integrations'],
+    ['/_admin/security', 'Access'],
+    ['/_admin/flags', 'Advanced'],
+    ['/_admin/utilities', 'Advanced']
   ])('renders "Admin · %s" for %s', async (path, group) => {
     const wrapper = await mountAt(path)
 
@@ -164,13 +164,13 @@ describe('AdminPageEyebrow group derivation', () => {
       // count, stripping "5" as a siteId and looking up "members" (no match) instead of "groups".
       const wrapper = await mountAt('/_admin/groups/5/members')
 
-      expect(wrapper.text()).toBe('Admin · Users & Access')
+      expect(wrapper.text()).toBe('Admin · Access')
     })
 
     it('does not misclassify users/:id?/:section? as site-scoped once both optional params are populated', async () => {
       const wrapper = await mountAt('/_admin/users/5/groups')
 
-      expect(wrapper.text()).toBe('Admin · Users & Access')
+      expect(wrapper.text()).toBe('Admin · Access')
     })
   })
 })
