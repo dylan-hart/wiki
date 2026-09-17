@@ -53,6 +53,29 @@ const DIMMED_ALPHA = 0.25
  *  own, so this reads as instant on/off exactly by not doing anything special for it. */
 const HOVER_TINT_COLOR = 'rgba(255, 255, 255, 0.3)'
 
+/** Ring/label treatment for the graph's currently-SELECTED node (OpenProject #3364, Feature #3362's
+ *  "highlight both the current anchor node and the currently-selected node") -- the click-driven
+ *  `selectedNodeId` state OpenProject #3363 added to `Graph.vue`, distinct from both `hoveredNode`
+ *  (mouse-over only) and the anchor's own permanent `HIGHLIGHT_RING_COLOR` ring.
+ *
+ *  Unlike every other color in this file, `selectedRingColor`/`selectedLabelColor` (`drawNodes`/
+ *  `drawLabels` below) are NOT a literal pair declared here: they are resolved by `Graph.vue` itself,
+ *  fresh, off the exact CSS custom properties the nav sidebar's own "current row" style
+ *  (`.router-link-exact-active`, `NavSidebar.vue` lines 248-304) resolves against --
+ *  `--color-accent-fill`/`--color-ink` under Ledger light (and Cobalt light, which redefines both on
+ *  `body.body--cobalt`), `--color-accent-dark`/`--color-text-dark` under dark (Ledger or Cobalt, same
+ *  reason, via `body.body--cobalt.body--dark`). This file stays a plain function over a `ctx` with no
+ *  DOM access of its own (see the file's own top-of-file doc comment), so it takes the resolved
+ *  strings as plain arguments rather than reaching for `getComputedStyle` itself -- a hardcoded pair
+ *  here would silently drift out of sync with the sidebar the moment either token's value changed.
+ *
+ *  `SELECTED_RING_GAP`/`_WIDTH` place this ring OUTSIDE the anchor/highlight ring's own outer edge
+ *  (`HIGHLIGHT_RING_GAP` + `HIGHLIGHT_RING_WIDTH` / 2 = 3px out from the node's own radius) so a node
+ *  that is simultaneously anchored and selected draws two concentric, visually distinguishable rings
+ *  rather than one overdrawing the other -- the acceptance criterion this Task exists to satisfy. */
+const SELECTED_RING_GAP = 6
+const SELECTED_RING_WIDTH = 3
+
 export function drawEdges(ctx, edges, dark) {
   ctx.strokeStyle = dark ? EDGE_COLOR.dark : EDGE_COLOR.light
   ctx.lineWidth = 1
@@ -129,14 +152,24 @@ export function drawClusterHulls(ctx, clusters) {
  *
  *  `hoveredNode` (the object `Graph.vue#findNodeAt()` returns, or `null`) gets the white-overlay
  *  tint above -- compared by reference, not by id, since it is the very same node object this
- *  function is already iterating. */
+ *  function is already iterating.
+ *
+ *  `selectedId` (OpenProject #3364, see `SELECTED_RING_GAP`'s own doc comment above) is an optional
+ *  composite `${locale}:${path}` id -- compared by id, unlike `hoveredNode`, since `selectedNodeId`
+ *  in `Graph.vue` holds an id rather than a node reference (it must survive the node object being
+ *  replaced by a later reload). `selectedRingColor` is the resolved color string to stroke it with;
+ *  omitted, `null` or a falsy `selectedId`/`selectedRingColor` draws no ring at all, same
+ *  no-op-by-default convention `highlightedIds` follows. A selected node still draws its OWN ring
+ *  even while dimmed by an unrelated keyword search, same as the root ring above. */
 export function drawNodes(
   ctx,
   nodes,
   radiusFor,
   highlightedIds,
   hoveredNode,
-  dimmingIds = highlightedIds
+  dimmingIds = highlightedIds,
+  selectedId = null,
+  selectedRingColor = null
 ) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   const hasDimming = dimmingIds && dimmingIds.size > 0
@@ -167,6 +200,13 @@ export function drawNodes(
       ctx.arc(node.x, node.y, radius + HIGHLIGHT_RING_GAP, 0, Math.PI * 2)
       ctx.lineWidth = HIGHLIGHT_RING_WIDTH
       ctx.strokeStyle = HIGHLIGHT_RING_COLOR
+      ctx.stroke()
+    }
+    if (selectedId && selectedRingColor && nodeId(node) === selectedId) {
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, radius + SELECTED_RING_GAP, 0, Math.PI * 2)
+      ctx.lineWidth = SELECTED_RING_WIDTH
+      ctx.strokeStyle = selectedRingColor
       ctx.stroke()
     }
     ctx.globalAlpha = 1
@@ -256,8 +296,13 @@ function insideNodeTextWidth(radius, fontPx) {
 /** Memo for `fitLabel()` (OpenProject #2593). `ctx.measureText` is the one genuinely expensive call
  *  in this layer, `drawLabels()` runs per node on every zoom/pan frame, and truncation measures
  *  several times per node -- so a dense graph would otherwise re-derive, dozens of times a second, a
- *  result that only changes when the title, the node's radius or the drawn font size does. Keyed on
- *  exactly those three (the width floored to a whole px, so a continuously-varying zoom still hits),
+ *  result that only changes when the title, the node's radius, the drawn font size, or -- since
+ *  OpenProject #3364's bold selected-node title -- whether THIS fit is bold, does. `bold` is folded
+ *  into the key for exactly that last reason: a bold face measures wider than the same text/fontPx in
+ *  the regular weight, so the same node's fit can genuinely differ (a title that fit unselected may
+ *  truncate one character shorter once bolded) and reusing a regular-weight entry for a bold pass (or
+ *  vice versa, once the node is deselected again) would silently draw the wrong truncation. Keyed on
+ *  exactly those four (the width floored to a whole px, so a continuously-varying zoom still hits),
  *  and cleared wholesale rather than evicted entry-by-entry once past `LABEL_CACHE_MAX`: this is a
  *  frame-rate cache, not a correctness one, so a cold rebuild costs one frame of measuring and
  *  nothing else. `resetLabelCache()` is exported for a caller that wants to drop it outright on a
@@ -279,11 +324,11 @@ export function resetLabelCache() {
  *  would be a hand-copied duplicate that silently stops agreeing the moment that constant is
  *  retuned -- which it has been, more than once. "Does a character fit?" needs no such copy and
  *  stays correct by construction. */
-function fitLabel(ctx, text, maxWidth, fontPx) {
+function fitLabel(ctx, text, maxWidth, fontPx, bold = false) {
   if (!text || maxWidth <= 0) {
     return null
   }
-  const key = `${Math.round(fontPx * 100)}|${Math.floor(maxWidth)}|${text}`
+  const key = `${bold ? 'b' : 'r'}|${Math.round(fontPx * 100)}|${Math.floor(maxWidth)}|${text}`
   const cached = labelCache.get(key)
   if (cached !== undefined) {
     return cached
@@ -360,7 +405,15 @@ function labelBaseFontFor(radius, minRadius) {
  *
  *  `highlightedIds`/`dimmingIds` (OpenProject #2480, #3312's revert), same optional-`Set` contract as
  *  `drawNodes` above: a non-matching label dims along with its node rather than staying full-strength
- *  while its dot fades, which would read as two disagreeing signals for the same node. */
+ *  while its dot fades, which would read as two disagreeing signals for the same node.
+ *
+ *  `selectedId`/`selectedLabelColor` (OpenProject #3364, see `SELECTED_RING_GAP`'s doc comment above)
+ *  bold the matching node's own title and recolor it with the resolved ink/text-dark token, mirroring
+ *  the nav sidebar's own "current row" bold-title treatment -- same no-op-by-default contract as
+ *  `drawNodes`'s selected ring: a falsy `selectedId`/`selectedLabelColor`, or no node matching it,
+ *  draws every label exactly as before. Applied BEFORE `fitLabel()`'s own `ctx.measureText` calls for
+ *  a real node, so truncation measures the actual (wider) bold glyphs it will draw, not the plain
+ *  ones. */
 export function drawLabels(
   ctx,
   nodes,
@@ -369,14 +422,17 @@ export function drawLabels(
   dark,
   highlightedIds,
   minRadius,
-  dimmingIds = highlightedIds
+  dimmingIds = highlightedIds,
+  selectedId = null,
+  selectedLabelColor = null
 ) {
   const hasHighlights = highlightedIds && highlightedIds.size > 0
   const hasDimming = dimmingIds && dimmingIds.size > 0
   const zoomCappedFontPx = LABEL_MAX_EFFECTIVE_FONT_PX / scale
+  const fillColor = dark ? LABEL_COLOR.dark : LABEL_COLOR.light
   ctx.textBaseline = 'middle'
   ctx.lineJoin = 'round'
-  ctx.fillStyle = dark ? LABEL_COLOR.dark : LABEL_COLOR.light
+  ctx.fillStyle = fillColor
   ctx.strokeStyle = dark ? LABEL_HALO_COLOR.dark : LABEL_HALO_COLOR.light
   for (const node of nodes) {
     if (node.x === undefined) {
@@ -386,7 +442,9 @@ export function drawLabels(
     const radius = radiusFor(node)
     const baseFontPx = node.synthetic ? LABEL_BASE_FONT_PX : labelBaseFontFor(radius, minRadius)
     const fontPx = Math.min(baseFontPx, zoomCappedFontPx)
-    ctx.font = `${fontPx}px sans-serif`
+    const isSelected = Boolean(selectedId && selectedLabelColor && nodeId(node) === selectedId)
+    ctx.font = isSelected ? `bold ${fontPx}px sans-serif` : `${fontPx}px sans-serif`
+    ctx.fillStyle = isSelected ? selectedLabelColor : fillColor
     ctx.lineWidth = fontPx * LABEL_HALO_WIDTH_RATIO
     let text = title
     let x = node.x
@@ -395,7 +453,7 @@ export function drawLabels(
       x = node.x + radius + LABEL_GAP
     } else {
       ctx.textAlign = 'center'
-      text = fitLabel(ctx, title, insideNodeTextWidth(radius, fontPx), fontPx)
+      text = fitLabel(ctx, title, insideNodeTextWidth(radius, fontPx), fontPx, isSelected)
       if (text === null) {
         continue
       }
@@ -411,7 +469,11 @@ export function drawLabels(
 
 /** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
  *  only, no layout recomputation. Safe to call on every zoom/pan frame since it draws the `nodes`,
- *  `edges` and `clusters` it is handed as they last stood rather than rebuilding any of them. */
+ *  `edges` and `clusters` it is handed as they last stood rather than rebuilding any of them.
+ *
+ *  `selectedId`/`selectedRingColor`/`selectedLabelColor` (OpenProject #3364) are optional and forward
+ *  straight through to `drawNodes`/`drawLabels` -- see `SELECTED_RING_GAP`'s own doc comment above for
+ *  why the two colors are resolved by the caller (`Graph.vue`) rather than owned here. */
 export function paintGraph({
   ctx,
   canvas,
@@ -424,7 +486,10 @@ export function paintGraph({
   dark,
   highlightedIds,
   hoveredNode,
-  dimmingIds = highlightedIds
+  dimmingIds = highlightedIds,
+  selectedId = null,
+  selectedRingColor = null,
+  selectedLabelColor = null
 }) {
   if (!ctx) {
     return
@@ -438,7 +503,27 @@ export function paintGraph({
   }
   drawEdges(ctx, edges, dark)
   drawClusterHulls(ctx, clusters)
-  drawNodes(ctx, nodes, radiusFor, highlightedIds, hoveredNode, dimmingIds)
-  drawLabels(ctx, nodes, radiusFor, transform?.k ?? 1, dark, highlightedIds, minRadius, dimmingIds)
+  drawNodes(
+    ctx,
+    nodes,
+    radiusFor,
+    highlightedIds,
+    hoveredNode,
+    dimmingIds,
+    selectedId,
+    selectedRingColor
+  )
+  drawLabels(
+    ctx,
+    nodes,
+    radiusFor,
+    transform?.k ?? 1,
+    dark,
+    highlightedIds,
+    minRadius,
+    dimmingIds,
+    selectedId,
+    selectedLabelColor
+  )
   ctx.restore()
 }
