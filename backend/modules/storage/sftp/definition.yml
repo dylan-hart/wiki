@@ -4,7 +4,7 @@ icon: '/_assets/icons/ultraviolet-nas.svg'
 banner: '/_assets/storage/ssh.jpg'
 description: 'Store files over a remote connection using the SSH File Transfer Protocol.'
 vendor: 'Cardinal.js'
-website: 'https://js.wiki'
+website: 'https://github.com/dylan-hart/wiki'
 assetDelivery:
   isStreamingSupported: false
   isDirectAccessSupported: false
