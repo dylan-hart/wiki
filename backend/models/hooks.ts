@@ -162,6 +162,12 @@ export function postJson(
           ...(authHeader ? { authorization: authHeader } : {})
         },
         timeout: DELIVERY_TIMEOUT,
+        // -> Not a blanket TLS bypass: `acceptUntrusted` is a per-webhook admin opt-in
+        // (`acceptUntrusted` column, default false) an admin must explicitly set on that one
+        // webhook, and it only ever applies when the target is already `https:`. Intentional, for
+        // webhook targets on self-signed/internal certs — see docs/decisions/
+        // 2026-09-17-webhook-accept-untrusted-tls-opt-in.md. (Flagged by scanners grepping for
+        // `rejectUnauthorized: false`, e.g. Semgrep's bypass-tls-verification rule.)
         ...(target.protocol === 'https:' && acceptUntrusted ? { rejectUnauthorized: false } : {})
       },
       (res) => {
