@@ -16,7 +16,10 @@ import { mountWithApp } from '../../test/mount.js'
  * `generated`) always keeps its label, whatever the setting is, since it may not correspond to a
  * real path at all.
  */
-async function mountItem(item, { pathDisplayCase, acronymMap, initialPath = '/' } = {}) {
+async function mountItem(
+  item,
+  { pathDisplayCase, acronymMap, initialPath = '/', selectedPath } = {}
+) {
   const router = await createTestRouter(routes, initialPath)
 
   const { wrapper } = mountWithApp(NavSidebarItem, {
@@ -30,7 +33,8 @@ async function mountItem(item, { pathDisplayCase, acronymMap, initialPath = '/' 
         if (acronymMap !== undefined) {
           store.acronymMap = acronymMap
         }
-      }
+      },
+      ...(selectedPath !== undefined ? { graph: { selectedPath } } : {})
     }
   })
   await wrapper.vm.$nextTick()
@@ -1033,5 +1037,68 @@ describe('NavSidebarItem: graph anchor indicator (OpenProject #3362/#3365)', () 
     )
 
     expect(wrapper.get('.w-expansion-item').classes()).not.toContain('is-graph-anchor')
+  })
+})
+
+/**
+ * OpenProject #3364 (corrected scope): the nav-tree row for the graph's currently-SELECTED node
+ * (`pages/Graph.vue#onCanvasClick`, mirrored into `stores/graph.js#selectedPath`) carries an
+ * `is-graph-selected` class -- bound off the shared `isSelected(item)` predicate
+ * (`composables/navSidebarDestination.js`, see that file's own suite for the predicate's direct
+ * coverage) -- so `NavSidebar.vue`'s CSS can style it like the sidebar's own "current row", rather
+ * than the graph canvas drawing anything of its own. Same leaf/folder coverage as the anchor
+ * indicator above, since either kind of item can be selected.
+ */
+describe('NavSidebarItem: graph selection indicator (OpenProject #3364)', () => {
+  it('marks a leaf item as selected when its path matches the graph selection', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'docs/setup', target: '/docs/setup' },
+      { initialPath: '/_graph', selectedPath: 'docs/setup' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).toContain('is-graph-selected')
+  })
+
+  it('does not mark a leaf item whose path is not the current graph selection', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'other', target: '/other' },
+      { initialPath: '/_graph', selectedPath: 'docs/setup' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).not.toContain('is-graph-selected')
+  })
+
+  it('does not mark a leaf item as selected outside /_graph, even with a matching path', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'docs/setup', target: '/docs/setup' },
+      { initialPath: '/some/page', selectedPath: 'docs/setup' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).not.toContain('is-graph-selected')
+  })
+
+  it('marks a populated folder as selected when its own path matches the graph selection', async () => {
+    const wrapper = await mountItem(
+      {
+        id: '1',
+        type: 'link',
+        label: 'Docs Folder',
+        path: 'docs',
+        isFolder: true,
+        children: [{ id: '2', type: 'link', label: 'Child', target: '/docs/child' }]
+      },
+      { initialPath: '/_graph', selectedPath: 'docs' }
+    )
+
+    expect(wrapper.get('.w-expansion-item').classes()).toContain('is-graph-selected')
+  })
+
+  it('does not mark a leaf item as selected on /_graph with nothing selected', async () => {
+    const wrapper = await mountItem(
+      { id: '1', type: 'link', label: 'A Page', path: 'docs/setup', target: '/docs/setup' },
+      { initialPath: '/_graph' }
+    )
+
+    expect(wrapper.get('.w-item').classes()).not.toContain('is-graph-selected')
   })
 })

@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { ancestorIds, folderIds, useNavSidebarDestination } from './navSidebarDestination'
 import routes from '@/router/routes'
+import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
@@ -327,6 +328,43 @@ describe('useNavSidebarDestination#isAnchor (OpenProject #3362/#3365)', () => {
   it('is true for an empty folder anchored on itself', async () => {
     const { isAnchor } = await mountDestination('/_graph?path=docs/empty-folder')
     expect(isAnchor({ path: 'docs/empty-folder', isFolder: true })).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #3364 (corrected scope): `isSelected()` is `isAnchor()`'s sibling -- same three-part
+ * shape, but compared against `stores/graph.js#selectedPath` (set by `pages/Graph.vue#onCanvasClick`)
+ * rather than `route.query.path`. This is what lets `NavSidebarItem.vue` bind the selection
+ * indicator onto the sidebar row instead of the graph canvas drawing anything of its own.
+ */
+describe('useNavSidebarDestination#isSelected (OpenProject #3364)', () => {
+  it('is true for the item whose path is the current graph selection', async () => {
+    const { isSelected } = await mountDestination('/_graph')
+    useGraphStore().select('docs/setup')
+    expect(isSelected({ path: 'docs/setup' })).toBe(true)
+  })
+
+  it('is false for a different item while /_graph is open', async () => {
+    const { isSelected } = await mountDestination('/_graph')
+    useGraphStore().select('docs/setup')
+    expect(isSelected({ path: 'other' })).toBe(false)
+  })
+
+  it('is false outside /_graph even for a path that would otherwise match', async () => {
+    const { isSelected } = await mountDestination('/some/page')
+    useGraphStore().select('some/page')
+    expect(isSelected({ path: 'some/page' })).toBe(false)
+  })
+
+  it('is false for an item with no path', async () => {
+    const { isSelected } = await mountDestination('/_graph')
+    useGraphStore().select('docs/setup')
+    expect(isSelected({})).toBe(false)
+  })
+
+  it('is false on /_graph with nothing selected', async () => {
+    const { isSelected } = await mountDestination('/_graph')
+    expect(isSelected({ path: 'docs' })).toBe(false)
   })
 })
 

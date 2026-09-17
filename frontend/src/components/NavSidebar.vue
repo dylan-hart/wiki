@@ -324,6 +324,30 @@ body.body--cobalt .sidebar-nav .w-list .w-item.router-link-exact-active .w-icon 
 .sidebar-nav .w-list .w-expansion-item.is-graph-anchor > .w-expansion-item__header {
   box-shadow: inset 0 0 0 1.5px #ffd600;
 }
+/*
+  OpenProject #3364 (corrected scope): a visual indicator on whichever row is the knowledge graph's
+  currently SELECTED node (`pages/Graph.vue#onCanvasClick`, mirrored into `stores/graph.js`'s
+  `selectedPath`) while `/_graph` is open -- `NavSidebarItem.vue` binds `is-graph-selected` off the
+  shared `isSelected(item)` predicate (`composables/navSidebarDestination.js`), the sibling of
+  `is-graph-anchor` above. Styled like the sidebar's own "current row" (`.router-link-exact-active`
+  above) rather than the anchor's fixed yellow ring, per this Task's own spec -- bold text plus a
+  ring in the same `--color-accent-fill`/`--color-accent-dark` token that rule already uses for its
+  icon, so it inherits Cobalt's own override of that token for free, with no aesthetic-name branch
+  needed here. A RING, not `.router-link-exact-active`'s background fill, so a row that is
+  simultaneously the anchor (yellow ring) and the selection (accent ring) draws both, one just
+  inside the other, and stays distinguishable from either alone (Feature #3362's acceptance
+  criterion) -- this graph's canvas draws no equivalent treatment of its own; the sidebar row is the
+  only place this state is ever shown.
+*/
+.sidebar-nav .w-list .w-item.is-graph-selected,
+.sidebar-nav .w-list .w-expansion-item.is-graph-selected > .w-expansion-item__header {
+  box-shadow: inset 0 0 0 1.5px var(--color-accent-fill);
+  font-weight: 600;
+}
+.body--dark .sidebar-nav .w-list .w-item.is-graph-selected,
+.body--dark .sidebar-nav .w-list .w-expansion-item.is-graph-selected > .w-expansion-item__header {
+  box-shadow: inset 0 0 0 1.5px var(--color-accent-dark);
+}
 .sidebar-nav .w-list {
   /*
     OpenProject #3011: the plain hover/press tint on a non-active row must be a saturated blue

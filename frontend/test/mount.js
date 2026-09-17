@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useAdminStore } from '@/stores/admin'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
+import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -58,7 +59,8 @@ export function mountWithApp(Component, options = {}) {
     pageStore: usePageStore(),
     adminStore: useAdminStore(),
     editorStore: useEditorStore(),
-    flagsStore: useFlagsStore()
+    flagsStore: useFlagsStore(),
+    graphStore: useGraphStore()
   }
   const byKey = {
     site: seeded.siteStore,
@@ -66,7 +68,8 @@ export function mountWithApp(Component, options = {}) {
     page: seeded.pageStore,
     admin: seeded.adminStore,
     editor: seeded.editorStore,
-    flags: seeded.flagsStore
+    flags: seeded.flagsStore,
+    graph: seeded.graphStore
   }
   for (const [key, values] of Object.entries(stores)) {
     // -> A function rather than an object for the seeds a plain `Object.assign` cannot express: a

@@ -71,6 +71,7 @@ describe('mountWithApp', () => {
         'adminStore',
         'editorStore',
         'flagsStore',
+        'graphStore',
         'i18n',
         'pageStore',
         'router',

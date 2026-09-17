@@ -3,6 +3,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { routableHref } from '@/helpers/renderedContent'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
+import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
@@ -35,6 +36,7 @@ export function useNavSidebarDestination() {
   const route = useRoute()
   const pageStore = usePageStore()
   const siteStore = useSiteStore()
+  const graphStore = useGraphStore()
 
   /**
    * Where a nav item points, as the props that take a reader there.
@@ -220,6 +222,20 @@ export function useNavSidebarDestination() {
   }
 
   /**
+   * OpenProject #3364 (corrected scope): whether `item` is the page the knowledge graph's reader has
+   * currently SELECTED via a first canvas click (`pages/Graph.vue#onCanvasClick`), mirrored into
+   * `stores/graph.js#selectedPath` -- the sibling of `isAnchor()` above, read the same way by
+   * `NavSidebarItem.vue` to bind `is-graph-selected` instead of drawing anything on the graph canvas
+   * itself. Same raw-path comparison `isAnchor()` uses, for the same reason: `graphStore.selectedPath`
+   * is set from the clicked node's own bare `path`, never run through `localizedPagePath()`.
+   */
+  function isSelected(item) {
+    return (
+      route.path === GRAPH_ROUTE_PATH && Boolean(item.path) && item.path === graphStore.selectedPath
+    )
+  }
+
+  /**
    * OpenProject #3353: the folder-click counterpart to `graphSidebarBranch()` above. While `/_graph`
    * is open, clicking a POPULATED folder's header must both keep doing its ordinary expand/collapse
    * (`NavSidebarItem.vue`'s `<w-expansion-item>` header never binds `destination()` at all, only
@@ -245,7 +261,7 @@ export function useNavSidebarDestination() {
     router.replace({ path: GRAPH_ROUTE_PATH, query: { path: item.path } })
   }
 
-  return { destination, isCurrent, isAnchor, containsCurrent, reanchorGraphOnFolder }
+  return { destination, isCurrent, isAnchor, isSelected, containsCurrent, reanchorGraphOnFolder }
 }
 
 /**
