@@ -326,6 +326,87 @@ describe('drawNodes: hovered-node tint', () => {
   })
 })
 
+/**
+ * OpenProject #3364 (Feature #3362's "highlight both the current anchor node and the currently-
+ * selected node"): `selectedId`/`selectedRingColor` ring the node OpenProject #3363's `selectedNodeId`
+ * names, compared by composite id (unlike `hoveredNode` above, which compares by object identity),
+ * and drawn strictly OUTSIDE the anchor/keyword `HIGHLIGHT_RING_COLOR` ring so both survive on the
+ * same node -- the acceptance criterion this Task exists to satisfy.
+ */
+describe('drawNodes: selected-node ring (OpenProject #3364)', () => {
+  it('rings the node matching selectedId with the caller-resolved selectedRingColor', () => {
+    const ctx = makeCtx()
+    const nodes = [
+      { path: 'a', locale: 'en', x: 1, y: 1 },
+      { path: 'b', locale: 'en', x: 2, y: 2 }
+    ]
+
+    drawNodes(ctx, nodes, radiusFor, null, null, null, 'en:b', '#e4676b')
+
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+    expect(ctx.strokeStyle).toBe('#e4676b')
+  })
+
+  it('draws no ring at all when selectedId is null (nothing selected)', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    drawNodes(ctx, nodes, radiusFor, null, null, null, null, '#e4676b')
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+
+  it('draws no ring when selectedId is set but selectedRingColor is falsy (color not yet resolvable)', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    drawNodes(ctx, nodes, radiusFor, null, null, null, 'en:a', '')
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+
+  it('draws both the anchor/highlight ring and the selected ring, in two distinguishable colors, on the same node', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    const strokeStyles = []
+    ctx.stroke.mockImplementation(() => strokeStyles.push(ctx.strokeStyle))
+
+    // -> `en:a` is both the anchor/keyword match (highlightedIds) AND the selection.
+    drawNodes(ctx, nodes, radiusFor, new Set(['en:a']), null, null, 'en:a', '#e4676b')
+
+    expect(ctx.stroke).toHaveBeenCalledTimes(2)
+    // -> The existing yellow anchor ring first, then the selected ring in its own distinct color.
+    expect(strokeStyles).toEqual(['#ffd600', '#e4676b'])
+  })
+
+  it('still rings a selected node while a keyword search dims it (its own selection state does not depend on matching the search)', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1 }]
+
+    const fillAlphas = []
+    ctx.fill.mockImplementation(() => fillAlphas.push(ctx.globalAlpha))
+
+    // -> `dimmingIds` left `undefined` (not `null`) so it falls back to `highlightedIds`, same
+    //    default every other "keyword search active, this node isn't the match" test in this file
+    //    relies on.
+    drawNodes(
+      ctx,
+      nodes,
+      radiusFor,
+      new Set(['en:some-other-page']),
+      null,
+      undefined,
+      'en:a',
+      '#e4676b'
+    )
+
+    expect(fillAlphas[0]).toBeLessThan(1)
+    expect(ctx.stroke).toHaveBeenCalledTimes(1)
+    expect(ctx.strokeStyle).toBe('#e4676b')
+  })
+})
+
 /** A node big enough to hold a label inside it: at the `10px` base font, `insideNodeTextWidth(20,
  *  10)` is `2 * sqrt(400 - 25) * 0.9`, about `34.9px` -- eight `CHAR_WIDTH_PX` characters. */
 const LABELLED_NODE_RADIUS = 20
@@ -655,6 +736,94 @@ describe('drawLabels (OpenProject #2480)', () => {
   })
 })
 
+/**
+ * OpenProject #3364: the selected node's own title bolds and recolors with the caller-resolved
+ * `selectedLabelColor`, mirroring the nav sidebar's bold "current row" title -- same
+ * no-op-by-default contract `drawNodes`'s selected ring follows.
+ */
+describe('drawLabels: selected-node bold title (OpenProject #3364)', () => {
+  it('bolds and recolors the label of the node matching selectedId with selectedLabelColor', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    drawLabels(ctx, nodes, labelRadiusFor, 1, false, null, MIN_RADIUS, null, 'en:a', '#1c2233')
+
+    expect(ctx.font).toMatch(/^bold /)
+    expect(ctx.fillStyle).toBe('#1c2233')
+  })
+
+  it("leaves a DIFFERENT node's label at the plain weight and normal fill color", () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    drawLabels(ctx, nodes, labelRadiusFor, 1, false, null, MIN_RADIUS, null, 'en:b', '#1c2233')
+
+    expect(ctx.font).not.toMatch(/bold/)
+    expect(ctx.fillStyle).toBe('#333')
+  })
+
+  it('with no selectedId, draws every label at the plain weight regardless of selectedLabelColor', () => {
+    const ctx = makeCtx()
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    drawLabels(ctx, nodes, labelRadiusFor, 1, false, null, MIN_RADIUS, null, null, '#1c2233')
+
+    expect(ctx.font).not.toMatch(/bold/)
+    expect(ctx.fillStyle).toBe('#333')
+  })
+
+  it('resets a later, non-selected node back to the plain weight/color after an earlier selected one in the same pass', () => {
+    const ctx = makeCtx()
+    const nodes = [
+      { path: 'a', locale: 'en', x: 1, y: 1, title: 'A' },
+      { path: 'b', locale: 'en', x: 2, y: 2, title: 'B' }
+    ]
+
+    const drawn = []
+    ctx.fillText.mockImplementation(() => drawn.push({ font: ctx.font, fill: ctx.fillStyle }))
+
+    drawLabels(ctx, nodes, labelRadiusFor, 1, false, null, MIN_RADIUS, null, 'en:a', '#1c2233')
+
+    expect(drawn[0].font).toMatch(/^bold /)
+    expect(drawn[0].fill).toBe('#1c2233')
+    expect(drawn[1].font).not.toMatch(/bold/)
+    expect(drawn[1].fill).toBe('#333')
+  })
+
+  /**
+   * The `fitLabel()` memo (`LABEL_CACHE_MAX`/`labelCache` above) is keyed on `(bold, fontPx,
+   * maxWidth, text)` specifically BECAUSE of this: a bold face measures wider than the same
+   * text/fontPx at the regular weight, so the same node's own truncation can genuinely differ once
+   * selected, and reusing a regular-weight cache entry for a bold pass (or vice versa) would
+   * silently draw the wrong truncation. `measureText` here is font-aware (unlike every other test in
+   * this file's shared `makeCtx()`, which fakes a fixed per-character width) purely so this
+   * difference is observable at all.
+   */
+  it('measures the bold selected pass at its own (wider) width rather than reusing a regular-weight cached fit, and vice versa on deselect', () => {
+    resetLabelCache()
+    const ctx = makeCtx()
+    ctx.measureText.mockImplementation((text) => ({
+      width: String(text).length * (ctx.font.includes('bold') ? 6 : 4)
+    }))
+    const node = { path: 'a', locale: 'en', x: 1, y: 1, title: 'ABCDEFGH' }
+
+    // -> Regular weight: narrow enough (8 * 4 = 32px) to fit inside this node's ~34.85px text width
+    //    whole, with no truncation.
+    drawLabels(ctx, [node], labelRadiusFor, 1, false, null, MIN_RADIUS)
+    expect(ctx.fillText.mock.calls[0][0]).toBe('ABCDEFGH')
+
+    // -> Same node, same radius/fontPx -- now selected (bold, 8 * 6 = 48px): must re-measure rather
+    //    than reuse the regular-weight cache entry above; the wider glyphs no longer fit whole.
+    drawLabels(ctx, [node], labelRadiusFor, 1, false, null, MIN_RADIUS, null, 'en:a', '#1c2233')
+    expect(ctx.fillText.mock.calls[1][0]).not.toBe('ABCDEFGH')
+    expect(ctx.fillText.mock.calls[1][0]).toMatch(/…$/)
+
+    // -> And back to regular (deselected) must not still be stuck on the bold-truncated entry.
+    drawLabels(ctx, [node], labelRadiusFor, 1, false, null, MIN_RADIUS)
+    expect(ctx.fillText.mock.calls[2][0]).toBe('ABCDEFGH')
+  })
+})
+
 describe('paintGraph', () => {
   it('forwards its dark flag into both drawEdges and drawLabels', () => {
     const ctx = makeCtx()
@@ -710,6 +879,56 @@ describe('paintGraph (OpenProject #2480)', () => {
   })
 
   it('omitting highlightedIds entirely draws exactly as before this WP', () => {
+    const ctx = makeCtx()
+    const canvas = { width: 100, height: 100 }
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    paintGraph({
+      ctx,
+      canvas,
+      transform: null,
+      nodes,
+      edges: [],
+      clusters: [],
+      radiusFor,
+      minRadius: MIN_RADIUS
+    })
+
+    expect(ctx.stroke).not.toHaveBeenCalled()
+  })
+})
+
+describe('paintGraph (OpenProject #3364)', () => {
+  it('forwards selectedId/selectedRingColor/selectedLabelColor through to drawNodes/drawLabels', () => {
+    const ctx = makeCtx()
+    const canvas = { width: 100, height: 100 }
+    const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
+
+    // -> Read AT the stroke call, not off `ctx` afterwards -- `drawLabels`'s own halo stroke runs
+    //    after `drawNodes` in `paintGraph`'s sequence and would otherwise overwrite `strokeStyle`,
+    //    same reason the pre-existing "forwards its dark flag" test above reads this way.
+    const strokeStyles = []
+    ctx.stroke.mockImplementation(() => strokeStyles.push(ctx.strokeStyle))
+
+    paintGraph({
+      ctx,
+      canvas,
+      transform: null,
+      nodes,
+      edges: [],
+      clusters: [],
+      radiusFor,
+      minRadius: MIN_RADIUS,
+      selectedId: 'en:a',
+      selectedRingColor: '#e4676b',
+      selectedLabelColor: '#1c2233'
+    })
+
+    expect(strokeStyles).toEqual(['#e4676b'])
+    expect(ctx.fillStyle).toBe('#1c2233')
+  })
+
+  it('omitting the selected-node params entirely draws exactly as before this Task', () => {
     const ctx = makeCtx()
     const canvas = { width: 100, height: 100 }
     const nodes = [{ path: 'a', locale: 'en', x: 1, y: 1, title: 'A' }]
