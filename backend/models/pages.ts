@@ -1645,6 +1645,12 @@ class Pages {
         )
       )) as RelinkCandidateRow[]
 
+    // -> Same locale list `extractInternalLinks` (`models/rendering.ts`) strips before storing
+    //    `oldPath` bare -- a `forcePrefix` site (or a non-primary-locale target) can have written
+    //    that href with a leading locale segment still on it (OpenProject #3379), which the plain
+    //    `oldPath` pattern alone would not match.
+    const activeLocales: string[] = CARDINAL.sites?.[siteId]?.config?.locales?.active ?? []
+
     for (const row of candidates) {
       const links = [...new Set(row.links.map((target) => (target === oldPath ? newPath : target)))]
       const relations = row.relations.map((relation) =>
@@ -1653,12 +1659,12 @@ class Pages {
       const isRedirect = row.editor === REDIRECT_EDITOR
       const contentRewrite = isRedirect
         ? rewriteRedirectTarget(row.content ?? '', oldPath, newPath)
-        : rewriteLinkText(row.content ?? '', oldPath, newPath)
+        : rewriteLinkText(row.content ?? '', oldPath, newPath, activeLocales)
       // -> A redirection has no render to speak of (see `REDIRECT_EDITOR`'s doc comment) -- nothing
       //    to rewrite there, so this is left alone rather than run through the markdown/HTML pass.
       const renderRewrite = isRedirect
         ? { text: row.render ?? '', changed: false }
-        : rewriteLinkText(row.render ?? '', oldPath, newPath)
+        : rewriteLinkText(row.render ?? '', oldPath, newPath, activeLocales)
 
       await tx
         .update(pagesTable)
