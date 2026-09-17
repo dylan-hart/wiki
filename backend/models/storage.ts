@@ -1039,9 +1039,12 @@ class Storage {
   /**
    * Run one of the actions a module declares.
    *
+   * @returns Whatever the handler resolves to — `undefined` for the historical fire-and-forget
+   *   handlers, or a result such as `purge`'s `{ purged, skipped }` — which `api/storage.ts`'s action
+   *   route carries into the reply's `message` instead of always reporting the same fixed string.
    * @throws When the module cannot be loaded or does not implement the handler
    */
-  async executeAction(target: StorageTarget, handler: string): Promise<void> {
+  async executeAction(target: StorageTarget, handler: string): Promise<unknown> {
     const mod = await this.ensureModule(target.module)
     if (!mod) {
       throw new Error(`The ${target.title} storage module has no implementation installed.`)
@@ -1049,7 +1052,7 @@ class Storage {
     if (typeof mod[handler] !== 'function') {
       throw new Error(`The ${target.title} storage module does not implement "${handler}".`)
     }
-    await mod[handler](target)
+    return await mod[handler](target)
   }
 }
 

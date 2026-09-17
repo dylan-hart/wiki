@@ -214,6 +214,34 @@ test('governingTarget ignores content-type matching entirely when called with no
 })
 
 // ---------------------------------------------------------------------------------------------
+// governingTargetFrom() — the synchronous split `governingTarget()` delegates to, and what
+// `modules/storage/db/storage.ts#purge()` (OpenProject #3375) calls directly per-asset against a
+// target list it fetched once, rather than once per asset.
+// ---------------------------------------------------------------------------------------------
+
+test('governingTargetFrom is a pure function of the targets it is handed — no CARDINAL.models.storage call', () => {
+  const dbTarget = makeDbTarget()
+  const s3Target = makeDbTarget(
+    { directAccess: true, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({ targets: [], ensureModule: unreachable('ensureModule') }) // -> proves it isn't consulted
+  assert.equal(
+    assetServing.governingTargetFrom([dbTarget, s3Target], { kind: 'image', fileSize: 10 })?.id,
+    'target-s3'
+  )
+  assert.equal(
+    assetServing.governingTargetFrom([dbTarget, s3Target], { kind: 'document', fileSize: 10 })?.id,
+    'target-db'
+  )
+  assert.equal(assetServing.governingTargetFrom([]), null)
+})
+
+// ---------------------------------------------------------------------------------------------
 // directUrlFor()
 // ---------------------------------------------------------------------------------------------
 

@@ -135,6 +135,19 @@ class AssetServing {
     asset?: { kind: AssetKind; fileSize: number }
   ): Promise<StorageTarget | null> {
     const targets = await CARDINAL.models.storage.getSiteTargets(siteId)
+    return this.governingTargetFrom(targets, asset)
+  }
+
+  /**
+   * The synchronous half of `governingTarget()`'s predicate, split out so a caller that already has
+   * a site's target list — `db/storage.ts#purge()`'s per-asset loop, chiefly — can decide per-asset
+   * without a `getSiteTargets()` round-trip for every one of potentially thousands of assets. Same
+   * rules, same precedence: this is the one place either of them lives.
+   */
+  governingTargetFrom(
+    targets: StorageTarget[],
+    asset?: { kind: AssetKind; fileSize: number }
+  ): StorageTarget | null {
     if (asset) {
       const directAccessTarget = targets.find(
         (t) =>

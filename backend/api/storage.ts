@@ -4,6 +4,25 @@ import { SYNC_SHAPED_ACTIONS } from '../models/storage.ts'
 import type { StorageTargetInput } from '../models/storage.ts'
 
 /**
+ * The reply's `message` for a synchronous action that just ran, built from whatever its handler
+ * returned rather than a single fixed string — so `purge`'s `{ purged, skipped }` (OpenProject #3375)
+ * reaches the admin, and any future handler's return value does too, with no per-action knowledge
+ * needed here. A handler that resolves to nothing (every handler before #3375) keeps the original
+ * message.
+ */
+function actionResultMessage(result: unknown): string {
+  if (typeof result === 'string' && result.length > 0) {
+    return result
+  }
+  if (result && typeof result === 'object') {
+    return Object.entries(result as Record<string, unknown>)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ')
+  }
+  return 'Action completed successfully.'
+}
+
+/**
  * Storage API Routes
  */
 async function routes(app: FastifyInstance) {
@@ -276,8 +295,9 @@ async function routes(app: FastifyInstance) {
         }
       }
 
+      let result: unknown
       try {
-        await CARDINAL.models.storage.executeAction(target, req.params.action)
+        result = await CARDINAL.models.storage.executeAction(target, req.params.action)
       } catch (err: any) {
         CARDINAL.logger.warn('storage', 'a target action failed', {
           target: target.id,
@@ -290,7 +310,7 @@ async function routes(app: FastifyInstance) {
 
       return {
         ok: true,
-        message: 'Action completed successfully.'
+        message: actionResultMessage(result)
       }
     }
   )
