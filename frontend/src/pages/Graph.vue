@@ -446,6 +446,19 @@ const keywordMatches = shallowRef([])
  *  plain `ref` (not `shallowRef`): it only ever holds a primitive string or `null`, never an object. */
 const focusNodeId = ref(null)
 
+/** The composite `${locale}:${path}` id of the node the reader has SELECTED via a first canvas
+ *  click (OpenProject #3363, Feature #3362's "Graph canvas -- selected node" scope), or `null` when
+ *  nothing is selected -- set and cleared by `onCanvasClick()` below. Deliberately its own state,
+ *  independent of the other two per-node states this file already tracks: `hoveredNode` (mouse-over
+ *  only, no click involved) and `focusNodeId`/the anchor (the existing yellow ring, route-driven via
+ *  `applyRouteFocus()`, unchanged by this ref). Not named `focusedNode` or any other synonym for
+ *  "focus"/"anchor" on purpose -- Task #3364 (blocked by this one) paints this selection as its own
+ *  ring, and #3362's own acceptance criterion requires a node to be simultaneously anchored AND
+ *  selected with both rings visually distinguishable, so the two concepts must stay independently
+ *  trackable rather than merged into `focusNodeId`. A plain string/`null` ref, same shape as
+ *  `focusNodeId`, for the same reason: nothing needs the node object itself, only its id. */
+const selectedNodeId = ref(null)
+
 /** The `{ path, locale }` of the currently-anchored node (OpenProject #3333, Task #3312's own
  *  follow-up scope correction), or `null` when no anchor is active -- set alongside `focusNodeId`
  *  by `applyRouteFocus()`, and read by `applyFilters()` as `computeVisibleSubset()`'s fourth
@@ -1164,8 +1177,25 @@ function navigateToNode(node) {
   router.push(fallbackHref(node))
 }
 
+/** A first click on a real node selects it (`selectedNodeId`, no navigation); a second click on the
+ *  SAME already-selected node navigates to its page and clears the selection (the click just left
+ *  the graph, so there is nothing left to show as selected); a click on a DIFFERENT node re-selects
+ *  that one instead of navigating -- three-way behavior required by OpenProject #3363. A click that
+ *  misses every node, or lands on a synthetic folder/root node (no real page to select or navigate
+ *  to), is a no-op and leaves any existing selection exactly as it was, same as `navigateToNode`'s
+ *  own long-standing guard for the miss/synthetic case. */
 function onCanvasClick(event) {
-  navigateToNode(findNodeAt(event.clientX, event.clientY))
+  const node = findNodeAt(event.clientX, event.clientY)
+  if (!node || node.synthetic) {
+    return
+  }
+  const clickedId = nodeId(node)
+  if (selectedNodeId.value === clickedId) {
+    selectedNodeId.value = null
+    navigateToNode(node)
+    return
+  }
+  selectedNodeId.value = clickedId
 }
 
 /** Alpha `simulation.alpha(...).restart()` is bumped to right after a hover push impulse -- small
