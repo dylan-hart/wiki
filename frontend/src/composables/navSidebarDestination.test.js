@@ -290,6 +290,47 @@ describe('useNavSidebarDestination#destination -- empty folder anchors instead o
 })
 
 /**
+ * OpenProject #3362/#3365: `isAnchor()` is the same three-part check `graphSidebarBranch()` and
+ * `reanchorGraphOnFolder()` already used privately as a no-op guard, now factored out and exported
+ * so `NavSidebarItem.vue` can bind its anchor indicator off it. The two describe blocks above
+ * already prove the guards' own behavior is unchanged by the refactor (their "does nothing when the
+ * folder is already the active graph anchor" / "navigates normally ... for the item that IS the
+ * currently active graph root" cases exercise this exact condition) -- this block tests the
+ * predicate directly instead.
+ */
+describe('useNavSidebarDestination#isAnchor (OpenProject #3362/#3365)', () => {
+  it('is true for the item whose path is the current graph anchor', async () => {
+    const { isAnchor } = await mountDestination('/_graph?path=docs/setup')
+    expect(isAnchor({ path: 'docs/setup' })).toBe(true)
+  })
+
+  it('is false for a different item while /_graph is open', async () => {
+    const { isAnchor } = await mountDestination('/_graph?path=docs/setup')
+    expect(isAnchor({ path: 'other' })).toBe(false)
+  })
+
+  it('is false outside /_graph even for a path that would otherwise match', async () => {
+    const { isAnchor } = await mountDestination('/some/page')
+    expect(isAnchor({ path: 'some/page' })).toBe(false)
+  })
+
+  it('is false for an item with no path, even on bare /_graph with no anchor query', async () => {
+    const { isAnchor } = await mountDestination('/_graph')
+    expect(isAnchor({})).toBe(false)
+  })
+
+  it('is false on bare /_graph (no path query) for any real item', async () => {
+    const { isAnchor } = await mountDestination('/_graph')
+    expect(isAnchor({ path: 'docs' })).toBe(false)
+  })
+
+  it('is true for an empty folder anchored on itself', async () => {
+    const { isAnchor } = await mountDestination('/_graph?path=docs/empty-folder')
+    expect(isAnchor({ path: 'docs/empty-folder', isFolder: true })).toBe(true)
+  })
+})
+
+/**
  * OpenProject #2848/#3062: `folderIds`/`ancestorIds` are the plain, store-free tree-walk helpers
  * shift+click isolate builds on -- deliberately outside `useNavSidebarDestination()` since they
  * take an already-in-hand tree (`siteStore.nav.items`) rather than resolving anything through the
