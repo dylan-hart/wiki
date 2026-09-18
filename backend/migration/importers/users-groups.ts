@@ -8,7 +8,7 @@ import {
 } from '../../db/schema.ts'
 import { BCRYPT_ROUNDS } from '../../helpers/common.ts'
 import { randomToken } from '../../helpers/randomToken.ts'
-import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
+import { normalizeRuleTags, type GroupRule, type GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import { coerceSourceBoolean } from '../source-coercion.ts'
 import { KNOWN_3_0_AUTH_MODULES } from '../report.ts'
@@ -218,10 +218,17 @@ function asStringArray(value: unknown): string[] {
 
 /** A synthesized label for an imported rule, since 2.x rules carry no `name` of their own — e.g.
  * `Imported Rule 2: START blog/` when the rule addresses a path, or plain `Imported Rule 2` for a
- * rule with an empty path (2.x's convention for "the whole site"). */
-function synthesizeRuleName(rule: { match: string; path: string }, index: number): string {
-  return rule.path
-    ? `Imported Rule ${index + 1}: ${rule.match} ${rule.path}`
+ * rule with an empty path (2.x's convention for "the whole site"). A `TAG` rule (OpenProject #3408)
+ * shows its `tags` instead of `path` — `path` is left empty for a converted TAG rule (see
+ * `convertPageRule`), so falling through to the generic label would silently drop the one thing
+ * that made the rule specific. */
+function synthesizeRuleName(
+  rule: { match: string; path: string; tags?: string[] },
+  index: number
+): string {
+  const addressed = rule.match === 'TAG' ? (rule.tags ?? []).join(', ') : rule.path
+  return addressed
+    ? `Imported Rule ${index + 1}: ${rule.match} ${addressed}`
     : `Imported Rule ${index + 1}`
 }
 
@@ -236,6 +243,11 @@ function synthesizeRuleName(rule: { match: string; path: string }, index: number
  * - `sites` is always `[]`: 2.x predates multi-site, so an imported rule applies on every site, which
  *   is the only site there was.
  * - `name` is synthesized (`synthesizeRuleName`), since 2.x rules carry none.
+ * - A `TAG` rule's 2.x `path` held a comma-separated tag list (2.x had no first-class tags field
+ *   either). OpenProject #3408 gives 3.0 a real `tags: string[]` on `GroupRule`, so a `TAG` rule
+ *   splits `path` into it here — normalized through the same `normalizeRuleTags` `updateGroup`
+ *   applies at write time — and `path` is left `''`, not carried forward, since nothing in 3.0 reads
+ *   `path` for a `TAG` rule any more (no legacy comma-list fallback).
  */
 function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   if (typeof raw !== 'object' || raw === null) {
@@ -248,17 +260,21 @@ function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
     return undefined
   }
   const match = rawMatch as GroupRuleMatch
-  const path = typeof source.path === 'string' ? source.path : ''
+  const sourcePath = typeof source.path === 'string' ? source.path : ''
+  const isTagRule = match === 'TAG'
+  const tags = isTagRule ? normalizeRuleTags(sourcePath.split(',')) : []
+  const path = isTagRule ? '' : sourcePath
 
   return {
     id: crypto.randomUUID(),
-    name: synthesizeRuleName({ match, path }, index),
+    name: synthesizeRuleName({ match, path, tags }, index),
     roles: asStringArray(source.roles),
     match,
     mode: deny ? 'DENY' : 'ALLOW',
     path,
     locales: asStringArray(source.locales),
-    sites: []
+    sites: [],
+    tags
   }
 }
 

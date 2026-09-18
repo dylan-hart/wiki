@@ -199,34 +199,42 @@ describe('ruleMatchesPage', () => {
 
   describe('TAG', () => {
     test('matches a page carrying any one of the listed tags', () => {
-      const rule = makeRule({ match: 'TAG', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAG', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['capital'] })), true)
     })
 
     test('does not match a page carrying none of them', () => {
-      const rule = makeRule({ match: 'TAG', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAG', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['asia'] })), false)
     })
 
     test('is case-insensitive on both sides', () => {
-      const rule = makeRule({ match: 'TAG', path: 'Europe' })
+      const rule = makeRule({ match: 'TAG', tags: ['Europe'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['EUROPE'] })), true)
+    })
+
+    // -> OpenProject #3408: `tags` is a first-class array now, not a comma list parsed out of
+    //    `path` -- a comma list left sitting in `path`, with no `tags` of its own, addresses
+    //    nothing (no legacy fallback).
+    test('a comma list left in `path`, with no `tags`, is not honoured', () => {
+      const rule = makeRule({ match: 'TAG', path: 'europe, capital', tags: undefined })
+      assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
   })
 
   describe('TAGALL', () => {
     test('matches only when every listed tag is present', () => {
-      const rule = makeRule({ match: 'TAGALL', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAGALL', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe', 'capital', 'unesco'] })), true)
     })
 
     test('does not match when only some tags are present', () => {
-      const rule = makeRule({ match: 'TAGALL', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAGALL', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
 
     test('an empty tag list matches nothing', () => {
-      const rule = makeRule({ match: 'TAGALL', path: '' })
+      const rule = makeRule({ match: 'TAGALL', tags: [] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
   })
@@ -399,7 +407,12 @@ describe('resolvePageRule / rulesAllow', () => {
 
   test('a path rule always outranks a tag rule at the same nominal specificity', () => {
     // -> Tag rules score zero specificity regardless of how many tags they list
-    const tag = makeRule({ id: 'tag', match: 'TAGALL', path: 'a, b, c', mode: 'FORCEALLOW' })
+    const tag = makeRule({
+      id: 'tag',
+      match: 'TAGALL',
+      tags: ['a', 'b', 'c'],
+      mode: 'FORCEALLOW'
+    })
     const rootPath = makeRule({ id: 'root', match: 'START', path: '', mode: 'DENY' })
     const winner = resolvePageRule([tag, rootPath], 'read:pages', page({ tags: ['a', 'b', 'c'] }))
     assert.equal(winner?.id, 'root')
@@ -439,13 +452,15 @@ describe('resolvePageRule / rulesAllow', () => {
       const weakRule = makeRule({
         id: 'weak',
         match: weaker,
-        path: weaker === 'TAG' || weaker === 'TAGALL' ? 'x' : commonPath,
+        path: weaker === 'TAG' || weaker === 'TAGALL' ? '' : commonPath,
+        tags: weaker === 'TAG' || weaker === 'TAGALL' ? ['x'] : [],
         mode: 'ALLOW'
       })
       const strongRule = makeRule({
         id: 'strong',
         match: stronger,
-        path: stronger === 'TAG' || stronger === 'TAGALL' ? 'x' : commonPath,
+        path: stronger === 'TAG' || stronger === 'TAGALL' ? '' : commonPath,
+        tags: stronger === 'TAG' || stronger === 'TAGALL' ? ['x'] : [],
         mode: 'ALLOW'
       })
       const target = page({ path: '', tags: ['x'] })
@@ -467,7 +482,8 @@ describe('resolvePageRule / rulesAllow', () => {
       makeRule({
         id,
         match,
-        path: match === 'TAG' || match === 'TAGALL' ? 'x' : '',
+        path: '',
+        tags: match === 'TAG' || match === 'TAGALL' ? ['x'] : [],
         mode: 'ALLOW'
       })
     const target = page({ path: '', tags: ['x'] })

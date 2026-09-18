@@ -63,6 +63,25 @@ export const GROUP_RULE_MATCH_VALUES = Object.keys(GROUP_RULE_MATCH_MEMBERS) as 
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
 
+/**
+ * Trim, lowercase and de-duplicate a rule's `tags` (OpenProject #3408), preserving first-seen
+ * order. Exported so `updateGroup`'s own fold (`normalizeRulePaths` below) and the 2.5.x importer's
+ * `convertPageRule` (`migration/importers/users-groups.ts`, splitting a legacy comma-separated
+ * `path` into this shape) share one definition of "normalized" rather than two that could drift.
+ */
+export function normalizeRuleTags(tags: string[]): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const tag of tags) {
+    const trimmed = tag.trim().toLowerCase()
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed)
+      normalized.push(trimmed)
+    }
+  }
+  return normalized
+}
+
 /** A single page-rule entry within a group. */
 export interface GroupRule {
   id: string
@@ -74,8 +93,18 @@ export interface GroupRule {
   locales: string[]
   sites: string[]
   /**
+   * Tags this rule addresses -- read only when `match` is `TAG` or `TAGALL` (OpenProject #3408),
+   * the same way `classifications` below is read only for `CLASSIFICATION`. A first-class field
+   * rather than the comma-separated list `path` used to carry for these two match kinds: a plain
+   * string array needs no delimiter-escaping and lets the rule editor offer real chips. Normalized
+   * at write time by `updateGroup` -> `normalizeRulePaths` (trimmed, lowercased, de-duplicated) --
+   * `helpers/pageRules.ts#ruleTags` reads it directly, with no comma-splitting and no `path`
+   * fallback (flat-schema rule: no legacy shape to tolerate).
+   */
+  tags?: string[]
+  /**
    * Classification level ids this rule addresses -- read only when `match === 'CLASSIFICATION'`, the
-   * same way `path` is read as a comma list only for `TAG`/`TAGALL`. A separate field rather than
+   * same way `tags` above is read only for `TAG`/`TAGALL`. A separate field rather than
    * reusing `path`, because a level is an id from the admin-configurable
    * `CARDINAL.models.classificationLevels` list, not free text a rule author types.
    */
@@ -818,10 +847,13 @@ class Groups extends ClusterReloaded {
   /**
    * Belt and braces alongside `helpers/pageRules.ts#ruleMatchesPage`'s own case-fold (OpenProject
    * #2182): fold a rule's `path` through the same normalization a page's own path is stored under
-   * (`normalizePagePath`), for the match kinds that compare directly against it. TAG/TAGALL already
-   * lowercase their own comma list at match time (`helpers/pageRules.ts#ruleTags`); REGEX addresses a
+   * (`normalizePagePath`), for the match kinds that compare directly against it. REGEX addresses a
    * pattern rather than a literal path, and CLASSIFICATION does not read `path` at all -- both are
    * left untouched here for the same reason `ruleMatchesPage` leaves REGEX out of its fold.
+   *
+   * A rule's `tags` (OpenProject #3408) go through `normalizeRuleTags` here too, whatever its
+   * `match` -- so a rule saved while addressing tags, then switched to a different match kind,
+   * keeps a clean `tags` array rather than one that only ever got folded once.
    */
   private normalizeRulePaths(patch: GroupPatch): GroupPatch {
     if (!patch.rules) {
@@ -829,11 +861,13 @@ class Groups extends ClusterReloaded {
     }
     return {
       ...patch,
-      rules: patch.rules.map((rule) =>
-        rule.match === 'START' || rule.match === 'END' || rule.match === 'EXACT'
-          ? { ...rule, path: normalizePagePath(rule.path) }
-          : rule
-      )
+      rules: patch.rules.map((rule) => {
+        const withPath =
+          rule.match === 'START' || rule.match === 'END' || rule.match === 'EXACT'
+            ? { ...rule, path: normalizePagePath(rule.path) }
+            : rule
+        return rule.tags ? { ...withPath, tags: normalizeRuleTags(rule.tags) } : withPath
+      })
     }
   }
 
