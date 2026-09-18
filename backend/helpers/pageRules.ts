@@ -16,33 +16,42 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  * is the same as one DENY rule covering the whole site. This is why an empty group can read nothing.
  *
  * When more than one rule names the permission being asked about and matches the page, exactly one
- * of them decides the answer — the most specific. Order in the array means nothing.
+ * of them decides the answer. Order in the array means nothing.
  *
- *   1. SPECIFICITY, highest first. A rule addressing `geography/countries` beats one addressing
- *      `geography`, because it says something about a smaller part of the site. Measured as the
- *      length of the path the rule addresses, so the deeper of two paths always wins, and a rule for
- *      the whole site (empty path) is the least specific thing there is. Tag rules address no path
- *      at all and are therefore never more specific than a path rule.
+ *   1. BAND, highest first. Which *kind* of thing the rule addresses matters before how much of it
+ *      does:
  *
- *   2. MATCH TYPE, when two rules are equally specific. From weakest to strongest:
+ *        Path Starts With / Path Ends With / Path Matches Regex  <  Has Any Tag / Has All Tags  <
+ *        Path Is Exactly
  *
- *        Has Any Tag  <  Has All Tags  <  Path Starts With  <  Path Ends With  <
- *        Path Matches Regex  <  Path Is Exactly
+ *      A tag rule now outranks every path-shaped rule (START/END/REGEX) regardless of how deep the
+ *      path rule's path is — a page's tags describe what it IS, which is judged a stronger claim than
+ *      a rule about where it currently happens to live in the tree. An EXACT rule still outranks a
+ *      tag rule: naming one page precisely is stronger than naming a property several pages might
+ *      share. CLASSIFICATION sits in its own band above all of these — see the section below.
  *
- *      The order runs from the vaguest way of naming pages to the most precise: a tag is a property
- *      a page happens to have, a prefix is a whole branch of the tree, and an exact path is one page
- *      and nothing else.
+ *   2. SPECIFICITY, when two rules share a band. A rule addressing `geography/countries` beats one
+ *      addressing `geography`, because it says something about a smaller part of the site. Measured
+ *      as the length of the path the rule addresses, so the deeper of two paths always wins, and a
+ *      rule for the whole site (empty path) is the least specific thing there is. This only ever
+ *      breaks a tie WITHIN the path-shaped band (START vs START, START vs END, …) — tag rules and
+ *      CLASSIFICATION rules always score zero specificity, since band already places them relative
+ *      to everything else.
  *
- *   3. MODE, when two rules are equally specific and of the same kind:
+ *   3. MATCH TYPE, when two rules share a band and are equally specific — e.g. two rules addressing
+ *      the same path, or TAG vs TAGALL naming the same tags. Weakest to strongest within a band:
+ *      START < END < REGEX (path-shaped), TAG < TAGALL (tag-shaped).
+ *
+ *   4. MODE, when two rules are otherwise fully tied:
  *
  *        ALLOW  <  DENY  <  FORCE ALLOW
  *
  *      An ALLOW grants the permission. A DENY overrides any ALLOW. A FORCE ALLOW overrides any DENY,
  *      which is what makes a hole in an otherwise closed branch possible.
  *
- * The three are applied in that order: mode only settles a tie between rules of the same kind at the
- * same specificity, so a DENY on `geography` does NOT override an ALLOW on `geography/countries` —
- * the deeper rule was more specific and had already won.
+ * The four are applied in that order: mode only settles a tie between rules of the same band, same
+ * specificity and same match type, so a DENY on `geography` does NOT override an ALLOW on
+ * `geography/countries` — the deeper rule was more specific within the same band and had already won.
  *
  * A rule may also be scoped to particular **locales** and/or particular **sites** — an empty list on
  * either means every one of them. Both are match filters, applied before any of the ranking above: a
@@ -61,15 +70,16 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  * ---------------------------------------------------------------------------------------------
  *
  * A `CLASSIFICATION` rule addresses page metadata rather than a page's address: it matches when the
- * page's `classification` is one of the level ids listed in the rule's `classifications`. It gains a
- * fourth tier above the three already described, evaluated FIRST rather than folded into
- * specificity: **any matching CLASSIFICATION rule outranks every path/tag rule, regardless of how
- * specific the path rule is.** A classification-based DENY therefore overrides a path/tag ALLOW no
- * matter how deep the path rule addresses — a stronger guarantee than the ordinary most-specific-wins
- * rule between two path/tag rules, which is exactly the point: classification survives a page
- * move/rename, and a rule written against it should not lose to one written against wherever the
- * page happens to live today. Two CLASSIFICATION rules matching the same page still break their own
- * tie by MODE (tier 3 below) — there is no path/match-type axis within this tier to break it first.
+ * page's `classification` is one of the level ids listed in the rule's `classifications`. It occupies
+ * its own band at the very top, above path-shaped rules, tag rules AND `EXACT`: **any matching
+ * CLASSIFICATION rule outranks every path/tag rule, regardless of how specific the path rule is.** A
+ * classification-based DENY therefore overrides a path/tag ALLOW no matter how deep the path rule
+ * addresses — a stronger guarantee than the ordinary band-then-specificity ordering between two
+ * path/tag rules, which is exactly the point: classification survives a page move/rename, and a rule
+ * written against it should not lose to one written against wherever the page happens to live today.
+ * Two CLASSIFICATION rules matching the same page still break their own tie by MODE (tier 4 above) —
+ * there is no specificity/match-type axis within this band to break it first (both always score zero
+ * specificity, and CLASSIFICATION is the only match kind in its own band).
  *
  * Like locale/site scoping, this fails CLOSED: a ref with no known classification (`classification:
  * null` on `RulePageRef` — a page that does not exist yet, most commonly) matches no CLASSIFICATION
@@ -100,18 +110,44 @@ export interface RulePageRef {
 }
 
 /**
- * Match kinds from weakest to strongest, used to break a tie between equally specific rules. The
- * index IS the priority, so the order of this array is the order documented above.
+ * Which band a match kind sits in, weakest first — checked BEFORE specificity in `rankOf`, so a tag
+ * rule (TAG/TAGALL) now beats any path-shaped rule (START/END/REGEX) no matter how deep the path
+ * rule's path is, and an EXACT rule beats any tag rule no matter how many tags it names.
+ * CLASSIFICATION keeps its own standalone top band, unconditionally above everything else — see the
+ * module doc comment's CLASSIFICATION section for why.
+ *
+ *   Path Starts With / Path Ends With / Path Matches Regex  (band 0)
+ *     <  Has Any Tag / Has All Tags                          (band 1)
+ *     <  Path Is Exactly                                      (band 2)
+ *     <  Classification                                       (band 3)
+ *
+ * A `Record<GroupRuleMatch, number>` rather than a bare mapping, so TypeScript's excess/missing
+ * property check keeps this pinned to the full `GroupRuleMatch` union the same way
+ * `models/groups.ts`'s `GROUP_RULE_MATCH_MEMBERS` pins `GROUP_RULE_MATCH_VALUES`.
  */
-// -> CLASSIFICATION never reaches this tie-break in practice (it never ties on specificity with a
-//    path/tag rule -- see the tier in `resolvePageRule`), but is listed for completeness of the
-//    closed `GroupRuleMatch` union.
+const MATCH_BAND: Record<GroupRuleMatch, number> = {
+  START: 0,
+  END: 0,
+  REGEX: 0,
+  TAG: 1,
+  TAGALL: 1,
+  EXACT: 2,
+  CLASSIFICATION: 3
+}
+
+/**
+ * Match kinds from weakest to strongest WITHIN a band (see `MATCH_BAND` above), used to break a tie
+ * between two rules of the same band at equal specificity — e.g. TAG vs TAGALL (both always score
+ * zero specificity), or two path-shaped rules whose paths happen to be the same length. The index IS
+ * the priority, so the order of this array is the order documented above; it plays no role ACROSS
+ * bands, since `rankOf` checks band first.
+ */
 const MATCH_PRIORITY: GroupRuleMatch[] = [
-  'TAG',
-  'TAGALL',
   'START',
   'END',
   'REGEX',
+  'TAG',
+  'TAGALL',
   'EXACT',
   'CLASSIFICATION'
 ]
@@ -182,9 +218,10 @@ function normalizePath(value: string): string {
 /**
  * How much of the site a rule is talking about, as a number where higher is narrower.
  *
- * The length of the path it addresses. A tag rule addresses no path, so it scores zero and can never
- * out-specify a rule that names one — matching the ordering above, where tags are the vaguest way of
- * naming a page.
+ * The length of the path it addresses. A tag or CLASSIFICATION rule addresses no path, so it scores
+ * zero — this no longer decides whether it out-ranks a path rule (that's `MATCH_BAND`'s job, checked
+ * first in `rankOf`); specificity here only breaks a tie between two rules that already share a band,
+ * such as two path-shaped rules of different depth.
  */
 function specificityOf(rule: GroupRule): number {
   if (rule.match === 'TAG' || rule.match === 'TAGALL' || rule.match === 'CLASSIFICATION') {
@@ -261,6 +298,21 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
 }
 
 /**
+ * A rule's rank, compared lexicographically with a higher tuple winning: `[band, specificity,
+ * match-type tie-break, mode]`. Band is checked BEFORE specificity — see `MATCH_BAND` — so it
+ * dominates unconditionally rather than merely tying with it; specificity and match-type only ever
+ * break a tie between two rules that already share a band.
+ */
+function rankOf(rule: GroupRule): [number, number, number, number] {
+  return [
+    MATCH_BAND[rule.match],
+    specificityOf(rule),
+    MATCH_PRIORITY.indexOf(rule.match),
+    MODE_PRIORITY.indexOf(rule.mode)
+  ]
+}
+
+/**
  * The rule that decides a permission for a page, out of everything the caller's groups say.
  *
  * @param rules Every rule from every group the caller belongs to, pooled
@@ -279,16 +331,7 @@ export function resolvePageRule(
     if (!rule.roles?.includes(permission) || !ruleMatchesPage(rule, page)) {
       continue
     }
-    // -> CLASSIFICATION gets its own tier, evaluated before specificity rather than folded into it
-    //    (tier 0 for every path/tag rule, tier 1 for a matching CLASSIFICATION rule) -- see the
-    //    module doc comment's CLASSIFICATION section for why this outranks path specificity
-    //    unconditionally rather than merely tying for it.
-    const rank: [number, number, number, number] = [
-      rule.match === 'CLASSIFICATION' ? 1 : 0,
-      specificityOf(rule),
-      MATCH_PRIORITY.indexOf(rule.match),
-      MODE_PRIORITY.indexOf(rule.mode)
-    ]
+    const rank = rankOf(rule)
     // -> Strictly greater, so the first rule of an otherwise identical pair wins and the outcome
     //    does not depend on the order they happen to arrive in
     if (
