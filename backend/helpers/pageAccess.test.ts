@@ -5,6 +5,7 @@ import {
   actorFrom,
   mayBypassPassword,
   mayOnPage,
+  mayReadSource,
   pagePermissionsFor,
   unlockedFor
 } from './pageAccess.ts'
@@ -367,6 +368,101 @@ describe('mayBypassPassword / unlockedFor', () => {
         )
       }
     })
+  })
+})
+
+/**
+ * OpenProject #3391/#3411: `mayReadSource()` folds `write:pages` and `manage:pages` into the
+ * `read:source` check -- an editor who cannot read the source they are about to overwrite cannot
+ * open the editor at all. Same stub-`checkAccess` pattern as the `mayBypassPassword` block above:
+ * a page rule grants exactly the permission named, scoped to `rule-group` under `docs/allowed`, so
+ * this proves the OR is real (each of the three permissions alone is sufficient) and that none of
+ * the three still refuses.
+ */
+describe('mayReadSource', () => {
+  let wikiHandle: { restore(): void }
+
+  before(() => {
+    wikiHandle = installTestWiki({
+      models: {
+        groups: {
+          actorForRequest: (req: any) => ({
+            groupIds: req.session?.authenticated ? (req.session.groups ?? []) : ['guests'],
+            permissions: req.session?.permissions ?? []
+          }),
+          checkAccess: (
+            actor: { groupIds: string[]; permissions: string[] },
+            permission: string,
+            page: { path: string }
+          ) => {
+            if (actor.permissions.includes('manage:system')) {
+              return true
+            }
+            return (
+              actor.groupIds.includes('rule-group') &&
+              page.path.startsWith('docs/allowed') &&
+              actor.permissions.includes(permission)
+            )
+          }
+        }
+      }
+    })
+  })
+
+  after(() => {
+    wikiHandle.restore()
+  })
+
+  // -> `checkAccess` above reads the GRANTED permission off `actor.permissions` (not off a
+  //    group-wide list check) purely as this test's own stand-in for "which permission this rule
+  //    grants" -- `mayReadSource` itself still asks `mayOnPage` per page, never a group-wide list.
+  function reqGranting(permission: string | null): FastifyRequest {
+    return {
+      session: {
+        authenticated: true,
+        user: { id: 'user-1', email: 'user@example.com', name: 'User' },
+        groups: ['rule-group'],
+        permissions: permission ? [permission] : []
+      }
+    } as unknown as FastifyRequest
+  }
+
+  const PAGE = { path: 'docs/allowed/getting-started', locale: 'en' }
+
+  test('read:source alone is sufficient', () => {
+    assert.equal(mayReadSource(reqGranting('read:source'), SITE_ID, PAGE), true)
+  })
+
+  test('write:pages alone is sufficient, with no read:source grant', () => {
+    assert.equal(mayReadSource(reqGranting('write:pages'), SITE_ID, PAGE), true)
+  })
+
+  test('manage:pages alone is sufficient, with no read:source grant', () => {
+    assert.equal(mayReadSource(reqGranting('manage:pages'), SITE_ID, PAGE), true)
+  })
+
+  test('holding none of the three refuses', () => {
+    assert.equal(mayReadSource(reqGranting('read:pages'), SITE_ID, PAGE), false)
+    assert.equal(mayReadSource(reqGranting(null), SITE_ID, PAGE), false)
+  })
+
+  test('a grant outside the rule scope (different path) still refuses', () => {
+    assert.equal(
+      mayReadSource(reqGranting('write:pages'), SITE_ID, { path: 'other/page', locale: 'en' }),
+      false
+    )
+  })
+
+  test('manage:system bypasses regardless of page or path, via checkAccess', () => {
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: 'admin-1', email: 'admin@example.com', name: 'Admin' },
+        groups: [],
+        permissions: ['manage:system']
+      }
+    } as unknown as FastifyRequest
+    assert.equal(mayReadSource(req, SITE_ID, { path: 'other/page', locale: 'en' }), true)
   })
 })
 

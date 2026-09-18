@@ -132,6 +132,18 @@ test('format=markdown answers 403 when only read:pages is granted (read:source m
   assert.match(res.json().message, /source/)
 })
 
+// -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to export markdown --
+//    `mayReadSource()` folds it in.
+test('format=markdown streams the raw content when write:pages is granted, with no read:source', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=markdown`,
+    headers: sessionHeader(['read:pages', 'write:pages'])
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, RAW_MARKDOWN)
+})
+
 test('format=html streams the stored render when only read:pages is granted', async () => {
   const res = await app.inject({
     method: 'GET',

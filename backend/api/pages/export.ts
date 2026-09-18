@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { limitRenders } from '../../helpers/rateLimit.ts'
-import { actorFrom, requireReadablePage } from '../../helpers/pageAccess.ts'
+import { actorFrom, mayReadSource, requireReadablePage } from '../../helpers/pageAccess.ts'
 import { sessionCookieName } from '../../helpers/security.ts'
 
 /**
@@ -132,15 +132,29 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const wantsMarkdown = req.query.format === 'markdown'
+      /*
+        `requireReadablePage`'s own `permission` option checks a single permission string via
+        `mayOnPage`, which can't express `mayReadSource`'s read:source/write:pages/manage:pages OR --
+        so the source check is a separate explicit step here rather than passed through that option.
+        `allowLocked: true` defers the lock check to below (done manually with the same message
+        `requireReadablePage` would have used) so the ORDER stays the documented contract: missing →
+        404, this route's own second permission → 403, THEN still-locked → 403 -- unchanged from
+        before this helper existed.
+      */
       const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
         withContent: wantsMarkdown,
-        // -> A separate permission from `read:pages`, exactly as it is on the GET route above --
-        //    and only for `format=markdown`, which is the format that hands back the raw source
-        permission: wantsMarkdown ? 'read:source' : undefined,
-        forbiddenMessage: "You are not allowed to read this page's source."
+        allowLocked: true
       })
       if (!page) {
         return reply
+      }
+      // -> A separate check from `read:pages`, exactly as it is on the GET route above -- and only
+      //    for `format=markdown`, which is the format that hands back the raw source
+      if (wantsMarkdown && !mayReadSource(req, req.params.siteId, page)) {
+        return reply.forbidden("You are not allowed to read this page's source.")
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
       }
       const stem = exportFilenameStem(page.path)
       if (wantsMarkdown) {
