@@ -117,6 +117,29 @@ async function routes(app: FastifyInstance) {
           'Publishing a page immediately requires the publish:pages permission here.'
         )
       }
+      /*
+        OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` need `write:scripts`/
+        `write:styles` ON THIS PAGE respectively, on top of `write:pages` -- same standalone-grant
+        shape as `publish:pages` above. Refused with 403 here, before `createPage()` runs, rather than
+        silently dropped the way the pre-a3a6c7994 version of this feature did (the bug this Task was
+        written not to repeat).
+      */
+      if (
+        (req.body.scriptJsLoad !== undefined || req.body.scriptJsUnload !== undefined) &&
+        !mayOnPage(req, 'write:scripts', req.params.siteId, createPageRef)
+      ) {
+        return reply.forbidden(
+          'Setting this page’s load/unload scripts requires the write:scripts permission here.'
+        )
+      }
+      if (
+        req.body.scriptCss !== undefined &&
+        !mayOnPage(req, 'write:styles', req.params.siteId, createPageRef)
+      ) {
+        return reply.forbidden(
+          'Setting this page’s styles requires the write:styles permission here.'
+        )
+      }
       let page
       try {
         page = await CARDINAL.models.pages.createPage(req.params.siteId, req.body, actor)
@@ -288,6 +311,35 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden(
           'Lowering this page’s classification requires the manage:classification permission on it.'
+        )
+      }
+      /*
+        OpenProject #3389/#3402: same standalone-grant shape as `publish:pages`/`manage:classification`
+        above -- `scriptJsLoad`/`scriptJsUnload` need `write:scripts` ON THIS PAGE, `scriptCss` needs
+        `write:styles`, on top of (not implied by) `write:pages`. Checked only when the field is both
+        present AND actually changing the stored value, same "changed AND different" shape the
+        classification guardrail just above uses -- resubmitting a page's current scripts unchanged,
+        which every ordinary save does, never requires either permission. Refused with 403 before
+        `updatePage()` runs, never silently dropped (the pre-a3a6c7994 bug this Task exists not to
+        repeat).
+      */
+      if (
+        ((req.body.scriptJsLoad !== undefined && req.body.scriptJsLoad !== target.scriptJsLoad) ||
+          (req.body.scriptJsUnload !== undefined &&
+            req.body.scriptJsUnload !== target.scriptJsUnload)) &&
+        !mayOnPage(req, 'write:scripts', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s load/unload scripts requires the write:scripts permission on it.'
+        )
+      }
+      if (
+        req.body.scriptCss !== undefined &&
+        req.body.scriptCss !== target.scriptCss &&
+        !mayOnPage(req, 'write:styles', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s styles requires the write:styles permission on it.'
         )
       }
       /*

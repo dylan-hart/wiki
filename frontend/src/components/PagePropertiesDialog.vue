@@ -175,6 +175,44 @@
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
         </w-btn>
       </w-card-section>
+      <!--
+        Gated on `write:scripts`/`write:styles` (OpenProject #3389/#3402) -- PAGE-scoped permissions,
+        so `userStore.pagePermissions` (this reader's grants AT THIS PATH), not `userStore.can()`
+        (see root CLAUDE.md's Permissions section). Offering a control here without the matching
+        permission would look like it worked and then be refused with 403 on save, so the section and
+        its jump-rail entry below disappear together instead -- nothing left in the section to jump
+        to otherwise.
+      -->
+      <w-card-section class="alt-card" id="refCardScripts" v-if="mayScripts || mayStyles">
+        <div class="w-section-header">{{ t('editor.props.scripts') }}</div>
+        <w-btn
+          v-if="mayScripts"
+          class="w-full"
+          :label="t(`editor.props.jsLoad`)"
+          icon="tabler:code"
+          color="secondary"
+          @click="editScripts(`jsLoad`)">
+          <w-tooltip>{{ t('editor.props.jsLoadHint') }}</w-tooltip>
+        </w-btn>
+        <w-btn
+          v-if="mayScripts"
+          class="w-full mt-2"
+          :label="t(`editor.props.jsUnload`)"
+          icon="tabler:code"
+          color="secondary"
+          @click="editScripts(`jsUnload`)">
+          <w-tooltip>{{ t('editor.props.jsUnloadHint') }}</w-tooltip>
+        </w-btn>
+        <w-btn
+          v-if="mayStyles"
+          class="w-full mt-2"
+          :label="t(`editor.props.styles`)"
+          icon="tabler:brand-css3"
+          color="secondary"
+          @click="editScripts(`styles`)">
+          <w-tooltip>{{ t('editor.props.stylesHint') }}</w-tooltip>
+        </w-btn>
+      </w-card-section>
       <w-card-section class="pb-6" id="refCardSidebar">
         <div class="w-section-header">{{ t('editor.props.sidebar') }}</div>
         <w-form class="gap-4 pt-2">
@@ -313,6 +351,9 @@
         :edit-id="state.editRelationId"
         @close="state.showRelationDialog = false" />
     </w-dialog>
+    <w-dialog v-model="state.showScriptsDialog" :aria-label="t('editor.pageScripts.title')">
+      <page-scripts-dialog :mode="state.pageScriptsMode" @close="state.showScriptsDialog = false" />
+    </w-dialog>
   </w-card>
 </template>
 
@@ -328,6 +369,7 @@ import { log } from '@/helpers/log'
 
 import IconPickerDialog from './IconPickerDialog.vue'
 import PageRelationDialog from './PageRelationDialog.vue'
+import PageScriptsDialog from './PageScriptsDialog.vue'
 import PageTags from './PageTags.vue'
 
 // STORES
@@ -347,6 +389,8 @@ const state = reactive({
   showRelationDialog: false,
   requirePassword: false,
   editRelationId: null,
+  showScriptsDialog: false,
+  pageScriptsMode: 'jsLoad',
   showQuickAccess: true,
   /**
    * The classification this page was loaded with, before anything in this panel touched it -- what
@@ -356,10 +400,25 @@ const state = reactive({
   originalClassification: pageStore.classification
 })
 
+/**
+ * Page-scoped, so `userStore.pagePermissions` (this reader's grants AT THIS PATH), not
+ * `userStore.can()` -- see the `refCardScripts` section's own doc comment above.
+ */
+const mayScripts = computed(() => userStore.pagePermissions.includes('write:scripts'))
+const mayStyles = computed(() => userStore.pagePermissions.includes('write:styles'))
+
+/**
+ * The `refCardScripts` entry is dropped when the reader holds neither `write:scripts` nor
+ * `write:styles` (OpenProject #3389/#3402) -- that section itself doesn't render for them either, so
+ * a jump-rail button that scrolled to nothing would be its own small bug.
+ */
 const quickaccess = computed(() => [
   { key: 'refCardInfo', icon: 'tabler:info-circle', label: t('editor.props.info') },
   { key: 'refCardPublishState', icon: 'tabler:power', label: t('editor.props.publishState') },
   { key: 'refCardRelations', icon: 'tabler:link', label: t('editor.props.relations') },
+  ...(mayScripts.value || mayStyles.value
+    ? [{ key: 'refCardScripts', icon: 'tabler:code', label: t('editor.props.scripts') }]
+    : []),
   { key: 'refCardSidebar', icon: 'tabler:ruler-2', label: t('editor.props.sidebar') },
   { key: 'refCardSocial', icon: 'tabler:messages', label: t('editor.props.social') },
   { key: 'refCardTags', icon: 'tabler:tags', label: t('editor.props.tags') },
@@ -434,6 +493,10 @@ function editRelation(rel) {
 }
 function removeRelation(rel) {
   pageStore.relations = pageStore.relations.filter((r) => r.id !== rel.id)
+}
+function editScripts(mode) {
+  state.pageScriptsMode = mode
+  state.showScriptsDialog = true
 }
 function jumpToSection(id) {
   document.querySelector(`#${id}`).scrollIntoView({

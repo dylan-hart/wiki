@@ -69,6 +69,9 @@ const BLANK_PAGE = {
   content: '',
   contentLoaded: false,
   render: '',
+  scriptJsLoad: '',
+  scriptJsUnload: '',
+  scriptCss: '',
   tags: [],
   relations: [],
   publishState: '',
@@ -168,6 +171,18 @@ export const usePageStore = defineStore('page', {
     publishState: '',
     relations: [],
     render: '',
+    /**
+     * Per-page script/style injection (OpenProject #3389/#3402) -- `scriptJsLoad`/`scriptJsUnload`
+     * run once this page loads/just before it's torn down, `scriptCss` is injected as a `<style>`.
+     * Edited by `PageScriptsDialog.vue`, opened from `PagePropertiesDialog.vue`'s Scripts section,
+     * which only renders for a reader holding `write:scripts`/`write:styles` (`userStore.pagePermissions`
+     * -- these are page-scoped, not `userStore.can()`). Saving a changed value needs the matching
+     * permission on the server too -- `api/pages/write.ts` refuses with 403 otherwise, rather than
+     * silently dropping it.
+     */
+    scriptJsLoad: '',
+    scriptJsUnload: '',
+    scriptCss: '',
     showSidebar: true,
     showTags: true,
     showToc: true,
@@ -894,6 +909,9 @@ export const usePageStore = defineStore('page', {
             'publishState',
             'relations',
             'render',
+            'scriptCss',
+            'scriptJsLoad',
+            'scriptJsUnload',
             'showSidebar',
             'showTags',
             'showToc',

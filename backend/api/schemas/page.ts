@@ -179,6 +179,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           max: { type: 'integer', minimum: 1, maximum: 6 }
         }
       },
+      scriptJsLoad: {
+        type: 'string',
+        description:
+          'Javascript run once this page has loaded. Requires `write:scripts` on the page — a save that changes this without it is refused with 403.'
+      },
+      scriptJsUnload: {
+        type: 'string',
+        description:
+          'Javascript run just before this page is torn down (navigating away, or opening the editor). Requires `write:scripts` on the page.'
+      },
+      scriptCss: {
+        type: 'string',
+        description:
+          'CSS injected into this page. Requires `write:styles` on the page — a save that changes this without it is refused with 403.'
+      },
       reasonForChange: {
         type: 'string',
         maxLength: 255,
@@ -266,6 +281,20 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           min: { type: 'integer' },
           max: { type: 'integer' }
         }
+      },
+      scriptJsLoad: {
+        type: 'string',
+        description:
+          'Javascript run once this page has loaded (OpenProject #3389/#3402). Blanked for a locked page this requester has not unlocked, same as `render`/`toc`.'
+      },
+      scriptJsUnload: {
+        type: 'string',
+        description:
+          'Javascript run just before this page is torn down — navigating away, or opening the editor.'
+      },
+      scriptCss: {
+        type: 'string',
+        description: 'CSS injected into this page.'
       },
       navigationId: { type: ['string', 'null'] },
       navigationMode: { type: 'string' },
