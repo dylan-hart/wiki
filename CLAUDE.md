@@ -309,12 +309,17 @@ not exist.'`, then the route's own second permission → 403 with its own messag
   it does not, unlike every other content field (OpenProject #2421/#2466). A request that changes
   `publishState` together with anything else still needs `write:pages` for that anything else.
 - **`write:scripts`/`write:styles` gate content sanitization, not a per-page script/style injection
-  feature.** A separate `pages.scripts` column (`scriptJsLoad`/`scriptJsUnload`/`scriptCss`) and its
-  `PageScriptsDialog.vue` editor once existed but nothing ever executed the stored values; both were
-  deleted as dead half-built code. The permission names stay fully live — they gate whether an
-  author's raw `<script>`/`<style>` HTML in page content survives sanitization
-  (`helpers/htmlSanitizePolicy.ts`'s `RenderPermissions`, shared by `models/rendering.ts` and
-  `models/renderQueue.ts`).
+  feature — as of Cardinal.js's own history at `a3a6c7994`.** A separate `pages.scripts` column
+  (`scriptJsLoad`/`scriptJsUnload`/`scriptCss`) and its `PageScriptsDialog.vue` editor once existed
+  but nothing ever executed the stored values; both were deleted as dead half-built code. That is no
+  longer the settled end of the story: Wiki.js has since re-added and wired up execution in
+  `32a656e7b` (2026-09-10) — `frontend/src/composables/pageScripts.js` injects `scriptCss` as a
+  `<style>` element, runs `scriptJsLoad`/`scriptJsUnload` via a `<script>` element appended to and
+  removed from `document.body`, and blanks all of it on a locked page. Cardinal.js has not folded
+  this back in; re-adding it (CSP-aware) is open work tracked under Feature #3389. Until it lands,
+  the permission names stay live for one role only — they gate whether an author's raw
+  `<script>`/`<style>` HTML in page content survives sanitization (`helpers/htmlSanitizePolicy.ts`'s
+  `RenderPermissions`, shared by `models/rendering.ts` and `models/renderQueue.ts`).
 
 ### Testing (CI)
 
