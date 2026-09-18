@@ -1,4 +1,4 @@
-import { after, before, test } from 'node:test'
+import { after, before, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { assetServing } from './assetServing.ts'
 import { assets } from './assets.ts'
@@ -19,7 +19,9 @@ let wiki: { restore(): void }
 before(() => {
   // -> The real `assets` singleton: the serving cache falls through to it for the metadata
   //    (`getAssetByPath`) and the bytes (`getContent`) a cache miss has to go and fetch.
-  wiki = installTestWiki({ models: { assets } })
+  // -> `logger.warn` is a spy rather than the default silent no-op: `directUrlFor`'s
+  //    failure-fallback test below asserts on what it logged.
+  wiki = installTestWiki({ models: { assets }, logger: { warn: mock.fn() } })
 })
 
 after(() => wiki.restore())
@@ -281,6 +283,39 @@ test('directUrlFor returns the module URL when everything lines up', async () =>
   )
   assert.equal(calledWith.asset.id, 'asset-1')
   assert.equal(calledWith.t.id, 'target-db')
+})
+
+/**
+ * OpenProject #3376: a blob target's `getDirectUrl` throws before this ever reaches
+ * `driver.sign()` — activation itself (`blobBase.ts#getClient`) throws on a bad credential or an
+ * unreachable bucket, on the first asset request after every process start. Left unguarded, that
+ * throw would reach `readContent` and turn every asset on every page into a 500; caught here, it
+ * falls back to null so `readContent` streams the bytes from the database instead.
+ */
+test('directUrlFor falls back to null and logs a warning when the module throws', async () => {
+  const target = makeDbTarget({ directAccess: true, isDirectAccessSupported: true })
+  const warn = (globalThis as any).CARDINAL.logger.warn as ReturnType<typeof mock.fn>
+  warn.mock.resetCalls()
+  stubStorage({
+    targets: [target],
+    ensureModule: async () => ({
+      getDirectUrl: async () => {
+        throw new Error(
+          'Failed to generate a direct-access URL for "site-1/x.png": bad credentials'
+        )
+      }
+    })
+  })
+
+  assert.equal(await assetServing.directUrlFor(testAsset, target), null)
+
+  assert.equal(warn.mock.callCount(), 1)
+  const [scope, message, fields] = warn.mock.calls[0]!.arguments
+  assert.equal(scope, 'storage')
+  assert.match(message as string, /falling back to streaming/)
+  assert.equal((fields as any).target, 'target-db')
+  assert.equal((fields as any).module, 'db')
+  assert.equal((fields as any).asset, 'asset-1')
 })
 
 // ---------------------------------------------------------------------------------------------

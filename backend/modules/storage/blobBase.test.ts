@@ -134,7 +134,7 @@ describe('blobBase / activation cache', () => {
     assert.equal(driver.build.mock.callCount(), 1)
   })
 
-  test('a failed activation is not remembered: the next call activates again, and can succeed', async () => {
+  test('a failed activation is negative-cached: a retry inside the window replays the same rejection without re-probing', async () => {
     const driver = makeDriver()
     driver.build.mock.mockImplementationOnce(async () => {
       throw new Error('bad credentials')
@@ -146,10 +146,41 @@ describe('blobBase / activation cache', () => {
       () => module.assetDeleted!(target, { fileName: 'a.png', folderPath: '' }),
       /bad credentials/
     )
-    await module.assetDeleted!(target, { fileName: 'b.png', folderPath: '' })
+    await assert.rejects(
+      () => module.assetDeleted!(target, { fileName: 'b.png', folderPath: '' }),
+      /bad credentials/
+    )
 
-    assert.equal(driver.build.mock.callCount(), 2)
-    assert.equal(driver.remove.mock.callCount(), 1)
+    // -> Still within the negative-cache window: the second call replayed the first rejection
+    //    rather than paying the SDK's connect/retry cost again.
+    assert.equal(driver.build.mock.callCount(), 1)
+    assert.equal(driver.remove.mock.callCount(), 0)
+  })
+
+  test('a failed activation retries once the negative-cache window elapses, and can succeed', async () => {
+    mock.timers.enable({ apis: ['Date'] })
+    try {
+      const driver = makeDriver()
+      driver.build.mock.mockImplementationOnce(async () => {
+        throw new Error('bad credentials')
+      })
+      const module = blobStorageModule(driver)
+      const target = makeTarget()
+
+      await assert.rejects(
+        () => module.assetDeleted!(target, { fileName: 'a.png', folderPath: '' }),
+        /bad credentials/
+      )
+
+      mock.timers.tick(30_000)
+
+      await module.assetDeleted!(target, { fileName: 'b.png', folderPath: '' })
+
+      assert.equal(driver.build.mock.callCount(), 2)
+      assert.equal(driver.remove.mock.callCount(), 1)
+    } finally {
+      mock.timers.reset()
+    }
   })
 })
 
