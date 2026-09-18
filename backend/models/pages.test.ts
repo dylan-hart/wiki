@@ -1867,7 +1867,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
           roles: ['read:pages'],
           match: 'TAG',
           mode: 'ALLOW',
-          path: 'allowed',
+          path: '',
+          tags: ['allowed'],
           locales: [],
           sites: []
         }
