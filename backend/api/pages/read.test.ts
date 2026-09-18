@@ -464,6 +464,24 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
     }
   }
 
+  /*
+    An anonymous caller: `authenticated: false` (so `actorFrom()` — which only reads
+    `session.authenticated` — returns null, exactly as a request with no session at all would) while
+    still carrying `testPagePermissions`, since `actorForRequest`/`checkAccess` above (this suite's
+    stand-in for the guests group's own rules) do not key off `authenticated` at all — mirroring how
+    `mayOnPage()` checks a real anonymous caller's rules against the guests group in production.
+  */
+  function anonymousSessionHeader(pagePermissions: string[]) {
+    return {
+      'x-test-session': JSON.stringify({
+        authenticated: false,
+        permissions: [],
+        groups: [],
+        testPagePermissions: pagePermissions
+      })
+    }
+  }
+
   test('read:pages alone renders the page without withContent', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -503,6 +521,32 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       headers: sessionHeader([])
     })
     assert.equal(res.statusCode, 403)
+  })
+
+  /*
+    OpenProject #3383: `wantsContent` used to also require `Boolean(actor)`, so an anonymous caller's
+    `withContent=true` silently became `withContent=false` before the `read:source` check ever ran —
+    a 200 with the source withheld, rather than the 403 a signed-in caller lacking the same grant
+    gets. These two mirror the signed-in `read:pages`(+`read:source`) cases above, anonymously.
+  */
+  test('anonymous with read:pages and read:source (guests) is allowed withContent=true', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}?withContent=true`,
+      headers: anonymousSessionHeader(['read:pages', 'read:source'])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().content, RAW_CONTENT)
+  })
+
+  test('anonymous with read:pages but without read:source is forbidden from withContent=true', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}?withContent=true`,
+      headers: anonymousSessionHeader(['read:pages'])
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json().content, undefined)
   })
 })
 

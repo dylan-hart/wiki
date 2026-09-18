@@ -676,8 +676,7 @@ export const usePageStore = defineStore('page', {
      *
      * Opens the editor on a suggestion rather than on the page. The source comes from the suggestion
      * endpoint rather than from the page: it hands back whatever this reader already suggested, so
-     * that coming back to the button carries on from where they left off, and it is also the only way
-     * an anonymous reader gets the source at all.
+     * that coming back to the button carries on from where they left off.
      */
     async pageSuggest() {
       const editorStore = useEditorStore()
@@ -783,7 +782,8 @@ export const usePageStore = defineStore('page', {
         const pageData = await API_CLIENT.get(`sites/${siteStore.id}/pages/${this.id}`, {
           searchParams: { withContent: true }
         }).json()
-        // -> Absent rather than empty means the server withheld it; see `contentLoaded`
+        // -> Absent rather than empty means the server withheld it (locked, or no `read:source` grant
+        //    on this page) -- see `contentLoaded`
         if (!Object.hasOwn(pageData ?? {}, 'content')) {
           throw new Error('ERR_PAGE_SOURCE_UNAVAILABLE')
         }
