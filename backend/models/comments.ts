@@ -14,11 +14,14 @@ import {
   sql
 } from 'drizzle-orm'
 import { chunk } from 'es-toolkit/array'
+import { loadModule } from '../helpers/moduleRegistry.ts'
 import {
   comments as commentsTable,
   pages as pagesTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { CommentProvider } from './commentProviders.ts'
+import type { CommentProviderModule } from '../modules/comments/default/comments.ts'
 
 /** A stored comment row, as returned by the primitives below. */
 export type Comment = typeof commentsTable.$inferSelect
@@ -155,14 +158,22 @@ const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
  *   route handler, which is where `FastifyRequest` and the session/actor legitimately live
  *   (`mayOnPage` in `helpers/pageAccess.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
  *   follows the same layering: no `FastifyRequest` import, no embedded access check.
- * - **No `render` population.** This codebase's page-rendering pipeline is a headless-browser render
- *   queue (`models/renderQueue.ts`) — far too heavy to hold a request open for a short synchronous
- *   comment post. `render` stays nullable and untouched here for 2.5.x row-shape parity and so a
- *   future provider has somewhere to put sanitized HTML; actually populating it (markdown-it +
- *   DOMPurify, mirroring 2.5.x's `comment.js`) is Feature 390's default-provider job, not this one's.
+ * - **No page-rendering-queue involvement.** This codebase's page-rendering pipeline is a
+ *   headless-browser render queue (`models/renderQueue.ts`) — far too heavy to hold a request open
+ *   for a short synchronous comment post. `render` IS populated here (WP #3377), just never through
+ *   that queue: `create()`/`update()` call the site's active comment-provider module's own
+ *   synchronous `render()` (markdown-it, `modules/comments/default/comments.ts`) via
+ *   {@link Comments.activeProviderModule}, the same dynamic-import-and-memoize loader
+ *   `models/storage.ts#ensureModule` uses for its own pluggable modules. `render` stays `null` when
+ *   the site has no active provider, or its active provider has no server-side implementation to
+ *   render with (an embed-only provider — Disqus, Commento, Artalk — renders nothing server-side at
+ *   all), or the module fails to load or throws.
  *
- * Also out of scope for this file: Akismet/spam/rate-limit policy, which belongs to Feature 390's
- * default provider.
+ * Akismet/rate-limit *policy* stays out of scope for this file, same as before: `create()`/`update()`
+ * have no `FastifyRequest` to draw ip/UA/permalink from and no session to resolve `manage:comments`
+ * against, so both are enforced one layer up, in `api/comments.ts`'s POST route — see
+ * {@link Comments.activeProviderModule}, exposed publicly for exactly that route to load the same
+ * module instance and call its `checkSpam` directly.
  *
  * **Hook emission** (task 610, moved here from `api/comments.ts` by OpenProject #1923): `create`,
  * `update` and `delete` each queue their `comment:new` / `comment:edit` / `comment:delete` webhook
@@ -173,7 +184,76 @@ const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
  * page-scoped ref, not the full row) — the same two-lookup shape the admin moderation delete route
  * already used before this move.
  */
+
+/**
+ * Comment-provider server-side implementations loaded so far, keyed by module key — memoized for the
+ * process lifetime, mirroring `models/storage.ts`'s own per-module cache (`Storage.modules`).
+ */
+const providerModules: Record<string, CommentProviderModule> = {}
+
 class Comments {
+  /**
+   * The site's active comment-provider row (config as stored, unmasked) plus its loaded server-side
+   * module implementation — or `null` when the site has no active provider, or its active provider
+   * has no server-side implementation to load at all (an embed-only provider: Disqus, Commento,
+   * Artalk each declare only client-side config, no sibling `comments.ts`).
+   *
+   * Public because `api/comments.ts`'s POST route needs the loaded module directly to run
+   * `checkSpam()` against the request's own ip/UA/permalink, which this model has no access to —
+   * `create()`/`update()` below only need the `render()` half, so they go through the private
+   * {@link renderForSite} instead of calling this a second time.
+   *
+   * Deliberately unmasked (unlike `CARDINAL.models.commentProviders.getActiveProvider()`, which is
+   * always masked since it can reach an anonymous reader's browser via the public site payload): a
+   * caller of this method needs the real configured Akismet key/`minDelay`, not a redacted display
+   * value.
+   */
+  async activeProviderModule(
+    siteId: string
+  ): Promise<{ provider: CommentProvider; module: CommentProviderModule } | null> {
+    const providers = await CARDINAL.models.commentProviders.getSiteProviders(siteId)
+    const provider = providers.find((p) => p.isEnabled)
+    if (!provider) {
+      return null
+    }
+    const mod = await loadModule<CommentProviderModule>(
+      providerModules,
+      provider.module,
+      // -> Extension-sensitive dynamic import, invisible to the type checker — same convention
+      //    `models/storage.ts#ensureModule` uses for its own module kind.
+      () => import(`../modules/comments/${provider.module}/comments.ts`),
+      'comments',
+      () => provider.hasImplementation
+    )
+    if (!mod) {
+      return null
+    }
+    return { provider, module: mod }
+  }
+
+  /**
+   * Render a comment's raw markdown to sanitized HTML through the site's active comment-provider
+   * module, when it has one to render with. See {@link activeProviderModule} for what makes that
+   * `null` instead — every one of those cases is a safe degrade here: a `null` render is exactly what
+   * this column already allowed before this loader existed, and `PageComments.vue` falls back to the
+   * raw content when it is absent.
+   */
+  private async renderForSite(siteId: string, content: string): Promise<string | null> {
+    const active = await this.activeProviderModule(siteId)
+    if (!active) {
+      return null
+    }
+    try {
+      return (await active.module.render(content)).render
+    } catch (err: any) {
+      CARDINAL.logger.warn('ext', 'rendering a comment failed', {
+        module: active.provider.module,
+        siteId,
+        error: err
+      })
+      return null
+    }
+  }
   /**
    * Store a new comment.
    *
@@ -224,6 +304,8 @@ class Comments {
       throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
     }
 
+    const render = await this.renderForSite(siteId, trimmed)
+
     const rows = await CARDINAL.db
       .insert(commentsTable)
       .values({
@@ -232,6 +314,7 @@ class Comments {
         authorId,
         replyTo,
         content: trimmed,
+        render,
         guestName,
         guestEmail,
         guestIp,
@@ -264,6 +347,11 @@ class Comments {
    * Same minimum-length floor as {@link create}. Touches `updatedAt` off `Temporal.Now.instant()`
    * rather than `new Date()` or luxon, per this repo's Temporal conventions — converted to a `Date`
    * at the boundary since the `updatedAt` column is a plain `timestamp` (mode: `date`).
+   *
+   * Re-renders `content` through {@link renderForSite} the same way {@link create} does (WP #3377)
+   * — an edited comment's `render` must reflect the new content, not the one it replaced. This costs
+   * one extra {@link get} call to learn which site's provider to render with (a bare `UPDATE ...
+   * SET content` has no `siteId` to hand), which is why {@link get}'s own doc comment now notes it.
    */
   async update(id: string, { content }: { content: string }): Promise<Comment> {
     const trimmed = content.trim()
@@ -274,10 +362,14 @@ class Comments {
       throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
     }
 
+    const existing = await this.get(id)
+    const render = existing ? await this.renderForSite(existing.siteId, trimmed) : null
+
     const rows = await CARDINAL.db
       .update(commentsTable)
       .set({
         content: trimmed,
+        render,
         updatedAt: new Date(Temporal.Now.instant().epochMilliseconds)
       })
       .where(eq(commentsTable.id, id))
@@ -290,7 +382,9 @@ class Comments {
   /**
    * A single comment by id, flat (no `replies`), or `null` when it does not exist. Existence and
    * ownership lookups (the page-scoped PATCH/DELETE routes' `maySelfModerate` check) need this
-   * directly rather than searching a page's whole `listForPage` tree for one id.
+   * directly rather than searching a page's whole `listForPage` tree for one id. {@link update} also
+   * calls this internally (WP #3377), purely to learn the comment's `siteId` for re-rendering —
+   * `update()`'s own `id`-only signature has nowhere else to get it from.
    */
   async get(id: string): Promise<Comment | null> {
     const rows = await CARDINAL.db

@@ -692,3 +692,65 @@ export async function limitGuestComments(req: FastifyRequest, reply: FastifyRepl
     `Too many comments. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
 }
+
+/**
+ * Enforce the native comment provider's admin-configured minimum delay between comments (the
+ * `minDelay` prop, `modules/comments/default/definition.yml`) — WP #3377, replacing the module's own
+ * pure `checkRateLimit()` compare (`modules/comments/default/comments.ts`) with a real,
+ * database-backed counter: that pure compare has no way to persist "when did this account last
+ * comment" across requests or instances, so whatever called it would have had to look that timestamp
+ * up and pass it in on every call. `CARDINAL.models.rateLimits.consume()` already IS that persisted
+ * lookup.
+ *
+ * Unlike {@link limitGuestComments} above (a fixed, IP-keyed floor applied to every anonymous poster
+ * regardless of provider config), this is admin-configurable and applies to every poster — guest and
+ * authenticated alike, `bucketKey` already resolved by the caller to whichever one applies (an
+ * authenticated poster's own account id, or the pooled guests bucket — "all guests are considered as
+ * a single account" per that same `definition.yml` prop's hint text). `api/comments.ts`'s POST route
+ * is the only caller, and only when `minDelay > 0` and the poster does not hold `manage:comments` on
+ * the page (both checked by the caller, not here — same "no permission/config awareness in the
+ * limiter itself" split `limitGuestComments` already follows).
+ *
+ * `banSeconds: minDelaySeconds`, deliberately not `0`: with `max: 1`, a `banSeconds: 0` ban never
+ * actually refuses anything against `models/rateLimits.ts#consume`'s real CASE logic — `bannedUntil`
+ * would land exactly on that statement's own `now()`, which its `RETURNING` reads back as "not
+ * banned" (`bannedUntil > now()` is false when they're equal), and the very next call would see
+ * `bannedUntil IS NOT NULL` and roll the window over immediately, resetting as though no comment had
+ * been posted at all. `banSeconds: minDelaySeconds` is what makes a second post inside the window
+ * actually get refused, and keeps refusing it until `minDelaySeconds` has genuinely elapsed.
+ *
+ * @param bucketKey The account id, or the guests bucket — never a raw `req.ip`.
+ */
+export async function enforceCommentCooldown(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  bucketKey: string,
+  minDelaySeconds: number
+): Promise<void> {
+  const verdict = await CARDINAL.models.rateLimits.consume(`comment-cooldown:${bucketKey}`, {
+    max: 1,
+    windowSeconds: minDelaySeconds,
+    banSeconds: minDelaySeconds
+  })
+  if (verdict.allowed) {
+    return
+  }
+  logRefusal(
+    `comment-cooldown:refused:${bucketKey}`,
+    minDelaySeconds * 1000,
+    'rate limit refused a comment (post delay)',
+    { bucket: bucketKey },
+    () => {
+      CARDINAL.logger.warn('auth', 'rate limit refused a comment (post delay)', {
+        method: req.method,
+        url: req.url,
+        bucket: bucketKey,
+        retryAfter: verdict.retryAfter
+      })
+    }
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Please wait ${verdict.retryAfter} second(s) before commenting again.`
+  )
+}

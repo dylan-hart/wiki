@@ -332,11 +332,34 @@ describe('page-scoped comment routes', () => {
   // -> `limitGuestComments` (OpenProject #2256): allowed by default so every pre-existing POST test
   //    keeps passing; a dedicated test below overrides this to exercise the 429 path.
   let rateLimitVerdict = { allowed: true, hits: 1, retryAfter: 0 }
+  // -> WP #3377's `enforceCommentCooldown` consumes a DIFFERENTLY-prefixed key
+  //    (`comment-cooldown:...`) than `limitGuestComments`'s `comment-guest:<ip>` -- keeping this
+  //    verdict separate lets a cooldown test control ONLY the cooldown outcome without also tripping
+  //    (or silencing) the pre-existing guest-IP limiter above, and vice versa.
+  let cooldownVerdict = { allowed: true, hits: 1, retryAfter: 0 }
   const rateLimitConsumeCalls: { key: string; policy: any }[] = []
 
   async function consumeRateLimit(key: string, policy: any) {
     rateLimitConsumeCalls.push({ key, policy })
-    return rateLimitVerdict
+    return key.startsWith('comment-cooldown:') ? cooldownVerdict : rateLimitVerdict
+  }
+
+  /**
+   * Backing store for `CARDINAL.models.comments.activeProviderModule` (WP #3377) -- `null` by
+   * default, so every pre-existing POST test in this file (none of which cares about the native
+   * provider's spam/cooldown enforcement) keeps behaving exactly as before: no active provider means
+   * the whole spam/cooldown block in the route is skipped. A test below sets this to a fake
+   * `{ provider, module }` pair naming whatever `config.akismet`/`config.minDelay` it needs, and a
+   * fake `checkSpam` recording its own calls.
+   */
+  let activeProviderResult: {
+    provider: { config: Record<string, any> }
+    module: { checkSpam: (...args: any[]) => Promise<{ isSpam: boolean; reason?: string }> }
+  } | null = null
+  const checkSpamCalls: any[] = []
+
+  async function activeProviderModule(_siteId: string) {
+    return activeProviderResult
   }
 
   async function getPage({ id }: { id?: string }) {
@@ -472,7 +495,8 @@ describe('page-scoped comment routes', () => {
             create,
             get: getComment,
             update: updateComment,
-            delete: deleteComment
+            delete: deleteComment,
+            activeProviderModule
           },
           hooks: { emit },
           rateLimits: { consume: consumeRateLimit }
@@ -490,7 +514,10 @@ describe('page-scoped comment routes', () => {
     deletedIds.length = 0
     emittedEvents.length = 0
     rateLimitVerdict = { allowed: true, hits: 1, retryAfter: 0 }
+    cooldownVerdict = { allowed: true, hits: 1, retryAfter: 0 }
     rateLimitConsumeCalls.length = 0
+    activeProviderResult = null
+    checkSpamCalls.length = 0
   })
 
   test('GET list: 404 when the page does not exist', async () => {
@@ -783,6 +810,160 @@ describe('page-scoped comment routes', () => {
     const body = res.json()
     assert.equal(body.replyTo, EXISTING_COMMENT_ID)
     assert.equal(created.length, 1)
+  })
+
+  /**
+   * WP #3377: the native comment provider's Akismet key and post-delay, wired up for the first time.
+   * `activeProviderResult`/`cooldownVerdict` stay `null`/allowed by default (see their declarations
+   * above), so this whole block only engages when a test below opts in — every test above this one
+   * ran with the native provider effectively absent, exactly as it did before this WP.
+   */
+  describe('POST create: native provider spam check and post-delay cooldown (WP #3377)', () => {
+    test('400s when the configured Akismet key flags the content as spam', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: 'fake-key', minDelay: 0 } },
+        module: {
+          checkSpam: async (params: any, conf: any) => {
+            checkSpamCalls.push({ params, conf })
+            return { isSpam: true }
+          }
+        }
+      }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'Buy cheap watches now' }
+      })
+      assert.equal(res.statusCode, 400)
+      assert.equal(created.length, 0)
+      assert.equal(checkSpamCalls.length, 1)
+      assert.equal(checkSpamCalls[0].params.content, 'Buy cheap watches now')
+      assert.equal(checkSpamCalls[0].params.role, 'user')
+    })
+
+    test('never calls checkSpam at all when no Akismet key is configured', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: '', minDelay: 0 } },
+        module: { checkSpam: async () => ({ isSpam: true }) }
+      }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'A normal comment' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(created.length, 1)
+      assert.equal(checkSpamCalls.length, 0)
+    })
+
+    // -> `checkSpam` never throws in the real module (an unreachable/misconfigured Akismet already
+    //    fails open to `{ isSpam: false, reason: '...' }` internally, with its own warn log -- see
+    //    `modules/comments/default/comments.ts`, and that module's own test file covers it directly).
+    //    What the route has to get right is trusting that `isSpam: false` verdict, `reason` and all,
+    //    rather than treating a present `reason` as itself a refusal.
+    test('fails open: a checkSpam verdict of isSpam:false with a reason still lets the comment through', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: 'fake-key', minDelay: 0 } },
+        module: {
+          checkSpam: async () => ({
+            isSpam: false,
+            reason: 'Akismet check failed: request timed out'
+          })
+        }
+      }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'A normal comment' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(created.length, 1)
+    })
+
+    test('429s a second post from the same account inside the configured minDelay', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: '', minDelay: 30 } },
+        module: { checkSpam: async () => ({ isSpam: false }) }
+      }
+      cooldownVerdict = { allowed: false, hits: 2, retryAfter: 15 }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'Too soon' }
+      })
+      assert.equal(res.statusCode, 429)
+      assert.equal(res.headers['retry-after'], '15')
+      assert.equal(created.length, 0)
+      const cooldownCall = rateLimitConsumeCalls.find((c) => c.key === 'comment-cooldown:user-1')
+      assert.ok(cooldownCall, 'expected a comment-cooldown: consume call keyed by the account id')
+      assert.equal(cooldownCall!.policy.max, 1)
+      assert.equal(cooldownCall!.policy.windowSeconds, 30)
+    })
+
+    test('429s a second guest post inside minDelay, pooled onto the shared guests bucket', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: '', minDelay: 30 } },
+        module: { checkSpam: async () => ({ isSpam: false }) }
+      }
+      cooldownVerdict = { allowed: false, hits: 2, retryAfter: 20 }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-permissions': 'read:pages,write:comments' },
+        remoteAddress: '203.0.113.9',
+        payload: { content: 'Too soon', guestName: 'Casey', guestEmail: 'casey@example.com' }
+      })
+      assert.equal(res.statusCode, 429)
+      assert.equal(created.length, 0)
+      const cooldownCall = rateLimitConsumeCalls.find((c) => c.key === 'comment-cooldown:guests')
+      assert.ok(cooldownCall, 'expected the pooled guests bucket, not a per-IP key')
+    })
+
+    test('a moderator (manage:comments on the page) is exempt from the cooldown entirely', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: '', minDelay: 30 } },
+        module: { checkSpam: async () => ({ isSpam: false }) }
+      }
+      // -> Would refuse if the cooldown were actually consulted -- the point of this test is that it
+      //    never is, for a moderator.
+      cooldownVerdict = { allowed: false, hits: 99, retryAfter: 999 }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: {
+          'x-test-user-id': 'user-1',
+          'x-test-permissions': 'read:pages,write:comments,manage:comments'
+        },
+        payload: { content: 'Moderator posting again immediately' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(created.length, 1)
+      assert.equal(
+        rateLimitConsumeCalls.some((c) => c.key.startsWith('comment-cooldown:')),
+        false,
+        'the cooldown must never even be consulted for an exempt moderator'
+      )
+    })
+
+    test('minDelay: 0 (the "off" value) never consults the cooldown either', async () => {
+      activeProviderResult = {
+        provider: { config: { akismet: '', minDelay: 0 } },
+        module: { checkSpam: async () => ({ isSpam: false }) }
+      }
+      cooldownVerdict = { allowed: false, hits: 99, retryAfter: 999 }
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'Posting again immediately, delay is off' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(created.length, 1)
+    })
   })
 
   /**

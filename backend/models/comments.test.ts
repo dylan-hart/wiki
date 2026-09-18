@@ -156,11 +156,34 @@ describe('comments model — mocked', () => {
   let hookEmits: { event: string; siteId: string | null; data: Record<string, any> }[]
   let usersById: Record<string, { name: string }>
 
+  /**
+   * Backing store for `CARDINAL.models.commentProviders.getSiteProviders` (WP #3377): what
+   * `activeProviderModule`/`renderForSite` sees as "the site's providers". Empty by default, so
+   * every pre-existing test in this file (none of which cares about `render`) keeps behaving exactly
+   * as before — no active provider means `renderForSite` returns `null` without ever attempting an
+   * import. Individual `render` tests below set this to a single `isEnabled: true` row naming the
+   * real `default` module (`hasImplementation: true`), which really does get dynamically imported —
+   * it has no database dependency of its own, so that's safe here.
+   */
+  let siteProviders: any[]
+  let warnCalls: { message: string; fields: Record<string, any> }[]
+
   before(async () => {
     hookEmits = []
     usersById = {}
+    siteProviders = []
+    warnCalls = []
     ;(globalThis as any).CARDINAL = {
       db: makeFakeDb(),
+      logger: {
+        warn: (_scope: string, message: string, fields: Record<string, any> = {}) => {
+          warnCalls.push({ message, fields })
+        },
+        // -> `helpers/moduleRegistry.ts#loadModule` logs a `debug` line on a successful module
+        //    load; without this, that call throws (`CARDINAL.logger.debug is not a function`),
+        //    which `loadModule`'s own try/catch then mis-reports as a load *failure*.
+        debug: (_scope: string, _message: string, _fields?: Record<string, any>) => {}
+      },
       models: {
         hooks: {
           emit: async (event: string, siteId: string | null, data: Record<string, any> = {}) => {
@@ -170,6 +193,9 @@ describe('comments model — mocked', () => {
         },
         users: {
           getById: async (id: string) => usersById[id] ?? null
+        },
+        commentProviders: {
+          getSiteProviders: async (_siteId: string) => siteProviders
         }
       }
     }
@@ -184,6 +210,8 @@ describe('comments model — mocked', () => {
     calls.counts.length = 0
     hookEmits.length = 0
     usersById = {}
+    siteProviders = []
+    warnCalls.length = 0
     ;(globalThis as any).CARDINAL.db = makeFakeDb()
   })
 
@@ -331,6 +359,43 @@ describe('comments model — mocked', () => {
       assert.equal((values.createdAt as Date).toISOString(), '2019-05-01T12:00:00.000Z')
       assert.equal((values.updatedAt as Date).toISOString(), '2019-05-02T08:30:00.000Z')
     })
+
+    // -------------------------------------------------------------------------------------------
+    // render population via the active comment-provider module (WP #3377)
+    // -------------------------------------------------------------------------------------------
+
+    it('leaves render null when the site has no active comment provider', async () => {
+      siteProviders = []
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'hello there' })
+      assert.equal(calls.inserts[0].values.render, null)
+    })
+
+    it('leaves render null when the active provider has no server-side implementation', async () => {
+      siteProviders = [{ module: 'disqus', isEnabled: true, hasImplementation: false, config: {} }]
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'hello there' })
+      assert.equal(calls.inserts[0].values.render, null)
+    })
+
+    it('populates render from the active provider module’s real render() when implemented', async () => {
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'hello **there**' })
+      const render = calls.inserts[0].values.render as string
+      assert.match(render, /<strong>there<\/strong>/)
+    })
+
+    it('degrades to a null render when a provider names a module with no comments.ts to import', async () => {
+      // -> A provider row naming a module directory with no `comments.ts` at all: the dynamic
+      //    import rejects inside the shared `loadModule` helper, which already logs and returns
+      //    `null` on its own — `activeProviderModule` then sees "no module" and `renderForSite`
+      //    degrades to `null` without ever reaching its own try/catch around `render()`.
+      siteProviders = [
+        { module: 'does-not-exist', isEnabled: true, hasImplementation: true, config: {} }
+      ]
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'hello there' })
+      assert.equal(calls.inserts[0].values.render, null)
+      assert.equal(warnCalls.length, 1)
+      assert.equal(warnCalls[0].message, 'loading a module failed')
+    })
   })
 
   describe('setReplyTo', () => {
@@ -391,6 +456,24 @@ describe('comments model — mocked', () => {
         /at most 32768 characters/
       )
       assert.equal(calls.updates.length, 0)
+    })
+
+    // -------------------------------------------------------------------------------------------
+    // render re-population via the active comment-provider module (WP #3377)
+    // -------------------------------------------------------------------------------------------
+
+    it('leaves render null when the comment being updated cannot be found (no siteId to render for)', async () => {
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.update('c1', { content: 'edited' })
+      assert.equal(calls.updates[0].set.render, null)
+    })
+
+    it('re-renders content from the existing row’s siteId when the site has an active provider', async () => {
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({ getRows: [{ id: 'c1', siteId: 's1' }] })
+      siteProviders = [{ module: 'default', isEnabled: true, hasImplementation: true, config: {} }]
+      await comments.update('c1', { content: 'edited **content**' })
+      const render = calls.updates[0].set.render as string
+      assert.match(render, /<strong>content<\/strong>/)
     })
   })
 
