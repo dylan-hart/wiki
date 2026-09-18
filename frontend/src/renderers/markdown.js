@@ -265,7 +265,16 @@ export class MarkdownRenderer {
       }
     })
       .use(mdAttrs, {
-        allowedAttributes: ['id', 'class', 'target']
+        // -> `style` is here for the WYSIWYG editor's text-colour/highlight-colour/font-family/
+        //    text-align marks (OpenProject #3398), which serialize as a trailing `{style="…"}` on a
+        //    heading/paragraph's own line -- real `markdown-it-attrs` territory (its "end of block"
+        //    pattern), unlike the inline mark case, which goes through
+        //    `./modules/markdown-it-blocks.js`'s own `wikiSpan` rule instead and needs no allowlist
+        //    change here. `backend/helpers/htmlSanitizePolicy.ts`'s `ALLOWED_STYLES` is what
+        //    actually restricts which CSS declarations inside the attribute survive for an author
+        //    without `write:styles` -- this allowlist only decides whether the `style` ATTRIBUTE
+        //    itself is kept at all.
+        allowedAttributes: ['id', 'class', 'target', 'style']
       })
       .use(mdEmoji)
       .use(mdTaskLists, { label: false, labelAfter: false })

@@ -91,6 +91,11 @@ import {
 } from '@/helpers/editorFileTransfer'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 import { buildMenuBar } from '@/helpers/wysiwygMenuBar'
+import {
+  withStyleSpanMarkdown,
+  withStyleSpanRenderMarkdown,
+  withTextAlignMarkdown
+} from '@/helpers/wysiwygStyleAttrs'
 
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
 
@@ -107,11 +112,13 @@ import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Color } from '@tiptap/extension-color'
 import FontFamily from '@tiptap/extension-font-family'
+import { Heading } from '@tiptap/extension-heading'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import { Markdown } from '@tiptap/markdown'
 import Mention from '@tiptap/extension-mention'
+import { Paragraph } from '@tiptap/extension-paragraph'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
@@ -247,6 +254,12 @@ function buildExtensions(collab) {
       //    editing surface -- leaving it on here as well would register the `link` node twice and
       //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
       link: false,
+      // -> Also configured explicitly below, as `withTextAlignMarkdown()`-wrapped versions -- see
+      //    that helper's own doc comment (OpenProject #3398): `textAlign` (from `TextAlign` further
+      //    down) is a node attribute of these two, not a mark, and needs its own markdown
+      //    round-trip on the node types themselves.
+      paragraph: false,
+      heading: false,
       // -> `Collaboration`'s own undo/redo, backed by Yjs's `UndoManager`, replaces this once a
       //    session is bound -- keeping both registered logs `Collaboration.onCreate()`'s "not
       //    compatible with @tiptap/extension-undo-redo" warning, and only one of the two `undo`/
@@ -258,9 +271,11 @@ function buildExtensions(collab) {
     CodeBlockLowlight.configure({
       lowlight
     }),
+    withTextAlignMarkdown(Paragraph),
+    withTextAlignMarkdown(Heading),
     Color,
     FontFamily,
-    Highlight.configure({
+    withStyleSpanRenderMarkdown(Highlight).configure({
       multicolor: true
     }),
     Image,
@@ -291,7 +306,7 @@ function buildExtensions(collab) {
     // -> Unconfigured, `types` defaults to `[]` and `setTextAlign()` maps over an empty node-type
     //    list, so every alignment button was a silent no-op (OpenProject #944).
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    TextStyle,
+    withStyleSpanMarkdown(TextStyle),
     Typography,
     // -> `@tiptap/markdown`'s `Markdown` extension is what gives every editor built from this list
     //    `editor.getMarkdown()` (the save path below) and the `contentType: 'markdown'` option

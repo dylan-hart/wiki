@@ -674,6 +674,21 @@ describe('MarkdownRenderer -- block container plugin (OpenProject #3071)', () =>
 
     expect(html).toContain('<span class="a b">word</span>')
   })
+
+  /**
+   * The WYSIWYG editor's text-colour/highlight-colour/font-family marks (OpenProject #3398)
+   * serialize as this same `[text]{style="…"}` bracket span -- `wikiSpan`'s own `applyProps`
+   * (unlike `markdown-it-attrs`) has no attribute allowlist, so `style` reaches the rendered
+   * `<span>` regardless of the `mdAttrs` whitelist above; the backend HTML sanitizer
+   * (`helpers/htmlSanitizePolicy.ts`) is what actually restricts the CSS declarations an author
+   * without `write:styles` keeps.
+   */
+  it('keeps a style attribute on an inline bracket span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('A [word]{style="color: #D32F2F;"} in a sentence.\n')
+
+    expect(html).toContain('<span style="color: #D32F2F;">word</span>')
+  })
 })
 
 /**
@@ -732,10 +747,15 @@ describe('MarkdownRenderer - typographer setting (OpenProject #3150)', () => {
 })
 
 /**
- * The `markdown-it-attrs` whitelist (OpenProject #1180): only `id`, `class` and `target` are ever
- * let through onto the rendered element -- everything else an author writes in a `{...}` block is
- * silently dropped, since arbitrary attributes from page content (`onclick`, `style`, ...) are an
- * XSS-adjacent surface `markdown-it-attrs` itself does not fence off by default.
+ * The `markdown-it-attrs` whitelist (OpenProject #1180, extended by #3398): `id`, `class`,
+ * `target` and `style` are the only attributes ever let through onto the rendered element --
+ * everything else an author writes in a `{...}` block is silently dropped, since arbitrary
+ * attributes from page content (`onclick`, ...) are an XSS-adjacent surface `markdown-it-attrs`
+ * itself does not fence off by default. `style` joined the whitelist for the WYSIWYG editor's
+ * text-align serialization (a heading/paragraph's own trailing `{style="…"}, OpenProject #3398) --
+ * its presence here only decides whether the `style` ATTRIBUTE survives at all; which CSS
+ * *declarations* inside it survive for an author without `write:styles` is a separate boundary,
+ * `backend/helpers/htmlSanitizePolicy.ts`'s `ALLOWED_STYLES`.
  */
 describe('MarkdownRenderer -- markdown-it-attrs allowedAttributes whitelist (OpenProject #1180)', () => {
   it('applies {.class #id} on a heading', () => {
@@ -759,6 +779,13 @@ describe('MarkdownRenderer -- markdown-it-attrs allowedAttributes whitelist (Ope
     const html = renderer.render('# Heading {target=_blank}\n')
 
     expect(html).toContain('target="_blank"')
+  })
+
+  it('keeps the allowed style attribute (OpenProject #3398)', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('Centered paragraph {style="text-align: center;"}\n')
+
+    expect(html).toContain('style="text-align: center;"')
   })
 
   it('drops an attribute not on the whitelist rather than rendering it', () => {
