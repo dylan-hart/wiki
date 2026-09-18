@@ -157,6 +157,7 @@
             :color="actionColor"
             icon="tabler:chart-area"
             :label="t(`admin.analytics.title`)"
+            :disabled="!userStore.can(`manage:sites`)"
             :to="`/_admin/` + adminStore.currentSiteId + `/analytics`" />
         </w-card-actions>
       </w-card>
