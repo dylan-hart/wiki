@@ -243,6 +243,91 @@ describe('htmlToMarkdown', () => {
       expect(md).toMatch(/-\s+\[x\]\s+Send the recap email/)
       expect(md).toContain('[the shared notes](https://example.com/notes)')
     })
+
+    it('converts a real captured OneNote nested-list fixture (OpenProject #3423, comment 10078) to a properly indented nested markdown list', () => {
+      // Real captured OneNote clipboard HTML, 4 levels deep, verbatim as posted to the work
+      // package (not a re-simplified hand-built approximation -- the Bug's own history shows that
+      // already produced a false "already works" read once before).
+      const html = `
+        <html><body>
+        <!--StartFragment-->
+        <ul class="BulletListStyle1" style="list-style-type: disc;">
+        <li data-aria-level="2"><p>Level 1</p>
+          <ul class="BulletListStyle2" style="list-style-type: circle;">
+            <li data-aria-level="3"><p>Level 2 (nested)</p></li>
+            <li data-aria-level="3"><p>Still level 2</p></li>
+            <li data-aria-level="3"><p>More level 2</p></li>
+          </ul>
+        </li>
+        <li data-aria-level="2"><p>Level 1 again</p></li>
+        <li data-aria-level="2"><p>Another level 1</p>
+          <ul class="BulletListStyle2" style="list-style-type: circle;">
+            <li data-aria-level="3"><p>Level 2</p>
+              <ul class="BulletListStyle3" style="list-style-type: square;">
+                <li data-aria-level="4"><p>Level 3</p></li>
+                <li data-aria-level="4"><p>Level 3</p></li>
+                <li data-aria-level="4"><p>Level 3</p></li>
+              </ul>
+            </li>
+            <li data-aria-level="3"><p>Level 2</p></li>
+            <li data-aria-level="3"><p>Level 2</p></li>
+          </ul>
+        </li>
+        <li data-aria-level="2"><p>Level 1</p></li>
+        </ul>
+        <!--EndFragment-->
+        </body></html>
+      `
+      const { markdown: md } = htmlToMarkdown(html)
+      // Every sub-bullet is indented 4 spaces per depth level under its own parent bullet, matching
+      // turndown's own bulletListMarker width ('-   ') -- a flattened conversion would put every one
+      // of these at column 0 instead.
+      expect(md).toMatch(/^-\s+Level 1$/m)
+      expect(md).toMatch(/^ {4}-\s+Level 2 \(nested\)$/m)
+      expect(md).toMatch(/^ {4}-\s+Still level 2$/m)
+      expect(md).toMatch(/^ {4}-\s+More level 2$/m)
+      expect(md).toMatch(/^-\s+Level 1 again$/m)
+      expect(md).toMatch(/^-\s+Another level 1$/m)
+      expect(md).toMatch(/^ {4}-\s+Level 2$/m)
+      expect(md).toMatch(/^ {8}-\s+Level 3$/m)
+      expect(md).toMatch(/^-\s+Level 1$/m)
+    })
+
+    it('re-nests a sub-list written as an invalid, flat DOM sibling of its <li> (verified against real Chromium: not something any parser reparents on its own -- an Office-family clipboard convention for representing list depth without descendant nesting)', () => {
+      const html =
+        '<ul><li><p>Level 1</p></li><ul><li><p>Level 2 (nested)</p></li><li><p>Still level 2</p></li></ul><li><p>Level 1 again</p></li></ul>'
+      const { markdown: md } = htmlToMarkdown(html)
+      expect(md).toMatch(/^-\s+Level 1$/m)
+      expect(md).toMatch(/^ {4}-\s+Level 2 \(nested\)$/m)
+      expect(md).toMatch(/^ {4}-\s+Still level 2$/m)
+      expect(md).toMatch(/^-\s+Level 1 again$/m)
+    })
+
+    it('re-nests flat-sibling sub-lists at more than one depth in the same fixture', () => {
+      const html =
+        '<ul>' +
+        '<li><p>Level 1</p></li>' +
+        '<ul>' +
+        '<li><p>Level 2</p></li>' +
+        '<ul><li><p>Level 3</p></li></ul>' +
+        '<li><p>Level 2 again</p></li>' +
+        '</ul>' +
+        '<li><p>Level 1 again</p></li>' +
+        '</ul>'
+      const { markdown: md } = htmlToMarkdown(html)
+      expect(md).toMatch(/^-\s+Level 1$/m)
+      expect(md).toMatch(/^ {4}-\s+Level 2$/m)
+      expect(md).toMatch(/^ {8}-\s+Level 3$/m)
+      expect(md).toMatch(/^ {4}-\s+Level 2 again$/m)
+      expect(md).toMatch(/^-\s+Level 1 again$/m)
+    })
+
+    it('leaves an already-nested sub-list (the common, well-formed case) alone', () => {
+      const html = '<ul><li><p>Level 1</p><ul><li><p>Level 2</p></li></ul></li></ul>'
+      const { markdown: md } = htmlToMarkdown(html)
+      expect(md).toMatch(/^-\s+Level 1$/m)
+      expect(md).toMatch(/^ {4}-\s+Level 2$/m)
+    })
   })
 
   it('collapses runs of blank lines and trims trailing whitespace per line', () => {
