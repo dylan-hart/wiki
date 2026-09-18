@@ -53,21 +53,22 @@ export function enforceApiKeySite(
 
 /**
  * The URL prefixes a Bearer token is actually verified against, in `index.ts`'s own `onRequest` hook
- * (the one that sets `req.apiKey`). `/_api/` is the ordinary case. The other three are the
+ * (the one that sets `req.apiKey`). `/_api/` is the ordinary case. The rest are
  * hostname-resolved, no-`:siteId`-param controllers this file's own doc comment above names
- * (`controllers/files.ts`, `controllers/site.ts`) plus `controllers/thumb.ts` — which reads
- * `req.apiKey` indirectly, through `actorForRequest()`'s `AccessActor.siteId` and
- * `groups.checkAccess()`'s `withinSitePin`, rather than calling `enforceApiKeySite()` itself, but
- * depends on `req.apiKey` being populated exactly the same way (OpenProject #2339: before this
- * existed, `req.apiKey` was always null outside `/_api/`, so every one of these checks was a
- * permanent no-op for a Bearer-authenticated request against any of them).
+ * (`controllers/files.ts`, `controllers/site.ts`) plus `controllers/thumb.ts` and
+ * `controllers/pageScripts.ts` (OpenProject #3405) — both of which read `req.apiKey` indirectly,
+ * through `actorForRequest()`'s `AccessActor.siteId` and `groups.checkAccess()`'s `withinSitePin`,
+ * rather than calling `enforceApiKeySite()` themselves, but depend on `req.apiKey` being populated
+ * exactly the same way (OpenProject #2339: before this existed, `req.apiKey` was always null outside
+ * `/_api/`, so every one of these checks was a permanent no-op for a Bearer-authenticated request
+ * against any of them).
  *
  * Deliberately excludes two look-alike public controllers: `controllers/render.ts` resolves no site
  * at all (the served shell is identical for every site) and is only ever fetched by this instance's
  * own headless browser, which carries no API key; `controllers/icons.ts` never reads `req.apiKey` —
  * an icon carries no site-scoped permission of its own to check.
  */
-const BEARER_AUTH_PREFIXES = ['/_api/', '/_files/', '/_site/', '/_thumb/']
+const BEARER_AUTH_PREFIXES = ['/_api/', '/_files/', '/_site/', '/_thumb/', '/_pages/']
 
 /**
  * Whether `index.ts`'s API-key-verification hook should even look for a Bearer token on this
