@@ -123,6 +123,9 @@ const CONFIG_FIELDS = [
   'tocDepth'
 ] as const
 
+/** Fields kept in the `scripts` blob rather than as columns -- see {@link buildScripts}. */
+const SCRIPT_FIELDS = ['scriptJsLoad', 'scriptJsUnload', 'scriptCss'] as const
+
 /** A page as the API exposes it: the columns and both blobs, flattened into one object. */
 export interface Page {
   id: string
@@ -167,6 +170,18 @@ export interface Page {
   showTags: boolean
   showToc: boolean
   tocDepth: { min: number; max: number }
+  /**
+   * Per-page script/style injection (OpenProject #3389/#3402), stored together as the `scripts`
+   * jsonb column (`{ jsLoad, jsUnload, css }`) and flattened here the same way `config` flattens to
+   * `allowComments` etc. above. Blanked to `''` for a locked page, same as `render`/`toc` -- see
+   * `toPage`. Setting `scriptJsLoad`/`scriptJsUnload` needs `write:scripts` on the page, `scriptCss`
+   * needs `write:styles` -- enforced with a 403 at the route layer (`api/pages/write.ts`), not here:
+   * this model trusts what it's given rather than silently dropping an unauthorized field, which is
+   * what the pre-a3a6c7994 version of this file did.
+   */
+  scriptJsLoad: string
+  scriptJsUnload: string
+  scriptCss: string
   navigationId: string | null
   navigationMode: string
   authorId: string
@@ -215,6 +230,15 @@ export interface PageInput {
   showTags?: boolean
   showToc?: boolean
   tocDepth?: { min: number; max: number }
+  /**
+   * Run once the page is loaded (`scriptJsLoad`) or just before it's torn down (`scriptJsUnload`),
+   * and CSS injected as a `<style>` (`scriptCss`) -- see {@link Page.scriptJsLoad}. Undefined leaves
+   * the stored value untouched on update; absent on create stores an empty string, same as every
+   * other optional text field here.
+   */
+  scriptJsLoad?: string
+  scriptJsUnload?: string
+  scriptCss?: string
   /**
    * Why this save is being made, as the editor's reason-for-change prompt collected it. Not a page
    * field: it belongs to the version this save produces, and is recorded on the history row.
@@ -511,6 +535,7 @@ class Pages {
     }: { withContent?: boolean; withPassword?: boolean; locked?: boolean } = {}
   ): Page {
     const config = row.config ?? {}
+    const scripts = row.scripts ?? {}
     return {
       id: row.id,
       path: row.path,
@@ -542,6 +567,12 @@ class Pages {
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
       tocDepth: config.tocDepth ?? { min: 1, max: 2 },
+      // -> Blanked for a locked page, same reasoning as `render`/`toc` just above: a page-scripts
+      //    editor should not be able to read a password-protected page's scripts back without
+      //    entering it, and there is nothing to run against a body that wasn't sent either.
+      scriptJsLoad: locked ? '' : (scripts.jsLoad ?? ''),
+      scriptJsUnload: locked ? '' : (scripts.jsUnload ?? ''),
+      scriptCss: locked ? '' : (scripts.css ?? ''),
       navigationId: row.navigationId ?? null,
       navigationMode: row.navigationMode ?? 'inherit',
       authorId: row.authorId,
@@ -652,6 +683,7 @@ class Pages {
               string | null
             >`CASE WHEN ${pagesTable.editor} = ${REDIRECT_EDITOR} THEN ${pagesTable.content} ELSE NULL END`,
         config: pagesTable.config,
+        scripts: pagesTable.scripts,
         authorId: pagesTable.authorId,
         createdAt: pagesTable.createdAt,
         updatedAt: pagesTable.updatedAt,
@@ -1012,6 +1044,7 @@ class Pages {
           relations: input.relations ?? [],
           links,
           render,
+          scripts: this.buildScripts(input),
           searchContent: text,
           siteId,
           tags: input.tags ?? [],
@@ -1263,6 +1296,9 @@ class Pages {
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
       values.config = this.buildConfig(patch, siteId, existing.config as Record<string, any>)
+    }
+    if (SCRIPT_FIELDS.some((field) => patch[field] !== undefined)) {
+      values.scripts = this.buildScripts(patch, existing.scripts as Record<string, any>)
     }
 
     // -> The author is whoever last changed it; the creator and owner do not move
@@ -2524,6 +2560,27 @@ class Pages {
       showTags: input.showTags ?? existing.showTags ?? true,
       showToc: input.showToc ?? existing.showToc ?? true,
       tocDepth: input.tocDepth ?? existing.tocDepth ?? defaults.tocDepth ?? { min: 1, max: 2 }
+    }
+  }
+
+  /**
+   * The `scripts` jsonb blob's shape (`{ jsLoad, jsUnload, css }`), built from `PageInput`'s flat
+   * `scriptJsLoad`/`scriptJsUnload`/`scriptCss` the same way {@link buildConfig} builds `config`.
+   *
+   * Unlike the pre-a3a6c7994 version of this method, this does NOT check `write:scripts`/
+   * `write:styles` itself -- it trusts whatever `input` carries. That permission check is the
+   * caller's job, done once as a 403 refusal at the route layer (`api/pages/write.ts`) before
+   * `createPage()`/`updatePage()` are ever called, rather than being re-checked here and silently
+   * dropping an unauthorized field the way the old implementation did.
+   */
+  private buildScripts(
+    input: Partial<PageInput>,
+    existing: Record<string, any> = {}
+  ): Record<string, any> {
+    return {
+      jsLoad: input.scriptJsLoad ?? existing.jsLoad ?? '',
+      jsUnload: input.scriptJsUnload ?? existing.jsUnload ?? '',
+      css: input.scriptCss ?? existing.css ?? ''
     }
   }
 

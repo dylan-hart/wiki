@@ -237,6 +237,111 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(entries[1]!.via, 'mcp')
   })
 
+  /**
+   * OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` round-trip through
+   * `createPage()`/`updatePage()`/`getPage()` the same way `config`'s flattened fields do, stored
+   * together as the single `scripts` jsonb column. Permission enforcement (`write:scripts`/
+   * `write:styles`) is a route-level concern (`api/pages/scriptsPermission.test.ts`) -- this model
+   * layer trusts whatever it's given, which is exactly what these tests exercise: `actor` here holds
+   * `manage:system` throughout, same as every other test in this describe block.
+   */
+  describe('per-page scripts (OpenProject #3389/#3402)', () => {
+    test('createPage() stores scriptJsLoad/scriptJsUnload/scriptCss, and getPage() reads them back', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/scripts-create',
+          scriptJsLoad: 'console.log("load")',
+          scriptJsUnload: 'console.log("unload")',
+          scriptCss: 'body { color: red }'
+        }),
+        actor
+      )
+      assert.equal(page.scriptJsLoad, 'console.log("load")')
+      assert.equal(page.scriptJsUnload, 'console.log("unload")')
+      assert.equal(page.scriptCss, 'body { color: red }')
+
+      const fetched = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+      assert.equal(fetched!.scriptJsLoad, 'console.log("load")')
+      assert.equal(fetched!.scriptJsUnload, 'console.log("unload")')
+      assert.equal(fetched!.scriptCss, 'body { color: red }')
+    })
+
+    test('a page created without any script fields reads them back as empty strings, not undefined', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/scripts-absent' }),
+        actor
+      )
+      assert.equal(page.scriptJsLoad, '')
+      assert.equal(page.scriptJsUnload, '')
+      assert.equal(page.scriptCss, '')
+    })
+
+    test('updatePage() replaces one script field and leaves the other two untouched', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/scripts-update',
+          scriptJsLoad: 'console.log("original load")',
+          scriptCss: 'body { color: blue }'
+        }),
+        actor
+      )
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { scriptJsLoad: 'console.log("new load")' },
+        actor
+      )
+      assert.equal(updated!.scriptJsLoad, 'console.log("new load")')
+      // -> Untouched fields carry over from the existing `scripts` blob, the same way `buildConfig`
+      //    preserves a `config` field the patch didn't mention.
+      assert.equal(updated!.scriptCss, 'body { color: blue }')
+    })
+
+    test('updatePage() with no script fields in the patch leaves scripts entirely unchanged', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/scripts-untouched', scriptJsLoad: 'console.log("stays")' }),
+        actor
+      )
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { title: 'Retitled' },
+        actor
+      )
+      assert.equal(updated!.scriptJsLoad, 'console.log("stays")')
+    })
+
+    test('a save that changes scriptCss records "scripts" as a changed field, and its history version snapshots it in meta', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/scripts-history' }),
+        actor
+      )
+      await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { scriptCss: 'body { color: green }' },
+        actor
+      )
+
+      const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      // -> Newest first: [0] is the update.
+      assert.ok(entries[0]!.changedFields.includes('scripts'))
+
+      const version = await pageHistoryModel.getVersion(fixtures.siteId, page.id, entries[0]!.id)
+      assert.deepEqual(version!.meta.scripts, {
+        jsLoad: '',
+        jsUnload: '',
+        css: 'body { color: green }'
+      })
+    })
+  })
+
   test('createPage refuses an empty title', async () => {
     await assert.rejects(
       pagesModel.createPage(
