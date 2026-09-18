@@ -1,24 +1,27 @@
 /**
- * Wiki.js Native comment provider.
+ * Cardinal.js Native comment provider.
  *
- * This is a scaffold (Task 615, Feature 390): the module shape and its handler signatures are in
- * place. `render` (Task 623), `checkSpam` (Task 628) and `checkRateLimit` (Task 632) are fully
- * implemented; none of them touch the database — `models/comments.ts` (Feature 389) is expected to
- * look up whatever each handler needs (e.g. the author's last-comment timestamp for
- * `checkRateLimit`) and pass it in.
+ * `render` (Task 623) and `checkSpam` (Task 628) are both loaded and called for real (WP #3377):
+ * `models/comments.ts#create()`/`update()` dynamically import this file's default export the same
+ * way `models/storage.ts` loads `modules/storage/<key>/storage.ts`, and call `render()` directly to
+ * populate the `render` column; `api/comments.ts`'s POST route loads the same module instance (via
+ * `models/comments.ts#activeProviderModule`) to call `checkSpam()` against the request's own
+ * ip/UA/permalink. `checkRateLimit` (Task 632) and its pure standalone `checkRateLimit()` compare
+ * remain implemented and tested below, but have no caller any more: WP #3377 replaced that pure
+ * compare, at the route layer, with `CARDINAL.models.rateLimits.consume()` — a real, database-backed
+ * counter, needed because the pure compare here has no way to persist "last comment at" across
+ * requests or instances, which a caller would otherwise have to look up and pass in on every call.
  *
- * Feature 389 (the comments data model) owns `models/comments.ts` and, once it lands, the
- * `CommentProviderModule` interface below should move there and this file should import it — the
- * same way `models/storage.ts` and `models/authentication.ts` already own the contracts for their
- * own module kinds.
+ * No database access, no Fastify route, no Drizzle import. `checkSpam` does read the ambient
+ * `CARDINAL` global (`CARDINAL.config.host`, `CARDINAL.logger`), same as
+ * `modules/authentication/local/authentication.ts` reads it for `CARDINAL.models` — that global is
+ * available everywhere in the backend without importing (a standing project convention); it's just
+ * never the database/Fastify/Drizzle layer this module otherwise stays out of.
  *
- * No database access, no Fastify route, no Drizzle import — `models/comments.ts` is expected to
- * dynamically import this file's default export the same way `models/storage.ts` loads
- * `modules/storage/<key>/storage.ts`. `checkSpam` does read the ambient `CARDINAL` global
- * (`CARDINAL.config.host`, `CARDINAL.logger`), same as `modules/authentication/local/authentication.ts`
- * reads it for `CARDINAL.models` — that global is available everywhere in the backend without importing
- * (a standing project convention); it's just never the database/Fastify/Drizzle layer this
- * module otherwise stays out of.
+ * The `CommentProviderModule` interface below stays a local copy rather than moving to
+ * `models/comments.ts` (the same way `models/storage.ts` and `models/authentication.ts` own the
+ * contracts for their own module kinds) — out of scope for WP #3377, which only had to wire a
+ * caller in, not relocate the type.
  */
 
 import MarkdownIt from 'markdown-it'

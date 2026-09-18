@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import {
   activeBanMemo,
   consumeAccountAuthAttempt,
+  enforceCommentCooldown,
   isPublicRateLimitedPath,
   limitApiKey,
   limitAuthAttempts,
@@ -1130,6 +1131,110 @@ describe('limitGuestComments', () => {
     assert.equal(message, 'rate limit refused a guest comment 20 times in 600s')
     assert.deepEqual(fields, { ip: '203.0.113.7', count: 20 })
     mock.timers.reset()
+  })
+})
+
+/**
+ * Unit tests for `enforceCommentCooldown` (WP #3377): the native comment provider's admin-configured
+ * `minDelay` policy, now enforced through a real, database-backed counter instead of the module's own
+ * pure `checkRateLimit()` compare. `api/comments.ts` decides *when* to call this (only when the
+ * active provider has `minDelay > 0` and the poster lacks `manage:comments`) and what `bucketKey` to
+ * pass; this file covers only the hook's own job — the key/policy it builds, and how it turns a
+ * refused verdict into a 429 with `Retry-After`.
+ */
+describe('enforceCommentCooldown', () => {
+  const makeReply = (): FastifyReply => makeReplyStub().reply
+
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub({
+      method: 'POST',
+      url: '/_api/sites/site-1/pages/page-1/comments',
+      ip: '203.0.113.7',
+      ...overrides
+    })
+
+  let consume: ReturnType<typeof mock.fn>
+  let warn: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    warn = mock.fn()
+    resetCoalesce()
+    wikiHandle = installTestWiki({
+      models: { rateLimits: { consume } },
+      logger: { warn, debug: mock.fn() }
+    })
+  })
+
+  afterEach(() => {
+    resetCoalesce()
+    wikiHandle.restore()
+  })
+
+  test('keys the bucket with a comment-cooldown: prefix around the caller-resolved bucketKey', async () => {
+    await enforceCommentCooldown(makeReq(), makeReply(), 'user-42', 30)
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'comment-cooldown:user-42')
+  })
+
+  test('pools every guest onto whatever bucketKey the caller passes, e.g. "guests"', async () => {
+    await enforceCommentCooldown(makeReq(), makeReply(), 'guests', 30)
+    assert.equal(consume.mock.calls[0].arguments[0], 'comment-cooldown:guests')
+  })
+
+  test('builds a max:1 policy off the given minDelaySeconds, with banSeconds equal to it (not 0)', async () => {
+    await enforceCommentCooldown(makeReq(), makeReply(), 'user-42', 45)
+    const policy = consume.mock.calls[0].arguments[1] as any
+    assert.equal(policy.max, 1)
+    assert.equal(policy.windowSeconds, 45)
+    assert.equal(policy.banSeconds, 45)
+  })
+
+  test('lets the request through when the verdict allows it', async () => {
+    const reply = makeReply()
+    await enforceCommentCooldown(makeReq(), reply, 'user-42', 30)
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 0)
+  })
+
+  test('refuses with a 429 and Retry-After once the verdict refuses', async () => {
+    consume.mock.mockImplementationOnce(async () => ({ allowed: false, hits: 2, retryAfter: 30 }))
+    const reply = makeReply()
+    await enforceCommentCooldown(makeReq(), reply, 'user-42', 30)
+    assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '30'])
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  test('a user bucket and the pooled guests bucket count independently', async () => {
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return {
+        allowed: n <= policy.max,
+        hits: n,
+        retryAfter: n <= policy.max ? 0 : policy.windowSeconds
+      }
+    })
+
+    const replyFirst = makeReply()
+    await enforceCommentCooldown(makeReq(), replyFirst, 'user-42', 30)
+    assert.equal((replyFirst.tooManyRequests as any).mock.calls.length, 0)
+
+    const replySecond = makeReply()
+    await enforceCommentCooldown(makeReq(), replySecond, 'user-42', 30)
+    assert.equal(
+      (replySecond.tooManyRequests as any).mock.calls.length,
+      1,
+      'a second post inside minDelay from the same account is refused'
+    )
+
+    const replyGuest = makeReply()
+    await enforceCommentCooldown(makeReq(), replyGuest, 'guests', 30)
+    assert.equal(
+      (replyGuest.tooManyRequests as any).mock.calls.length,
+      0,
+      'the pooled guests bucket is unaffected by the user bucket being over limit'
+    )
   })
 })
 
