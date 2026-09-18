@@ -62,10 +62,10 @@ function mountOverlay(overlayOpts, { experimental = false } = {}) {
 }
 
 describe('ProfileOverlay initial section (OpenProject #2530/#2532)', () => {
-  it('defaults to the info section when no overlayOpts is given', () => {
+  it('defaults to the preferences section when no overlayOpts is given', () => {
     const { wrapper } = mountOverlay()
 
-    expect(wrapper.vm.state.section).toBe('info')
+    expect(wrapper.vm.state.section).toBe('preferences')
   })
 
   it("reads overlayOpts.section for a specific opener (e.g. AdminApi's personal-token note)", () => {
@@ -74,10 +74,10 @@ describe('ProfileOverlay initial section (OpenProject #2530/#2532)', () => {
     expect(wrapper.vm.state.section).toBe('api')
   })
 
-  it('falls back to info for an unknown or unsupported section key', () => {
+  it('falls back to preferences for an unknown or unsupported section key', () => {
     const { wrapper } = mountOverlay({ section: 'bogus' })
 
-    expect(wrapper.vm.state.section).toBe('info')
+    expect(wrapper.vm.state.section).toBe('preferences')
   })
 })
 

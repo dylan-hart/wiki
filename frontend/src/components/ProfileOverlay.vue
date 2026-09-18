@@ -216,13 +216,13 @@ const state = reactive({
   /** Whether the section list is open. Only consulted below 900px, where it is a disclosure. */
   navOpen: false,
   /**
-   * The section on screen -- a plain local field, no route involved. Defaults to `info` unless the
-   * opener asked for a specific one (`overlayOpts.section`); an unknown or `activity`'s
+   * The section on screen -- a plain local field, no route involved. Defaults to `preferences`
+   * unless the opener asked for a specific one (`overlayOpts.section`); an unknown or `activity`'s
    * (permanently disabled) key falls back the same way rather than rendering nothing.
    */
   section: Object.hasOwn(sectionComponents, props.overlayOpts.section)
     ? props.overlayOpts.section
-    : 'info'
+    : 'preferences'
 })
 
 // COMPUTED
