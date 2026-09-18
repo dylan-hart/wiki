@@ -198,12 +198,16 @@ function compiledRegexFor(normalizedPath: string): RegExp | null {
   return compiled
 }
 
-/** Tags are written on a rule as a comma-separated list, in the field a path would otherwise use. */
+/**
+ * A rule's tags, read directly off `rule.tags` (OpenProject #3408) -- no longer parsed out of
+ * `path` as a comma-separated list, and no fallback to `path` for a rule that carries none: a rule
+ * with a comma list left in `path` and no `tags` is simply a rule with no tags. `rule.tags` is
+ * already normalized at write time (`models/groups.ts#normalizeRuleTags`, via `updateGroup`); the
+ * trim/lowercase here is belt and braces for a row that reached this function some other way (a
+ * test fixture, a raw DB read), matching how `pageTags` is folded at match time just below.
+ */
 function ruleTags(rule: GroupRule): string[] {
-  return rule.path
-    .split(',')
-    .map((tag) => tag.trim().toLowerCase())
-    .filter(Boolean)
+  return (rule.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean)
 }
 
 /**

@@ -199,34 +199,42 @@ describe('ruleMatchesPage', () => {
 
   describe('TAG', () => {
     test('matches a page carrying any one of the listed tags', () => {
-      const rule = makeRule({ match: 'TAG', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAG', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['capital'] })), true)
     })
 
     test('does not match a page carrying none of them', () => {
-      const rule = makeRule({ match: 'TAG', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAG', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['asia'] })), false)
     })
 
     test('is case-insensitive on both sides', () => {
-      const rule = makeRule({ match: 'TAG', path: 'Europe' })
+      const rule = makeRule({ match: 'TAG', tags: ['Europe'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['EUROPE'] })), true)
+    })
+
+    // -> OpenProject #3408: `tags` is a first-class array now, not a comma list parsed out of
+    //    `path` -- a comma list left sitting in `path`, with no `tags` of its own, addresses
+    //    nothing (no legacy fallback).
+    test('a comma list left in `path`, with no `tags`, is not honoured', () => {
+      const rule = makeRule({ match: 'TAG', path: 'europe, capital', tags: undefined })
+      assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
   })
 
   describe('TAGALL', () => {
     test('matches only when every listed tag is present', () => {
-      const rule = makeRule({ match: 'TAGALL', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAGALL', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe', 'capital', 'unesco'] })), true)
     })
 
     test('does not match when only some tags are present', () => {
-      const rule = makeRule({ match: 'TAGALL', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAGALL', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
 
     test('an empty tag list matches nothing', () => {
-      const rule = makeRule({ match: 'TAGALL', path: '' })
+      const rule = makeRule({ match: 'TAGALL', tags: [] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
   })
@@ -405,7 +413,7 @@ describe('resolvePageRule / rulesAllow', () => {
     const tagForceAllow = makeRule({
       id: 'tag-forceallow',
       match: 'TAGALL',
-      path: 'public',
+      tags: ['public'],
       mode: 'FORCEALLOW'
     })
     const target = page({ path: 'anywhere/at/all', tags: ['public'] })
@@ -452,11 +460,11 @@ describe('resolvePageRule / rulesAllow', () => {
       // path-shaped (deep path) < tag (single tag) -- band beats specificity outright
       [
         makeRule({ id: 'weak', match: 'START', path: 'a/b/c', mode: 'ALLOW' }),
-        makeRule({ id: 'strong', match: 'TAG', path: 'x', mode: 'ALLOW' })
+        makeRule({ id: 'strong', match: 'TAG', tags: ['x'], mode: 'ALLOW' })
       ],
       // tag < EXACT
       [
-        makeRule({ id: 'weak', match: 'TAGALL', path: 'x', mode: 'ALLOW' }),
+        makeRule({ id: 'weak', match: 'TAGALL', tags: ['x'], mode: 'ALLOW' }),
         makeRule({ id: 'strong', match: 'EXACT', path: 'a/b/c', mode: 'ALLOW' })
       ],
       // EXACT < CLASSIFICATION
@@ -495,7 +503,8 @@ describe('resolvePageRule / rulesAllow', () => {
       makeRule({
         id,
         match,
-        path: match === 'TAG' || match === 'TAGALL' ? 'x' : '',
+        path: '',
+        tags: match === 'TAG' || match === 'TAGALL' ? ['x'] : [],
         mode: 'ALLOW'
       })
     const target = page({ path: '', tags: ['x'] })
@@ -531,7 +540,7 @@ describe('resolvePageRule / rulesAllow', () => {
       }),
       makeRule({ id: 'deep', match: 'START', path: 'geography/countries', mode: 'ALLOW' }),
       makeRule({ id: 'shallow', match: 'START', path: 'geography', mode: 'DENY' }),
-      makeRule({ id: 'tag', match: 'TAG', path: 'europe', mode: 'FORCEALLOW' })
+      makeRule({ id: 'tag', match: 'TAG', tags: ['europe'], mode: 'FORCEALLOW' })
     ]
 
     function permutations<T>(items: T[]): T[][] {

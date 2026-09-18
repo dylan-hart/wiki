@@ -237,6 +237,30 @@
                       </w-item>
                     </template>
                   </w-select>
+                  <!--
+                        OpenProject #3408: TAG/TAGALL read `rule.tags`, a first-class string array,
+                        instead of the comma list `path` used to carry -- chips + free entry, fed by
+                        this site's tag catalogue, the same combination `PageTags.vue` uses for a
+                        page's own tags.
+                      -->
+                  <w-select
+                    v-else-if="[`TAG`, `TAGALL`].includes(rule.match)"
+                    class="mt-2"
+                    standout
+                    :model-value="rule.tags ?? []"
+                    @update:model-value="rule.tags = $event"
+                    dense
+                    options-dense
+                    use-input
+                    create
+                    multiple
+                    use-chips
+                    hide-dropdown-icon
+                    @create="createRuleTag(rule, $event)"
+                    :options="state.siteTags"
+                    :loading="state.siteTagsLoading"
+                    :placeholder="t(`admin.groups.ruleTagsPlaceholder`)"
+                    :aria-label="t(`admin.groups.ruleTags`)" />
                   <w-input
                     v-else
                     class="mt-2"
@@ -258,7 +282,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed } from 'vue'
+import { computed, reactive, watch } from 'vue'
 
 import { confirm } from '@/composables/dialog'
 import { useDark } from '@/composables/dark'
@@ -411,18 +435,88 @@ const ruleOptions = computed(() =>
     : rules.value
 )
 
+// DATA (tag suggestions)
+
+/**
+ * Suggestions for the TAG/TAGALL picker below, fed by the current admin site's own tag catalogue
+ * (`GET /sites/:siteId/tags`, OpenProject #3408) -- the same convenience `PageTags.vue` offers a
+ * page's own tags, not a closed vocabulary: `create` on the picker still lets a tag nobody has used
+ * yet be typed in.
+ */
+const state = reactive({
+  siteTags: [],
+  siteTagsLoading: false
+})
+
+// WATCHERS
+
+watch(
+  () => adminStore.currentSiteId,
+  async (siteId) => {
+    if (!siteId) {
+      state.siteTags = []
+      return
+    }
+    state.siteTagsLoading = true
+    try {
+      const tags = await API_CLIENT.get(`sites/${siteId}/tags`).json()
+      state.siteTags = (tags ?? []).map((tg) => tg.tag)
+    } catch (err) {
+      // -> Suggestions are a convenience: without them the picker still adds tags via `create`, so
+      //    this is a warning rather than a failure, and the spinner must not be left running either
+      //    way -- mirrors `PageTags.vue#fetchTags`'s own failure handling.
+      notify({
+        type: 'warning',
+        message: t('admin.groups.ruleTagsFetchFailed'),
+        caption: apiErrorMessage(err)
+      })
+    } finally {
+      state.siteTagsLoading = false
+    }
+  },
+  { immediate: true }
+)
+
 // METHODS
 
 /**
  * START/END/EXACT compare `path` directly against a page path, which is always stored lowercased
  * (`backend/helpers/common.ts#normalizePagePath`) -- so typing any uppercase character there would
  * save a rule that can never match (silently, for a DENY -- OpenProject #2182). Lowercase as the
- * administrator types rather than only rejecting on save: TAG/TAGALL read `path` as a comma list
- * (already lowercased at match time) and REGEX as a pattern that may deliberately use a character
- * class like `[A-Z]`, so neither is folded here.
+ * administrator types rather than only rejecting on save: TAG/TAGALL no longer read `path` at all
+ * (OpenProject #3408 -- they read `rule.tags` instead, via the picker below) and REGEX addresses a
+ * pattern that may deliberately use a character class like `[A-Z]`, so neither is folded here.
  */
 function onRulePathInput(rule, value) {
   rule.path = ['START', 'END', 'EXACT'].includes(rule.match) ? value.toLowerCase() : value
+}
+
+/**
+ * A typed tag that matched nothing existing becomes a value of its own (`create`, mirroring
+ * `PageTags.vue#createTag`) -- split on comma/semicolon so a pasted list adds more than one at
+ * once. Normalization (trim/lowercase/de-dupe) is re-applied server-side by `updateGroup` regardless
+ * (`models/groups.ts#normalizeRuleTags`); doing it here too keeps what the picker shows back in
+ * sync with what a save will actually store.
+ */
+function createRuleTag(rule, val) {
+  const tags = val
+    .split(/[,;]+/)
+    .map((tg) => tg.trim().toLowerCase())
+    .filter(Boolean)
+  if (tags.length === 0) {
+    return
+  }
+
+  const nextSelection = (rule.tags ?? []).slice()
+  for (const tag of tags) {
+    if (!state.siteTags.includes(tag)) {
+      state.siteTags.push(tag)
+    }
+    if (!nextSelection.includes(tag)) {
+      nextSelection.push(tag)
+    }
+  }
+  rule.tags = nextSelection
 }
 
 function getRuleModeColor(mode) {
@@ -486,6 +580,7 @@ function newRule() {
     match: 'START',
     roles: [],
     path: '',
+    tags: [],
     locales: [],
     sites: [],
     classifications: []
@@ -553,6 +648,17 @@ async function importRules() {
             : 'START',
           roles: r.roles || [],
           path: r.path || '',
+          // -> OpenProject #3408: same trim/lowercase/de-dupe fold `models/groups.ts#normalizeRuleTags`
+          //    re-applies server-side on save -- done here too so an imported rule's tags already
+          //    read back the way they will after that save.
+          tags: [
+            ...new Set(
+              (Array.isArray(r.tags) ? r.tags : [])
+                .filter((tg) => typeof tg === 'string')
+                .map((tg) => tg.trim().toLowerCase())
+                .filter(Boolean)
+            )
+          ],
           locales: r.locales.filter((l) => adminStore.locales.some((loc) => loc.code === l)),
           sites: r.sites.filter((s) => adminStore.sites.some((site) => site.id === s)),
           classifications: (r.classifications || []).filter((c) =>

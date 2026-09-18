@@ -670,6 +670,35 @@ describe('createGroupConverter', () => {
     assert.match(outcome.message ?? '', /2 malformed page rule/)
   })
 
+  test('a 2.x TAG rule’s comma-list path becomes 3.0’s tags array, with path left empty (OpenProject #3408)', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: [],
+      pageRules: [
+        {
+          id: '1',
+          deny: false,
+          match: 'TAG',
+          path: ' Europe, CAPITAL , europe ',
+          roles: ['read:pages'],
+          locales: []
+        }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 1)
+    // -> Trimmed, lowercased and de-duplicated the same way `updateGroup` normalizes tags at write
+    //    time (`normalizeRuleTags`), not carried forward verbatim.
+    assert.deepEqual(rules[0].tags, ['europe', 'capital'])
+    assert.equal(rules[0].path, '')
+    assert.equal(rules[0].name, 'Imported Rule 1: TAG europe, capital')
+  })
+
   test('keeps only the closed seven-name global permissions, dropping page-rule-effectiveness-only entries', async () => {
     const outcome = await convert({
       id: 1,

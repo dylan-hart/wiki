@@ -64,6 +64,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         maxLength: 255
       },
+      tags: {
+        type: 'array',
+        description:
+          'Tags this rule addresses. Read only when `match` is TAG or TAGALL, the same way `classifications` is read only for CLASSIFICATION -- a first-class array rather than the comma list `path` used to carry for these two match kinds.',
+        items: {
+          type: 'string',
+          maxLength: 255
+        }
+      },
       locales: {
         type: 'array',
         description: 'Locale codes this rule is limited to. Empty means all locales.',
@@ -82,7 +91,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       classifications: {
         type: 'array',
         description:
-          'Classification level IDs this rule addresses. Read only when `match` is CLASSIFICATION, the same way `path` is read as a comma list only for TAG/TAGALL.',
+          'Classification level IDs this rule addresses. Read only when `match` is CLASSIFICATION, the same way `tags` is read only for TAG/TAGALL.',
         items: {
           type: 'string',
           format: 'uuid'
@@ -94,9 +103,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   //    lowercased (`normalizePagePath`) -- so a mixed-case rule could never match, and for a DENY
   //    rule that failure is silent (OpenProject #2182). Rejected here at write time, on top of the
   //    lowercasing fold in `models/groups.ts#updateGroup` and the case-insensitive comparison in
-  //    `helpers/pageRules.ts#ruleMatchesPage`. TAG/TAGALL read `path` as a comma list, REGEX as a
-  //    pattern that may deliberately use a character class like `[A-Z]`, and CLASSIFICATION does
-  //    not read `path` at all -- none of those are constrained.
+  //    `helpers/pageRules.ts#ruleMatchesPage`. TAG/TAGALL read `tags` instead of `path` (OpenProject
+  //    #3408), REGEX addresses `path` as a pattern that may deliberately use a character class like
+  //    `[A-Z]`, and CLASSIFICATION does not read `path` at all -- none of those are constrained.
   groupRuleSchema['if'] = {
     properties: {
       match: { enum: ['START', 'END', 'EXACT'] }
