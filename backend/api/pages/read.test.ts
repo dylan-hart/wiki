@@ -514,6 +514,18 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
     assert.equal(res.json().content, RAW_CONTENT)
   })
 
+  // -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to open the editor
+  //    -- `mayReadSource()` folds it in, since an editor who cannot read the source cannot edit it.
+  test('read:pages plus write:pages, with no read:source, is allowed withContent=true', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}?withContent=true`,
+      headers: sessionHeader(['read:pages', 'write:pages'])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().content, RAW_CONTENT)
+  })
+
   test('no read:pages at all is forbidden regardless of withContent', async () => {
     const res = await app.inject({
       method: 'GET',

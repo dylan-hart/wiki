@@ -17,6 +17,7 @@ import {
   actorFrom,
   mayBypassPassword,
   mayOnPage,
+  mayReadSource,
   pagePermissionsFor,
   requireReadablePage,
   splitList,
@@ -581,8 +582,10 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'read:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read this page.')
       }
-      // -> A separate permission from `read:pages`: reading the rendered page is not reading its source
-      if (wantsContent && !mayOnPage(req, 'read:source', req.params.siteId, page)) {
+      // -> A separate permission from `read:pages`: reading the rendered page is not reading its
+      //    source. `mayReadSource` also admits `write:pages`/`manage:pages` (OpenProject #3391) --
+      //    an editor who cannot read the source cannot open the editor.
+      if (wantsContent && !mayReadSource(req, req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's source.")
       }
       // -> Best-effort, never awaited: see `recordPageview()`'s own doc comment.

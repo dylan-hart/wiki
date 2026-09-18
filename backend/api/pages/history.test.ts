@@ -454,6 +454,32 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     )
   })
 
+  // -> OpenProject #3391/#3411: holding read:pages on the source but none of
+  //    read:source/write:pages/manage:pages there still refuses -- `mayReadSource()` is an OR of
+  //    exactly those three, not a blanket pass once read:pages is granted.
+  test('POST recover refuses when the source is readable but none of read:source/write:pages/manage:pages is held there', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    checkAccessImpl = (_actor, permission) => permission === 'read:pages'
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /not allowed to read/)
+  })
+
   test('POST recover succeeds when the caller can read the deleted path and write the destination', async () => {
     getDeletedVersionResult = {
       path: 'original',
@@ -465,6 +491,35 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       classification: null
     }
     checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => ({ id: 'p1', path: 'original', locale: 'en', title: 'T' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
+  })
+
+  // -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to read the SOURCE
+  //    path's version -- `mayReadSource()` folds it in. `read:pages` is still required separately
+  //    (unaffected by this change), so the stub grants both plus `write:pages`, withholding
+  //    `read:source` specifically.
+  test('POST recover succeeds reading the source with write:pages alone, with no read:source', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    checkAccessImpl = (_actor, permission) =>
+      permission === 'read:pages' || permission === 'write:pages'
     recoverDeletedPageImpl = async () => ({ id: 'p1', path: 'original', locale: 'en', title: 'T' })
 
     const res = await app.inject({
