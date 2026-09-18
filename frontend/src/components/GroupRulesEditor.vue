@@ -384,6 +384,10 @@ const RULES_DATA = [
   { permission: 'delete:pages', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'write:styles', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'write:scripts', warning: false, restrictedForSystem: true, disabled: false },
+  // -> read:source's hint (below, via en.json) documents that write:pages/manage:pages hold it
+  //    implicitly too -- CLAUDE.md's Permissions section's one exception to "names are not
+  //    interchangeable" (OpenProject #3391/#3412). No special-casing needed here: the row still just
+  //    grants the literal `read:source` string, same as any other permission.
   { permission: 'read:source', warning: false, restrictedForSystem: false, disabled: false },
   { permission: 'read:history', warning: false, restrictedForSystem: false, disabled: false },
   { permission: 'read:assets', warning: false, restrictedForSystem: false, disabled: false },
