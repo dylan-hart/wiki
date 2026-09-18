@@ -7,6 +7,21 @@ import { actorFrom, mayOnPage } from '../../helpers/pageAccess.ts'
 import { recordClassificationChange } from './classification.ts'
 
 /**
+ * Whether a page's tag set is actually changing, as a SET -- order and duplicates never count as a
+ * change, and neither does resubmitting the same tags unchanged (the same "changed AND different"
+ * shape the classification/scripts/styles guardrails above already use). Shared by the PATCH route's
+ * retag check and the bulk `retag` action below, both of which need to know this before deciding
+ * whether a second, destination-shaped permission check is even in play (OpenProject #3410).
+ */
+function tagSetChanged(current: string[], next: string[]): boolean {
+  if (current.length !== next.length) {
+    return true
+  }
+  const currentSet = new Set(current)
+  return next.some((tag) => !currentSet.has(tag))
+}
+
+/**
  * `ensureCanRender()` (`models/renderQueue.ts`) throws these two named errors -- via `createPage()`/
  * `updatePage()` (OpenProject #1716) -- when a render-less write can't be safely accepted: an editor
  * this server has no renderer for, or a markdown page with no Puppeteer extension to render it. Maps
@@ -343,6 +358,30 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden(
           'Changing this page’s styles requires the write:styles permission on it.'
         )
+      }
+      /*
+        Retag check (OpenProject #3410): `hasWrite` above already required `write:pages` against the
+        page AS IT STANDS (its current tags), the same as every other field. A tag change also needs
+        `write:pages` against the page AS IT LEAVES it -- otherwise an editor denied `write:pages` on
+        pages tagged `confidential` could add that tag to a page they may otherwise edit (walking a
+        page INTO a branch a tag-scoped rule protects) or remove it from a page only that tag's DENY
+        rule covers (walking it back OUT from under that protection), neither of which the pre-change
+        check alone catches. Same shape the move route's destination-ref check uses: a second ref,
+        same path/locale/classification, carrying only the tags as they would end up. Only evaluated
+        when the tags are actually changing, same "changed AND different" shape as the classification/
+        scripts/styles guardrails above -- resubmitting a page's current tags unchanged never requires
+        re-proving `write:pages` a second time.
+      */
+      if (req.body.tags !== undefined && tagSetChanged(target.tags, req.body.tags)) {
+        const postChangeRef = {
+          path: target.path,
+          locale: target.locale,
+          tags: req.body.tags,
+          classification: target.classification
+        }
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, postChangeRef)) {
+          return reply.forbidden('You are not allowed to change this page’s tags to that set.')
+        }
       }
       /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
@@ -842,6 +881,28 @@ async function routes(app: FastifyInstance) {
             const nextTags = [
               ...new Set([...target.tags.filter((t) => !removeSet.has(t)), ...addTags])
             ]
+            // -> Same retag check the PATCH route makes (OpenProject #3410): `permission` above
+            //    ('write:pages') was already checked against this page AS IT STANDS, but a bulk
+            //    retag can still walk a page into or out of a tag-scoped rule's reach. Refused
+            //    per page as `skipped`, not `error` -- this is a permission outcome like any other
+            //    page in the batch the caller may not act on, not a failure while acting.
+            if (tagSetChanged(target.tags, nextTags)) {
+              const postChangeRef = {
+                path: target.path,
+                locale: target.locale,
+                tags: nextTags,
+                classification: target.classification
+              }
+              if (!mayOnPage(req, 'write:pages', req.params.siteId, postChangeRef)) {
+                results.push({
+                  id: pageId,
+                  path: target.path,
+                  status: 'skipped',
+                  message: 'Not permitted for the resulting tags.'
+                })
+                continue
+              }
+            }
             const updated = await CARDINAL.models.pages.updatePage(
               req.params.siteId,
               pageId,
