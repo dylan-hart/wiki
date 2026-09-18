@@ -73,6 +73,7 @@
             <w-input
               v-model="state.config.defaultBaseURL"
               dense
+              placeholder="https://wiki.example.com"
               :aria-label="t(`admin.mail.defaultBaseURL`)" />
           </w-settings-row>
         </w-settings-card>
@@ -284,6 +285,10 @@ const { state, load } = useAdminSettings({
   },
   onLoaded: () => {
     adminStore.info.isMailConfigured = state.config?.host?.length > 2
+    // -> isMailBaseURLConfigured also depends on whether any SITE has a real hostname
+    //    (OpenProject #3386), which this form has no local view of -- reconcile from the real
+    //    endpoint rather than approximating from state.config.defaultBaseURL alone.
+    adminStore.fetchInfo()
   }
 })
 
@@ -318,7 +323,9 @@ async function save() {
       type: 'positive',
       message: t('admin.mail.saveSuccess')
     })
-    adminStore.info.isMailConfigured = state.config?.host?.length > 2
+    // -> Reconciles isMailConfigured and isMailBaseURLConfigured (OpenProject #3386) from the real
+    //    endpoint rather than approximating either locally.
+    await adminStore.fetchInfo()
   } catch (err) {
     notify({
       type: 'negative',

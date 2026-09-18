@@ -21,6 +21,7 @@ export const useAdminStore = defineStore('admin', {
       loginsPastDay: 0,
       isApiEnabled: false,
       isMailConfigured: false,
+      isMailBaseURLConfigured: false,
       isMetricsEnabled: false,
       isPageviewsEnabled: false,
       isReplicationEnabled: false,
@@ -97,6 +98,7 @@ export const useAdminStore = defineStore('admin', {
         this.info.isMetricsEnabled = resp?.isMetricsEnabled ?? false
         this.info.isPageviewsEnabled = resp?.isPageviewsEnabled ?? false
         this.info.isMailConfigured = resp?.isMailConfigured ?? false
+        this.info.isMailBaseURLConfigured = resp?.isMailBaseURLConfigured ?? false
         this.info.isSchedulerHealthy = resp?.isSchedulerHealthy ?? false
       } catch (err) {
         notify.negative('Failed to load system info.', err.message)

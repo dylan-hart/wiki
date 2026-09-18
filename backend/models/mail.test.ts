@@ -661,6 +661,33 @@ describe('mail.buildLink', () => {
   })
 })
 
+describe('mail.hasResolvableBaseURL (OpenProject #3386)', () => {
+  test('true when defaultBaseURL is set, even with no sites at all', () => {
+    setMailConfig({ host: 'smtp.example.com', defaultBaseURL: 'https://wiki.example.com' }, {})
+    assert.equal(mail.hasResolvableBaseURL(), true)
+  })
+
+  test('false when defaultBaseURL is blank and no site has a real hostname', () => {
+    setMailConfig(
+      { host: 'smtp.example.com', defaultBaseURL: '' },
+      {
+        'catch-all-site': { hostname: '*', config: {} }
+      }
+    )
+    assert.equal(mail.hasResolvableBaseURL(), false)
+  })
+
+  test('false when defaultBaseURL is blank and there are no sites at all', () => {
+    setMailConfig({ host: 'smtp.example.com', defaultBaseURL: '' }, {})
+    assert.equal(mail.hasResolvableBaseURL(), false)
+  })
+
+  test('true when defaultBaseURL is blank but a site has a real hostname', () => {
+    setMailConfig({ host: 'smtp.example.com', defaultBaseURL: '' })
+    assert.equal(mail.hasResolvableBaseURL(), true)
+  })
+})
+
 describe('mail template senders', () => {
   let sendCalls: any[]
 
@@ -686,6 +713,18 @@ describe('mail template senders', () => {
     assert.match(msg.text, /Ada/)
   })
 
+  test('sendVerifyEmail links at the given siteId hostname instead of the instance default (OpenProject #3386)', async () => {
+    await mail.sendVerifyEmail({
+      to: 'ada@example.com',
+      name: 'Ada',
+      token: 'tok123',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/auth\/verify\/tok123/)
+    assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/auth\/verify\/tok123/)
+  })
+
   test('sendRegistrationAttemptNotice notifies the existing owner without leaking a token', async () => {
     await mail.sendRegistrationAttemptNotice({ to: 'fixture@example.com', name: 'Fixture User' })
     assert.equal(sendCalls.length, 1)
@@ -703,6 +742,18 @@ describe('mail template senders', () => {
     assert.match(msg.text, /https:\/\/wiki\.example\.com\/login\/reset-password\/tok456/)
   })
 
+  test('sendForgotPassword links at the given siteId hostname instead of the instance default (OpenProject #3386)', async () => {
+    await mail.sendForgotPassword({
+      to: 'ada@example.com',
+      name: 'Ada',
+      token: 'tok456',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login\/reset-password\/tok456/)
+    assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/login\/reset-password\/tok456/)
+  })
+
   test('sendPasswordResetConfirmed sends a notice with no token', async () => {
     await mail.sendPasswordResetConfirmed({ to: 'ada@example.com', name: 'Ada' })
     const msg = sendCalls[0]
@@ -711,12 +762,65 @@ describe('mail template senders', () => {
     assert.match(msg.text, /Ada/)
   })
 
+  test('sendPasswordResetConfirmed links at the given siteId hostname (OpenProject #3386)', async () => {
+    await mail.sendPasswordResetConfirmed({
+      to: 'ada@example.com',
+      name: 'Ada',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
   test('sendTfaRecoveryCodesGenerated sends a notice with no token', async () => {
     await mail.sendTfaRecoveryCodesGenerated({ to: 'ada@example.com', name: 'Ada' })
     const msg = sendCalls[0]
     assert.equal(msg.to, 'ada@example.com')
     assert.match(msg.subject, /recovery codes/i)
     assert.match(msg.text, /Ada/)
+  })
+
+  test('sendTfaRecoveryCodesGenerated links at the given siteId hostname (OpenProject #3386)', async () => {
+    await mail.sendTfaRecoveryCodesGenerated({
+      to: 'ada@example.com',
+      name: 'Ada',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendTfaEnabled links at the given siteId hostname (OpenProject #3386)', async () => {
+    await mail.sendTfaEnabled({ to: 'ada@example.com', name: 'Ada', siteId: DEFAULT_SITE_ID })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendTfaDisabled links at the given siteId hostname (OpenProject #3386)', async () => {
+    await mail.sendTfaDisabled({ to: 'ada@example.com', name: 'Ada', siteId: DEFAULT_SITE_ID })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendTfaNewDeviceLogin links at the given siteId hostname (OpenProject #3386)', async () => {
+    await mail.sendTfaNewDeviceLogin({
+      to: 'ada@example.com',
+      name: 'Ada',
+      ip: '1.2.3.4',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
+  })
+
+  test('sendRegistrationAttemptNotice links at the given siteId hostname (OpenProject #3386)', async () => {
+    await mail.sendRegistrationAttemptNotice({
+      to: 'fixture@example.com',
+      name: 'Fixture User',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login/)
   })
 
   test('sendWelcomeEmail links at the reset-password screen with the given token, on the instance default base URL when no siteId is given', async () => {
