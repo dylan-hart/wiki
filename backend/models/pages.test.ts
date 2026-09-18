@@ -2321,6 +2321,43 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(queued.length, 1)
     })
 
+    /**
+     * OpenProject #3401: `ensureCanRender()` is now consulted with the page's own editor name, not a
+     * hardcoded `'markdown'` -- proven here for a `wysiwyg` page (content type markdown since #3388)
+     * the same way the `markdown` case above is. `ensureCanRender()`'s own real behavior for
+     * `'wysiwyg'` (no longer `renderUnsupportedEditor`) is unit-tested directly in
+     * `renderQueue.test.ts`; this pins that `createPage()` actually reaches it with the real editor
+     * name rather than something normalized away first.
+     */
+    test('createPage() with a wysiwyg editor and no render consults ensureCanRender with "wysiwyg", not "markdown", and leaves a queued rerender job', async () => {
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/wysiwyg-render-less-create',
+          editor: 'wysiwyg',
+          content: '# Hello\n\nSome **wysiwyg** content, stored as markdown.'
+        }),
+        actor
+      )
+
+      assert.deepEqual(calls, ['wysiwyg'])
+
+      const [row] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(row!.editor, 'wysiwyg')
+      assert.equal(row!.contentType, 'markdown')
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 1)
+    })
+
     test('createPage() refuses up front when ensureCanRender fails, and writes no page row', async () => {
       ensureCanRenderMock.mock.mockImplementation(async () => {
         throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)

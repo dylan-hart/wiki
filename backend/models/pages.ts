@@ -67,6 +67,18 @@ export function getEditorForContentType(contentType: string): string {
 }
 
 /**
+ * The content type an editor's page is stored as, e.g. `markdown` -> `markdown`, `wysiwyg` ->
+ * `markdown`, `code` -> `html`. The forward direction of `EDITOR_CONTENT_TYPES` — exported for
+ * `models/renderQueue.ts`, which needs to know whether an editor's OUTPUT is markdown (and
+ * therefore something the server-side renderer can process) without caring which editor produced
+ * it. `wysiwyg` and `markdown` both answer `'markdown'` here, which is the point: a page is
+ * renderable by content, not by which editor happened to write it.
+ */
+export function getContentTypeForEditor(editor: string): string {
+  return EDITOR_CONTENT_TYPES[editor] ?? 'text'
+}
+
+/**
  * The editor whose pages send their reader somewhere else.
  *
  * A redirection is an ordinary page — it has a path, a title, an icon and a place in the tree, and is

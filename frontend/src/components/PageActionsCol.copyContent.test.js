@@ -66,6 +66,33 @@ describe('PageActionsCol copy page content', () => {
     })
   })
 
+  /**
+   * OpenProject #3401: the endpoint hands back the page's raw stored `content` regardless of the
+   * `format` name, and a WYSIWYG page's content is real markdown now (`@tiptap/markdown`, not typed
+   * Tiptap JSON -- OpenProject #3388), so this is literal Markdown for a `wysiwyg` page too, the
+   * same as the plain `markdown` editor -- not HTML source, which is what it used to be.
+   */
+  it('fetches the raw markdown export for a wysiwyg-editor page too, since it stores markdown now', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithCopyContent({ editor: 'wysiwyg' }))
+    API_CLIENT.get.mockReturnValueOnce({
+      text: vi.fn().mockResolvedValue('# Heading\n\nSome **bold** text.')
+    })
+
+    await wrapper.get('[aria-label="pageActions.copyPageContent"]').trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      `sites/${ctx.siteStore.id}/pages/${ctx.pageStore.id}/export`,
+      { searchParams: { format: 'markdown' } }
+    )
+    expect(copyToClipboard).toHaveBeenCalledWith('# Heading\n\nSome **bold** text.')
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Page content copied to the clipboard.'
+    })
+  })
+
   it('shows a negative toast with the error caption when the clipboard write fails', async () => {
     ;({ wrapper } = await mountRailWithCopyContent())
     API_CLIENT.get.mockReturnValueOnce({ text: vi.fn().mockResolvedValue('# Hello') })
