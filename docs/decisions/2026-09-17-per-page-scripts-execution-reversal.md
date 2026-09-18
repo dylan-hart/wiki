@@ -20,7 +20,7 @@ reasoning, in short:
   refused to do.
 - No product demand was recorded anywhere for the feature.
 
-`write:scripts`/`write:styles` themselves were carefully *not* deleted alongside the dead fields —
+`write:scripts`/`write:styles` themselves were carefully _not_ deleted alongside the dead fields —
 both ADRs are explicit that these permission names have a second, real, unrelated job gating raw
 `<script>`/`<style>` HTML surviving sanitization (`helpers/htmlSanitizePolicy.ts`'s
 `RenderPermissions`), and that job was never in question.
@@ -78,8 +78,8 @@ independent gate on top of the CSP-safe mechanism above, checked before `write:s
 (`backend/models/sites.ts`'s `init()` default and the schema default agree).
 
 This mirrors the split `helpers/htmlSanitizePolicy.ts`'s `RenderPermissions` already draws between
-authoring and execution: holding `write:scripts` on a page lets an author *write* a load/unload
-script, but nothing on the site actually *runs* any page's script until an administrator opts the
+authoring and execution: holding `write:scripts` on a page lets an author _write_ a load/unload
+script, but nothing on the site actually _runs_ any page's script until an administrator opts the
 whole site in. A page-rule grant of `write:scripts` to some group is therefore inert by default —
 the same "authoring is not the same as executing" shape the sanitization gate already used, applied
 consistently to the newly-revived execution path rather than introduced as a special case for it.
