@@ -340,6 +340,47 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         css: 'body { color: green }'
       })
     })
+
+    /**
+     * OpenProject #3404: the composable's "a locked page injects nothing" acceptance criterion is a
+     * server-side guarantee, not something the frontend enforces on data it was never sent — `toPage()`
+     * already blanks `scriptJsLoad`/`scriptJsUnload`/`scriptCss` for a locked page the same way it
+     * blanks `render`/`toc`, driven by the same `unlocked` flag. This makes that explicit for the three
+     * script fields specifically, rather than leaving it implied by the generic body-withholding tests.
+     */
+    test('getPage() blanks scriptJsLoad/scriptJsUnload/scriptCss for a locked page, and restores them once unlocked', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/scripts-locked',
+          password: 'sw0rdfish',
+          scriptJsLoad: 'console.log("load")',
+          scriptJsUnload: 'console.log("unload")',
+          scriptCss: 'body { color: red }'
+        }),
+        actor
+      )
+
+      const locked = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        unlocked: false
+      })
+      assert.equal(locked!.isLocked, true)
+      assert.equal(locked!.scriptJsLoad, '')
+      assert.equal(locked!.scriptJsUnload, '')
+      assert.equal(locked!.scriptCss, '')
+
+      const unlocked = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        unlocked: true
+      })
+      assert.equal(unlocked!.isLocked, false)
+      assert.equal(unlocked!.scriptJsLoad, 'console.log("load")')
+      assert.equal(unlocked!.scriptJsUnload, 'console.log("unload")')
+      assert.equal(unlocked!.scriptCss, 'body { color: red }')
+    })
   })
 
   test('createPage refuses an empty title', async () => {

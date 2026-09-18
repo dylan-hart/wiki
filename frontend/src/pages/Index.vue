@@ -508,6 +508,7 @@ import { useI18n } from 'vue-i18n'
 import { useDark } from '@/composables/dark'
 import { dialog } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
+import { usePageScripts } from '@/composables/pageScripts'
 import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
@@ -597,6 +598,12 @@ const { t } = useI18n()
 // COMPOSABLES
 
 const dark = useDark()
+
+/*
+  The page's own CSS, from the properties panel (OpenProject #3389/#3404). Nothing to hold onto -- it
+  follows the page store on its own, for as long as this view is mounted.
+*/
+usePageScripts()
 
 // META
 
