@@ -399,6 +399,7 @@ const RULES_DATA = [
     disabled: false
   },
   { permission: 'publish:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:tags', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:general', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:theme', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:navigation', warning: false, restrictedForSystem: true, disabled: false },

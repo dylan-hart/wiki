@@ -382,6 +382,23 @@ async function routes(app: FastifyInstance) {
         if (!mayOnPage(req, 'write:pages', req.params.siteId, postChangeRef)) {
           return reply.forbidden('You are not allowed to change this page’s tags to that set.')
         }
+        /*
+          `write:tags` guardrail (OpenProject #3393): independent of the ranking question above but
+          forced by it -- the moment a tag rule can outrank a path rule, whoever can edit tags can
+          widen or narrow access through tags alone, which `write:pages` on its own only half-covers
+          (it proves the editor's general write standing, not that they specifically may retag).
+          Checked on BOTH sides, same as the `write:pages` retag check just above: against the page
+          AS IT STANDS (its current tags) and AS IT WOULD LEAVE (the requested tags) -- an editor
+          holding `write:tags` on the destination shape alone could still lack it on the source page
+          itself. Only evaluated when the set actually changes, so resaving a tagged page unchanged
+          never requires `write:tags` at all.
+        */
+        if (
+          !mayOnPage(req, 'write:tags', req.params.siteId, target) ||
+          !mayOnPage(req, 'write:tags', req.params.siteId, postChangeRef)
+        ) {
+          return reply.forbidden('You are not allowed to change this page’s tags to that set.')
+        }
       }
       /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
@@ -894,6 +911,22 @@ async function routes(app: FastifyInstance) {
                 classification: target.classification
               }
               if (!mayOnPage(req, 'write:pages', req.params.siteId, postChangeRef)) {
+                results.push({
+                  id: pageId,
+                  path: target.path,
+                  status: 'skipped',
+                  message: 'Not permitted for the resulting tags.'
+                })
+                continue
+              }
+              // -> `write:tags` guardrail (OpenProject #3393), same both-sides shape as the
+              //    `write:pages` check just above and the PATCH route's own version: checked
+              //    against the page as it stands AND as it would leave, only when its tag set is
+              //    actually changing.
+              if (
+                !mayOnPage(req, 'write:tags', req.params.siteId, target) ||
+                !mayOnPage(req, 'write:tags', req.params.siteId, postChangeRef)
+              ) {
                 results.push({
                   id: pageId,
                   path: target.path,

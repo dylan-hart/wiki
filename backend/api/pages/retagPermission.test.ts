@@ -24,11 +24,17 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
   const OTHER_ID = '33333333-3333-4333-8333-333333333333'
 
-  /** Ordinary write access anywhere in `en`, on every page -- the baseline every test starts from. */
+  /**
+   * Ordinary write access anywhere in `en`, on every page -- the baseline every test starts from.
+   * Carries `write:tags` alongside `write:pages` (OpenProject #3393 added a second, independent
+   * both-sides check on top of #3410's `write:pages` one) so this suite, written against the
+   * `write:pages` gate alone, keeps exercising exactly that gate rather than tripping over the newer
+   * one too.
+   */
   const writeAnywhere: GroupRule = {
     id: 'write-anywhere',
     name: 'Write anywhere',
-    roles: ['write:pages'],
+    roles: ['write:pages', 'write:tags'],
     match: 'START',
     mode: 'ALLOW',
     path: '',

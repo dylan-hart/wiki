@@ -740,6 +740,8 @@
   "admin.groups.permissions.write:scripts.title": "Use JavaScript",
   "admin.groups.permissions.write:styles.hint": "Can insert CSS styles in pages.",
   "admin.groups.permissions.write:styles.title": "Use CSS",
+  "admin.groups.permissions.write:tags.hint": "Can change a page's tags. Does not by itself grant write access, and write access alone does not grant this.",
+  "admin.groups.permissions.write:tags.title": "Write Tags",
   "admin.groups.redirectOnFirstLogin": "First-time Login Redirect",
   "admin.groups.redirectOnFirstLoginHint": "Optionally redirect the user to a specific page when he/she login for the first time. Leave empty to use the site-defined value.",
   "admin.groups.redirectOnLogin": "Redirect on Login",

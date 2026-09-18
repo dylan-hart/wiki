@@ -248,6 +248,11 @@ function synthesizeRuleName(
  *   splits `path` into it here — normalized through the same `normalizeRuleTags` `updateGroup`
  *   applies at write time — and `path` is left `''`, not carried forward, since nothing in 3.0 reads
  *   `path` for a `TAG` rule any more (no legacy comma-list fallback).
+ * - `write:tags` (OpenProject #3393) has no 2.x source concept either — 2.x had no tags-as-a-rule-field
+ *   at all, so nothing in a 2.x export ever granted or withheld it. A rule that grants `write:pages`
+ *   grants `write:tags` alongside it here, so an imported group's editors keep the retagging ability
+ *   they always implicitly had in 2.x (where tags carried no access implication of their own) rather
+ *   than landing on 3.0 silently unable to retag anything they can otherwise edit.
  */
 function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   if (typeof raw !== 'object' || raw === null) {
@@ -264,11 +269,15 @@ function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   const isTagRule = match === 'TAG'
   const tags = isTagRule ? normalizeRuleTags(sourcePath.split(',')) : []
   const path = isTagRule ? '' : sourcePath
+  const roles = asStringArray(source.roles)
+  if (roles.includes('write:pages') && !roles.includes('write:tags')) {
+    roles.push('write:tags')
+  }
 
   return {
     id: crypto.randomUUID(),
     name: synthesizeRuleName({ match, path, tags }, index),
-    roles: asStringArray(source.roles),
+    roles,
     match,
     mode: deny ? 'DENY' : 'ALLOW',
     path,
