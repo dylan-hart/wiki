@@ -258,6 +258,16 @@
                 ><w-item-label>{{ t('common.page.rerender') }}</w-item-label></w-item-section
               >
             </w-item>
+            <!-- -> Gated on `canConvertEditor`: `write:pages`, a non-redirect markdown/wysiwyg page,
+                    and both editors active on the site (OpenProject #3399) -->
+            <w-item clickable v-if="canConvertEditor" @click="convertEditor">
+              <w-item-section class="items-center" avatar>
+                <w-icon class="text-slate-soft" name="tabler:replace" size="sm" />
+              </w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('common.page.convertEditor') }}</w-item-label></w-item-section
+              >
+            </w-item>
             <w-item clickable @click="toggleBacklinks">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-slate-soft" name="tabler:sun" size="sm" />
@@ -449,6 +459,22 @@ const showsFileActions = computed(
   () => !(editorStore.isActive && ['create', 'suggest'].includes(editorStore.mode))
 )
 
+/**
+ * Whether Convert Editor may be offered (OpenProject #3399): the same "acts on an existing page"
+ * gate `showsFileActions` already draws, `write:pages` (the flip is an edit like any other), a page
+ * currently in `markdown` or `wysiwyg` -- the only pair `PageConvertDialog.vue` converts between --
+ * and both of those editors actually active on this site (`siteStore.editors`, the same map
+ * `EditorPickerDialog.vue` reads), since there is nothing to convert TO otherwise.
+ */
+const canConvertEditor = computed(
+  () =>
+    showsFileActions.value &&
+    userStore.can('write:pages') &&
+    (pageStore.editor === 'markdown' || pageStore.editor === 'wysiwyg') &&
+    Boolean(siteStore.editors?.markdown) &&
+    Boolean(siteStore.editors?.wysiwyg)
+)
+
 const canDuplicate = computed(() => userStore.can('write:pages'))
 const canRenameMove = computed(() => userStore.can('manage:pages'))
 const canDelete = computed(() => userStore.can('delete:pages'))
@@ -582,6 +608,19 @@ function rerenderPage() {
     componentProps: {
       id: pageStore.id
     }
+  }).onOk(() => {
+    pageStore.pageLoad({ id: pageStore.id })
+  })
+}
+
+/**
+ * Opens `PageConvertDialog.vue` (OpenProject #3399), which runs its own render-equality guard and
+ * calls `pageStore.convertEditor()` itself -- this only reloads the page once it reports success,
+ * same as `rerenderPage()` above, so the rail and whichever editor is mounted pick up the flip.
+ */
+function convertEditor() {
+  dialog({
+    component: defineAsyncComponent(() => import('../components/PageConvertDialog.vue'))
   }).onOk(() => {
     pageStore.pageLoad({ id: pageStore.id })
   })

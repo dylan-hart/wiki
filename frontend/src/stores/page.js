@@ -865,6 +865,29 @@ export const usePageStore = defineStore('page', {
       }
     },
     /**
+     * PAGE - Convert Editor (OpenProject #3399)
+     *
+     * Flips a page between the `markdown` and `wysiwyg` editors, after `PageConvertDialog.vue`'s
+     * own render-equality guard has already run client-side -- this only carries the flip to the
+     * server, same shape as `pageRename` above.
+     */
+    async convertEditor({ id, editor } = {}) {
+      const siteStore = useSiteStore()
+      let page
+      try {
+        ;({ page } = await API_CLIENT.put(`sites/${siteStore.id}/pages/${id}/editor`, {
+          json: { editor }
+        }).json())
+      } catch (err) {
+        throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
+      }
+
+      // Update page store
+      if (id === this.id) {
+        this.$patch({ editor: page.editor })
+      }
+    },
+    /**
      * PAGE SAVE
      */
     async pageSave() {

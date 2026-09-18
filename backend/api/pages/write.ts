@@ -648,6 +648,88 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * CONVERT EDITOR (OpenProject #3399)
+   */
+  app.put<{
+    Params: { siteId: string; pageId: string }
+    Body: { editor: string }
+  }>(
+    '/sites/:siteId/pages/:pageId/editor',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES. Checked against the page in question below instead — which is
+        also what lets a rule open one branch to somebody the group as a whole cannot write to.
+      */
+      schema: {
+        summary: 'Convert a page between its markdown and wysiwyg editors',
+        description:
+          "Flips which editor a page opens in, between `markdown` and `wysiwyg` — the pair that share `'markdown'` storage (OpenProject #3395), so this relabels the row rather than rewriting its content. The caller is trusted to have already run the render-equality check (`PageConvertDialog.vue`, in the browser, against the site's own markdown renderer) before calling this — the server re-checks only that the row is still in a convertible state, not that the conversion is lossless.",
+        tags: ['Pages'],
+        params: { $ref: 'SitePageParams#' },
+        body: {
+          type: 'object',
+          required: ['editor'],
+          properties: {
+            editor: { type: 'string', enum: ['markdown', 'wysiwyg'] }
+          }
+        },
+        response: {
+          200: {
+            description: 'Page editor converted successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              page: { $ref: 'Page#' }
+            }
+          },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'Either editor named isn’t `markdown`/`wysiwyg`, the page already uses the target editor, or the page has not yet been saved through the #3395/#3400 markdown migration.'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Converting a page’s editor requires a logged in user.')
+      }
+      const target = await CARDINAL.models.pages.getPage({
+        siteId: req.params.siteId,
+        id: req.params.pageId
+      })
+      if (!target) {
+        return reply.notFound('This page does not exist.')
+      }
+      // -> Changes which editor the page's content is attributed to, same permission as any other
+      //    edit to the page.
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
+        return reply.forbidden('You are not allowed to edit this page.')
+      }
+      const page = await CARDINAL.models.pages.convertEditor(
+        req.params.siteId,
+        req.params.pageId,
+        req.body.editor,
+        actor
+      )
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      return {
+        ok: true,
+        message: 'Page editor converted successfully.',
+        page
+      }
+    }
+  )
+
+  /**
    * RE-RENDER PAGE
    */
   app.post<{ Params: { siteId: string; pageId: string } }>(

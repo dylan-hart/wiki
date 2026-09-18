@@ -184,6 +184,143 @@ describe('pages API — renderPuppeteerMissing / renderUnsupportedEditor mapped 
  * here is the actual rule-matching engine seeing the destination ref, not a stub agreeing it was
  * called.
  */
+
+/**
+ * Route-level test for `PUT /sites/:siteId/pages/:pageId/editor` (OpenProject #3399): the
+ * `write:pages` gate, the successful flip, the model's refusals (`CustomError`s) mapped to 400 the
+ * same way `renderPuppeteerMissing`/`renderUnsupportedEditor` are above, and the schema's own
+ * `enum` refusing anything but `markdown`/`wysiwyg` before the model is ever asked. The render-
+ * equality check itself is client-side (`PageConvertDialog.vue`) and has no route-level coverage
+ * here — `CARDINAL.models.pages.convertEditor` is stubbed, standing in for it having already run.
+ */
+describe('PUT /sites/:siteId/pages/:pageId/editor', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  let app: FastifyInstance
+  let convertEditorCalls: any[]
+  let convertEditorImpl: (...args: any[]) => Promise<any>
+  let canWrite: boolean
+  let pageExists: boolean
+
+  function currentPage() {
+    return {
+      id: PAGE_ID,
+      path: 'docs/convert-me',
+      locale: 'en',
+      tags: [],
+      classification: null,
+      editor: 'markdown'
+    }
+  }
+
+  before(async () => {
+    const wiki = {
+      models: {
+        pages: {
+          getPage: async () => (pageExists ? currentPage() : null),
+          convertEditor: async (...args: any[]) => {
+            convertEditorCalls.push(args)
+            return convertEditorImpl(...args)
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', permissions: [], groupIds: [] }),
+          checkAccess: () => canWrite,
+          groupIdsForRequest: () => []
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    convertEditorCalls = []
+    canWrite = true
+    pageExists = true
+    convertEditorImpl = async (_siteId: string, _id: string, editor: string) => ({
+      id: PAGE_ID,
+      editor,
+      path: 'docs/convert-me'
+    })
+  })
+
+  test('converts the page and returns it when write:pages is held', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'wysiwyg' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.page.editor, 'wysiwyg')
+    assert.equal(convertEditorCalls.length, 1)
+    assert.equal(convertEditorCalls[0][2], 'wysiwyg')
+  })
+
+  test('refuses without write:pages, before the model is asked', async () => {
+    canWrite = false
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'wysiwyg' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.equal(convertEditorCalls.length, 0)
+  })
+
+  test('a missing page answers 404, before the model is asked', async () => {
+    pageExists = false
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'wysiwyg' }
+    })
+
+    assert.equal(res.statusCode, 404)
+    assert.equal(convertEditorCalls.length, 0)
+  })
+
+  test('a model refusal (the page already uses that editor) maps to 400, not 500', async () => {
+    convertEditorImpl = async () => {
+      throw new CustomError('pageEditorConvertUnchanged', 'This page already uses that editor.')
+    }
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'markdown' }
+    })
+
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /already uses that editor/)
+  })
+
+  test('an editor value outside markdown/wysiwyg is rejected by the schema before the model is asked', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'code' }
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.equal(convertEditorCalls.length, 0)
+  })
+})
+
 describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'

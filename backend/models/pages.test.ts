@@ -2324,6 +2324,152 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #3399: `convertEditor()` flips a page's `editor` column between `markdown` and
+   * `wysiwyg` -- the render-equality guard itself is client-side (`PageConvertDialog.vue`), so this
+   * only proves the write, the guardrails against an unsafe flip, and the one history version.
+   */
+  describe('convertEditor() (OpenProject #3399)', () => {
+    test('flips editor from markdown to wysiwyg and records one history version, leaving content untouched', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-md-to-wysiwyg', editor: 'markdown', content: '# Hello' }),
+        actor
+      )
+
+      const updated = await pagesModel.convertEditor(fixtures.siteId, page.id, 'wysiwyg', actor)
+
+      assert.equal(updated!.editor, 'wysiwyg')
+      const rows = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+      assert.equal(rows[0]!.editor, 'wysiwyg')
+      assert.equal(rows[0]!.content, '# Hello')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, page.id))
+        .orderBy(pageHistoryTable.versionDate)
+      // -> [0] creation, [1] the conversion
+      assert.equal(history.length, 2)
+      assert.equal(history[1]!.action, 'updated')
+      assert.deepEqual(history[1]!.changedFields, ['editor'])
+    })
+
+    test('flips editor from wysiwyg back to markdown, same as the other direction', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-wysiwyg-to-md', editor: 'wysiwyg', content: '# Hello' }),
+        actor
+      )
+
+      const updated = await pagesModel.convertEditor(fixtures.siteId, page.id, 'markdown', actor)
+
+      assert.equal(updated!.editor, 'markdown')
+      const rows = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+      assert.equal(rows[0]!.content, '# Hello')
+    })
+
+    test('records the pageHistory row as via: mcp when the actor says so (OpenProject #1119)', async () => {
+      const mcpActor: PageActor = { ...actor, via: 'mcp' }
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-via-mcp', editor: 'markdown' }),
+        mcpActor
+      )
+
+      await pagesModel.convertEditor(fixtures.siteId, page.id, 'wysiwyg', mcpActor)
+
+      const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      assert.equal(entries[0]!.via, 'mcp')
+    })
+
+    test('refuses a page already using the target editor, and touches nothing', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-unchanged', editor: 'markdown' }),
+        actor
+      )
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, page.id, 'markdown', actor),
+        (err: any) => err.name === 'pageEditorConvertUnchanged' && err.statusCode === 400
+      )
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, page.id))
+      assert.equal(history.length, 1)
+    })
+
+    test('refuses converting a page whose editor is neither markdown nor wysiwyg', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-unsupported-source', editor: 'code', content: '<p></p>' }),
+        actor
+      )
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, page.id, 'wysiwyg', actor),
+        (err: any) => err.name === 'pageEditorConvertUnsupported' && err.statusCode === 400
+      )
+    })
+
+    test('refuses converting TO an editor that is neither markdown nor wysiwyg', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-unsupported-target', editor: 'markdown' }),
+        actor
+      )
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, page.id, 'code', actor),
+        (err: any) => err.name === 'pageEditorConvertUnsupported' && err.statusCode === 400
+      )
+    })
+
+    test('refuses a wysiwyg row still holding legacy Tiptap JSON, not yet migrated by #3400', async () => {
+      const inserted = await fixtures.db
+        .insert(pagesTable)
+        .values({
+          ...rawPageRow({
+            path: 'docs/convert-legacy-json',
+            locale: 'en',
+            siteId: fixtures.siteId
+          }),
+          editor: 'wysiwyg',
+          contentType: 'html',
+          content: JSON.stringify({ type: 'doc', content: [] })
+        })
+        .returning({ id: pagesTable.id })
+      const id = inserted[0]!.id
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, id, 'markdown', actor),
+        (err: any) => err.name === 'pageEditorConvertNotMarkdown' && err.statusCode === 400
+      )
+    })
+
+    test('returns null for an id that does not exist', async () => {
+      const updated = await pagesModel.convertEditor(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000',
+        'wysiwyg',
+        actor
+      )
+      assert.equal(updated, null)
+    })
+  })
+
+  /**
    * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
    * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
    * `render` — no refusal, and no path back to a correct render short of a human re-saving the page
