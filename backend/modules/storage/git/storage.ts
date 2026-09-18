@@ -5,13 +5,14 @@
  * imports downward from — see `repo.ts`'s header comment for why that leaf exists.
  *
  * The content-dispatch handlers (`created`/`updated`/`renamed`/`deleted`/`assetUploaded`/
- * `assetRenamed`/`assetDeleted`) live in `content.ts`; the `sync` action lives in `sync.ts`; the
- * remaining `syncUntracked`/`importAll`/`purge` actions live in `actions.ts`. All are re-exported onto
- * `gitStorageModule` below.
+ * `assetRenamed`/`assetMoved`/`assetDeleted`) live in `content.ts`; the `sync` action lives in
+ * `sync.ts`; the remaining `syncUntracked`/`importAll`/`purge` actions live in `actions.ts`. All are
+ * re-exported onto `gitStorageModule` below.
  */
 import type { StorageModule } from '../../../models/storage.ts'
 import {
   assetDeleted,
+  assetMoved,
   assetRenamed,
   assetUploaded,
   created,
@@ -31,6 +32,7 @@ const gitStorageModule: StorageModule = {
   deleted,
   assetUploaded,
   assetRenamed,
+  assetMoved,
   assetDeleted,
   // -> The `sync` action declared in `definition.yml` (task 507) — see `sync.ts`. Called as
   //    `handler(target)` by `Storage.executeAction()`, per `StorageModule`.

@@ -372,6 +372,25 @@ test('dispatch maps asset:edit to the assetUploaded handler', async () => {
   assert.equal(jobs[0].payload.handler, 'assetUploaded')
 })
 
+// -> OpenProject #3384: asset:move used to have no STORAGE_HANDLERS entry at all, so a moved asset's
+//    stale copy was never cleaned up on a blob or git target.
+test('dispatch maps asset:move to the assetMoved handler, carrying previousFolderPath through', async () => {
+  const jobs = fakeDispatchDeps([makeRow('s3', { activeTypes: ['images'], syncMode: 'push' })])
+  const queued = await storage.dispatch('asset:move', {
+    id: 'a1',
+    siteId: 'site-1',
+    fileName: 'pic.png',
+    folderPath: 'gallery',
+    previousFolderPath: 'images',
+    kind: 'image',
+    fileSize: 100
+  })
+  assert.equal(queued, 1)
+  assert.equal(jobs[0].payload.handler, 'assetMoved')
+  assert.equal(jobs[0].payload.data.previousFolderPath, 'images')
+  assert.equal(jobs[0].payload.data.folderPath, 'gallery')
+})
+
 test("dispatch classifies an asset over a target's own largeThreshold as large", async () => {
   fakeDispatchDeps([
     makeRow('s3', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })

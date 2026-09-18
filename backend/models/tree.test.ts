@@ -34,6 +34,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let treeModel: typeof import('./tree.ts').tree
   let pagesModel: typeof import('./pages.ts').pages
+  let assetsModel: typeof import('./assets.ts').assets
   let actor: PageActor
   let TREE_UPDATE_CHUNK_SIZE: number
 
@@ -44,6 +45,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await seedLocale(fixtures.db, { code: 'fr' })
     ;({ tree: treeModel, TREE_UPDATE_CHUNK_SIZE } = await import('./tree.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ assets: assetsModel } = await import('./assets.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
 
@@ -681,6 +683,116 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         delete searchModel.renamed
         delete storageModel.dispatch
         delete glossaryModel.invalidateCache
+      }
+    })
+  })
+
+  /**
+   * OpenProject #3384: `renameFolder`'s ltree cascade always relocated a descendant asset's own
+   * `folderPath` (the bulk ltree `UPDATE`s cover every tree row under the folder, assets included),
+   * but nothing ever told a storage target its copy of the file had moved -- `asset:move` had no
+   * `STORAGE_HANDLERS` entry at all, so a target with direct-access URLs enabled kept signing the
+   * asset's old key. These lock the fix: `renameFolder` now fires `storage.dispatch('asset:move')`
+   * once per descendant asset, with the correct old/new `folderPath` and the `kind`/`fileSize`
+   * `targetCoversEvent` needs to classify it.
+   */
+  describe('renameFolder fires descendant asset move side effects (OpenProject #3384)', () => {
+    test('fires storage.dispatch(asset:move) per descendant asset, with old/new folderPath and kind/fileSize', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'gallery-movable',
+        title: 'Movable Gallery',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const assetOne = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: folder.id,
+        fileName: 'one.png',
+        mimeType: 'image/png',
+        data: Buffer.from('one'),
+        authorId: fixtures.userId
+      })
+      const assetTwo = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: folder.id,
+        fileName: 'two.png',
+        mimeType: 'image/png',
+        data: Buffer.from('two'),
+        authorId: fixtures.userId
+      })
+
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const storageCalls: any[] = []
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'gallery-moved',
+          title: 'Movable Gallery'
+        })
+
+        const assetMoveCalls = storageCalls.filter((c) => c.event === 'asset:move')
+        assert.equal(assetMoveCalls.length, 2)
+        assert.deepEqual(
+          new Set(assetMoveCalls.map((c) => c.id)),
+          new Set([assetOne.id, assetTwo.id])
+        )
+        for (const call of assetMoveCalls) {
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.previousFolderPath, 'gallery-movable')
+          assert.equal(call.folderPath, 'gallery-moved')
+        }
+        const oneMoved = assetMoveCalls.find((c) => c.id === assetOne.id)!
+        assert.equal(oneMoved.fileName, 'one.png')
+        assert.equal(oneMoved.kind, 'image')
+        assert.equal(oneMoved.fileSize, 3)
+      } finally {
+        delete storageModel.dispatch
+      }
+    })
+
+    test('fires no asset:move dispatch for a title-only rename', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'gallery-untouched',
+        title: 'Untouched Gallery',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: folder.id,
+        fileName: 'inside.png',
+        mimeType: 'image/png',
+        data: Buffer.from('inside'),
+        authorId: fixtures.userId
+      })
+
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const storageCalls: any[] = []
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'gallery-untouched',
+          title: 'Renamed Title Only'
+        })
+
+        assert.equal(storageCalls.filter((c) => c.event === 'asset:move').length, 0)
+      } finally {
+        delete storageModel.dispatch
       }
     })
   })

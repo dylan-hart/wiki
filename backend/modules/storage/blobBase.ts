@@ -5,8 +5,8 @@ import type { StorageModule, StorageTarget } from '../../models/storage.ts'
  * The shape every cloud blob storage target has in common — `s3`, `azure` and `gcs`.
  *
  * The three modules differ only in which SDK writes the bytes: the activation cache, the object key,
- * the error wrapping and all five handlers (`assetUploaded`/`assetDeleted`/`assetRenamed`/`exportAll`/
- * `getDirectUrl`) were byte-identical across them modulo the SDK noun. That shared half lives here, as
+ * the error wrapping and all six handlers (`assetUploaded`/`assetDeleted`/`assetRenamed`/`assetMoved`/
+ * `exportAll`/`getDirectUrl`) were byte-identical across them modulo the SDK noun. That shared half lives here, as
  * a factory rather than a base class since a storage module is a plain object; each module keeps its
  * own SDK imports, its client construction, its bucket/container verification and the five driver
  * callbacks below, and exports `blobStorageModule(driver)` as its default.
@@ -144,6 +144,20 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     })
   }
 
+  /** An asset moved to a new folder, keeping its name (OpenProject #3384). */
+  async function assetMoved(target: StorageTarget, data: Record<string, any>): Promise<void> {
+    const client = await getClient(target)
+    const sourceKey = keyFor(target, data.previousFolderPath, data.fileName)
+    const destinationKey = keyFor(target, data.folderPath, data.fileName)
+
+    await withErrors(`move "${sourceKey}" to "${destinationKey}"`, async () => {
+      // -> Same shape as `assetRenamed`: a server-side copy followed by deleting the source once the
+      //    copy has landed.
+      await driver.copy(client, sourceKey, destinationKey, target.config)
+      await driver.remove(client, sourceKey)
+    })
+  }
+
   /**
    * Push every asset of this target's site to the target, filtered through its own `contentTypes`
    * (`activeTypes` / `largeThreshold`) exactly as configured in the admin area — nothing upstream of
@@ -196,6 +210,7 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     assetUploaded,
     assetDeleted,
     assetRenamed,
+    assetMoved,
     exportAll,
     getDirectUrl
   }

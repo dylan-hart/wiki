@@ -641,6 +641,11 @@ export async function dailyBackup(target: StorageTarget): Promise<void> {
   await pruneDailyBackups(path.join(basePath, DAILY_BACKUP_DIR))
 }
 
+// -> No `assetRenamed`/`assetMoved` handler: this module writes out via `dump()`/`backup()` on demand
+//    rather than reacting to individual write-path events (`supportsContentSync` is false for it —
+//    see `models/storage.ts`), so a rename or a folder move on disk is simply picked up whole on the
+//    next `dump()`/`exportAll`-shaped run rather than propagated incrementally (OpenProject #3384
+//    left this module out of scope for that reason).
 const diskStorageModule: StorageModule = {
   validateConfig,
   dump,

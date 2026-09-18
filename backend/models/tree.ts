@@ -2,7 +2,7 @@ import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'driz
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import { chunk } from 'es-toolkit/array'
 import type { WikiDbOrTx } from '../core/db.ts'
-import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
+import { assets as assetsTable, pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import {
   CustomError,
   decodeTreePath,
@@ -175,6 +175,23 @@ export interface MovedDescendantPage {
   page: typeof pagesTable.$inferSelect
   previousPath: string
   previousLocale: string
+}
+
+/**
+ * One asset `refreshDescendantAssetFolders` relocated, for the caller to fire the `asset:move`
+ * storage dispatch `assets.ts#moveAsset` fires for a direct move -- see `renameFolder`
+ * (OpenProject #3384). `kind`/`fileSize` travel along because `Storage#targetCoversEvent` classifies
+ * an asset event by them; neither lives on `tree`, so they are joined in from `assets`.
+ */
+export interface MovedDescendantAsset {
+  id: string
+  fileName: string
+  /** Slash-separated, without the file name -- post-rename. */
+  folderPath: string
+  /** Slash-separated, without the file name -- pre-rename. */
+  previousFolderPath: string
+  kind: string
+  fileSize: number | null
 }
 
 /** A raw `tree` row, as the model passes it around internally. */
@@ -1212,6 +1229,9 @@ class Tree {
     // -> Populated inside the transaction below, fired after it resolves -- see
     //    `fireDescendantMoveSideEffects`'s own comment for why history/watchers stay out of this.
     let movedPages: MovedDescendantPage[] = []
+    // -> Same deal, for the descendant assets the bulk ltree `UPDATE`s below relocate
+    //    (OpenProject #3384) -- see `fireDescendantAssetMoveSideEffects`.
+    let movedAssets: MovedDescendantAsset[] = []
 
     // -> Everything below is one logical move: partway through would leave some descendants renamed
     //    and others not, or a folder row moved but its descendants' paths unrefreshed
@@ -1249,6 +1269,13 @@ class Tree {
         .returning()
 
       movedPages = await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
+      movedAssets = await this.refreshDescendantAssetFolders(
+        folder.siteId,
+        folder.locale,
+        oldPath,
+        newPath,
+        tx
+      )
 
       return renamed
     })
@@ -1266,6 +1293,11 @@ class Tree {
     }
     if (movedPages.length > 0) {
       CARDINAL.models.glossary.invalidateCache(folder.siteId)
+    }
+    // -> One `storage.dispatch('asset:move')` per descendant asset (OpenProject #3384) -- no search
+    //    reindex or glossary invalidation for these, neither of which indexes assets.
+    for (const moved of movedAssets) {
+      await this.fireDescendantAssetMoveSideEffects(folder.siteId, moved)
     }
 
     // -> The renamed folder's own path segment, and its own title, both feed a generated menu item --
@@ -1402,6 +1434,90 @@ class Tree {
       locale: page.locale,
       previousLocale,
       siteId
+    })
+  }
+
+  /**
+   * Every descendant asset a folder rename relocated, with its pre- and post-rename `folderPath` --
+   * the storage-dispatch counterpart to `refreshDescendantPaths` for pages (OpenProject #3384).
+   *
+   * Unlike a page, an asset carries no second copy of its path outside `tree` for this to read a
+   * "before" value back from, so this is called *after* `renameFolder`'s bulk ltree `UPDATE`s have
+   * already rewritten every descendant's `folderPath` (`newPath`, in the current, post-rename state)
+   * and derives each one's pre-rename `folderPath` by replacing that `newPath` prefix with `oldPath`
+   * -- the exact inverse of the SQL `newPath::ltree || subpath(folderPath, nlevel(newPath::ltree))`
+   * rewrite those `UPDATE`s ran. `kind`/`fileSize` are joined in from `assets` because
+   * `Storage#targetCoversEvent` needs them to classify the event; neither lives on `tree`.
+   *
+   * @param oldPath The folder's own ltree path (dot-encoded) before the rename.
+   * @param newPath The folder's own ltree path (dot-encoded) after the rename -- what every
+   *                descendant's `folderPath` already carries by the time this runs.
+   */
+  private async refreshDescendantAssetFolders(
+    siteId: string,
+    locale: string,
+    oldPath: string,
+    newPath: string,
+    db: WikiDbOrTx = CARDINAL.db
+  ): Promise<MovedDescendantAsset[]> {
+    const rows = await db
+      .select({
+        id: treeTable.id,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        kind: assetsTable.kind,
+        fileSize: assetsTable.fileSize
+      })
+      .from(treeTable)
+      .innerJoin(assetsTable, eq(assetsTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
+          eq(treeTable.type, 'asset'),
+          sql`${treeTable.folderPath} <@ ${newPath}::ltree`
+        )
+      )
+
+    const movedAssets: MovedDescendantAsset[] = rows.map((row) => {
+      const folderPathLtree = row.folderPath ?? ''
+      const previousFolderPathLtree = oldPath + folderPathLtree.slice(newPath.length)
+      return {
+        id: row.id,
+        fileName: row.fileName,
+        folderPath: decodeTreePath(folderPathLtree) ?? '',
+        previousFolderPath: decodeTreePath(previousFolderPathLtree) ?? '',
+        kind: row.kind,
+        fileSize: row.fileSize
+      }
+    })
+
+    if (movedAssets.length > 0) {
+      CARDINAL.logger.debug('pages', 'refreshed the folder of moved assets', {
+        assets: movedAssets.length
+      })
+    }
+    return movedAssets
+  }
+
+  /**
+   * The move side effect one descendant asset owes once `renameFolder`'s transaction has committed --
+   * the same storage dispatch `assets.ts#moveAsset` fires for a direct move (OpenProject #3384). No
+   * webhook half, unlike `moveAsset`'s own `announce()` call: like `fireDescendantMoveSideEffects`,
+   * this has no per-move actor to give a webhook subscriber.
+   */
+  private async fireDescendantAssetMoveSideEffects(
+    siteId: string,
+    { id, fileName, folderPath, previousFolderPath, kind, fileSize }: MovedDescendantAsset
+  ): Promise<void> {
+    await CARDINAL.models.storage.dispatch('asset:move', {
+      id,
+      fileName,
+      folderPath,
+      previousFolderPath,
+      siteId,
+      kind,
+      fileSize
     })
   }
 
