@@ -5,7 +5,6 @@
 # Bump alongside the rest of the repo's normal currency pass -- `docker pull node:26-bookworm` then
 # `docker inspect --format='{{index .RepoDigests 0}}' node:26-bookworm` gives the new digest.
 FROM node:26.7.0-bookworm@sha256:e929171d35b9df7773a3ec5b068e387fa109441dc90f91e6560af5d39b7e9bf1
-LABEL maintainer="requarks.io"
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-install-recommends \
     bash \

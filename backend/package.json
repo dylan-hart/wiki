@@ -12,15 +12,15 @@
     "wiki",
     "wikis"
   ],
-  "homepage": "https://github.com/requarks/wiki#readme",
+  "homepage": "https://github.com/dylan-hart/wiki#readme",
   "bugs": {
-    "url": "https://github.com/requarks/wiki/issues"
+    "url": "https://github.com/dylan-hart/wiki/issues"
   },
   "license": "AGPL-3.0",
   "author": "Nicolas Giard",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/requarks/wiki.git"
+    "url": "git+https://github.com/dylan-hart/wiki.git"
   },
   "type": "module",
   "main": "index.ts",
