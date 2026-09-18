@@ -29,6 +29,7 @@ const MESSAGES = {
       classification: 'Classification',
       classificationHint: 'classification hint',
       classificationGuardHint: 'classification guard hint',
+      pageScriptsDisabledHint: 'page scripts disabled hint',
       visibility: 'Visibility',
       published: 'Published',
       publishedHint: 'published hint',
@@ -124,5 +125,60 @@ describe('PagePropertiesDialog — Scripts section permission gate', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('Page Scripts')
+  })
+})
+
+/**
+ * OpenProject #3422: the site-wide `features.pageScripts` kill switch (Feature #3389 / Task #3403)
+ * silently stops an authored script/style from ever executing -- no errors, no logs, no network
+ * activity. The Scripts section is the only place an author holding write:scripts/write:styles is
+ * told so, rather than discovering it by reading source or asking an admin.
+ */
+describe('PagePropertiesDialog — page scripts disabled hint', () => {
+  it('shows the hint when the site has features.pageScripts off', async () => {
+    const { wrapper } = mountWithApp(PagePropertiesDialog, {
+      messages: MESSAGES,
+      stores: {
+        user: { pagePermissions: ['write:pages', 'write:scripts'] },
+        site: (siteStore) => {
+          siteStore.features.pageScripts = false
+        }
+      }
+    })
+    await flushPromises()
+
+    const section = wrapper.find('#refCardScripts')
+    expect(section.text()).toContain('page scripts disabled hint')
+  })
+
+  it('hides the hint when the site has features.pageScripts on', async () => {
+    const { wrapper } = mountWithApp(PagePropertiesDialog, {
+      messages: MESSAGES,
+      stores: {
+        user: { pagePermissions: ['write:pages', 'write:scripts'] },
+        site: (siteStore) => {
+          siteStore.features.pageScripts = true
+        }
+      }
+    })
+    await flushPromises()
+
+    const section = wrapper.find('#refCardScripts')
+    expect(section.text()).not.toContain('page scripts disabled hint')
+  })
+
+  it('does not show the hint at all when the reader holds neither script permission', async () => {
+    const { wrapper } = mountWithApp(PagePropertiesDialog, {
+      messages: MESSAGES,
+      stores: {
+        user: { pagePermissions: ['write:pages'] },
+        site: (siteStore) => {
+          siteStore.features.pageScripts = false
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('page scripts disabled hint')
   })
 })

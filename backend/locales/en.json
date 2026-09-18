@@ -2668,6 +2668,7 @@
   "editor.props.jsUnload": "Javascript - On Unload",
   "editor.props.jsUnloadHint": "Execute javascript before the page content is destroyed",
   "editor.props.pageProperties": "Page Properties",
+  "editor.props.pageScriptsDisabledHint": "Per-page scripts and styles won't run on this site until an administrator turns on Allow Page Scripts and Styles in Admin > General.",
   "editor.props.password": "Password",
   "editor.props.passwordHint": "The page must be published and the user must have read access rights.",
   "editor.props.passwordKeepHint": "This page already has a password. Leave blank to keep it, or enter a new one to replace it.",

@@ -29,9 +29,12 @@ export interface AdvisoryLockHandle {
  * lifetime, the same constraint `test/db.ts`'s `createExtensionsSerialized` documents and follows.
  *
  * Blocking (`pg_advisory_lock`) rather than the non-blocking retry/backoff `withAdvisoryLock` below
- * uses: this is a boot-time primitive (`core/db.ts#syncSchemas` is the only caller), taken on a caller-
- * supplied pool before `CARDINAL.db`/`CARDINAL.dbManager.config` necessarily exist yet, so there is no request-
- * serving pool connection at risk of being starved the way `withAdvisoryLock`'s doc comment describes.
+ * uses: this is a boot-time primitive with only two callers, both inside `index.ts#preBoot()` and
+ * both before `initHTTPServer()` starts accepting requests — `core/db.ts#syncSchemas`, taken on a
+ * caller-supplied pool before `CARDINAL.db`/`CARDINAL.dbManager.config` necessarily exist yet, and
+ * `core/config.ts#ensureSeeded`, taken immediately after against `CARDINAL.db.$client` itself. Neither
+ * call risks starving a request-serving pool connection the way `withAdvisoryLock`'s doc comment
+ * describes.
  */
 export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<AdvisoryLockHandle> {
   const client = await pool.connect()

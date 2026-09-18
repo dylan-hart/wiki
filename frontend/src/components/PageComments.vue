@@ -113,7 +113,7 @@
                   @click="cancelEdit(entry.comment.id)" />
               </div>
             </template>
-            <div v-else class="page-comments-content" v-html="entry.comment.render" />
+            <div v-else class="page-comments-content page-contents" v-html="entry.comment.render" />
 
             <div v-if="canWrite" class="page-comments-reply-row mt-2">
               <button
@@ -484,9 +484,3 @@ onMounted(fetchComments)
 //    only signal that there is a different page's comments to fetch.
 watch(() => pageStore.id, fetchComments)
 </script>
-
-<style scoped>
-.page-comments-content :deep(p:first-child) {
-  margin-top: 0;
-}
-</style>

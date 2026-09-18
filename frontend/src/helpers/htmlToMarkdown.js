@@ -26,6 +26,9 @@ import { tables, taskListItems } from '@joplin/turndown-plugin-gfm'
  *    and this app's renderer (`markdown-it`, whose own strikethrough support is a CommonMark/GFM
  *    `~~text~~` core rule) does not recognise it at all.
  *
+ * A third quirk, specific to nested lists, is handled by DOM surgery rather than a turndown rule --
+ * see `renestOrphanedSublists` below for why and how.
+ *
  * Two more decisions worth calling out:
  *
  * - **Images become a pending-asset placeholder, not a dropped tag or an inlined blob.** An HTML
@@ -212,6 +215,44 @@ function unwrapDocumentShell(html) {
   return body ? body[1] : html.replace(/<\/?html[^>]*>/gi, '')
 }
 
+/*
+  OpenProject #3423: a real captured OneNote nested-list paste (`<ul><li>...<ul><li>...</ul></li>...
+  </ul>`) flattens -- a sub-list that should read as an indented continuation of its parent bullet
+  instead comes out as an unindented sibling bullet run.
+
+  turndown's own `list`/`listItem` rules (un-overridden here) only ever indent a nested `<ul>`/`<ol>`
+  that is a DOM CHILD of the `<li>` it belongs under -- `listItem`'s replacement indents by
+  re-indenting the STRING that `content = process(node)` already assembled from `node.childNodes`,
+  so a sub-list sitting OUTSIDE that `<li>` is invisible to it and surfaces as its own top-level list
+  block instead. A `<ul>`/`<ol>` is not on the HTML5 parser's list of tags that auto-close/reparent
+  around a `<p>` or a preceding `<li>` the way `<p>` itself is -- verified directly (real Chromium via
+  Playwright, not just this suite's own happy-dom): a `<ul>` written as a literal, invalid direct
+  child of another `<ul>` (immediately following the `<li>` it is meant to nest under, rather than
+  inside it) parses EXACTLY as written, in every engine checked, with no recovery/reparenting at all.
+  A hand-built fixture never exercises this -- nobody hand-writing an example types a `<ul>` directly
+  inside a `<ul>`, only ever inside the right `<li>` -- which is exactly why an earlier look at this
+  bug, checked only against one, read as "already works" and was wrong: real Office-family HTML
+  (OneNote among it) is generated code, not hand-typed markup, and this exact shape -- one `<ul>` per
+  depth level, sharing a common ancestor `<ul>` rather than nesting inside each other's `<li>` -- is a
+  well-documented way that family of HTML represents list depth. Whatever produced it, a `<ul>`/`<ol>`
+  whose immediately preceding element sibling is a `<li>` of that SAME enclosing list is unambiguously
+  that `<li>`'s sub-list, and turndown's own default rules already render it perfectly once it is
+  actually nested where it belongs. So this repairs the DOM directly -- moving the orphaned sub-list
+  to become that `<li>`'s last child -- before handing anything to turndown, rather than teaching
+  turndown's list rules a second, parallel notion of "nested." A `<ul>`/`<ol>` that is already a
+  proper child of an `<li>` (the common, well-formed case) has no preceding element sibling at all
+  under its own parent (`<li>`), so it never matches here and this is a no-op for it.
+*/
+function renestOrphanedSublists(root) {
+  for (const list of root.querySelectorAll('ul, ol')) {
+    const parent = list.parentNode
+    const previous = list.previousElementSibling
+    if (parent && ['UL', 'OL'].includes(parent.nodeName) && previous?.nodeName === 'LI') {
+      previous.appendChild(list)
+    }
+  }
+}
+
 const UNCHECKED_GLYPH_RE = /^(\s*[-*+]\s+)[☐]️?\s?/gm
 const CHECKED_GLYPH_RE = /^(\s*[-*+]\s+)[☑✓✔]️?\s?/gm
 
@@ -244,11 +285,23 @@ export function htmlToMarkdown(html) {
     return { markdown: '', images: [] }
   }
   const normalizedHtml = unwrapDocumentShell(stripClipboardHeader(html))
+  // -> Parsed here, rather than handed to turndown as a string, so `renestOrphanedSublists` gets a
+  //    chance to repair the DOM before any turndown rule sees it -- turndown accepts a pre-parsed
+  //    element just as readily as a string (cloning it internally), so this changes nothing else
+  //    about how the conversion runs. The `<x-turndown>` wrapper matches what turndown's own string
+  //    path does internally (see its `RootNode`) purely so a stray top-level `<head>`/`<body>` split
+  //    a parser may introduce doesn't matter here either.
+  const doc = new DOMParser().parseFromString(
+    `<x-turndown id="turndown-root">${normalizedHtml}</x-turndown>`,
+    'text/html'
+  )
+  const root = doc.getElementById('turndown-root')
+  renestOrphanedSublists(root)
   const images = []
   currentImageCollector = images
   let markdown
   try {
-    markdown = getTurndownService().turndown(normalizedHtml)
+    markdown = getTurndownService().turndown(root)
   } finally {
     currentImageCollector = null
   }

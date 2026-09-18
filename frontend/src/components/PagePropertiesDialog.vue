@@ -185,6 +185,18 @@
       -->
       <w-card-section class="alt-card" id="refCardScripts" v-if="mayScripts || mayStyles">
         <div class="w-section-header">{{ t('editor.props.scripts') }}</div>
+        <!--
+          Site-wide execution kill switch (Feature #3389 / Task #3403, OpenProject #3422): an author
+          holding write:scripts/write:styles can save a script or stylesheet here that never runs,
+          with zero errors, zero logs and zero network activity, when the site's own
+          `features.pageScripts` switch is off -- `composables/pageScripts.js` gates its `showing`
+          computed on that flag before it ever builds the script URL. This hint is the only place
+          that tells the author so, rather than leaving it to be discovered by reading source or
+          asking an admin.
+        -->
+        <div class="text-caption text-warning mb-2" v-if="!siteStore.features.pageScripts">
+          <em>{{ t('editor.props.pageScriptsDisabledHint') }}</em>
+        </div>
         <w-btn
           v-if="mayScripts"
           class="w-full"

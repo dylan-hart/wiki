@@ -180,6 +180,15 @@ describe('PageComments', () => {
     expect(wrapper.text()).not.toContain('raw markdown, never rendered')
   })
 
+  it('renders the comment body through the shared page-contents stylesheet, for typography and dark-mode colors (OpenProject #3420)', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper } = await mountComments()
+
+    const body = wrapper.find('.page-comments-content')
+    expect(body.exists()).toBe(true)
+    expect(body.classes()).toContain('page-contents')
+  })
+
   it('shows a modified line only when updatedAt differs from createdAt', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
