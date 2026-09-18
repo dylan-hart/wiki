@@ -113,6 +113,7 @@ import FontFamily from '@tiptap/extension-font-family'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
+import { TaskList, TaskItem } from '@tiptap/extension-list'
 import { Markdown } from '@tiptap/markdown'
 import Mention from '@tiptap/extension-mention'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -120,12 +121,19 @@ import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
-import TaskList from '@tiptap/extension-task-list'
-import TaskItem from '@tiptap/extension-task-item'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Typography from '@tiptap/extension-typography'
 import { common, createLowlight } from 'lowlight'
+
+import {
+  GithubAlert,
+  FootnoteReference,
+  FootnoteDefinition,
+  TexMath,
+  IconShortcode,
+  GlossaryTermHighlight
+} from '@/editor/wysiwyg'
 
 const lowlight = createLowlight(common)
 
@@ -252,6 +260,10 @@ function buildExtensions(collab) {
       //    editing surface -- leaving it on here as well would register the `link` node twice and
       //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
       link: false,
+      // -> `GithubAlert` (OpenProject #3397) extends the stock `blockquote` node in place -- adding
+      //    an optional `kind`/`title` pair rather than a second node under the same name -- so it is
+      //    registered explicitly below instead, the same reason `link` is.
+      blockquote: false,
       // -> `Collaboration`'s own undo/redo, backed by Yjs's `UndoManager`, replaces this once a
       //    session is bound -- keeping both registered logs `Collaboration.onCreate()`'s "not
       //    compatible with @tiptap/extension-undo-redo" warning, and only one of the two `undo`/
@@ -264,6 +276,14 @@ function buildExtensions(collab) {
       lowlight
     }),
     Color,
+    FootnoteReference,
+    FootnoteDefinition,
+    GithubAlert,
+    GlossaryTermHighlight.configure({
+      terms: editorStore.editors.markdown?.glossaryTerms ?? []
+    }),
+    IconShortcode,
+    TexMath,
     FontFamily,
     Highlight.configure({
       multicolor: true
@@ -1016,5 +1036,99 @@ defineExpose({ editor, menuBar })
   color: #fff;
   white-space: nowrap;
   user-select: none;
+}
+/*
+  OpenProject #3397 -- GitHub alerts, footnotes, TeX and glossary terms. A small, self-contained
+  palette rather than reusing the published page's own `--content-*` admonition tokens
+  (`css/_page-contents.css`): those are declared inside `.page-contents`'s own scope, which this
+  editor surface is not, and this editor already keeps its OWN separate palettes for a different
+  purpose (`TEXT_COLORS`/`HIGHLIGHT_COLORS` above) rather than reaching into the page's -- editing
+  chrome only needs to be legible and distinguishable while typing, not pixel-identical to the
+  published render.
+*/
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind] {
+  border-inline-start-width: 4px;
+  border-inline-start-style: solid;
+  padding-inline-start: 0.75rem;
+  background-color: rgba(0, 0, 0, 0.03);
+}
+.body--dark .wysiwyg-container .ProseMirror blockquote[data-alert-kind] {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind]::before {
+  content: attr(data-alert-kind);
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='note'] {
+  border-inline-start-color: #1976d2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='note']::before {
+  color: #1976d2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='tip'] {
+  border-inline-start-color: #388e3c;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='tip']::before {
+  color: #388e3c;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='important'] {
+  border-inline-start-color: #7b1fa2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='important']::before {
+  color: #7b1fa2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='warning'] {
+  border-inline-start-color: #f57c00;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='warning']::before {
+  color: #f57c00;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='caution'] {
+  border-inline-start-color: #d32f2f;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='caution']::before {
+  color: #d32f2f;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='question'] {
+  border-inline-start-color: #00796b;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='question']::before {
+  color: #00796b;
+}
+.wysiwyg-container .ProseMirror sup.footnote-ref {
+  color: #1976d2;
+  cursor: default;
+}
+.wysiwyg-container .ProseMirror .footnote-definition {
+  display: flex;
+  gap: 0.4em;
+  font-size: 0.9em;
+  color: rgba(0, 0, 0, 0.65);
+}
+.body--dark .wysiwyg-container .ProseMirror .footnote-definition {
+  color: rgba(255, 255, 255, 0.65);
+}
+.wysiwyg-container .ProseMirror .footnote-definition-label {
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+.wysiwyg-container .ProseMirror .tex-math-error {
+  display: inline-block;
+  color: #d32f2f;
+  background-color: rgba(211, 47, 47, 0.08);
+  border: 1px dashed #d32f2f;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.wysiwyg-container .ProseMirror .wysiwyg-glossary-term {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: help;
 }
 </style>

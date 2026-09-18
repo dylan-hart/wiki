@@ -549,6 +549,69 @@ export function buildMenuBar(
       type: 'divider'
     },
     {
+      type: 'divider'
+    },
+    /*
+      Cardinal-specific constructs (OpenProject #3397) -- GitHub alerts, footnotes, TeX and icon
+      shortcodes each have a parse/serialize pair (`editor/wysiwyg/`) but no ProseMirror input rule
+      of their own yet, so typing their markdown syntax live does not auto-convert the way `**bold**`
+      does. Each entry here instead round-trips a small literal markdown snippet through the SAME
+      `contentType: 'markdown'` parser `EditorWysiwyg.vue`'s own load path uses
+      (`editor.chain().insertContent(snippet, { contentType: 'markdown' })`), which produces a real,
+      editable node -- not a decorative insert. Glossary terms have no entry here: they are never
+      author-inserted syntax (`glossaryTermHighlight.js`'s own doc comment), and task lists already
+      have one (`tasklist`, above).
+    */
+    {
+      key: 'cardinalconstructs',
+      icon: 'tabler:puzzle',
+      title: t('editor.wysiwyg.cardinalConstructs'),
+      type: 'dropdown',
+      children: [
+        {
+          key: 'insert-alert',
+          icon: 'tabler:alert-triangle',
+          title: t('editor.wysiwyg.insertAlert'),
+          action: () =>
+            editor.value
+              .chain()
+              .focus()
+              .insertContent('> [!NOTE]\n> \n', { contentType: 'markdown' })
+              .run()
+        },
+        {
+          key: 'insert-footnote',
+          icon: 'tabler:notes',
+          title: t('editor.wysiwyg.insertFootnote'),
+          action: () =>
+            editor.value
+              .chain()
+              .focus()
+              .insertContent('[^1]', { contentType: 'markdown' })
+              .insertContent('\n\n[^1]: \n', { contentType: 'markdown' })
+              .run()
+        },
+        {
+          key: 'insert-tex',
+          icon: 'tabler:math',
+          title: t('editor.wysiwyg.insertTex'),
+          action: () =>
+            editor.value.chain().focus().insertContent('$x^2$', { contentType: 'markdown' }).run()
+        },
+        {
+          key: 'insert-icon',
+          icon: 'tabler:icons',
+          title: t('editor.wysiwyg.insertIconShortcode'),
+          action: () =>
+            editor.value
+              .chain()
+              .focus()
+              .insertContent(':mdi:information:', { contentType: 'markdown' })
+              .run()
+        }
+      ]
+    },
+    {
       key: 'pagebreak',
       icon: 'tabler:page-break',
       title: t('editor.wysiwyg.hardBreak'),
