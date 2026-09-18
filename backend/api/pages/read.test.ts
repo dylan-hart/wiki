@@ -919,6 +919,11 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
             const rule = resolvePageRule([writeFrench], permission, page)
             return rule ? rule.mode !== 'DENY' : false
           }
+        },
+        // -> OpenProject #3409: `userPermissions` now resolves the page server-side first, to read its
+        //    stored tags -- no page exists at `x` in this fixture, so this stands in as "not found".
+        pages: {
+          getPage: async () => null
         }
       }
     }
@@ -964,5 +969,104 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
 
     assert.equal(res.statusCode, 200)
     assert.ok(!res.json().includes('write:pages'))
+  })
+})
+
+/**
+ * OpenProject #3409: `POST .../pages/userPermissions` used to never pass `tags` at all, so a
+ * TAG/TAGALL rule could never grant a permission through this route. It now resolves the page
+ * server-side (by path/locale) and reads its STORED tags -- never a client-posted `tags` field,
+ * which the route's body schema does not even accept.
+ */
+describe('POST /sites/:siteId/pages/userPermissions — tags (OpenProject #3409)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  /** Grants read:pages to any page carrying the `secret` tag. */
+  const readSecretTag: GroupRule = {
+    id: 'read-secret-tag',
+    name: 'Read Secret Tag',
+    roles: ['read:pages'],
+    match: 'TAG',
+    mode: 'ALLOW',
+    path: 'secret',
+    locales: [],
+    sites: []
+  }
+
+  let app: FastifyInstance
+  /** What `pages.getPage` answers -- each test sets its own stored page (or none). */
+  let storedPage: { tags: string[]; classification: string | null } | null
+
+  before(async () => {
+    const wiki = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en'] } } } },
+      models: {
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          checkAccess: (_actor: unknown, permission: string, page: RulePageRef) => {
+            const rule = resolvePageRule([readSecretTag], permission, page)
+            return rule ? rule.mode !== 'DENY' : false
+          }
+        },
+        pages: {
+          getPage: async () => storedPage
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('a page carrying the tagged-for rule grants the tag-scoped permission', async () => {
+    storedPage = { tags: ['secret'], classification: null }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x', locale: 'en' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(res.json().includes('read:pages'))
+  })
+
+  test('a page not carrying the tag does not grant the tag-scoped permission', async () => {
+    storedPage = { tags: [], classification: null }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x', locale: 'en' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('read:pages'))
+  })
+
+  test('a tags array posted by the client is ignored -- only the stored page’s own tags decide', async () => {
+    storedPage = { tags: [], classification: null }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      // -> `tags` is not part of the request schema at all; posting it anyway must not smuggle a
+      //    grant the real stored page (no tags) would never earn.
+      payload: { path: 'x', locale: 'en', tags: ['secret'] }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('read:pages'))
+  })
+
+  test('a path with no page behind it yet (create-permission check) resolves with no tags, same as before', async () => {
+    storedPage = null
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'brand-new-page', locale: 'en' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('read:pages'))
   })
 })

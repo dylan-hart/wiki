@@ -1048,9 +1048,25 @@ async function routes(app: FastifyInstance) {
       // -> Rules now fail closed on locale (`RulePageRef` requires it), so which locale this asks
       //    about actually decides the answer -- the site's primary locale is the default for a
       //    caller who doesn't say, not a stand-in for a param that doesn't exist.
+      const path = req.body.path.replace(/^\/+/, '')
+      const locale = req.body.locale ?? defaultLocale(req.params.siteId)
+      // -> Tags come from the stored page, never from the request body: the body carries no `tags`
+      //    field at all (see the schema above), so a client positing one has nothing to read it back
+      //    from -- a tag-scoped rule is judged on what the page actually carries, not on what a caller
+      //    claims it does. A path with no page behind it yet (this route doubles as a create-permission
+      //    check) resolves no row, and `tags`/`classification` fall back to the same "unknown" a
+      //    not-yet-existing page always has.
+      const page = await CARDINAL.models.pages.getPage({
+        siteId: req.params.siteId,
+        hash: generatePathHash(path || 'home'),
+        locale,
+        withPassword: false
+      })
       return pagePermissionsFor(req, req.params.siteId, {
-        path: req.body.path.replace(/^\/+/, ''),
-        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+        path,
+        locale,
+        tags: page?.tags,
+        classification: page?.classification ?? null
       })
     }
   )

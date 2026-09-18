@@ -83,6 +83,11 @@ export interface BrowseItem {
    *  on top of this listing. Null for a folder with no page at its path. Never returned to the
    *  client: no API schema declares this field, so Fastify's response serialization drops it. */
   classification: string | null
+  /** The page's tags, for the reader-permission filter layered on top of this listing (OpenProject
+   *  #3409) -- a TAG/TAGALL rule needs them to decide `read:pages` the same as a path rule needs the
+   *  path. Empty for a folder with no page at its path. Never returned to the client: no API schema
+   *  declares this field, so Fastify's response serialization drops it. */
+  tags: string[]
 }
 
 /** One level of a browse listing: what a folder holds, plus what the folder itself is called. */
@@ -119,6 +124,10 @@ export interface ListedPage {
    *  this listing (see `api/tree.ts`'s "LIST PAGES AS A READER" route). Never returned to the client:
    *  no API schema declares this field, so Fastify's response serialization drops it. */
   classification: string | null
+  /** The page's tags, for the same reader-permission filter (OpenProject #3409) -- a TAG/TAGALL rule
+   *  needs them to decide `read:pages`. Never returned to the client: no API schema declares this
+   *  field, so Fastify's response serialization drops it. */
+  tags: string[]
 }
 
 /**
@@ -629,6 +638,7 @@ class Tree {
         description: pagesTable.description,
         icon: pagesTable.icon,
         classification: pagesTable.classification,
+        tags: treeTable.tags,
         hasChildren: sql<boolean>`${hasChildren}`.mapWith(Boolean)
       })
       .from(treeTable)
@@ -662,7 +672,8 @@ class Tree {
         icon: row.icon ?? '',
         hasChildren: row.hasChildren,
         depth: rowDepth - baseDepth,
-        classification: row.classification
+        classification: row.classification,
+        tags: row.tags
       }
     })
   }
@@ -732,6 +743,7 @@ class Tree {
         title: treeTable.title,
         icon: pagesTable.icon,
         classification: pagesTable.classification,
+        tags: treeTable.tags,
         holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
       })
       .from(treeTable)
@@ -762,7 +774,8 @@ class Tree {
         icon: null,
         isPage: false,
         isFolder: false,
-        classification: null
+        classification: null,
+        tags: []
       }
       if (row.type === 'folder') {
         entry.isFolder = true
@@ -772,6 +785,7 @@ class Tree {
         entry.title = row.title
         entry.icon = row.icon
         entry.classification = row.classification
+        entry.tags = row.tags
       }
       merged.set(row.fileName, entry)
     }

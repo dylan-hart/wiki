@@ -522,3 +522,87 @@ test('CREATE FOLDER route: refuses a foreign parentId and leaks neither a path n
   assert.equal(body.message, 'The parent folder does not exist.')
   assert.equal('folder' in body, false, 'the response must not carry a folder object')
 })
+
+/**
+ * OpenProject #3409: BROWSE THE TREE and LIST PAGES AS A READER used to judge `read:pages` with no
+ * `tags` on the `RulePageRef` at all, so a TAG/TAGALL rule could never grant or deny either listing.
+ * Each now threads the item's own `tags` through, the same way `classification` already was.
+ */
+test('BROWSE THE TREE route: threads each item’s tags into the read:pages checkAccess call', async () => {
+  const originalConfig = (globalThis as any).CARDINAL.sites[ENABLED_SITE_ID].config
+  const originalBrowse = (globalThis as any).CARDINAL.models.tree.browse
+  const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+  ;(globalThis as any).CARDINAL.sites[ENABLED_SITE_ID].config = { features: { browse: true } }
+  ;(globalThis as any).CARDINAL.models.tree.browse = async () => ({
+    path: '',
+    title: '',
+    truncated: false,
+    items: [
+      {
+        path: 'tagged-page',
+        fileName: 'tagged-page',
+        title: 'Tagged Page',
+        icon: null,
+        isPage: true,
+        isFolder: false,
+        classification: null,
+        tags: ['alpha', 'beta']
+      }
+    ]
+  })
+  const calls: any[] = []
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    _permission: any,
+    page: any
+  ) => {
+    calls.push(page)
+    return true
+  }
+  try {
+    const res = await app.inject({ method: 'GET', url: `/sites/${ENABLED_SITE_ID}/tree/browse` })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0].tags, ['alpha', 'beta'])
+  } finally {
+    ;(globalThis as any).CARDINAL.sites[ENABLED_SITE_ID].config = originalConfig
+    ;(globalThis as any).CARDINAL.models.tree.browse = originalBrowse
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
+  }
+})
+
+test('LIST PAGES AS A READER route: threads each page’s tags into the read:pages checkAccess call', async () => {
+  const originalListPages = (globalThis as any).CARDINAL.models.tree.listPages
+  const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
+  ;(globalThis as any).CARDINAL.models.tree.listPages = async () => [
+    {
+      id: 'page-1',
+      path: 'tagged-list-page',
+      title: 'Tagged List Page',
+      description: '',
+      icon: '',
+      hasChildren: false,
+      depth: 0,
+      classification: null,
+      tags: ['gamma']
+    }
+  ]
+  const calls: any[] = []
+  ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
+    _actor: any,
+    _permission: any,
+    page: any
+  ) => {
+    calls.push(page)
+    return true
+  }
+  try {
+    const res = await app.inject({ method: 'GET', url: `/sites/${ENABLED_SITE_ID}/tree/pages` })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0].tags, ['gamma'])
+  } finally {
+    ;(globalThis as any).CARDINAL.models.tree.listPages = originalListPages
+    ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
+  }
+})
