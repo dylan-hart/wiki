@@ -2,7 +2,7 @@
  * Write-path handlers: page/asset to git file mapping and commits.
  *
  * Each export here is a `StorageModule` content-dispatch handler (`created`, `updated`, `renamed`,
- * `deleted`, `assetUploaded`, `assetRenamed`, `assetDeleted` — see `models/storage.ts`), called as
+ * `deleted`, `assetUploaded`, `assetRenamed`, `assetMoved`, `assetDeleted` — see `models/storage.ts`), called as
  * `handler(target, data)` by the `dispatchStorage` task. `data` is the small, JSON-serializable
  * payload `Storage.dispatch()` queues per
  * write-path event — an id, a path, a locale, the acting user's id, and for a rename/delete-adjacent
@@ -314,6 +314,44 @@ export async function assetRenamed(
     return
   }
   // -> Nothing tracked at the old name — write fresh at the new one instead of failing the rename.
+  const content = await CARDINAL.models.assets.getContent(data.id)
+  if (!content) return
+  await writeAndCommit(
+    git,
+    repoPath,
+    newRelPath,
+    content.data,
+    `docs: upload ${newRelPath}`,
+    author
+  )
+}
+
+/**
+ * An asset moved to a new folder, keeping its name — a git rename in a single commit, same reasoning
+ * as `assetRenamed` (OpenProject #3384).
+ *
+ * No `covers()` re-check — see `assetUploaded`'s doc for why (OpenProject #924).
+ */
+export async function assetMoved(target: StorageTarget, data: Record<string, any>): Promise<void> {
+  const { git, repoPath } = await ensureRepo(target)
+  const oldRelPath = assetRelPath(data.previousFolderPath, data.fileName)
+  const newRelPath = assetRelPath(data.folderPath, data.fileName)
+  if (oldRelPath === newRelPath) return
+  const author = await resolveAuthor(target, data.authorId)
+
+  if (await fileExists(path.join(repoPath, oldRelPath))) {
+    // -> Unlike a same-folder rename, the destination folder may not exist on disk yet -- `git mv`
+    //    does a plain filesystem rename under the hood and does not create it for us.
+    await fs.mkdir(path.dirname(path.join(repoPath, newRelPath)), { recursive: true })
+    await git.mv(oldRelPath, newRelPath)
+    await git.commit(
+      `docs: move ${oldRelPath} to ${newRelPath}`,
+      [oldRelPath, newRelPath],
+      authorOption(author)
+    )
+    return
+  }
+  // -> Nothing tracked at the old path — write fresh at the new one instead of failing the move.
   const content = await CARDINAL.models.assets.getContent(data.id)
   if (!content) return
   await writeAndCommit(

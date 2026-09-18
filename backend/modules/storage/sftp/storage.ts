@@ -80,6 +80,10 @@ export async function exportAll(
   }
 }
 
+// -> No `assetRenamed`/`assetMoved` handler: this module only ever writes through the `exportAll`
+//    action above (`supportsContentSync` is false for it — see `models/storage.ts`), so a rename or a
+//    folder move is picked up whole on the next export rather than propagated incrementally
+//    (OpenProject #3384 left this module out of scope for that reason).
 export default {
   exportAll
 } as StorageModule

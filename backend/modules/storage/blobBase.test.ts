@@ -251,6 +251,41 @@ describe('blobBase / per-asset lifecycle', () => {
     assert.equal(driver.remove.mock.callCount(), 1)
     assert.equal(driver.remove.mock.calls[0]!.arguments[1], sourceKey)
   })
+
+  test('assetMoved copies to the new folder key, then removes the old one (OpenProject #3384)', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    await module.assetMoved!(target, {
+      fileName: 'pic.png',
+      folderPath: 'gallery',
+      previousFolderPath: 'images'
+    })
+
+    const sourceKey = `${target.siteId}/images/pic.png`
+    const destinationKey = `${target.siteId}/gallery/pic.png`
+    assert.equal(driver.copy.mock.callCount(), 1)
+    assert.equal(driver.copy.mock.calls[0]!.arguments[1], sourceKey)
+    assert.equal(driver.copy.mock.calls[0]!.arguments[2], destinationKey)
+    assert.equal(driver.remove.mock.callCount(), 1)
+    assert.equal(driver.remove.mock.calls[0]!.arguments[1], sourceKey)
+  })
+
+  test('assetMoved from the site root to a folder', async () => {
+    const driver = makeDriver()
+    const module = blobStorageModule(driver)
+    const target = makeTarget()
+
+    await module.assetMoved!(target, {
+      fileName: 'pic.png',
+      folderPath: 'gallery',
+      previousFolderPath: ''
+    })
+
+    assert.equal(driver.copy.mock.calls[0]!.arguments[1], `${target.siteId}/pic.png`)
+    assert.equal(driver.copy.mock.calls[0]!.arguments[2], `${target.siteId}/gallery/pic.png`)
+  })
 })
 
 describe('blobBase / exportAll', () => {

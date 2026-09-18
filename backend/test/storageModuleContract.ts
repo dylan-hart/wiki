@@ -8,12 +8,14 @@ import type { StorageModule, StorageTarget } from '../models/storage.ts'
  * The asset lifecycle every cloud blob storage module owes `models/storage.ts`, run once per module
  * (TEST-F6).
  *
- * `s3`, `azure` and `gcs` each restated these ten claims in their own file, against three different
+ * `s3`, `azure` and `gcs` each restated these claims in their own file, against three different
  * SDK-mocking stories — `aws-sdk-client-mock` patching `S3Client.prototype.send`, and `mock.method`
  * on `ContainerClient`/`BlockBlobClient` and on `Bucket`/`File`. The claims themselves are decided by
  * `modules/storage/blobBase.ts`, which all three now share: the site-scoped object key, the fetch-
  * then-write of `assetUploaded` (and its no-op when the asset is already gone), the copy-then-remove
- * of `assetRenamed`, `exportAll`'s `contentTypes` filter, and `getDirectUrl`'s short TTL.
+ * of `assetRenamed`, the same copy-then-remove keyed on the folder instead of the name for
+ * `assetMoved` (OpenProject #3384), `exportAll`'s `contentTypes` filter, and `getDirectUrl`'s short
+ * TTL.
  *
  * `blobBase.test.ts` proves that shared half against a fake driver — what THIS runner adds is that
  * each module's real SDK callbacks carry the same behaviour out to the real client objects, which no
@@ -188,6 +190,38 @@ export function runStorageModuleContract(name: string, options: StorageContractO
       })
 
       assert.deepEqual(sdk.removes(), [`${target.siteId}/images/old-name.png`])
+    })
+
+    test(`${name}: assetMoved copies the source key to the destination key (OpenProject #3384)`, async () => {
+      const sdk = stubSdk()
+      const target = makeTarget()
+
+      await sdk.module.assetMoved!(target, {
+        fileName: 'pic.png',
+        folderPath: 'gallery',
+        previousFolderPath: 'images'
+      })
+
+      assert.deepEqual(sdk.copies(), [
+        {
+          sourceKey: `${target.siteId}/images/pic.png`,
+          destinationKey: `${target.siteId}/gallery/pic.png`
+        }
+      ])
+    })
+
+    /** A server-side copy, then the source removed once it has landed — never a download/re-upload. */
+    test(`${name}: assetMoved removes the source key once the copy has landed`, async () => {
+      const sdk = stubSdk()
+      const target = makeTarget()
+
+      await sdk.module.assetMoved!(target, {
+        fileName: 'pic.png',
+        folderPath: 'gallery',
+        previousFolderPath: 'images'
+      })
+
+      assert.deepEqual(sdk.removes(), [`${target.siteId}/images/pic.png`])
     })
 
     /**

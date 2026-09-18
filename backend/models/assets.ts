@@ -819,11 +819,10 @@ class Assets {
    * into the folder it already sits in is a no-op: nothing is touched, and no `asset:move` fires, so
    * a caller cannot be told a move happened when nothing changed.
    *
-   * Storage dispatch is deliberately a no-op for this event today (`models/storage.ts`'s
-   * `STORAGE_HANDLERS` has no `asset:move` entry) — no storage module relocates a blob target's copy
-   * of the file on a folder reparent yet, the same pre-existing gap `renameFolder`'s bulk move
-   * already has for the assets it drags along. The webhook still fires, since that half has nothing
-   * storage-shaped to get wrong.
+   * Storage dispatch relocates the asset on every write-path target: a blob target (`s3`/`azure`/
+   * `gcs`) copies its object to the new key and removes the old one, and the `git` target does the
+   * equivalent `git mv` (OpenProject #3384) — see `models/storage.ts`'s `STORAGE_HANDLERS['asset:move']`.
+   * `previousFolderPath` below is what a handler keys that copy/rename on.
    *
    * @returns The updated metadata, or null if there is no such asset on this site
    */
