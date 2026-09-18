@@ -11,6 +11,7 @@ import {
   consumeAccountAuthAttempt
 } from '../helpers/rateLimit.ts'
 import { isRecoveryCodeShape } from '../helpers/recoveryCodes.ts'
+import { testRegexSafely } from '../helpers/safeRegexTest.ts'
 import { ProvisionableLoginError } from './authentication.ts'
 import { deriveDisplayName } from './users.ts'
 import { countTfaFailure } from './userCredentials.ts'
@@ -663,16 +664,26 @@ class Login {
     if (!strategy.allowedEmailRegex) {
       return
     }
-    let allowed = false
+    // -> Compiling (not running) a pattern is cheap regardless of its shape -- catastrophic
+    //    backtracking is an execution-time cost, not a parse-time one -- so this stays purely to
+    //    keep the existing "invalid pattern" warn log informative for a legacy strategy saved before
+    //    `models/authentication.ts#validateStrategy`'s syntax check existed. It plays no part in the
+    //    actual allow/deny decision below.
     try {
-      allowed = new RegExp(strategy.allowedEmailRegex).test(email)
+      new RegExp(strategy.allowedEmailRegex)
     } catch (err: any) {
-      // -> A pattern that will not compile allows nobody, rather than everybody
       CARDINAL.logger.warn('auth', 'strategy has an invalid email pattern, refusing', {
         strategy: strategy.id,
         error: err
       })
     }
+    // -> `testRegexSafely` bounds both the string tested and the wall-clock time spent testing it,
+    //    so a catastrophic-backtracking pattern can no longer hang the event loop here -- whether it
+    //    is one `models/authentication.ts#validateStrategy`'s save-time check already refuses, or a
+    //    pathological one saved before that check existed (OpenProject #3372). It also returns
+    //    `false` for an unparseable pattern, same as the removed try/catch around the test itself
+    //    used to: a pattern that cannot be trusted to answer allows nobody, rather than everybody.
+    const allowed = testRegexSafely(strategy.allowedEmailRegex, email)
     if (!allowed) {
       if (refusalContext) {
         logLoginRefused('email-not-allowed', refusalContext)

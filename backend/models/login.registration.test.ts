@@ -279,6 +279,35 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #3372: `createStrategy` here writes straight to the table, bypassing
+   * `authentication.ts#validateStrategy`'s save-time ReDoS check -- deliberately, to stand in for a
+   * pathological pattern saved before that check existed. The assertion that matters is not just
+   * the refusal (a pattern that cannot be trusted to answer already refused everyone before this
+   * WP) but that it comes back within `test-timeout`'s bound rather than hanging the event loop for
+   * the O(2^n) an unguarded `.test()` would take against this input.
+   */
+  test('refuses (quickly, not by hanging) a login against a catastrophic-backtracking allowedEmailRegex saved before the safety check existed', async () => {
+    const strategyId = await createStrategy({ allowedEmailRegex: '^(a+)+$' })
+    attachStrategyToSite(strategyId)
+
+    const start = Date.now()
+    await assert.rejects(
+      login.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: `${'a'.repeat(60)}!@elsewhere.example`,
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_EMAIL_NOT_ALLOWED/
+    )
+    assert.ok(Date.now() - start < 2000, 'expected the guarded regex test to resolve quickly')
+  })
+
+  /**
    * WP #2470: `allowedEmailDomains`, distinct from `allowedEmailRegex` above -- a per-strategy
    * domain allow-list scoped to local self-registration only.
    */

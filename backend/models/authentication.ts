@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { asc, eq } from 'drizzle-orm'
+import { isSafePattern } from 'redos-detector'
 import { syncRevocableGroupIds } from '../helpers/groupSync.ts'
 import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
@@ -446,6 +447,16 @@ class Authentication {
         new RegExp(strategy.allowedEmailRegex)
       } catch (err: any) {
         return `The allowed email pattern is not a valid regular expression: ${err.message}`
+      }
+      // -> Syntax-valid is not the same as safe: `models/login.ts#assertAllowedProviderEmail` runs
+      //    this pattern fresh on every login attempt against the strategy, so a catastrophic-
+      //    backtracking pattern here would hang the event loop on every subsequent attempt
+      //    (OpenProject #3372). `isSafePattern` does real backtracking analysis (not just a star-
+      //    height heuristic), refusing the save the same way an unparseable pattern already is --
+      //    the runtime guard in `helpers/safeRegexTest.ts` is defense in depth for a pattern saved
+      //    before this check existed, not a substitute for refusing a bad one here.
+      if (!isSafePattern(strategy.allowedEmailRegex).safe) {
+        return 'The allowed email pattern is vulnerable to catastrophic backtracking (ReDoS) and cannot be saved. Simplify it -- avoid nested or overlapping quantifiers such as `(a+)+` or `(a|a)+`.'
       }
     }
     if (strategy.allowedEmailDomains) {
