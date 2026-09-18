@@ -317,18 +317,41 @@ not exist.'`, then the route's own second permission → 403 with its own messag
   the ONLY thing that can change `publishState` — holding `write:pages` (or `manage:pages`) without
   it does not, unlike every other content field (OpenProject #2421/#2466). A request that changes
   `publishState` together with anything else still needs `write:pages` for that anything else.
-- **`write:scripts`/`write:styles` gate content sanitization, not a per-page script/style injection
-  feature — as of Cardinal.js's own history at `a3a6c7994`.** A separate `pages.scripts` column
-  (`scriptJsLoad`/`scriptJsUnload`/`scriptCss`) and its `PageScriptsDialog.vue` editor once existed
-  but nothing ever executed the stored values; both were deleted as dead half-built code. That is no
-  longer the settled end of the story: Wiki.js has since re-added and wired up execution in
-  `32a656e7b` (2026-09-10) — `frontend/src/composables/pageScripts.js` injects `scriptCss` as a
-  `<style>` element, runs `scriptJsLoad`/`scriptJsUnload` via a `<script>` element appended to and
-  removed from `document.body`, and blanks all of it on a locked page. Cardinal.js has not folded
-  this back in; re-adding it (CSP-aware) is open work tracked under Feature #3389. Until it lands,
-  the permission names stay live for one role only — they gate whether an author's raw
-  `<script>`/`<style>` HTML in page content survives sanitization (`helpers/htmlSanitizePolicy.ts`'s
-  `RenderPermissions`, shared by `models/rendering.ts` and `models/renderQueue.ts`).
+- **`write:scripts`/`write:styles` gate two independent things, both real.** One is
+  content-sanitization survival: whether an author's raw `<script>`/`<style>` HTML typed directly
+  into page content survives sanitization (`helpers/htmlSanitizePolicy.ts`'s `RenderPermissions`,
+  shared by `models/rendering.ts` and `models/renderQueue.ts`) — unchanged since this fork's own
+  history began. The other is per-page scripts/styles execution — `scriptJsLoad`/`scriptJsUnload`/
+  `scriptCss`, stored on the page and run on every visit — which this fork deleted as dead half-built
+  code at `a3a6c7994` (nothing executed the stored values then) and has since re-added, CSP-aware
+  (Feature #3389, OpenProject #3406's decision record,
+  `docs/decisions/2026-09-17-per-page-scripts-execution-reversal.md`, has the full reasoning for the
+  reversal). Holding `write:scripts` on a page grants both at once; there is no way to hold one
+  without the other.
+- **Per-page script/style execution is external-file, never inline — CSP is why.** Wiki.js's own
+  `32a656e7b` (2026-09-10) re-added this feature by injecting `scriptCss` as an inline `<style>` and
+  running `scriptJsLoad`/`scriptJsUnload` via an inline `<script>` element appended to
+  `document.body`. This fork's own mechanism instead is: `backend/controllers/pageScripts.ts` serves
+  `GET /_pages/:pageId/script.js`, an ES module wrapping the page's `scriptJsLoad`/`scriptJsUnload`
+  as `export function load()`/`export function unload()`; `frontend/src/composables/pageScripts.js`
+  `import()`s it and calls `load()`/`unload()` explicitly, injecting `scriptCss` as a `<style>`
+  element as upstream does (`style-src` already carries `'unsafe-inline'` under the shipped policy).
+  The shipped `script-src 'self'` (no `'unsafe-inline'`, `core/http/security.ts`) allows a
+  same-origin file like this one and refuses an inline `<script>` or a `new Function(...)` eval of
+  the stored text outright — the property this design exists to keep true, verified live (not by
+  static reading) by `e2e/tests/csp.spec.js`'s scripted-page case under `security.enforceCsp`.
+  Blanked identically to a locked page's other fields (`models/pages.ts#toPage()`), and additionally
+  while a page's own editor is open — an author previewing markup sees the page's base behavior, not
+  a script or stylesheet they are mid-edit on and have not saved (upstream instead keeps both live
+  over an open editor; this fork does not).
+- **Execution has its own site-wide kill switch, default off: `features.pageScripts`** (Task #3403;
+  `backend/models/sites.ts`, `AdminGeneral.vue`'s "Allow Page Scripts and Styles" toggle). Checked
+  before `write:scripts`/`write:styles` are even consulted (`controllers/pageScripts.ts`), on every
+  existing and newly-seeded site. Holding `write:scripts` on a page never by itself makes a script
+  run — the same "authoring is not the same as executing" split the sanitization gate above already
+  draws, applied to this mechanism too: turning the site switch on does not retroactively grant
+  `write:scripts` to anyone, it only stops refusing to execute what an author who already holds it
+  wrote.
 
 ### Testing (CI)
 
