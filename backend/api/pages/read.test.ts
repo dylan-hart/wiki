@@ -730,7 +730,8 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
     roles: ['read:pages'],
     match: 'TAG',
     mode: 'ALLOW',
-    path: 'public',
+    path: '',
+    tags: ['public'],
     locales: [],
     sites: []
   }
@@ -742,7 +743,8 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
     roles: ['read:pages'],
     match: 'TAG',
     mode: 'DENY',
-    path: 'confidential',
+    path: '',
+    tags: ['confidential'],
     locales: [],
     sites: []
   }
@@ -988,7 +990,8 @@ describe('POST /sites/:siteId/pages/userPermissions — tags (OpenProject #3409)
     roles: ['read:pages'],
     match: 'TAG',
     mode: 'ALLOW',
-    path: 'secret',
+    path: '',
+    tags: ['secret'],
     locales: [],
     sites: []
   }
