@@ -127,3 +127,37 @@ describe('GroupRulesEditor.vue rule tags (OpenProject #3408)', () => {
     expect(wrapper.find('input[aria-label="admin.groups.ruleTags"]').exists()).toBe(true)
   })
 })
+
+/**
+ * OpenProject #3412: the rule editor's `read:source` option caption is
+ * `admin.groups.permissions.read:source.hint`, rendered verbatim (`<w-item-label caption>{{
+ * opt.hint }}</w-item-label>`, no read:source-specific branching). This locks in that the `rules`
+ * computed -- what `ruleOptions` and therefore the caption are built from -- resolves the hint
+ * through `t()` rather than a hardcoded string, so the caption always reflects whatever
+ * `admin.groups.permissions.read:source.hint` currently says, including the implied-by-write:pages/
+ * manage:pages wording CLAUDE.md's Permissions section documents.
+ */
+describe('GroupRulesEditor.vue read:source caption (OpenProject #3412)', () => {
+  it('resolves the read:source option caption from admin.groups.permissions.read:source.hint', async () => {
+    stubApi({ 'sites/site-1/tags': [] })
+    const hint = 'Can view pages source. Also implicitly held by write:pages and manage:pages.'
+
+    const { wrapper } = mountWithApp(GroupRulesEditor, {
+      props: { rules: [pathRule()], canManage: true },
+      stores: { admin: { currentSiteId: 'site-1' } },
+      messages: {
+        admin: {
+          groups: {
+            permissions: {
+              'read:source': { title: 'View Page Source', hint }
+            }
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    const readSourceOption = wrapper.vm.rules.find((rule) => rule.permission === 'read:source')
+    expect(readSourceOption.hint).toBe(hint)
+  })
+})

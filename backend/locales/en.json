@@ -709,7 +709,7 @@
   "admin.groups.permissions.read:history.title": "View Page History",
   "admin.groups.permissions.read:pages.hint": "Can view and search pages.",
   "admin.groups.permissions.read:pages.title": "Read Pages",
-  "admin.groups.permissions.read:source.hint": "Can view pages source.",
+  "admin.groups.permissions.read:source.hint": "Can view pages source. Also implicitly held by write:pages and manage:pages, since an editor needs to read a page's source before they can open it in the editor.",
   "admin.groups.permissions.read:source.title": "View Page Source",
   "admin.groups.permissions.read:users.hint": "Can view users, but not create or modify them.",
   "admin.groups.permissions.review:pages.hint": "Can review and approve edits submitted by users.",

@@ -284,9 +284,18 @@ not exist.'`, then the route's own second permission → 403 with its own messag
   returns `null` once a reply is sent (`if (!page) { return reply }`), the same convention
   `requireActorId` uses. `actorFrom`, `mayBypassPassword`, `unlockedFor`, `pagePermissionsFor`,
   `mayOnAsset`, `mayOnFolder` and `visibleTreeItems` live beside it.
-- **Names are not interchangeable across or within kinds.** `manage:pages` does not imply
-  `write:pages`, and `manage:sites` does not imply any `site:*` permission: a rule grants the exact
-  strings in its `roles`.
+- **Names are not interchangeable across or within kinds — with one documented exception.**
+  `manage:pages` does not imply `write:pages`, and `manage:sites` does not imply any `site:*`
+  permission: a rule grants the exact strings in its `roles`. The one exception is `read:source`:
+  `write:pages` and `manage:pages` each imply it too, because an editor who cannot read a page's
+  source cannot open the editor to begin with (`stores/page.js`'s `pageEdit` loads
+  `withContent: true`, which is exactly this check). One helper, one definition —
+  `helpers/pageAccess.ts#mayReadSource(req, siteId, page)` — is what every source-reading check site
+  calls instead of asking `mayOnPage(req, 'read:source', ...)` directly (OpenProject #3391/#3411,
+  upstream's `SOURCE_PERMISSIONS`). The `admin.groups.permissions.read:source.hint` string in
+  `backend/locales/en.json` and its caption in `GroupRulesEditor.vue`'s rule editor say so to an
+  administrator granting the rule, so the UI does not read as though `read:source` alone is the only
+  way to get it.
 - **On the frontend**, `userStore.permissions` is the global list (from `users/whoami`),
   `userStore.pagePermissions` is what the session holds AT THE CURRENT PATH (from
   `pages/userPermissions`, refreshed per route in `App.vue`), and `userStore.sitePermissions` is what
