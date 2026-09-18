@@ -89,6 +89,14 @@ export function getContentTypeForEditor(editor: string): string {
 const REDIRECT_EDITOR = 'redirect'
 
 /**
+ * The two editors `convertEditor()` (OpenProject #3399) may flip a page between -- the pair that
+ * has shared `'markdown'` storage since #3395, which is what makes a flip a relabel rather than a
+ * content transform. `code` and `asciidoc` each produce a content type nothing else shares
+ * (`html`/`asciidoc`), and `redirect` isn't an editor a page's text goes through at all.
+ */
+const CONVERTIBLE_EDITORS = ['markdown', 'wysiwyg']
+
+/**
  * Hard ceiling on `listPagesForSitemap`'s read. Independent of, and much larger than, the
  * sitemaps.org 50,000-URL-per-file cap `controllers/seo.ts` paginates its result around — that one
  * decides how many child sitemaps a large site's page count is split into; this one exists purely so
@@ -1544,6 +1552,84 @@ class Pages {
       changedFields: ['content', 'contentType']
     })
     return true
+  }
+
+  /**
+   * Flip a page's `editor` column between `markdown` and `wysiwyg`, recording one `pageHistory`
+   * version (OpenProject #3399).
+   *
+   * Deliberately not `updatePage()`: `updatePage()`'s own comment notes "which editor authored a
+   * page is not something a save may change" -- this is the one place that IS the point.
+   * `content`/`contentType` are left untouched: markdown and wysiwyg have shared `'markdown'`
+   * storage since #3395 (`EDITOR_CONTENT_TYPES`), so converting between them is a relabel, not a
+   * transform. `render`/`toc`/`searchContent`/`links` are equally untouched -- the stored render
+   * already reflects this exact markdown, computed by whichever editor last saved it, and nothing
+   * about what the content SAYS changes here.
+   *
+   * The render-equality guard that makes this safe -- parsing the page into a headless WYSIWYG
+   * editor, serializing it back out, and comparing the two renders -- runs entirely client-side, in
+   * `PageConvertDialog.vue`, before this is ever called. This method trusts that guard and only
+   * re-checks what it cannot see: that the row is still in a convertible state at all.
+   *
+   * @throws {CustomError} `pageEditorConvertUnsupported` (either side of the flip isn't
+   *   `markdown`/`wysiwyg` -- e.g. `code`, `asciidoc`, `redirect`); `pageEditorConvertUnchanged`
+   *   (`targetEditor` already matches); `pageEditorConvertNotMarkdown` (the row hasn't gone through
+   *   #3395/#3400's markdown migration yet -- a legacy JSON-holding `wysiwyg` row the run-once job
+   *   or the lazy on-open fallback hasn't reached -- so there is no markdown for the frontend's
+   *   round-trip check to have compared against in the first place).
+   * @returns The updated page, or null when it does not exist.
+   */
+  async convertEditor(
+    siteId: string,
+    id: string,
+    targetEditor: string,
+    actor: PageActor
+  ): Promise<Page | null> {
+    const results = await CARDINAL.db
+      .select()
+      .from(pagesTable)
+      .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
+      .limit(1)
+    const existing = results[0]
+    if (!existing) {
+      return null
+    }
+    if (
+      !CONVERTIBLE_EDITORS.includes(existing.editor) ||
+      !CONVERTIBLE_EDITORS.includes(targetEditor)
+    ) {
+      throw new CustomError(
+        'pageEditorConvertUnsupported',
+        'This page’s editor cannot be converted this way.'
+      )
+    }
+    if (existing.editor === targetEditor) {
+      throw new CustomError('pageEditorConvertUnchanged', 'This page already uses that editor.')
+    }
+    if (existing.contentType !== 'markdown') {
+      throw new CustomError(
+        'pageEditorConvertNotMarkdown',
+        'This page must be saved once more before its editor can be converted.'
+      )
+    }
+
+    await CARDINAL.db
+      .update(pagesTable)
+      .set({ editor: targetEditor, updatedAt: sql`now()` })
+      .where(eq(pagesTable.id, id))
+
+    const updated = (await this.getPage({ siteId, id })) as Page
+
+    await CARDINAL.models.pageHistory.record({
+      siteId,
+      pageId: id,
+      action: 'updated',
+      authorId: actor.id,
+      via: actor.via,
+      changedFields: ['editor']
+    })
+
+    return updated
   }
 
   /**
