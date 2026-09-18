@@ -160,13 +160,14 @@ async function issueRecoveryCodes(): Promise<{
  * already succeeded (matching `models/login.ts`'s existing swallow-and-log pattern for its own
  * login-adjacent notices, e.g. `sendPasswordResetConfirmed`).
  */
-async function notifyRecoveryCodesGenerated(user: any): Promise<void> {
+async function notifyRecoveryCodesGenerated(user: any, siteId?: string): Promise<void> {
   try {
     await CARDINAL.models.mail.sendTfaRecoveryCodesGenerated({
       to: user.email,
       name: user.name,
       userId: user.id,
-      locale: user.prefs?.locale
+      locale: user.prefs?.locale,
+      siteId
     })
   } catch (err: any) {
     CARDINAL.logger.warn('auth', 'sending the tfa-recovery-codes-generated notice failed', {
@@ -581,10 +582,15 @@ class UserCredentials {
    * (`confirmTfaSetup`), which is why the codes are generated here rather than in either caller: both
    * routes to becoming active go through this one place.
    *
+   * @param siteId The site the enabling login/setup came in on, when known — `loginTFA` has one
+   *   (every triggering route is `/sites/:siteId/auth/*`), `confirmTfaSetup`'s own profile route
+   *   does not. Threaded into the enabled/recovery-codes notices' links via
+   *   `mail.ts#resolveMailBaseURL` (OpenProject #3386); omitted, they fall back to the instance-wide
+   *   `defaultBaseURL`, same as before.
    * @returns The recovery codes in plaintext. Only their hashes are stored, so this is the one and
    *          only time the caller can get at them — display or offer them for download immediately.
    */
-  async enableTfa(user: any, strategyId: string): Promise<string[]> {
+  async enableTfa(user: any, strategyId: string, siteId?: string): Promise<string[]> {
     const { plaintext, entries } = await issueRecoveryCodes()
     await this.patchStrategyAuth(
       user.id,
@@ -596,7 +602,7 @@ class UserCredentials {
 
     // -> Recovery-codes-generated notice (OpenProject #3300). A sibling notice for 2FA itself being
     //    enabled (#3301) belongs beside this as its own independent call, not folded into one.
-    await notifyRecoveryCodesGenerated(user)
+    await notifyRecoveryCodesGenerated(user, siteId)
 
     // -> A mail-send failure must not turn a successful 2FA enable into a failed one, matching
     //    `models/login.ts#resetPassword()`'s own swallow-and-log pattern for login-adjacent notices.
@@ -605,7 +611,8 @@ class UserCredentials {
         to: user.email,
         name: user.name,
         userId: user.id,
-        locale: user.prefs?.locale
+        locale: user.prefs?.locale,
+        siteId
       })
     } catch (err: any) {
       CARDINAL.logger.warn('auth', 'sending the 2FA-enabled notice failed', {

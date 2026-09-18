@@ -116,7 +116,7 @@ class Settings {
         value: {
           senderName: '',
           senderEmail: '',
-          defaultBaseURL: 'https://wiki.example.com',
+          defaultBaseURL: '',
           host: '',
           port: 465,
           name: '',

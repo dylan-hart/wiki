@@ -297,7 +297,11 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.equal(forgotPasswordMock.mock.calls.length, 1)
     assert.deepEqual(forgotPasswordMock.mock.calls[0].arguments[0], {
       strategyId: '11111111-1111-1111-1111-111111111111',
-      email: 'ada@example.com'
+      email: 'ada@example.com',
+      // -> OpenProject #3386: the route now threads its own :siteId param through, so
+      //    sendForgotPassword can link at the requesting site's real hostname instead of always
+      //    falling back to the instance-wide defaultBaseURL.
+      siteId: '22222222-2222-2222-2222-222222222222'
     })
   })
 

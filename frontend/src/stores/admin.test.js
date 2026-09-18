@@ -152,6 +152,18 @@ describe('admin store: fetch actions error path', () => {
   })
 
   describe('fetchInfo()', () => {
+    it('still updates isMailConfigured/isMailBaseURLConfigured on success (OpenProject #3386)', async () => {
+      const store = useAdminStore()
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ isMailConfigured: true, isMailBaseURLConfigured: true })
+      })
+
+      await store.fetchInfo()
+
+      expect(store.info.isMailConfigured).toBe(true)
+      expect(store.info.isMailBaseURLConfigured).toBe(true)
+    })
+
     it('leaves info at the default and notifies on a rejecting request', async () => {
       const store = useAdminStore()
       API_CLIENT.get.mockImplementationOnce(() => {

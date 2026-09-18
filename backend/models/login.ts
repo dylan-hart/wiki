@@ -915,7 +915,8 @@ class Login {
           to: existing.email,
           name: existing.name,
           token,
-          userId: existing.id
+          userId: existing.id,
+          siteId
         })
         return { nextAction: 'verify' }
       }
@@ -931,7 +932,8 @@ class Login {
           to: existing.email,
           name: existing.name,
           userId: existing.id,
-          locale: (existing.prefs as Record<string, any> | undefined)?.locale
+          locale: (existing.prefs as Record<string, any> | undefined)?.locale,
+          siteId
         })
       } catch (err: any) {
         CARDINAL.logger.warn('auth', 'sending the registration-attempt notice failed', {
@@ -969,7 +971,8 @@ class Login {
         to: normalizedEmail,
         name: displayName,
         token,
-        userId
+        userId,
+        siteId
       })
       return { nextAction: 'verify' }
     }
@@ -1372,7 +1375,8 @@ class Login {
           name: user.name,
           ip,
           userId: user.id,
-          locale: user.prefs?.locale
+          locale: user.prefs?.locale,
+          siteId
         })
       }
     } catch (err: any) {
@@ -1385,7 +1389,7 @@ class Login {
 
     let recoveryCodes: string[] | undefined
     if (setup) {
-      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId)
+      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId, siteId)
     }
 
     // -> The remaining checks still apply: a user who owed a password change before 2FA still owes it
@@ -1595,10 +1599,12 @@ class Login {
    */
   async forgotPassword({
     strategyId,
-    email
+    email,
+    siteId
   }: {
     strategyId: string
     email: string
+    siteId?: string
   }): Promise<void> {
     const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (!strategy?.isEnabled || strategy.config?.allowForgotPassword !== true) {
@@ -1627,7 +1633,8 @@ class Login {
       name: user.name,
       token,
       userId: user.id,
-      locale: (user.prefs as Record<string, any> | undefined)?.locale
+      locale: (user.prefs as Record<string, any> | undefined)?.locale,
+      siteId
     })
     CARDINAL.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
   }
@@ -1694,7 +1701,8 @@ class Login {
         to: user.email,
         name: user.name,
         userId: user.id,
-        locale: user.prefs?.locale
+        locale: user.prefs?.locale,
+        siteId
       })
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a

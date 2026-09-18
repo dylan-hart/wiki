@@ -171,6 +171,9 @@ describe('GET /info', () => {
         jobs: {
           countActive: async () => 2,
           isHealthy: async () => true
+        },
+        mail: {
+          hasResolvableBaseURL: () => false
         }
       }
     }
@@ -199,5 +202,12 @@ describe('GET /info', () => {
     assert.equal(res.statusCode, 200)
     const body = res.json()
     assert.equal(body.isPageviewsEnabled, true)
+  })
+
+  test('GET /info reports isMailBaseURLConfigured from models.mail.hasResolvableBaseURL(), not hardcoded (OpenProject #3386)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/info' })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.isMailBaseURLConfigured, false)
   })
 })

@@ -530,6 +530,73 @@ describe('AdminLayout system nav icons (OpenProject #2831)', () => {
   })
 })
 
+/**
+ * OpenProject #3386: the mail nav's status light used to reflect isMailConfigured (SMTP host set)
+ * alone. It now also warns when isMailBaseURLConfigured is false -- every mail link this instance
+ * would send resolves to an unresolvable host, even with SMTP fully working -- so a fresh instance
+ * still gets a visible nudge to set a base URL, not just a green light because mail could be sent.
+ */
+describe('AdminLayout mail status light (OpenProject #3386)', () => {
+  async function mountMailNav(info) {
+    // -> AdminLayout's onMounted calls adminStore.fetchInfo(), which overwrites info.* from
+    //    GET system/info -- seeding the store directly races that fetch, so the response itself
+    //    is what needs stubbing.
+    stubApi(
+      { sites: [{ id: 'site-1', title: 'Test Site' }], 'system/info': info },
+      { fallback: [] }
+    )
+
+    const router = await createTestRouter(['/_admin/:siteid?/:rest*'], '/_admin/site-1/dashboard')
+
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: ['manage:system'] } }
+    })
+    await flushPromises()
+
+    return wrapper
+  }
+
+  function mailStatusLight(wrapper) {
+    const mailItem = wrapper.find('a[href="/_admin/mail"]')
+    expect(mailItem.exists()).toBe(true)
+    return mailItem.find('.status-light')
+  }
+
+  it('is positive, not pulsing, once both SMTP and the base URL are configured', async () => {
+    const wrapper = await mountMailNav({
+      isMailConfigured: true,
+      isMailBaseURLConfigured: true
+    })
+
+    const light = mailStatusLight(wrapper)
+    expect(light.classes()).toContain('positive')
+    expect(light.classes()).not.toContain('pulsate')
+  })
+
+  it('warns when SMTP is configured but the base URL is not resolvable', async () => {
+    const wrapper = await mountMailNav({
+      isMailConfigured: true,
+      isMailBaseURLConfigured: false
+    })
+
+    const light = mailStatusLight(wrapper)
+    expect(light.classes()).toContain('warning')
+    expect(light.classes()).toContain('pulsate')
+  })
+
+  it('warns when the base URL is resolvable but SMTP is not configured', async () => {
+    const wrapper = await mountMailNav({
+      isMailConfigured: false,
+      isMailBaseURLConfigured: true
+    })
+
+    const light = mailStatusLight(wrapper)
+    expect(light.classes()).toContain('warning')
+    expect(light.classes()).toContain('pulsate')
+  })
+})
+
 describe('AdminLayout nav count badge', () => {
   it('keeps the count badge on a logical (inline-end) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))

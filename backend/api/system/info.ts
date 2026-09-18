@@ -129,6 +129,11 @@ async function routes(app: FastifyInstance) {
               isMailConfigured: {
                 type: 'boolean'
               },
+              isMailBaseURLConfigured: {
+                type: 'boolean',
+                description:
+                  'Whether any mail link this instance sends would resolve to a real host: `mail.defaultBaseURL` is set, or at least one site has a real (non-`*`) hostname (OpenProject #3386).'
+              },
               isApiEnabled: {
                 type: 'boolean',
                 description: 'Whether API keys are accepted.'
@@ -211,6 +216,7 @@ async function routes(app: FastifyInstance) {
         instancesTotal: clusterNodesTotal,
         isApiEnabled: CARDINAL.config.api.isEnabled === true,
         isMailConfigured: CARDINAL.config?.mail?.host?.length > 2,
+        isMailBaseURLConfigured: CARDINAL.models.mail.hasResolvableBaseURL(),
         isMetricsEnabled: CARDINAL.config.metrics.isEnabled === true,
         isPageviewsEnabled: CARDINAL.config.pageviews.isEnabled === true,
         isReplicationEnabled: CARDINAL.config.replication?.isEnabled === true,
