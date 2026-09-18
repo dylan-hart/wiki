@@ -187,6 +187,53 @@
             @click="scanPageProblems"
             :label="t(`common.actions.proceed`)" />
         </w-settings-row>
+        <w-settings-row
+          icon="tabler:replace"
+          control-width="auto"
+          :label="t(`admin.utilities.wysiwygConvert`)"
+          :hint="t(`admin.utilities.wysiwygConvertHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            :loading="state.isConvertingWysiwyg"
+            :aria-label="t(`admin.utilities.wysiwygConvert`)"
+            @click="convertWysiwygJson"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+      </w-card>
+      <!--
+        Inline for the same reason as the scan report above: the value of a run is the list of what
+        it could not convert, read right beside the button that ran it.
+      -->
+      <w-card v-if="state.wysiwygConvertReport" class="mt-4">
+        <w-card-header>
+          {{ t('admin.utilities.wysiwygConvertResults') }}
+          <template #hint>{{
+            t(
+              'admin.utilities.wysiwygConvertConvertedCount',
+              state.wysiwygConvertReport.convertedCount,
+              {
+                count: state.wysiwygConvertReport.convertedCount
+              }
+            )
+          }}</template>
+        </w-card-header>
+        <div
+          v-if="state.wysiwygConvertReport.failed.length === 0"
+          class="p-4 text-center text-grey">
+          {{ t('admin.utilities.wysiwygConvertNone') }}
+        </div>
+        <w-list v-else dense separator>
+          <w-item v-for="entry of state.wysiwygConvertReport.failed" :key="entry.id">
+            <w-item-section>
+              <w-item-label class="font-robotomono"
+                >/{{ entry.path }} ({{ entry.locale }}) — {{ entry.reason }}</w-item-label
+              >
+            </w-item-section>
+          </w-item>
+        </w-list>
       </w-card>
       <!--
         Inline rather than a dialog or the scheduler's history view: the value of this scan is the
@@ -270,8 +317,11 @@ const state = reactive({
   purgeHistoryTimeframe: '1y',
   isScanning: false,
   isExporting: false,
+  isConvertingWysiwyg: false,
   /** The last completed scan's report, or null before one has run. See `scanPageProblems`. */
-  scanReport: null
+  scanReport: null,
+  /** The last completed conversion's report, or null before one has run. See `convertWysiwygJson`. */
+  wysiwygConvertReport: null
 })
 
 const importFileIpt = ref(null)
@@ -741,6 +791,47 @@ async function scanPageProblems() {
     })
   }
   state.isScanning = false
+}
+
+/** How long to wait between polls of a running conversion job. Same cadence as the scan above. */
+const WYSIWYG_CONVERT_POLL_INTERVAL_MS = 1500
+
+/**
+ * Queue the legacy WYSIWYG JSON conversion (OpenProject #3400) and poll its job until it finishes,
+ * then show the report inline (see the template) — mirrors `scanPageProblems`'s own queue-and-poll
+ * shape, since this is the same "background job, then read its report back" pattern.
+ *
+ * Not confirmed: every row it touches was already labeled as this editor's own content, and what
+ * changes is how it's encoded, not what it says.
+ */
+async function convertWysiwygJson() {
+  state.isConvertingWysiwyg = true
+  state.wysiwygConvertReport = null
+  try {
+    const queued = await API_CLIENT.post('system/wysiwyg/convert').json()
+    if (!queued?.id) {
+      throw new Error(t('common.error.unexpected'))
+    }
+
+    let job
+    do {
+      await new Promise((resolve) => setTimeout(resolve, WYSIWYG_CONVERT_POLL_INTERVAL_MS))
+      job = await API_CLIENT.get(`system/wysiwyg/convert/${queued.id}`).json()
+    } while (job.state === 'queued' || job.state === 'active')
+
+    if (job.state !== 'completed' || !job.result) {
+      throw new Error(t('admin.utilities.wysiwygConvertFailed'))
+    }
+
+    state.wysiwygConvertReport = job.result
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.utilities.wysiwygConvertFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.isConvertingWysiwyg = false
 }
 </script>
 

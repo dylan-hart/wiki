@@ -71,6 +71,9 @@ export const AUDIT_EVENTS = [
   'system.pageHistoryPurged',
   'system.contentExported',
   'system.contentImported',
+  // -> OpenProject #3400: an operator queued the run-once legacy-WYSIWYG-JSON conversion job
+  //   (`POST /_api/system/wysiwyg/convert`).
+  'system.wysiwygJsonConverted',
   // -> #2489: an instance-wide replication snapshot was queued (Epic #2437's scheduled clean-slate
   //   replication, source side). Distinct from `system.contentExported`, which is the existing
   //   per-site "Export content" utility -- this is the whole instance, a different archive format,

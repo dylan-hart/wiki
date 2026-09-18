@@ -2,6 +2,7 @@ import maintenance from '../../core/maintenance.ts'
 import { purgeTimeframes } from '../../models/pageHistory.ts'
 import type { PurgeTimeframe } from '../../models/pageHistory.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
+import { JOB_STATES } from '../../models/jobs.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -367,6 +368,155 @@ async function routes(app: FastifyInstance) {
         message: `Purged ${count} page version(s).`,
         count
       }
+    }
+  )
+
+  /**
+   * CONVERT LEGACY WYSIWYG JSON ROWS
+   */
+  app.post(
+    '/wysiwyg/convert',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Convert legacy WYSIWYG Tiptap-JSON rows to markdown',
+        description:
+          "Queues a background job that finds every page still holding the old WYSIWYG editor's raw Tiptap JSON (a `contentType: 'html'` row whose content actually starts with `{`, from before OpenProject #3395 moved that editor onto markdown storage), converts each through a headless copy of the editor, and writes the result back as `contentType: 'markdown'` with one history version per page. Runs in the background across every site. A row this can't convert (malformed JSON, or JSON that isn't a Tiptap document) is reported, not silently skipped -- opening it in the editor still converts it lazily on its next save. Poll `GET /wysiwyg/convert/:jobId` for the result.",
+        tags: ['System'],
+        response: {
+          200: {
+            description: 'Conversion queued successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description: 'ID of the queued job. Pass it to the status route below.'
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const added = await CARDINAL.scheduler.addJob({
+        task: 'convertWysiwygJson',
+        payload: { actorId: req.session.user!.id }
+      })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the conversion.')
+      }
+
+      await CARDINAL.models.auditLog.record({
+        event: 'system.wysiwygJsonConverted',
+        actor: actorFromRequest(req),
+        detail: { jobId: added.id }
+      })
+
+      return {
+        ok: true,
+        message: 'Legacy WYSIWYG JSON conversion queued successfully.',
+        id: added.id
+      }
+    }
+  )
+
+  /**
+   * GET LEGACY WYSIWYG JSON CONVERSION RESULT
+   */
+  app.get<{ Params: { jobId: string } }>(
+    '/wysiwyg/convert/:jobId',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Get a legacy WYSIWYG JSON conversion job',
+        description:
+          "The job's current state, and its report once `state` is `completed`. 404s when no such conversion job exists.",
+        tags: ['System'],
+        params: {
+          type: 'object',
+          properties: {
+            jobId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['jobId']
+        },
+        response: {
+          200: {
+            description: 'Conversion job state and, once completed, its report',
+            type: 'object',
+            properties: {
+              state: {
+                type: 'string',
+                enum: ['queued', ...JOB_STATES],
+                description:
+                  '`queued` while still waiting to be picked up — it has not reached job history yet.'
+              },
+              result: {
+                type: 'object',
+                nullable: true,
+                description: 'Null until the job has completed.',
+                properties: {
+                  convertedCount: {
+                    type: 'integer',
+                    description: 'Rows converted successfully.'
+                  },
+                  failed: {
+                    type: 'array',
+                    description: 'Rows that could not be converted, not silently skipped.',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        siteId: { type: 'string', format: 'uuid' },
+                        id: { type: 'string', format: 'uuid' },
+                        path: { type: 'string' },
+                        locale: { type: 'string' },
+                        reason: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const entry = await CARDINAL.models.jobs.getHistoryEntry(req.params.jobId)
+      if (entry) {
+        if (entry.task !== 'convertWysiwygJson') {
+          return reply.notFound('No such conversion job.')
+        }
+        return {
+          state: entry.state,
+          result: entry.result ?? null
+        }
+      }
+
+      // -> Not in history yet: it may simply not have been picked up off the queue by any instance
+      //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`)
+      const pending = await CARDINAL.models.jobs.getPendingEntry(req.params.jobId)
+      if (!pending || pending.task !== 'convertWysiwygJson') {
+        return reply.notFound('No such conversion job.')
+      }
+      return { state: 'queued', result: null }
     }
   )
 }

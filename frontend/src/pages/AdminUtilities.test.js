@@ -50,6 +50,13 @@ const messages = {
   'admin.utilities.scanPageProblemsOrphanTreeEntry': '/{path} — has no matching page',
   'admin.utilities.scanPageProblemsOrphanPageRow': '/{path} — has no matching tree entry',
   'admin.utilities.scanPageProblemsFailed': 'The scan could not be completed.',
+  'admin.utilities.wysiwygConvert': 'Convert Legacy WYSIWYG Content',
+  'admin.utilities.wysiwygConvertHint': '',
+  'admin.utilities.wysiwygConvertResults': 'Conversion results',
+  'admin.utilities.wysiwygConvertConvertedCount':
+    'No pages converted. | 1 page converted. | {count} pages converted.',
+  'admin.utilities.wysiwygConvertNone': 'Nothing left to report — every converted row succeeded.',
+  'admin.utilities.wysiwygConvertFailed': 'The conversion could not be completed.',
   'admin.utilities.disconnectWS': 'Disconnect WebSocket Clients',
   'admin.utilities.disconnectWSHint': 'Force all connected clients to reconnect.',
   'admin.utilities.purgeHistory': 'Purge Page History',
@@ -348,9 +355,113 @@ describe('AdminUtilities scanPageProblems', () => {
 })
 
 /**
+ * OpenProject #3400: `convertWysiwygJson` follows the exact same queue-and-poll shape as
+ * `scanPageProblems` above (`POST system/wysiwyg/convert` then poll `GET
+ * system/wysiwyg/convert/:jobId`), just against a different report shape -- a converted count plus a
+ * `failed` list, shown inline the same way.
+ */
+describe('AdminUtilities convertWysiwygJson', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('queues the conversion and polls until completion, then shows the report', async () => {
+    const wrapper = await mountUtilities()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, id: 'job-9' })
+    })
+    API_CLIENT.get
+      .mockReturnValueOnce({ json: () => Promise.resolve({ state: 'queued', result: null }) })
+      .mockReturnValueOnce({ json: () => Promise.resolve({ state: 'active', result: null }) })
+      .mockReturnValueOnce({
+        json: () =>
+          Promise.resolve({
+            state: 'completed',
+            result: {
+              convertedCount: 3,
+              failed: [
+                {
+                  siteId: 's1',
+                  id: 'p1',
+                  path: 'broken',
+                  locale: 'en',
+                  reason: 'Not a Tiptap document: missing a top-level "doc" node.'
+                }
+              ]
+            }
+          })
+      })
+
+    const button = wrapper.find('[aria-label="Convert Legacy WYSIWYG Content"]')
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('system/wysiwyg/convert')
+
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(3)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('system/wysiwyg/convert/job-9')
+    expect(wrapper.text()).toContain('Conversion results')
+    expect(wrapper.text()).toContain('3 pages converted.')
+    expect(wrapper.text()).toContain(
+      '/broken (en) — Not a Tiptap document: missing a top-level "doc" node.'
+    )
+    expect(wrapper.text()).not.toContain('Nothing left to report')
+  })
+
+  it('shows the "nothing left to report" state when every row converted', async () => {
+    const wrapper = await mountUtilities()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, id: 'job-10' })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ state: 'completed', result: { convertedCount: 2, failed: [] } })
+    })
+
+    await wrapper.find('[aria-label="Convert Legacy WYSIWYG Content"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2 pages converted.')
+    expect(wrapper.text()).toContain('Nothing left to report')
+  })
+
+  it('shows an error and no report when the job fails', async () => {
+    const wrapper = await mountUtilities()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, id: 'job-11' })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ state: 'failed', result: null })
+    })
+
+    await wrapper.find('[aria-label="Convert Legacy WYSIWYG Content"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Conversion results')
+  })
+})
+
+/**
  * The Cardinal settings pattern, as it reaches a TOOL page.
  *
- * Each of these ten utilities is a fixed, design-time named action: a plate, a label over a
+ * Each of these eleven utilities is a fixed, design-time named action: a plate, a label over a
  * sentence, and one control at the trailing edge. That is the settings row's own shape, so the page
  * draws them with `WSettingsRow` rather than the hand-written `WItem` + `BlueprintIcon` + two
  * `WItemSection` + two `WItemLabel` stack it used to. What it deliberately does NOT take is a header
@@ -362,7 +473,7 @@ describe('AdminUtilities settings pattern', () => {
     const wrapper = await mountUtilities()
     const rows = wrapper.findAll('.w-settings-row')
 
-    expect(rows).toHaveLength(10)
+    expect(rows).toHaveLength(11)
     for (const row of rows) {
       expect(row.find('.blueprint-icon').exists()).toBe(true)
       expect(row.find('.w-settings-row__label').text()).not.toBe('')

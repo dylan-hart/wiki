@@ -375,24 +375,56 @@ function handleEditorUpdate({ editor }) {
   })
 }
 
+/**
+ * The lazy on-open fallback for a legacy row the run-once conversion job (OpenProject #3400,
+ * `backend/tasks/simple/convert-wysiwyg-json.ts`) hasn't gotten to yet, or couldn't parse: a page
+ * still holding the pre-#3395 WYSIWYG editor's raw, serialized Tiptap JSON under `content`, rather
+ * than markdown. `startsWith('{')` is the same heuristic the backend job and
+ * `helpers/wysiwygHeadlessMarkdown.ts#isLegacyWysiwygJson` use to tell it apart from real markdown --
+ * kept in sync by hand since the two workspaces install separately and share no code.
+ */
+function isLegacyWysiwygJson(content) {
+  return typeof content === 'string' && content.trimStart().startsWith('{')
+}
+
 function init() {
   // -> Setup Editor View
   editorStore.$patch({
     hideSideNav: false
   })
 
+  /*
+    A legacy row parses as JSON directly -- `contentType: 'json'` loads it the way TipTap always
+    loaded a JSON document, with no involvement from the `Markdown` extension at all -- rather than
+    being handed to the markdown parser as literal text (which would show the raw `{"type":"doc",…}`
+    source as the page's content). Malformed JSON falls back to the ordinary markdown path below: it
+    was never going to render correctly either way, and this at least keeps `useEditor()` from
+    throwing on a page that used to at least open.
+
+    Either path, saving from here writes real markdown into `content` -- `handleEditorUpdate()`'s
+    `editor.getMarkdown()` doesn't know or care which content type the page loaded as -- and
+    `updatePage()`'s own `isLegacyWysiwygConversionSave` check (`backend/models/pages.ts`) is what
+    flips `contentType` to `markdown` on that save, finishing the conversion this run-once job could
+    not.
+  */
+  let content = pageStore.content
+  let contentType = 'markdown'
+  if (isLegacyWysiwygJson(pageStore.content)) {
+    try {
+      content = JSON.parse(pageStore.content)
+      contentType = 'json'
+    } catch {
+      // -> Not valid JSON after all -- fall through to the markdown path above, content/contentType
+      //    already set to that.
+    }
+  }
+
   // -> Initialize TipTap. Starts read-only when a collab session is about to be started -- see the
   //    collaboration block in `onMounted` below for why, and `swapToCollabEditor()` for what replaces
   //    this instance once that session has synced.
-  //
-  // -> `contentType: 'markdown'` (from the `Markdown` extension registered in `buildExtensions()`)
-  //    parses `pageStore.content` as markdown text -- what every WYSIWYG page saves as now, mirroring
-  //    `EditorMarkdown.vue` treating the same column as markdown. There is no legacy-format branch
-  //    here: a page saved before this change (TipTap JSON, or raw HTML) is a one-time migration this
-  //    task does not cover -- see the parent Feature (#3388).
   editor = useEditor({
-    content: pageStore.content,
-    contentType: 'markdown',
+    content,
+    contentType,
     editable: !collabEnabled.value,
     extensions: buildExtensions(null),
     editorProps: buildEditorProps(),
