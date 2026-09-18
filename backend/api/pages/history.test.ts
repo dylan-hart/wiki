@@ -205,7 +205,8 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
         roles: ['read:history'],
         match: 'TAG',
         mode: 'ALLOW',
-        path: 'public',
+        path: '',
+        tags: ['public'],
         locales: [],
         sites: []
       },
@@ -215,7 +216,8 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
         roles: ['read:history'],
         match: 'TAG',
         mode: 'DENY',
-        path: 'secret',
+        path: '',
+        tags: ['secret'],
         locales: [],
         sites: []
       }
