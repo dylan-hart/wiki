@@ -7,6 +7,7 @@ import {
   sanitizeOptions,
   unwrapOrphanedChildBlocks
 } from '../helpers/htmlSanitizePolicy.ts'
+import { stripLocalePrefix } from '../helpers/localeRouting.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
@@ -169,7 +170,7 @@ class Rendering {
     $ = cheerio.load(sanitizeHtml($.html(), options), null, false)
 
     const toc = this.anchorHeadings($)
-    const links = this.extractInternalLinks($, pagePath)
+    const links = this.extractInternalLinks($, pagePath, siteId)
 
     return {
       render: $.html(),
@@ -451,10 +452,18 @@ class Rendering {
    * `isExternalHref`/`fileSrc`: this runs in Node, with no `document` to resolve a bare-relative
    * href against, and only cares about anchors, not images — an internal image is a file under
    * `/_files/`, never another page.
+   *
+   * `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a target outside the
+   * editing page's own locale (OpenProject #3379) — and, on a `forcePrefix` site, for every target,
+   * including the primary locale. Stripped here via `helpers/localeRouting.ts#stripLocalePrefix`
+   * before storing, so what lands in `pages.links` is always the bare path the three consumers
+   * (`api/pages/read.ts`'s backlinks listing, `/_graph`, `relinkReferencingPages`) already assume —
+   * the linking page's own locale, same convention as every hand-typed same-locale link.
    */
-  private extractInternalLinks($: cheerio.CheerioAPI, pagePath: string): string[] {
+  private extractInternalLinks($: cheerio.CheerioAPI, pagePath: string, siteId: string): string[] {
     const folder = pagePath.split('/').slice(0, -1).join('/')
     const targets = new Set<string>()
+    const locales = CARDINAL.sites?.[siteId]?.config?.locales
 
     $('a[href]').each((_, el) => {
       const href = $(el).attr('href')?.trim()
@@ -468,7 +477,8 @@ class Rendering {
       }
       try {
         const url = new URL(href, `http://page.invalid/${folder ? `${folder}/` : ''}`)
-        const target = url.pathname.replace(/^\/+/, '')
+        const stripped = stripLocalePrefix(url.pathname, locales)
+        const target = (stripped ? stripped.path : url.pathname).replace(/^\/+/, '')
         if (target) {
           targets.add(target)
         }

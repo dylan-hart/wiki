@@ -1231,6 +1231,62 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
       assert.deepEqual(after!.links, ['docs/relink-xlocale-target'])
     })
+
+    /**
+     * OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a
+     * non-primary-locale target, which `extractInternalLinks` strips before storing so `links`
+     * holds the bare path a move already knows how to find (`oldPath`/`newPath` are both bare).
+     * What a move must ALSO still find and rewrite is the literal locale-prefixed href text still
+     * sitting in `content`/`render` -- this is the other half of the same defect.
+     */
+    test('rewrites a locale-prefixed href, preserving the locale segment', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-locale-prefixed-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-locale-prefixed-referrer',
+          locale: 'en',
+          content: 'See the [target](/fr/docs/relink-locale-prefixed-target) for more.',
+          render:
+            '<p>See the <a href="/fr/docs/relink-locale-prefixed-target">target</a> for more.</p>'
+        }),
+        actor
+      )
+      const [before] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      // -> The locale prefix is stripped before storage -- `links` already holds the bare path,
+      //    same convention as a same-locale link.
+      assert.deepEqual(before!.links, ['docs/relink-locale-prefixed-target'])
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-locale-prefixed-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      // -> The markdown `](` syntax is a residual gap the WP's resolved scope explicitly accepts --
+      //    only the `render`'s `href="` occurrence, and `links`, are expected to be rewritten.
+      assert.equal(
+        after!.content,
+        'See the [target](/fr/docs/relink-locale-prefixed-target) for more.'
+      )
+      assert.equal(
+        after!.render,
+        '<p>See the <a href="/fr/docs/relink-locale-prefixed-target-new">target</a> for more.</p>'
+      )
+      assert.deepEqual(after!.links, ['docs/relink-locale-prefixed-target-new'])
+    })
   })
 
   /**

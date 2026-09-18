@@ -49,13 +49,32 @@ export interface RewriteResult {
  * an empty `oldPath` would otherwise turn this into "match every empty link opener" — every bare
  * `]()` and `href=""` in the text, which is not what a mover of the home page's page (kept at some
  * other path) would want touched.
+ *
+ * `activeLocales` (OpenProject #3379) lets the `href="` branch also match — and preserve — an
+ * optional leading locale segment (`href="/fr/docs/old"` → `href="/fr/docs/new"`), since
+ * `LinkPickerDialog.vue` writes one for a non-primary-locale target, and for every target on a
+ * `forcePrefix` site. `extractInternalLinks` already strips that segment before storing `oldPath`
+ * bare, so without this the plain pattern above would never see the href in `content`/`render` to
+ * rewrite it. Left off the markdown `](` branch: that syntax is emitted only by `EditorMarkdown.vue`,
+ * whose picker-inserted links are a separate residual gap the WP's resolved scope accepts rather
+ * than fixes here.
  */
-export function rewriteLinkText(text: string, oldPath: string, newPath: string): RewriteResult {
+export function rewriteLinkText(
+  text: string,
+  oldPath: string,
+  newPath: string,
+  activeLocales: string[] = []
+): RewriteResult {
   if (!text || !oldPath || oldPath === newPath) {
     return { text, changed: false }
   }
   const escaped = escapeRegExp(oldPath)
-  const pattern = new RegExp(`(\\]\\(\\s*/?|href=(?:"|')\\s*/?)${escaped}(?=[)"'#?\\s]|$)`, 'g')
+  const localePrefix =
+    activeLocales.length > 0 ? `(?:(?:${activeLocales.map(escapeRegExp).join('|')})/)?` : ''
+  const pattern = new RegExp(
+    `(\\]\\(\\s*/?|href=(?:"|')\\s*/?${localePrefix})${escaped}(?=[)"'#?\\s]|$)`,
+    'g'
+  )
   let changed = false
   const rewritten = text.replaceAll(pattern, (_match, prefix: string) => {
     changed = true
