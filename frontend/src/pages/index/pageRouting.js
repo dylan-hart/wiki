@@ -36,6 +36,7 @@ import { useUserStore } from '@/stores/user'
  */
 export async function enterCreateMode(route, { router, t }) {
   const pageStore = usePageStore()
+  const userStore = useUserStore()
 
   if (!route.params.editor) {
     notify({
@@ -58,6 +59,15 @@ export async function enterCreateMode(route, { router, t }) {
   //    error only in the console (OpenProject #947).
   try {
     await pageStore.pageCreate(pageCreateArgs)
+    /*
+      The editor route never goes through `loadPageForRoute` below, which is the only other place
+      that ever calls this -- so without it, `userStore.pagePermissions` stayed at its cleared `[]`
+      for the entire lifetime of a create session, and every page-permission-gated control (setting
+      a load/unload script, OpenProject #3417) read as denied before the page had ever been saved
+      once. `pageStore.path`/`.locale` (not `pageCreateArgs`) because `pageCreate` is what resolves
+      the actual target path -- a default `new-page` slug when the route carried none.
+    */
+    await userStore.fetchPagePermissions(pageStore.path, pageStore.locale)
   } catch (err) {
     notify({ type: 'negative', message: apiErrorMessage(err) })
     router.replace('/')
@@ -75,6 +85,7 @@ export async function enterCreateMode(route, { router, t }) {
  */
 export async function enterEditMode(route, { router }) {
   const pageStore = usePageStore()
+  const userStore = useUserStore()
 
   if (!route.params.pagePath) {
     return router.replace('/')
@@ -90,6 +101,15 @@ export async function enterEditMode(route, { router }) {
       locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
       fromNavigate: true
     })
+    /*
+      Same gap, same fix, as `enterCreateMode` above (OpenProject #3417): this route never goes
+      through `loadPageForRoute`'s own `fetchPagePermissions` call, so an editor opened directly on
+      `/_edit/:pagePath` (a bookmark, a reload while editing) started with `pagePermissions` still at
+      its cleared `[]` rather than what this session actually holds on the page just loaded.
+      `pageStore.path`/`.locale` are the server's own normalized values off the page `pageEdit` just
+      loaded, not the raw route params.
+    */
+    await userStore.fetchPagePermissions(pageStore.path, pageStore.locale)
   } catch (err) {
     if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
       router.replace('/_error/unauthorized')
