@@ -215,6 +215,12 @@ class Sites extends ClusterReloaded {
               browse: true,
               collaborativeEditing: true,
               comments: false,
+              // -> Feature #3389 / Task #3403: the site-wide execution kill switch for per-page
+              //    scripts/styles. Off by default -- authoring stays gated separately by
+              //    write:scripts/write:styles (Task #3402); this is the additional AND that decides
+              //    whether an authored script/style is ever allowed to run/render at all, for
+              //    siblings #3404/#3405 to read.
+              pageScripts: false,
               profile: true,
               reasonForChange: 'optional',
               search: true,
@@ -604,6 +610,7 @@ class Sites extends ClusterReloaded {
           browse: true,
           collaborativeEditing: true,
           comments: false,
+          pageScripts: false,
           profile: true,
           reasonForChange: 'optional',
           search: true,

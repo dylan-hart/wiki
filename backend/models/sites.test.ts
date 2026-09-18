@@ -108,6 +108,7 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       browse: true,
       collaborativeEditing: true,
       comments: false,
+      pageScripts: false,
       profile: true,
       reasonForChange: 'optional',
       search: true,

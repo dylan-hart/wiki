@@ -61,6 +61,7 @@ const FIXTURE_SITE = {
   features: {
     browse: true,
     comments: true,
+    pageScripts: true,
     profile: true,
     reasonForChange: 'optional',
     search: true,
@@ -258,6 +259,7 @@ describe('AdminGeneral save() field round-trip', () => {
       features: {
         browse: true,
         comments: true,
+        pageScripts: true,
         profile: true,
         reasonForChange: 'optional',
         search: true,

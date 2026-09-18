@@ -153,6 +153,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           comments: {
             type: 'boolean'
           },
+          pageScripts: {
+            type: 'boolean',
+            description:
+              'The site-wide execution kill switch for per-page scripts/styles (Feature #3389). Off by default. Distinct from write:scripts/write:styles, which gate authoring a script/style into page content in the first place -- this is the additional switch that decides whether an authored one is ever allowed to run/render at all.'
+          },
           profile: {
             type: 'boolean'
           },

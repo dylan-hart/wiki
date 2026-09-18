@@ -487,6 +487,8 @@
   "admin.general.allowCollaborativeEditingHint": "Can several people edit the same page at the same time, seeing each other's cursors and changes live? Applies to the markdown editor. Changes are still only stored when someone saves the page.",
   "admin.general.allowComments": "Allow Comments",
   "admin.general.allowCommentsHint": "Can users leave comments on pages? Can be restricted using Page Rules.",
+  "admin.general.allowPageScripts": "Allow Page Scripts and Styles",
+  "admin.general.allowPageScriptsHint": "Master switch for whether authored per-page scripts and styles are ever executed or rendered on this site, regardless of who wrote them. Off by default; turning this on does not by itself let anyone author one -- that still requires the write:scripts/write:styles permission.",
   "admin.general.allowProfile": "Allow Profile Editing",
   "admin.general.allowProfileHint": "Can users edit their own profile? If profile data is managed by an external identity provider, you should turn this off.",
   "admin.general.allowSearch": "Allow Search",
