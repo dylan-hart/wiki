@@ -156,6 +156,17 @@
           <w-settings-row
             tag="label"
             control-width="auto"
+            icon="tabler:code"
+            :label="t(`admin.general.allowPageScripts`)"
+            :hint="t(`admin.general.allowPageScriptsHint`)">
+            <w-toggle
+              v-model="state.config.features.pageScripts"
+              :loading="state.loading > 0"
+              :aria-label="t(`admin.general.allowPageScripts`)" />
+          </w-settings-row>
+          <w-settings-row
+            tag="label"
+            control-width="auto"
             icon="tabler:user-shield"
             :label="t(`admin.general.allowProfile`)"
             :hint="t(`admin.general.allowProfileHint`)">
@@ -527,6 +538,7 @@ function defaultConfig() {
     },
     features: {
       comments: false,
+      pageScripts: false,
       reasonForChange: 'required',
       profile: false
     },
@@ -643,6 +655,7 @@ const {
         features: {
           browse: config.features?.browse ?? false,
           comments: config.features?.comments ?? false,
+          pageScripts: config.features?.pageScripts ?? false,
           profile: config.features?.profile ?? false,
           reasonForChange: config.features?.reasonForChange ?? 'required',
           search: config.features?.search ?? false,
