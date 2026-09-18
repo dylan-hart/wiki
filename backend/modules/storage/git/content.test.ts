@@ -158,6 +158,39 @@ describe('git storage content handlers', () => {
       await assert.doesNotReject(fs.access(path.join(repoPath, 'page.html')))
     })
 
+    /**
+     * OpenProject #3401: a WYSIWYG page's `contentType` is `markdown` now (it stores markdown via
+     * `@tiptap/markdown`, not typed Tiptap JSON) -- this handler reads `page.contentType`, never
+     * `page.editor`, so it already writes a `.md` file for one with no fix needed. Pinned explicitly
+     * rather than trusted implicitly, since `w1`'s content here is real markdown source, the same
+     * shape the plain `markdown` editor writes.
+     */
+    test('writes a WYSIWYG-editor page (content type markdown) to a .md file, same as the markdown editor', async () => {
+      installWiki(rootPath, {
+        pages: {
+          w1: {
+            id: 'w1',
+            path: 'wysiwyg-page',
+            editor: 'wysiwyg',
+            contentType: 'markdown',
+            content: '# Heading\n\nSome **bold** text.'
+          }
+        }
+      })
+      const { repoPath } = await ensureRepo(target)
+
+      await created(target, {
+        id: 'w1',
+        path: 'wysiwyg-page',
+        locale: PRIMARY_LOCALE,
+        siteId: SITE_ID
+      })
+
+      const written = await fs.readFile(path.join(repoPath, 'wysiwyg-page.md'), 'utf8')
+      assert.equal(written, '# Heading\n\nSome **bold** text.')
+      await assert.rejects(fs.access(path.join(repoPath, 'wysiwyg-page.html')))
+    })
+
     test('falls back to the target defaultName/defaultEmail when there is no resolvable author', async () => {
       installWiki(rootPath, {
         pages: { p1: { id: 'p1', path: 'foo', contentType: 'markdown', content: 'hi' } }

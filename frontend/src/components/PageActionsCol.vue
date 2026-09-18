@@ -514,9 +514,10 @@ async function exportPageText(format) {
  * Copies the page's raw stored content to the clipboard (OpenProject #2795) -- the same
  * `format=markdown` export endpoint `exportPageText` uses, but copied via `copyToClipboard()`
  * instead of downloaded via `fileSave()`. The endpoint hands back each editor's native raw
- * `content` regardless of the `format` name, so this is literal Markdown only for a `markdown`
- * page; for `code`/`wysiwyg` it's HTML source, and for `asciidoc` it's AsciiDoc source -- which is
- * why the button/tooltip label reads generically rather than "Copy as Markdown".
+ * `content` regardless of the `format` name, so this is literal Markdown for both the `markdown`
+ * and `wysiwyg` editors (the latter stores markdown via `@tiptap/markdown` now, not typed Tiptap
+ * JSON -- OpenProject #3388); for `code` it's HTML source, and for `asciidoc` it's AsciiDoc source
+ * -- which is why the button/tooltip label reads generically rather than "Copy as Markdown".
  */
 async function copyPageContent() {
   try {
