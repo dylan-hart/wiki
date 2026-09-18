@@ -25,22 +25,28 @@ const SITE_B = '22222222-2222-4222-8222-222222222222'
  * three routes was silently ignored rather than verified. `isBearerAuthenticatedPath` is the pure
  * function of the URL that decides whether the hook should even look for a token; this proves it
  * covers exactly the intended surface and nothing more.
+ *
+ * `controllers/pageScripts.ts`'s `/_pages/` (OpenProject #3405) joined the same list later, on the
+ * same `actorForRequest()`-mediated reasoning as `/_thumb/` -- not a fresh instance of the #2339 bug,
+ * since the prefix was added in the same change that introduced the route.
  */
 describe('isBearerAuthenticatedPath', () => {
   test('matches /_api/ requests', () => {
     assert.equal(isBearerAuthenticatedPath('/_api/sites/current'), true)
   })
 
-  test('matches the three hostname-resolved public controllers this closes the gap for', () => {
+  test('matches the hostname-resolved public controllers this closes the gap for', () => {
     assert.equal(isBearerAuthenticatedPath('/_files/some/asset.png'), true)
     assert.equal(isBearerAuthenticatedPath('/_site/current/logo'), true)
     assert.equal(isBearerAuthenticatedPath(`/_thumb/${SITE_A}.webp`), true)
+    assert.equal(isBearerAuthenticatedPath(`/_pages/${SITE_A}/script.js`), true)
   })
 
   test('does not match a bare prefix with no trailing slash', () => {
     assert.equal(isBearerAuthenticatedPath('/_files'), false)
     assert.equal(isBearerAuthenticatedPath('/_site'), false)
     assert.equal(isBearerAuthenticatedPath('/_thumb'), false)
+    assert.equal(isBearerAuthenticatedPath('/_pages'), false)
   })
 
   test('does not match controllers/render.ts, which resolves no site and carries no API key', () => {

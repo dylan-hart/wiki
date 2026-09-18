@@ -21,6 +21,7 @@ export function registerRoutes(app: FastifyInstance): void {
   //    Prometheus scrapes a fixed, unprefixed `/metrics`. See `controllers/metrics.ts` for the full
   //    scope decision (task 594).
   app.register(import('../../controllers/metrics.ts'), { prefix: '/metrics' })
+  app.register(import('../../controllers/pageScripts.ts'), { prefix: '/_pages' })
   app.register(import('../../controllers/render.ts'), { prefix: '/_render' })
   // -> No prefix: `/robots.txt` and `/sitemap.xml` are root-level files, not part of the `_`-prefixed
   //    server namespace the rest of these occupy. See `siteRouting.ts`'s `RESERVED_ROOT_FILES` /

@@ -47,6 +47,7 @@ export const SERVER_ROUTE_SEGMENTS = new Set([
   '_files',
   '_icons',
   '_mcp',
+  '_pages',
   '_render',
   '_site',
   '_terminal',
