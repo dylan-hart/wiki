@@ -23,6 +23,7 @@ import {
   users as usersTable
 } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import { getEditorForContentType } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
@@ -37,6 +38,32 @@ async function readTreeRow(id: string) {
   const rows = await CARDINAL.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
   return rows[0] ?? null
 }
+
+/**
+ * Task 3395: `wysiwyg` and the plain `markdown` editor both produce `contentType: 'markdown'` now
+ * (`EDITOR_CONTENT_TYPES`), which would make `CONTENT_TYPE_EDITORS`'s naive `Object.fromEntries`
+ * inverse (last entry wins on a collision) attribute a file-backed `'markdown'` page to `wysiwyg` —
+ * an editor its content never went through. `getEditorForContentType` is a pure function, so this
+ * needs no database.
+ */
+describe('getEditorForContentType', () => {
+  test('a plain markdown content type still resolves back to the markdown editor, not wysiwyg', () => {
+    assert.equal(getEditorForContentType('markdown'), 'markdown')
+  })
+
+  test('html still resolves to the code editor, its sole producer now that wysiwyg emits markdown', () => {
+    assert.equal(getEditorForContentType('html'), 'code')
+  })
+
+  test('asciidoc and redirect resolve back to their own single-producer editor', () => {
+    assert.equal(getEditorForContentType('asciidoc'), 'asciidoc')
+    assert.equal(getEditorForContentType('redirect'), 'redirect')
+  })
+
+  test('an unrecognized content type falls back to markdown', () => {
+    assert.equal(getEditorForContentType('nonsense'), 'markdown')
+  })
+})
 
 /**
  * `models/pages.ts`'s create/update/move/delete are almost entirely SQL — inserts, duplicate-path
@@ -261,6 +288,26 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
 
     assert.equal(page.contentType, 'html')
+  })
+
+  /**
+   * Task 3395: locks `EDITOR_CONTENT_TYPES.wysiwyg` mapping to `'markdown'`, not `'html'` -- the
+   * WYSIWYG editor's save path now serializes through `@tiptap/markdown` (`EditorWysiwyg.vue`), not
+   * `editor.getJSON()`.
+   */
+  test('createPage stores the wysiwyg editor content as markdown, matching EDITOR_CONTENT_TYPES', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/wysiwyg-page',
+        title: 'WYSIWYG Page',
+        editor: 'wysiwyg',
+        content: '# Heading\n\nSome **wysiwyg** content.'
+      }),
+      actor
+    )
+
+    assert.equal(page.contentType, 'markdown')
   })
 
   /**

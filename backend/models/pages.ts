@@ -33,15 +33,27 @@ import type { LogFields } from '../core/logger.ts'
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
   markdown: 'markdown',
   asciidoc: 'asciidoc',
-  wysiwyg: 'html',
+  wysiwyg: 'markdown',
   code: 'html',
   redirect: 'redirect'
 }
 
-/** The inverse of `EDITOR_CONTENT_TYPES`, e.g. `markdown` -> `markdown`, `html` -> `wysiwyg`. */
-const CONTENT_TYPE_EDITORS: Record<string, string> = Object.fromEntries(
-  Object.entries(EDITOR_CONTENT_TYPES).map(([editor, contentType]) => [contentType, editor])
-)
+/**
+ * The inverse of `EDITOR_CONTENT_TYPES`, e.g. `markdown` -> `markdown`, `html` -> `code`.
+ *
+ * `wysiwyg` and the plain `markdown` editor both produce `'markdown'` now, so this can't just be
+ * `Object.fromEntries` (last entry wins on a collision) — that would make a file-backed `'markdown'`
+ * page (disk storage, git sync) attribute itself to `wysiwyg`, an editor its content never went
+ * through. Built first-wins instead, so `EDITOR_CONTENT_TYPES`'s declaration order settles the tie —
+ * `markdown` is declared before `wysiwyg`, so `markdown` -> `markdown` wins, the same editor
+ * `getEditorForContentType`'s own `?? 'markdown'` fallback already prefers when nothing matches.
+ */
+const CONTENT_TYPE_EDITORS: Record<string, string> = {}
+for (const [editor, contentType] of Object.entries(EDITOR_CONTENT_TYPES)) {
+  if (!(contentType in CONTENT_TYPE_EDITORS)) {
+    CONTENT_TYPE_EDITORS[contentType] = editor
+  }
+}
 
 /**
  * The editor a page created from a bare `contentType` (no editor of its own to ask) should be

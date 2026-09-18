@@ -85,23 +85,10 @@ describe('EditorWysiwyg.vue dark mode (OpenProject #2498)', () => {
   })
 
   it('gives inline code and the blockquote/hr rules a dark variant distinct from light mode', async () => {
-    const doc = JSON.stringify({
-      type: 'doc',
-      content: [
-        {
-          type: 'paragraph',
-          content: [
-            { type: 'text', text: 'Some ' },
-            { type: 'text', marks: [{ type: 'code' }], text: 'inline code' }
-          ]
-        },
-        {
-          type: 'blockquote',
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Quoted' }] }]
-        },
-        { type: 'horizontalRule' }
-      ]
-    })
+    // -> Markdown, not a hand-built TipTap JSON document: `EditorWysiwyg.vue` now always loads
+    //    `pageStore.content` with `contentType: 'markdown'` (task 3395), so this is what a real page
+    //    holding the same three constructs (inline code, a blockquote, a rule) would have saved.
+    const doc = 'Some `inline code`\n\n> Quoted\n\n---'
 
     const lightWrapper = mountForTheme('light', doc)
     await nextTick()

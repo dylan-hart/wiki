@@ -110,6 +110,7 @@ import FontFamily from '@tiptap/extension-font-family'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
+import { Markdown } from '@tiptap/markdown'
 import Mention from '@tiptap/extension-mention'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
@@ -292,6 +293,11 @@ function buildExtensions(collab) {
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     TextStyle,
     Typography,
+    // -> `@tiptap/markdown`'s `Markdown` extension is what gives every editor built from this list
+    //    `editor.getMarkdown()` (the save path below) and the `contentType: 'markdown'` option
+    //    `init()` loads with -- registered once here, shared by both the interim and collaborative
+    //    editor, the same as every other extension in this list.
+    Markdown,
     ...(collab
       ? [
           Collaboration.configure({ fragment: collab.fragment }),
@@ -316,7 +322,7 @@ function buildExtensions(collab) {
 function handleEditorUpdate({ editor }) {
   editorStore.markDirty()
   pageStore.$patch({
-    content: JSON.stringify(editor.getJSON()),
+    content: editor.getMarkdown(),
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
     //    the guard in `pageSave`
     contentLoaded: true,
@@ -333,11 +339,15 @@ function init() {
   // -> Initialize TipTap. Starts read-only when a collab session is about to be started -- see the
   //    collaboration block in `onMounted` below for why, and `swapToCollabEditor()` for what replaces
   //    this instance once that session has synced.
+  //
+  // -> `contentType: 'markdown'` (from the `Markdown` extension registered in `buildExtensions()`)
+  //    parses `pageStore.content` as markdown text -- what every WYSIWYG page saves as now, mirroring
+  //    `EditorMarkdown.vue` treating the same column as markdown. There is no legacy-format branch
+  //    here: a page saved before this change (TipTap JSON, or raw HTML) is a one-time migration this
+  //    task does not cover -- see the parent Feature (#3388).
   editor = useEditor({
-    content:
-      pageStore.content && pageStore.content.startsWith('{')
-        ? JSON.parse(pageStore.content)
-        : `<p>${pageStore.content}</p>`,
+    content: pageStore.content,
+    contentType: 'markdown',
     editable: !collabEnabled.value,
     extensions: buildExtensions(null),
     editorProps: buildEditorProps(),
