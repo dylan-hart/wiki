@@ -90,13 +90,15 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
       }
-      // -> Against where the page is going: there is no page to ask about yet, and specifically no
-      //    `tags` (feature 357, task 446 audit) — a page being created has none until it is saved,
-      //    so there is nothing for a tag-scoped rule to match on here. `locale` is known up front
-      //    from the request body and is passed.
+      // -> Against where the page is going: there is no page ROW to ask about yet, so `classification`
+      //    stays unset (see `RulePageRef`'s own doc comment on a not-yet-existing page failing
+      //    closed). `tags` is different -- the tags this write is ABOUT to save are already known,
+      //    from the request body, so a TAG/TAGALL rule is judged on the page as it is about to become
+      //    rather than treated as untaggable. `locale` is known up front from the request body too.
       const createPageRef = {
         path: req.body.path,
-        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+        locale: req.body.locale ?? defaultLocale(req.params.siteId),
+        tags: req.body.tags
       }
       if (!mayOnPage(req, 'write:pages', req.params.siteId, createPageRef)) {
         return reply.forbidden('You are not allowed to create a page here.')

@@ -864,3 +864,83 @@ describe('POST /sites/:siteId/pages — publish:pages gate on immediate publish 
     assert.equal(createPageCalls.length, 0)
   })
 })
+
+/**
+ * OpenProject #3409: `createPageRef` used to omit `tags` entirely (retiring the old "no tags yet"
+ * comment from task 446) -- a TAG/TAGALL rule could never grant or deny `write:pages`/`publish:pages`
+ * on a page being created, even though the tags it is about to be saved with are already known from
+ * the request body.
+ */
+describe('POST /sites/:siteId/pages — tags reach the write:pages/publish:pages checkAccess call (OpenProject #3409)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  let app: FastifyInstance
+  let checkAccessCalls: any[]
+
+  before(async () => {
+    const wiki = {
+      sites: { [SITE_ID]: {} },
+      models: {
+        pages: {
+          createPage: async (siteId: string, input: any) => ({
+            id: 'new-page-1',
+            path: input.path,
+            locale: input.locale ?? 'en'
+          })
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          groupIdsForRequest: () => [],
+          checkAccess: (_actor: unknown, permission: string, page: any) => {
+            checkAccessCalls.push({ permission, page })
+            return true
+          }
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    checkAccessCalls = []
+  })
+
+  test('a tags array posted with the create carries into the write:pages page ref', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: {
+        path: 'tagged-new-page',
+        title: 'Test',
+        editor: 'markdown',
+        content: 'hello',
+        tags: ['alpha', 'beta']
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    const writeCall = checkAccessCalls.find((c) => c.permission === 'write:pages')
+    assert.ok(writeCall, 'write:pages was checked')
+    assert.deepEqual(writeCall.page.tags, ['alpha', 'beta'])
+    const publishCall = checkAccessCalls.find((c) => c.permission === 'publish:pages')
+    assert.ok(publishCall, 'publish:pages was checked for the default published state')
+    assert.deepEqual(publishCall.page.tags, ['alpha', 'beta'])
+  })
+
+  test('no tags posted carries undefined through, not a crash', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'untagged-new-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 200)
+    const writeCall = checkAccessCalls.find((c) => c.permission === 'write:pages')
+    assert.equal(writeCall.page.tags, undefined)
+  })
+})

@@ -848,6 +848,75 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #3409: `browse()`/`listPages()` used to carry no tags at all -- the permission filter
+   * (`api/tree.ts`) had nothing to check a TAG/TAGALL rule against, same gap `getTree()` already
+   * closed for the file manager. Each now joins `tree.tags` in directly, locked down here the same
+   * way OpenProject #1128's classification threading is above.
+   */
+  describe('tags carried through for the permission filter (OpenProject #3409)', () => {
+    test('browse() carries a page’s real tags, empty for a folder-only entry', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'tagged-browse-folder',
+        title: 'Has A Page Inside',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      // -> browse() drops a folder that holds no visible page under it, so this folder needs one to
+      //    appear in the listing at all -- the folder ROW itself still carries no tags of its own.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'tagged-browse-folder/inside', title: 'Inside', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'tagged-browse-page',
+          title: 'Page Only',
+          locale: 'en',
+          tags: ['alpha', 'beta']
+        }),
+        actor
+      )
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        publicOnly: false
+      })
+
+      const pageItem = level!.items.find((item) => item.path === 'tagged-browse-page')!
+      const folderItem = level!.items.find((item) => item.path === folder.fileName)!
+      assert.deepEqual(pageItem.tags, ['alpha', 'beta'])
+      assert.deepEqual(folderItem.tags, [])
+    })
+
+    test('listPages() carries each page’s real tags', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'tagged-list/page',
+          title: 'Listed',
+          locale: 'en',
+          tags: ['gamma']
+        }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'tagged-list',
+        depth: 1,
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.deepEqual(pages[0]!.tags, ['gamma'])
+    })
+  })
+
+  /**
    * OpenProject #2460: `listPages()` carries no signal for whether a page has children of its own
    * nested below it, so a nested tree view (block-index) has no way to tell a "book" (has children)
    * from a "file" (leaf) apart from re-querying per row. `hasChildren` is a per-row correlated EXISTS
