@@ -3,7 +3,7 @@ title: Cardinal.js Native
 description: Built-in comments, stored in this wiki's own database.
 icon: '/_assets/icons/ultraviolet-comments.svg'
 vendor: Cardinal.js
-website: 'https://js.wiki'
+website: 'https://github.com/dylan-hart/wiki'
 isAvailable: true
 props:
   akismet:

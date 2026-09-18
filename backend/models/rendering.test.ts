@@ -293,6 +293,79 @@ describe('rendering.postProcess: internal link extraction (OpenProject #881)', (
 })
 
 /*
+  OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a
+  non-primary-locale target, and -- on a `forcePrefix` site -- for every target, including the
+  primary locale. `extractInternalLinks` has to strip that prefix before storing, since the three
+  consumers of `pages.links` (backlinks, `/_graph`, `relinkReferencingPages`) all match on the bare
+  path in the linking page's own locale.
+*/
+describe('rendering.postProcess: internal link extraction strips a locale prefix (OpenProject #3379)', () => {
+  test('strips a non-primary-locale prefix from a link target', async () => {
+    CARDINAL.sites['site-locales'] = makeSite({
+      id: 'site-locales',
+      config: { locales: { primary: 'en', active: ['en', 'fr'] } }
+    })
+    const html = '<p><a href="/fr/guide">Guide</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-locales',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['guide'])
+  })
+
+  test('strips a forced primary-locale prefix too (forcePrefix site)', async () => {
+    CARDINAL.sites['site-force-prefix'] = makeSite({
+      id: 'site-force-prefix',
+      config: { locales: { primary: 'en', active: ['en', 'fr'], forcePrefix: true } }
+    })
+    const html = '<p><a href="/en/guide">Guide</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-force-prefix',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['guide'])
+  })
+
+  test('does not strip a first segment that is not an active locale code', async () => {
+    CARDINAL.sites['site-locales-2'] = makeSite({
+      id: 'site-locales-2',
+      config: { locales: { primary: 'en', active: ['en', 'fr'] } }
+    })
+    const html = '<p><a href="/de/guide">Guide</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-locales-2',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['de/guide'])
+  })
+
+  test('a site with no locales config leaves a link untouched, unchanged from before', async () => {
+    const html = '<p><a href="/fr/guide">Guide</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-entirely-unknown-to-wiki-sites-3379',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['fr/guide'])
+  })
+})
+
+/*
   OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
   on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX formulas) both
   describe a render-then-reload regression. This fork's architecture cannot reproduce either report

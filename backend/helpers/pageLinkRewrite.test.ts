@@ -74,6 +74,56 @@ describe('rewriteLinkText', () => {
     const result = rewriteLinkText('[Link](docs/a.b+c)', 'docs/a.b+c', 'docs/new')
     assert.equal(result.text, '[Link](docs/new)')
   })
+
+  // -> OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href for a
+  //    non-primary-locale target (and, on a `forcePrefix` site, for every target), which
+  //    `extractInternalLinks` strips before storing `oldPath` bare -- so a move has to still find
+  //    and rewrite the prefixed occurrence, preserving the prefix.
+  describe('with activeLocales (OpenProject #3379)', () => {
+    test('rewrites a locale-prefixed href attribute, preserving the locale segment', () => {
+      const result = rewriteLinkText('<a href="/fr/docs/old">go</a>', 'docs/old', 'docs/new', [
+        'fr',
+        'en'
+      ])
+      assert.equal(result.changed, true)
+      assert.equal(result.text, '<a href="/fr/docs/new">go</a>')
+    })
+
+    test('rewrites a single-quoted, locale-prefixed href attribute', () => {
+      const result = rewriteLinkText("<a href='/fr/docs/old'>go</a>", 'docs/old', 'docs/new', [
+        'fr',
+        'en'
+      ])
+      assert.equal(result.text, "<a href='/fr/docs/new'>go</a>")
+    })
+
+    test('still rewrites an unprefixed href attribute', () => {
+      const result = rewriteLinkText('<a href="/docs/old">go</a>', 'docs/old', 'docs/new', [
+        'fr',
+        'en'
+      ])
+      assert.equal(result.text, '<a href="/docs/new">go</a>')
+    })
+
+    test('does not treat a locale code that is not active as a prefix to strip', () => {
+      const result = rewriteLinkText('<a href="/de/docs/old">go</a>', 'docs/old', 'docs/new', [
+        'fr',
+        'en'
+      ])
+      assert.equal(result.changed, false)
+    })
+
+    test('leaves the markdown `](` syntax unprefixed-only, per the resolved scope', () => {
+      const result = rewriteLinkText('[Link](/fr/docs/old)', 'docs/old', 'docs/new', ['fr', 'en'])
+      assert.equal(result.changed, false)
+      assert.equal(result.text, '[Link](/fr/docs/old)')
+    })
+
+    test('is unchanged from the no-locales behavior when activeLocales is omitted', () => {
+      const result = rewriteLinkText('<a href="/docs/old">go</a>', 'docs/old', 'docs/new')
+      assert.equal(result.text, '<a href="/docs/new">go</a>')
+    })
+  })
 })
 
 describe('rewriteRedirectTarget', () => {

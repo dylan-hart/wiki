@@ -63,6 +63,7 @@ function build(t) {
     HIGHLIGHT_COLORS,
     insertLink: () => {},
     openFileManager: () => {},
+    insertBlock: () => {},
     t
   })
 }
@@ -128,6 +129,25 @@ describe('buildMenuBar (OpenProject #3206)', () => {
 
     const headerLevelCalls = calls.filter((c) => c.key === 'editor.wysiwyg.headerLevel')
     expect(headerLevelCalls.map((c) => c.params.level)).toEqual(levels)
+  })
+
+  it('wires the block entry to the caller’s insertBlock, not an editor command (OpenProject #3396)', () => {
+    const { t } = createRecordingT()
+    let calls = 0
+    const menuBar = buildMenuBar(() => ({ value: null }), {
+      TEXT_COLORS,
+      HIGHLIGHT_COLORS,
+      insertLink: () => {},
+      openFileManager: () => {},
+      insertBlock: () => {
+        calls++
+      },
+      t
+    })
+    const block = menuBar.find((item) => item.key === 'block')
+    expect(block.title).toBe('Insert Block')
+    block.action()
+    expect(calls).toBe(1)
   })
 
   it('is only ever asked to build a plain t function, not a reactive ref, so it stays a pure builder', () => {

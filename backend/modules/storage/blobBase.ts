@@ -5,8 +5,8 @@ import type { StorageModule, StorageTarget } from '../../models/storage.ts'
  * The shape every cloud blob storage target has in common — `s3`, `azure` and `gcs`.
  *
  * The three modules differ only in which SDK writes the bytes: the activation cache, the object key,
- * the error wrapping and all five handlers (`assetUploaded`/`assetDeleted`/`assetRenamed`/`exportAll`/
- * `getDirectUrl`) were byte-identical across them modulo the SDK noun. That shared half lives here, as
+ * the error wrapping and all six handlers (`assetUploaded`/`assetDeleted`/`assetRenamed`/`assetMoved`/
+ * `exportAll`/`getDirectUrl`) were byte-identical across them modulo the SDK noun. That shared half lives here, as
  * a factory rather than a base class since a storage module is a plain object; each module keeps its
  * own SDK imports, its client construction, its bucket/container verification and the five driver
  * callbacks below, and exports `blobStorageModule(driver)` as its default.
@@ -21,6 +21,17 @@ import type { StorageModule, StorageTarget } from '../../models/storage.ts'
  * all three blob targets so they behave the same from the admin's point of view.
  */
 export const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
+
+/**
+ * How long a failed activation is remembered before the next call is allowed to retry it.
+ *
+ * Long enough that a broken credential is not re-probed (paying the SDK's own connect/retry
+ * latency) on every image request an instance serves in that window; short enough that an admin
+ * who just fixed the target's config sees it recover within one session rather than needing a
+ * restart. Independent of `DIRECT_ACCESS_TTL_SECONDS`, which governs a signed URL's own lifetime,
+ * not how long a failure is cached.
+ */
+const ACTIVATION_FAILURE_TTL_MS = 30_000
 
 /** Where one asset of a target lives in the bucket/container. */
 export function keyFor(target: StorageTarget, folderPath: string, fileName: string): string {
@@ -79,24 +90,39 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
    * `getClient()`, so the first call any target makes (an admin's "Export All" click, or a dispatched
    * write) both builds the client and verifies its destination.
    */
-  const activated = new Map<string, { configKey: string; ready: Promise<C> }>()
+  const activated = new Map<string, { configKey: string; ready: Promise<C>; failedAt?: number }>()
 
-  /** The activated client for a target, (re-)verifying it whenever the stored config changed. */
+  /**
+   * The activated client for a target, (re-)verifying it whenever the stored config changed.
+   *
+   * A failed activation is cached too, for `ACTIVATION_FAILURE_TTL_MS`: within that window this
+   * replays the same rejection rather than re-probing the SDK, and once it elapses the next call —
+   * the admin retrying the action after fixing credentials, say, or simply the next request that
+   * comes in — verifies again. A successful activation always replaces whatever was cached, failed
+   * or not, so there is no separate "clear the failure" path to call.
+   */
   async function getClient(target: StorageTarget): Promise<C> {
     const configKey = JSON.stringify(target.config)
     const cached = activated.get(target.id)
     if (cached && cached.configKey === configKey) {
-      return cached.ready
+      if (
+        cached.failedAt === undefined ||
+        Date.now() - cached.failedAt < ACTIVATION_FAILURE_TTL_MS
+      ) {
+        return cached.ready
+      }
     }
 
-    const ready = Promise.resolve(driver.build(target.config)).catch((err) => {
-      // -> A failed activation is not remembered as done: the next call — the admin retrying the action
-      //    after fixing credentials, say — has to verify again rather than replay this same rejection
-      activated.delete(target.id)
+    const entry: { configKey: string; ready: Promise<C>; failedAt?: number } = {
+      configKey,
+      ready: Promise.resolve(driver.build(target.config))
+    }
+    entry.ready = entry.ready.catch((err) => {
+      entry.failedAt = Date.now()
       throw err
     })
-    activated.set(target.id, { configKey, ready })
-    return ready
+    activated.set(target.id, entry)
+    return entry.ready
   }
 
   /** Wrap an SDK call so a failure reaches the caller as a readable `Error`, not a raw SDK exception. */
@@ -139,6 +165,20 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     await withErrors(`rename "${sourceKey}" to "${destinationKey}"`, async () => {
       // -> A server-side copy (no bytes round-trip through this process) followed by deleting the
       //    source once the copy has landed, the same shape 2.5.x used.
+      await driver.copy(client, sourceKey, destinationKey, target.config)
+      await driver.remove(client, sourceKey)
+    })
+  }
+
+  /** An asset moved to a new folder, keeping its name (OpenProject #3384). */
+  async function assetMoved(target: StorageTarget, data: Record<string, any>): Promise<void> {
+    const client = await getClient(target)
+    const sourceKey = keyFor(target, data.previousFolderPath, data.fileName)
+    const destinationKey = keyFor(target, data.folderPath, data.fileName)
+
+    await withErrors(`move "${sourceKey}" to "${destinationKey}"`, async () => {
+      // -> Same shape as `assetRenamed`: a server-side copy followed by deleting the source once the
+      //    copy has landed.
       await driver.copy(client, sourceKey, destinationKey, target.config)
       await driver.remove(client, sourceKey)
     })
@@ -196,6 +236,7 @@ export function blobStorageModule<C>(driver: BlobDriver<C>): StorageModule {
     assetUploaded,
     assetDeleted,
     assetRenamed,
+    assetMoved,
     exportAll,
     getDirectUrl
   }

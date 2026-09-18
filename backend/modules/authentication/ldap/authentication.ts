@@ -279,12 +279,20 @@ export default class LdapAuthentication {
    * `{{dn}}` is interpolated from `groupDnProperty`: "dn" (the default, and not a real attribute
    * ldapts would ever return) means the user entry's own distinguished name; anything else names an
    * attribute read off the user entry already fetched, e.g. a `memberOf`-style value.
+   *
+   * Absent (`undefined`) and empty (`[]`) are different answers on `ProviderProfile.groups`'s own
+   * contract: `undefined` means "did not look" and leaves wiki-side membership untouched, `[]` means
+   * "looked, found nothing" and revokes every mappable group. A directory search that fails
+   * transiently — after the password bind has already verified the person — did not look, so it
+   * answers `undefined`, not `[]`; a misconfigured strategy (a missing search field, or a
+   * `groupDnProperty` absent on the entry) is not a transient condition and fails the strategy the
+   * same way the admin bind/search misconfiguration guards above do.
    */
   private async fetchGroups(
     client: Client,
     dn: string,
     attrs: Record<string, string[]>
-  ): Promise<string[]> {
+  ): Promise<string[] | undefined> {
     const {
       groupSearchBase,
       groupSearchFilter,
@@ -293,11 +301,11 @@ export default class LdapAuthentication {
       groupNameField
     } = this.conf
     if (!groupSearchBase || !groupSearchFilter || !groupNameField) {
-      return []
+      throw new Error('ERR_STRATEGY_MISCONFIGURED')
     }
     const dnValue = groupDnProperty && groupDnProperty !== 'dn' ? attrs[groupDnProperty]?.[0] : dn
     if (!dnValue) {
-      return []
+      throw new Error('ERR_STRATEGY_MISCONFIGURED')
     }
     try {
       const { searchEntries } = await client.search(groupSearchBase, {
@@ -308,10 +316,12 @@ export default class LdapAuthentication {
         .map((groupEntry) => attributesOf(groupEntry)[groupNameField]?.[0])
         .filter((name): name is string => Boolean(name))
     } catch (err: any) {
-      CARDINAL.models.flags.authDebug(
-        `LDAP strategy ${this.strategyId}: group search failed: ${err.message}`
-      )
-      return []
+      CARDINAL.logger.warn('auth', 'LDAP group search failed, leaving group membership unchanged', {
+        module: 'ldap',
+        strategy: this.strategyId,
+        error: err
+      })
+      return undefined
     }
   }
 

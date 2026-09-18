@@ -51,6 +51,7 @@ export const PAGE_ACTIONS_MESSAGES = {
       duplicate: 'Duplicate Page',
       renameMove: 'Rename / Move Page',
       rerender: 'Rerender Page',
+      convertEditor: 'Convert Editor',
       viewBacklinks: 'View Backlinks',
       delete: 'Delete Page'
     },
@@ -235,7 +236,12 @@ export async function mountRailWithCopyContent({
 export async function mountRailWithPageActions({
   pdfExportAvailable = true,
   editor = 'markdown',
-  canWritePages = true
+  canWritePages = true,
+  // -> OpenProject #3399: which editors this site has active, for Convert Editor's own gate --
+  //    same shape `siteStore.editors` carries from `GET sites/:siteId`, and `EditorPickerDialog.vue`
+  //    already reads the same way. Both on by default, matching every other mount helper's default
+  //    `editor: 'markdown'` actually being convertible out of the box.
+  editors = { markdown: true, wysiwyg: true }
 } = {}) {
   const router = await createTestRouter(['/'])
 
@@ -246,7 +252,7 @@ export async function mountRailWithPageActions({
     stubs: {},
     stores: {
       page: { id: 'page-1', path: 'docs/getting-started', editor },
-      site: { id: 'site-1', pdfExportAvailable },
+      site: { id: 'site-1', pdfExportAvailable, editors },
       user: { permissions: canWritePages ? ['write:pages'] : [] }
     }
   })

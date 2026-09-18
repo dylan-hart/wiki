@@ -59,7 +59,19 @@ export const PAGE_PERMISSIONS: string[] = [
    * immediate-publish page-creation gate (#2467) are separate work packages -- this entry only joins
    * the closed vocabulary.
    */
-  'publish:pages'
+  'publish:pages',
+  /**
+   * OpenProject #3393: gates a page's tag SET actually changing, standalone from (not implied by)
+   * `write:pages`/`manage:pages` -- same standalone-grant shape as `manage:classification` and
+   * `publish:pages` above. Tags rank above path-shaped rules (Feature #3390), so whoever can retag a
+   * page can widen or narrow who else's rules apply to it; `write:pages` alone only proves the
+   * editor's own rights, not that they may walk the page into or out of a tag-scoped rule's reach.
+   * Checked on BOTH sides of a retag -- the page as it stands and as it would leave -- by
+   * `api/pages/write.ts`'s PATCH route and its bulk `retag` action, on top of the `write:pages`
+   * both-sides check OpenProject #3410 already added. An editor without it can still save a tagged
+   * page whose tag SET is unchanged.
+   */
+  'write:tags'
 ]
 
 /** Every permission string that means anything anywhere — the union of both closed lists above. */

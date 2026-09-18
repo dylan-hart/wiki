@@ -87,6 +87,31 @@ export function requireActorId(
 }
 
 /**
+ * Whether this requester may read a page's SOURCE — not just its rendered `render` HTML.
+ *
+ * `read:source` is what a group rule grants directly, but `write:pages` and `manage:pages` imply it
+ * too: an editor who cannot read the source they are about to overwrite cannot open the editor at all
+ * (`stores/page.js`'s `pageEdit` loads `withContent: true`, which is exactly this check). One helper,
+ * one definition, called at every place that hands raw page content back — OpenProject #3391/#3411,
+ * upstream's `SOURCE_PERMISSIONS`. This is CLAUDE.md's Permissions section's one documented exception
+ * to "names are not interchangeable across kinds".
+ *
+ * Asked per page, through `mayOnPage`, same as `mayBypassPassword` above — never against the
+ * group-wide permission list.
+ */
+export function mayReadSource(
+  req: FastifyRequest,
+  siteId: string,
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
+): boolean {
+  return (
+    mayOnPage(req, 'read:source', siteId, page) ||
+    mayOnPage(req, 'write:pages', siteId, page) ||
+    mayOnPage(req, 'manage:pages', siteId, page)
+  )
+}
+
+/**
  * Whether this requester's page permissions make a page's password irrelevant to them ON THIS PAGE:
  * an author or manager of the page is not asked for the password they themselves could remove.
  *

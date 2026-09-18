@@ -4,7 +4,7 @@ icon: '/_assets/icons/ultraviolet-hdd.svg'
 banner: '/_assets/storage/disk.jpg'
 description: Store files on the local file system or over network attached storage. Note that you must use replicated storage if using high-availability instances.
 vendor: Cardinal.js
-website: 'https://js.wiki'
+website: 'https://github.com/dylan-hart/wiki'
 assetDelivery:
   isStreamingSupported: true
   isDirectAccessSupported: false

@@ -16,6 +16,7 @@ import {
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import { rewriteLinkText, rewriteRedirectTarget } from '../helpers/pageLinkRewrite.ts'
+import { isLegacyWysiwygJson } from '../helpers/wysiwygHeadlessMarkdown.ts'
 import { computeTranslationStaleness } from '../helpers/translationStaleness.ts'
 import type { TranslationStalenessEntry } from '../helpers/translationStaleness.ts'
 import { announce } from './hooks.ts'
@@ -33,15 +34,27 @@ import type { LogFields } from '../core/logger.ts'
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
   markdown: 'markdown',
   asciidoc: 'asciidoc',
-  wysiwyg: 'html',
+  wysiwyg: 'markdown',
   code: 'html',
   redirect: 'redirect'
 }
 
-/** The inverse of `EDITOR_CONTENT_TYPES`, e.g. `markdown` -> `markdown`, `html` -> `wysiwyg`. */
-const CONTENT_TYPE_EDITORS: Record<string, string> = Object.fromEntries(
-  Object.entries(EDITOR_CONTENT_TYPES).map(([editor, contentType]) => [contentType, editor])
-)
+/**
+ * The inverse of `EDITOR_CONTENT_TYPES`, e.g. `markdown` -> `markdown`, `html` -> `code`.
+ *
+ * `wysiwyg` and the plain `markdown` editor both produce `'markdown'` now, so this can't just be
+ * `Object.fromEntries` (last entry wins on a collision) — that would make a file-backed `'markdown'`
+ * page (disk storage, git sync) attribute itself to `wysiwyg`, an editor its content never went
+ * through. Built first-wins instead, so `EDITOR_CONTENT_TYPES`'s declaration order settles the tie —
+ * `markdown` is declared before `wysiwyg`, so `markdown` -> `markdown` wins, the same editor
+ * `getEditorForContentType`'s own `?? 'markdown'` fallback already prefers when nothing matches.
+ */
+const CONTENT_TYPE_EDITORS: Record<string, string> = {}
+for (const [editor, contentType] of Object.entries(EDITOR_CONTENT_TYPES)) {
+  if (!(contentType in CONTENT_TYPE_EDITORS)) {
+    CONTENT_TYPE_EDITORS[contentType] = editor
+  }
+}
 
 /**
  * The editor a page created from a bare `contentType` (no editor of its own to ask) should be
@@ -54,6 +67,18 @@ export function getEditorForContentType(contentType: string): string {
 }
 
 /**
+ * The content type an editor's page is stored as, e.g. `markdown` -> `markdown`, `wysiwyg` ->
+ * `markdown`, `code` -> `html`. The forward direction of `EDITOR_CONTENT_TYPES` — exported for
+ * `models/renderQueue.ts`, which needs to know whether an editor's OUTPUT is markdown (and
+ * therefore something the server-side renderer can process) without caring which editor produced
+ * it. `wysiwyg` and `markdown` both answer `'markdown'` here, which is the point: a page is
+ * renderable by content, not by which editor happened to write it.
+ */
+export function getContentTypeForEditor(editor: string): string {
+  return EDITOR_CONTENT_TYPES[editor] ?? 'text'
+}
+
+/**
  * The editor whose pages send their reader somewhere else.
  *
  * A redirection is an ordinary page — it has a path, a title, an icon and a place in the tree, and is
@@ -62,6 +87,14 @@ export function getEditorForContentType(contentType: string): string {
  * column carries. See `normalizeRedirectContent`.
  */
 const REDIRECT_EDITOR = 'redirect'
+
+/**
+ * The two editors `convertEditor()` (OpenProject #3399) may flip a page between -- the pair that
+ * has shared `'markdown'` storage since #3395, which is what makes a flip a relabel rather than a
+ * content transform. `code` and `asciidoc` each produce a content type nothing else shares
+ * (`html`/`asciidoc`), and `redirect` isn't an editor a page's text goes through at all.
+ */
+const CONVERTIBLE_EDITORS = ['markdown', 'wysiwyg']
 
 /**
  * Hard ceiling on `listPagesForSitemap`'s read. Independent of, and much larger than, the
@@ -111,6 +144,9 @@ const CONFIG_FIELDS = [
   'tocDepth'
 ] as const
 
+/** Fields kept in the `scripts` blob rather than as columns -- see {@link buildScripts}. */
+const SCRIPT_FIELDS = ['scriptJsLoad', 'scriptJsUnload', 'scriptCss'] as const
+
 /** A page as the API exposes it: the columns and both blobs, flattened into one object. */
 export interface Page {
   id: string
@@ -155,6 +191,18 @@ export interface Page {
   showTags: boolean
   showToc: boolean
   tocDepth: { min: number; max: number }
+  /**
+   * Per-page script/style injection (OpenProject #3389/#3402), stored together as the `scripts`
+   * jsonb column (`{ jsLoad, jsUnload, css }`) and flattened here the same way `config` flattens to
+   * `allowComments` etc. above. Blanked to `''` for a locked page, same as `render`/`toc` -- see
+   * `toPage`. Setting `scriptJsLoad`/`scriptJsUnload` needs `write:scripts` on the page, `scriptCss`
+   * needs `write:styles` -- enforced with a 403 at the route layer (`api/pages/write.ts`), not here:
+   * this model trusts what it's given rather than silently dropping an unauthorized field, which is
+   * what the pre-a3a6c7994 version of this file did.
+   */
+  scriptJsLoad: string
+  scriptJsUnload: string
+  scriptCss: string
   navigationId: string | null
   navigationMode: string
   authorId: string
@@ -203,6 +251,15 @@ export interface PageInput {
   showTags?: boolean
   showToc?: boolean
   tocDepth?: { min: number; max: number }
+  /**
+   * Run once the page is loaded (`scriptJsLoad`) or just before it's torn down (`scriptJsUnload`),
+   * and CSS injected as a `<style>` (`scriptCss`) -- see {@link Page.scriptJsLoad}. Undefined leaves
+   * the stored value untouched on update; absent on create stores an empty string, same as every
+   * other optional text field here.
+   */
+  scriptJsLoad?: string
+  scriptJsUnload?: string
+  scriptCss?: string
   /**
    * Why this save is being made, as the editor's reason-for-change prompt collected it. Not a page
    * field: it belongs to the version this save produces, and is recorded on the history row.
@@ -499,6 +556,7 @@ class Pages {
     }: { withContent?: boolean; withPassword?: boolean; locked?: boolean } = {}
   ): Page {
     const config = row.config ?? {}
+    const scripts = row.scripts ?? {}
     return {
       id: row.id,
       path: row.path,
@@ -530,6 +588,12 @@ class Pages {
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
       tocDepth: config.tocDepth ?? { min: 1, max: 2 },
+      // -> Blanked for a locked page, same reasoning as `render`/`toc` just above: a page-scripts
+      //    editor should not be able to read a password-protected page's scripts back without
+      //    entering it, and there is nothing to run against a body that wasn't sent either.
+      scriptJsLoad: locked ? '' : (scripts.jsLoad ?? ''),
+      scriptJsUnload: locked ? '' : (scripts.jsUnload ?? ''),
+      scriptCss: locked ? '' : (scripts.css ?? ''),
       navigationId: row.navigationId ?? null,
       navigationMode: row.navigationMode ?? 'inherit',
       authorId: row.authorId,
@@ -640,6 +704,7 @@ class Pages {
               string | null
             >`CASE WHEN ${pagesTable.editor} = ${REDIRECT_EDITOR} THEN ${pagesTable.content} ELSE NULL END`,
         config: pagesTable.config,
+        scripts: pagesTable.scripts,
         authorId: pagesTable.authorId,
         createdAt: pagesTable.createdAt,
         updatedAt: pagesTable.updatedAt,
@@ -1000,6 +1065,7 @@ class Pages {
           relations: input.relations ?? [],
           links,
           render,
+          scripts: this.buildScripts(input),
           searchContent: text,
           siteId,
           tags: input.tags ?? [],
@@ -1148,6 +1214,27 @@ class Pages {
     if (patch.content !== undefined) {
       values.content = isRedirect ? normalizeRedirectContent(patch.content) : patch.content
     }
+    /*
+      The lazy on-open fallback (OpenProject #3400): the run-once conversion job
+      (`convertLegacyWysiwygRow`, above) cleans up almost every row, but a row it could not parse
+      stays a legacy `contentType: 'html'` row holding raw Tiptap JSON until somebody actually opens
+      it. `EditorWysiwyg.vue` still loads that row (parsing the JSON directly instead of feeding it
+      through the markdown extension), so an ordinary save from it already writes real markdown into
+      `content` above -- what no ordinary save path does on its own is relabel `contentType` to match,
+      since that column is otherwise immutable here (see `EDITOR_CONTENT_TYPES`'s doc comment). This
+      is the one case where it must: the save just replaced the legacy JSON with real markdown, so the
+      row's true shape changed under it. Narrow on purpose -- only a `wysiwyg`/`html` row whose stored
+      content actually looked like the legacy JSON, saving content that no longer does.
+    */
+    const isLegacyWysiwygConversionSave =
+      existing.editor === 'wysiwyg' &&
+      existing.contentType === 'html' &&
+      isLegacyWysiwygJson(existing.content) &&
+      patch.content !== undefined &&
+      !isLegacyWysiwygJson(values.content)
+    if (isLegacyWysiwygConversionSave) {
+      values.contentType = 'markdown'
+    }
     if (patch.publishState !== undefined) {
       if (
         patch.publishState === 'scheduled' &&
@@ -1251,6 +1338,9 @@ class Pages {
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
       values.config = this.buildConfig(patch, siteId, existing.config as Record<string, any>)
+    }
+    if (SCRIPT_FIELDS.some((field) => patch[field] !== undefined)) {
+      values.scripts = this.buildScripts(patch, existing.scripts as Record<string, any>)
     }
 
     // -> The author is whoever last changed it; the creator and owner do not move
@@ -1408,6 +1498,136 @@ class Pages {
       //    directly rather than going back through `queueRerender()`'s own copy of that check.
       await this.enqueueRerender(siteId, updated, actor, renderPermissions)
     }
+
+    return updated
+  }
+
+  /**
+   * Overwrite a legacy WYSIWYG row's stored Tiptap-JSON `content` with the markdown a headless
+   * conversion produced, flipping `contentType` to `markdown` to match (OpenProject #3400).
+   *
+   * Deliberately not `updatePage()`: `contentType` is immutable through every ordinary save path --
+   * see `EDITOR_CONTENT_TYPES`'s own doc comment on why no patch is ever allowed to relabel what
+   * produced a page's content -- and this is the one place that relabeling is exactly the point.
+   * The page's VISIBLE output does not change here (same document, correctly encoded now instead of
+   * mislabeled), so this deliberately skips everything a real edit does through `updatePage()`: no
+   * re-render (the stored `render`/`toc`/`searchContent` already reflect this exact content, computed
+   * by the editor that originally saved it), no search reindex, no webhook emit, no storage dispatch.
+   * Only what actually changed moves: the `content` column's bytes and its `contentType` label, plus
+   * the one `pageHistory` version every content change gets.
+   *
+   * The `WHERE` clause doubles as an optimistic-concurrency guard against the row having moved on
+   * since the caller's own `SELECT` (converted already by an earlier run, or hand-edited in the
+   * meantime): it only ever touches a row still shaped exactly like the one that was read.
+   *
+   * @returns false when the row no longer matches that shape -- the caller's cue to count it as
+   *   skipped rather than converted, not to treat it as a failure.
+   */
+  async convertLegacyWysiwygRow(
+    siteId: string,
+    id: string,
+    markdown: string,
+    authorId: string
+  ): Promise<boolean> {
+    const rows = await CARDINAL.db
+      .update(pagesTable)
+      .set({ content: markdown, contentType: 'markdown', updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(pagesTable.id, id),
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.editor, 'wysiwyg'),
+          eq(pagesTable.contentType, 'html')
+        )
+      )
+      .returning({ id: pagesTable.id })
+    if (rows.length === 0) {
+      return false
+    }
+    await CARDINAL.models.pageHistory.record({
+      siteId,
+      pageId: id,
+      action: 'updated',
+      authorId,
+      changedFields: ['content', 'contentType']
+    })
+    return true
+  }
+
+  /**
+   * Flip a page's `editor` column between `markdown` and `wysiwyg`, recording one `pageHistory`
+   * version (OpenProject #3399).
+   *
+   * Deliberately not `updatePage()`: `updatePage()`'s own comment notes "which editor authored a
+   * page is not something a save may change" -- this is the one place that IS the point.
+   * `content`/`contentType` are left untouched: markdown and wysiwyg have shared `'markdown'`
+   * storage since #3395 (`EDITOR_CONTENT_TYPES`), so converting between them is a relabel, not a
+   * transform. `render`/`toc`/`searchContent`/`links` are equally untouched -- the stored render
+   * already reflects this exact markdown, computed by whichever editor last saved it, and nothing
+   * about what the content SAYS changes here.
+   *
+   * The render-equality guard that makes this safe -- parsing the page into a headless WYSIWYG
+   * editor, serializing it back out, and comparing the two renders -- runs entirely client-side, in
+   * `PageConvertDialog.vue`, before this is ever called. This method trusts that guard and only
+   * re-checks what it cannot see: that the row is still in a convertible state at all.
+   *
+   * @throws {CustomError} `pageEditorConvertUnsupported` (either side of the flip isn't
+   *   `markdown`/`wysiwyg` -- e.g. `code`, `asciidoc`, `redirect`); `pageEditorConvertUnchanged`
+   *   (`targetEditor` already matches); `pageEditorConvertNotMarkdown` (the row hasn't gone through
+   *   #3395/#3400's markdown migration yet -- a legacy JSON-holding `wysiwyg` row the run-once job
+   *   or the lazy on-open fallback hasn't reached -- so there is no markdown for the frontend's
+   *   round-trip check to have compared against in the first place).
+   * @returns The updated page, or null when it does not exist.
+   */
+  async convertEditor(
+    siteId: string,
+    id: string,
+    targetEditor: string,
+    actor: PageActor
+  ): Promise<Page | null> {
+    const results = await CARDINAL.db
+      .select()
+      .from(pagesTable)
+      .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
+      .limit(1)
+    const existing = results[0]
+    if (!existing) {
+      return null
+    }
+    if (
+      !CONVERTIBLE_EDITORS.includes(existing.editor) ||
+      !CONVERTIBLE_EDITORS.includes(targetEditor)
+    ) {
+      throw new CustomError(
+        'pageEditorConvertUnsupported',
+        'This page’s editor cannot be converted this way.'
+      )
+    }
+    if (existing.editor === targetEditor) {
+      throw new CustomError('pageEditorConvertUnchanged', 'This page already uses that editor.')
+    }
+    if (existing.contentType !== 'markdown') {
+      throw new CustomError(
+        'pageEditorConvertNotMarkdown',
+        'This page must be saved once more before its editor can be converted.'
+      )
+    }
+
+    await CARDINAL.db
+      .update(pagesTable)
+      .set({ editor: targetEditor, updatedAt: sql`now()` })
+      .where(eq(pagesTable.id, id))
+
+    const updated = (await this.getPage({ siteId, id })) as Page
+
+    await CARDINAL.models.pageHistory.record({
+      siteId,
+      pageId: id,
+      action: 'updated',
+      authorId: actor.id,
+      via: actor.via,
+      changedFields: ['editor']
+    })
 
     return updated
   }
@@ -1645,6 +1865,12 @@ class Pages {
         )
       )) as RelinkCandidateRow[]
 
+    // -> Same locale list `extractInternalLinks` (`models/rendering.ts`) strips before storing
+    //    `oldPath` bare -- a `forcePrefix` site (or a non-primary-locale target) can have written
+    //    that href with a leading locale segment still on it (OpenProject #3379), which the plain
+    //    `oldPath` pattern alone would not match.
+    const activeLocales: string[] = CARDINAL.sites?.[siteId]?.config?.locales?.active ?? []
+
     for (const row of candidates) {
       const links = [...new Set(row.links.map((target) => (target === oldPath ? newPath : target)))]
       const relations = row.relations.map((relation) =>
@@ -1653,12 +1879,12 @@ class Pages {
       const isRedirect = row.editor === REDIRECT_EDITOR
       const contentRewrite = isRedirect
         ? rewriteRedirectTarget(row.content ?? '', oldPath, newPath)
-        : rewriteLinkText(row.content ?? '', oldPath, newPath)
+        : rewriteLinkText(row.content ?? '', oldPath, newPath, activeLocales)
       // -> A redirection has no render to speak of (see `REDIRECT_EDITOR`'s doc comment) -- nothing
       //    to rewrite there, so this is left alone rather than run through the markdown/HTML pass.
       const renderRewrite = isRedirect
         ? { text: row.render ?? '', changed: false }
-        : rewriteLinkText(row.render ?? '', oldPath, newPath)
+        : rewriteLinkText(row.render ?? '', oldPath, newPath, activeLocales)
 
       await tx
         .update(pagesTable)
@@ -2506,6 +2732,27 @@ class Pages {
       showTags: input.showTags ?? existing.showTags ?? true,
       showToc: input.showToc ?? existing.showToc ?? true,
       tocDepth: input.tocDepth ?? existing.tocDepth ?? defaults.tocDepth ?? { min: 1, max: 2 }
+    }
+  }
+
+  /**
+   * The `scripts` jsonb blob's shape (`{ jsLoad, jsUnload, css }`), built from `PageInput`'s flat
+   * `scriptJsLoad`/`scriptJsUnload`/`scriptCss` the same way {@link buildConfig} builds `config`.
+   *
+   * Unlike the pre-a3a6c7994 version of this method, this does NOT check `write:scripts`/
+   * `write:styles` itself -- it trusts whatever `input` carries. That permission check is the
+   * caller's job, done once as a 403 refusal at the route layer (`api/pages/write.ts`) before
+   * `createPage()`/`updatePage()` are ever called, rather than being re-checked here and silently
+   * dropping an unauthorized field the way the old implementation did.
+   */
+  private buildScripts(
+    input: Partial<PageInput>,
+    existing: Record<string, any> = {}
+  ): Record<string, any> {
+    return {
+      jsLoad: input.scriptJsLoad ?? existing.jsLoad ?? '',
+      jsUnload: input.scriptJsUnload ?? existing.jsUnload ?? '',
+      css: input.scriptCss ?? existing.css ?? ''
     }
   }
 

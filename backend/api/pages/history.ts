@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { actorFrom, mayOnPage, requireReadablePage } from '../../helpers/pageAccess.ts'
+import {
+  actorFrom,
+  mayOnPage,
+  mayReadSource,
+  requireReadablePage
+} from '../../helpers/pageAccess.ts'
 
 /**
  * A page's past: its version history, and the deletions still recoverable from it.
@@ -276,7 +281,7 @@ async function routes(app: FastifyInstance) {
       }
       if (
         !mayOnPage(req, 'read:pages', req.params.siteId, source) ||
-        !mayOnPage(req, 'read:source', req.params.siteId, source)
+        !mayReadSource(req, req.params.siteId, source)
       ) {
         return reply.forbidden(
           'You are not allowed to read the page this version was deleted from.'

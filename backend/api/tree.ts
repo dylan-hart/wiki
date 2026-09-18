@@ -255,7 +255,10 @@ async function routes(app: FastifyInstance) {
             // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at
             //    this path; a folder-only entry carries none, same "no CLASSIFICATION rule matches"
             //    null it always had.
-            classification: item.classification
+            classification: item.classification,
+            // -> OpenProject #3409: threaded through so a TAG/TAGALL rule decides `read:pages` here
+            //    the same way a path rule does; empty for a folder-only entry, same as `classification`.
+            tags: item.tags
           })
         )
       }
@@ -361,7 +364,10 @@ async function routes(app: FastifyInstance) {
           siteId: req.params.siteId,
           locale,
           // -> `tree.listPages()` (OpenProject #1128) now joins `pages.classification` in directly.
-          classification: page.classification
+          classification: page.classification,
+          // -> OpenProject #3409: threaded through so a TAG/TAGALL rule decides `read:pages` here the
+          //    same way a path rule does.
+          tags: page.tags
         })
       )
     }

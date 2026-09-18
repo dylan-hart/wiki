@@ -69,6 +69,9 @@ const BLANK_PAGE = {
   content: '',
   contentLoaded: false,
   render: '',
+  scriptJsLoad: '',
+  scriptJsUnload: '',
+  scriptCss: '',
   tags: [],
   relations: [],
   publishState: '',
@@ -168,6 +171,18 @@ export const usePageStore = defineStore('page', {
     publishState: '',
     relations: [],
     render: '',
+    /**
+     * Per-page script/style injection (OpenProject #3389/#3402) -- `scriptJsLoad`/`scriptJsUnload`
+     * run once this page loads/just before it's torn down, `scriptCss` is injected as a `<style>`.
+     * Edited by `PageScriptsDialog.vue`, opened from `PagePropertiesDialog.vue`'s Scripts section,
+     * which only renders for a reader holding `write:scripts`/`write:styles` (`userStore.pagePermissions`
+     * -- these are page-scoped, not `userStore.can()`). Saving a changed value needs the matching
+     * permission on the server too -- `api/pages/write.ts` refuses with 403 otherwise, rather than
+     * silently dropping it.
+     */
+    scriptJsLoad: '',
+    scriptJsUnload: '',
+    scriptCss: '',
     showSidebar: true,
     showTags: true,
     showToc: true,
@@ -676,8 +691,7 @@ export const usePageStore = defineStore('page', {
      *
      * Opens the editor on a suggestion rather than on the page. The source comes from the suggestion
      * endpoint rather than from the page: it hands back whatever this reader already suggested, so
-     * that coming back to the button carries on from where they left off, and it is also the only way
-     * an anonymous reader gets the source at all.
+     * that coming back to the button carries on from where they left off.
      */
     async pageSuggest() {
       const editorStore = useEditorStore()
@@ -783,7 +797,8 @@ export const usePageStore = defineStore('page', {
         const pageData = await API_CLIENT.get(`sites/${siteStore.id}/pages/${this.id}`, {
           searchParams: { withContent: true }
         }).json()
-        // -> Absent rather than empty means the server withheld it; see `contentLoaded`
+        // -> Absent rather than empty means the server withheld it (locked, or no `read:source` grant
+        //    on this page) -- see `contentLoaded`
         if (!Object.hasOwn(pageData ?? {}, 'content')) {
           throw new Error('ERR_PAGE_SOURCE_UNAVAILABLE')
         }
@@ -850,6 +865,29 @@ export const usePageStore = defineStore('page', {
       }
     },
     /**
+     * PAGE - Convert Editor (OpenProject #3399)
+     *
+     * Flips a page between the `markdown` and `wysiwyg` editors, after `PageConvertDialog.vue`'s
+     * own render-equality guard has already run client-side -- this only carries the flip to the
+     * server, same shape as `pageRename` above.
+     */
+    async convertEditor({ id, editor } = {}) {
+      const siteStore = useSiteStore()
+      let page
+      try {
+        ;({ page } = await API_CLIENT.put(`sites/${siteStore.id}/pages/${id}/editor`, {
+          json: { editor }
+        }).json())
+      } catch (err) {
+        throw new Error(apiErrorMessage(err, i18n.global.t('common.error.unexpected')))
+      }
+
+      // Update page store
+      if (id === this.id) {
+        this.$patch({ editor: page.editor })
+      }
+    },
+    /**
      * PAGE SAVE
      */
     async pageSave() {
@@ -894,6 +932,9 @@ export const usePageStore = defineStore('page', {
             'publishState',
             'relations',
             'render',
+            'scriptCss',
+            'scriptJsLoad',
+            'scriptJsUnload',
             'showSidebar',
             'showTags',
             'showToc',

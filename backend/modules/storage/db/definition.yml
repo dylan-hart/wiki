@@ -4,7 +4,7 @@ icon: '/_assets/icons/ultraviolet-database.svg'
 banner: '/_assets/storage/database.jpg'
 description: 'The local PostgreSQL database can store any assets. It is however not recommended to store large files directly in the database as this can cause performance issues.'
 vendor: 'Cardinal.js'
-website: 'https://js.wiki'
+website: 'https://github.com/dylan-hart/wiki'
 assetDelivery:
   isStreamingSupported: true
   isDirectAccessSupported: false
@@ -23,6 +23,6 @@ props: {}
 actions:
   purge:
     label: Purge All Assets
-    hint: Delete all asset data from the database (not the metadata). Useful if you moved assets to another storage target and want to reduce the size of the database.
-    warn: This is a destructive action! Make sure all asset files are properly stored on another storage module! This action cannot be undone!
+    hint: Delete the stored bytes (not the metadata) of any asset that another enabled storage target with Direct Access turned on can already serve on its own. Assets with no such target are left untouched. Useful if you moved assets to another storage target and want to reduce the size of the database.
+    warn: This is a destructive action and cannot be undone! Only assets a direct-access target can serve are purged - make sure that target actually holds a current copy of them first.
     icon: explosion

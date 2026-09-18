@@ -4,7 +4,11 @@ import {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
   createAndPublishPage,
+  loginAsAdmin,
+  openMarkdownEditor,
+  savePage,
   submitLogin,
+  typeBody,
   uniqueSlug
 } from '../helpers/admin.js'
 
@@ -196,6 +200,95 @@ test.describe('Content-Security-Policy (enforced)', () => {
     for (const selector of EXPECTED_ELEMENTS) {
       await expect(page.locator(selector).first()).toBeVisible()
     }
+    expect(await readCspViolations(page)).toEqual([])
+    expect(consoleCspErrors).toEqual([])
+  })
+})
+
+/*
+  Feature #3389/OpenProject #3406: per-page scripts are the one case the suite above deliberately
+  never exercises (`BODY` contains no `scriptJsLoad`/`scriptJsUnload`) -- proving them CSP-clean
+  needs its own site-wide opt-in and its own page, so it gets its own `describe`. What makes this a
+  real CSP case and not just a feature smoke test: `composables/pageScripts.js` never embeds the
+  stored script text as an inline `<script>` (which the shipped `script-src 'self'` -- no
+  `'unsafe-inline'` -- would refuse outright); it `import()`s it from `controllers/pageScripts.ts`'s
+  external, same-origin `/_pages/:pageId/script.js`, which is exactly what `'self'` allows. A CSP
+  regression here would surface as a `securitypolicyviolation` on `script-src`, caught the same way
+  the suite above catches one on any block.
+*/
+test.describe('Content-Security-Policy (enforced) — per-page scripts', () => {
+  test('a scripted page runs its load script via the external module, with no CSP violation', async ({
+    page
+  }) => {
+    const consoleCspErrors = []
+    page.on('console', (msg) => {
+      if (msg.type() === 'error' && CSP_CONSOLE_PATTERN.test(msg.text())) {
+        consoleCspErrors.push(msg.text())
+      }
+    })
+    await installCspViolationRecorder(page)
+
+    await loginAsAdmin(page)
+
+    /*
+      `features.pageScripts` ships off (Task #3403) -- a scripted page injects/executes nothing at
+      all until an administrator turns this site-wide switch on. Driven through the real
+      `AdminGeneral.vue` "Allow Page Scripts and Styles" toggle and its "Apply" button, the same
+      flow an administrator would use, rather than seeding the flag straight into the database.
+    */
+    await page.goto('/_admin/sites')
+    await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+    await expect(page).toHaveURL(/\/_admin\/[^/]+\/general$/)
+    await page.getByRole('switch', { name: 'Allow Page Scripts and Styles' }).click()
+    await page.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(page.locator('.w-notification').last()).toContainText(
+      'Site configuration saved successfully.'
+    )
+
+    const path = `csp-script-proof-${uniqueSlug()}`
+    const sentinel = 'CSP script proof sentinel paragraph'
+    await openMarkdownEditor(page, { path, title: 'CSP Script Proof' })
+    await typeBody(page, `# CSP Script Proof\n\n${sentinel}\n`, { previewWaitText: sentinel })
+
+    /*
+      `write:scripts` on a page being authored for the first time: `pages/userPermissions` answers
+      every page permission for an administrator regardless of whether the page has ever been saved
+      (`backend/api/pages/read.ts`'s own doc comment on that route), so `PagePropertiesDialog.vue`'s
+      Scripts section is offered here already.
+    */
+    await page.getByRole('button', { name: 'Page Properties' }).click()
+    await page.getByRole('button', { name: 'Javascript - On Load' }).click()
+
+    const scriptsDialog = page.locator('.page-scripts-dialog')
+    await scriptsDialog
+      .getByLabel('Javascript')
+      .fill(
+        [
+          "const el = document.createElement('div')",
+          "el.id = 'csp-script-proof-marker'",
+          "el.textContent = 'page script executed'",
+          'document.body.appendChild(el)'
+        ].join('\n')
+      )
+    await scriptsDialog.getByRole('button', { name: 'Save', exact: true }).click()
+
+    // -> Closes the Page Properties side panel so the editor's own "Create Page" button underneath
+    //    is reachable again -- `WDialog`'s own Escape handler, the same one `permissions.spec.js`
+    //    relies on for a non-persistent dialog.
+    await page.keyboard.press('Escape')
+
+    await savePage(page, path)
+
+    /*
+      A genuine fresh load, the same reader-following-a-link checkpoint the suite above uses:
+      `usePageScripts()` never runs a page's script while its own editor is still open
+      (`showing` in `composables/pageScripts.js`), and `page.reload()` starts a new document, so this
+      is the real external-module `import()` -- and the real enforced CSP header -- doing the work,
+      not a leftover of the editor session above.
+    */
+    const readerResponse = await page.reload()
+    expect(readerResponse?.headers()['content-security-policy']).toBeTruthy()
+    await expect(page.locator('#csp-script-proof-marker')).toHaveText('page script executed')
     expect(await readCspViolations(page)).toEqual([])
     expect(consoleCspErrors).toEqual([])
   })

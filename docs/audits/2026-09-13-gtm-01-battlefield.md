@@ -216,7 +216,7 @@ approvals"), not as novelty.
 | Free SSO/2FA/passkeys | Upstream has fewer modules (8 vs 17) | **Paid** | BookStack free | Medium-high |
 | MCP (free, permission-scoped) | Unique | Paid | tela/Outline | Medium, converging |
 | Semantic search (pgvector, 2-hop) | Unique | Paid AI search | tela | Medium, converging |
-| WYSIWYG + AsciiDoc + Markdown editors | Upstream lacks WYSIWYG/AsciiDoc | Docmost is WYSIWYG-native | — | Medium |
+| WYSIWYG + AsciiDoc + Markdown editors | Upstream lacked WYSIWYG/AsciiDoc as of this audit's 2026-09-13 snapshot. *Update 2026-09-14: upstream shipped a visual editor; still lacks AsciiDoc.* | Docmost is WYSIWYG-native | — | Medium — narrower now that upstream has WYSIWYG too |
 | External search engines (ES/Algolia/etc.) | Upstream dropped | No | — | Medium (enterprise ES users) |
 | 7 storage backends incl. git sync | Upstream has 7 | 3 | Otter/Gollum git | Medium |
 | Multi-site | **Upstream has it** | No | XWiki/MediaWiki farms | Medium — not unique vs upstream |

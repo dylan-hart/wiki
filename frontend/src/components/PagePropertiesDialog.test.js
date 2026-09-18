@@ -57,11 +57,13 @@ const i18n = createTestI18n({
 })
 
 /**
- * `<page-tags edit />` is rendered unconditionally, so a mount that never overrides its
- * `siteStore.fetchTags()` call would otherwise leave an unresolved promise dangling across tests --
- * `flushPromises()` after mount settles it.
+ * `<page-tags>` fetches `siteStore.fetchTags()` suggestions whenever it mounts editable (OpenProject
+ * #3393: only while the reader holds `write:tags`, which this helper's default grants alongside
+ * `write:pages` so the existing quick-access-button-count coverage below keeps seeing the Tags
+ * section) -- a mount that never overrides that call would otherwise leave an unresolved promise
+ * dangling across tests, so `flushPromises()` after mount settles it.
  */
-function mountDialog({ pagePermissions = ['write:pages'] } = {}) {
+function mountDialog({ pagePermissions = ['write:pages', 'write:tags'] } = {}) {
   setActivePinia(createPinia())
   const pageStore = usePageStore()
   const siteStore = useSiteStore()

@@ -12,15 +12,15 @@
     "wiki",
     "wikis"
   ],
-  "homepage": "https://github.com/requarks/wiki#readme",
+  "homepage": "https://github.com/dylan-hart/wiki#readme",
   "bugs": {
-    "url": "https://github.com/requarks/wiki/issues"
+    "url": "https://github.com/dylan-hart/wiki/issues"
   },
   "license": "AGPL-3.0",
   "author": "Nicolas Giard",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/requarks/wiki.git"
+    "url": "git+https://github.com/dylan-hart/wiki.git"
   },
   "type": "module",
   "main": "index.ts",
@@ -71,6 +71,23 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@node-saml/node-saml": "5.1.0",
     "@simplewebauthn/server": "13.3.2",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-color": "3.31.3",
+    "@tiptap/extension-font-family": "3.31.3",
+    "@tiptap/extension-highlight": "3.31.3",
+    "@tiptap/extension-image": "3.31.3",
+    "@tiptap/extension-link": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/extension-table-cell": "3.31.3",
+    "@tiptap/extension-table-header": "3.31.3",
+    "@tiptap/extension-table-row": "3.31.3",
+    "@tiptap/extension-task-item": "3.31.3",
+    "@tiptap/extension-task-list": "3.31.3",
+    "@tiptap/extension-text-align": "3.31.3",
+    "@tiptap/extension-text-style": "3.31.3",
+    "@tiptap/extension-typography": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
     "acorn": "8.18.0",
     "algoliasearch": "5.57.0",
     "bcryptjs": "3.0.3",
@@ -100,6 +117,7 @@
     "pg-cursor": "2.22.0",
     "piscina": "5.3.2",
     "qrcode": "1.5.4",
+    "redos-detector": "6.1.4",
     "sanitize-html": "2.17.7",
     "semver": "7.8.5",
     "simple-git": "3.36.0",
@@ -136,7 +154,8 @@
   },
   "overrides": {
     "adm-zip": "^0.6.1",
-    "sharp": "$sharp"
+    "sharp": "$sharp",
+    "uuid": "11.1.1"
   },
   "engines": {
     "node": ">=26.0"

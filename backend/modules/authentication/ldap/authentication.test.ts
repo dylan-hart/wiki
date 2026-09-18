@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { after, before, beforeEach, test } from 'node:test'
+import { after, before, beforeEach, mock, test } from 'node:test'
 import LdapAuthentication from './authentication.ts'
 import { ProvisionableLoginError } from '../../../models/authentication.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
@@ -567,7 +567,7 @@ test('mapGroups on with a non-dn groupDnProperty interpolates from that attribut
   assert.equal(groupSearch?.options.filter, '(member=abc-123)')
 })
 
-test('a failing group search does not fail the login — profile.groups just comes back empty', async () => {
+test('a failing group search does not fail the login — profile.groups just comes back undefined ("did not look"), and it is logged', async () => {
   const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
   const conf = {
     ...CONF,
@@ -587,13 +587,84 @@ test('a failing group search does not fail the login — profile.groups just com
   })
   const mod = new LdapAuthentication('strategy-1', conf, factory)
 
+  const warn = mock.fn()
+  const previousWarn = CARDINAL.logger.warn
+  CARDINAL.logger.warn = warn as any
+  try {
+    await assert.rejects(
+      mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
+      (err: any) => {
+        assert.equal(err.profile.groups, undefined)
+        return true
+      }
+    )
+  } finally {
+    CARDINAL.logger.warn = previousWarn
+  }
+
+  assert.equal(warn.mock.callCount(), 1)
+  const [scope, message, fields] = warn.mock.calls[0].arguments
+  assert.equal(scope, 'auth')
+  assert.match(message, /group search failed/)
+  assert.equal(fields.strategy, 'strategy-1')
+})
+
+test('mapGroups on with the search fields left blank rejects as ERR_STRATEGY_MISCONFIGURED rather than revoking every mapped group', async () => {
+  const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
+  const conf = {
+    ...CONF,
+    mapGroups: true,
+    groupSearchBase: '',
+    groupSearchFilter: '(member={{dn}})',
+    groupNameField: 'cn'
+  }
+  const { factory, calls } = makeClientFactory({
+    bind: () => true,
+    search: (base) => {
+      if (base === conf.searchBase) {
+        return [{ dn: userDn, attrs: { uid: 'jdoe', mail: 'jdoe@example.com' } }]
+      }
+      throw new Error(`unexpected search against ${base}`)
+    }
+  })
+  const mod = new LdapAuthentication('strategy-1', conf, factory)
+
   await assert.rejects(
     mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
-    (err: any) => {
-      assert.deepEqual(err.profile.groups, [])
-      return true
-    }
+    /ERR_STRATEGY_MISCONFIGURED/
   )
+  // -> Only the user search happened; no group search was attempted against an unset base.
+  assert.equal(calls.searches.length, 1)
+})
+
+test('mapGroups on with a groupDnProperty absent on the user entry rejects as ERR_STRATEGY_MISCONFIGURED', async () => {
+  const userDn = 'uid=jdoe,ou=people,dc=example,dc=com'
+  const conf = {
+    ...CONF,
+    mapGroups: true,
+    groupSearchBase: 'ou=groups,dc=example,dc=com',
+    groupSearchFilter: '(member={{dn}})',
+    groupDnProperty: 'entryUUID',
+    groupNameField: 'cn'
+  }
+  const { factory, calls } = makeClientFactory({
+    bind: () => true,
+    search: (base) => {
+      if (base === conf.searchBase) {
+        // -> No `entryUUID` attribute on the entry: `groupDnProperty` names an attribute this
+        //    directory never returned.
+        return [{ dn: userDn, attrs: { uid: 'jdoe', mail: 'jdoe@example.com' } }]
+      }
+      throw new Error(`unexpected search against ${base}`)
+    }
+  })
+  const mod = new LdapAuthentication('strategy-1', conf, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'correct-password' }),
+    /ERR_STRATEGY_MISCONFIGURED/
+  )
+  assert.equal(calls.searches.length, 1)
 })
 
 test('TLS certificate is read from disk once and cached across logins', async () => {

@@ -17,6 +17,7 @@ import {
   actorFrom,
   mayBypassPassword,
   mayOnPage,
+  mayReadSource,
   pagePermissionsFor,
   requireReadablePage,
   splitList,
@@ -518,7 +519,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single page',
         description:
-          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Access is enforced per page against the requester's group rules (`mayOnPage()`), not against a group-wide permission list, so who may read a given page can differ path by path. `withContent` needs `read:source` ON THIS PAGE on top of `read:pages`, granted by a group rule.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester holds `write:pages` or `manage:pages` ON THIS PAGE, for whom the password is not a barrier.\n\n`revision` — where the page stands in its own history — needs `read:history` ON THIS PAGE, and is absent entirely without it.",
+          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages. Access is enforced per page against the requester's group rules (`mayOnPage()`), not against a group-wide permission list, so who may read a given page — and its source — can differ path by path. `withContent` needs `read:source` ON THIS PAGE on top of `read:pages`, granted by a group rule to the guests group exactly as to any other, so an anonymous caller with that grant sees the source too.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester holds `write:pages` or `manage:pages` ON THIS PAGE, for whom the password is not a barrier.\n\n`revision` — where the page stands in its own history — needs `read:history` ON THIS PAGE, and is absent entirely without it.",
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -561,8 +562,9 @@ async function routes(app: FastifyInstance) {
       //    included; see `helpers/apiKeySite.ts`.
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
-      // -> The source is what an editor loads, and editing is not something an anonymous reader does
-      const wantsContent = Boolean(req.query.withContent) && Boolean(actor)
+      // -> `read:source` (checked below, ON THIS PAGE) is the sole gate on the source, for an
+      //    anonymous caller exactly as for a signed-in one -- see `mayOnPage(req, 'read:source', ...)`
+      const wantsContent = Boolean(req.query.withContent)
       const page = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         ...(isId ? { id: req.params.pageIdOrHash } : { hash: req.params.pageIdOrHash }),
@@ -580,8 +582,10 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'read:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read this page.')
       }
-      // -> A separate permission from `read:pages`: reading the rendered page is not reading its source
-      if (wantsContent && !mayOnPage(req, 'read:source', req.params.siteId, page)) {
+      // -> A separate permission from `read:pages`: reading the rendered page is not reading its
+      //    source. `mayReadSource` also admits `write:pages`/`manage:pages` (OpenProject #3391) --
+      //    an editor who cannot read the source cannot open the editor.
+      if (wantsContent && !mayReadSource(req, req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's source.")
       }
       // -> Best-effort, never awaited: see `recordPageview()`'s own doc comment.
@@ -1047,9 +1051,25 @@ async function routes(app: FastifyInstance) {
       // -> Rules now fail closed on locale (`RulePageRef` requires it), so which locale this asks
       //    about actually decides the answer -- the site's primary locale is the default for a
       //    caller who doesn't say, not a stand-in for a param that doesn't exist.
+      const path = req.body.path.replace(/^\/+/, '')
+      const locale = req.body.locale ?? defaultLocale(req.params.siteId)
+      // -> Tags come from the stored page, never from the request body: the body carries no `tags`
+      //    field at all (see the schema above), so a client positing one has nothing to read it back
+      //    from -- a tag-scoped rule is judged on what the page actually carries, not on what a caller
+      //    claims it does. A path with no page behind it yet (this route doubles as a create-permission
+      //    check) resolves no row, and `tags`/`classification` fall back to the same "unknown" a
+      //    not-yet-existing page always has.
+      const page = await CARDINAL.models.pages.getPage({
+        siteId: req.params.siteId,
+        hash: generatePathHash(path || 'home'),
+        locale,
+        withPassword: false
+      })
       return pagePermissionsFor(req, req.params.siteId, {
-        path: req.body.path.replace(/^\/+/, ''),
-        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+        path,
+        locale,
+        tags: page?.tags,
+        classification: page?.classification ?? null
       })
     }
   )

@@ -212,6 +212,7 @@ import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import { maySeeSiteSurface } from '@/composables/siteAdminAccess'
 
 // COMPONENTS
 
@@ -656,8 +657,15 @@ function scrollSidebarToTop() {
   Whether to offer Edit Nav, in either of the two places the sidebar has for it -- the footer bar of the
   full panel, and the small cog at the bottom of the icon rail. Two questions:
 
-  Saving from that menu needs `manage:navigation`, so offering it to anyone else only produces a
-  permission error once they press Save.
+  Saving from that menu needs `manage:navigation` OR a `site:navigation` delegation on the CURRENT
+  site (OpenProject #3380), so offering it to anyone holding neither only produces a permission error
+  once they press Save. `maySeeSiteSurface` is the same site-scoped helper the admin area's nine
+  `site:*` surfaces gate on (`composables/siteAdminAccess.js`) -- it ORs the two rather than folding
+  `site:navigation` into `userStore.can()`, since `can()` answers globally and has no notion of which
+  site the delegation is for. `userStore.sitePermissions` only stays valid for the site it was last
+  fetched for (see the `siteStore.id` watch below), so this reads stale/denied rather than a wrong
+  site's grant while a fetch is in flight -- the safe direction to be transiently wrong in, matching
+  every other `sitePermissions` consumer.
 
   And not on a phone, whatever the permission: rearranging a navigation tree is drag-and-drop work in a
   full-screen overlay, and the sidebar it hangs off is itself a panel the reader has just opened over the
@@ -682,10 +690,36 @@ function scrollSidebarToTop() {
   gate to begin with.)
 */
 const showEditNav = computed(() => {
-  return userStore.authenticated && userStore.can('manage:navigation') && isAtLeastSm.value
+  return (
+    userStore.authenticated &&
+    maySeeSiteSurface(userStore, 'site:navigation', siteStore.id) &&
+    isAtLeastSm.value
+  )
 })
 
 // WATCHERS
+
+/*
+  Keeps `userStore.sitePermissions` valid for whichever site `showEditNav` above is currently asking
+  about (OpenProject #3380). MainLayout mounts for every page view, reader-facing pages included --
+  unlike AdminLayout's equivalent watch, this only fetches for a caller who could actually gain
+  something from it: a guest can never hold a site delegation, and `manage:navigation` alone already
+  answers `maySeeSiteSurface` without needing `sitePermissions` at all, so both skip the network
+  round trip entirely. `sitePermissionsSiteId !== siteStore.id` (rather than a one-shot) is what makes
+  this re-fetch across a site switch, the same guard `fetchSitePermissions` itself documents.
+*/
+watch(
+  () => siteStore.id,
+  (newValue) => {
+    if (!userStore.authenticated || userStore.can('manage:navigation')) {
+      return
+    }
+    if (userStore.sitePermissionsSiteId !== newValue) {
+      userStore.fetchSitePermissions(newValue)
+    }
+  },
+  { immediate: true }
+)
 
 /*
   Following a link out of the overlaying sidebar puts it away, since what the reader asked for is

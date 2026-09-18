@@ -41,6 +41,51 @@ describe('page store: pageSave() concurrency', () => {
     )
   })
 
+  /**
+   * OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` go up on every save, the
+   * same way `render`/`title`/etc. do -- `pageSave()`'s `pick()` allowlist includes them
+   * unconditionally, not just when the scripts panel is open. An actor without `write:scripts`/
+   * `write:styles` never sees the panel that would change these away from what the page already
+   * has, so this never smuggles an edit past the server-side 403 guard in `api/pages/write.ts` --
+   * it just means an unrelated save (a title edit, say) round-trips the current values unchanged.
+   */
+  it('sends scriptJsLoad/scriptJsUnload/scriptCss on the PATCH body', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      scriptJsLoad: 'console.log("load")',
+      scriptJsUnload: 'console.log("unload")',
+      scriptCss: 'body { color: red }'
+    })
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '5', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith(
+      'sites/site-1/pages/5',
+      expect.objectContaining({
+        json: expect.objectContaining({
+          scriptJsLoad: 'console.log("load")',
+          scriptJsUnload: 'console.log("unload")',
+          scriptCss: 'body { color: red }'
+        })
+      })
+    )
+  })
+
   it('does not send expectedUpdatedAt when creating a page', async () => {
     const pageStore = usePageStore()
     const editorStore = useEditorStore()

@@ -153,11 +153,10 @@ export const SYNC_SHAPED_ACTIONS = ['sync', 'syncUntracked', 'importAll'] as con
  * one — a git commit or an S3 `PUT` does not care whether the key existed before — which is exactly
  * why 2.5.x never had a separate "asset updated" handler.
  *
- * `asset:move` has deliberately no entry: no storage module relocates a blob-target's copy of a file
- * on a folder reparent yet — the same gap `renameFolder`'s bulk folder move already has for the
- * assets it drags along (OpenProject #2817). `dispatch()` no-ops for an event missing here, so this is safe rather than a crash risk;
- * the webhook side (`HOOK_EVENTS`/`EMITTED_EVENTS`) still fires for `asset:move`, since that half has
- * nothing storage-shaped to get wrong.
+ * `asset:move` maps to `assetMoved`: a blob target (`s3`/`azure`/`gcs`, via `blobBase.ts`) copies its
+ * object to the new key and removes the old one, and the `git` target does the equivalent `git mv`
+ * (OpenProject #3384) — `sftp` and `disk` implement neither this nor `assetRenamed`, since they have
+ * no write-path handlers at all (config- and manual-action-only; see each module's `storage.ts`).
  */
 const STORAGE_HANDLERS: Partial<Record<HookEvent, string>> = {
   'page:create': 'created',
@@ -167,6 +166,7 @@ const STORAGE_HANDLERS: Partial<Record<HookEvent, string>> = {
   'asset:upload': 'assetUploaded',
   'asset:edit': 'assetUploaded',
   'asset:rename': 'assetRenamed',
+  'asset:move': 'assetMoved',
   'asset:delete': 'assetDeleted'
 }
 
@@ -345,8 +345,11 @@ export interface StorageModule {
   deleted?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** An asset was created, or an existing one had its bytes replaced. */
   assetUploaded?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
-  /** An asset moved to a new name or folder. */
+  /** An asset moved to a new name within the same folder. */
   assetRenamed?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** An asset moved to a new folder, keeping its name — also fired once per descendant asset when an
+   *  ancestor folder is renamed (`models/tree.ts#renameFolder`). */
+  assetMoved?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** An asset was deleted. */
   assetDeleted?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /**
@@ -1039,9 +1042,12 @@ class Storage {
   /**
    * Run one of the actions a module declares.
    *
+   * @returns Whatever the handler resolves to — `undefined` for the historical fire-and-forget
+   *   handlers, or a result such as `purge`'s `{ purged, skipped }` — which `api/storage.ts`'s action
+   *   route carries into the reply's `message` instead of always reporting the same fixed string.
    * @throws When the module cannot be loaded or does not implement the handler
    */
-  async executeAction(target: StorageTarget, handler: string): Promise<void> {
+  async executeAction(target: StorageTarget, handler: string): Promise<unknown> {
     const mod = await this.ensureModule(target.module)
     if (!mod) {
       throw new Error(`The ${target.title} storage module has no implementation installed.`)
@@ -1049,7 +1055,7 @@ class Storage {
     if (typeof mod[handler] !== 'function') {
       throw new Error(`The ${target.title} storage module does not implement "${handler}".`)
     }
-    await mod[handler](target)
+    return await mod[handler](target)
   }
 }
 

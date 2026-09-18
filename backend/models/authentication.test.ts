@@ -174,6 +174,54 @@ describe('authentication.validateStrategy: mappableGroups', () => {
 })
 
 /**
+ * OpenProject #3372: `allowedEmailRegex` is compiled and run fresh on every login attempt against
+ * the strategy (`models/login.ts#assertAllowedProviderEmail`), so a pattern that is syntax-valid but
+ * vulnerable to catastrophic backtracking must be refused here at save time, same as an unparseable
+ * one already is. Pure unit suite -- no database, no `CARDINAL` global.
+ */
+describe('authentication.validateStrategy: allowedEmailRegex safety', () => {
+  test('accepts an empty allowedEmailRegex', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailRegex: ''
+    })
+    assert.equal(result, null)
+  })
+
+  test('accepts an ordinary, safe pattern', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailRegex: '^[^@]+@allowed\\.example$'
+    })
+    assert.equal(result, null)
+  })
+
+  test('refuses an unparseable pattern with the existing syntax error', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailRegex: '(unterminated'
+    })
+    assert.match(result ?? '', /not a valid regular expression/)
+  })
+
+  test('refuses a syntax-valid pattern vulnerable to catastrophic backtracking', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailRegex: '^(a+)+$'
+    })
+    assert.match(result ?? '', /catastrophic backtracking \(ReDoS\)/)
+  })
+
+  test('refuses a second known-bad shape (nested star quantifiers)', async () => {
+    const result = await authentication.validateStrategy({
+      module: 'local',
+      allowedEmailRegex: '^(a*)*$'
+    })
+    assert.match(result ?? '', /catastrophic backtracking \(ReDoS\)/)
+  })
+})
+
+/**
  * OpenProject #2469: `allowedEmailDomains` is a per-strategy list of domains, a friendlier
  * alternative to `allowedEmailRegex` for the common case. `validateStrategy`'s format check touches
  * no database and no `CARDINAL` global, so this is a pure unit suite -- the same "no I/O" reasoning as

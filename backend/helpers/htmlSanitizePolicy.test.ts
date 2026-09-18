@@ -299,6 +299,29 @@ describe('sanitizeOptions -- allowedStyles gates inline CSS by write:styles (Ope
     }
   })
 
+  /**
+   * OpenProject #3398: the WYSIWYG editor's text-colour/highlight-colour/text-align marks
+   * serialize to `style="…"` declarations that were already on `ALLOWED_STYLES` before this WP
+   * (`color`, `background-color`, `text-align`), so an author without `write:styles` keeps them
+   * on round-trip -- confirmed directly here rather than only inferred from the KaTeX-sized test
+   * above. `font-family` is deliberately NOT on that allowlist, so the fourth mark this WP covers
+   * is the one that does NOT survive for such an author: that is the "safe subset the sanitizer
+   * already permits" the work package's own acceptance criteria describes, not a gap this WP left
+   * unfixed.
+   */
+  test("keeps the WYSIWYG editor's colour/highlight/align declarations for an author without write:styles, but drops font-family", () => {
+    const html =
+      '<span style="color: #D32F2F; background-color: #FFF59D; text-align: center; ' +
+      'font-family: monospace;">x</span>'
+
+    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
+
+    assert.match(clean, /color:\s*#D32F2F/)
+    assert.match(clean, /background-color:\s*#FFF59D/)
+    assert.match(clean, /text-align:\s*center/)
+    assert.doesNotMatch(clean, /font-family/)
+  })
+
   test('drops the style attribute entirely once every declaration it carried is disallowed', () => {
     const html = '<div style="position: fixed; transform: translateX(10px);">x</div>'
 

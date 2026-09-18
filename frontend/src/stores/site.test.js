@@ -481,6 +481,51 @@ describe('site store: features.comments default', () => {
   })
 })
 
+describe('site store: features.pageScripts default', () => {
+  it('defaults to false, matching the site-wide execution kill switch being off until an admin opts in', () => {
+    const store = useSiteStore()
+
+    expect(store.features.pageScripts).toBe(false)
+  })
+
+  it('applySiteInfo() lets a backend-sent features.pageScripts override the default', () => {
+    const store = useSiteStore()
+    store.applySiteInfo({
+      pageExtensions: [],
+      features: { pageScripts: true },
+      auth: {},
+      editors: {
+        asciidoc: { isActive: false },
+        code: { isActive: false },
+        markdown: { isActive: true },
+        wysiwyg: { isActive: false }
+      },
+      locales: { active: [] }
+    })
+
+    expect(store.features.pageScripts).toBe(true)
+  })
+
+  it('applySiteInfo() without a pageScripts key keeps the default rather than going undefined', () => {
+    const store = useSiteStore()
+    store.applySiteInfo({
+      pageExtensions: [],
+      features: { search: true },
+      auth: {},
+      editors: {
+        asciidoc: { isActive: false },
+        code: { isActive: false },
+        markdown: { isActive: true },
+        wysiwyg: { isActive: false }
+      },
+      locales: { active: [] }
+    })
+
+    expect(store.features.pageScripts).toBe(false)
+    expect(store.features.search).toBe(true)
+  })
+})
+
 describe('site store: fetchExtensionsStatus()', () => {
   it('populates extensionsStatus from the endpoint and marks it loaded', async () => {
     const store = useSiteStore()

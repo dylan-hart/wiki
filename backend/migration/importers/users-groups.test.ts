@@ -670,6 +670,74 @@ describe('createGroupConverter', () => {
     assert.match(outcome.message ?? '', /2 malformed page rule/)
   })
 
+  test('a 2.x TAG rule’s comma-list path becomes 3.0’s tags array, with path left empty (OpenProject #3408)', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: [],
+      pageRules: [
+        {
+          id: '1',
+          deny: false,
+          match: 'TAG',
+          path: ' Europe, CAPITAL , europe ',
+          roles: ['read:pages'],
+          locales: []
+        }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 1)
+    // -> Trimmed, lowercased and de-duplicated the same way `updateGroup` normalizes tags at write
+    //    time (`normalizeRuleTags`), not carried forward verbatim.
+    assert.deepEqual(rules[0].tags, ['europe', 'capital'])
+    assert.equal(rules[0].path, '')
+    assert.equal(rules[0].name, 'Imported Rule 1: TAG europe, capital')
+  })
+
+  test('a rule granting write:pages also grants write:tags, which has no 2.x source concept of its own (OpenProject #3393)', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: [],
+      pageRules: [
+        {
+          id: '1',
+          deny: false,
+          match: 'START',
+          path: '',
+          roles: ['read:pages', 'write:pages'],
+          locales: []
+        },
+        // -> No write:pages here -- write:tags must not be added where write:pages was not granted.
+        { id: '2', deny: false, match: 'START', path: 'blog', roles: ['read:pages'], locales: [] },
+        // -> Already carries write:tags explicitly (shouldn't happen from a real 2.x export, but a
+        //    malformed/hand-edited one might) -- must not be duplicated.
+        {
+          id: '3',
+          deny: false,
+          match: 'START',
+          path: 'docs',
+          roles: ['write:pages', 'write:tags'],
+          locales: []
+        }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 3)
+    assert.deepEqual(rules[0].roles, ['read:pages', 'write:pages', 'write:tags'])
+    assert.deepEqual(rules[1].roles, ['read:pages'])
+    assert.deepEqual(rules[2].roles, ['write:pages', 'write:tags'])
+  })
+
   test('keeps only the closed seven-name global permissions, dropping page-rule-effectiveness-only entries', async () => {
     const outcome = await convert({
       id: 1,

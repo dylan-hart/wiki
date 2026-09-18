@@ -72,7 +72,7 @@ RUN set -eu; \
 # `pandoc` is here for CI parity specifically: quality.yml installs it because
 # backend/models/import.test.ts's real-pandoc test is gated on `pandocAvailable` and silently skips
 # without it -- a suite that skips locally and runs in CI is exactly the asymmetry this image closes.
-RUN apt-get update && apt-get install -qy \
+RUN apt-get update && apt-get install -qy --no-install-recommends \
     bash \
     build-essential \
     curl \
@@ -263,8 +263,36 @@ COPY app-init.sh /docker-init.sh
 RUN sed -i 's/\r$//' /docker-init.sh && \
     chmod +x /docker-init.sh
 
-# Create workspace
-RUN mkdir -p /workspace
+# Create workspace, owned by the `node` user this image drops to just below -- everything that
+# writes here (docker-compose's bind mount aside) needs to do so as that user, not root.
+RUN mkdir -p /workspace && chown node:node /workspace
+
+# ---------------------------------------------------------------------------------------------
+# Drop root (OpenProject #3370, closing Trivy DS-0002 -- no `USER`, image runs as root).
+#
+# Every root-only setup step is above this line: the apt installs, the git-from-source build, the
+# Playwright system deps (`--with-deps`), the `/etc/gitconfig` writes, and the `wait-for`/
+# `app-init.sh` copies. From here on the image runs as `node` -- the same user the base
+# `node:${NODE_VERSION}-bookworm` image already ships (uid/gid 1000), and the same one
+# devcontainer.json's `remoteUser: "node"` and its `common-utils` feature (`username: "node"`)
+# already give VS Code's own terminal and exec sessions. This just makes it true for a plain
+# `docker build`/`docker run` too, not only under the devcontainer tooling -- docker-compose.yml's
+# commented-out `user: node` override is redundant with this now, not a conflicting setting.
+#
+# The bind-mounted `..:/workspace` volume (docker-compose.yml) is unaffected by this image's own
+# ownership -- a bind mount's permissions come from the host side, not from the `chown` above,
+# which only matters when this image is run standalone with no volume over /workspace.
+# ---------------------------------------------------------------------------------------------
+USER node
 WORKDIR /workspace
 
 ENV NODE_ENV=development
+
+# `/_ready` (`core/http/shutdown.ts#registerProbes`) is the same readiness route
+# dev/build/Dockerfile's own HEALTHCHECK already hits -- reused rather than inventing a second
+# endpoint. Unlike that image, this container's default command is `sleep infinity`
+# (docker-compose.yml): nothing starts the backend automatically, so this legitimately reports
+# unhealthy until a developer runs `npm run dev`/`npm run start` inside it -- exactly the "once the
+# dev server is expected to be up" case this exists for, not a sign it is misconfigured while idle.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS http://localhost:3000/_ready || exit 1

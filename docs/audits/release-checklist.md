@@ -306,6 +306,31 @@ this exact script; it is a strong candidate to fold into `quality.yml` or `build
 someone owns deciding what a "known, acceptable FAIL" should mean to an automated gate (today that
 judgment is still a human's).
 
+### 8. OCI image metadata labels present and free of `requarks`
+
+**Owner: OpenProject #3392.** `build.yml` and `release.yml` both run a `docker/metadata-action`
+step ahead of the Docker publish step, feeding its `labels`/`annotations` outputs into
+`docker/build-push-action`. This item confirms the published image actually carries them, since a
+misconfigured `images:`/`labels:` input on that step would fail silently (an image with no OCI
+labels at all still builds and pushes fine).
+
+1. **Inspect the published image's labels**, for the release commit's tag:
+
+   ```sh
+   docker inspect --format '{{json .Config.Labels}}' ghcr.io/dylan-hart/wiki:$VERSION
+   ```
+
+2. **Confirm every one of these keys is present and non-empty**: `org.opencontainers.image.title`,
+   `.description`, `.vendor`, `.documentation`, `.source`, `.revision`, `.created`, `.version`,
+   `.licenses`.
+3. **Confirm no value contains `requarks`** — `title`/`vendor` are the explicit Cardinal.js
+   overrides this task added; `source`/`documentation` are derived from `github.repository` at
+   build time and must resolve to this fork's own repository, not upstream's.
+
+This is CI-checkable in principle (a scripted `docker inspect` + key/string assertion, the same
+shape as Item 6's manifest check) but is not wired into any workflow yet — like Items 6 and 7, it
+is performed manually every release until someone owns adding that gate.
+
 ## Status of automation
 
 A snapshot of what's real today versus what this document anticipates, so nobody mistakes the
@@ -320,6 +345,7 @@ future-tense sections above for present-tense fact:
 | 5. Migration dry-run                | Epic #341 / task #421     | No — no migration code exists                                                                                                                                                                                                                                                                                                                      |
 | 6. ARM host verification            | Epic #2435 / WP #2488     | Partially — WP #2486/#2487 (add linux/arm64 to build.yml/release.yml) have landed, so the next tagged release will publish an arm64-including image; the manual manifest-check + real-hardware smoke test in this item has not been performed against a real release yet                                                                           |
 | 7. Sandboxed Puppeteer verification | WP #3214                  | Script exists (`dev/build/verify-sandboxed-puppeteer.sh`) and has been run for real against a locally built image — result: known, documented FAIL (see `docs/decisions/sandboxed-puppeteer-requires-runtime-flags.md`); not yet wired into any CI workflow, so the manual step above is still required every release                              |
+| 8. OCI image metadata labels        | OpenProject #3392         | Yes — `build.yml`/`release.yml` both run `docker/metadata-action` ahead of the Docker publish step and feed its outputs into `labels:`/`annotations:`; not yet wired into any CI workflow as an automated assertion, so the manual `docker inspect` step above is still required every release                                                     |
 
 Nothing in this table is a criticism of those Features — they are each independently in progress
 under the same parent Feature (#426) as this document, at the time it was written. This table

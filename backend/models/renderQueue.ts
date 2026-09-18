@@ -9,6 +9,7 @@ import {
 } from '../helpers/puppeteer.ts'
 import { withTimeout } from '../helpers/timeout.ts'
 import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
+import { getContentTypeForEditor } from './pages.ts'
 
 /**
  * Render queue model
@@ -72,9 +73,15 @@ class RenderQueue {
    * Asked before anything is queued or written rather than left to the job: a request that joins a
    * queue nothing will ever drain looks like it worked, and an approval that cannot produce a matching
    * render would leave a page's HTML lying about its content.
+   *
+   * Keyed off the editor's CONTENT (`getContentTypeForEditor`), not its name: the renderer bundle
+   * takes markdown in and produces HTML, so any editor whose output is markdown can go through it —
+   * `wysiwyg` included, now that it stores markdown via `@tiptap/markdown` rather than typed Tiptap
+   * JSON (OpenProject #3388). A literal `editor !== 'markdown'` check would keep refusing `wysiwyg`
+   * pages for a reason that stopped being true.
    */
   async ensureCanRender(editor: string): Promise<void> {
-    if (editor !== 'markdown') {
+    if (getContentTypeForEditor(editor) !== 'markdown') {
       throw new CustomError(
         'renderUnsupportedEditor',
         `Server-side rendering is not implemented for the ${editor} editor.`
@@ -238,7 +245,7 @@ class RenderQueue {
             //    for a page that went between the claim and here.
             continue
           }
-          if (page.editor !== 'markdown') {
+          if (getContentTypeForEditor(page.editor) !== 'markdown') {
             CARDINAL.logger.warn(
               'render',
               'server-side rendering is not implemented for this editor',

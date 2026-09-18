@@ -121,3 +121,28 @@ describe('AdminMail sendTest', () => {
     expect(negative?.message).toMatch(/could not connect to the smtp server/i)
   })
 })
+
+/**
+ * OpenProject #3386: `settings.ts`'s seeded `defaultBaseURL` is blank now, not
+ * `'https://wiki.example.com'` -- the field shows that example as a `placeholder` instead, upstream
+ * 6053cb982's diff, so an operator still sees the expected shape without a fresh instance ever
+ * mailing a real user a link to a host nobody controls.
+ */
+describe('AdminMail defaultBaseURL placeholder (OpenProject #3386)', () => {
+  it('shows https://wiki.example.com as a placeholder, not a value', async () => {
+    setActivePinia(createPinia())
+    const router = await createTestRouter(['/'])
+    const i18n = createTestI18n({
+      admin: { mail: { defaultBaseURL: 'Default Base URL' } }
+    })
+
+    const wrapper = mount(AdminMail, {
+      global: { plugins: [router, i18n] }
+    })
+    await wrapper.vm.$nextTick()
+
+    const field = wrapper.get('input[aria-label="Default Base URL"]')
+    expect(field.attributes('placeholder')).toBe('https://wiki.example.com')
+    expect(field.element.value).toBe('')
+  })
+})

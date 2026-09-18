@@ -129,8 +129,12 @@ describe('rate limiter hook wiring (index.ts)', () => {
  * own `enforceApiKeySite()` calls (`files.ts`, `site.ts`) and `actorForRequest()`-mediated site-pin
  * check (`thumb.ts`). Wired here exactly as `index.ts` wires it (same `isBearerAuthenticatedPath`
  * gate, same header parsing, same `CARDINAL.models.apiKeys.verify()` and `limitApiKey()` calls), so the
- * only thing under test is the wiring: that `req.apiKey` now actually gets populated on the three
+ * only thing under test is the wiring: that `req.apiKey` now actually gets populated on the
  * newly-covered prefixes, and still doesn't on a route this fix deliberately leaves alone.
+ *
+ * `/_pages/` (`controllers/pageScripts.ts`, OpenProject #3405) joined the covered set later, on the
+ * same `actorForRequest()`-mediated reasoning as `/_thumb/` — added to `BEARER_AUTH_PREFIXES` in the
+ * same change that introduced the route, not a fresh instance of the #2339 bug.
  */
 describe('API-key population hook wiring (index.ts)', () => {
   let app: FastifyInstance
@@ -186,6 +190,7 @@ describe('API-key population hook wiring (index.ts)', () => {
     app.get('/_files/some/asset.png', echoApiKey)
     app.get('/_site/current/logo', echoApiKey)
     app.get('/_thumb/some-id.webp', echoApiKey)
+    app.get('/_pages/some-id/script.js', echoApiKey)
     // -> Deliberately NOT covered by this fix -- render.ts resolves no site and is never fetched
     //    with an API key; a plain route stands in for "everything else stays cookie-authenticated".
     app.get('/_render/', echoApiKey)
@@ -205,7 +210,12 @@ describe('API-key population hook wiring (index.ts)', () => {
     verifyResult = { id: 'key-1', permissions: ['read:pages'], siteId: 'site-a' }
   })
 
-  for (const url of ['/_files/some/asset.png', '/_site/current/logo', '/_thumb/some-id.webp']) {
+  for (const url of [
+    '/_files/some/asset.png',
+    '/_site/current/logo',
+    '/_thumb/some-id.webp',
+    '/_pages/some-id/script.js'
+  ]) {
     test(`populates req.apiKey for a valid Bearer token against ${url}`, async () => {
       const res = await app.inject({
         method: 'GET',

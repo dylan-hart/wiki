@@ -517,8 +517,8 @@
               <w-item-section>{{ t('admin.mail.title') }}</w-item-section>
               <w-item-section side>
                 <status-light
-                  :color="adminStore.info.isMailConfigured ? `positive` : `warning`"
-                  :pulse="!adminStore.info.isMailConfigured" />
+                  :color="isMailHealthy ? `positive` : `warning`"
+                  :pulse="!isMailHealthy" />
               </w-item-section>
             </w-item>
             <w-item
@@ -761,6 +761,13 @@ const maySeeNavigation = computed(() =>
 const maySeeStorage = computed(() => userStore.can('manage:system'))
 const maySeeTheme = computed(() =>
   maySeeSiteSurface(userStore, 'site:theme', adminStore.currentSiteId)
+)
+
+// -> The mail nav's status light warns on EITHER an unreachable SMTP transport (isMailConfigured)
+//    OR every mail link resolving to an unresolvable host (isMailBaseURLConfigured, OpenProject
+//    #3386) -- either one alone means a real user could be mailed something broken or misleading.
+const isMailHealthy = computed(
+  () => adminStore.info.isMailConfigured && adminStore.info.isMailBaseURLConfigured
 )
 
 /*

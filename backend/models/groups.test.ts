@@ -1444,6 +1444,81 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
+ * OpenProject #3408: a rule's `tags` gains the same write-time fold `path` already had for
+ * START/END/EXACT (trim/lowercase/de-dupe, `models/groups.ts#normalizeRuleTags`) -- covered here
+ * rather than as a pure unit test of the private `normalizeRulePaths` because the thing actually
+ * worth proving is that `updateGroup` applies it and a subsequent read reflects it, which needs a
+ * real row round-tripping through Postgres.
+ */
+describe(
+  'groups.updateGroup rule tag normalization (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let groupsModel: typeof import('./groups.ts').groups
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+      CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    const rule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
+      id: 'rule-1',
+      name: 'Test Rule',
+      roles: ['read:pages'],
+      match: 'TAG',
+      mode: 'ALLOW',
+      path: '',
+      locales: [],
+      sites: [],
+      ...overrides
+    })
+
+    test('trims, lowercases and de-duplicates tags, preserving first-seen order', async () => {
+      await groupsModel.updateGroup(fixtures.groupId, {
+        rules: [rule({ tags: ['  Europe ', 'CAPITAL', 'europe', 'capital  '] })]
+      })
+
+      const stored = await groupsModel.getGroupById(fixtures.groupId)
+      assert.deepEqual(stored?.rules[0].tags, ['europe', 'capital'])
+    })
+
+    test('drops empty/whitespace-only entries', async () => {
+      await groupsModel.updateGroup(fixtures.groupId, {
+        rules: [rule({ tags: ['history', '   ', ''] })]
+      })
+
+      const stored = await groupsModel.getGroupById(fixtures.groupId)
+      assert.deepEqual(stored?.rules[0].tags, ['history'])
+    })
+
+    test('a saved TAG rule stores tags and leaves path untouched (empty)', async () => {
+      await groupsModel.updateGroup(fixtures.groupId, {
+        rules: [rule({ match: 'TAG', path: '', tags: ['geography'] })]
+      })
+
+      const stored = await groupsModel.getGroupById(fixtures.groupId)
+      assert.deepEqual(stored?.rules[0].tags, ['geography'])
+      assert.equal(stored?.rules[0].path, '')
+    })
+
+    test('normalizes tags regardless of the rule’s current match kind', async () => {
+      await groupsModel.updateGroup(fixtures.groupId, {
+        rules: [rule({ match: 'START', path: 'engineering', tags: [' Old Tag '] })]
+      })
+
+      const stored = await groupsModel.getGroupById(fixtures.groupId)
+      assert.deepEqual(stored?.rules[0].tags, ['old tag'])
+    })
+  }
+)
+
+/**
  * OpenProject #966: `createGroup`/`updateGroup`/`deleteGroup` used to call `this.reloadCache()`
  * directly, which only ever refreshes this instance's own in-memory cache — a revoked permission
  * (or a newly-granted one) took effect on the instance that handled the write, but every other

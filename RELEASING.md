@@ -99,8 +99,18 @@ Once the workflow finishes green:
   commit:
 
   ```sh
-  gh attestation verify oci://ghcr.io/requarks/wiki:$VERSION --owner requarks
+  gh attestation verify oci://ghcr.io/dylan-hart/wiki:$VERSION --owner dylan-hart
   ```
+
+- **Image metadata labels** — confirm the OCI labels (OpenProject #3392) are present and carry no
+  `requarks` string:
+
+  ```sh
+  docker inspect --format '{{json .Config.Labels}}' ghcr.io/dylan-hart/wiki:$VERSION
+  ```
+
+  Expect `org.opencontainers.image.source`, `.revision`, `.licenses`, `.title`, `.vendor` and
+  `.documentation` all populated, and nothing in the output containing `requarks`.
 
 - **Release archive** — confirm the GitHub Release carries `wiki-js.tar.gz` and
   `wiki-js.tar.gz.sha256`, and that the checksum verifies against the downloaded archive

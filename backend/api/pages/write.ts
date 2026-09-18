@@ -7,6 +7,21 @@ import { actorFrom, mayOnPage } from '../../helpers/pageAccess.ts'
 import { recordClassificationChange } from './classification.ts'
 
 /**
+ * Whether a page's tag set is actually changing, as a SET -- order and duplicates never count as a
+ * change, and neither does resubmitting the same tags unchanged (the same "changed AND different"
+ * shape the classification/scripts/styles guardrails above already use). Shared by the PATCH route's
+ * retag check and the bulk `retag` action below, both of which need to know this before deciding
+ * whether a second, destination-shaped permission check is even in play (OpenProject #3410).
+ */
+function tagSetChanged(current: string[], next: string[]): boolean {
+  if (current.length !== next.length) {
+    return true
+  }
+  const currentSet = new Set(current)
+  return next.some((tag) => !currentSet.has(tag))
+}
+
+/**
  * `ensureCanRender()` (`models/renderQueue.ts`) throws these two named errors -- via `createPage()`/
  * `updatePage()` (OpenProject #1716) -- when a render-less write can't be safely accepted: an editor
  * this server has no renderer for, or a markdown page with no Puppeteer extension to render it. Maps
@@ -90,13 +105,15 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
       }
-      // -> Against where the page is going: there is no page to ask about yet, and specifically no
-      //    `tags` (feature 357, task 446 audit) — a page being created has none until it is saved,
-      //    so there is nothing for a tag-scoped rule to match on here. `locale` is known up front
-      //    from the request body and is passed.
+      // -> Against where the page is going: there is no page ROW to ask about yet, so `classification`
+      //    stays unset (see `RulePageRef`'s own doc comment on a not-yet-existing page failing
+      //    closed). `tags` is different -- the tags this write is ABOUT to save are already known,
+      //    from the request body, so a TAG/TAGALL rule is judged on the page as it is about to become
+      //    rather than treated as untaggable. `locale` is known up front from the request body too.
       const createPageRef = {
         path: req.body.path,
-        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+        locale: req.body.locale ?? defaultLocale(req.params.siteId),
+        tags: req.body.tags
       }
       if (!mayOnPage(req, 'write:pages', req.params.siteId, createPageRef)) {
         return reply.forbidden('You are not allowed to create a page here.')
@@ -115,6 +132,29 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden(
           'Publishing a page immediately requires the publish:pages permission here.'
+        )
+      }
+      /*
+        OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` need `write:scripts`/
+        `write:styles` ON THIS PAGE respectively, on top of `write:pages` -- same standalone-grant
+        shape as `publish:pages` above. Refused with 403 here, before `createPage()` runs, rather than
+        silently dropped the way the pre-a3a6c7994 version of this feature did (the bug this Task was
+        written not to repeat).
+      */
+      if (
+        (req.body.scriptJsLoad !== undefined || req.body.scriptJsUnload !== undefined) &&
+        !mayOnPage(req, 'write:scripts', req.params.siteId, createPageRef)
+      ) {
+        return reply.forbidden(
+          'Setting this page’s load/unload scripts requires the write:scripts permission here.'
+        )
+      }
+      if (
+        req.body.scriptCss !== undefined &&
+        !mayOnPage(req, 'write:styles', req.params.siteId, createPageRef)
+      ) {
+        return reply.forbidden(
+          'Setting this page’s styles requires the write:styles permission here.'
         )
       }
       let page
@@ -289,6 +329,76 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden(
           'Lowering this page’s classification requires the manage:classification permission on it.'
         )
+      }
+      /*
+        OpenProject #3389/#3402: same standalone-grant shape as `publish:pages`/`manage:classification`
+        above -- `scriptJsLoad`/`scriptJsUnload` need `write:scripts` ON THIS PAGE, `scriptCss` needs
+        `write:styles`, on top of (not implied by) `write:pages`. Checked only when the field is both
+        present AND actually changing the stored value, same "changed AND different" shape the
+        classification guardrail just above uses -- resubmitting a page's current scripts unchanged,
+        which every ordinary save does, never requires either permission. Refused with 403 before
+        `updatePage()` runs, never silently dropped (the pre-a3a6c7994 bug this Task exists not to
+        repeat).
+      */
+      if (
+        ((req.body.scriptJsLoad !== undefined && req.body.scriptJsLoad !== target.scriptJsLoad) ||
+          (req.body.scriptJsUnload !== undefined &&
+            req.body.scriptJsUnload !== target.scriptJsUnload)) &&
+        !mayOnPage(req, 'write:scripts', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s load/unload scripts requires the write:scripts permission on it.'
+        )
+      }
+      if (
+        req.body.scriptCss !== undefined &&
+        req.body.scriptCss !== target.scriptCss &&
+        !mayOnPage(req, 'write:styles', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Changing this page’s styles requires the write:styles permission on it.'
+        )
+      }
+      /*
+        Retag check (OpenProject #3410): `hasWrite` above already required `write:pages` against the
+        page AS IT STANDS (its current tags), the same as every other field. A tag change also needs
+        `write:pages` against the page AS IT LEAVES it -- otherwise an editor denied `write:pages` on
+        pages tagged `confidential` could add that tag to a page they may otherwise edit (walking a
+        page INTO a branch a tag-scoped rule protects) or remove it from a page only that tag's DENY
+        rule covers (walking it back OUT from under that protection), neither of which the pre-change
+        check alone catches. Same shape the move route's destination-ref check uses: a second ref,
+        same path/locale/classification, carrying only the tags as they would end up. Only evaluated
+        when the tags are actually changing, same "changed AND different" shape as the classification/
+        scripts/styles guardrails above -- resubmitting a page's current tags unchanged never requires
+        re-proving `write:pages` a second time.
+      */
+      if (req.body.tags !== undefined && tagSetChanged(target.tags, req.body.tags)) {
+        const postChangeRef = {
+          path: target.path,
+          locale: target.locale,
+          tags: req.body.tags,
+          classification: target.classification
+        }
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, postChangeRef)) {
+          return reply.forbidden('You are not allowed to change this page’s tags to that set.')
+        }
+        /*
+          `write:tags` guardrail (OpenProject #3393): independent of the ranking question above but
+          forced by it -- the moment a tag rule can outrank a path rule, whoever can edit tags can
+          widen or narrow access through tags alone, which `write:pages` on its own only half-covers
+          (it proves the editor's general write standing, not that they specifically may retag).
+          Checked on BOTH sides, same as the `write:pages` retag check just above: against the page
+          AS IT STANDS (its current tags) and AS IT WOULD LEAVE (the requested tags) -- an editor
+          holding `write:tags` on the destination shape alone could still lack it on the source page
+          itself. Only evaluated when the set actually changes, so resaving a tagged page unchanged
+          never requires `write:tags` at all.
+        */
+        if (
+          !mayOnPage(req, 'write:tags', req.params.siteId, target) ||
+          !mayOnPage(req, 'write:tags', req.params.siteId, postChangeRef)
+        ) {
+          return reply.forbidden('You are not allowed to change this page’s tags to that set.')
+        }
       }
       /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
@@ -555,6 +665,88 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * CONVERT EDITOR (OpenProject #3399)
+   */
+  app.put<{
+    Params: { siteId: string; pageId: string }
+    Body: { editor: string }
+  }>(
+    '/sites/:siteId/pages/:pageId/editor',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES. Checked against the page in question below instead — which is
+        also what lets a rule open one branch to somebody the group as a whole cannot write to.
+      */
+      schema: {
+        summary: 'Convert a page between its markdown and wysiwyg editors',
+        description:
+          "Flips which editor a page opens in, between `markdown` and `wysiwyg` — the pair that share `'markdown'` storage (OpenProject #3395), so this relabels the row rather than rewriting its content. The caller is trusted to have already run the render-equality check (`PageConvertDialog.vue`, in the browser, against the site's own markdown renderer) before calling this — the server re-checks only that the row is still in a convertible state, not that the conversion is lossless.",
+        tags: ['Pages'],
+        params: { $ref: 'SitePageParams#' },
+        body: {
+          type: 'object',
+          required: ['editor'],
+          properties: {
+            editor: { type: 'string', enum: ['markdown', 'wysiwyg'] }
+          }
+        },
+        response: {
+          200: {
+            description: 'Page editor converted successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              page: { $ref: 'Page#' }
+            }
+          },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'Either editor named isn’t `markdown`/`wysiwyg`, the page already uses the target editor, or the page has not yet been saved through the #3395/#3400 markdown migration.'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Converting a page’s editor requires a logged in user.')
+      }
+      const target = await CARDINAL.models.pages.getPage({
+        siteId: req.params.siteId,
+        id: req.params.pageId
+      })
+      if (!target) {
+        return reply.notFound('This page does not exist.')
+      }
+      // -> Changes which editor the page's content is attributed to, same permission as any other
+      //    edit to the page.
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
+        return reply.forbidden('You are not allowed to edit this page.')
+      }
+      const page = await CARDINAL.models.pages.convertEditor(
+        req.params.siteId,
+        req.params.pageId,
+        req.body.editor,
+        actor
+      )
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      return {
+        ok: true,
+        message: 'Page editor converted successfully.',
+        page
+      }
+    }
+  )
+
+  /**
    * RE-RENDER PAGE
    */
   app.post<{ Params: { siteId: string; pageId: string } }>(
@@ -788,6 +980,44 @@ async function routes(app: FastifyInstance) {
             const nextTags = [
               ...new Set([...target.tags.filter((t) => !removeSet.has(t)), ...addTags])
             ]
+            // -> Same retag check the PATCH route makes (OpenProject #3410): `permission` above
+            //    ('write:pages') was already checked against this page AS IT STANDS, but a bulk
+            //    retag can still walk a page into or out of a tag-scoped rule's reach. Refused
+            //    per page as `skipped`, not `error` -- this is a permission outcome like any other
+            //    page in the batch the caller may not act on, not a failure while acting.
+            if (tagSetChanged(target.tags, nextTags)) {
+              const postChangeRef = {
+                path: target.path,
+                locale: target.locale,
+                tags: nextTags,
+                classification: target.classification
+              }
+              if (!mayOnPage(req, 'write:pages', req.params.siteId, postChangeRef)) {
+                results.push({
+                  id: pageId,
+                  path: target.path,
+                  status: 'skipped',
+                  message: 'Not permitted for the resulting tags.'
+                })
+                continue
+              }
+              // -> `write:tags` guardrail (OpenProject #3393), same both-sides shape as the
+              //    `write:pages` check just above and the PATCH route's own version: checked
+              //    against the page as it stands AND as it would leave, only when its tag set is
+              //    actually changing.
+              if (
+                !mayOnPage(req, 'write:tags', req.params.siteId, target) ||
+                !mayOnPage(req, 'write:tags', req.params.siteId, postChangeRef)
+              ) {
+                results.push({
+                  id: pageId,
+                  path: target.path,
+                  status: 'skipped',
+                  message: 'Not permitted for the resulting tags.'
+                })
+                continue
+              }
+            }
             const updated = await CARDINAL.models.pages.updatePage(
               req.params.siteId,
               pageId,

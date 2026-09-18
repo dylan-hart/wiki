@@ -23,6 +23,7 @@ import {
   users as usersTable
 } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import { getEditorForContentType } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
@@ -37,6 +38,32 @@ async function readTreeRow(id: string) {
   const rows = await CARDINAL.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
   return rows[0] ?? null
 }
+
+/**
+ * Task 3395: `wysiwyg` and the plain `markdown` editor both produce `contentType: 'markdown'` now
+ * (`EDITOR_CONTENT_TYPES`), which would make `CONTENT_TYPE_EDITORS`'s naive `Object.fromEntries`
+ * inverse (last entry wins on a collision) attribute a file-backed `'markdown'` page to `wysiwyg` —
+ * an editor its content never went through. `getEditorForContentType` is a pure function, so this
+ * needs no database.
+ */
+describe('getEditorForContentType', () => {
+  test('a plain markdown content type still resolves back to the markdown editor, not wysiwyg', () => {
+    assert.equal(getEditorForContentType('markdown'), 'markdown')
+  })
+
+  test('html still resolves to the code editor, its sole producer now that wysiwyg emits markdown', () => {
+    assert.equal(getEditorForContentType('html'), 'code')
+  })
+
+  test('asciidoc and redirect resolve back to their own single-producer editor', () => {
+    assert.equal(getEditorForContentType('asciidoc'), 'asciidoc')
+    assert.equal(getEditorForContentType('redirect'), 'redirect')
+  })
+
+  test('an unrecognized content type falls back to markdown', () => {
+    assert.equal(getEditorForContentType('nonsense'), 'markdown')
+  })
+})
 
 /**
  * `models/pages.ts`'s create/update/move/delete are almost entirely SQL — inserts, duplicate-path
@@ -210,6 +237,152 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(entries[1]!.via, 'mcp')
   })
 
+  /**
+   * OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` round-trip through
+   * `createPage()`/`updatePage()`/`getPage()` the same way `config`'s flattened fields do, stored
+   * together as the single `scripts` jsonb column. Permission enforcement (`write:scripts`/
+   * `write:styles`) is a route-level concern (`api/pages/scriptsPermission.test.ts`) -- this model
+   * layer trusts whatever it's given, which is exactly what these tests exercise: `actor` here holds
+   * `manage:system` throughout, same as every other test in this describe block.
+   */
+  describe('per-page scripts (OpenProject #3389/#3402)', () => {
+    test('createPage() stores scriptJsLoad/scriptJsUnload/scriptCss, and getPage() reads them back', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/scripts-create',
+          scriptJsLoad: 'console.log("load")',
+          scriptJsUnload: 'console.log("unload")',
+          scriptCss: 'body { color: red }'
+        }),
+        actor
+      )
+      assert.equal(page.scriptJsLoad, 'console.log("load")')
+      assert.equal(page.scriptJsUnload, 'console.log("unload")')
+      assert.equal(page.scriptCss, 'body { color: red }')
+
+      const fetched = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+      assert.equal(fetched!.scriptJsLoad, 'console.log("load")')
+      assert.equal(fetched!.scriptJsUnload, 'console.log("unload")')
+      assert.equal(fetched!.scriptCss, 'body { color: red }')
+    })
+
+    test('a page created without any script fields reads them back as empty strings, not undefined', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/scripts-absent' }),
+        actor
+      )
+      assert.equal(page.scriptJsLoad, '')
+      assert.equal(page.scriptJsUnload, '')
+      assert.equal(page.scriptCss, '')
+    })
+
+    test('updatePage() replaces one script field and leaves the other two untouched', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/scripts-update',
+          scriptJsLoad: 'console.log("original load")',
+          scriptCss: 'body { color: blue }'
+        }),
+        actor
+      )
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { scriptJsLoad: 'console.log("new load")' },
+        actor
+      )
+      assert.equal(updated!.scriptJsLoad, 'console.log("new load")')
+      // -> Untouched fields carry over from the existing `scripts` blob, the same way `buildConfig`
+      //    preserves a `config` field the patch didn't mention.
+      assert.equal(updated!.scriptCss, 'body { color: blue }')
+    })
+
+    test('updatePage() with no script fields in the patch leaves scripts entirely unchanged', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/scripts-untouched', scriptJsLoad: 'console.log("stays")' }),
+        actor
+      )
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { title: 'Retitled' },
+        actor
+      )
+      assert.equal(updated!.scriptJsLoad, 'console.log("stays")')
+    })
+
+    test('a save that changes scriptCss records "scripts" as a changed field, and its history version snapshots it in meta', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/scripts-history' }),
+        actor
+      )
+      await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { scriptCss: 'body { color: green }' },
+        actor
+      )
+
+      const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      // -> Newest first: [0] is the update.
+      assert.ok(entries[0]!.changedFields.includes('scripts'))
+
+      const version = await pageHistoryModel.getVersion(fixtures.siteId, page.id, entries[0]!.id)
+      assert.deepEqual(version!.meta.scripts, {
+        jsLoad: '',
+        jsUnload: '',
+        css: 'body { color: green }'
+      })
+    })
+
+    /**
+     * OpenProject #3404: the composable's "a locked page injects nothing" acceptance criterion is a
+     * server-side guarantee, not something the frontend enforces on data it was never sent — `toPage()`
+     * already blanks `scriptJsLoad`/`scriptJsUnload`/`scriptCss` for a locked page the same way it
+     * blanks `render`/`toc`, driven by the same `unlocked` flag. This makes that explicit for the three
+     * script fields specifically, rather than leaving it implied by the generic body-withholding tests.
+     */
+    test('getPage() blanks scriptJsLoad/scriptJsUnload/scriptCss for a locked page, and restores them once unlocked', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/scripts-locked',
+          password: 'sw0rdfish',
+          scriptJsLoad: 'console.log("load")',
+          scriptJsUnload: 'console.log("unload")',
+          scriptCss: 'body { color: red }'
+        }),
+        actor
+      )
+
+      const locked = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        unlocked: false
+      })
+      assert.equal(locked!.isLocked, true)
+      assert.equal(locked!.scriptJsLoad, '')
+      assert.equal(locked!.scriptJsUnload, '')
+      assert.equal(locked!.scriptCss, '')
+
+      const unlocked = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        unlocked: true
+      })
+      assert.equal(unlocked!.isLocked, false)
+      assert.equal(unlocked!.scriptJsLoad, 'console.log("load")')
+      assert.equal(unlocked!.scriptJsUnload, 'console.log("unload")')
+      assert.equal(unlocked!.scriptCss, 'body { color: red }')
+    })
+  })
+
   test('createPage refuses an empty title', async () => {
     await assert.rejects(
       pagesModel.createPage(
@@ -261,6 +434,26 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
 
     assert.equal(page.contentType, 'html')
+  })
+
+  /**
+   * Task 3395: locks `EDITOR_CONTENT_TYPES.wysiwyg` mapping to `'markdown'`, not `'html'` -- the
+   * WYSIWYG editor's save path now serializes through `@tiptap/markdown` (`EditorWysiwyg.vue`), not
+   * `editor.getJSON()`.
+   */
+  test('createPage stores the wysiwyg editor content as markdown, matching EDITOR_CONTENT_TYPES', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/wysiwyg-page',
+        title: 'WYSIWYG Page',
+        editor: 'wysiwyg',
+        content: '# Heading\n\nSome **wysiwyg** content.'
+      }),
+      actor
+    )
+
+    assert.equal(page.contentType, 'markdown')
   })
 
   /**
@@ -1231,6 +1424,62 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
       assert.deepEqual(after!.links, ['docs/relink-xlocale-target'])
     })
+
+    /**
+     * OpenProject #3379: `LinkPickerDialog.vue` writes a locale-prefixed href (`/fr/guide`) for a
+     * non-primary-locale target, which `extractInternalLinks` strips before storing so `links`
+     * holds the bare path a move already knows how to find (`oldPath`/`newPath` are both bare).
+     * What a move must ALSO still find and rewrite is the literal locale-prefixed href text still
+     * sitting in `content`/`render` -- this is the other half of the same defect.
+     */
+    test('rewrites a locale-prefixed href, preserving the locale segment', async () => {
+      const target = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/relink-locale-prefixed-target', locale: 'en' }),
+        actor
+      )
+      const referrer = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/relink-locale-prefixed-referrer',
+          locale: 'en',
+          content: 'See the [target](/fr/docs/relink-locale-prefixed-target) for more.',
+          render:
+            '<p>See the <a href="/fr/docs/relink-locale-prefixed-target">target</a> for more.</p>'
+        }),
+        actor
+      )
+      const [before] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      // -> The locale prefix is stripped before storage -- `links` already holds the bare path,
+      //    same convention as a same-locale link.
+      assert.deepEqual(before!.links, ['docs/relink-locale-prefixed-target'])
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        target.id,
+        { path: 'docs/relink-locale-prefixed-target-new' },
+        actor
+      )
+
+      const [after] = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, referrer.id))
+      // -> The markdown `](` syntax is a residual gap the WP's resolved scope explicitly accepts --
+      //    only the `render`'s `href="` occurrence, and `links`, are expected to be rewritten.
+      assert.equal(
+        after!.content,
+        'See the [target](/fr/docs/relink-locale-prefixed-target) for more.'
+      )
+      assert.equal(
+        after!.render,
+        '<p>See the <a href="/fr/docs/relink-locale-prefixed-target-new">target</a> for more.</p>'
+      )
+      assert.deepEqual(after!.links, ['docs/relink-locale-prefixed-target-new'])
+    })
   })
 
   /**
@@ -1930,6 +2179,297 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #3400: `convertLegacyWysiwygRow()` is the run-once migration job's own write path --
+   * a raw insert stands in for the legacy row `createPage()` can no longer produce (the wysiwyg editor
+   * writes `contentType: 'markdown'` now, per `EDITOR_CONTENT_TYPES`), and `updatePage()`'s own
+   * `isLegacyWysiwygConversionSave` branch is the lazy on-open fallback's counterpart -- an ordinary
+   * save from a page that loaded as legacy JSON, done editing.
+   */
+  describe('legacy WYSIWYG JSON conversion (OpenProject #3400)', () => {
+    const legacyJsonContent = JSON.stringify({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }]
+    })
+
+    /** A raw legacy row: `editor: 'wysiwyg'`, `contentType: 'html'`, JSON under `content`. */
+    async function insertLegacyRow(path: string, content: string = legacyJsonContent) {
+      const inserted = await fixtures.db
+        .insert(pagesTable)
+        .values({
+          ...rawPageRow({ path, locale: 'en', siteId: fixtures.siteId }),
+          editor: 'wysiwyg',
+          contentType: 'html',
+          content
+        })
+        .returning({ id: pagesTable.id })
+      return inserted[0]!.id
+    }
+
+    test('convertLegacyWysiwygRow() writes the markdown, flips contentType, and records one history version', async () => {
+      const id = await insertLegacyRow('docs/legacy-convert-ok')
+
+      const ok = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        id,
+        '# Hello',
+        fixtures.userId
+      )
+      assert.equal(ok, true)
+
+      const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
+      assert.equal(rows[0]!.content, '# Hello')
+      assert.equal(rows[0]!.contentType, 'markdown')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, id))
+      assert.equal(history.length, 1)
+      assert.equal(history[0]!.action, 'updated')
+      assert.deepEqual(history[0]!.changedFields, ['content', 'contentType'])
+    })
+
+    test('convertLegacyWysiwygRow() returns false and touches nothing for a row already converted', async () => {
+      const id = await insertLegacyRow('docs/legacy-convert-already-done')
+      const first = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        id,
+        '# Hello',
+        fixtures.userId
+      )
+      assert.equal(first, true)
+
+      const second = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        id,
+        '# Something else entirely',
+        fixtures.userId
+      )
+      assert.equal(second, false)
+
+      const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
+      // -> Untouched by the second, no-op call -- still what the first call wrote.
+      assert.equal(rows[0]!.content, '# Hello')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, id))
+      assert.equal(history.length, 1)
+    })
+
+    test('convertLegacyWysiwygRow() returns false for an id that does not exist', async () => {
+      const ok = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000',
+        '# Hello',
+        fixtures.userId
+      )
+      assert.equal(ok, false)
+    })
+
+    test("updatePage() on an unconverted legacy row flips contentType once the save's content no longer looks like the legacy JSON (the lazy on-open fallback)", async () => {
+      const id = await insertLegacyRow('docs/legacy-lazy-fallback')
+
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        id,
+        { content: '# Hello, edited in the WYSIWYG editor' },
+        actor
+      )
+
+      assert.equal(updated!.contentType, 'markdown')
+
+      const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
+      assert.equal(rows[0]!.contentType, 'markdown')
+      assert.equal(rows[0]!.content, '# Hello, edited in the WYSIWYG editor')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, id))
+        .orderBy(pageHistoryTable.versionDate)
+      const last = history.at(-1)!
+      assert.ok(last.changedFields.includes('contentType'))
+      assert.ok(last.changedFields.includes('content'))
+    })
+
+    test('updatePage() never flips contentType for an ordinary markdown page (not the legacy scenario)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/ordinary-markdown-save',
+          editor: 'wysiwyg',
+          content: '# Original'
+        }),
+        actor
+      )
+
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { content: '# Edited again' },
+        actor
+      )
+
+      assert.equal(updated!.contentType, 'markdown')
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, page.id))
+        .orderBy(pageHistoryTable.versionDate)
+      const last = history.at(-1)!
+      assert.ok(!last.changedFields.includes('contentType'))
+    })
+  })
+
+  /**
+   * OpenProject #3399: `convertEditor()` flips a page's `editor` column between `markdown` and
+   * `wysiwyg` -- the render-equality guard itself is client-side (`PageConvertDialog.vue`), so this
+   * only proves the write, the guardrails against an unsafe flip, and the one history version.
+   */
+  describe('convertEditor() (OpenProject #3399)', () => {
+    test('flips editor from markdown to wysiwyg and records one history version, leaving content untouched', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-md-to-wysiwyg', editor: 'markdown', content: '# Hello' }),
+        actor
+      )
+
+      const updated = await pagesModel.convertEditor(fixtures.siteId, page.id, 'wysiwyg', actor)
+
+      assert.equal(updated!.editor, 'wysiwyg')
+      const rows = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+      assert.equal(rows[0]!.editor, 'wysiwyg')
+      assert.equal(rows[0]!.content, '# Hello')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, page.id))
+        .orderBy(pageHistoryTable.versionDate)
+      // -> [0] creation, [1] the conversion
+      assert.equal(history.length, 2)
+      assert.equal(history[1]!.action, 'updated')
+      assert.deepEqual(history[1]!.changedFields, ['editor'])
+    })
+
+    test('flips editor from wysiwyg back to markdown, same as the other direction', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-wysiwyg-to-md', editor: 'wysiwyg', content: '# Hello' }),
+        actor
+      )
+
+      const updated = await pagesModel.convertEditor(fixtures.siteId, page.id, 'markdown', actor)
+
+      assert.equal(updated!.editor, 'markdown')
+      const rows = await fixtures.db
+        .select()
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+      assert.equal(rows[0]!.content, '# Hello')
+    })
+
+    test('records the pageHistory row as via: mcp when the actor says so (OpenProject #1119)', async () => {
+      const mcpActor: PageActor = { ...actor, via: 'mcp' }
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-via-mcp', editor: 'markdown' }),
+        mcpActor
+      )
+
+      await pagesModel.convertEditor(fixtures.siteId, page.id, 'wysiwyg', mcpActor)
+
+      const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      assert.equal(entries[0]!.via, 'mcp')
+    })
+
+    test('refuses a page already using the target editor, and touches nothing', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-unchanged', editor: 'markdown' }),
+        actor
+      )
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, page.id, 'markdown', actor),
+        (err: any) => err.name === 'pageEditorConvertUnchanged' && err.statusCode === 400
+      )
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, page.id))
+      assert.equal(history.length, 1)
+    })
+
+    test('refuses converting a page whose editor is neither markdown nor wysiwyg', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-unsupported-source', editor: 'code', content: '<p></p>' }),
+        actor
+      )
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, page.id, 'wysiwyg', actor),
+        (err: any) => err.name === 'pageEditorConvertUnsupported' && err.statusCode === 400
+      )
+    })
+
+    test('refuses converting TO an editor that is neither markdown nor wysiwyg', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/convert-unsupported-target', editor: 'markdown' }),
+        actor
+      )
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, page.id, 'code', actor),
+        (err: any) => err.name === 'pageEditorConvertUnsupported' && err.statusCode === 400
+      )
+    })
+
+    test('refuses a wysiwyg row still holding legacy Tiptap JSON, not yet migrated by #3400', async () => {
+      const inserted = await fixtures.db
+        .insert(pagesTable)
+        .values({
+          ...rawPageRow({
+            path: 'docs/convert-legacy-json',
+            locale: 'en',
+            siteId: fixtures.siteId
+          }),
+          editor: 'wysiwyg',
+          contentType: 'html',
+          content: JSON.stringify({ type: 'doc', content: [] })
+        })
+        .returning({ id: pagesTable.id })
+      const id = inserted[0]!.id
+
+      await assert.rejects(
+        pagesModel.convertEditor(fixtures.siteId, id, 'markdown', actor),
+        (err: any) => err.name === 'pageEditorConvertNotMarkdown' && err.statusCode === 400
+      )
+    })
+
+    test('returns null for an id that does not exist', async () => {
+      const updated = await pagesModel.convertEditor(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000',
+        'wysiwyg',
+        actor
+      )
+      assert.equal(updated, null)
+    })
+  })
+
+  /**
    * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
    * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
    * `render` — no refusal, and no path back to a correct render short of a human re-saving the page
@@ -1960,6 +2500,43 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
 
       assert.deepEqual(calls, ['markdown'])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 1)
+    })
+
+    /**
+     * OpenProject #3401: `ensureCanRender()` is now consulted with the page's own editor name, not a
+     * hardcoded `'markdown'` -- proven here for a `wysiwyg` page (content type markdown since #3388)
+     * the same way the `markdown` case above is. `ensureCanRender()`'s own real behavior for
+     * `'wysiwyg'` (no longer `renderUnsupportedEditor`) is unit-tested directly in
+     * `renderQueue.test.ts`; this pins that `createPage()` actually reaches it with the real editor
+     * name rather than something normalized away first.
+     */
+    test('createPage() with a wysiwyg editor and no render consults ensureCanRender with "wysiwyg", not "markdown", and leaves a queued rerender job', async () => {
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/wysiwyg-render-less-create',
+          editor: 'wysiwyg',
+          content: '# Hello\n\nSome **wysiwyg** content, stored as markdown.'
+        }),
+        actor
+      )
+
+      assert.deepEqual(calls, ['wysiwyg'])
+
+      const [row] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(row!.editor, 'wysiwyg')
+      assert.equal(row!.contentType, 'markdown')
 
       const queued = await fixtures.db
         .select()

@@ -274,6 +274,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
+      # OCI labels/annotations (OpenProject #3392). Only images: plus a handful of custom
+      # label overrides are passed -- source/revision/created/version/licenses are left to the
+      # action's own GitHub-context derivation rather than hardcoded, and this step is consumed
+      # only for its labels/annotations outputs: the shell-computed steps.version.outputs.tags
+      # below (":latest never moves on a prerelease") is left exactly as-is, not replaced by this
+      # action's own tag-generation logic.
+      - name: Docker image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAMESPACE }}
+          labels: |
+            org.opencontainers.image.title=Cardinal.js
+            org.opencontainers.image.description=Next-generation open source wiki
+            org.opencontainers.image.vendor=Cardinal.js
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}
+
       - name: Build and push Docker images
         id: docker_build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -283,6 +300,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.version.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           # SLSA provenance (full/max mode: build definition + materials, not just the minimal
           # BuildKit default) and an SPDX SBOM, both attached to the image manifest so a puller sees
           # them without any extra step. The signed, verifiable attestation is the step below —

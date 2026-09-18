@@ -6,21 +6,29 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
     directory: /blocks
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
     directory: /e2e
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
 
   # Covers the workflow files under .github/workflows/ (quality.yml, build.yml, release.yml, e2e.yml).
   - package-ecosystem: github-actions

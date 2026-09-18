@@ -479,7 +479,7 @@ describe('modules/comments/default', () => {
       assert.equal(typeof parsed.description, 'string')
       assert.ok(parsed.description.length > 0)
       assert.equal(parsed.vendor, 'Cardinal.js')
-      assert.equal(parsed.website, 'https://js.wiki')
+      assert.equal(parsed.website, 'https://github.com/dylan-hart/wiki')
 
       const props = parseModuleProps(parsed.props ?? {})
       assert.deepEqual(Object.keys(props).sort(), ['akismet', 'minDelay'])

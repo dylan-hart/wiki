@@ -222,3 +222,28 @@ describe('backend/locales/en.json -- product name', () => {
     assert.equal(parsed['welcome.title'], 'Welcome to Cardinal.js!')
   })
 })
+
+/**
+ * Regression guard for OpenProject #3412: CLAUDE.md's Permissions section documents `read:source`
+ * as the one exception to "names are not interchangeable" -- `write:pages` and `manage:pages` each
+ * imply it (`helpers/pageAccess.ts#mayReadSource`, OpenProject #3391/#3411). The rule editor's hint
+ * is where an administrator granting the rule learns that, since `GroupRulesEditor.vue` renders this
+ * string verbatim as the `read:source` option's caption -- so the hint text is what actually carries
+ * the documented exception to the UI, not just to this file.
+ */
+describe('backend/locales/en.json -- read:source implicitly-held-by hint (OpenProject #3412)', () => {
+  const localePath = path.join(import.meta.dirname, 'en.json')
+
+  test('read:source hint names both permissions that imply it', async () => {
+    const raw = await readFile(localePath, 'utf8')
+    const parsed = JSON.parse(raw) as Record<string, string>
+
+    const hint = parsed['admin.groups.permissions.read:source.hint']
+    assert.equal(typeof hint, 'string', 'admin.groups.permissions.read:source.hint must exist')
+    assert.ok(
+      hint.includes('write:pages') && hint.includes('manage:pages'),
+      `read:source hint must name both write:pages and manage:pages as implicitly holding it ` +
+        `(got: ${JSON.stringify(hint)})`
+    )
+  })
+})

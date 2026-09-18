@@ -792,6 +792,12 @@ export const pages = pgTable(
     //    on write and checks a guess against it with `bcrypt.compare` on read; nothing reads this
     //    column back as a value to hand to a caller.
     password: varchar({ length: 255 }),
+    // -> `{ jsLoad, jsUnload, css }` — per-page script/style injection (OpenProject #3389/#3402),
+    //    flattened to/from `scriptJsLoad`/`scriptJsUnload`/`scriptCss` in `models/pages.ts` the same
+    //    way `config` above flattens to its own named fields. Authoring is gated by `write:scripts`/
+    //    `write:styles` at the route layer (`api/pages/write.ts`) -- this column stores whatever was
+    //    written, with no execution or injection of its own (that is a dependent Task's job).
+    scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

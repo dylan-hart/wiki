@@ -24,7 +24,7 @@ const CARD_ROUTES = [
   '/_admin/webhooks'
 ]
 
-function mountDashboard() {
+function mountDashboard({ permissions = ['manage:system'] } = {}) {
   stubApi(
     {
       'users/recent-logins': [
@@ -52,10 +52,38 @@ function mountDashboard() {
         versionStatus: 'latest'
       }),
       site: seedSite(),
-      user: seedUser({ permissions: ['manage:system'] })
+      user: seedUser({ permissions })
     }
   }).wrapper
 }
+
+/*
+  The Analytics card button has no unique test id, so it's found the same way `NavEditOverlay.test.js`
+  finds its Save button: by the rendered label text. No `messages` are seeded here (see `mountDashboard`),
+  so `t('admin.analytics.title')` resolves to the key itself -- that's fine, the text is still unique
+  among the dashboard's buttons.
+*/
+function findAnalyticsButton(wrapper) {
+  return wrapper.findAll('a, button').find((el) => el.text().includes('admin.analytics.title'))
+}
+
+describe('AdminDashboard Analytics button', () => {
+  it('is disabled for a user without manage:sites, like its sibling admin buttons', () => {
+    const wrapper = mountDashboard({ permissions: [] })
+    const analyticsBtn = findAnalyticsButton(wrapper)
+
+    expect(analyticsBtn).not.toBeUndefined()
+    expect(analyticsBtn.attributes('aria-disabled')).toBe('true')
+  })
+
+  it('is enabled for a user with manage:sites', () => {
+    const wrapper = mountDashboard({ permissions: ['manage:sites'] })
+    const analyticsBtn = findAnalyticsButton(wrapper)
+
+    expect(analyticsBtn).not.toBeUndefined()
+    expect(analyticsBtn.attributes('aria-disabled')).toBeUndefined()
+  })
+})
 
 /*
   The grid rule under test lives in `AdminDashboard.vue`'s own (unscoped) `<style>`

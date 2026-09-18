@@ -464,6 +464,24 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
     }
   }
 
+  /*
+    An anonymous caller: `authenticated: false` (so `actorFrom()` — which only reads
+    `session.authenticated` — returns null, exactly as a request with no session at all would) while
+    still carrying `testPagePermissions`, since `actorForRequest`/`checkAccess` above (this suite's
+    stand-in for the guests group's own rules) do not key off `authenticated` at all — mirroring how
+    `mayOnPage()` checks a real anonymous caller's rules against the guests group in production.
+  */
+  function anonymousSessionHeader(pagePermissions: string[]) {
+    return {
+      'x-test-session': JSON.stringify({
+        authenticated: false,
+        permissions: [],
+        groups: [],
+        testPagePermissions: pagePermissions
+      })
+    }
+  }
+
   test('read:pages alone renders the page without withContent', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -496,6 +514,18 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
     assert.equal(res.json().content, RAW_CONTENT)
   })
 
+  // -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to open the editor
+  //    -- `mayReadSource()` folds it in, since an editor who cannot read the source cannot edit it.
+  test('read:pages plus write:pages, with no read:source, is allowed withContent=true', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}?withContent=true`,
+      headers: sessionHeader(['read:pages', 'write:pages'])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().content, RAW_CONTENT)
+  })
+
   test('no read:pages at all is forbidden regardless of withContent', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -503,6 +533,32 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       headers: sessionHeader([])
     })
     assert.equal(res.statusCode, 403)
+  })
+
+  /*
+    OpenProject #3383: `wantsContent` used to also require `Boolean(actor)`, so an anonymous caller's
+    `withContent=true` silently became `withContent=false` before the `read:source` check ever ran —
+    a 200 with the source withheld, rather than the 403 a signed-in caller lacking the same grant
+    gets. These two mirror the signed-in `read:pages`(+`read:source`) cases above, anonymously.
+  */
+  test('anonymous with read:pages and read:source (guests) is allowed withContent=true', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}?withContent=true`,
+      headers: anonymousSessionHeader(['read:pages', 'read:source'])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().content, RAW_CONTENT)
+  })
+
+  test('anonymous with read:pages but without read:source is forbidden from withContent=true', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}?withContent=true`,
+      headers: anonymousSessionHeader(['read:pages'])
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json().content, undefined)
   })
 })
 
@@ -686,7 +742,8 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
     roles: ['read:pages'],
     match: 'TAG',
     mode: 'ALLOW',
-    path: 'public',
+    path: '',
+    tags: ['public'],
     locales: [],
     sites: []
   }
@@ -698,7 +755,8 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
     roles: ['read:pages'],
     match: 'TAG',
     mode: 'DENY',
-    path: 'confidential',
+    path: '',
+    tags: ['confidential'],
     locales: [],
     sites: []
   }
@@ -875,6 +933,11 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
             const rule = resolvePageRule([writeFrench], permission, page)
             return rule ? rule.mode !== 'DENY' : false
           }
+        },
+        // -> OpenProject #3409: `userPermissions` now resolves the page server-side first, to read its
+        //    stored tags -- no page exists at `x` in this fixture, so this stands in as "not found".
+        pages: {
+          getPage: async () => null
         }
       }
     }
@@ -920,5 +983,105 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
 
     assert.equal(res.statusCode, 200)
     assert.ok(!res.json().includes('write:pages'))
+  })
+})
+
+/**
+ * OpenProject #3409: `POST .../pages/userPermissions` used to never pass `tags` at all, so a
+ * TAG/TAGALL rule could never grant a permission through this route. It now resolves the page
+ * server-side (by path/locale) and reads its STORED tags -- never a client-posted `tags` field,
+ * which the route's body schema does not even accept.
+ */
+describe('POST /sites/:siteId/pages/userPermissions — tags (OpenProject #3409)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  /** Grants read:pages to any page carrying the `secret` tag. */
+  const readSecretTag: GroupRule = {
+    id: 'read-secret-tag',
+    name: 'Read Secret Tag',
+    roles: ['read:pages'],
+    match: 'TAG',
+    mode: 'ALLOW',
+    path: '',
+    tags: ['secret'],
+    locales: [],
+    sites: []
+  }
+
+  let app: FastifyInstance
+  /** What `pages.getPage` answers -- each test sets its own stored page (or none). */
+  let storedPage: { tags: string[]; classification: string | null } | null
+
+  before(async () => {
+    const wiki = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en'] } } } },
+      models: {
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          checkAccess: (_actor: unknown, permission: string, page: RulePageRef) => {
+            const rule = resolvePageRule([readSecretTag], permission, page)
+            return rule ? rule.mode !== 'DENY' : false
+          }
+        },
+        pages: {
+          getPage: async () => storedPage
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  test('a page carrying the tagged-for rule grants the tag-scoped permission', async () => {
+    storedPage = { tags: ['secret'], classification: null }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x', locale: 'en' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(res.json().includes('read:pages'))
+  })
+
+  test('a page not carrying the tag does not grant the tag-scoped permission', async () => {
+    storedPage = { tags: [], classification: null }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x', locale: 'en' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('read:pages'))
+  })
+
+  test('a tags array posted by the client is ignored -- only the stored page’s own tags decide', async () => {
+    storedPage = { tags: [], classification: null }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      // -> `tags` is not part of the request schema at all; posting it anyway must not smuggle a
+      //    grant the real stored page (no tags) would never earn.
+      payload: { path: 'x', locale: 'en', tags: ['secret'] }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('read:pages'))
+  })
+
+  test('a path with no page behind it yet (create-permission check) resolves with no tags, same as before', async () => {
+    storedPage = null
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'brand-new-page', locale: 'en' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('read:pages'))
   })
 })

@@ -35,3 +35,59 @@ describe('renderQueue.resolveSiteOrigin (OpenProject #1751)', () => {
     assert.equal((renderQueue as any).resolveSiteOrigin('missing'), undefined)
   })
 })
+
+/**
+ * OpenProject #3401: `ensureCanRender()` used to key off the literal editor name (`editor !==
+ * 'markdown'`), which refused a `wysiwyg` page even after #3388 made its content markdown too (via
+ * `@tiptap/markdown`, not typed Tiptap JSON) -- the very thing this renderer needs. It is now keyed
+ * off `getContentTypeForEditor()` instead, so any editor whose OUTPUT is markdown clears the gate,
+ * `wysiwyg` included. A gate that passes still needs Puppeteer, so these assert on the error NAME to
+ * tell "refused for being an unsupported editor" (`renderUnsupportedEditor`) apart from "would be
+ * fine, but nothing here can render it" (`renderPuppeteerMissing`) -- this suite has no real
+ * Puppeteer, so `getDefinition: () => undefined` stands in for "the extension isn't installed"
+ * without needing the whole extensions model.
+ */
+describe('renderQueue.ensureCanRender (OpenProject #3401)', () => {
+  test('a markdown-editor page clears the editor gate and only fails on missing Puppeteer', async () => {
+    const scoped = installTestWiki({ models: { extensions: { getDefinition: () => undefined } } })
+    try {
+      await assert.rejects(renderQueue.ensureCanRender('markdown'), (err: any) => {
+        assert.equal(err.name, 'renderPuppeteerMissing')
+        return true
+      })
+    } finally {
+      scoped.restore()
+    }
+  })
+
+  test('a wysiwyg-editor page no longer refuses as an unsupported editor -- its content is markdown now', async () => {
+    const scoped = installTestWiki({ models: { extensions: { getDefinition: () => undefined } } })
+    try {
+      await assert.rejects(renderQueue.ensureCanRender('wysiwyg'), (err: any) => {
+        assert.equal(err.name, 'renderPuppeteerMissing')
+        return true
+      })
+    } finally {
+      scoped.restore()
+    }
+  })
+
+  test('a code-editor page (content type html) still refuses as an unsupported editor', async () => {
+    await assert.rejects(renderQueue.ensureCanRender('code'), (err: any) => {
+      assert.equal(err.name, 'renderUnsupportedEditor')
+      assert.match(err.message, /code/)
+      return true
+    })
+  })
+
+  test('asciidoc and redirect pages still refuse as an unsupported editor', async () => {
+    await assert.rejects(renderQueue.ensureCanRender('asciidoc'), (err: any) => {
+      assert.equal(err.name, 'renderUnsupportedEditor')
+      return true
+    })
+    await assert.rejects(renderQueue.ensureCanRender('redirect'), (err: any) => {
+      assert.equal(err.name, 'renderUnsupportedEditor')
+      return true
+    })
+  })
+})

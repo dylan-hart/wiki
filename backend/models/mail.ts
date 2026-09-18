@@ -408,6 +408,22 @@ class MailModel {
   }
 
   /**
+   * Whether ANY link this model could build would resolve to a real host, instance-wide:
+   * `CARDINAL.config.mail.defaultBaseURL` is set, or at least one site has a real (non-`*`)
+   * hostname to link at via {@link resolveMailBaseURL} regardless of the instance-wide default.
+   * Drives the admin mail status light's second warning condition (OpenProject #3386) — distinct
+   * from {@link isConfigured}, which only asks whether SMTP itself is reachable.
+   */
+  hasResolvableBaseURL(): boolean {
+    if (CARDINAL.config.mail?.defaultBaseURL) {
+      return true
+    }
+    return Object.values(CARDINAL.sites ?? {}).some(
+      (site: any) => site?.hostname && site.hostname !== '*'
+    )
+  }
+
+  /**
    * Resolve one `mail.<key>.{subject,text,html}` trio for a locale and send it.
    *
    * Every transactional template is the same three `resolveString` calls plus a `send()`; what
@@ -451,21 +467,26 @@ class MailModel {
    * @param locale The recipient's `users.prefs.locale`, if known — falls back to `en` when unset or
    *   not installed (see `models/locales.ts#resolveString`). A brand-new self-registering user has
    *   no saved preference yet, so callers on that path pass nothing.
+   * @param siteId The site the registration/resend came in on — see {@link resolveMailBaseURL}.
+   *   Falls back to `CARDINAL.config.mail.defaultBaseURL` when omitted or unresolvable
+   *   (OpenProject #3386).
    */
   async sendVerifyEmail({
     to,
     name,
     token,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     token: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink(`/auth/verify/${token}`)
+    const link = this.buildLink(`/auth/verify/${token}`, this.resolveMailBaseURL(siteId))
     await this.sendTemplate(to, locale, 'verifyEmail', { name, link }, { kind: 'verify', userId })
   }
 
@@ -480,21 +501,25 @@ class MailModel {
    * value applied to every token kind, not something specific to `resetPwd` alone.
    *
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the request came in on — see {@link resolveMailBaseURL}. Falls back to
+   *   `CARDINAL.config.mail.defaultBaseURL` when omitted or unresolvable (OpenProject #3386).
    */
   async sendForgotPassword({
     to,
     name,
     token,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     token: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink(`/login/reset-password/${token}`)
+    const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
     const cfg = CARDINAL.config.mail ?? {}
     const signatureText = cfg.senderName
       ? await CARDINAL.models.locales.resolveString(locale, 'mail.signature.text', {
@@ -554,19 +579,23 @@ class MailModel {
    * they weren't the one who did it.
    *
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the reset came in on — see {@link resolveMailBaseURL} and
+   *   {@link sendVerifyEmail} (OpenProject #3386).
    */
   async sendPasswordResetConfirmed({
     to,
     name,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink('/login')
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
     await this.sendTemplate(
       to,
       locale,
@@ -584,19 +613,23 @@ class MailModel {
    * `enableTfa()`'s own doc comment) and are never repeated here.
    *
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the login/setup that enabled 2FA came in on, when known — see
+   *   {@link resolveMailBaseURL} and {@link sendVerifyEmail} (OpenProject #3386).
    */
   async sendTfaEnabled({
     to,
     name,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink('/login')
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
     await this.sendTemplate(
       to,
       locale,
@@ -614,19 +647,23 @@ class MailModel {
    * initiated it.
    *
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the disabling action came in on, when known — see
+   *   {@link resolveMailBaseURL} and {@link sendVerifyEmail} (OpenProject #3386).
    */
   async sendTfaDisabled({
     to,
     name,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink('/login')
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
     await this.sendTemplate(
       to,
       locale,
@@ -644,19 +681,23 @@ class MailModel {
    * codes rather than issuing a fresh set.
    *
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the (re)issuing action came in on, when known — see
+   *   {@link resolveMailBaseURL} and {@link sendVerifyEmail} (OpenProject #3386).
    */
   async sendTfaRecoveryCodesGenerated({
     to,
     name,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink('/login')
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
     await this.sendTemplate(
       to,
       locale,
@@ -676,21 +717,25 @@ class MailModel {
    *   judge the notice against. Passed through as-is (may be `undefined` behind a proxy that strips
    *   it) rather than blocking the notice on having one.
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the login came in on — see {@link resolveMailBaseURL} and
+   *   {@link sendVerifyEmail} (OpenProject #3386).
    */
   async sendTfaNewDeviceLogin({
     to,
     name,
     ip,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     ip?: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink('/login')
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
     await this.sendTemplate(
       to,
       locale,
@@ -708,19 +753,23 @@ class MailModel {
    * confirm whether a given address already has an account here.
    *
    * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   * @param siteId The site the registration attempt came in on — see {@link resolveMailBaseURL}
+   *   and {@link sendVerifyEmail} (OpenProject #3386).
    */
   async sendRegistrationAttemptNotice({
     to,
     name,
     userId,
-    locale
+    locale,
+    siteId
   }: {
     to: string
     name: string
     userId?: string
     locale?: string | null
+    siteId?: string
   }): Promise<void> {
-    const link = this.buildLink('/login')
+    const link = this.buildLink('/login', this.resolveMailBaseURL(siteId))
     await this.sendTemplate(
       to,
       locale,

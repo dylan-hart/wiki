@@ -19,6 +19,7 @@ import {
   deleted,
   assetUploaded,
   assetRenamed,
+  assetMoved,
   assetDeleted
 } from './content.ts'
 import { ensureRepo } from './repo.ts'
@@ -155,6 +156,39 @@ describe('git storage content handlers', () => {
 
       await assert.doesNotReject(fs.access(path.join(repoPath, 'doc.adoc')))
       await assert.doesNotReject(fs.access(path.join(repoPath, 'page.html')))
+    })
+
+    /**
+     * OpenProject #3401: a WYSIWYG page's `contentType` is `markdown` now (it stores markdown via
+     * `@tiptap/markdown`, not typed Tiptap JSON) -- this handler reads `page.contentType`, never
+     * `page.editor`, so it already writes a `.md` file for one with no fix needed. Pinned explicitly
+     * rather than trusted implicitly, since `w1`'s content here is real markdown source, the same
+     * shape the plain `markdown` editor writes.
+     */
+    test('writes a WYSIWYG-editor page (content type markdown) to a .md file, same as the markdown editor', async () => {
+      installWiki(rootPath, {
+        pages: {
+          w1: {
+            id: 'w1',
+            path: 'wysiwyg-page',
+            editor: 'wysiwyg',
+            contentType: 'markdown',
+            content: '# Heading\n\nSome **bold** text.'
+          }
+        }
+      })
+      const { repoPath } = await ensureRepo(target)
+
+      await created(target, {
+        id: 'w1',
+        path: 'wysiwyg-page',
+        locale: PRIMARY_LOCALE,
+        siteId: SITE_ID
+      })
+
+      const written = await fs.readFile(path.join(repoPath, 'wysiwyg-page.md'), 'utf8')
+      assert.equal(written, '# Heading\n\nSome **bold** text.')
+      await assert.rejects(fs.access(path.join(repoPath, 'wysiwyg-page.html')))
     })
 
     test('falls back to the target defaultName/defaultEmail when there is no resolvable author', async () => {
@@ -472,6 +506,83 @@ describe('git storage content handlers', () => {
       await assert.doesNotReject(fs.access(path.join(repoPath, 'new.png')))
       const commit = await latestCommit(repoPath)
       assert.equal(commit?.message, 'docs: rename old.png to new.png')
+    })
+  })
+
+  describe('assetMoved (OpenProject #3384)', () => {
+    test('moves the tracked file to the new folder in one commit', async () => {
+      installWiki(rootPath, {
+        assets: { a1: { data: Buffer.from('bytes'), mimeType: 'image/png', fileName: 'pic.png' } }
+      })
+      const { repoPath } = await ensureRepo(target)
+      await assetUploaded(target, {
+        id: 'a1',
+        fileName: 'pic.png',
+        folderPath: 'images',
+        siteId: SITE_ID,
+        kind: 'image'
+      })
+
+      await assetMoved(target, {
+        id: 'a1',
+        fileName: 'pic.png',
+        folderPath: 'gallery',
+        previousFolderPath: 'images',
+        siteId: SITE_ID,
+        kind: 'image'
+      })
+
+      await assert.rejects(fs.access(path.join(repoPath, 'images/pic.png')))
+      await assert.doesNotReject(fs.access(path.join(repoPath, 'gallery/pic.png')))
+      const commit = await latestCommit(repoPath)
+      assert.equal(commit?.message, 'docs: move images/pic.png to gallery/pic.png')
+    })
+
+    test('writes fresh at the new folder when nothing is tracked at the old one', async () => {
+      installWiki(rootPath, {
+        assets: { a1: { data: Buffer.from('bytes'), mimeType: 'image/png', fileName: 'pic.png' } }
+      })
+      const { repoPath } = await ensureRepo(target)
+
+      await assetMoved(target, {
+        id: 'a1',
+        fileName: 'pic.png',
+        folderPath: 'gallery',
+        previousFolderPath: 'images',
+        siteId: SITE_ID,
+        kind: 'image'
+      })
+
+      await assert.doesNotReject(fs.access(path.join(repoPath, 'gallery/pic.png')))
+      const commit = await latestCommit(repoPath)
+      assert.equal(commit?.message, 'docs: upload gallery/pic.png')
+    })
+
+    test('is a no-op when the folder is unchanged', async () => {
+      installWiki(rootPath, {
+        assets: { a1: { data: Buffer.from('bytes'), mimeType: 'image/png', fileName: 'pic.png' } }
+      })
+      const { repoPath } = await ensureRepo(target)
+      await assetUploaded(target, {
+        id: 'a1',
+        fileName: 'pic.png',
+        folderPath: 'images',
+        siteId: SITE_ID,
+        kind: 'image'
+      })
+      const beforeCommit = await latestCommit(repoPath)
+
+      await assetMoved(target, {
+        id: 'a1',
+        fileName: 'pic.png',
+        folderPath: 'images',
+        previousFolderPath: 'images',
+        siteId: SITE_ID,
+        kind: 'image'
+      })
+
+      const afterCommit = await latestCommit(repoPath)
+      assert.equal(afterCommit?.hash, beforeCommit?.hash)
     })
   })
 

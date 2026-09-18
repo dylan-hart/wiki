@@ -199,34 +199,42 @@ describe('ruleMatchesPage', () => {
 
   describe('TAG', () => {
     test('matches a page carrying any one of the listed tags', () => {
-      const rule = makeRule({ match: 'TAG', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAG', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['capital'] })), true)
     })
 
     test('does not match a page carrying none of them', () => {
-      const rule = makeRule({ match: 'TAG', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAG', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['asia'] })), false)
     })
 
     test('is case-insensitive on both sides', () => {
-      const rule = makeRule({ match: 'TAG', path: 'Europe' })
+      const rule = makeRule({ match: 'TAG', tags: ['Europe'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['EUROPE'] })), true)
+    })
+
+    // -> OpenProject #3408: `tags` is a first-class array now, not a comma list parsed out of
+    //    `path` -- a comma list left sitting in `path`, with no `tags` of its own, addresses
+    //    nothing (no legacy fallback).
+    test('a comma list left in `path`, with no `tags`, is not honoured', () => {
+      const rule = makeRule({ match: 'TAG', path: 'europe, capital', tags: undefined })
+      assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
   })
 
   describe('TAGALL', () => {
     test('matches only when every listed tag is present', () => {
-      const rule = makeRule({ match: 'TAGALL', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAGALL', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe', 'capital', 'unesco'] })), true)
     })
 
     test('does not match when only some tags are present', () => {
-      const rule = makeRule({ match: 'TAGALL', path: 'europe, capital' })
+      const rule = makeRule({ match: 'TAGALL', tags: ['europe', 'capital'] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
 
     test('an empty tag list matches nothing', () => {
-      const rule = makeRule({ match: 'TAGALL', path: '' })
+      const rule = makeRule({ match: 'TAGALL', tags: [] })
       assert.equal(ruleMatchesPage(rule, page({ tags: ['europe'] })), false)
     })
   })
@@ -397,12 +405,32 @@ describe('resolvePageRule / rulesAllow', () => {
     assert.equal(rulesAllow([shallow, deep], 'read:pages', page()), true)
   })
 
-  test('a path rule always outranks a tag rule at the same nominal specificity', () => {
-    // -> Tag rules score zero specificity regardless of how many tags they list
-    const tag = makeRule({ id: 'tag', match: 'TAGALL', path: 'a, b, c', mode: 'FORCEALLOW' })
-    const rootPath = makeRule({ id: 'root', match: 'START', path: '', mode: 'DENY' })
-    const winner = resolvePageRule([tag, rootPath], 'read:pages', page({ tags: ['a', 'b', 'c'] }))
-    assert.equal(winner?.id, 'root')
+  test('a tag rule now outranks a path-shaped rule regardless of specificity (band ranking)', () => {
+    // -> Acceptance scenario: guests DENY START '' (whole site) + FORCEALLOW TAGALL 'public' -- tag
+    //    kinds are their own band above path-shaped kinds (START/END/REGEX), so the FORCEALLOW wins
+    //    even though the DENY covers the entire site.
+    const guestDeny = makeRule({ id: 'guest-deny', match: 'START', path: '', mode: 'DENY' })
+    const tagForceAllow = makeRule({
+      id: 'tag-forceallow',
+      match: 'TAGALL',
+      tags: ['public'],
+      mode: 'FORCEALLOW'
+    })
+    const target = page({ path: 'anywhere/at/all', tags: ['public'] })
+    const winner = resolvePageRule([guestDeny, tagForceAllow], 'read:pages', target)
+    assert.equal(winner?.id, 'tag-forceallow')
+    assert.equal(rulesAllow([guestDeny, tagForceAllow], 'read:pages', target), true)
+
+    // -> Holds against a DEEP path rule too, not just an empty one -- band beats specificity
+    //    outright, it is not merely a tie-break that an empty path happens to lose anyway.
+    const deepPathDeny = makeRule({
+      id: 'deep-path-deny',
+      match: 'START',
+      path: 'anywhere/at',
+      mode: 'DENY'
+    })
+    const deepWinner = resolvePageRule([deepPathDeny, tagForceAllow], 'read:pages', target)
+    assert.equal(deepWinner?.id, 'tag-forceallow')
   })
 
   test('match type breaks a tie at equal specificity', () => {
@@ -424,50 +452,59 @@ describe('resolvePageRule / rulesAllow', () => {
     assert.equal(winner?.id, 'exact')
   })
 
-  test('the full match-type ordering, pairwise, at equal specificity', () => {
-    // -> Compare each adjacent pair in TAG < TAGALL < START < END < REGEX < EXACT at the widest
-    //    (whole-site) specificity, confirming MATCH_PRIORITY governs the tie.
-    const commonPath = ''
-    const pairs: [GroupRuleMatch, GroupRuleMatch][] = [
-      ['TAG', 'TAGALL'],
-      ['TAGALL', 'START'],
-      ['START', 'END'],
-      ['END', 'REGEX'],
-      ['REGEX', 'EXACT']
+  test('the full band ordering, pairwise: path kinds < tag kinds < EXACT < CLASSIFICATION', () => {
+    // -> One representative pair per band boundary, each set up so the WEAKER rule would win on
+    //    specificity alone if band did not dominate -- proving band decides first, not specificity.
+    const target = page({ path: 'a/b/c', tags: ['x'], classification: 'restricted' })
+    const boundaries: [GroupRule, GroupRule][] = [
+      // path-shaped (deep path) < tag (single tag) -- band beats specificity outright
+      [
+        makeRule({ id: 'weak', match: 'START', path: 'a/b/c', mode: 'ALLOW' }),
+        makeRule({ id: 'strong', match: 'TAG', tags: ['x'], mode: 'ALLOW' })
+      ],
+      // tag < EXACT
+      [
+        makeRule({ id: 'weak', match: 'TAGALL', tags: ['x'], mode: 'ALLOW' }),
+        makeRule({ id: 'strong', match: 'EXACT', path: 'a/b/c', mode: 'ALLOW' })
+      ],
+      // EXACT < CLASSIFICATION
+      [
+        makeRule({ id: 'weak', match: 'EXACT', path: 'a/b/c', mode: 'ALLOW' }),
+        makeRule({
+          id: 'strong',
+          match: 'CLASSIFICATION',
+          classifications: ['restricted'],
+          mode: 'ALLOW'
+        })
+      ]
     ]
-    for (const [weaker, stronger] of pairs) {
-      const weakRule = makeRule({
-        id: 'weak',
-        match: weaker,
-        path: weaker === 'TAG' || weaker === 'TAGALL' ? 'x' : commonPath,
-        mode: 'ALLOW'
-      })
-      const strongRule = makeRule({
-        id: 'strong',
-        match: stronger,
-        path: stronger === 'TAG' || stronger === 'TAGALL' ? 'x' : commonPath,
-        mode: 'ALLOW'
-      })
-      const target = page({ path: '', tags: ['x'] })
-      const winner = resolvePageRule([weakRule, strongRule], 'read:pages', target)
+    for (const [weak, strong] of boundaries) {
       assert.equal(
-        winner?.id,
+        resolvePageRule([weak, strong], 'read:pages', target)?.id,
         'strong',
-        `expected ${stronger} to outrank ${weaker} at equal specificity`
+        `expected ${strong.match} to outrank ${weak.match} regardless of specificity`
+      )
+      assert.equal(
+        resolvePageRule([strong, weak], 'read:pages', target)?.id,
+        'strong',
+        `expected ${strong.match} to outrank ${weak.match} (reversed array order)`
       )
     }
   })
 
-  test('every pairwise comparison among the 6 match types respects the documented order', () => {
+  test('every pairwise comparison among the 6 match types respects the documented band order', () => {
     // -> Not just adjacent pairs: every one of the 15 combinations of two distinct match types,
-    //    in both array orders, confirming MATCH_PRIORITY's total order rather than just the chain
-    //    of neighbors.
-    const order: GroupRuleMatch[] = ['TAG', 'TAGALL', 'START', 'END', 'REGEX', 'EXACT']
+    //    in both array orders, confirming the band order is a total order rather than just the
+    //    chain of neighbors: START < END < REGEX < TAG < TAGALL < EXACT. All rules here are at
+    //    equal (zero) specificity, so this isolates band + within-band match-type tie-break from
+    //    specificity entirely.
+    const order: GroupRuleMatch[] = ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT']
     const ruleFor = (id: string, match: GroupRuleMatch): GroupRule =>
       makeRule({
         id,
         match,
-        path: match === 'TAG' || match === 'TAGALL' ? 'x' : '',
+        path: '',
+        tags: match === 'TAG' || match === 'TAGALL' ? ['x'] : [],
         mode: 'ALLOW'
       })
     const target = page({ path: '', tags: ['x'] })
@@ -503,7 +540,7 @@ describe('resolvePageRule / rulesAllow', () => {
       }),
       makeRule({ id: 'deep', match: 'START', path: 'geography/countries', mode: 'ALLOW' }),
       makeRule({ id: 'shallow', match: 'START', path: 'geography', mode: 'DENY' }),
-      makeRule({ id: 'tag', match: 'TAG', path: 'europe', mode: 'FORCEALLOW' })
+      makeRule({ id: 'tag', match: 'TAG', tags: ['europe'], mode: 'FORCEALLOW' })
     ]
 
     function permutations<T>(items: T[]): T[][] {

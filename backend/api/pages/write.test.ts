@@ -184,6 +184,143 @@ describe('pages API — renderPuppeteerMissing / renderUnsupportedEditor mapped 
  * here is the actual rule-matching engine seeing the destination ref, not a stub agreeing it was
  * called.
  */
+
+/**
+ * Route-level test for `PUT /sites/:siteId/pages/:pageId/editor` (OpenProject #3399): the
+ * `write:pages` gate, the successful flip, the model's refusals (`CustomError`s) mapped to 400 the
+ * same way `renderPuppeteerMissing`/`renderUnsupportedEditor` are above, and the schema's own
+ * `enum` refusing anything but `markdown`/`wysiwyg` before the model is ever asked. The render-
+ * equality check itself is client-side (`PageConvertDialog.vue`) and has no route-level coverage
+ * here — `CARDINAL.models.pages.convertEditor` is stubbed, standing in for it having already run.
+ */
+describe('PUT /sites/:siteId/pages/:pageId/editor', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  let app: FastifyInstance
+  let convertEditorCalls: any[]
+  let convertEditorImpl: (...args: any[]) => Promise<any>
+  let canWrite: boolean
+  let pageExists: boolean
+
+  function currentPage() {
+    return {
+      id: PAGE_ID,
+      path: 'docs/convert-me',
+      locale: 'en',
+      tags: [],
+      classification: null,
+      editor: 'markdown'
+    }
+  }
+
+  before(async () => {
+    const wiki = {
+      models: {
+        pages: {
+          getPage: async () => (pageExists ? currentPage() : null),
+          convertEditor: async (...args: any[]) => {
+            convertEditorCalls.push(args)
+            return convertEditorImpl(...args)
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', permissions: [], groupIds: [] }),
+          checkAccess: () => canWrite,
+          groupIdsForRequest: () => []
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    convertEditorCalls = []
+    canWrite = true
+    pageExists = true
+    convertEditorImpl = async (_siteId: string, _id: string, editor: string) => ({
+      id: PAGE_ID,
+      editor,
+      path: 'docs/convert-me'
+    })
+  })
+
+  test('converts the page and returns it when write:pages is held', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'wysiwyg' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.page.editor, 'wysiwyg')
+    assert.equal(convertEditorCalls.length, 1)
+    assert.equal(convertEditorCalls[0][2], 'wysiwyg')
+  })
+
+  test('refuses without write:pages, before the model is asked', async () => {
+    canWrite = false
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'wysiwyg' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.equal(convertEditorCalls.length, 0)
+  })
+
+  test('a missing page answers 404, before the model is asked', async () => {
+    pageExists = false
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'wysiwyg' }
+    })
+
+    assert.equal(res.statusCode, 404)
+    assert.equal(convertEditorCalls.length, 0)
+  })
+
+  test('a model refusal (the page already uses that editor) maps to 400, not 500', async () => {
+    convertEditorImpl = async () => {
+      throw new CustomError('pageEditorConvertUnchanged', 'This page already uses that editor.')
+    }
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'markdown' }
+    })
+
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /already uses that editor/)
+  })
+
+  test('an editor value outside markdown/wysiwyg is rejected by the schema before the model is asked', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/editor`,
+      payload: { editor: 'code' }
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.equal(convertEditorCalls.length, 0)
+  })
+})
+
 describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
@@ -862,5 +999,85 @@ describe('POST /sites/:siteId/pages — publish:pages gate on immediate publish 
     })
     assert.equal(res.statusCode, 403)
     assert.equal(createPageCalls.length, 0)
+  })
+})
+
+/**
+ * OpenProject #3409: `createPageRef` used to omit `tags` entirely (retiring the old "no tags yet"
+ * comment from task 446) -- a TAG/TAGALL rule could never grant or deny `write:pages`/`publish:pages`
+ * on a page being created, even though the tags it is about to be saved with are already known from
+ * the request body.
+ */
+describe('POST /sites/:siteId/pages — tags reach the write:pages/publish:pages checkAccess call (OpenProject #3409)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  let app: FastifyInstance
+  let checkAccessCalls: any[]
+
+  before(async () => {
+    const wiki = {
+      sites: { [SITE_ID]: {} },
+      models: {
+        pages: {
+          createPage: async (siteId: string, input: any) => ({
+            id: 'new-page-1',
+            path: input.path,
+            locale: input.locale ?? 'en'
+          })
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          groupIdsForRequest: () => [],
+          checkAccess: (_actor: unknown, permission: string, page: any) => {
+            checkAccessCalls.push({ permission, page })
+            return true
+          }
+        }
+      }
+    }
+
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+    })
+  })
+
+  after(() => closeTestApp(app))
+
+  beforeEach(() => {
+    checkAccessCalls = []
+  })
+
+  test('a tags array posted with the create carries into the write:pages page ref', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: {
+        path: 'tagged-new-page',
+        title: 'Test',
+        editor: 'markdown',
+        content: 'hello',
+        tags: ['alpha', 'beta']
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    const writeCall = checkAccessCalls.find((c) => c.permission === 'write:pages')
+    assert.ok(writeCall, 'write:pages was checked')
+    assert.deepEqual(writeCall.page.tags, ['alpha', 'beta'])
+    const publishCall = checkAccessCalls.find((c) => c.permission === 'publish:pages')
+    assert.ok(publishCall, 'publish:pages was checked for the default published state')
+    assert.deepEqual(publishCall.page.tags, ['alpha', 'beta'])
+  })
+
+  test('no tags posted carries undefined through, not a crash', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'untagged-new-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 200)
+    const writeCall = checkAccessCalls.find((c) => c.permission === 'write:pages')
+    assert.equal(writeCall.page.tags, undefined)
   })
 })

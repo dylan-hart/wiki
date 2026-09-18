@@ -11,6 +11,7 @@ import {
   consumeAccountAuthAttempt
 } from '../helpers/rateLimit.ts'
 import { isRecoveryCodeShape } from '../helpers/recoveryCodes.ts'
+import { testRegexSafely } from '../helpers/safeRegexTest.ts'
 import { ProvisionableLoginError } from './authentication.ts'
 import { deriveDisplayName } from './users.ts'
 import { countTfaFailure } from './userCredentials.ts'
@@ -663,16 +664,26 @@ class Login {
     if (!strategy.allowedEmailRegex) {
       return
     }
-    let allowed = false
+    // -> Compiling (not running) a pattern is cheap regardless of its shape -- catastrophic
+    //    backtracking is an execution-time cost, not a parse-time one -- so this stays purely to
+    //    keep the existing "invalid pattern" warn log informative for a legacy strategy saved before
+    //    `models/authentication.ts#validateStrategy`'s syntax check existed. It plays no part in the
+    //    actual allow/deny decision below.
     try {
-      allowed = new RegExp(strategy.allowedEmailRegex).test(email)
+      new RegExp(strategy.allowedEmailRegex)
     } catch (err: any) {
-      // -> A pattern that will not compile allows nobody, rather than everybody
       CARDINAL.logger.warn('auth', 'strategy has an invalid email pattern, refusing', {
         strategy: strategy.id,
         error: err
       })
     }
+    // -> `testRegexSafely` bounds both the string tested and the wall-clock time spent testing it,
+    //    so a catastrophic-backtracking pattern can no longer hang the event loop here -- whether it
+    //    is one `models/authentication.ts#validateStrategy`'s save-time check already refuses, or a
+    //    pathological one saved before that check existed (OpenProject #3372). It also returns
+    //    `false` for an unparseable pattern, same as the removed try/catch around the test itself
+    //    used to: a pattern that cannot be trusted to answer allows nobody, rather than everybody.
+    const allowed = testRegexSafely(strategy.allowedEmailRegex, email)
     if (!allowed) {
       if (refusalContext) {
         logLoginRefused('email-not-allowed', refusalContext)
@@ -915,7 +926,8 @@ class Login {
           to: existing.email,
           name: existing.name,
           token,
-          userId: existing.id
+          userId: existing.id,
+          siteId
         })
         return { nextAction: 'verify' }
       }
@@ -931,7 +943,8 @@ class Login {
           to: existing.email,
           name: existing.name,
           userId: existing.id,
-          locale: (existing.prefs as Record<string, any> | undefined)?.locale
+          locale: (existing.prefs as Record<string, any> | undefined)?.locale,
+          siteId
         })
       } catch (err: any) {
         CARDINAL.logger.warn('auth', 'sending the registration-attempt notice failed', {
@@ -969,7 +982,8 @@ class Login {
         to: normalizedEmail,
         name: displayName,
         token,
-        userId
+        userId,
+        siteId
       })
       return { nextAction: 'verify' }
     }
@@ -1372,7 +1386,8 @@ class Login {
           name: user.name,
           ip,
           userId: user.id,
-          locale: user.prefs?.locale
+          locale: user.prefs?.locale,
+          siteId
         })
       }
     } catch (err: any) {
@@ -1385,7 +1400,7 @@ class Login {
 
     let recoveryCodes: string[] | undefined
     if (setup) {
-      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId)
+      recoveryCodes = await CARDINAL.models.userCredentials.enableTfa(user, strategyId, siteId)
     }
 
     // -> The remaining checks still apply: a user who owed a password change before 2FA still owes it
@@ -1595,10 +1610,12 @@ class Login {
    */
   async forgotPassword({
     strategyId,
-    email
+    email,
+    siteId
   }: {
     strategyId: string
     email: string
+    siteId?: string
   }): Promise<void> {
     const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
     if (!strategy?.isEnabled || strategy.config?.allowForgotPassword !== true) {
@@ -1627,7 +1644,8 @@ class Login {
       name: user.name,
       token,
       userId: user.id,
-      locale: (user.prefs as Record<string, any> | undefined)?.locale
+      locale: (user.prefs as Record<string, any> | undefined)?.locale,
+      siteId
     })
     CARDINAL.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
   }
@@ -1694,7 +1712,8 @@ class Login {
         to: user.email,
         name: user.name,
         userId: user.id,
-        locale: user.prefs?.locale
+        locale: user.prefs?.locale,
+        siteId
       })
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a

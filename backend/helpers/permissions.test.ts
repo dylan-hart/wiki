@@ -40,7 +40,8 @@ describe('helpers/permissions', () => {
       'write:comments',
       'manage:comments',
       'manage:classification',
-      'publish:pages'
+      'publish:pages',
+      'write:tags'
     ])
   })
 

@@ -91,10 +91,18 @@ import {
 } from '@/helpers/editorFileTransfer'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 import { buildMenuBar } from '@/helpers/wysiwygMenuBar'
+import {
+  withStyleSpanMarkdown,
+  withStyleSpanRenderMarkdown,
+  withTextAlignMarkdown
+} from '@/helpers/wysiwygStyleAttrs'
+
+import { createBlockLoader, WikiBlock } from '@/editor/wysiwyg'
 
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
 
 import { useCollabStore } from '@/stores/collab'
+import { useCommonStore } from '@/stores/common'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -107,27 +115,39 @@ import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Color } from '@tiptap/extension-color'
 import FontFamily from '@tiptap/extension-font-family'
+import { Heading } from '@tiptap/extension-heading'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
+import { TaskList, TaskItem } from '@tiptap/extension-list'
+import { Markdown } from '@tiptap/markdown'
 import Mention from '@tiptap/extension-mention'
+import { Paragraph } from '@tiptap/extension-paragraph'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
-import TaskList from '@tiptap/extension-task-list'
-import TaskItem from '@tiptap/extension-task-item'
 import TextAlign from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Typography from '@tiptap/extension-typography'
 import { common, createLowlight } from 'lowlight'
+
+import {
+  GithubAlert,
+  FootnoteReference,
+  FootnoteDefinition,
+  TexMath,
+  IconShortcode,
+  GlossaryTermHighlight
+} from '@/editor/wysiwyg'
 
 const lowlight = createLowlight(common)
 
 // STORES
 
 const collabStore = useCollabStore()
+const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
@@ -223,6 +243,7 @@ const menuBar = computed(() =>
     HIGHLIGHT_COLORS,
     insertLink: () => insertLink(),
     openFileManager: (opts) => siteStore.openFileManager(opts),
+    insertBlock: () => insertBlock(),
     t
   })
 )
@@ -246,6 +267,16 @@ function buildExtensions(collab) {
       //    editing surface -- leaving it on here as well would register the `link` node twice and
       //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
       link: false,
+      // -> `GithubAlert` (OpenProject #3397) extends the stock `blockquote` node in place -- adding
+      //    an optional `kind`/`title` pair rather than a second node under the same name -- so it is
+      //    registered explicitly below instead, the same reason `link` is.
+      blockquote: false,
+      // -> Also configured explicitly below, as `withTextAlignMarkdown()`-wrapped versions -- see
+      //    that helper's own doc comment (OpenProject #3398): `textAlign` (from `TextAlign` further
+      //    down) is a node attribute of these two, not a mark, and needs its own markdown
+      //    round-trip on the node types themselves.
+      paragraph: false,
+      heading: false,
       // -> `Collaboration`'s own undo/redo, backed by Yjs's `UndoManager`, replaces this once a
       //    session is bound -- keeping both registered logs `Collaboration.onCreate()`'s "not
       //    compatible with @tiptap/extension-undo-redo" warning, and only one of the two `undo`/
@@ -257,9 +288,19 @@ function buildExtensions(collab) {
     CodeBlockLowlight.configure({
       lowlight
     }),
+    withTextAlignMarkdown(Paragraph),
+    withTextAlignMarkdown(Heading),
     Color,
+    FootnoteReference,
+    FootnoteDefinition,
+    GithubAlert,
+    GlossaryTermHighlight.configure({
+      terms: editorStore.editors.markdown?.glossaryTerms ?? []
+    }),
+    IconShortcode,
+    TexMath,
     FontFamily,
-    Highlight.configure({
+    withStyleSpanRenderMarkdown(Highlight).configure({
       multicolor: true
     }),
     Image,
@@ -290,8 +331,18 @@ function buildExtensions(collab) {
     // -> Unconfigured, `types` defaults to `[]` and `setTextAlign()` maps over an empty node-type
     //    list, so every alignment button was a silent no-op (OpenProject #944).
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    TextStyle,
+    withStyleSpanMarkdown(TextStyle),
     Typography,
+    // -> Every Cardinal-specific `<block-*>` custom element, blocks and tabsets alike -- see
+    //    `editor/wysiwyg/wikiBlockNode.js` (OpenProject #3396). `loadBlock` resolves a not-yet-
+    //    upgraded tag against this site's own block list, the same way the read view's
+    //    `collectBlocksToLoad` scan does -- see `editor/wysiwyg/loadBlock.js`.
+    WikiBlock.configure({ loadBlock: createBlockLoader(commonStore, siteStore) }),
+    // -> `@tiptap/markdown`'s `Markdown` extension is what gives every editor built from this list
+    //    `editor.getMarkdown()` (the save path below) and the `contentType: 'markdown'` option
+    //    `init()` loads with -- registered once here, shared by both the interim and collaborative
+    //    editor, the same as every other extension in this list.
+    Markdown,
     ...(collab
       ? [
           Collaboration.configure({ fragment: collab.fragment }),
@@ -316,12 +367,24 @@ function buildExtensions(collab) {
 function handleEditorUpdate({ editor }) {
   editorStore.markDirty()
   pageStore.$patch({
-    content: JSON.stringify(editor.getJSON()),
+    content: editor.getMarkdown(),
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
     //    the guard in `pageSave`
     contentLoaded: true,
     render: editor.getHTML()
   })
+}
+
+/**
+ * The lazy on-open fallback for a legacy row the run-once conversion job (OpenProject #3400,
+ * `backend/tasks/simple/convert-wysiwyg-json.ts`) hasn't gotten to yet, or couldn't parse: a page
+ * still holding the pre-#3395 WYSIWYG editor's raw, serialized Tiptap JSON under `content`, rather
+ * than markdown. `startsWith('{')` is the same heuristic the backend job and
+ * `helpers/wysiwygHeadlessMarkdown.ts#isLegacyWysiwygJson` use to tell it apart from real markdown --
+ * kept in sync by hand since the two workspaces install separately and share no code.
+ */
+function isLegacyWysiwygJson(content) {
+  return typeof content === 'string' && content.trimStart().startsWith('{')
 }
 
 function init() {
@@ -330,14 +393,38 @@ function init() {
     hideSideNav: false
   })
 
+  /*
+    A legacy row parses as JSON directly -- `contentType: 'json'` loads it the way TipTap always
+    loaded a JSON document, with no involvement from the `Markdown` extension at all -- rather than
+    being handed to the markdown parser as literal text (which would show the raw `{"type":"doc",…}`
+    source as the page's content). Malformed JSON falls back to the ordinary markdown path below: it
+    was never going to render correctly either way, and this at least keeps `useEditor()` from
+    throwing on a page that used to at least open.
+
+    Either path, saving from here writes real markdown into `content` -- `handleEditorUpdate()`'s
+    `editor.getMarkdown()` doesn't know or care which content type the page loaded as -- and
+    `updatePage()`'s own `isLegacyWysiwygConversionSave` check (`backend/models/pages.ts`) is what
+    flips `contentType` to `markdown` on that save, finishing the conversion this run-once job could
+    not.
+  */
+  let content = pageStore.content
+  let contentType = 'markdown'
+  if (isLegacyWysiwygJson(pageStore.content)) {
+    try {
+      content = JSON.parse(pageStore.content)
+      contentType = 'json'
+    } catch {
+      // -> Not valid JSON after all -- fall through to the markdown path above, content/contentType
+      //    already set to that.
+    }
+  }
+
   // -> Initialize TipTap. Starts read-only when a collab session is about to be started -- see the
   //    collaboration block in `onMounted` below for why, and `swapToCollabEditor()` for what replaces
   //    this instance once that session has synced.
   editor = useEditor({
-    content:
-      pageStore.content && pageStore.content.startsWith('{')
-        ? JSON.parse(pageStore.content)
-        : `<p>${pageStore.content}</p>`,
+    content,
+    contentType,
     editable: !collabEnabled.value,
     extensions: buildExtensions(null),
     editorProps: buildEditorProps(),
@@ -458,6 +545,32 @@ function insertLink() {
         .run()
     }
   })
+}
+
+/**
+ * Opens the same block picker (`BlockPickerOverlay.vue`) the plain-text editor's side toolbar opens
+ * -- see `insertBlockClb` below for the other half, what happens once it hands back a choice.
+ */
+function insertBlock() {
+  siteStore.$patch({
+    overlay: 'BlockPicker'
+  })
+}
+
+/**
+ * The block (or tabset) `BlockPickerOverlay.vue` built, as its own MDC markup, turned into a real
+ * node at the cursor.
+ *
+ * `insertContent`'s own `contentType: 'markdown'` (from the `Markdown` extension registered in
+ * `buildExtensions()`) is what parses it -- the same parse `WikiBlock`'s own markdown tokenizer
+ * handles for the page's initial load, run here against just this one block's markup instead of the
+ * whole document (OpenProject #3396). Unlike `EditorMarkdown.vue`'s own `insertBlockClb`, no manual
+ * blank-line padding around the insertion point is needed: ProseMirror's schema places a block-level
+ * node at a valid position on its own, splitting the surrounding paragraph if the cursor was inside
+ * one.
+ */
+function insertBlockClb(markdown) {
+  editor.value.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run()
 }
 
 /**
@@ -652,6 +765,7 @@ function reloadEditorContent({ replacements = [] } = {}) {
 onMounted(() => {
   EVENT_BUS.on('insertAsset', insertAssetClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
+  EVENT_BUS.on('insertBlock', insertBlockClb)
 })
 
 init()
@@ -730,6 +844,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
   EVENT_BUS.off('reloadEditorContent', reloadEditorContent)
+  EVENT_BUS.off('insertBlock', insertBlockClb)
   // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- left
   //    running they fire past unmount against a disposed editor (OpenProject #942).
   stopCollabStatusWatch?.()
@@ -968,5 +1083,99 @@ defineExpose({ editor, menuBar })
   color: #fff;
   white-space: nowrap;
   user-select: none;
+}
+/*
+  OpenProject #3397 -- GitHub alerts, footnotes, TeX and glossary terms. A small, self-contained
+  palette rather than reusing the published page's own `--content-*` admonition tokens
+  (`css/_page-contents.css`): those are declared inside `.page-contents`'s own scope, which this
+  editor surface is not, and this editor already keeps its OWN separate palettes for a different
+  purpose (`TEXT_COLORS`/`HIGHLIGHT_COLORS` above) rather than reaching into the page's -- editing
+  chrome only needs to be legible and distinguishable while typing, not pixel-identical to the
+  published render.
+*/
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind] {
+  border-inline-start-width: 4px;
+  border-inline-start-style: solid;
+  padding-inline-start: 0.75rem;
+  background-color: rgba(0, 0, 0, 0.03);
+}
+.body--dark .wysiwyg-container .ProseMirror blockquote[data-alert-kind] {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind]::before {
+  content: attr(data-alert-kind);
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='note'] {
+  border-inline-start-color: #1976d2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='note']::before {
+  color: #1976d2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='tip'] {
+  border-inline-start-color: #388e3c;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='tip']::before {
+  color: #388e3c;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='important'] {
+  border-inline-start-color: #7b1fa2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='important']::before {
+  color: #7b1fa2;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='warning'] {
+  border-inline-start-color: #f57c00;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='warning']::before {
+  color: #f57c00;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='caution'] {
+  border-inline-start-color: #d32f2f;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='caution']::before {
+  color: #d32f2f;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='question'] {
+  border-inline-start-color: #00796b;
+}
+.wysiwyg-container .ProseMirror blockquote[data-alert-kind='question']::before {
+  color: #00796b;
+}
+.wysiwyg-container .ProseMirror sup.footnote-ref {
+  color: #1976d2;
+  cursor: default;
+}
+.wysiwyg-container .ProseMirror .footnote-definition {
+  display: flex;
+  gap: 0.4em;
+  font-size: 0.9em;
+  color: rgba(0, 0, 0, 0.65);
+}
+.body--dark .wysiwyg-container .ProseMirror .footnote-definition {
+  color: rgba(255, 255, 255, 0.65);
+}
+.wysiwyg-container .ProseMirror .footnote-definition-label {
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+.wysiwyg-container .ProseMirror .tex-math-error {
+  display: inline-block;
+  color: #d32f2f;
+  background-color: rgba(211, 47, 47, 0.08);
+  border: 1px dashed #d32f2f;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.wysiwyg-container .ProseMirror .wysiwyg-glossary-term {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: help;
 }
 </style>

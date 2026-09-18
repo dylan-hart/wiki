@@ -97,6 +97,92 @@ describe('PageActionsCol page actions menu', () => {
 })
 
 /**
+ * OpenProject #3399: Convert Editor's own gate -- `write:pages`, a page currently in `markdown` or
+ * `wysiwyg`, and both of those editors actually active on the site.
+ */
+describe('PageActionsCol Convert Editor gate (OpenProject #3399)', () => {
+  let wrapper
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('offers Convert Editor for a markdown page when both editors are active and write:pages is held', async () => {
+    ;({ wrapper } = await mountRailWithPageActions())
+
+    await openPageActionsMenu(wrapper)
+
+    expect(menuItemLabels()).toContain('Convert Editor')
+  })
+
+  it('also offers Convert Editor for a wysiwyg page', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ editor: 'wysiwyg' }))
+
+    await openPageActionsMenu(wrapper)
+
+    expect(menuItemLabels()).toContain('Convert Editor')
+  })
+
+  it('hides Convert Editor for any other editor, e.g. code', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ editor: 'code' }))
+
+    await openPageActionsMenu(wrapper)
+
+    expect(menuItemLabels()).not.toContain('Convert Editor')
+  })
+
+  it('hides Convert Editor without write:pages', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ canWritePages: false }))
+
+    await openPageActionsMenu(wrapper)
+
+    expect(menuItemLabels()).not.toContain('Convert Editor')
+  })
+
+  it('hides Convert Editor when the site has only one of the two editors active', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ editors: { markdown: true, wysiwyg: false } }))
+
+    await openPageActionsMenu(wrapper)
+
+    expect(menuItemLabels()).not.toContain('Convert Editor')
+  })
+
+  it('opens PageConvertDialog on click, and reloads the page once it reports success', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithPageActions())
+    vi.spyOn(ctx.pageStore, 'pageLoad').mockResolvedValue(undefined)
+
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Convert Editor')
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(ctx.pageStore.pageLoad).toHaveBeenCalledWith({ id: 'page-1' })
+  })
+
+  it('does not reload the page when the dialog is cancelled', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithPageActions())
+    vi.spyOn(ctx.pageStore, 'pageLoad').mockResolvedValue(undefined)
+
+    await openPageActionsMenu(wrapper)
+    clickMenuItem('Convert Editor')
+    await flushPromises()
+
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(ctx.pageStore.pageLoad).not.toHaveBeenCalled()
+  })
+})
+
+/**
  * OpenProject #1787: this `.onOk` handler used to call `pageStore.pageDuplicate(...)` with no
  * `await` and no `.catch` -- a rejection (the store's own `pageCreate` call, or the source-page
  * fetch before it) surfaced nowhere, leaving the reader with no feedback at all. Matches

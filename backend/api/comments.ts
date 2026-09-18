@@ -1,5 +1,6 @@
 import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess.ts'
-import { limitGuestComments } from '../helpers/rateLimit.ts'
+import { enforceCommentCooldown, limitGuestComments } from '../helpers/rateLimit.ts'
+import { requestOrigin } from '../helpers/common.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
 import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
@@ -485,7 +486,11 @@ async function routes(app: FastifyInstance) {
           'required in the body — there is no account to draw a name/address from — and the poster’s ' +
           'IP is recorded for abuse tracking. `guestEmail` is validated as an email at the schema level.\n\n' +
           'Refused with 403 when the site has comments turned off (`features.comments`) or this page ' +
-          'does (`allowComments`) — both otherwise only hide the form client-side.',
+          'does (`allowComments`) — both otherwise only hide the form client-side.\n\n' +
+          "When the site's active comment provider is the native one: refused with 429 when the " +
+          'poster is within its configured minimum delay since their last comment (`manage:comments` ' +
+          'on this page is exempt), and refused with 400 when its configured Akismet key flags the ' +
+          'content as spam (an unreachable or misconfigured Akismet fails open, not closed).',
         tags: ['Comments'],
         params: { $ref: 'SitePageParams#' },
         body: { $ref: 'CommentInput#' },
@@ -543,6 +548,64 @@ async function routes(app: FastifyInstance) {
         }
       }
 
+      // -> WP #3377: the native provider's own admin-configured minimum delay and Akismet key —
+      //    previously collected by the admin form and never enforced. `activeProviderModule` only
+      //    returns non-null for a provider with a server-side implementation, which today is only
+      //    the native `default` module — an embed-only provider (Disqus/Commento/Artalk) declares
+      //    neither prop and this whole block is a no-op for it.
+      const providerModule = await CARDINAL.models.comments.activeProviderModule(req.params.siteId)
+      if (providerModule) {
+        const minDelay =
+          typeof providerModule.provider.config.minDelay === 'number'
+            ? providerModule.provider.config.minDelay
+            : 0
+        // -> `minDelay <= 0` is the documented "off" value; a moderator (`manage:comments` on this
+        //    page) is exempt regardless of `minDelay`, same as they already bypass every other
+        //    page-rule permission this route checks.
+        if (minDelay > 0 && !mayOnPage(req, 'manage:comments', req.params.siteId, page)) {
+          const bucketKey = actor ? actor.id : 'guests'
+          await enforceCommentCooldown(req, reply, bucketKey, minDelay)
+          if (reply.sent) {
+            return reply
+          }
+        }
+
+        const akismetKey =
+          typeof providerModule.provider.config.akismet === 'string'
+            ? providerModule.provider.config.akismet.trim()
+            : ''
+        if (akismetKey) {
+          const spamCheck = await providerModule.module.checkSpam(
+            {
+              ip: req.ip,
+              userAgent: req.headers['user-agent'] ?? '',
+              content: req.body.content,
+              name: actor ? undefined : (req.body.guestName ?? undefined),
+              email: actor ? undefined : (req.body.guestEmail ?? undefined),
+              permalink: `${requestOrigin(req.protocol, req.hostname)}/${page.path}`,
+              permalinkDate: page.updatedAt?.toISOString(),
+              type: 'comment',
+              // -> Best available mapping onto Akismet's three `user_role` values: `access:admin`
+              //    (the one global permission gating the whole admin area) stands in for "holds the
+              //    admin group" — this module has no groups concept of its own to check against.
+              role: !actor
+                ? 'guest'
+                : actor.permissions.includes('access:admin')
+                  ? 'administrator'
+                  : 'user'
+            },
+            providerModule.provider.config
+          )
+          // -> `checkSpam` never throws: an unreachable/misconfigured Akismet already resolves to
+          //    `{ isSpam: false, reason: '...' }` with its own `CARDINAL.logger.warn` inside the module
+          //    itself (`modules/comments/default/comments.ts#checkSpam`) — fail-open by design, so
+          //    there is nothing further to catch here.
+          if (spamCheck.isSpam) {
+            return reply.badRequest('This comment was flagged as spam and was not posted.')
+          }
+        }
+      }
+
       const replyTo = req.body.replyTo ?? null
       if (replyTo) {
         // -> A `replyTo` naming a comment that doesn't exist, or that exists on a different page,
@@ -564,8 +627,9 @@ async function routes(app: FastifyInstance) {
         //    anonymous one has all three (the validation above guarantees guestName/guestEmail are
         //    present by this point). `req.ip` is Fastify's resolved client address (honors
         //    `trustProxy`, same as the rest of this codebase), captured here for abuse tracking —
-        //    `limitGuestComments` above is what actually acts on it; Akismet spam-check policy is
-        //    still a comment-provider's job, not this route's.
+        //    `limitGuestComments` above is what actually acts on it; the native provider's own
+        //    Akismet check, when configured, already ran above and would have returned before this
+        //    point.
         guestName: actor ? null : req.body.guestName,
         guestEmail: actor ? null : req.body.guestEmail,
         guestIp: actor ? null : req.ip

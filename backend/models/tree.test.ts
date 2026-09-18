@@ -34,6 +34,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let treeModel: typeof import('./tree.ts').tree
   let pagesModel: typeof import('./pages.ts').pages
+  let assetsModel: typeof import('./assets.ts').assets
   let actor: PageActor
   let TREE_UPDATE_CHUNK_SIZE: number
 
@@ -44,6 +45,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await seedLocale(fixtures.db, { code: 'fr' })
     ;({ tree: treeModel, TREE_UPDATE_CHUNK_SIZE } = await import('./tree.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ assets: assetsModel } = await import('./assets.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
 
@@ -686,6 +688,116 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #3384: `renameFolder`'s ltree cascade always relocated a descendant asset's own
+   * `folderPath` (the bulk ltree `UPDATE`s cover every tree row under the folder, assets included),
+   * but nothing ever told a storage target its copy of the file had moved -- `asset:move` had no
+   * `STORAGE_HANDLERS` entry at all, so a target with direct-access URLs enabled kept signing the
+   * asset's old key. These lock the fix: `renameFolder` now fires `storage.dispatch('asset:move')`
+   * once per descendant asset, with the correct old/new `folderPath` and the `kind`/`fileSize`
+   * `targetCoversEvent` needs to classify it.
+   */
+  describe('renameFolder fires descendant asset move side effects (OpenProject #3384)', () => {
+    test('fires storage.dispatch(asset:move) per descendant asset, with old/new folderPath and kind/fileSize', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'gallery-movable',
+        title: 'Movable Gallery',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const assetOne = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: folder.id,
+        fileName: 'one.png',
+        mimeType: 'image/png',
+        data: Buffer.from('one'),
+        authorId: fixtures.userId
+      })
+      const assetTwo = await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: folder.id,
+        fileName: 'two.png',
+        mimeType: 'image/png',
+        data: Buffer.from('two'),
+        authorId: fixtures.userId
+      })
+
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const storageCalls: any[] = []
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'gallery-moved',
+          title: 'Movable Gallery'
+        })
+
+        const assetMoveCalls = storageCalls.filter((c) => c.event === 'asset:move')
+        assert.equal(assetMoveCalls.length, 2)
+        assert.deepEqual(
+          new Set(assetMoveCalls.map((c) => c.id)),
+          new Set([assetOne.id, assetTwo.id])
+        )
+        for (const call of assetMoveCalls) {
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.previousFolderPath, 'gallery-movable')
+          assert.equal(call.folderPath, 'gallery-moved')
+        }
+        const oneMoved = assetMoveCalls.find((c) => c.id === assetOne.id)!
+        assert.equal(oneMoved.fileName, 'one.png')
+        assert.equal(oneMoved.kind, 'image')
+        assert.equal(oneMoved.fileSize, 3)
+      } finally {
+        delete storageModel.dispatch
+      }
+    })
+
+    test('fires no asset:move dispatch for a title-only rename', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'gallery-untouched',
+        title: 'Untouched Gallery',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await assetsModel.upload({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        folderId: folder.id,
+        fileName: 'inside.png',
+        mimeType: 'image/png',
+        data: Buffer.from('inside'),
+        authorId: fixtures.userId
+      })
+
+      const storageModel = (globalThis as any).CARDINAL.models.storage
+      const storageCalls: any[] = []
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'gallery-untouched',
+          title: 'Renamed Title Only'
+        })
+
+        assert.equal(storageCalls.filter((c) => c.event === 'asset:move').length, 0)
+      } finally {
+        delete storageModel.dispatch
+      }
+    })
+  })
+
+  /**
    * OpenProject #1693: audit of `deleteFolder` for the same missing side-effect gap #1692 fixed on
    * `renameFolder`. Unlike `renameFolder`, `deleteFolder` itself does no per-page I/O at all — its
    * caller (`api/tree.ts`'s DELETE-folder route) always follows it with
@@ -844,6 +956,75 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.equal(pages.length, 1)
       assert.equal(pages[0]!.classification, fixtures.classificationId)
+    })
+  })
+
+  /**
+   * OpenProject #3409: `browse()`/`listPages()` used to carry no tags at all -- the permission filter
+   * (`api/tree.ts`) had nothing to check a TAG/TAGALL rule against, same gap `getTree()` already
+   * closed for the file manager. Each now joins `tree.tags` in directly, locked down here the same
+   * way OpenProject #1128's classification threading is above.
+   */
+  describe('tags carried through for the permission filter (OpenProject #3409)', () => {
+    test('browse() carries a page’s real tags, empty for a folder-only entry', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'tagged-browse-folder',
+        title: 'Has A Page Inside',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      // -> browse() drops a folder that holds no visible page under it, so this folder needs one to
+      //    appear in the listing at all -- the folder ROW itself still carries no tags of its own.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'tagged-browse-folder/inside', title: 'Inside', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'tagged-browse-page',
+          title: 'Page Only',
+          locale: 'en',
+          tags: ['alpha', 'beta']
+        }),
+        actor
+      )
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        publicOnly: false
+      })
+
+      const pageItem = level!.items.find((item) => item.path === 'tagged-browse-page')!
+      const folderItem = level!.items.find((item) => item.path === folder.fileName)!
+      assert.deepEqual(pageItem.tags, ['alpha', 'beta'])
+      assert.deepEqual(folderItem.tags, [])
+    })
+
+    test('listPages() carries each page’s real tags', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'tagged-list/page',
+          title: 'Listed',
+          locale: 'en',
+          tags: ['gamma']
+        }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'tagged-list',
+        depth: 1,
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.deepEqual(pages[0]!.tags, ['gamma'])
     })
   })
 

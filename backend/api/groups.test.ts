@@ -317,6 +317,19 @@ describe(
  * session seeded through a test-only header ahead of it. `CARDINAL.models.groups` methods below are
  * stubbed rather than hitting a real database -- this test is about the permission surface, not
  * model behavior.
+ *
+ * OpenProject #3381: `GET /` no longer declares route-level `permissions` at all -- it checks
+ * in-handler (`mayListGroups()`) instead, the same `No route-level permissions:` shape
+ * `api/icons.ts#mayUseIconPicker` and `api/blocks.ts#mayListBlocks` use, so that a `site:approvals` or
+ * `site:navigation` delegate (a SITE-scoped rule grant, invisible to `config.permissions`' group-wide
+ * -only check) can still list groups for `AdminApprovals.vue`'s / `NavItemEditor`'s pickers. The stub
+ * `CARDINAL.models.groups` below therefore grows `actorForRequest`/`mayHoldPermissionSomewhere` --
+ * `manage:navigation`'s existing coverage stays a `permissions:true` real-hook assertion for
+ * `GET /:groupId` (unchanged), but `GET /`'s own cases below now exercise the in-handler check.
+ * `actorForRequest` reads the real `req.session` `session: 'header'` already seeds;
+ * `mayHoldPermissionSomewhere` is a stand-in reading a second, purpose-built header
+ * (`x-test-site-roles`) for the site-scoped roles a delegate holds -- `req` isn't otherwise reachable
+ * from a method that, in production, takes only `(actor, permissions, siteId)`.
  */
 
 const GROUP_ID = '33333333-3333-3333-3333-333333333333'
@@ -354,6 +367,24 @@ before(async () => {
         },
         holdsSystemPermission() {
           return true
+        },
+        // -> Stand-in for the real `actorForRequest`: reads the same `req.session` the `session:
+        //    'header'` hook below seeds from `x-test-session`/`x-test-permissions`, plus the
+        //    test-only `x-test-site-roles` header `mayHoldPermissionSomewhere` below consults.
+        actorForRequest(req: any) {
+          const header = req.headers['x-test-site-roles']
+          return {
+            groupIds: [],
+            permissions: req.session?.authenticated ? (req.session.permissions ?? []) : [],
+            testSiteRoles: typeof header === 'string' ? header.split(',').filter(Boolean) : []
+          }
+        },
+        // -> Stand-in for the real `mayHoldPermissionSomewhere(actor, permissions, siteId)`: the
+        //    route calls it site-blind (`siteId: null`), so this ignores the third argument and just
+        //    checks whether any of `permissions` is among the site-scoped roles `actorForRequest`
+        //    above attached to the actor.
+        mayHoldPermissionSomewhere(actor: { testSiteRoles?: string[] }, permissions: string[]) {
+          return permissions.some((permission) => (actor.testSiteRoles ?? []).includes(permission))
         }
       },
       sessions: {
@@ -375,9 +406,15 @@ before(async () => {
 
 after(() => closeTestApp(app))
 
-function headersFor(permissions: string[]) {
+/**
+ * `siteRoles` feeds the stub `mayHoldPermissionSomewhere` above via `x-test-site-roles`, standing in
+ * for a `site:approvals`/`site:navigation` grant that lives on a site-scoped rule rather than the
+ * group-wide `permissions` list `permissions` (the first argument) seeds.
+ */
+function headersFor(permissions: string[], siteRoles: string[] = []) {
   return {
-    'x-test-session': JSON.stringify({ authenticated: true, permissions, groups: [] })
+    'x-test-session': JSON.stringify({ authenticated: true, permissions, groups: [] }),
+    'x-test-site-roles': siteRoles.join(',')
   }
 }
 
@@ -400,7 +437,75 @@ test('a manage:navigation-only account is refused a group detail read', async ()
   assert.equal(res.statusCode, 403)
 })
 
-test('an account with neither read:groups, manage:groups nor manage:navigation is refused the list', async () => {
+/**
+ * OpenProject #3381: `manage:sites` is folded into `mayListGroups()`'s global-permission fast path
+ * (not left to the `site:approvals`/`site:navigation` fallback), so a full site administrator lists
+ * groups everywhere rather than only where a rule happens to grant one of those two names.
+ */
+test('a manage:sites (group-wide) account can list groups', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/',
+    headers: headersFor(['manage:sites'])
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), [{ id: GROUP_ID, name: 'Editors', isSystem: false, userCount: 3 }])
+})
+
+test('a manage:sites (group-wide) account is still refused a group detail read', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:sites'])
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+/**
+ * The bug this work package fixes: a `site:approvals` delegate holds no global permission at all
+ * (`AdminApprovals.vue`'s own `Promise.all` groups load), so before this fix `GET /` refused them and
+ * the approval-rule group pickers rendered empty.
+ */
+test('a site:approvals delegate (site-scoped rule only, no group-wide permission) can list groups', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/',
+    headers: headersFor([], ['site:approvals'])
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), [{ id: GROUP_ID, name: 'Editors', isSystem: false, userCount: 3 }])
+})
+
+test('a site:approvals delegate is still refused a group detail read', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${GROUP_ID}`,
+    headers: headersFor([], ['site:approvals'])
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+/** Same shape, for `NavItemEditor`'s visibility picker and its `site:navigation` delegate. */
+test('a site:navigation delegate (site-scoped rule only, no group-wide permission) can list groups', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/',
+    headers: headersFor([], ['site:navigation'])
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), [{ id: GROUP_ID, name: 'Editors', isSystem: false, userCount: 3 }])
+})
+
+test('a site:navigation delegate is still refused a group detail read', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${GROUP_ID}`,
+    headers: headersFor([], ['site:navigation'])
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+test('an account with neither read:groups, manage:groups, manage:navigation, manage:sites nor a site:approvals/site:navigation rule is refused the list', async () => {
   const res = await app.inject({
     method: 'GET',
     url: '/',
@@ -409,9 +514,17 @@ test('an account with neither read:groups, manage:groups nor manage:navigation i
   assert.equal(res.statusCode, 403)
 })
 
-test('an anonymous request is refused the list', async () => {
+/**
+ * `GET /` declares no route-level `permissions` (OpenProject #3381), so the real
+ * `permissionPreHandler` never runs for it and can't 401 an anonymous caller the way it does for
+ * `GET /:groupId` below. `mayListGroups()`'s in-handler check can't distinguish "no session" from
+ * "a session with no relevant grant" either -- the same tradeoff `api/icons.ts#mayUseIconPicker` and
+ * `api/blocks.ts#mayListBlocks` already accept for their own picker routes. This is a deliberate,
+ * precedented behavior change from 401 to 403, not a regression.
+ */
+test('an anonymous request is refused the list, with 403 rather than 401', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
-  assert.equal(res.statusCode, 401)
+  assert.equal(res.statusCode, 403)
 })
 
 /**

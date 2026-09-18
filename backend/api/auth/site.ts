@@ -489,7 +489,8 @@ async function routes(app: FastifyInstance) {
       try {
         await CARDINAL.models.login.forgotPassword({
           strategyId: req.body.strategyId,
-          email: req.body.email
+          email: req.body.email,
+          siteId: req.params.siteId
         })
       } catch (err: any) {
         // -> Swallowed rather than reported: even an unexpected failure here must not produce a

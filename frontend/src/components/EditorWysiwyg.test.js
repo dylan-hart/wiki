@@ -90,10 +90,9 @@ describe('EditorWysiwyg', () => {
     dialog.mockReset()
   })
   it('renders the page store content into the document instead of a blank editor', async () => {
-    // -> Plain text, not HTML: `init()`'s `pageStore.content.startsWith('{')` check treats anything
-    //    else as plain text and wraps it in a single `<p>` itself, so wrapping it here too would
-    //    nest `<p>` tags and, being invalid HTML, get silently split into an extra empty paragraph
-    //    by the parser -- a pre-existing quirk of that heuristic, not what this test is after.
+    // -> Plain text is valid markdown too: `init()` loads `pageStore.content` with
+    //    `contentType: 'markdown'`, so a line with no markdown syntax in it becomes a single
+    //    paragraph holding that text verbatim.
     const { wrapper } = mountEditor('Hello from Cardinal.js')
     // -> `EditorContent` (from `@tiptap/vue-3`) mounts the ProseMirror view itself on its own
     //    `onMounted`, one tick after the wrapping `<div>` above it lands in the DOM -- a single
@@ -107,21 +106,86 @@ describe('EditorWysiwyg', () => {
     wrapper.unmount()
   })
 
-  it('round-trips typed content into the page store as TipTap JSON and rendered HTML', async () => {
-    const { wrapper, pageStore } = mountEditor('<p></p>')
+  it('round-trips typed content into the page store as markdown and rendered HTML', async () => {
+    const { wrapper, pageStore } = mountEditor('')
     await nextTick()
 
     wrapper.vm.editor.chain().focus().insertContent('Typed content').run()
     await nextTick()
 
     // -> Matches the `pageCreate`/`pageUpdate` flow in `backend/models/pages.ts`: `content` is the
-    //    TipTap JSON document serialized to a string, `render` is the HTML tiptap derives from it.
+    //    editor's markdown serialization (`editor.getMarkdown()`, from `@tiptap/markdown`), `render`
+    //    is the HTML tiptap derives from it -- `EDITOR_CONTENT_TYPES.wysiwyg` is `'markdown'` too.
     expect(pageStore.contentLoaded).toBe(true)
     expect(pageStore.render).toContain('Typed content')
-    expect(() => JSON.parse(pageStore.content)).not.toThrow()
-    expect(pageStore.content).toContain('Typed content')
+    expect(pageStore.content).toBe('Typed content')
 
     wrapper.unmount()
+  })
+
+  /**
+   * Task 3395: a WYSIWYG page saves markdown and reloads into the editor identically -- covers every
+   * construct the acceptance criteria names (headings, lists, links, images, tables, code blocks).
+   *
+   * The serializer reflows a hand-typed table (column padding) and adjusts blank-line spacing around
+   * block boundaries, so a hand-authored fixture is not itself a fixed point -- what "reloads
+   * identically" actually means is that a page's own *saved* markdown (what `handleEditorUpdate`
+   * writes, i.e. what `getMarkdown()` already produced once) comes back out unchanged on the next
+   * load, which is what the two-editor comparison below proves rather than assuming.
+   */
+  it('round-trips headings, lists, links, images, tables and code blocks through markdown', async () => {
+    const authored =
+      '# Heading\n\n' +
+      '- one\n' +
+      '- two\n\n' +
+      '[a link](https://example.com)\n\n' +
+      '![alt text](https://example.com/img.png)\n\n' +
+      '| a | b |\n' +
+      '| --- | --- |\n' +
+      '| 1 | 2 |\n\n' +
+      '```js\n' +
+      'const x = 1\n' +
+      '```'
+
+    const { wrapper, pageStore } = mountEditor(authored)
+    await nextTick()
+    await nextTick()
+
+    // -> Confirms every construct actually parsed into a real node/mark, not just surviving as
+    //    literal text the renderer happens to echo back.
+    const rendered = wrapper.vm.editor.getHTML()
+    expect(rendered).toContain('<h1>Heading</h1>')
+    expect(rendered).toContain('<table')
+    expect(rendered).toContain('<img')
+    expect(rendered).toContain('href="https://example.com"')
+    expect(rendered).toContain('<pre><code')
+
+    // -> What a real save actually writes -- `handleEditorUpdate`'s own `editor.getMarkdown()` call,
+    //    triggered the same way it is in production, through a real (no-op) edit.
+    wrapper.vm.editor.chain().focus().insertContent('').run()
+    await nextTick()
+    expect(pageStore.contentLoaded).toBe(true)
+    const saved = pageStore.content
+
+    // -> Loading that saved markdown into a second, independent editor -- exactly what opening the
+    //    page again does -- must reproduce it byte-for-byte: the actual "reloads identically"
+    //    acceptance criterion, proven on the same persisted value a real reload reads.
+    const { wrapper: reloaded } = mountEditor(saved)
+    await nextTick()
+    await nextTick()
+    expect(reloaded.vm.editor.getMarkdown()).toBe(saved)
+
+    // -> Every construct is still real nodes/marks in the reloaded document too, not merely text
+    //    that happened to look right in the first editor.
+    const reloadedHtml = reloaded.vm.editor.getHTML()
+    expect(reloadedHtml).toContain('<h1>Heading</h1>')
+    expect(reloadedHtml).toContain('<table')
+    expect(reloadedHtml).toContain('<img')
+    expect(reloadedHtml).toContain('href="https://example.com"')
+    expect(reloadedHtml).toContain('<pre><code')
+
+    wrapper.unmount()
+    reloaded.unmount()
   })
 
   it('links the current selection in place, keeping its own text as the label', async () => {
@@ -251,7 +315,7 @@ describe('EditorWysiwyg', () => {
    */
   describe('inserting assets from the file manager (OpenProject #944)', () => {
     it('inserts a real image node for an image asset', async () => {
-      const { wrapper } = mountEditor('<p></p>')
+      const { wrapper } = mountEditor('')
       await nextTick()
 
       EVENT_BUS.emit('insertAsset', {
@@ -315,7 +379,7 @@ describe('EditorWysiwyg', () => {
     })
 
     it('stops listening once unmounted', async () => {
-      const { wrapper } = mountEditor('<p></p>')
+      const { wrapper } = mountEditor('')
       await nextTick()
 
       wrapper.unmount()

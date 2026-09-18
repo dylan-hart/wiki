@@ -18,6 +18,7 @@ import { useDirection } from '@/composables/direction'
 import { createTestRouter } from '../../test/router.js'
 import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 const LAYOUT_STUBS = {
   teleport: true,
@@ -466,6 +467,114 @@ describe('MainLayout edit-nav control (OpenProject #2720)', () => {
     } finally {
       footerWrapper.unmount()
     }
+  })
+})
+
+/**
+ * OpenProject #3380: `showEditNav` used to read `userStore.can('manage:navigation')` alone, which
+ * ORs only the global and page-scoped permission lists and never consults `sitePermissions` -- so a
+ * group holding just a `site:navigation` delegation on this site (no `manage:navigation`) never saw
+ * Edit Nav anywhere in the sidebar, even though the backend (`maySiteAdmin` in
+ * `backend/api/navigation.ts`) has always accepted that delegate on every navigation route. Fixed by
+ * routing `showEditNav` through `maySeeSiteSurface`, the same helper the admin area's nine `site:*`
+ * pages already gate on -- see `composables/siteAdminAccess.js`.
+ *
+ * Follows the `sitePermissions`/`sitePermissionsSiteId` seeding pattern `AdminLayout.test.js` uses
+ * for its own `site:navigation` delegate case.
+ */
+describe('MainLayout edit-nav site:navigation delegation (OpenProject #3380)', () => {
+  async function mountLayoutForSite(storeOverrides) {
+    const router = await createTestRouter(['/'])
+
+    return mountWithApp(MainLayout, {
+      messages,
+      router,
+      stores: {
+        site: { id: 'site-1' },
+        ...storeOverrides
+      },
+      stubs: {
+        HeaderNav: true,
+        MainOverlayDialog: true,
+        NavSidebar: true
+      }
+    })
+  }
+
+  it('shows Edit Nav for a site:navigation-only delegate on the current site', async () => {
+    const { wrapper } = await mountLayoutForSite({
+      user: {
+        authenticated: true,
+        permissions: [],
+        sitePermissions: ['site:navigation'],
+        sitePermissionsSiteId: 'site-1'
+      }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.sidebar-footerbtns').exists()).toBe(true)
+  })
+
+  it('hides Edit Nav for a site:navigation delegation fetched for a DIFFERENT site', async () => {
+    const { wrapper } = await mountLayoutForSite({
+      user: {
+        authenticated: true,
+        permissions: [],
+        sitePermissions: ['site:navigation'],
+        sitePermissionsSiteId: 'site-2'
+      }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.sidebar-footerbtns').exists()).toBe(false)
+  })
+
+  it('hides Edit Nav when the user holds neither manage:navigation nor a site:navigation delegation', async () => {
+    const { wrapper } = await mountLayoutForSite({
+      user: { authenticated: true, permissions: [] }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.sidebar-footerbtns').exists()).toBe(false)
+  })
+
+  it('still shows Edit Nav for a global manage:navigation holder, with no sitePermissions fetched', async () => {
+    const { wrapper } = await mountLayoutForSite({
+      user: { authenticated: true, permissions: ['manage:navigation'] }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.sidebar-footerbtns').exists()).toBe(true)
+  })
+
+  it('fetches site permissions on mount for an authenticated user without manage:navigation', async () => {
+    const { calls } = stubApi({ 'sites/site-1/userPermissions': ['site:navigation'] })
+
+    await mountLayoutForSite({
+      user: { authenticated: true, permissions: [] }
+    })
+
+    expect(calls).toContain('sites/site-1/userPermissions')
+  })
+
+  it('does not fetch site permissions for a global manage:navigation holder', async () => {
+    const { calls } = stubApi({ 'sites/site-1/userPermissions': ['site:navigation'] })
+
+    await mountLayoutForSite({
+      user: { authenticated: true, permissions: ['manage:navigation'] }
+    })
+
+    expect(calls).not.toContain('sites/site-1/userPermissions')
+  })
+
+  it('does not fetch site permissions for a guest', async () => {
+    const { calls } = stubApi({ 'sites/site-1/userPermissions': ['site:navigation'] })
+
+    await mountLayoutForSite({
+      user: { authenticated: false, permissions: [] }
+    })
+
+    expect(calls).not.toContain('sites/site-1/userPermissions')
   })
 })
 

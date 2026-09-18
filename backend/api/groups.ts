@@ -42,6 +42,46 @@ interface GroupUpdateBody {
   rules?: GroupRule[]
 }
 
+/** The group-wide permissions that alone are enough to list groups by id and name. */
+const LIST_GROUPS_GLOBAL_PERMISSIONS = [
+  'read:groups',
+  'manage:groups',
+  'manage:navigation',
+  'manage:sites'
+]
+
+/**
+ * Whether this caller may list groups (`GroupCore`: id, name, isSystem, userCount — no permissions,
+ * no rules, no members).
+ *
+ * `config.permissions` cannot express this on its own: it reads the group-wide permission list only,
+ * so a `site:approvals` or `site:navigation` delegate — who holds neither `read:groups`,
+ * `manage:groups` nor `manage:navigation` globally, only a site-scoped rule granting one of those two
+ * names — silently got an empty list back rather than a 403 (OpenProject #3381). `AdminApprovals.vue`
+ * loads groups to populate an approval rule's submitter/reviewer group pickers, and `NavItemEditor`'s
+ * visibility picker does the same for `manage:navigation`'s own delegated counterpart,
+ * `site:navigation` — both need the identical handler check `mayUseIconPicker()` (`api/icons.ts`) and
+ * `mayListBlocks()` (`api/blocks.ts`) already use for the same reason.
+ *
+ * `manage:sites` is folded into the global list rather than left to the `mayHoldPermissionSomewhere()`
+ * fallback below: a full site administrator should list groups everywhere, not only where a rule
+ * happens to grant one of the two site permissions.
+ */
+function mayListGroups(req: FastifyRequest): boolean {
+  const actor = CARDINAL.models.groups.actorForRequest(req)
+  if (LIST_GROUPS_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
+    return true
+  }
+  // -> `null`, not a site id: this listing is not site-scoped (there is no `siteId` on this route to
+  //    narrow by) — the same site-blind case `mayHoldPermissionSomewhere()`'s own doc comment carves
+  //    out, and `mayUseIconPicker()` already relies on for the icon picker.
+  return CARDINAL.models.groups.mayHoldPermissionSomewhere(
+    actor,
+    ['site:approvals', 'site:navigation'],
+    null
+  )
+}
+
 /**
  * Groups API Routes
  */
@@ -49,16 +89,11 @@ async function routes(app: FastifyInstance) {
   /**
    * LIST ALL GROUPS
    */
+  // No route-level permissions: a site:approvals/site:navigation delegate's grant is a site-scoped
+  // rule, invisible to config.permissions' group-wide-only check — see mayListGroups() above.
   app.get(
     '/',
     {
-      config: {
-        // -> `manage:navigation` is here because a menu item can be limited to groups, so the
-        //    navigation editor has to be able to name them. It is safe to grant on this route and this
-        //    route only: the listing is `GroupCore`, which carries no permissions, no rules and no
-        //    members — reading one group in full, or its members, keeps needing `manage:groups`.
-        permissions: ['read:groups', 'manage:groups', 'manage:navigation']
-      },
       schema: {
         summary: 'List all groups',
         description:
@@ -75,7 +110,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async () => {
+    async (req, reply) => {
+      if (!mayListGroups(req)) {
+        return reply.forbidden()
+      }
       return CARDINAL.models.groups.getAllGroups()
     }
   )
