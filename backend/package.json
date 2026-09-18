@@ -136,7 +136,8 @@
   },
   "overrides": {
     "adm-zip": "^0.6.1",
-    "sharp": "$sharp"
+    "sharp": "$sharp",
+    "uuid": "11.1.1"
   },
   "engines": {
     "node": ">=26.0"
