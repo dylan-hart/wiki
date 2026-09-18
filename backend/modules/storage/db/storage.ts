@@ -9,49 +9,73 @@
  * handlers (`created`/`updated`/`assetUploaded`/...) have anything to do here; only the `purge`
  * action `definition.yml` declares has real work behind it.
  */
-import { eq } from 'drizzle-orm'
+import { inArray } from 'drizzle-orm'
 import { assets as assetsTable } from '../../../db/schema.ts'
+import { DB_MODULE } from '../../../models/storage.ts'
 import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
 
 /**
- * `purge` ("Purge All Assets"): null out every asset's stored bytes (`data`, `preview`) for this
- * target's site, leaving the `assets` row's other columns — and its matching `tree` entry — untouched.
- * That is exactly what the action's `definition.yml` hint promises ("not the metadata"): a page or
- * folder listing, a file's name/size/kind, and every link pointing at it all keep working: the row is
- * still there, it just answers a content request with nothing until re-uploaded or re-synced in from
- * another target.
+ * `purge` ("Purge All Assets"): null out the stored bytes (`data`, `preview`) of every asset in this
+ * target's site that some OTHER target can still actually serve, leaving the `assets` row's other
+ * columns — and its matching `tree` entry — untouched for every asset, purged or not. That is exactly
+ * what the action's `definition.yml` hint promises ("not the metadata"): a page or folder listing, a
+ * file's name/size/kind, and every link pointing at it all keep working regardless.
  *
- * **Deliberately unconditional across every asset kind — not scoped to `target.contentTypes.activeTypes`.**
- * A page's content is untouched regardless, since it does not live in this table at all: the `pages`
- * bucket `validateTarget` forces on for this module has no bearing on what an asset purge does. For
- * assets, the db module keeps no separate physical copy per content type the way, say, a git checkout
- * or an S3 bucket would — every asset's bytes for this site live in exactly this one `data`/`preview`
- * pair, whichever buckets (`images`/`documents`/`others`/`large`) this target happens to be configured
- * to actively sync right now. Scoping the purge to `activeTypes` would mean an admin who flipped, say,
- * `images` off after moving images to another target could never reclaim that space through this
- * action — exactly the assets the action's own description ("useful if you moved assets to another
- * storage target and want to reduce the size of the database") means for it to free.
+ * **Per-asset, gated on `assetServing.governingTargetFrom()` — the same predicate `readContent` uses
+ * to decide where to serve a request from (OpenProject #3375).** Before this, the update was a single
+ * unconditional `UPDATE ... WHERE siteId = ?`: an asset with no direct-access target covering it had
+ * its only copy of its bytes deleted with no way back, since `/_files/` has exactly two ways to answer
+ * a request — a redirect to a direct-access target's own URL, or the db column this just nulled — and
+ * `BlobDriver` has no `get`/`head` to refill from. An asset is only purged when the site's targets
+ * resolve, for that specific asset's kind/size, to a non-db governing target: a blob target
+ * (`s3`/`azure`/`gcs`) with `assetDelivery.directAccess` on and `contentTypes` covering it. Everything
+ * else — no direct-access target configured at all, or one configured but not covering this asset's
+ * kind/size bucket — is left alone, by construction still servable exactly as it was before the purge.
+ *
+ * @returns `purged`/`skipped` counts, surfaced by `models/storage.ts#executeAction` and
+ *   `api/storage.ts`'s action route into the reply so an admin sees what actually happened rather than
+ *   a fixed "completed" message.
  */
-export async function purge(target: StorageTarget): Promise<void> {
-  const purged = await CARDINAL.db
-    .update(assetsTable)
-    .set({ data: null, preview: null })
-    .where(eq(assetsTable.siteId, target.siteId))
-    .returning({ id: assetsTable.id })
-
-  if (purged.length < 1) {
-    return
+export async function purge(target: StorageTarget): Promise<{ purged: number; skipped: number }> {
+  const siteAssets = await CARDINAL.models.assets.listAllForSite(target.siteId)
+  if (siteAssets.length < 1) {
+    return { purged: 0, skipped: 0 }
   }
 
-  const ids = purged.map((row) => row.id)
+  const targets = await CARDINAL.models.storage.getSiteTargets(target.siteId)
+  const purgeableIds: string[] = []
+  let skipped = 0
+  for (const asset of siteAssets) {
+    const governingTarget = CARDINAL.models.assetServing.governingTargetFrom(targets, {
+      kind: asset.kind,
+      fileSize: asset.fileSize
+    })
+    if (governingTarget && governingTarget.module !== DB_MODULE) {
+      purgeableIds.push(asset.id)
+    } else {
+      skipped++
+    }
+  }
+
+  if (purgeableIds.length < 1) {
+    return { purged: 0, skipped }
+  }
+
+  await CARDINAL.db
+    .update(assetsTable)
+    .set({ data: null, preview: null })
+    .where(inArray(assetsTable.id, purgeableIds))
+
   // -> Drops the disk-cached bytes of every purged asset on this instance, so `/_files/` cannot go on
   //    serving content the database no longer has.
-  await CARDINAL.models.assetServing.dropCachedContent(ids)
+  await CARDINAL.models.assetServing.dropCachedContent(purgeableIds)
   // -> Every purged asset's metadata just changed under any path resolution already cached for this
   //    site (`hasPreview` in particular, now false for anything that had a thumbnail) — a bulk change
   //    with no single path to target individually, the same reasoning `deleteOrphaned` follows for its
   //    own bulk deletion in `models/assets.ts`.
   CARDINAL.models.assetServing.forgetAllPaths()
+
+  return { purged: purgeableIds.length, skipped }
 }
 
 const dbStorageModule: StorageModule = {

@@ -851,17 +851,21 @@ async function executeAction(act) {
     state.runningAction = true
     state.runningActionHandler = act.handler
     try {
-      await API_CLIENT.post(
+      const res = await API_CLIENT.post(
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/actions/${act.handler}`
       ).json()
       // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
       //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
       //    it finished, so the notification says so rather than claiming completion.
+      // -> A synchronous action's `message` now reports what it actually did (e.g. `purge`'s
+      //    "purged: 3, skipped: 1" -- OpenProject #3375) instead of always the same fixed string, so
+      //    it is worth showing as the toast's caption rather than discarding the response body.
       notify({
         type: 'positive',
         message: isQueuedAction(act.handler)
           ? t('admin.storage.actionQueued', { action: act.label })
-          : t('admin.storage.actionSuccess', { action: act.label })
+          : t('admin.storage.actionSuccess', { action: act.label }),
+        caption: isQueuedAction(act.handler) ? undefined : res?.message
       })
     } catch (err) {
       notify({

@@ -104,6 +104,35 @@ test('a module error (broken cloud config — wrong bucket, revoked credentials,
   assert.match(body.message, /Could not reach the "wrong-bucket" bucket/)
 })
 
+// -> OpenProject #3375: `purge`'s `{ purged, skipped }` counts (any synchronous action's return value,
+//    generically) must reach the reply's `message` instead of the old fixed "Action completed
+//    successfully." string, so an admin can tell a purge actually did something from a purge that
+//    found nothing servable to purge.
+test('a synchronous action’s return value reaches the reply message, not the fixed string', async () => {
+  executeAction.mock.mockImplementationOnce(async () => ({ purged: 3, skipped: 1 }))
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/actions/exportAll`
+  })
+
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.ok, true)
+  assert.match(body.message, /purged: 3/)
+  assert.match(body.message, /skipped: 1/)
+})
+
+test('a synchronous action returning nothing keeps the fixed completion message', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/actions/exportAll`
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().message, 'Action completed successfully.')
+})
+
 test('a target must be enabled before an action can run', async () => {
   const res = await app.inject({
     method: 'POST',
