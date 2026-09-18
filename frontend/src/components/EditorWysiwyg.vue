@@ -92,9 +92,12 @@ import {
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 import { buildMenuBar } from '@/helpers/wysiwygMenuBar'
 
+import { createBlockLoader, WikiBlock } from '@/editor/wysiwyg'
+
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
 
 import { useCollabStore } from '@/stores/collab'
+import { useCommonStore } from '@/stores/common'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -129,6 +132,7 @@ const lowlight = createLowlight(common)
 // STORES
 
 const collabStore = useCollabStore()
+const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
@@ -224,6 +228,7 @@ const menuBar = computed(() =>
     HIGHLIGHT_COLORS,
     insertLink: () => insertLink(),
     openFileManager: (opts) => siteStore.openFileManager(opts),
+    insertBlock: () => insertBlock(),
     t
   })
 )
@@ -293,6 +298,11 @@ function buildExtensions(collab) {
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     TextStyle,
     Typography,
+    // -> Every Cardinal-specific `<block-*>` custom element, blocks and tabsets alike -- see
+    //    `editor/wysiwyg/wikiBlockNode.js` (OpenProject #3396). `loadBlock` resolves a not-yet-
+    //    upgraded tag against this site's own block list, the same way the read view's
+    //    `collectBlocksToLoad` scan does -- see `editor/wysiwyg/loadBlock.js`.
+    WikiBlock.configure({ loadBlock: createBlockLoader(commonStore, siteStore) }),
     // -> `@tiptap/markdown`'s `Markdown` extension is what gives every editor built from this list
     //    `editor.getMarkdown()` (the save path below) and the `contentType: 'markdown'` option
     //    `init()` loads with -- registered once here, shared by both the interim and collaborative
@@ -468,6 +478,32 @@ function insertLink() {
         .run()
     }
   })
+}
+
+/**
+ * Opens the same block picker (`BlockPickerOverlay.vue`) the plain-text editor's side toolbar opens
+ * -- see `insertBlockClb` below for the other half, what happens once it hands back a choice.
+ */
+function insertBlock() {
+  siteStore.$patch({
+    overlay: 'BlockPicker'
+  })
+}
+
+/**
+ * The block (or tabset) `BlockPickerOverlay.vue` built, as its own MDC markup, turned into a real
+ * node at the cursor.
+ *
+ * `insertContent`'s own `contentType: 'markdown'` (from the `Markdown` extension registered in
+ * `buildExtensions()`) is what parses it -- the same parse `WikiBlock`'s own markdown tokenizer
+ * handles for the page's initial load, run here against just this one block's markup instead of the
+ * whole document (OpenProject #3396). Unlike `EditorMarkdown.vue`'s own `insertBlockClb`, no manual
+ * blank-line padding around the insertion point is needed: ProseMirror's schema places a block-level
+ * node at a valid position on its own, splitting the surrounding paragraph if the cursor was inside
+ * one.
+ */
+function insertBlockClb(markdown) {
+  editor.value.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run()
 }
 
 /**
@@ -662,6 +698,7 @@ function reloadEditorContent({ replacements = [] } = {}) {
 onMounted(() => {
   EVENT_BUS.on('insertAsset', insertAssetClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
+  EVENT_BUS.on('insertBlock', insertBlockClb)
 })
 
 init()
@@ -740,6 +777,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
   EVENT_BUS.off('reloadEditorContent', reloadEditorContent)
+  EVENT_BUS.off('insertBlock', insertBlockClb)
   // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- left
   //    running they fire past unmount against a disposed editor (OpenProject #942).
   stopCollabStatusWatch?.()

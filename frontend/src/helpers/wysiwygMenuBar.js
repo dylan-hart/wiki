@@ -23,12 +23,15 @@
  * @param {Record<string, string>} opts.HIGHLIGHT_COLORS
  * @param {() => void} opts.insertLink Opens the shared link picker and applies the answer.
  * @param {(opts: object) => void} opts.openFileManager Opens the file manager in insert mode.
+ * @param {() => void} opts.insertBlock Opens the shared block picker (`BlockPickerOverlay.vue`),
+ *   which fills in `BlockPropsForm.vue` and emits the chosen block's markdown on `insertBlock` --
+ *   `EditorWysiwyg.vue`'s own listener turns that into a real node at the cursor (OpenProject #3396).
  * @param {(key: string, params?: object) => string} opts.t `useI18n()`'s `t`, from the caller --
  *   translates every menu item's `title` against `editor.wysiwyg.*`.
  */
 export function buildMenuBar(
   getEditorRef,
-  { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager, t }
+  { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager, insertBlock, t }
 ) {
   /*
     A live view of the component's own `editor` binding rather than a captured copy: it is assigned
@@ -405,6 +408,16 @@ export function buildMenuBar(
       action: () => {
         openFileManager({ insertMode: true })
       }
+    },
+    {
+      // -> Same picker `EditorMarkdown.vue`'s own side toolbar opens (`tabler:puzzle`, matching its
+      //    settled add-action glyph everywhere else it appears -- root `CLAUDE.md`'s icon
+      //    conventions). A tabset is just Tabs picked from the same list, so there is no second
+      //    "insert tabset" shortcut here the way the plain-text editor's side toolbar has one.
+      key: 'block',
+      icon: 'tabler:puzzle',
+      title: t('editor.wysiwyg.insertBlock'),
+      action: () => insertBlock()
     },
     {
       key: 'table',

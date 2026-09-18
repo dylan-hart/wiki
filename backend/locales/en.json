@@ -2779,6 +2779,7 @@
   "editor.wysiwyg.highlightRemove": "Remove",
   "editor.wysiwyg.horizontalRule": "Horizontal Rule",
   "editor.wysiwyg.image": "Image",
+  "editor.wysiwyg.insertBlock": "Insert Block",
   "editor.wysiwyg.italic": "Italic",
   "editor.wysiwyg.link": "Link",
   "editor.wysiwyg.monospace": "Monospace",
