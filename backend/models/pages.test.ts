@@ -2138,6 +2138,151 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #3400: `convertLegacyWysiwygRow()` is the run-once migration job's own write path --
+   * a raw insert stands in for the legacy row `createPage()` can no longer produce (the wysiwyg editor
+   * writes `contentType: 'markdown'` now, per `EDITOR_CONTENT_TYPES`), and `updatePage()`'s own
+   * `isLegacyWysiwygConversionSave` branch is the lazy on-open fallback's counterpart -- an ordinary
+   * save from a page that loaded as legacy JSON, done editing.
+   */
+  describe('legacy WYSIWYG JSON conversion (OpenProject #3400)', () => {
+    const legacyJsonContent = JSON.stringify({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }]
+    })
+
+    /** A raw legacy row: `editor: 'wysiwyg'`, `contentType: 'html'`, JSON under `content`. */
+    async function insertLegacyRow(path: string, content: string = legacyJsonContent) {
+      const inserted = await fixtures.db
+        .insert(pagesTable)
+        .values({
+          ...rawPageRow({ path, locale: 'en', siteId: fixtures.siteId }),
+          editor: 'wysiwyg',
+          contentType: 'html',
+          content
+        })
+        .returning({ id: pagesTable.id })
+      return inserted[0]!.id
+    }
+
+    test('convertLegacyWysiwygRow() writes the markdown, flips contentType, and records one history version', async () => {
+      const id = await insertLegacyRow('docs/legacy-convert-ok')
+
+      const ok = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        id,
+        '# Hello',
+        fixtures.userId
+      )
+      assert.equal(ok, true)
+
+      const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
+      assert.equal(rows[0]!.content, '# Hello')
+      assert.equal(rows[0]!.contentType, 'markdown')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, id))
+      assert.equal(history.length, 1)
+      assert.equal(history[0]!.action, 'updated')
+      assert.deepEqual(history[0]!.changedFields, ['content', 'contentType'])
+    })
+
+    test('convertLegacyWysiwygRow() returns false and touches nothing for a row already converted', async () => {
+      const id = await insertLegacyRow('docs/legacy-convert-already-done')
+      const first = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        id,
+        '# Hello',
+        fixtures.userId
+      )
+      assert.equal(first, true)
+
+      const second = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        id,
+        '# Something else entirely',
+        fixtures.userId
+      )
+      assert.equal(second, false)
+
+      const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
+      // -> Untouched by the second, no-op call -- still what the first call wrote.
+      assert.equal(rows[0]!.content, '# Hello')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, id))
+      assert.equal(history.length, 1)
+    })
+
+    test('convertLegacyWysiwygRow() returns false for an id that does not exist', async () => {
+      const ok = await pagesModel.convertLegacyWysiwygRow(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000',
+        '# Hello',
+        fixtures.userId
+      )
+      assert.equal(ok, false)
+    })
+
+    test("updatePage() on an unconverted legacy row flips contentType once the save's content no longer looks like the legacy JSON (the lazy on-open fallback)", async () => {
+      const id = await insertLegacyRow('docs/legacy-lazy-fallback')
+
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        id,
+        { content: '# Hello, edited in the WYSIWYG editor' },
+        actor
+      )
+
+      assert.equal(updated!.contentType, 'markdown')
+
+      const rows = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1)
+      assert.equal(rows[0]!.contentType, 'markdown')
+      assert.equal(rows[0]!.content, '# Hello, edited in the WYSIWYG editor')
+
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, id))
+        .orderBy(pageHistoryTable.versionDate)
+      const last = history.at(-1)!
+      assert.ok(last.changedFields.includes('contentType'))
+      assert.ok(last.changedFields.includes('content'))
+    })
+
+    test('updatePage() never flips contentType for an ordinary markdown page (not the legacy scenario)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/ordinary-markdown-save',
+          editor: 'wysiwyg',
+          content: '# Original'
+        }),
+        actor
+      )
+
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { content: '# Edited again' },
+        actor
+      )
+
+      assert.equal(updated!.contentType, 'markdown')
+      const history = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.pageId, page.id))
+        .orderBy(pageHistoryTable.versionDate)
+      const last = history.at(-1)!
+      assert.ok(!last.changedFields.includes('contentType'))
+    })
+  })
+
+  /**
    * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
    * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
    * `render` — no refusal, and no path back to a correct render short of a human re-saving the page

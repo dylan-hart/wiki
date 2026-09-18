@@ -16,6 +16,7 @@ import {
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import { rewriteLinkText, rewriteRedirectTarget } from '../helpers/pageLinkRewrite.ts'
+import { isLegacyWysiwygJson } from '../helpers/wysiwygHeadlessMarkdown.ts'
 import { computeTranslationStaleness } from '../helpers/translationStaleness.ts'
 import type { TranslationStalenessEntry } from '../helpers/translationStaleness.ts'
 import { announce } from './hooks.ts'
@@ -1193,6 +1194,27 @@ class Pages {
     if (patch.content !== undefined) {
       values.content = isRedirect ? normalizeRedirectContent(patch.content) : patch.content
     }
+    /*
+      The lazy on-open fallback (OpenProject #3400): the run-once conversion job
+      (`convertLegacyWysiwygRow`, above) cleans up almost every row, but a row it could not parse
+      stays a legacy `contentType: 'html'` row holding raw Tiptap JSON until somebody actually opens
+      it. `EditorWysiwyg.vue` still loads that row (parsing the JSON directly instead of feeding it
+      through the markdown extension), so an ordinary save from it already writes real markdown into
+      `content` above -- what no ordinary save path does on its own is relabel `contentType` to match,
+      since that column is otherwise immutable here (see `EDITOR_CONTENT_TYPES`'s doc comment). This
+      is the one case where it must: the save just replaced the legacy JSON with real markdown, so the
+      row's true shape changed under it. Narrow on purpose -- only a `wysiwyg`/`html` row whose stored
+      content actually looked like the legacy JSON, saving content that no longer does.
+    */
+    const isLegacyWysiwygConversionSave =
+      existing.editor === 'wysiwyg' &&
+      existing.contentType === 'html' &&
+      isLegacyWysiwygJson(existing.content) &&
+      patch.content !== undefined &&
+      !isLegacyWysiwygJson(values.content)
+    if (isLegacyWysiwygConversionSave) {
+      values.contentType = 'markdown'
+    }
     if (patch.publishState !== undefined) {
       if (
         patch.publishState === 'scheduled' &&
@@ -1458,6 +1480,58 @@ class Pages {
     }
 
     return updated
+  }
+
+  /**
+   * Overwrite a legacy WYSIWYG row's stored Tiptap-JSON `content` with the markdown a headless
+   * conversion produced, flipping `contentType` to `markdown` to match (OpenProject #3400).
+   *
+   * Deliberately not `updatePage()`: `contentType` is immutable through every ordinary save path --
+   * see `EDITOR_CONTENT_TYPES`'s own doc comment on why no patch is ever allowed to relabel what
+   * produced a page's content -- and this is the one place that relabeling is exactly the point.
+   * The page's VISIBLE output does not change here (same document, correctly encoded now instead of
+   * mislabeled), so this deliberately skips everything a real edit does through `updatePage()`: no
+   * re-render (the stored `render`/`toc`/`searchContent` already reflect this exact content, computed
+   * by the editor that originally saved it), no search reindex, no webhook emit, no storage dispatch.
+   * Only what actually changed moves: the `content` column's bytes and its `contentType` label, plus
+   * the one `pageHistory` version every content change gets.
+   *
+   * The `WHERE` clause doubles as an optimistic-concurrency guard against the row having moved on
+   * since the caller's own `SELECT` (converted already by an earlier run, or hand-edited in the
+   * meantime): it only ever touches a row still shaped exactly like the one that was read.
+   *
+   * @returns false when the row no longer matches that shape -- the caller's cue to count it as
+   *   skipped rather than converted, not to treat it as a failure.
+   */
+  async convertLegacyWysiwygRow(
+    siteId: string,
+    id: string,
+    markdown: string,
+    authorId: string
+  ): Promise<boolean> {
+    const rows = await CARDINAL.db
+      .update(pagesTable)
+      .set({ content: markdown, contentType: 'markdown', updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(pagesTable.id, id),
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.editor, 'wysiwyg'),
+          eq(pagesTable.contentType, 'html')
+        )
+      )
+      .returning({ id: pagesTable.id })
+    if (rows.length === 0) {
+      return false
+    }
+    await CARDINAL.models.pageHistory.record({
+      siteId,
+      pageId: id,
+      action: 'updated',
+      authorId,
+      changedFields: ['content', 'contentType']
+    })
+    return true
   }
 
   /**
