@@ -316,7 +316,7 @@ export default class LdapAuthentication {
         .map((groupEntry) => attributesOf(groupEntry)[groupNameField]?.[0])
         .filter((name): name is string => Boolean(name))
     } catch (err: any) {
-      CARDINAL.logger.warn('auth', 'LDAP group search failed, leaving group membership unchanged', {
+      CARDINAL.logger.warn('auth', 'group search failed, leaving group membership unchanged', {
         module: 'ldap',
         strategy: this.strategyId,
         error: err
