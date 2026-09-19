@@ -14,8 +14,8 @@ import { describe, expect, it } from 'vitest'
  * button):
  *   1. `.w-btn-group` takes a gap instead of a seam, so adjacent buttons keep their own radius
  *      rather than one keeping a rounded corner butted against a square one.
- *   2. The editor's markup toolbar (`.editor-markdown-toolbar`) squares its buttons, so the band
- *      reads as one continuous strip rather than a row of individually rounded pills.
+ *   2. (Retired by OpenProject #3466.) The editor's markup toolbar used to square its buttons with
+ *      a Cobalt-only rule here; the shared `flush-hover-btn` primitive does that now.
  */
 
 const CSS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'tailwind.css')
@@ -43,9 +43,10 @@ describe('Cobalt button-group gap', () => {
 })
 
 describe('Cobalt editor toolbar band', () => {
-  it('squares the markup toolbar buttons under body.body--cobalt', () => {
-    const rule = source.match(/body\.body--cobalt \.editor-markdown-toolbar \.w-btn\s*\{([^}]*)\}/)
-    expect(rule).not.toBeNull()
-    expect(rule[1]).toMatch(/border-radius:\s*0\s*;/)
+  // -> Squaring the markup toolbar's buttons moved to the shared flush-hover primitive (OpenProject
+  //    #3466); `EditorMarkdown.flushHover.test.js` owns that. Only the retired rule's absence is
+  //    pinned here.
+  it('no longer squares the markup toolbar buttons with a toolbar-specific rule', () => {
+    expect(source).not.toMatch(/body\.body--cobalt \.editor-markdown-toolbar \.w-btn\s*\{/)
   })
 })
