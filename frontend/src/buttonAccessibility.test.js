@@ -8,10 +8,8 @@ import { listSourceFiles } from '../test/sourceFiles.js'
 const SRC_ROOT = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * Parses one tag starting at `text[start]` (`text[start] === '<'`), respecting quoted attribute
- * values so an embedded `>` (e.g. inside a JS expression like `:disabled="a > b"`) doesn't end the
- * tag early. Returns the tag name, its raw `<...>` slice (for attribute checks), the index just past
- * the tag, and whether it self-closes.
+ * Respects quoted attribute values, so an embedded `>` (`:disabled="a > b"`) does not end the tag
+ * early.
  */
 function parseTag(text, start) {
   let j = start + 1
@@ -40,7 +38,6 @@ function parseTag(text, start) {
   return { tagName, attrs: text.slice(start), endIndex: text.length, selfClosing: false }
 }
 
-/** Finds the matching `</tagName>` for the open tag ending at `afterOpenIdx`, honouring nesting. */
 function findMatchingClose(text, tagName, afterOpenIdx) {
   const openRe = new RegExp(`<${tagName}\\b`, 'g')
   const closeRe = new RegExp(`</${tagName}\\s*>`)
@@ -72,7 +69,7 @@ function findMatchingClose(text, tagName, afterOpenIdx) {
   return { inner: text.slice(afterOpenIdx, idx), endIndex: idx }
 }
 
-/** Strips `<w-menu>...</w-menu>` blocks -- a menu's own contents are not the trigger's visible label. */
+/** A nested menu's contents are not the trigger's visible label. */
 function stripWMenu(inner) {
   let result = inner
   for (;;) {
@@ -93,11 +90,8 @@ function hasNameAttr(attrs) {
 }
 
 /*
-  A button hidden from assistive technology outright, which is how a purely decorative one is written
-  here: `AdminGeneral.vue`'s header preview draws the site's own logo-and-title button so an
-  administrator can see what their settings produce, and it is inert -- `aria-hidden` plus
-  `tabindex="-1"`, so it is neither reachable nor announced. A name is what such a button must NOT
-  have: naming it would put it back in the accessibility tree it was deliberately taken out of.
+  A purely decorative, inert button (`AdminGeneral.vue`'s header preview: `aria-hidden` plus
+  `tabindex="-1"`) must NOT have a name: naming it would put it back in the accessibility tree.
 */
 function isHiddenFromAssistiveTech(attrs) {
   return /(^|\s):?aria-hidden\s*=\s*"(true|`true`)"/.test(attrs)
@@ -111,21 +105,12 @@ function visibleText(inner) {
     .trim()
 }
 
-/**
- * Finds every `<w-btn>`/`<w-btn-toggle>` in one file's template with no accessible name: no
- * `label`/`aria-label`/`title` attribute, and no visible text in its own body once any nested
- * `<w-menu>` panel is stripped out. `<w-btn-group>` is a layout wrapper, not a button itself, so it
- * is excluded even though the tag prefix matches, and so is anything carrying `aria-hidden="true"` --
- * see `isHiddenFromAssistiveTech`.
- */
+/** `<w-btn-group>` is a layout wrapper, not a button, though the tag prefix matches. */
 function findUnnamedButtons(filePath) {
   const fullText = fs.readFileSync(filePath, 'utf8')
-  // -> Scoped to the `<template>` block alone, found with the same tag-balance parser used for
-  //    `<w-btn>` below (so nested slot templates like `<template #hint>...</template>` don't end it
-  //    early) rather than a regex up to the last `</template>` in the file: a `<script setup>` doc
-  //    comment illustrating usage (e.g. `<template #action><w-btn ... /></template>` inside a JSDoc
-  //    block, as `components/shared/WCardHeader.vue` has) is not live markup and must not be
-  //    censused, and a greedy `[\s\S]*<\/template>` regex has no way to stop before reaching it.
+  // -> The `<template>` block is found with the tag-balance parser rather than a greedy regex up to
+  //    the file's last `</template>`: a nested slot template must not end it early, and markup in a
+  //    `<script setup>` doc comment illustrating usage is not live and must not be censused.
   const templateOpenIdx = fullText.indexOf('<template')
   if (templateOpenIdx === -1) return []
   const { endIndex: templateContentStart } = parseTag(fullText, templateOpenIdx)

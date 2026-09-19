@@ -6,24 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * OpenProject #1663 ("Add `alt` to the 65 alt-less `<img>` elements under `frontend/src`").
- *
- * A screen reader announces a name-less `<img>` by guessing at the file path -- with none of the 65
- * `<img>` elements this fixed carrying `alt`, `:alt`, `aria-hidden` or `role="presentation"`, the
- * header read out `/_site/current/logo` and the account button read out the raw avatar URL. Every
- * one was fixed one of two ways: `alt=""` on a purely decorative image (a page-header icon, a
- * dashboard card icon, an empty-state illustration) that sits beside text already saying what it
- * shows, or a meaningful `:alt` on one that is the only thing conveying its own name (a site logo, a
- * user avatar, an uploaded asset preview, an auth strategy logo).
- *
- * This is a source-level regression test in the same style as `css/_page-contents.test.js` -- a
- * plain source scan rather than mounting every one of these components, since what is being pinned
- * down is a textual property of the template markup itself (every `<img>` carries SOME name-giving
- * attribute), not any rendered behaviour. It walks every `.vue` file under `src/`, looks only inside
- * each file's `<template>` block (a `<script>`-side string or comment mentioning `<img>` is not a
- * rendered element), strips HTML comments the same way `_page-contents.test.js` strips nothing else
- * needs stripping, and asserts every `<img>` tag it finds carries `alt=`, `:alt=`, `aria-hidden` or
- * `role="presentation"`.
+ * A screen reader announces a name-less `<img>` by guessing at its file path. A decorative image
+ * beside text that already says what it shows takes `alt=""`; one that alone conveys its own name
+ * takes a meaningful `:alt`. Only each file's `<template>` block is scanned: a `<script>`-side
+ * string mentioning `<img>` is not a rendered element.
  */
 const SRC_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -45,8 +31,7 @@ describe('every <img> under frontend/src carries a name-giving attribute', () =>
   const vueFiles = listSourceFiles(SRC_DIR, { ext: ['.vue'] })
 
   it('scans a non-trivial number of .vue files', () => {
-    // -> A canary against `findVueFiles` silently walking the wrong directory (e.g. an empty one),
-    //    which would otherwise make every case below vacuously pass.
+    // -> A walk that matched nothing would pass every case below vacuously
     expect(vueFiles.length).toBeGreaterThan(100)
   })
 

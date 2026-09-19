@@ -4,59 +4,23 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #1601, closing out epic #1582 ("Convert physical spacing utilities and CSS
- * declarations to logical properties, shared library first").
+ * `physicalPositioning.test.js` covers a different population (Tailwind's bare `left-*`/`right-*`
+ * position utilities), and `css/_page-contents.css` is excluded because it carries its own scan
+ * (`css/_page-contents.test.js`).
  *
- * #1585 (`components/shared/`), #1594 (`pages/`) and #1596 (`components/`, excluding
- * `components/shared/`) each built their own tranche-scoped `logicalSpacing.test.js` -- a
- * non-recursive scan of one directory for the audit's SPACING population (Tailwind's
- * `ml-`/`mr-`/`pl-`/`pr-`, plus the equivalent `margin`/`padding-left/right` CSS declarations) --
- * per #1582's own sibling-task coordination note: a new sibling file per tranche rather than an
- * edit to a shared scan's scope, so parallel work packages never touch the same file.
- *
- * This is #1601's consolidation of those three into ONE recursive, repo-wide scan -- paths
- * relative to `frontend/src`, matching `physicalPositioning.test.js`'s own shape -- AND its
- * widening to the audit's full declared population
- * (`docs/audit-2026-08-24/accessibility-i18n.md` §15):
- * "223 physical `margin`/`padding`/`border-left|right`, bare `left:`/`right:`, and
- * `text-align: left|right` declarations". The three tranche scans covered only the first of those
- * four property groups (spacing); `border-left`/`border-right`, bare `left:`/`right:` positioning,
- * and `text-align: left|right` were explicitly left for `#1590`/`#1601` to pick up (see each
- * tranche file's own now-deleted header comment) -- this file is where that happens.
- *
- * `physicalPositioning.test.js` (#1590) stays a separate file: it covers a different population
- * (bare Tailwind `left-*`/`right-*` POSITION utilities -- anchoring an element to a screen edge --
- * not `margin`/`padding`/`border`/`text-align` declarations), already repo-wide and closed. Its own
- * ALLOWLIST is untouched here.
- *
- * `css/_page-contents.css` is excluded from this scan: it has its own WP, and already carries its
- * own source-level regression test (`css/_page-contents.test.js`) for the one physical form it
- * once had (fixed there, not here).
- *
- * The bare `left:`/`right:` pattern requires its value to look like a real CSS length/keyword (a
- * digit, `calc(`, `var(`, or `auto`) rather than matching every `left`/`right` token in a file --
- * unlike the hyphenated properties (`margin-left`, `border-right`, ...), which have no JS/Vue
- * namesake, bare `left`/`right` collides with ordinary JS/Vue identifiers a source-level regex
- * cannot tell apart by name alone: a `DOMRect`'s `.left`, a `scrollTo()` option, ternary syntax
- * that happens to follow the word "left" (`rect.left : rect.top`), or a `:style` binding computed
- * from a template literal (`` `${toPercent(value)}%` ``, `WRange.vue`/`WColorPicker.vue`'s
- * colour-space/numeric-scale coordinates -- see `physicalPositioning.test.js`'s own header comment
- * on why those two files carry no ALLOWLIST entry here either: this guard is what keeps them out of
- * the pattern's reach in the first place, the same as it did for that scan). A declaration this
- * guard would still miss (a bare identifier value nobody has written) is not a real risk here: the
- * audit's own count was taken by hand against real source, not derived from this pattern.
+ * The bare `left:`/`right:` pattern requires a CSS-shaped value (a digit, `calc(`, `var(` or
+ * `auto`): unlike the hyphenated properties, bare `left`/`right` collides with ordinary JS -- a
+ * `DOMRect`'s `.left`, a ternary (`rect.left : rect.top`), a `:style` binding computed from a
+ * template literal.
  */
 describe('frontend/src carries no unconverted physical spacing/border/position/alignment declarations', () => {
   const srcDir = dirname(fileURLToPath(import.meta.url))
   const EXCLUDED_FILES = new Set(['css/_page-contents.css'])
 
   /**
-   * Files with a physical form that is NOT a simple leading/trailing gutter, and so cannot be
-   * swapped 1:1 for a logical property without a wider redesign or a coordinated change to a
-   * paired property this scan does not itself check (`transform-origin`, `border-radius`'s
-   * 4-value shorthand, ...). Each entry names the reason so a future pass knows what it is signing
-   * up for before removing it -- and, where the file also carries its own inline comment (the
-   * majority here), that comment is the fuller version of the same reasoning.
+   * Files whose physical form is not a simple leading/trailing gutter, so it cannot be swapped 1:1
+   * for a logical property without a wider redesign or a coordinated change to a paired property
+   * this scan does not check (`transform-origin`, `border-radius`'s 4-value shorthand).
    */
   const ALLOWLIST = {
     'components/DevQuickMenu.vue':
@@ -83,7 +47,6 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       "the TOC overlay panel, already documented physical (OpenProject #1590): paired with a fixed screen corner (the opener button), not with the reading direction -- see `physicalPositioning.test.js`'s own ALLOWLIST entry for this same file, and the inline comment here"
   }
 
-  /** Every `.vue`/`.css` file under `src`, as paths relative to `src` with forward slashes. */
   function collectFiles(dir) {
     return readdirSync(dir, { recursive: true })
       .filter((entry) => /\.(vue|css)$/.test(entry))
@@ -93,15 +56,11 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
       .sort()
   }
 
-  // -> A physical Tailwind spacing utility: ml-/mr-/pl-/pr- followed by a size token (digit,
-  //    fraction like 0.5, or an arbitrary-value bracket) -- margin/padding-left/right, never
-  //    anything else in this codebase's Tailwind config.
+  // TODO: `ml-auto`/`mr-auto` (and `-px`) escape this pattern, which requires a numeric or
+  // bracketed size, so a physical `ml-auto` is never flagged.
   const UTILITY_PATTERN = /\b(ml|mr|pl|pr)-(?:\[[^\]]+\]|\d+(?:\.\d+)?)\b/
 
-  // -> Physical CSS declarations: margin/padding/border-left|right, bare left:/right: (guarded to
-  //    a CSS-shaped value -- see the module comment), and text-align: left|right. Guarded by a
-  //    preceding non-word boundary so it matches the property itself, not prose mentioning it
-  //    inside a comment string (stripped below regardless).
+  // -> The leading `[\s;{]` anchors on the property itself rather than the tail of a longer name
   const DECLARATION_PATTERN =
     /[\s;{](?:(?:margin|padding|border)-(?:left|right)\s*:|(?:left|right)\s*:\s*(?:-?[\d.]|calc\(|var\(|auto\b)|text-align\s*:\s*(?:left|right)\b)/
 
@@ -109,7 +68,7 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
     return source
       .replace(/<!--[\s\S]*?-->/g, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/(^|\s)\/\/.*$/gm, '$1') // -> SCSS `//` line comments; guarded so it doesn't eat a `http://`/`https://` URL, which is never preceded by whitespace
+      .replace(/(^|\s)\/\/.*$/gm, '$1') // -> the `(^|\s)` guard keeps a URL's `//` from matching
   }
 
   const files = collectFiles(srcDir)
@@ -145,8 +104,8 @@ describe('frontend/src carries no unconverted physical spacing/border/position/a
   })
 
   it('is running against every allowlisted file relative to src, not some other base', () => {
-    // -> Cheap guard against the allowlist keys silently going stale if this file ever moves:
-    //    `relative(srcDir, join(srcDir, file))` should be a no-op round trip for every key.
+    // -> The round trip is a no-op for any normalised key wherever this file lives, so it only
+    //    catches a `./`-prefixed or backslashed one; the existence check above is the real guard
     for (const file of Object.keys(ALLOWLIST)) {
       expect(relative(srcDir, join(srcDir, file)).split(sep).join('/')).toBe(file)
     }

@@ -6,57 +6,24 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * OpenProject #1615 ("Add a CI source-text gate that fails on newly reintroduced untranslated
- * English literals"), the last child of #1586 ("Localize the shared library's 14 English strings,
- * the 41 hardcoded notify messages and the group permission catalog"). oxlint has no i18n rule and
- * this repo runs no `eslint-plugin-vue-i18n`, so a source-text scan -- in the style of
- * `src/css/_page-contents.test.js` -- is the practical guard against regression: it reads every
- * `.vue`/`.js` file under `src` (excluding tests) and flags four shapes of hardcoded English that
- * #1586's other children exist to remove:
- *
- *   1. a capitalised English sentence passed as `message:` to `notify()`
- *   2. the same shape thrown from `new Error(...)`
- *   3. a static `aria-label="…"` or `label="…"` literal under `src/components` / `src/pages`
- *      (a *bound* attribute -- `:aria-label="expr"` -- is excluded: those resolve through `t()`
- *      or a prop already, or are their own separate defect not in this gate's four categories)
- *   4. the specific misspelled literal `'An unexpected error occured.'` (`#1605`'s target),
- *      matched as a substring so it also catches the longer contextual variants
- *      (`'An unexpected error occured while fetching group details.'`) the way
- *      `grep -ro "An unexpected error occured"` does in #1605's own "Done when".
- *
- * Two describe blocks:
- *  - `detectors` exercises each matcher against small in-memory fixtures, independent of the
- *    repository's current state -- this is what proves the *mechanism* correctly flags a
- *    reintroduced literal in each category and stays quiet on clean, translated-looking source.
- *  - `frontend/src source tree` runs those same matchers against the real tree -- the actual CI
- *    gate. #1586's own breakdown note says this child "must land last because it fails against any
- *    surface not yet converted": until #1602, #1597, #1605 and #1610 have all landed, EXPECT this
- *    block to report violations for whichever of those four haven't shipped yet. That is not a
- *    defect in the detector -- it is the gate correctly describing a tree still mid-migration.
+ * oxlint has no i18n rule and this repo runs no `eslint-plugin-vue-i18n`, so a source-text scan is
+ * the guard against reintroduced hardcoded English. `detectors` proves each matcher against
+ * in-memory fixtures, independent of the tree's current state; `frontend/src source tree` is the
+ * gate itself.
  */
 
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
-// The one deliberate exception: PageHeader.vue's `notImplemented()` toast fires for a feature that
-// genuinely doesn't exist yet (#1586's breakdown note excludes it by name) -- it needs its own
-// product decision, not a locale key, so the notify() matcher allow-lists this one literal.
+// TODO: nothing emits 'Not implemented' any more -- PageHeader.vue's `notImplemented()` stub, which
+// this allow-listed, is gone. Drop the allow-list and its detector case.
 const ALLOWED_NOTIFY_MESSAGES = new Set(['Not implemented'])
 
-// DevQuickMenu.vue's own header comment: it is mounted only by a dev server (guarded out of the
-// production bundle entirely in App.vue) and deliberately stays hardcoded English -- a dev-only
-// locale key would still ship to translators on the next Localazy sync for a screen no reader, in
-// any locale, will ever see. Same shape of exception as `ALLOWED_NOTIFY_MESSAGES` above, for the
-// static aria-label/label matcher instead.
+// DevQuickMenu.vue is mounted only by a dev server and stays hardcoded English: a dev-only locale
+// key would still ship to translators, for a screen no reader will ever see.
 const ALLOWED_ARIA_LABELS = new Set(['Developer tools'])
 
 const MISSPELLED_UNEXPECTED_ERROR = 'An unexpected error occured'
 
-/**
- * A capitalised, multi-word English sentence literal -- `[A-Z][a-z]+` followed by a space rules out
- * a SCREAMING_SNAKE_CASE error code like `'ERR_PAGE_NOT_FOUND'`, which has no lowercase letter
- * following its first capital, while still matching every one of #1597's 41 real `message:`
- * violations (verified against the pre-fix tree: all 41 match `message: '[A-Z][a-z]+ '`).
- */
 function findNotifyMessages(source) {
   const re = /message:\s*'([A-Z][a-z]+ [^']*)'/g
   const hits = []
@@ -75,10 +42,8 @@ function findThrownErrors(source) {
   return hits
 }
 
-// Excludes a *bound* Vue attribute (`:aria-label="…"`, `:label="…"`) via the negative lookbehind --
-// those are either already resolved through `t()`/a prop, or a distinct defect (a hardcoded literal
-// inside a bound expression, e.g. `:aria-label="'Previous month'"`) outside this gate's four
-// categories.
+// The negative lookbehind excludes a bound attribute (`:aria-label="…"`). A hardcoded literal inside
+// a bound expression (`:aria-label="'Previous month'"`) is a defect this gate does not cover.
 function findStaticAriaOrLabel(source) {
   const re = /(?<![:\w-])(?:aria-label|label)="([A-Z][^"]*)"/g
   const hits = []

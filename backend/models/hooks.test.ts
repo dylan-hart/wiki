@@ -9,32 +9,16 @@ import {
 } from '../db/schema.ts'
 import { EMITTED_EVENTS, HOOK_EVENTS } from './hooks.ts'
 
-/**
- * OpenProject #1932: `EMITTED_EVENTS`'s own doc comment says to add an entry here whenever an
- * `emit()` call is wired for it, and today every entry in `HOOK_EVENTS` also has one -- so the two
- * lists are meant to stay in lockstep. `api/hooks.test.ts` already pins the same fact indirectly (via
- * the `GET /events` response's `isEmitted` flags); this is the direct, model-level version of that
- * check, so a future `HOOK_EVENTS` addition with no matching `emit()` call fails right next to the
- * list it forgot to update, not only in a route test three files away.
- */
 test('HOOK_EVENTS and EMITTED_EVENTS stay in parity', () => {
   assert.deepEqual(EMITTED_EVENTS as unknown as string[], HOOK_EVENTS as unknown as string[])
 })
 
 /**
- * Unit tests for `Hooks.emit()` (task 610's end-to-end verification): given a webhook subscribed to
- * an event, does queuing a delivery actually happen, and does the `includeMetadata`/`includeContent`
- * split behave.
- *
  * `CARDINAL.db` is stubbed rather than backed by a real database: `emit()`'s only SQL is a plain
- * `select ... where event = ANY(events)`, and what this suite cares about is the JS-level logic layered
- * on top of that result (the metadata/content strip, the job payload shape, the queued count) — not
- * whether Postgres's `ANY()` operator matches correctly, which the query itself does not exercise here
- * either way. `CARDINAL.scheduler.addJob` is stubbed to capture what gets queued instead of touching the
- * real job table.
+ * `select ... where event = ANY(events)`, and what this suite covers is the JS layered on top of
+ * that result — the metadata/content strip, the job payload shape, the queued count.
  *
- * `comment:new` is used as the demonstrating event throughout, since that is what task 610 asks this
- * suite to confirm — but nothing here is comment-specific: `emit()` treats every event identically.
+ * `emit()` treats every event identically, so `comment:new` stands in for all of them.
  */
 describe('Hooks.emit (unit)', () => {
   let hooksModule: typeof import('./hooks.ts')
@@ -51,8 +35,8 @@ describe('Hooks.emit (unit)', () => {
         rateLimits: {
           consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
         },
-        // -> `emit()`'s email fan-out (`notifyEmailSubscribers`) queries this; empty by default so
-        //    the webhook-only tests above see no extra job queued.
+        // -> `emit()`'s email fan-out queries this; empty so these webhook-only tests see no extra
+        //    job queued.
         users: {
           listEmailSubscribers: async () => emailSubscribers
         }
@@ -169,13 +153,6 @@ describe('Hooks.emit (unit)', () => {
   })
 })
 
-/**
- * Task 2481: `emit()`'s email fan-out (`notifyEmailSubscribers`) — a second, independent job queued
- * alongside (or, per the last two tests here, entirely apart from) the webhook deliveries the suite
- * above already covers. `CARDINAL.models.users.listEmailSubscribers` stands in for the real query, since
- * what this suite cares about is `emit()`'s own wiring, not `models/users.ts`'s SQL (covered by its
- * own suite).
- */
 describe('Hooks.emit email fan-out (unit)', () => {
   let hooksModule: typeof import('./hooks.ts')
   let subscribed: { id: string; includeMetadata: boolean; includeContent: boolean }[]
@@ -281,7 +258,7 @@ describe('Hooks.emit email fan-out (unit)', () => {
     assert.equal(queued, 0)
     assert.equal(queuedJobs.filter((job) => job.task === 'notifyEventSubscribers').length, 1)
 
-    // -> Restore the working stub for any test that runs after this one in the same file.
+    // -> `CARDINAL` is installed once in `before()`: put the working stub back for later tests
     ;(globalThis as any).CARDINAL.db.select = () => ({
       from: () => ({
         where: () => Promise.resolve(subscribed)
@@ -291,11 +268,8 @@ describe('Hooks.emit email fan-out (unit)', () => {
 })
 
 /**
- * Regression test for task 698: `Hooks.emit()` used to queue a delivery for every hook subscribed to
- * an event, with no regard for which site the event happened on. This suite covers the fix — a
- * nullable `hooks.siteId` column, null meaning "all sites" — against a real migrated database, since
- * the behavior under test is the SQL filter itself (`siteId IS NULL OR siteId = event's siteId`)
- * rather than anything worth re-describing behind a mock.
+ * A null `hooks.siteId` means "all sites". Against a real migrated database because the behavior
+ * under test is the SQL filter itself (`siteId IS NULL OR siteId = event's siteId`).
  */
 describe('hooks per-site scoping (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -322,8 +296,6 @@ describe('hooks per-site scoping (DB-backed)', { skip: !hasTestDatabase() }, () 
     await teardownTestDb()
   })
 
-  // -> `emit()` never throws, but it does queue through `CARDINAL.scheduler.addJob` — the piece of the
-  //    real scheduler this suite's minimal `CARDINAL` (see `test/db.ts`) does not install.
   before(() => {
     addJob = mock.fn(async () => ({ id: 'job-id' }))
     ;(globalThis as any).CARDINAL.scheduler = { addJob }
@@ -420,10 +392,9 @@ describe('hooks per-site scoping (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
- * `getDeliveryHistory()` is a filtered, paginated read against the shared `jobHistory` table (a
- * `task = 'dispatchWebhook'` + `payload->>'hookId'` match, backed by a partial expression index) —
- * squarely the kind of SQL orchestration worth verifying against a real database rather than
- * a mock of the query builder.
+ * `getDeliveryHistory()` is a filtered read of the shared `jobHistory` table (a
+ * `task = 'dispatchWebhook'` + `payload->>'hookId'` match), which a mocked query builder cannot
+ * verify.
  */
 describe('hooks getDeliveryHistory (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -438,7 +409,6 @@ describe('hooks getDeliveryHistory (DB-backed)', { skip: !hasTestDatabase() }, (
     await teardownTestDb()
   })
 
-  /** Inserts one `jobHistory` row shaped like a `dispatchWebhook` execution (or another task/hook). */
   async function insertDelivery(
     hookId: string,
     overrides: Partial<{
@@ -542,18 +512,6 @@ describe('hooks getDeliveryHistory (DB-backed)', { skip: !hasTestDatabase() }, (
   })
 })
 
-/**
- * `emit()`'s per-hook rate limit (mocked `CARDINAL`, no database)
- *
- * `models/rateLimits.ts#consume()`'s own fixed-window algorithm is a separate, already-existing unit
- * with its own concerns (DB-backed, concurrency-safe upsert). What this covers is whether
- * `emit()` actually consults it before queuing each delivery, honors a refusal by skipping
- * `CARDINAL.scheduler.addJob` and logging a warn line rather than silently dropping the delivery, and
- * queues again once the window has rolled over — the behavior this task adds. A small in-memory
- * fixed-window stand-in for `consume()`, driven by a controllable clock, makes the "resets after the
- * window" half of that verifiable without a real wait or a live Postgres connection (none is reachable
- * in this environment).
- */
 describe('hooks emit rate limiting (mocked)', () => {
   let previousWiki: any
   let nowMs: number
@@ -561,7 +519,10 @@ describe('hooks emit rate limiting (mocked)', () => {
   let warnCalls: { scope: string; message: string; fields?: Record<string, any> }[]
   let hooksModel: typeof import('./hooks.ts').hooks
 
-  /** Mirrors `models/rateLimits.ts#consume()`'s window semantics, minus the ban/DB plumbing. */
+  /**
+   * Mirrors `models/rateLimits.ts#consume()`'s window semantics, minus the ban/DB plumbing, on a
+   * controllable clock (`nowMs`) so the window reset is verifiable without a real wait.
+   */
   function createFakeRateLimits() {
     const store = new Map<string, { windowStart: number; hits: number }>()
     return {
@@ -600,14 +561,14 @@ describe('hooks emit rate limiting (mocked)', () => {
       },
       models: {
         rateLimits: createFakeRateLimits(),
-        // -> `emit()`'s email fan-out queries this too; empty and warn-free so `warnCalls` only ever
-        //    captures the rate-limit warnings this describe actually tests.
+        // -> `emit()`'s email fan-out queries this too; empty so `warnCalls` only ever captures
+        //    rate-limit warnings.
         users: { listEmailSubscribers: async () => [] }
       },
       scheduler: {
-        // -> No `update`/`insert` stub exists on the fake `CARDINAL.db` below: if a throttled delivery
-        //    ever touched the persisted hook row, that branch would throw "is not a function" and
-        //    fail these tests, which is the enforcement that it must not.
+        // -> The fake `CARDINAL.db` below has no `update`/`insert` on purpose: a throttled delivery
+        //    that touched the persisted hook row would throw, which is what enforces that it must
+        //    not.
         addJob: mock.fn(async (job: any) => {
           addJobCalls.push(job)
           return { id: `job-${addJobCalls.length}` }
@@ -646,11 +607,9 @@ describe('hooks emit rate limiting (mocked)', () => {
     }
     assert.equal(addJobCalls.length, 3)
 
-    // -> Still inside the window: refused, not queued
     await hooksModel.emit('page:create', null, {})
     assert.equal(addJobCalls.length, 3)
 
-    // -> Past the configured 1-minute window: the count starts again
     nowMs += 60_000
     await hooksModel.emit('page:create', null, {})
     assert.equal(addJobCalls.length, 4)
@@ -658,12 +617,9 @@ describe('hooks emit rate limiting (mocked)', () => {
 })
 
 /**
- * `emit()`'s site-scoping filter (DB-backed)
- *
- * The filter itself is a `WHERE` clause (`siteId IS NULL OR siteId = :siteId`, or just `siteId IS
- * NULL` for a site-less event) — exactly the kind of SQL a mocked query builder can't actually
- * verify, since a mock's `where()` never evaluates what it was given. Real rows, a real query,
- * against the DB-backed fixture the same way `getDeliveryHistory` above is verified.
+ * The filter is a `WHERE` clause (`siteId IS NULL OR siteId = :siteId`, or just `siteId IS NULL`
+ * for a site-less event), which a mocked query builder cannot verify: a mock's `where()` never
+ * evaluates what it was given.
  */
 describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -700,10 +656,6 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
     }
   })
 
-  /**
-   * Creates a hook subscribed to `page:create` and `user:login`, scoped to `siteId` (null means
-   * every site).
-   */
   async function createHook(siteId: string | null) {
     const [row] = await fixtures.db
       .insert(hooksTable)
@@ -717,7 +669,6 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
     return row!.id
   }
 
-  /** The `hookId`s that were queued a delivery, in no particular order. */
   function queuedHookIds(): string[] {
     return addJobCalls.map((job) => job.payload.hookId)
   }
@@ -739,8 +690,8 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
     const unscoped = await createHook(null)
     const scoped = await createHook(fixtures.siteId)
 
-    // -> The deliberate behavior task 651 documents: no site context is not a wildcard match against
-    //    a specific site, so a site-scoped hook must not fire on e.g. `user:login` instance-wide.
+    // -> Deliberate: no site context is not a wildcard match against a specific site, so a
+    //    site-scoped hook must not fire on an instance-wide event such as `user:login`.
     await hooksModel.emit('user:login', null, {})
 
     const queued = queuedHookIds()
@@ -749,14 +700,6 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
   })
 })
 
-/**
- * Declared/emitted parity for `page:classification-changed` (OpenProject #1935): a pure check of the
- * two plain array exports, no `CARDINAL` or database needed. `api/hooks.test.ts` already asserts the same
- * kind of parity generically (every `HOOK_EVENTS` entry's `isEmitted` flag against `EMITTED_EVENTS`)
- * for the `GET /hooks/events` response; this pins the specific new entry at the source-of-truth level
- * so a future edit that declares the event without wiring its `emit()` call (or vice versa) fails here
- * too, not only at the API layer.
- */
 describe('HOOK_EVENTS / EMITTED_EVENTS declared/emitted parity', () => {
   test('page:classification-changed is both declared and emitted', async () => {
     const { HOOK_EVENTS, EMITTED_EVENTS } = await import('./hooks.ts')
