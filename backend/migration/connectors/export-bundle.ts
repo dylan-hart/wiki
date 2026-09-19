@@ -10,14 +10,8 @@ import {
   type SourceRecord
 } from '../connector.ts'
 
-/**
- * The file (or directory, for `assets`) each export entity is written under the bundle root, per
- * `docs/migration/2.5x-export-bundle-format.md`. Every entity is independently optional — a bundle
- * exported with only a subset of entities checked is a complete, valid bundle for that subset.
- */
-/** Merges a row's denormalized `tags: [{tag, title}]` (or an already-plain `tags: string[]`) into
- * `seen`, keyed by tag string so a tag appearing on many pages is only kept once. Used by `tags()`
- * below, the one generator this connector kind has to derive rather than read off a dedicated file. */
+/** Accepts both shapes a row's `tags` can arrive in — `[{tag, title}]` or an already-plain
+ * `string[]` — and keys `seen` by tag string, so a tag appearing on many pages is kept once. */
 function collectTags(tags: unknown, seen: Map<string, SourceRecord>): void {
   if (!Array.isArray(tags)) return
   for (const entry of tags) {
@@ -35,23 +29,20 @@ function collectTags(tags: unknown, seen: Map<string, SourceRecord>): void {
 
 /**
  * Incrementally parses a top-level JSON array of row objects as decoded text arrives in chunks,
- * without ever holding more than the current in-flight object (plus a small unconsumed tail) in
- * memory. `docs/migration/2.5x-export-bundle-format.md` documents every `.json.gz` entity file as one
- * pretty-printed JSON array of row objects written by the exporter's own batch-fetch loop — this walks
- * it at the `{`/`}`/`,` boundaries pretty-printing makes visible, tracking string/escape state so a
- * brace or comma inside a quoted value is never mistaken for a structural one, and bracket depth so a
- * nested array/object inside a row (e.g. `tags: [...]`) does not end the row early.
+ * never holding more than the current in-flight object plus a small unconsumed tail. Walks the
+ * `{`/`}`/`,` boundaries, tracking string/escape state so a brace or comma inside a quoted value is
+ * never mistaken for a structural one, and bracket depth so a nested array/object inside a row (e.g.
+ * `tags: [...]`) does not end the row early.
  *
- * Exported (beyond `readGzipJsonArray`'s own use of it) so its incremental-yield behavior — the actual
- * mechanism `readGzipJsonArray` relies on to yield a row before the rest of the file has even been
- * decompressed — has a direct, deterministic unit test independent of OS-level stream chunk sizing.
+ * Exported beyond `readGzipJsonArray`'s own use of it so the incremental-yield behavior has a
+ * deterministic unit test independent of OS-level stream chunk sizing.
  */
 export class JsonArrayStreamParser {
   private readonly filePath: string
   private buffer = ''
-  /** Absolute index into `buffer` of the next character to scan — persisted across `push()` calls so
-   * a chunk boundary landing mid-object never causes already-scanned characters to be rescanned (which
-   * would double-count their effect on `depth`/`inString`). */
+  /** Index into `buffer` of the next character to scan, persisted across `push()` calls: rescanning
+   * characters after a chunk boundary landed mid-object would double-count their effect on
+   * `depth`/`inString`. */
   private pos = 0
   private sawOpenBracket = false
   private sawCloseBracket = false
@@ -71,7 +62,6 @@ export class JsonArrayStreamParser {
     )
   }
 
-  /** Feeds one more chunk of decoded text, yielding every row object that completes as a result. */
   *push(chunk: string): Generator<SourceRecord> {
     this.buffer += chunk
     let i = this.pos
@@ -79,15 +69,13 @@ export class JsonArrayStreamParser {
       const ch = this.buffer[i]
 
       if (this.sawCloseBracket) {
-        // Trailing whitespace (or, in principle, other junk) after the array's own `]` — nothing left
-        // to parse. Advance past it rather than reinterpreting it as more array content.
+        // Past the array's own `]`: advance over trailing whitespace or junk rather than
+        // reinterpreting it as more array content.
         i++
         continue
       }
 
       if (this.objectStart === -1) {
-        // Between objects: whitespace, the opening `[`, a `,` separator, the closing `]`, or the `{`
-        // starting the next row object.
         if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') {
           i++
           continue
@@ -118,8 +106,6 @@ export class JsonArrayStreamParser {
         throw this.notAnArrayError()
       }
 
-      // Scanning inside a row object: track string/escape state so structural characters inside a
-      // quoted value are ignored, and bracket depth so a nested `{}`/`[]` doesn't end the row early.
       if (this.inString) {
         if (this.escapeNext) {
           this.escapeNext = false
@@ -153,10 +139,8 @@ export class JsonArrayStreamParser {
       }
       i++
     }
-    // Keep only the unconsumed tail (a row object still mid-scan) for the next chunk — never the
-    // whole buffer seen so far — and re-anchor `pos` so the next push() resumes scanning right after
-    // what's already been scanned, rather than re-scanning it (which would double-count its effect on
-    // `depth`/`inString`).
+    // Keep only the unconsumed tail — a row object still mid-scan — never the whole buffer seen so
+    // far, and re-anchor `pos` to it.
     if (this.objectStart === -1) {
       this.buffer = ''
       this.pos = 0
@@ -175,6 +159,8 @@ export class JsonArrayStreamParser {
   }
 }
 
+/** Every entity is independently optional: a bundle exported with only a subset of them checked is a
+ * complete, valid bundle for that subset (`docs/migration/2.5x-export-bundle-format.md`). */
 const ENTITY_FILES: Record<string, string> = {
   users: 'users.json.gz',
   groups: 'groups.json',
@@ -187,21 +173,11 @@ const ENTITY_FILES: Record<string, string> = {
 }
 
 /**
- * ExportBundleSourceConnector
- *
- * Opens a directory produced by 2.5.x's "Export to disk" system utility and validates it actually
- * looks like one: at least one of the eight known entity files/directories must be present, and the
- * three small, ungzipped files (`settings.json`, `navigation.json`, `groups.json`) are parsed and
- * shape-checked against `2.5x-export-bundle-format.md` to prove the format assumption this connector
- * — and the later importer tasks reading through it — depends on.
- *
- * `pages()`, `pageHistory()`, `tags()` and `navigation()` are implemented for real (Task 733, this
- * feature's own extraction scaffold) — the rest (`users()`, `groups()`, `settings()`, `assets()`)
- * remain `NotYetImplementedError` stubs, deferred to the tasks that own those entities. `connect()`
- * already parses `groups.json`/`navigation.json`/`settings.json` once for shape-validation, but that
- * parsed data is not retained or reused by `navigation()` below, which re-reads and re-parses the file
- * on its own — keeping `connect()`'s validation pass and an entity generator's real read independent,
- * the same way the still-deferred generators are documented as depending on nothing `connect()` did.
+ * Opens a directory produced by 2.5.x's "Export to disk" system utility. `connect()` parses and
+ * shape-checks the three small, ungzipped files (`settings.json`, `navigation.json`, `groups.json`)
+ * against `2.5x-export-bundle-format.md` to prove the format assumption every generator here depends
+ * on, but deliberately keeps none of what it parsed: `navigation()` re-reads and re-parses its file,
+ * so the validation pass and an entity generator's real read stay independent.
  */
 export class ExportBundleSourceConnector implements SourceConnector {
   readonly kind = 'export-bundle' as const
@@ -212,14 +188,11 @@ export class ExportBundleSourceConnector implements SourceConnector {
   private connected = false
 
   /**
-   * Tags collected as a side effect of a `pages()`/`pageHistory()` walk reaching its end (each is
-   * `null` until then — see `tagsImpl()` below). `tagsImpl()` reuses these instead of re-reading and
-   * re-parsing `pages.json.gz`/`pages-history.json.gz`, which is the whole point: the content phase
-   * (`phases/content.ts`) already walks both entities before it ever calls `tags()`, so a second
-   * decompress-and-parse pass over the bundle's two largest files bought nothing. Populated only once
-   * the corresponding generator's loop actually finishes — a caller that abandons `pages()`/
-   * `pageHistory()` partway through (e.g. via an early `break`) leaves the field `null`, and `tagsImpl()`
-   * falls back to reading that file directly, exactly as it always did.
+   * Tags collected as a side effect of a `pages()`/`pageHistory()` walk, so `tagsImpl()` need not
+   * decompress and re-parse the bundle's two largest files — `phases/content.ts` already walks both
+   * before it ever calls `tags()`. Populated only once the corresponding generator's loop actually
+   * finishes: a caller that abandons it partway (an early `break`) leaves the field `null`, and
+   * `tagsImpl()` falls back to reading that file directly.
    */
   private tagsFromPages: Map<string, SourceRecord> | null = null
   private tagsFromPageHistory: Map<string, SourceRecord> | null = null
@@ -254,9 +227,7 @@ export class ExportBundleSourceConnector implements SourceConnector {
     const notes = [`Detected entities: ${[...present].sort().join(', ')}.`]
     let detectedVersion: string | undefined
 
-    // Read + shape-check the three small, ungzipped files — proving the format assumption without
-    // touching the large batched/gzipped files, which stay untouched until Tasks 414/416/418 read
-    // them for real.
+    // Only the three small, ungzipped files — connecting never touches the large gzipped ones.
 
     if (present.has('settings')) {
       const settings = await this.readJson(path.join(this.bundlePath, 'settings.json'))
@@ -295,7 +266,7 @@ export class ExportBundleSourceConnector implements SourceConnector {
       } else if (
         groups.every((g) => typeof g === 'object' && g !== null && 'redirectOnLogin' in g)
       ) {
-        // Every group carries `redirectOnLogin`, added in `2.5.12.js` — the minimum-version signal
+        // `redirectOnLogin` was added in 2.5.12 — the minimum-version signal
         // docs/migration/decision-source-scope.md calls for on the bundle path.
         detectedVersion = '>=2.5.12'
         notes.push(
@@ -342,17 +313,13 @@ export class ExportBundleSourceConnector implements SourceConnector {
   }
 
   /**
-   * Streams one `.json.gz` entity file: `createReadStream(filePath).pipe(zlib.createGunzip())`, fed
-   * chunk by chunk into a `JsonArrayStreamParser`, so a row is yielded as soon as its own closing `}`
-   * arrives rather than after the whole file has been read, decompressed and turned into one JS
-   * string. Peak memory is bounded to one row plus a small unconsumed tail, not the whole entity file
-   * — the old `fs.readFile` + `zlib.gunzipSync(...).toString('utf8')` + `JSON.parse` approach held the
-   * entire decompressed array in memory at once and threw once that string passed V8's ~512 MB
-   * ceiling, which a large `pages-history.json.gz` from a big source install can exceed.
-   * Yields nothing, rather than throwing, when the file is absent — every export entity is
-   * independently optional (a zero-row entity is skipped entirely, per the same doc), and a missing
-   * file is exactly that case, not an error. Throws the same "does not contain a JSON array" error a
-   * whole-file parse would, for a top-level value that isn't an array.
+   * Feeds the gunzip stream chunk by chunk into a `JsonArrayStreamParser`, so a row is yielded as
+   * soon as its own closing `}` arrives and peak memory stays bounded to one row plus a small tail.
+   * Reading and decompressing the whole file instead holds the entire decompressed array as one JS
+   * string, which throws past V8's ~512 MB ceiling — reachable by a large `pages-history.json.gz`.
+   *
+   * Yields nothing, rather than throwing, when the file is absent: every export entity is
+   * independently optional, so a missing file is a zero-row entity, not an error.
    */
   private async *readGzipJsonArray(filePath: string): AsyncGenerator<SourceRecord> {
     const exists = await fs
@@ -377,13 +344,6 @@ export class ExportBundleSourceConnector implements SourceConnector {
     }
   }
 
-  /**
-   * Streams `pages.json.gz` while also collecting its rows' tags into `tagsFromPages` — so a `tags()`
-   * call that follows a full walk of this generator can reuse them instead of re-reading the file. The
-   * cache is only committed after the underlying generator runs out of rows; a caller that stops
-   * iterating early never sees `tagsFromPages` populated, and `tagsImpl()` reads the file itself in
-   * that case exactly as before.
-   */
   private async *pagesImpl(): AsyncGenerator<SourceRecord> {
     const seen = new Map<string, SourceRecord>()
     for await (const row of this.readGzipJsonArray(
@@ -395,7 +355,6 @@ export class ExportBundleSourceConnector implements SourceConnector {
     this.tagsFromPages = seen
   }
 
-  /** `pageHistory()`'s counterpart to `pagesImpl()` above — see its docblock. */
   private async *pageHistoryImpl(): AsyncGenerator<SourceRecord> {
     const seen = new Map<string, SourceRecord>()
     for await (const row of this.readGzipJsonArray(
@@ -422,23 +381,12 @@ export class ExportBundleSourceConnector implements SourceConnector {
   }
 
   /**
-   * There is no dedicated `tags.json`/`tags.json.gz` file in the export-bundle format at all (see
-   * `ENTITY_FILES` above, and `2.5x-export-bundle-format.md`'s `pages`/`history` sections) — 2.x's
-   * `tags`/`pageTags`/`pageHistoryTags` join is already denormalized inline as each page/history row's
-   * own `tags: [{tag, title}]`. This derives a deduplicated tag list from that denormalized data.
-   * Content-staging (Task 733's own `extractContentStaging`) does not actually need to call this — it
-   * reads `tags` straight off each page/history row — but the `SourceConnector` interface promises the
-   * generator, so it is implemented for real rather than left throwing for a table this connector kind
-   * genuinely has no separate file for.
+   * The export-bundle format has no dedicated tags file at all — 2.x's `tags`/`pageTags`/
+   * `pageHistoryTags` join is already denormalized inline as each page/history row's own
+   * `tags: [{tag, title}]` — so this derives a deduplicated list from that instead.
    *
-   * Reuses `tagsFromPages`/`tagsFromPageHistory` when a full `pages()`/`pageHistory()` walk already
-   * populated them (the phase that wires this in, `phases/content.ts`, always walks both before calling
-   * `tags()`) rather than decompressing and re-parsing `pages.json.gz`/`pages-history.json.gz` a second
-   * time — those are the two largest files in the bundle. A caller that goes straight to `tags()`
-   * without walking the other two generators first still gets a correct answer: each half falls back to
-   * reading its file directly when its cache is unset. Merge order matters — pages' entries (and their
-   * titles) win over history's for a tag seen in both, matching the un-cached scan's own "seen" ordering
-   * (pages read to completion, then history, only adding what wasn't already there).
+   * Merge order is load-bearing: pages' entries (and their titles) win over history's for a tag seen
+   * in both, matching the un-cached scan's own ordering.
    */
   private async *tagsImpl(): AsyncGenerator<SourceRecord> {
     const seen = new Map<string, SourceRecord>()
@@ -473,10 +421,8 @@ export class ExportBundleSourceConnector implements SourceConnector {
   }
 
   /**
-   * `navigation.json` is one `{key: config}` object (2.x's `navigation` table reduced onto a single
-   * JSON object by the exporter — see `2.5x-export-bundle-format.md`'s `navigation.json` section), not
-   * an array of rows. Re-expands it back into `(key, config)` records, exactly as that doc's
-   * "Implications" section calls for.
+   * `navigation.json` is one `{key: config}` object — the exporter reduces 2.x's `navigation` table
+   * onto it — not an array of rows, so this re-expands it back into `(key, config)` records.
    */
   private async *navigationImpl(): AsyncGenerator<SourceRecord> {
     const filePath = path.join(this.bundlePath, ENTITY_FILES.navigation)

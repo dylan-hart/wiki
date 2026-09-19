@@ -6,10 +6,9 @@ import type { ParsedSource, SourceRawOptions } from './source-args.ts'
 
 export type { ParsedSource } from './source-args.ts'
 
-/** The three `--render-mode` values. `'auto'` is resolved by `tasks/migrate.ts` (which has a live
- * `CARDINAL` to check Puppeteer availability with) into a concrete `'queue'`/`'passthrough'` before a
- * `MigrationContext` is built — see `context.ts`'s `renderMode` doc and `migrate.ts`'s
- * `resolveRenderMode()`. */
+/** `'auto'` never reaches a `MigrationContext`: `tasks/migrate.ts#resolveRenderMode()`, which has a
+ * live `CARDINAL` to check Puppeteer availability with, resolves it to `'queue'`/`'passthrough'`
+ * first. */
 export type RenderModeOption = 'auto' | 'queue' | 'passthrough'
 const RENDER_MODE_OPTIONS: RenderModeOption[] = ['auto', 'queue', 'passthrough']
 
@@ -17,16 +16,10 @@ export interface ParsedMigrationArgs {
   source: ParsedSource
   siteId: string
   dryRun: boolean
-  /** Absent means "run every phase". Every id is checked against `MIGRATION_PHASE_IDS` here, so a
-   * typo is rejected before anything connects to a database. */
+  /** Absent means "run every phase". */
   only?: MigrationPhaseId[]
-  /** When given, the aggregate dry-run/report-mode report (Feature 421 task 744) is also written here
-   * as JSON, in addition to the console table always printed. */
+  /** Where to also write the aggregate report as JSON; the console table is printed either way. */
   reportFile?: string
-  /** How each imported page's initial render is seeded — see `RenderModeOption`'s own doc comment.
-   * Defaults to `'auto'`: a real 3.0 render when this destination can produce one, otherwise the old
-   * passthrough behavior, so a migration is correct by default without forcing every operator to pay
-   * the Puppeteer render-queue cost when their destination has no Puppeteer at all. */
   renderMode: RenderModeOption
 }
 
@@ -91,13 +84,8 @@ function parseOnly(raw: string | undefined): MigrationPhaseId[] | undefined {
 }
 
 /**
- * Parses the migration CLI's argv into a fully-resolved `ParsedMigrationArgs`, validating everything
- * that can be checked before a database connection is opened: the required `--site-id`, that exactly
- * one source kind's fields were given and completely, the port is a real number, and every `--only`
- * id is a known phase.
- *
- * Takes bare argv (no `node`/script path prefix) so it is callable the same way from the CLI entry
- * point (`../tasks/migrate.ts`, via `process.argv.slice(2)`) and from tests.
+ * Validates everything checkable before a database connection is opened, and takes bare argv (no
+ * `node`/script path prefix) so the CLI entry point and a test call it the same way.
  *
  * @throws A plain `Error` (never commander's own `CommanderError`) describing what was wrong.
  */
@@ -108,8 +96,6 @@ export function parseMigrationArgs(argv: string[]): ParsedMigrationArgs {
     siteId: opts.siteId,
     dryRun: Boolean(opts.dryRun),
     only: parseOnly(opts.only),
-    // Omitted entirely (not set to `undefined`) when absent, so a caller can tell "write a report
-    // file" apart from "don't" with a plain truthiness check rather than an `in` check.
     ...(opts.reportFile ? { reportFile: opts.reportFile } : {}),
     renderMode: parseRenderMode(opts.renderMode)
   }

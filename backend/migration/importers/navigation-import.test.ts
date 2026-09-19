@@ -160,8 +160,8 @@ describe('mapNavigationItem', () => {
   })
 
   test('drops a "page" target whose page was never staged, reporting title/target', () => {
-    // -> "en" still needs to be a known locale (some *other* page was staged in it) so this hits the
-    //    lookup-miss path, not the "not a locale present in the import" path exercised below.
+    // -> "en" must still be a known locale (from some *other* staged page) so this hits the
+    //    lookup-miss path rather than the unknown-locale one.
     const c = ctx([{ oldId: 999, path: 'unrelated', locale: 'en' }])
     const item = mapNavigationItem(
       { id: 'l5', kind: 'link', label: 'Gone', targetType: 'page', target: '/en/deleted-page' },
@@ -197,8 +197,8 @@ describe('mapNavigationItem', () => {
   })
 
   test('drops a "page" target whose first segment is not a locale present in the import, even though it is shaped like one', () => {
-    // -> "de" reads like a locale code, but no staged page was ever keyed under it — this import
-    //    never saw a "de" tree, so it's just an ordinary path segment, not a locale.
+    // -> "de" reads like a locale code, but no staged page was keyed under it, so it is an ordinary
+    //    path segment here.
     const c = ctx([{ oldId: 1, path: 'de/some-page', locale: 'en' }])
     const item = mapNavigationItem(
       {

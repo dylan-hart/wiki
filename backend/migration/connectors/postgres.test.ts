@@ -6,32 +6,19 @@ import { PostgresSourceConnector } from './postgres.ts'
 import { LEGACY_SCHEMA_DDL } from '../../test/migrationFixtures.ts'
 
 /**
- * Smoke coverage for `PostgresSourceConnector`, scoped to exactly what this task builds: the
- * connect/disconnect/describe lifecycle and the schema-introspection shape check. No row is ever
- * read — see the generator smoke test at the bottom.
+ * Connection parameters come from `DATABASE_URL` when set — the same single source of truth every
+ * `setupTestDb()` suite keys off, which is what lets this file run for real in CI — and otherwise
+ * from the standalone `MIGRATION_TEST_PG_*` vars, for a developer running just this file against its
+ * own throwaway container: `docker run --rm -d --name wiki-test-db-712 -p 56071:5432 -e
+ * POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`. Skips itself when nothing usable
+ * is reachable either way.
  *
- * Connection parameters come from `DATABASE_URL` when set — the same single-source-of-truth every
- * `setupTestDb()` suite already keys off via `hasTestDatabase()` (see `test/db.ts`), which is what
- * lets this file run for real in CI (`quality.yml` exports
- * `DATABASE_URL` for its `postgres:18` service, but no `MIGRATION_TEST_PG_*` var). Absent that, it
- * falls back to the standalone `MIGRATION_TEST_PG_*` vars, for a developer running just this file
- * against its own throwaway container: `docker run --rm -d --name wiki-test-db-712 -p 56071:5432 -e
- * POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`. Skips itself with a clear message
- * if nothing usable is reachable either way, rather than failing the whole suite in an environment
- * with neither Docker nor `DATABASE_URL`.
- *
- * -> Isolation, when driven off `DATABASE_URL`, is a private *database* per run, not a private
- *    schema like every `setupTestDb()` suite uses. This suite's fixture tables (`pages`/`users`/
- *    `groups`/...) exist to be probed by `PostgresSourceConnector#checkShape()`, which — correctly,
- *    since a real 2.5.x install never used anything else — introspects
- *    `information_schema.columns WHERE table_schema = 'public'` literally (see `postgres.ts`, whose
- *    `PostgresSourceConfig` deliberately has no schema field, for the same reason). A same-database,
- *    differently-named schema would be invisible to `checkShape()` no matter what the connection's
- *    `search_path` says — `table_schema` reports a table's real catalog schema, not whatever
- *    resolves first on the path — so it can't give this suite the isolation `setupTestDb()` gets
- *    from it. A private database's own default `public` schema is the only namespace
- *    `checkShape()` will ever look at, so a private database per run is what actually keeps two
- *    concurrent invocations against the same `DATABASE_URL` from colliding.
+ * -> Isolation, on the `DATABASE_URL` path, is a private *database* per run, not the private schema
+ *    every `setupTestDb()` suite uses: `PostgresSourceConnector#checkShape()` introspects
+ *    `information_schema.columns WHERE table_schema = 'public'` literally — correctly, since a real
+ *    2.5.x install never used anything else — and `table_schema` reports a table's real catalog
+ *    schema whatever the connection's `search_path` says, so a differently-named schema in the same
+ *    database would be invisible to it.
  */
 interface ConnectionParams {
   host: string
@@ -70,20 +57,16 @@ const USER = base.user
 const PASSWORD = base.password
 
 // -> Deliberately a top-level `await`, not a `before()` hook: every `{ skip: !dbAvailable && '...' }`
-//    below is an options object built while this module's top-level code is still running — i.e.
-//    while `describe()`/`test()` calls are registering the suite, synchronously, top to bottom. A
-//    `before()` hook's body does not run until the run phase that follows, so if the probe lived in
-//    one, every `skip` option would still see `dbAvailable`'s initial value (`true`) and never
-//    actually skip. Top-level `await` runs to completion before any of the registration code below it
-//    executes, which is what makes the probe's result — and, on the `DATABASE_URL` path, the private
-//    database's final name — visible in time for `skip` and the fixture clients below to see it.
+//    below is an options object built while this module's top-level code is still registering the
+//    suite. A `before()` body does not run until the run phase that follows, so from one, every
+//    `skip` option would still see `dbAvailable`'s initial `true` and never actually skip.
 let dbAvailable = true
 let DATABASE = base.database
 let privateDatabaseName: string | null = null
 
 if (usingDatabaseUrl) {
-  // Connects to `base.database` (`DATABASE_URL`'s own database) purely to issue `CREATE DATABASE` —
-  // this suite's fixture tables never live there, only in the private database it creates below.
+  // Connects to `DATABASE_URL`'s own database purely to issue `CREATE DATABASE`; no fixture table of
+  // this suite's ever lives there.
   const maintenance = new Client({
     host: HOST,
     port: PORT,
@@ -118,12 +101,10 @@ if (usingDatabaseUrl) {
   }
 }
 
-// Drops the private database this run created, once every test below has closed its own connection
-// into it. A root-level `after()` hook (registered here, outside any `describe`) runs only once every
-// child `describe`'s own hooks have already unwound, so this never races a still-open connection —
-// and `WITH (FORCE)` (PostgreSQL 13+; this project requires 16+) is the backstop for the one anyway,
-// terminating any connection a failed assertion left behind rather than letting that leak block
-// cleanup and fail the whole suite's teardown.
+// A root-level `after()` (outside any `describe`) runs only once every child `describe`'s own hooks
+// have unwound, so dropping the private database here never races a still-open connection.
+// `WITH (FORCE)` is the backstop for one a failed assertion left behind, which would otherwise block
+// the drop and fail the whole suite's teardown.
 after(async () => {
   if (!privateDatabaseName) return
   const maintenance = new Client({
@@ -299,9 +280,8 @@ describe('PostgresSourceConnector', () => {
         await admin.query(
           'DROP TABLE IF EXISTS "pageHistoryTags", "pageTags", "pageHistory", pages, tags, navigation, users, groups'
         )
-        // connect()'s checkShape() introspects users/groups too, even though this describe block
-        // never reads through those two generators — see the "against a 2.5.x-shaped schema" describe
-        // above, whose own `after` already dropped the tables it created there.
+        // connect()'s checkShape() introspects users/groups too, though nothing here reads through
+        // those generators, and the "2.5.x-shaped schema" describe above already dropped its own.
         await admin.query(LEGACY_SCHEMA_DDL.users!)
         await admin.query(LEGACY_SCHEMA_DDL.groups!)
         await admin.query(LEGACY_SCHEMA_DDL.pagesFull!)
@@ -381,14 +361,12 @@ describe('PostgresSourceConnector', () => {
       })
 
       test('pageHistory() yields each row exactly once across a tie straddling the batch boundary (WP 1780)', async () => {
-        // pageHistory()'s ORDER BY is `ph."pageId", ph."versionDate", ph.id` -- the trailing `ph.id`
-        // is the fix under test. Without it, ties on (pageId, versionDate) are broken arbitrarily by
-        // Postgres and can differ between paginatedQuery()'s separate LIMIT/OFFSET statements, letting
-        // a tied row be yielded twice (or dropped) when the tie group straddles a batch boundary.
-        // PAGE_BATCH_SIZE is 10, so this seeds one page (id 5) with 11 revisions: 9 with distinct
-        // versionDates, then a tied pair (ids 309/310, same versionDate) landing exactly on rows 10
-        // and 11 of the final order -- the last row of batch 1 (OFFSET 0) and the first row of batch 2
-        // (OFFSET 10).
+        // pageHistory()'s ORDER BY ends in `ph.id` to make it total. Without that, ties on
+        // (pageId, versionDate) are broken arbitrarily by Postgres and can differ between
+        // paginatedQuery()'s separate LIMIT/OFFSET statements, letting a tied row be yielded twice
+        // (or dropped) when the tie group straddles a batch boundary. PAGE_BATCH_SIZE is 10, so this
+        // seeds 11 revisions with the tied pair (309/310) landing on rows 10 and 11 of the final
+        // order -- the last row of batch 1 and the first of batch 2.
         await admin.query(`
           INSERT INTO "pageHistory" (id, "pageId", path, "localeCode", title, action, "versionDate", "authorId")
           VALUES
@@ -416,8 +394,6 @@ describe('PostgresSourceConnector', () => {
         const rows = await collect(connector.pageHistory())
         await connector.disconnect()
 
-        // No duplicates and nothing dropped, across the whole table (not just the seeded tie group) --
-        // this is what paginatedQuery()'s totality precondition guarantees once the ORDER BY is total.
         const ids = rows.map((r) => r.id as number)
         assert.equal(new Set(ids).size, ids.length, 'pageHistory() yielded a duplicate row id')
 
@@ -480,8 +456,7 @@ describe('PostgresSourceConnector', () => {
         })
         await admin.connect()
         await admin.query('DROP TABLE IF EXISTS "userGroups", pages, users, groups')
-        // connect()'s checkShape() introspects pages too, even though this describe block never
-        // reads through pages() — see the "against a 2.5.x-shaped schema" describe above.
+        // connect()'s checkShape() introspects pages too, though nothing here reads through pages().
         await admin.query(LEGACY_SCHEMA_DDL.pages!)
         await admin.query(LEGACY_SCHEMA_DDL.users!)
         await admin.query(LEGACY_SCHEMA_DDL.groups!)
@@ -499,8 +474,8 @@ describe('PostgresSourceConnector', () => {
             (1, 'both@example.com', 'local', false),
             (2, 'none@example.com', 'local', false)
         `)
-        // user 1 belongs to both groups (inserted out of id order, to prove the ORDER BY g.id inside
-        // json_agg is doing the sorting, not insertion order); user 2 belongs to none.
+        // Inserted out of id order, so the `ORDER BY g.id` inside `json_agg` is what does the
+        // sorting rather than insertion order.
         await admin.query(`
           INSERT INTO "userGroups" (id, "userId", "groupId")
           VALUES
@@ -594,9 +569,8 @@ describe('PostgresSourceConnector', () => {
         await admin.query(
           'DROP TABLE IF EXISTS comments, settings, authentication, storage, pages, users, groups'
         )
-        // connect()'s checkShape() introspects pages/users/groups too, even though this describe
-        // block never reads through those generators — see the "against a 2.5.x-shaped schema"
-        // describe above.
+        // connect()'s checkShape() introspects pages/users/groups too, though nothing here reads
+        // through those generators.
         await admin.query(LEGACY_SCHEMA_DDL.pages!)
         await admin.query(LEGACY_SCHEMA_DDL.users!)
         await admin.query(LEGACY_SCHEMA_DDL.groups!)
@@ -719,9 +693,8 @@ describe('PostgresSourceConnector', () => {
         await admin.query(
           'DROP TABLE IF EXISTS "assetData", assets, "assetFolders", pages, users, groups'
         )
-        // connect()'s checkShape() introspects pages/users/groups too, even though this describe
-        // block never reads through those generators — see the "against a 2.5.x-shaped schema"
-        // describe above.
+        // connect()'s checkShape() introspects pages/users/groups too, though nothing here reads
+        // through those generators.
         await admin.query(LEGACY_SCHEMA_DDL.pages!)
         await admin.query(LEGACY_SCHEMA_DDL.users!)
         await admin.query(LEGACY_SCHEMA_DDL.groups!)
@@ -729,9 +702,8 @@ describe('PostgresSourceConnector', () => {
         await admin.query(LEGACY_SCHEMA_DDL.assets!)
         await admin.query(LEGACY_SCHEMA_DDL.assetData!)
 
-        // Two folders: a root-level 'docs', and 'sub' nested inside it -- id 2's parentId chains
-        // through id 1, proving buildAssetFolderPaths() actually walks the adjacency list rather than
-        // only handling a single level.
+        // 'sub' nests inside 'docs', so buildAssetFolderPaths() has to walk the adjacency list rather
+        // than only handle a single level.
         await admin.query(`
           INSERT INTO "assetFolders" (id, name, slug, "parentId")
           VALUES

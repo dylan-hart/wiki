@@ -9,11 +9,10 @@ export interface UploadedAsset {
 }
 
 /**
- * The one method this module needs off `models/assets.ts#upload()` — a structural subset (not an
- * import of the real `Asset`/upload-args types) so a test can hand this a fake without pulling in the
- * real model. `folderId?: string | null` matches the real signature: `undefined` (a root-level asset)
- * and `null` (an explicit "no folder") are both accepted, mirroring `models/assets.ts`'s own optional
- * `folderId` parameter.
+ * The one method this module needs off `models/assets.ts#upload()`, declared structurally so a test
+ * can hand it a fake without pulling in the real model. `folderId?: string | null` mirrors the real
+ * signature: `undefined` (a root-level asset) and `null` (an explicit "no folder") are both
+ * accepted.
  */
 export interface AssetsWriteModel {
   upload(input: {
@@ -29,9 +28,8 @@ export interface AssetsWriteModel {
   }): Promise<UploadedAsset>
 }
 
-/** The one method this module needs off `models/tree.ts#getFolder()` — same structural-subset
- * reasoning as `AssetsWriteModel`. The real method's `path` is `path?: string | null`; only the
- * `path`/`locale`/`siteId`/`createIfMissing` fields this module actually passes are declared here. */
+/** The one method this module needs off `models/tree.ts#getFolder()`, declared structurally for the
+ * same reason as `AssetsWriteModel` and carrying only the fields this module passes. */
 export interface TreeFolderModel {
   getFolder(input: {
     path?: string | null
@@ -49,11 +47,8 @@ export interface AssetImportDeps {
 export interface AssetImportOptions {
   siteId: string
   locale: string
-  // -> `UserIdMap` (`id-map.ts`): the same read-only "old numeric id -> new UUID" structural contract
-  //    `content-staging.ts#ContentStagingOptions.userIdMap` uses, rather than the concrete
-  //    `Map<number, string>` the `users` phase (Task 14) builds and populates — this module only ever
-  //    calls `.get()`, and the narrower type is what lets a caller hand in a hand-built fallback
-  //    (`ctx.userIdMap ?? new Map()`, for a `MigrationContext` that never ran the `users` phase).
+  // -> Narrower than the concrete `Map<number, string>` the `users` phase builds: this module only
+  //    calls `.get()`, so a caller may hand in a bare `ctx.userIdMap ?? new Map()` fallback.
   userIdMap: UserIdMap
   fallbackActorId: string
 }
@@ -74,19 +69,11 @@ export interface AssetImportSuccess {
 
 /**
  * Splits one `SourceAssetFile` into a folder path (`undefined` for a root-level asset) and the bare
- * file name. `folderPath` is returned raw — a 2.x path free to use characters 3.0's `rePathName`
- * disallows (underscores, spaces, punctuation, unicode, …) — and is not normalized here; that is
- * `importAsset`'s job, immediately before it reaches `deps.treeModel.getFolder()`, the same
- * `path-normalization.ts#normalizeMigratedPath` folding a 2.x page path goes through.
+ * file name. `folderPath` comes back raw — a 2.x path may use characters 3.0's `rePathName`
+ * disallows — and is normalized by `importAsset` instead, immediately before `getFolder()`.
  *
- * Adapted from the design brief's sketch (which derived both halves by splitting `relativePath` on its
- * last `/`): the real `SourceAssetFile` (`connector.ts`) already carries the bare name separately as
- * `filename`, and the real `PostgresSourceConnector#assets()` builds `relativePath` as exactly
- * `` `${folderPath}/${filename}` `` (folder present) or `filename` alone (root-level) — see
- * `connectors/postgres.ts`. Using `file.filename` directly and stripping only its own `/${filename}`
- * suffix off `relativePath` is equivalent for every real connector output and additionally correct if
- * a future connector's folder path itself ever contained a `/`-adjacent quirk that a blind
- * `lastIndexOf('/')` split on `relativePath` alone could not disambiguate from the file name.
+ * Stripping the already-known `filename` off `relativePath`, rather than splitting on its last `/`,
+ * keeps this correct for a folder path a blind split could not tell apart from the file name.
  */
 function resolveAssetLocation(file: SourceAssetFile): { folderPath?: string; fileName: string } {
   const fileName = typeof file.filename === 'string' ? file.filename : ''
@@ -98,9 +85,8 @@ function resolveAssetLocation(file: SourceAssetFile): { folderPath?: string; fil
   return { fileName }
 }
 
-/** Reads a `Readable` fully into a `Buffer` — asset bytes are already bounded by whatever the source
- * connector chose to stream one file at a time (Task 10's `assets()`), so buffering one file per call
- * is the same memory profile `models/assets.ts#upload()` already assumes for a live upload. */
+/** Buffering one whole file is the same memory profile `models/assets.ts#upload()` already assumes
+ * for a live upload, and the connector hands them over one at a time. */
 async function bufferStream(stream: SourceAssetFile['stream']): Promise<Buffer> {
   const chunks: Buffer[] = []
   for await (const chunk of stream) {
@@ -109,24 +95,16 @@ async function bufferStream(stream: SourceAssetFile['stream']): Promise<Buffer> 
   return Buffer.concat(chunks)
 }
 
-/** Imports one 2.x asset file through `models/assets.ts#upload()` — the same path a live upload takes
- * (tree row + assets row + thumbnail generation), per the design spec's "lean on the existing upload
- * path rather than hand-rolling a second writer" decision. A nested asset's raw `folderPath` is folded
- * through `path-normalization.ts#normalizeMigratedPath()` first — the same lowercasing and
- * disallowed-character-to-hyphen folding a 2.x page path goes through — before being resolved via
- * `deps.treeModel.getFolder({ createIfMissing: true })`, which already auto-creates any missing
- * ancestor folder (`models/tree.ts`), so this module never creates a folder row itself; a path that
- * still can't fold to a valid 3.0 folder name (e.g. every character in a segment is disallowed) is
- * reported as the same `'folder-error'` failure a `getFolder()` rejection produces, not a distinct
- * failure kind. A root-level asset passes `folderId: undefined` straight through, matching
- * `models/assets.ts#upload()`'s own "the site root when absent" contract.
+/** Imports one 2.x asset through `models/assets.ts#upload()` — the same path a live upload takes
+ * (tree row + assets row + thumbnail), rather than a second hand-rolled writer. A nested asset's raw
+ * `folderPath` is folded through `normalizeMigratedPath()` first, then resolved with
+ * `createIfMissing: true`, which auto-creates any missing ancestor, so this module never writes a
+ * folder row itself; a path that cannot fold to a valid 3.0 folder name reports the same
+ * `'folder-error'` a `getFolder()` rejection does, not a failure kind of its own.
  *
- * `file.createdAt`/`file.updatedAt` (real `Date`s, Postgres-direct connector only — see
- * `SourceAssetFile`'s own doc comment) are threaded through to `upload()`'s own override params as
- * ISO strings, so an imported asset carries the 2.x source's real creation/modification date rather
- * than import time (OpenProject #3204). Absent (export-bundle connector, which carries no per-asset
- * metadata sidecar at all) leaves both unset, and the destination row keeps `upload()`'s ordinary
- * `now()` default.
+ * `file.createdAt`/`file.updatedAt` (the Postgres-direct connector only — a bundle carries no
+ * per-asset metadata) go through `upload()`'s override params so an imported asset keeps the
+ * source's own dates; absent, the destination row keeps `upload()`'s `now()` default.
  */
 export async function importAsset(
   file: SourceAssetFile,
@@ -136,11 +114,8 @@ export async function importAsset(
   | { result: 'success'; success: AssetImportSuccess }
   | { result: 'failure'; failure: AssetImportFailure }
 > {
-  // -> Guards the whole-record case (`file` itself null/undefined) the same way `phases/assets.ts`'s
-  //    own `classify` guards its identifier expression (`file?.relativePath`) — not reachable from
-  //    either real connector today (`PostgresSourceConnector#assets()` always yields a real object),
-  //    but cheap enough to make this function safe to call with an untrusted `record as SourceAssetFile`
-  //    cast without relying on the caller having already checked.
+  // -> Unreachable from either real connector; kept so an untrusted `record as SourceAssetFile`
+  //    cast is safe to pass without the caller having checked first.
   if (!file || typeof file !== 'object') {
     return {
       result: 'failure',
@@ -152,10 +127,8 @@ export async function importAsset(
     }
   }
 
-  // -> `file.relativePath` stands in for this record's identifier throughout — guarded against a
-  //    malformed source row (e.g. missing entirely) the same way `phases/assets.ts`'s own `classify`
-  //    guards its own identifier, so a bad record reports a clean 'read-error' rather than crashing on
-  //    `undefined.length` deep inside `resolveAssetLocation()`/string interpolation below.
+  // -> Stands in as this record's identifier throughout, so a malformed row reports a clean
+  //    'read-error' rather than crashing on `undefined` further down.
   const relativePath = typeof file.relativePath === 'string' ? file.relativePath : 'unknown'
   const { folderPath, fileName } = resolveAssetLocation(file)
   const warnings: string[] = []

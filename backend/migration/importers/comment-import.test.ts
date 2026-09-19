@@ -10,8 +10,6 @@ import type {
 
 const SITE_ID = 'site-1'
 
-/** In-memory fake standing in for `CARDINAL.models.comments` — records every call so tests can assert on
- * what `importComment`/`resolveCommentReplies` actually sent it. */
 class FakeCommentsModel implements CommentsWriteModel {
   created: Parameters<CommentsWriteModel['create']>[0][] = []
   replyToCalls: { id: string; replyTo: string }[] = []
@@ -163,10 +161,6 @@ describe('importComment', () => {
     }
   })
 
-  // -------------------------------------------------------------------------------------------
-  // createdAt/updatedAt threading (OpenProject #3204)
-  // -------------------------------------------------------------------------------------------
-
   test('a real Date createdAt/updatedAt is threaded through create() as an ISO string', async () => {
     const commentsModel = new FakeCommentsModel()
     const deps: CommentImportDeps = { commentsModel }
@@ -209,10 +203,6 @@ describe('importComment', () => {
     assert.equal(input.createdAt, undefined)
     assert.equal(input.updatedAt, undefined)
   })
-
-  // -------------------------------------------------------------------------------------------
-  // replyTo threading via CommentImportState + resolveCommentReplies (OpenProject #3204)
-  // -------------------------------------------------------------------------------------------
 
   test('every comment is created top-level (replyTo never passed to create()) regardless of source replyTo', async () => {
     const commentsModel = new FakeCommentsModel()
@@ -280,8 +270,6 @@ describe('importComment', () => {
     const options = buildOptions({ pageIdMap })
     const state = createCommentImportState()
 
-    // -> Old id 2's reply names old id 5, which has not been imported yet at this point in the
-    //    stream -- the exact forward-reference case `state`/`resolveCommentReplies()` exist for.
     const replyOutcome = await importComment(
       { id: 2, pageId: 100, authorId: null, content: 'a reply', replyTo: 5 },
       deps,

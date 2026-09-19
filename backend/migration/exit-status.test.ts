@@ -24,15 +24,6 @@ describe('notImplementedPhaseIds', () => {
   })
 })
 
-/**
- * Whole-branch review Important #4: a live (non-dry-run) run against a source with a still-stubbed
- * phase (e.g. `--bundle-path`'s `ExportBundleSourceConnector`, whose `users`/`groups`/`settings`/
- * `comments`/`assets` generators remain `NotYetImplementedError` stubs) must exit non-zero — before this
- * fix, `process.exitCode` was only ever set on `status: 'error'`, so a live run silently exited 0 having
- * only partially imported the source (real pages/history/tags/navigation writes, every other phase
- * skipped). A `--dry-run` invocation with the exact same shape must NOT be flagged: `not_implemented` is
- * the normal, expected outcome for a rehearsal against a source that can't fully write yet.
- */
 describe('computeExitCode', () => {
   test('a live run with every phase ok exits 0', () => {
     const results = [result('settings', 'ok'), result('users', 'ok')]

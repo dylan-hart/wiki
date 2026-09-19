@@ -7,13 +7,6 @@ import zlib from 'node:zlib'
 import { NotYetImplementedError, type SourceRecord } from '../connector.ts'
 import { ExportBundleSourceConnector, JsonArrayStreamParser } from './export-bundle.ts'
 
-/**
- * Smoke coverage for `ExportBundleSourceConnector`, scoped to exactly what this task builds: the
- * connect/disconnect/describe lifecycle, missing-file/empty-directory detection, and the shape checks
- * on the three small files it actually parses (`settings.json`, `navigation.json`, `groups.json`) —
- * plus, for Task 733, the `pages()`/`pageHistory()`/`tags()`/`navigation()` generator bodies.
- */
-
 const tmpDirs: string[] = []
 
 async function makeBundle(files: Record<string, string | Buffer | null>): Promise<string> {
@@ -33,8 +26,7 @@ async function makeBundle(files: Record<string, string | Buffer | null>): Promis
 }
 
 /** Mirrors the exporter's own pipeline for a `.json.gz` entity file: pretty-printed JSON array text,
- * gzip'd — see `docs/migration/2.5x-export-bundle-format.md`'s "Every gzip'd file is written by the
- * exact same three-stage pipeline" note. */
+ * gzip'd (`docs/migration/2.5x-export-bundle-format.md`). */
 function gzipJsonArray(rows: SourceRecord[]): Buffer {
   return zlib.gzipSync(JSON.stringify(rows, null, 2))
 }
@@ -54,8 +46,7 @@ describe('JsonArrayStreamParser (Task 1783 — streaming boundary walker behind 
     const firstRow = { id: 1, note: 'first' }
     const secondRow = { id: 2, note: 'second' }
 
-    // The first chunk carries the whole first row plus only the *start* of the second row's text —
-    // proving the parser doesn't need the rest of the array's text to hand back a completed row.
+    // The first chunk carries the whole first row plus only the *start* of the second row's text.
     const firstChunk = `[${JSON.stringify(firstRow)},${JSON.stringify(secondRow).slice(0, 5)}`
     const firstYield = [...parser.push(firstChunk)]
     assert.deepEqual(firstYield, [firstRow])
@@ -264,13 +255,10 @@ describe('ExportBundleSourceConnector', () => {
     })
 
     test('pages() yields the first valid row without needing the rest of the file to even parse (proves incremental, not whole-file, gunzip+parse)', async () => {
-      // A whole-file implementation (`gunzipSync` + `.toString('utf8')` + `JSON.parse`) has to
-      // successfully parse the entire array before yielding anything — so it would throw on this
-      // fixture's unparseable second element before ever producing the first row. A truly
-      // incremental generator only parses each element's own text on demand, so calling `.next()`
-      // once must succeed with the first row, and the file's second element — padded well past a
-      // single read-chunk's worth of bytes so a whole-file read is unmistakably the thing being
-      // distinguished — must still be there, unconsumed and unparsed, until asked for.
+      // A whole-file implementation (`gunzipSync` + `JSON.parse`) must parse the entire array before
+      // yielding anything, so it would throw on this fixture's unparseable second element before
+      // producing the first row. That element is padded well past one read chunk's worth of bytes, so
+      // a whole-file read is unmistakably what is being distinguished.
       const validPrefix = `[\n  ${JSON.stringify(pageRow)},\n  `
       // Brace-balanced (so the parser's boundary scan closes the element and hands it to
       // `JSON.parse`) but not valid JSON inside, so that parse throws.
@@ -285,8 +273,6 @@ describe('ExportBundleSourceConnector', () => {
       assert.equal(first.done, false)
       assert.equal(first.value.id, pageRow.id)
       assert.equal(first.value.path, pageRow.path)
-      // The rest of the file really is unparseable — proving the row above was yielded without the
-      // generator needing to touch it.
       await assert.rejects(() => iterator.next())
     })
 
@@ -344,13 +330,11 @@ describe('ExportBundleSourceConnector', () => {
       const connector = new ExportBundleSourceConnector(dir)
       await connector.connect()
 
-      // Fully drain pages() and pageHistory() first, the same order phases/content.ts's contentPhase
-      // drives its entities in.
+      // Drain both first, the order `phases/content.ts` drives its entities in.
       await collect(connector.pages())
       await collect(connector.pageHistory())
 
-      // From here, readGzipJsonArray (the method that actually opens and decompresses an entity file)
-      // must not be called again for a subsequent tags() call.
+      // Spied only from here, so `readCalls` counts the reads the `tags()` call below issues itself.
       let readCalls = 0
       const original = (connector as any).readGzipJsonArray.bind(connector)
       mock.method(connector as any, 'readGzipJsonArray', function (filePath: string) {
