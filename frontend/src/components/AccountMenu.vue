@@ -1,5 +1,5 @@
 <template>
-  <w-btn class="account-avbtn header-nav-btn" flat>
+  <w-btn class="account-avbtn flush-hover-btn header-nav-btn" flat>
     <!--
       An uploaded avatar, or the reader's own initials in a solid slate square -- which is what the
       design draws (`ui-redesign/Cardinal Wiki - Ledger 3x.dc.html`: a 30px `#38465f` box with the
