@@ -51,8 +51,13 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
+      # ONNXRUNTIME_NODE_INSTALL=skip (here and on every other backend install step): onnxruntime-node's
+      # postinstall would otherwise fetch a CUDA package from nuget.org that CI has no GPU to use, and a
+      # nuget outage would fail the job. Enforced by backend/test/workflowInstallEnv.test.ts.
       - name: Install Backend Dependencies (production shape)
         working-directory: backend
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: npm ci --omit=dev
 
       - name: Use sample config
@@ -116,7 +121,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -153,6 +158,8 @@ jobs:
 
       - name: Install Backend Dependencies
         working-directory: backend
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: npm ci
 
       # git-cliff is a standalone binary, not an npm dependency of any workspace (see

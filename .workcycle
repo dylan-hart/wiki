@@ -1,3 +1,23 @@
 {
-  "targetBranch": "scarlett"
+  "targetBranch": "scarlett",
+  "quickChecks": [
+    {
+      "name": "format",
+      "command": "npx --prefix backend oxfmt --check backend frontend blocks",
+      "fix": "npx --prefix backend oxfmt backend frontend blocks"
+    },
+    {
+      "name": "icons",
+      "command": "npm --prefix frontend run icons:check",
+      "fix": "npm --prefix frontend run icons"
+    },
+    {
+      "name": "attribute drift",
+      "command": "cd frontend && npx vitest run src/components/shared/wComponentAttributeDrift.test.js"
+    },
+    {
+      "name": "backend typecheck",
+      "command": "npm --prefix backend run typecheck"
+    }
+  ]
 }

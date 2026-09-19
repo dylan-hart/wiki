@@ -34,7 +34,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -81,8 +81,12 @@ jobs:
           npm ci
           npm run build
 
+      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner (see
+      # quality.yml; enforced by backend/test/workflowInstallEnv.test.ts).
       - name: Install backend dependencies
         working-directory: backend
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: npm ci
 
       - name: Install e2e dependencies
