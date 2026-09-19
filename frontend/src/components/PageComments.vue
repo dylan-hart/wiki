@@ -37,7 +37,8 @@
         class="page-comments-item"
         :style="{ marginInlineStart: `${entry.depth * INDENT_PX}px` }">
         <div class="page-comments-card group flex gap-3">
-          <w-avatar size="sm" color="primary" text-color="white">{{
+          <!-- -> The header's `.account-initials` mark: square in Ledger, a disc in Cobalt -->
+          <w-avatar identity="initials" size="30px" font-size="11px">{{
             initialsFor(entry.comment)
           }}</w-avatar>
           <div class="min-w-0 flex-1">

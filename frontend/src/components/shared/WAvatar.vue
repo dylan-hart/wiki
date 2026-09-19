@@ -11,7 +11,7 @@
   -->
   <div
     class="w-avatar relative inline-flex shrink-0 items-center justify-center align-middle"
-    :class="shapeClass"
+    :class="[shapeClass, identityClasses]"
     :style="styles">
     <w-icon v-if="icon" :name="icon" />
     <slot />
@@ -57,6 +57,22 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /**
+   * Opt in to the aesthetic's own avatar shape: `--radius-avatar`, which is square in Ledger and a
+   * disc in Cobalt, where the other shape props are fixed in both. Never a default -- about 25
+   * callers rely on `rounded-full`.
+   *
+   * - `initials` is the header mark's treatment (`.account-initials`): tracked Barlow Condensed on
+   *   the `--color-account-avatar-bg` tone.
+   * - `plate` is an icon tile in a list row: the `--size-avatar-plate` box (36px Ledger, 26px
+   *   Cobalt). Pass `color`/`text-color` for its tone, but not `size`/`font-size`, which would
+   *   override the aesthetic's size inline.
+   */
+  identity: {
+    type: String,
+    default: null,
+    validator: (value) => ['initials', 'plate'].includes(value)
+  },
   /** Glyph size within the avatar; defaults to 60% of `size`. */
   fontSize: {
     type: String,
@@ -65,6 +81,10 @@ const props = defineProps({
 })
 
 const shapeClass = computed(() => {
+  // -> `rounded-full` is a utility and would beat the token radius, so an identity avatar takes none
+  if (props.identity) {
+    return null
+  }
   if (props.square) {
     return 'rounded-none'
   }
@@ -73,6 +93,10 @@ const shapeClass = computed(() => {
   }
   return 'rounded-full'
 })
+
+const identityClasses = computed(() =>
+  props.identity ? ['w-avatar--identity', `w-avatar--${props.identity}`] : null
+)
 
 const styles = computed(() => {
   const size = props.size ? resolveSize(props.size) : null
@@ -93,5 +117,16 @@ const styles = computed(() => {
   width: 48px;
   height: 48px;
   font-size: 28.8px;
+}
+
+/*
+  The list-row plate's size is a per-aesthetic token, so it cannot be inline. It lives HERE, in the
+  same unlayered scoped sheet as the default above, because that default beats anything written in
+  `@layer components`. `WItemSection`'s flanking-avatar rule excludes `--plate` for the same reason.
+*/
+.w-avatar.w-avatar--plate {
+  width: var(--size-avatar-plate);
+  height: var(--size-avatar-plate);
+  font-size: calc(var(--size-avatar-plate) * 0.5);
 }
 </style>

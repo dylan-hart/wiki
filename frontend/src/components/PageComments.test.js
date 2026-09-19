@@ -630,5 +630,24 @@ describe('PageComments', () => {
     it('gives a guest a single initial off the server-resolved name', async () => {
       expect(await avatarTextFor({ authorId: null, authorName: 'anonymous visitor' })).toBe('A')
     })
+
+    /**
+     * OpenProject #3473: the mark follows the aesthetic like the header's `.account-initials`
+     * (30px, 11px display type, square Ledger / disc Cobalt) instead of a fixed 24px primary disc.
+     */
+    it("draws as the header's identity initials mark, not a fixed primary disc", async () => {
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+      const { wrapper } = await mountComments()
+
+      const avatar = wrapper.find('.w-avatar')
+      expect(avatar.classes()).toEqual(
+        expect.arrayContaining(['w-avatar--identity', 'w-avatar--initials'])
+      )
+      expect(avatar.classes()).not.toContain('rounded-full')
+      expect(avatar.attributes('style')).toContain('width: 30px')
+      expect(avatar.attributes('style')).toContain('font-size: 11px')
+      // -> The fill is the shared class's `--color-account-avatar-bg`, not an inline primary
+      expect(avatar.attributes('style')).not.toContain('background-color')
+    })
   })
 })
