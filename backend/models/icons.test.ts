@@ -13,16 +13,6 @@ import {
   parseSideloadIconCollection
 } from './icons.ts'
 
-/**
- * OpenProject #1212: Font Awesome Free ships pre-added, the same way Line Awesome and Material
- * Design Icons already do, rather than being something an admin has to know to search for and add
- * manually via the live Iconify catalog.
- *
- * Pure data assertion, not a DB-backed test -- `init()` itself (the thing that actually inserts
- * these rows) is a one-line `db.insert(...).values(...)` with no branching worth a Postgres round
- * trip; what is worth pinning is the seed list's own shape, which is what a future edit is most
- * likely to accidentally change.
- */
 describe('icons DEFAULT_SETS', () => {
   it('still seeds the pre-existing mdi and la prefixes', () => {
     const prefixes = DEFAULT_SETS.map((set) => set.prefix)
@@ -45,13 +35,10 @@ describe('icons DEFAULT_SETS', () => {
 })
 
 /**
- * `getSet()` (OpenProject #2272): a single-row query by prefix, with no `count()` aggregate over the
- * (potentially large) `icons` table -- the public `/_icons` batch route calls this on every request.
- *
- * A fake `CARDINAL.db` distinguishing the two tables `select().from()` could be pointed at, rather than a
- * real database: what is under test is which query shape `getSet()` issues, not any actual row data,
- * so recording call counts against each table's own chain is a more direct check than reading back
- * values a real Postgres round trip would launder through anyway.
+ * `getSet()` must stay a single-row query by prefix with no `count()` aggregate over the
+ * (potentially large) `icons` table -- the public `/_icons` batch route calls it on every request.
+ * Hence a fake `CARDINAL.db` recording which table each `select().from()` chain was pointed at: the
+ * query shape is what is under test, not any row data.
  */
 describe('icons.getSet', () => {
   const calls = { setsRowQuery: 0, setsCountAggregate: 0 }
@@ -126,11 +113,6 @@ describe('icons.getSet', () => {
   })
 })
 
-/**
- * `notFoundCache` bound (OpenProject #2272): it is an `LRUCache` with `max: NOT_FOUND_CACHE_MAX`, so
- * inserting past that bound through `rememberMissing()` evicts the oldest (least recently used) entry
- * automatically. No `CARDINAL` needed -- this exercises the cache directly, with no I/O.
- */
 describe('icons.rememberMissing (notFoundCache bound)', () => {
   afterEach(() => {
     icons.notFoundCache.clear()
@@ -159,10 +141,9 @@ describe('icons.rememberMissing (notFoundCache bound)', () => {
 })
 
 /**
- * `apiFetch` (OpenProject #2889): upstream answers an unknown icon/prefix two documented ways -- a
- * genuine HTTP 404, or a 200 response whose JSON body is the literal string `'404'` -- and both must
- * reject with `IconNotFoundUpstreamError` specifically, not the plain `Error` a real failure throws,
- * since that is what lets `fetchIconsUpstream` pick the right log level.
+ * Iconify answers an unknown icon or prefix two documented ways -- a genuine HTTP 404, or a 200
+ * whose JSON body is the literal string `'404'`. Both must reject with `IconNotFoundUpstreamError`
+ * rather than a plain `Error`, since that is what lets `fetchIconsUpstream` pick its log level.
  */
 describe('icons.apiFetch upstream-not-found detection', () => {
   beforeEach(() => {
@@ -228,10 +209,8 @@ describe('icons.apiFetch upstream-not-found detection', () => {
 })
 
 /**
- * `fetchIconsUpstream` (OpenProject #2889): the "upstream has nothing for this" shape is an
- * expected, routine outcome and must log at `debug`, not `warn` -- only a genuine failure (network
- * error, 5xx, a malformed body) still warns. `apiFetch` is stubbed here so the test is about which
- * log level the catch block picks, not about `apiFetch`'s own response parsing (covered above).
+ * "Upstream has nothing for this" is a routine outcome, so it must log at `debug`. `apiFetch` is
+ * stubbed to keep this about the catch block's log level, not about its own response parsing.
  */
 describe('icons.fetchIconsUpstream logging level', () => {
   function makeFakeDb() {
@@ -299,14 +278,6 @@ describe('icons.fetchIconsUpstream logging level', () => {
   })
 })
 
-/**
- * `searchIcons()` degrading gracefully when Iconify is unreachable (OpenProject #3041): offline mode
- * skips the network attempt entirely, and a genuine upstream failure is caught and logged rather than
- * left to reject -- both fall back to `searchIconsLocally()`, a plain query over the icons already
- * materialized in the permanent record. A fake `CARDINAL.db` distinguishes `iconSetsTable` (what
- * `getEnabledPrefixes()` reads) from `iconsTable` (what the local fallback searches), the same
- * per-table dispatch `icons.getSet`'s fake db above uses.
- */
 describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   const calls = { fetch: 0, localSearch: 0 }
 
@@ -400,8 +371,8 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   })
 
   it('returns no results without ever reaching the network when the requested prefix is not enabled', async () => {
-    // -> `enabledPrefixes` defaults to `['tabler']` -- a request scoped to a prefix that is not
-    //    enabled here narrows to nothing before `searchIcons()` ever attempts upstream or local
+    // -> `enabledPrefixes` defaults to `['tabler']`, so a request scoped to a prefix not enabled
+    //    here narrows to nothing before either upstream or local is attempted
     const result = await icons.searchIcons({ query: 'home', prefixes: ['disabled-prefix'] })
     assert.deepEqual(result, [])
     assert.equal(calls.fetch, 0)
@@ -409,12 +380,6 @@ describe('icons.searchIcons offline/fallback (OpenProject #3041)', () => {
   })
 })
 
-/**
- * `parseSideloadIconCollection()` (OpenProject #2945): the pure shape validation
- * `sideloadFromDataPath` runs each `<dataPath>/icons/<prefix>.json` file's parsed content through
- * before anything touches the database or the filesystem again -- a plain function, tested the same
- * way `parseSideloadLocalePack()` is in `locales.test.ts`.
- */
 describe('parseSideloadIconCollection()', () => {
   it('accepts a minimal valid collection', () => {
     const result = parseSideloadIconCollection({ icons: { foo: { body: '<path d="M0 0"/>' } } })
@@ -469,12 +434,9 @@ describe('parseSideloadIconCollection()', () => {
 })
 
 /**
- * `sideloadFromDataPath()` (OpenProject #2945): the actual disk -> DB path. A real temp directory
- * (not a real Postgres instance -- this file's whole suite is pure-unit, stubbing `CARDINAL.db` the same
- * way `icons.getSet`/`icons.fetchIconsUpstream logging level` above already do) stands in for
- * `<dataPath>/icons/`, and a fake `CARDINAL.db` records every `insert(...)` call so the test can assert
- * both WHAT was written and the write ORDER -- the `iconSets` row must land before any of that
- * prefix's `icons` rows, since `icons.prefix` has a foreign key on `iconSets.prefix`.
+ * The fake `CARDINAL.db` records every `insert(...)` so the write ORDER can be asserted as well as
+ * the values: the `iconSets` row must land before any of that prefix's `icons` rows, since
+ * `icons.prefix` has a foreign key on `iconSets.prefix`.
  */
 describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
   let tmpRoot: string
@@ -553,7 +515,6 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
     assert.equal(iconWrites.length, 2)
     assert.ok(iconWrites.some((w) => w.name === 'foo'))
     assert.ok(iconWrites.some((w) => w.name === 'bar'))
-    // -> The alias must have resolved to its parent's body, not been stored empty
     const aliasWrite = iconWrites.find((w) => w.name === 'bar')
     assert.equal(aliasWrite!.value.body, '<path d="M0 0"/>')
 
@@ -575,8 +536,8 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
     await icons.sideloadFromDataPath()
 
     const setWrite = writes.find((w) => w.kind === 'set')
-    // -> onConflictDoNothing is what protects a real upstream-added set's metadata -- verified here
-    //    by confirming the loader always goes through that conflict strategy, never a plain update.
+    // -> The fake db only records a set write under `onConflictDoNothing`, so one being present is
+    //    what proves the loader never takes a plain-update path over existing metadata
     assert.ok(setWrite)
   })
 
@@ -658,14 +619,9 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
     assert.equal(scope, 'icons')
   })
 
-  /**
-   * OpenProject #3043: `init()` passes `vendoredIconSetsPath()` here instead of relying on the
-   * default, so this loader has to actually honor an explicit `dir` rather than always resolving
-   * `sideloadPath()` itself.
-   */
+  /** `init()` passes `vendoredIconSetsPath()` explicitly, so an explicit `dir` has to win. */
   it('reads from a passed-in directory instead of the default sideload path', async () => {
-    // -> The default operator sideload dir is deliberately left absent -- anything loaded below
-    //    must have come from `customDir`, not from falling back to `sideloadPath()`.
+    // -> The default sideload dir is deliberately left absent: anything loaded came from `customDir`
     const customDir = path.join(tmpRoot, 'vendored')
     await fs.mkdir(customDir, { recursive: true })
     await fs.writeFile(
@@ -682,11 +638,6 @@ describe('icons.sideloadFromDataPath() (DB-backed, fake db)', () => {
   })
 })
 
-/**
- * `vendoredIconSetsPath()` (OpenProject #3043): the committed, read-only release-asset directory
- * `init()` materializes Tabler from -- distinct from `sideloadPath()`'s writeable data-volume one,
- * and resolved off `CARDINAL.SERVERPATH` (the backend directory) rather than `CARDINAL.ROOTPATH`.
- */
 describe('icons.vendoredIconSetsPath()', () => {
   afterEach(() => {
     delete (globalThis as any).CARDINAL
@@ -701,12 +652,6 @@ describe('icons.vendoredIconSetsPath()', () => {
   })
 })
 
-/**
- * `init()` (OpenProject #3043): beyond seeding `DEFAULT_SETS` metadata, a fresh instance's first
- * boot must also materialize the vendored Tabler collection into the `icons` table -- through the
- * same `sideloadFromDataPath` insert path a real fetch or an operator sideload uses, against
- * `vendoredIconSetsPath()` specifically, never the operator-writable `sideloadPath()`.
- */
 describe('icons.init() (DB-backed, fake db)', () => {
   let tmpRoot: string
   const writes: { kind: 'set' | 'icon'; prefix: string; name?: string; value: any }[] = []
@@ -793,9 +738,9 @@ describe('icons.init() (DB-backed, fake db)', () => {
 })
 
 /**
- * The actual committed release asset (OpenProject #3043), not a fixture standing in for it -- a
- * corrupted or empty vendored file would otherwise only surface as a silently-empty Tabler set on
- * whoever's fresh instance hits it first.
+ * Reads the actual committed release asset, not a fixture standing in for it: a corrupted or empty
+ * vendored file would otherwise first surface as a silently-empty Tabler set on someone's fresh
+ * instance.
  */
 describe('vendored Tabler icon-set release asset', () => {
   it('is present, valid, and covers the full Tabler collection', async () => {
@@ -811,8 +756,7 @@ describe('vendored Tabler icon-set release asset', () => {
       return
     }
     assert.equal(parsed.collection.prefix, 'tabler')
-    // -> Tabler is ~6,200 icons as of this writing; a low bound rather than an exact count so a
-    //    routine upstream bump doesn't need this test touched.
+    // -> A low bound rather than an exact count, so a routine upstream bump needs no edit here
     assert.ok(Object.keys(parsed.collection.icons).length > 5000)
     assert.equal((parsed.collection.info as any)?.license?.spdx, 'MIT')
   })

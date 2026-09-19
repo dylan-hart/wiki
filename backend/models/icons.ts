@@ -11,8 +11,7 @@ import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
 
 /**
  * An icon set as stored, without the per-set icon count -- what a single-row lookup by prefix can
- * answer without joining the (potentially large) `icons` table. `getSet()` returns this shape; use
- * `getSets()` for the admin listing's `IconSet[]`, which is the only caller that needs `iconCount`.
+ * answer without touching the (potentially large) `icons` table.
  */
 export interface IconSetRow {
   prefix: string
@@ -23,13 +22,11 @@ export interface IconSetRow {
   createdAt: Date
 }
 
-/** An icon set as stored, plus how many of its icons the wiki holds. */
 export interface IconSet extends IconSetRow {
-  /** Icons of this set stored in the database, i.e. the ones this wiki can serve on its own. */
+  /** How many of the set's icons are stored here, i.e. servable without the upstream API. */
   iconCount: number
 }
 
-/** An icon set offered by the upstream API but not added here yet. */
 export interface AvailableIconSet {
   prefix: string
   name: string
@@ -43,7 +40,7 @@ export interface AvailableIconSet {
   isAdded: boolean
 }
 
-/** The result of a resolve, in the shape the Iconify API protocol expects. */
+/** In the shape the Iconify API protocol expects. */
 export interface ResolvedIcons {
   icons: Record<string, IconifyIcon>
   notFound: string[]
@@ -53,18 +50,13 @@ export interface ResolvedIcons {
  * Icon sets seeded on a fresh instance, so that the picker is usable before an administrator has
  * added anything. The names are the upstream ones and get overwritten by the first metadata refresh.
  *
- * Tabler leads the list because it is the set the interface itself is drawn in -- every icon in
- * `frontend/src/assets/icons.generated.js` is a Tabler one -- so an icon a user picks for a page or a
- * navigation item sits in the same hand as the chrome around it unless they deliberately reach past
- * it. The rest stay seeded: what a user picks for their own content is their choice, not the
- * interface's.
+ * Tabler leads the list because it is the set the interface itself is drawn in, so an icon a user
+ * picks for a page or a navigation item sits in the same hand as the chrome around it unless they
+ * deliberately reach past it.
  *
- * Font Awesome Free (OpenProject #1212) is its three Iconify collections, not the single `fa`
- * prefix: `fa6-solid`/`fa6-regular`/`fa6-brands` are the current (v6) free-tier sets upstream splits
- * style into, distinct from `fa` (the old v4 icon-font mapping) and from a paid Pro tier this instance
- * never seeds. Its icons are CC BY 4.0 (the font itself is OFL, the code MIT) -- not a functional
- * gate on seeding it by default, since the admin icon-set list already surfaces each set's license
- * from Iconify's own metadata (`AdminIcons.vue`'s `setCaption`/`availableCaption`).
+ * Font Awesome Free is its three Iconify collections, not the single `fa` prefix:
+ * `fa6-solid`/`fa6-regular`/`fa6-brands` are the current (v6) free-tier sets upstream splits style
+ * into, distinct from `fa` (the old v4 icon-font mapping) and from a paid Pro tier never seeded here.
  */
 export const DEFAULT_SETS: { prefix: string; name: string }[] = [
   { prefix: 'tabler', name: 'Tabler Icons' },
@@ -75,41 +67,33 @@ export const DEFAULT_SETS: { prefix: string; name: string }[] = [
   { prefix: 'fa6-brands', name: 'Font Awesome 6 Brands' }
 ]
 
-/** Iconify prefixes and icon names are lowercase, dash-separated words. */
 const PREFIX_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const NAME_PATTERN = /^[a-z0-9]+(?:[-.][a-z0-9]+)*$/
 
-/** How many resolved icons to hold per instance. An icon body is ~1 kB, so this is a few MB. */
+/** An icon body is ~1 kB, so this bound costs a few MB per instance. */
 const MEMORY_CACHE_MAX = 2000
 
-/** How long the upstream collection list and per-set icon lists stay memoized. */
 const CATALOG_TTL_MS = 60 * 60 * 1000
 
 /**
- * Ceiling on upstream requests per minute, across every caller.
- *
- * The public icon route fills the cache on a miss, and it is reachable by anyone who can read a page.
- * Without a ceiling, a stream of requests for icons that do not exist would be amplified into a
- * stream of requests to the Iconify API. Icons already stored are unaffected — they never go upstream.
+ * Ceiling on upstream requests per minute, across every caller. The public icon route fills the
+ * cache on a miss and is reachable by anyone who can read a page, so without a ceiling a stream of
+ * requests for icons that do not exist is amplified into a stream of requests to the Iconify API.
  */
 const UPSTREAM_BUDGET_PER_MINUTE = 60
 
-/** How long a name that upstream does not know stays remembered as missing. */
 const NOT_FOUND_TTL_MS = 60 * 60 * 1000
 
 /**
- * How many "known missing" names to hold before evicting the oldest (OpenProject #2272).
- * `notFoundCache` is an `LRUCache` bounded by this `max`, so without it a public, unmetered route
- * driving a stream of never-repeated misses would grow it forever between restarts.
+ * Bounds `notFoundCache`: a public, unmetered route driving a stream of never-repeated misses would
+ * otherwise grow it forever between restarts.
  */
 export const NOT_FOUND_CACHE_MAX = 5000
 
 /**
  * Reject anything that could execute when an icon is opened directly rather than drawn into a page.
- *
- * Icon bodies come from a third-party API, and while Iconify publishes shape markup, a compromised or
- * misconfigured upstream is exactly the case worth being defensive about. Nothing legitimate in an
- * icon body needs a script, an event handler or an external reference.
+ * Icon bodies come from a third-party API, and nothing legitimate in one needs a script, an event
+ * handler or an external reference.
  */
 function isSafeIconBody(body: string): boolean {
   return !/<script|<foreignobject|<iframe|<use[^>]+href\s*=\s*["']?https?:|\son\w+\s*=|javascript:/i.test(
@@ -118,21 +102,17 @@ function isSafeIconBody(body: string): boolean {
 }
 
 /**
- * Thrown by `apiFetch` for the documented "upstream has nothing for this" shape -- a genuine HTTP
- * 404, or a 200-status response whose JSON body is the literal string `'404'`. This is an expected,
- * routine outcome, not a failure: `fetchIconsUpstream` catches it separately so it logs at `debug`
- * rather than `warn` (OpenProject #2889).
+ * The documented "upstream has nothing for this" shape -- a genuine HTTP 404, or a 200-status
+ * response whose JSON body is the literal string `'404'`. A routine outcome, not a failure:
+ * `fetchIconsUpstream` catches it separately so it logs at `debug` rather than `warn`.
  */
 export class IconNotFoundUpstreamError extends Error {}
 
 /**
- * Validates one parsed JSON file from `<dataPath>/icons/` (`sideloadFromDataPath`, OpenProject
- * #2945) as a full Iconify collection export -- the shape `api.iconify.design`'s own
- * `/<prefix>.json`/`/collection?prefix=` responses use, and the same shape `fetchIconsUpstream`
- * already feeds through `getIconData()`. Only `icons` is required; `aliases` and `info` are optional,
- * exactly as they are in a real upstream export. The file's prefix comes from its filename
- * (`sideloadFromDataPath`), not from a `prefix` field here -- unlike `parseSideloadLocalePack`, a
- * self-contained locale pack, this is deliberately just the untouched vendored/exported JSON.
+ * Validates one parsed sideload file as a full Iconify collection export -- the shape
+ * `api.iconify.design`'s own `/<prefix>.json` responses use. Only `icons` is required, exactly as in
+ * a real upstream export, and the set's prefix comes from the filename rather than a `prefix` field
+ * here, so the file stays the untouched vendored/exported JSON.
  */
 export function parseSideloadIconCollection(
   raw: unknown
@@ -154,8 +134,6 @@ export function parseSideloadIconCollection(
 }
 
 /**
- * Icons model
- *
  * Icons are addressed the way Iconify addresses them — `<prefix>:<name>`, e.g. `tabler:user-edit` —
  * and that reference is all content ever stores. Resolving one to markup goes through four tiers:
  *
@@ -166,27 +144,21 @@ export function parseSideloadIconCollection(
  *    that content references
  * 4. **the Iconify API**, consulted only for an icon nobody has used yet, and then persisted
  *
- * Rendering a page never resolves an icon: the page carries names, the browser asks for the icons it
- * needs in one batch, and those answers are cached hard by the browser. Serving them touches the
- * database only for an icon that is neither in memory nor on disk — so on a warm instance, never.
+ * Rendering a page never resolves an icon: the page carries names and the browser asks for the icons
+ * it needs in one batch.
  */
 class Icons {
   /** Resolved icon data, keyed `prefix:name`. Insertion-ordered, so the oldest entry is evictable. */
   memoryCache = new Map<string, IconifyIcon>()
 
   /**
-   * Names upstream has no icon for, keyed `prefix:name`.
-   *
-   * An `LRUCache` rather than a plain `Map`: `max` bounds it the way `remember()` bounds
-   * `memoryCache` below, and `ttl` replaces the manual same-key check `isKnownMissing()` used to do
-   * itself — `has()` returns `false` for a stale entry without this class needing to know that.
+   * Names upstream has no icon for, keyed `prefix:name`. An `LRUCache` rather than a plain `Map`:
+   * `max` bounds it and `ttl` expires entries, so `has()` answers `false` for a stale one on its own.
    */
   notFoundCache = new LRUCache<string, true>({ max: NOT_FOUND_CACHE_MAX, ttl: NOT_FOUND_TTL_MS })
 
-  /** Upstream catalog responses, memoized to keep the admin area and the picker snappy. */
   catalogCache = new Map<string, { fetchedAt: number; data: any }>()
 
-  /** Rolling count of upstream requests, for `UPSTREAM_BUDGET_PER_MINUTE`. */
   upstreamBudget = { windowStartedAt: 0, used: 0 }
 
   get cachePath(): string {
@@ -197,9 +169,6 @@ class Icons {
     return CARDINAL.config.icons?.apiUrl || 'https://api.iconify.design'
   }
 
-  /**
-   * Split a `prefix:name` reference, or null when it is not one
-   */
   parseRef(ref: string): { prefix: string; name: string } | null {
     const [prefix, name, ...rest] = `${ref}`.toLowerCase().split(':')
     if (!prefix || !name || rest.length > 0) {
@@ -208,20 +177,11 @@ class Icons {
     return this.isValidRef(prefix, name) ? { prefix, name } : null
   }
 
-  /**
-   * Whether a prefix and name are shaped like Iconify identifiers.
-   *
-   * Both end up in a file path, so this is what keeps `../` and friends out of the disk cache.
-   */
+  /** Both end up in a file path, so this is what keeps `../` and friends out of the disk cache. */
   isValidRef(prefix: string, name: string): boolean {
     return PREFIX_PATTERN.test(prefix) && NAME_PATTERN.test(name)
   }
 
-  // == SETS ===========================
-
-  /**
-   * Every added icon set, alphabetically, with the number of icons stored for each
-   */
   async getSets(): Promise<IconSet[]> {
     const sets = await CARDINAL.db.select().from(iconSetsTable).orderBy(iconSetsTable.name)
     const counts = await CARDINAL.db
@@ -236,12 +196,9 @@ class Icons {
   }
 
   /**
-   * A single set, or null when it has not been added.
-   *
-   * A single-row, no-aggregate query (OpenProject #2272): the public `/_icons` batch route calls this
-   * on every request before `resolveIcons` gets a chance to answer from memory, and `getSets()`'s
-   * `count() … group by` over the whole `icons` table has no place on that path. `iconCount` is only
-   * needed by the admin listing, which stays on `getSets()`.
+   * Deliberately a single-row, no-aggregate query: the public `/_icons` batch route calls this on
+   * every request, before `resolveIcons` gets a chance to answer from memory, and `getSets()`'s
+   * `count() … group by` over the whole `icons` table has no place on that path.
    */
   async getSet(prefix: string): Promise<IconSetRow | null> {
     const rows = await CARDINAL.db
@@ -253,9 +210,6 @@ class Icons {
     return set ? { ...set, info: (set.info ?? {}) as IconifyInfo } : null
   }
 
-  /**
-   * The prefixes of the sets icons may currently be drawn from
-   */
   async getEnabledPrefixes(): Promise<string[]> {
     const sets = await CARDINAL.db
       .select({ prefix: iconSetsTable.prefix })
@@ -264,12 +218,7 @@ class Icons {
     return sets.map((s) => s.prefix)
   }
 
-  /**
-   * Add an icon set, taking its name and metadata from upstream.
-   *
-   * @returns The set as added
-   * @throws When the prefix is malformed, already added, or unknown upstream
-   */
+  /** Takes the set's name and metadata from upstream. */
   async addSet(prefix: string): Promise<IconSet> {
     if (!PREFIX_PATTERN.test(prefix)) {
       return Promise.reject(new Error(`"${prefix}" is not a valid icon set prefix.`))
@@ -295,19 +244,14 @@ class Icons {
       .returning()
     CARDINAL.logger.info('icons', 'added icon set', { prefix })
     const set = inserted[0]!
-    // -> A set that was just added has no icons stored for it yet, so there is no need to ask --
-    //    `iconCount` is only ever 0 the moment a set is created.
+    // -> A just-added set has no icons stored for it yet, so `iconCount` needs no query
     return { ...set, info: (set.info ?? {}) as IconifyInfo, iconCount: 0 }
   }
 
   /**
-   * Enable or disable an icon set.
-   *
    * A disabled set stops being searchable and stops being filled from upstream, but the icons already
    * stored for it keep being served: content referencing them is already published, and answering
    * those requests with nothing would silently break pages.
-   *
-   * @returns Whether the set was updated
    */
   async setSetState(prefix: string, isEnabled: boolean): Promise<boolean> {
     const result = await CARDINAL.db
@@ -318,11 +262,8 @@ class Icons {
   }
 
   /**
-   * Delete an icon set along with every icon stored for it, and drop its disk cache.
-   *
-   * Content referencing those icons will stop rendering them, which is why the admin area asks first.
-   *
-   * @returns How many stored icons went with it
+   * Deletes every icon stored for the set too. Content referencing those icons stops rendering them,
+   * which is why the admin area asks first.
    */
   async deleteSet(prefix: string): Promise<number> {
     const deletedIcons = await CARDINAL.db.delete(iconsTable).where(eq(iconsTable.prefix, prefix))
@@ -339,13 +280,7 @@ class Icons {
     return deletedIcons.rowCount ?? 0
   }
 
-  /**
-   * Re-read the metadata of every added set from upstream.
-   *
-   * Only the description of a set changes here — its icons are untouched.
-   *
-   * @returns How many sets were refreshed
-   */
+  /** Re-reads metadata only — a set's stored icons are untouched. */
   async refreshSets(): Promise<number> {
     const collections = await this.getCollections()
     const sets = await CARDINAL.db.select({ prefix: iconSetsTable.prefix }).from(iconSetsTable)
@@ -353,8 +288,8 @@ class Icons {
     for (const set of sets) {
       const info = collections[set.prefix]
       if (!info) {
-        // -> A set can be renamed or withdrawn upstream. Keeping the row is the right call: its icons
-        //    are stored here and content still references them.
+        // -> A set can be renamed or withdrawn upstream; keeping the row is deliberate, since its
+        //    icons are stored here and content still references them
         CARDINAL.logger.warn('icons', 'icon set is no longer offered upstream', {
           prefix: set.prefix
         })
@@ -369,18 +304,10 @@ class Icons {
     return refreshed
   }
 
-  // == UPSTREAM CATALOG ===============
-
-  /**
-   * Every icon set the upstream API offers, keyed by prefix
-   */
   async getCollections(): Promise<Record<string, IconifyInfo>> {
     return this.fetchCatalog('collections', '/collections')
   }
 
-  /**
-   * The upstream catalog as the admin area lists it, marking the sets already added
-   */
   async getAvailableSets(): Promise<AvailableIconSet[]> {
     const [collections, added] = await Promise.all([
       this.getCollections(),
@@ -402,11 +329,7 @@ class Icons {
       .sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  /**
-   * The names of every icon in a set, for browsing it without a search term.
-   *
-   * @throws When the set has not been added or is disabled
-   */
+  /** The names of every icon in a set, for browsing it without a search term. */
   async listSetIcons(prefix: string): Promise<string[]> {
     const set = await this.getSet(prefix)
     if (!set?.isEnabled) {
@@ -416,8 +339,8 @@ class Icons {
       `collection:${prefix}`,
       `/collection?prefix=${encodeURIComponent(prefix)}`
     )
-    // -> Icons come either grouped in categories or as a flat `uncategorized` list, and a set can use
-    //    both. Hidden icons are deprecated ones kept for compatibility, so they are left out.
+    // -> Upstream groups icons into `categories`, a flat `uncategorized` list, or both. `hidden` is
+    //    deprecated icons kept for compatibility, so it is deliberately not read.
     const categorized = Object.values(
       (collection.categories ?? {}) as Record<string, string[]>
     ).flat()
@@ -428,12 +351,10 @@ class Icons {
   /**
    * Search icons upstream, within the sets that are enabled here.
    *
-   * Degrades to `searchIconsLocally` -- the icons already materialized into the permanent record --
-   * rather than surfacing a hard failure, in two cases (OpenProject #3041): offline mode, checked up
-   * front so a doomed network attempt is never even made, and a genuine upstream failure (a network
-   * error, a non-2xx response), caught here so the caller never has to. Either way this method never
-   * rejects for "upstream could not be reached" -- only an unexpected failure in the fallback path
-   * itself (e.g. the database being unreachable) still does.
+   * Degrades to `searchIconsLocally` rather than surfacing a hard failure, both in offline mode
+   * (checked up front, so a doomed network attempt is never made) and on a genuine upstream failure.
+   * So it never rejects for "upstream could not be reached" -- only an unexpected failure in the
+   * fallback path itself, e.g. the database being unreachable.
    *
    * @returns References shaped `prefix:name`
    */
@@ -479,13 +400,8 @@ class Icons {
   }
 
   /**
-   * Search the icons already stored locally -- the one permanent tier of the four described in the
-   * class doc above -- for `searchIcons()`'s offline/unreachable fallback.
-   *
-   * Results are necessarily limited to whatever has been materialized here before (an icon a page
-   * already uses, or one an author has already picked), not the full breadth of an enabled set's
-   * catalog -- bundling more than that is OpenProject #3041's own companion Task under Epic #2938,
-   * deliberately out of scope here.
+   * `searchIcons()`'s offline/unreachable fallback: the permanent tier only, so results are limited
+   * to icons already materialized here rather than the full breadth of an enabled set's catalog.
    *
    * @returns References shaped `prefix:name`
    */
@@ -499,11 +415,7 @@ class Icons {
     return rows.map((row) => `${row.prefix}:${row.name}`)
   }
 
-  /**
-   * Fetch an upstream catalog response, memoized for `CATALOG_TTL_MS`.
-   *
-   * These are large and change rarely, whereas the admin area and the picker ask for them often.
-   */
+  /** Memoized: catalogs are large and change rarely, but the admin area and picker ask often. */
   async fetchCatalog(key: string, pathname: string): Promise<any> {
     const cached = this.catalogCache.get(key)
     if (cached && Date.now() - cached.fetchedAt < CATALOG_TTL_MS) {
@@ -514,13 +426,10 @@ class Icons {
     return data
   }
 
-  // == RESOLVING ======================
-
   /**
    * Resolve icons of one set, filling the cache from upstream for any the wiki does not hold yet.
    *
-   * @param allowUpstream Whether a miss may be fetched upstream. False for callers that must not
-   *   cause outbound traffic, e.g. a bulk render.
+   * @param allowUpstream False for callers that must not cause outbound traffic, e.g. a bulk render.
    */
   async resolveIcons(
     prefix: string,
@@ -531,7 +440,6 @@ class Icons {
     const icons: Record<string, IconifyIcon> = {}
     const missing: string[] = []
 
-    // -> Memory first: the icons a page is made of are asked for again and again
     for (const name of wanted) {
       const cached = this.memoryCache.get(`${prefix}:${name}`)
       if (cached) {
@@ -544,7 +452,6 @@ class Icons {
       return { icons, notFound: [] }
     }
 
-    // -> Then disk, which survives a restart and is what keeps page views off the database
     const stillMissingAfterDisk: string[] = []
     for (const name of missing) {
       const cached = await this.readDiskCache(prefix, name)
@@ -559,7 +466,6 @@ class Icons {
       return { icons, notFound: [] }
     }
 
-    // -> Then the permanent record, in one query for everything still missing
     const rows = await CARDINAL.db
       .select()
       .from(iconsTable)
@@ -587,10 +493,8 @@ class Icons {
   }
 
   /**
-   * Fetch icons from upstream and store them permanently.
-   *
-   * Refuses for a set that is not enabled, so that a disabled set cannot grow, and holds to the
-   * upstream budget so that requests for icons that do not exist cannot be amplified.
+   * Fetch icons from upstream and store them permanently. Refuses for a set that is not enabled, so
+   * a disabled set cannot grow, and holds to the upstream budget so misses cannot be amplified.
    */
   async fetchIconsUpstream(prefix: string, names: string[]): Promise<ResolvedIcons> {
     const set = await this.getSet(prefix)
@@ -598,7 +502,6 @@ class Icons {
       return { icons: {}, notFound: names }
     }
 
-    // -> A name upstream has already denied is not worth asking about again
     const asking = names.filter((name) => !this.isKnownMissing(prefix, name))
     if (asking.length < 1) {
       return { icons: {}, notFound: names }
@@ -662,9 +565,6 @@ class Icons {
     return { icons, notFound: [...notFound, ...names.filter((n) => !asking.includes(n))] }
   }
 
-  /**
-   * Write an icon to the permanent record
-   */
   async storeIcon(prefix: string, name: string, icon: IconifyIcon): Promise<void> {
     const values = {
       prefix,
@@ -688,9 +588,8 @@ class Icons {
   }
 
   /**
-   * Materialize icons so the wiki can serve them without the upstream API.
-   *
-   * Called when an icon is picked, i.e. while the author is online and before anyone else needs it.
+   * Materialize icons so the wiki can serve them without the upstream API. Called when an icon is
+   * picked, i.e. while the author is online and before anyone else needs it.
    *
    * @param refs References shaped `prefix:name`
    * @returns The references that could not be stored
@@ -715,11 +614,7 @@ class Icons {
     return failed
   }
 
-  /**
-   * The SVG for one icon, for the callers that can only carry a URL — an `<img>`, a CSS background.
-   *
-   * @returns The SVG markup, or null when there is no such icon
-   */
+  /** For the callers that can only carry a URL — an `<img>`, a CSS background. */
   async getIconSvg(
     prefix: string,
     name: string,
@@ -731,10 +626,8 @@ class Icons {
   }
 
   /**
-   * Turn resolved icon data into standalone SVG markup.
-   *
-   * Sized in pixels rather than the `1em` Iconify defaults to, since this file is also used as a plain
-   * image — an `<img>` has no font size to scale against.
+   * Standalone SVG markup, sized in pixels rather than the `1em` Iconify defaults to: this file is
+   * also served as a plain image, and an `<img>` has no font size to scale against.
    */
   renderSvg(icon: IconifyIcon): string {
     const rendered = iconToSVG(icon, {
@@ -745,26 +638,19 @@ class Icons {
   }
 
   /**
-   * Turn resolved icon data into SVG markup to be drawn INTO a document.
-   *
-   * Sized in `em` — Iconify's default when neither dimension is given — so the icon follows the text
-   * it sits in, and painted in `currentColor` by the body itself, so it follows that text's colour.
+   * SVG markup to be drawn INTO a document: sized in `em` — Iconify's default when neither dimension
+   * is given — so the icon follows the text it sits in, and painted in `currentColor` by the body.
    *
    * `replaceIDs` is what makes it safe to have more than one on a page: an icon that masks or
-   * gradients refers to its own `<defs>` by id, those ids come from the set rather than from this
-   * document, and two icons carrying the same one would each draw with whichever won. A standalone
-   * file has no such problem, which is why `renderSvg` does not do this.
+   * gradients refers to its own `<defs>` by ids that come from the set rather than this document, and
+   * two icons carrying the same one would each draw with whichever won. A standalone file has no such
+   * problem, which is why `renderSvg` does not do this.
    */
   renderInlineSvg(icon: IconifyIcon, customisations: IconifyIconCustomisations = {}): string {
     const rendered = iconToSVG(icon, customisations)
     return iconToHTML(replaceIDs(rendered.body), rendered.attributes)
   }
 
-  // == CACHE ==========================
-
-  /**
-   * Hold an icon in memory, evicting the least recently stored one when full
-   */
   remember(prefix: string, name: string, icon: IconifyIcon): void {
     if (this.memoryCache.size >= MEMORY_CACHE_MAX) {
       const oldest = this.memoryCache.keys().next().value
@@ -775,28 +661,15 @@ class Icons {
     this.memoryCache.set(`${prefix}:${name}`, icon)
   }
 
-  /**
-   * Remember that upstream has no such icon.
-   *
-   * `notFoundCache` is an `LRUCache` with its own `max`/`ttl`, so eviction and expiry are handled by
-   * the cache itself -- this is just the `prefix:name` keying convention every other cache method uses.
-   */
   rememberMissing(prefix: string, name: string): void {
     this.notFoundCache.set(`${prefix}:${name}`, true)
   }
 
-  /**
-   * Whether upstream said recently that it has no such icon
-   */
   isKnownMissing(prefix: string, name: string): boolean {
     return this.notFoundCache.has(`${prefix}:${name}`)
   }
 
-  /**
-   * Take one slot from the per-minute upstream allowance
-   *
-   * @returns Whether the request may go ahead
-   */
+  /** @returns Whether the request may go ahead. */
   claimUpstreamBudget(): boolean {
     const now = Date.now()
     if (now - this.upstreamBudget.windowStartedAt > 60_000) {
@@ -810,39 +683,30 @@ class Icons {
   }
 
   /**
-   * Where an icon sits in the disk cache.
-   *
-   * Icon data rather than rendered SVG, so that one cached file answers both the batch data requests
-   * the frontend makes and the SVG requests an `<img>` makes — rendering from data is string building.
+   * The disk cache holds icon data rather than rendered SVG, so one cached file answers both the
+   * frontend's batch data requests and an `<img>`'s SVG request — rendering is string building.
    */
   diskCachePath(prefix: string, name: string): string {
     return path.join(this.cachePath, prefix, `${name}.json`)
   }
 
-  /**
-   * Read an icon from the disk cache
-   *
-   * @returns The icon, or null when it is not cached or the file is unusable
-   */
   async readDiskCache(prefix: string, name: string): Promise<IconifyIcon | null> {
     try {
       const icon = JSON.parse(await fs.readFile(this.diskCachePath(prefix, name), 'utf8'))
       return typeof icon?.body === 'string' ? icon : null
     } catch {
-      // -> Not cached on this instance yet, which is the normal state of a fresh container. A corrupt
-      //    file lands here too and is treated the same way: refill it from the database.
+      // -> Not cached yet, the normal state of a fresh container; a corrupt file is treated the same
+      //    way, and either is refilled from the database
       return null
     }
   }
 
   /**
-   * Write an icon to the disk cache, best effort.
+   * Best effort: a full or read-only disk must not stop an icon from being served, since the cache is
+   * derived data every request can be answered without.
    *
-   * A full or read-only disk must not stop an icon from being served, hence the swallowed error: the
-   * cache is derived data and every request can be answered without it.
-   *
-   * The file is written under a temporary name and renamed, so that a concurrent reader either sees
-   * the previous file or the complete new one, never a half-written one.
+   * The file is written under a temporary name and renamed, so a concurrent reader sees either the
+   * previous file or the complete new one, never a half-written one.
    */
   async writeDiskCache(prefix: string, name: string, icon: IconifyIcon): Promise<void> {
     const filePath = this.diskCachePath(prefix, name)
@@ -860,9 +724,7 @@ class Icons {
     }
   }
 
-  /**
-   * Drop the disk and memory caches. Nothing is lost: both are rebuilt from the database on demand.
-   */
+  /** Nothing is lost: both caches are rebuilt from the database on demand. */
   async purgeCache(): Promise<void> {
     this.memoryCache.clear()
     this.notFoundCache.clear()
@@ -872,9 +734,6 @@ class Icons {
     CARDINAL.logger.info('icons', 'purged the icon cache')
   }
 
-  /**
-   * What the wiki holds and what it has cached, for the admin area
-   */
   async getStats(): Promise<{
     setCount: number
     enabledSetCount: number
@@ -898,9 +757,7 @@ class Icons {
     }
   }
 
-  /**
-   * Walk the disk cache. Cheap enough to do on demand: it holds one small file per icon in use.
-   */
+  /** Cheap enough to walk on demand: the cache holds one small file per icon in use. */
   async measureDiskCache(): Promise<{ files: number; bytes: number }> {
     let files = 0
     let bytes = 0
@@ -919,59 +776,45 @@ class Icons {
     return { files, bytes }
   }
 
-  // == SIDELOAD =======================
-
   /**
-   * `<dataPath>/icons` -- a writeable directory an operator drops vendored/exported Iconify
-   * collection JSON files into against a running instance's data volume, one file per prefix (e.g.
-   * `tabler.json`), no rebuild/redeploy/network access needed. Read by `sideloadFromDataPath`,
-   * called unconditionally on every boot (mirrors `Locales.sideloadPath`/`sideloadFromDataPath`,
-   * OpenProject #820). See `docs/offline-deployment.md` (OpenProject #2939/#2945).
+   * `<dataPath>/icons` -- the writeable data-volume directory an operator drops vendored/exported
+   * Iconify collection JSON files into, one file per prefix, with no rebuild, redeploy or network
+   * access needed. Read on every boot. See `docs/offline-deployment.md`.
    */
   sideloadPath(): string {
-    // -> Falls back to `base.yml`'s own default rather than requiring every caller to have merged
-    //    it in, the same reasoning `Locales.sideloadPath` uses.
+    // -> Falls back to `base.yml`'s default rather than requiring callers to have merged it in
     return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath || './data', 'icons')
   }
 
   /**
-   * `backend/assets/icon-sets` -- a read-only, committed release asset directory (as opposed to
+   * `backend/assets/icon-sets` -- the read-only, committed release-asset directory (as opposed to
    * `sideloadPath()`'s writeable data-volume one), holding icon sets vendored straight into the
    * repo/image so a fresh instance already has them without any operator or network action.
-   * Currently just `tabler.json` (OpenProject #3043) -- see `scripts/vendor-icon-sets.ts`, which
-   * generates it from the `@iconify-json/tabler` npm package.
+   * Generated by `scripts/vendor-icon-sets.ts` from the `@iconify-json/*` npm package(s).
    */
   vendoredIconSetsPath(): string {
     return path.join(CARDINAL.SERVERPATH, 'assets/icon-sets')
   }
 
   /**
-   * Loads every `<prefix>.json` file under `sideloadPath()` straight into the permanent record (the
-   * `icons` table), the offline-vendored equivalent of `fetchIconsUpstream`'s API fetch. Missing
-   * directory is not an error: most instances have nothing sideloaded, and this runs unconditionally
-   * on every boot.
+   * Loads every `<prefix>.json` file under `dir` straight into the permanent record (the `icons`
+   * table), the offline-vendored equivalent of `fetchIconsUpstream`'s API fetch. A missing directory
+   * is not an error: most instances have nothing sideloaded, and this runs on every boot.
    *
    * Each file is a full Iconify collection export (`{ icons, aliases?, info? }`) -- NOT the per-icon
    * shape `writeDiskCache` writes; that tier stays untouched. The filename, not any `prefix` field
-   * inside the file, names the set -- `tabler.json` sideloads as `tabler`.
+   * inside the file, names the set. There is no freshness gate: neither `icons` nor `iconSets`
+   * carries an `updatedAt`, and the upstream path always-overwrites on conflict too, so a sideload
+   * is last-write-wins on every boot.
    *
-   * Unlike `Locales.sideloadFromDataPath`, this has no mtime-vs-row freshness gate: neither `icons`
-   * nor `iconSets` carries an `updatedAt` column, and the existing upstream path
-   * (`fetchIconsUpstream` -> `storeIcon`) already always-overwrites on conflict with no freshness
-   * check of its own -- so a sideload does the same, last-write-wins, every boot.
+   * A file contributing at least one usable icon also upserts its `iconSets` row
+   * (`onConflictDoNothing`, so a set already added with real upstream metadata through the admin
+   * picker keeps that metadata) BEFORE its icons are written, since `icons.prefix` has a foreign key
+   * on `iconSets.prefix`.
    *
-   * Every name in a file's `icons` and `aliases` is resolved through `getIconData` -- the same
-   * alias/default resolution `fetchIconsUpstream` already applies to an upstream response -- so a
-   * sideloaded file's aliases behave identically to a fetched one's. A file contributing at least
-   * one usable icon also upserts its `iconSets` row (`onConflictDoNothing`, so a set already added
-   * with real upstream metadata through the admin picker keeps that metadata) BEFORE its icons are
-   * written, since `icons.prefix` has a foreign key on `iconSets.prefix`.
-   *
-   * @param dir The directory to scan, defaulting to the operator-writable `sideloadPath()`.
-   *   `init()` (OpenProject #3043) passes `vendoredIconSetsPath()` instead, to materialize the
-   *   committed Tabler release asset into the same table through this exact same path -- so a
-   *   preloaded row is written the same way, and stays just as overridable by a later real fetch
-   *   or operator sideload, as one loaded from the data volume.
+   * @param dir Defaults to the operator-writable `sideloadPath()`; `init()` passes
+   *   `vendoredIconSetsPath()`, so the committed release asset lands through this same path and
+   *   stays just as overridable by a later fetch or operator sideload.
    */
   async sideloadFromDataPath(dir: string = this.sideloadPath()): Promise<{
     loaded: { prefix: string; iconCount: number }[]
@@ -1064,16 +907,8 @@ class Icons {
     return { loaded, skipped }
   }
 
-  // == PLUMBING =======================
-
   /**
-   * Call the upstream Iconify API
-   *
-   * @throws {IconNotFoundUpstreamError} When upstream has nothing for this request -- a genuine
-   *   HTTP 404, or the documented 200-status response whose body is the literal string `'404'`.
-   *   This is an expected, routine outcome (an icon or a whole prefix nobody has added yet), not a
-   *   failure -- distinguishing it from the plain `Error` below is what lets `fetchIconsUpstream`
-   *   log it at `debug` rather than `warn`.
+   * @throws {IconNotFoundUpstreamError} When upstream has nothing for this request
    * @throws When offline mode is on, the request fails, or the response is otherwise malformed
    */
   async apiFetch(pathname: string): Promise<any> {
@@ -1122,9 +957,6 @@ class Icons {
     }
   }
 
-  /**
-   * Make sure the cache directory exists, so that the first icon request is not the one to find out
-   */
   async ensureCacheDir(): Promise<void> {
     try {
       await fs.mkdir(this.cachePath, { recursive: true })
@@ -1137,24 +969,13 @@ class Icons {
   }
 
   /**
-   * Seed the icon sets a fresh instance starts with.
+   * Seed the icon sets a fresh instance starts with, deliberately network-free: the wiki has to
+   * install without outbound access, so only the prefix and a name go in and the metadata is filled
+   * in by the first refresh. `onConflictDoNothing` so a prefix already in the table cannot take
+   * first-run seeding down with it.
    *
-   * Deliberately network-free: the wiki has to install without outbound access, so only the prefix and
-   * a name go in, and the metadata is filled in by the first refresh.
-   *
-   * `onConflictDoNothing` because a set here may already be in the table by the time this runs, and a
-   * duplicate prefix must not take first-run seeding down with it: migrations run BEFORE
-   * `initDbValues()`, and `20260905190000_main` seeds `tabler` -- the set the interface itself is
-   * drawn in -- so that an instance created before Tabler existed is offered it too. On a fresh
-   * database that migration and this seed both run, in that order, and both name `tabler`.
-   *
-   * Beyond the metadata row above, a fresh instance also gets Tabler's actual icons -- not just the
-   * empty set -- materialized straight into the `icons` table via `sideloadFromDataPath` against the
-   * committed `vendoredIconSetsPath()` release asset (OpenProject #3043), so the picker has all of
-   * Tabler available offline with zero admin action, the same way `postBoot()`'s own unconditional
-   * `sideloadFromDataPath()` call already does for anything an operator drops into the data volume.
-   * This runs exactly once, since `init()` itself only runs on a genuine first boot (see
-   * `ensureSeeded()`'s advisory lock around `initDbValues()`).
+   * The sideload that follows materializes the vendored set's actual icons -- not just the empty
+   * metadata row -- so the picker is fully usable offline with no admin action.
    */
   async init(): Promise<void> {
     CARDINAL.logger.debug('config', 'seeding the default icon sets')
