@@ -24,10 +24,9 @@
       <div>{{ t('editor.props.pageProperties') }}</div>
       <w-space />
       <w-btn
-        class="me-2"
+        class="flush-hover-btn flush-hover-btn--square"
         dense
         flat
-        rounded
         color="white"
         icon="tabler:help-circle"
         :aria-label="t(`common.actions.viewDocs`)"
@@ -35,6 +34,7 @@
         target="_blank"
         type="a" />
       <w-btn
+        class="flush-hover-btn flush-hover-btn--square"
         icon="tabler:x"
         dense
         flat
@@ -599,6 +599,33 @@ onMounted(async () => {
   > .w-toolbar {
     border-top-left-radius: inherit;
     border-top-right-radius: inherit;
+  }
+
+  /*
+    The title band's two icon buttons are flush-hover cells (`.flush-hover-btn`, `css/_base.css`): a
+    square hover that runs the band's full height and touches the panel's right edge. The band's
+    own padding is what kept them floating inside it, so the vertical padding and the inline-end
+    padding are dropped here (the label keeps its inline-start inset). `align-self: stretch` takes
+    each button to the band's height and the 50px min-width makes it a 50x50 square at the band's
+    minimum height.
+
+    The last button sits in the panel's top-right corner, and the shared class squares every button's
+    corners -- so its hover would paint over the card's radius. It takes the band's own (inherited)
+    top-right radius back instead of the band clipping with `overflow: hidden`, which would also
+    clip the buttons' focus outlines. `!important` because the shared radius rule carries one.
+  */
+  > .w-toolbar {
+    padding-block: 0;
+    padding-inline-end: 0;
+  }
+
+  > .w-toolbar > .w-btn.flush-hover-btn {
+    align-self: stretch;
+    min-width: 50px;
+  }
+
+  > .w-toolbar > .w-btn.flush-hover-btn:last-child {
+    border-top-right-radius: inherit !important;
   }
 
   > .w-scroll-area {
