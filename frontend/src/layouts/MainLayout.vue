@@ -359,11 +359,12 @@ const isSidebarOpen = computed({
 /*
   Whether `HeaderNav` draws its inline sidebar toggle (OpenProject #2928 -- it used to be a floating
   bottom-left corner disc in this layout's own template). Shown only where the sidebar is something to
-  open: a narrow viewport, on a site and a page that have one. Not while it is already open -- the
-  scrim is what closes it, and the toggle would only be a second way to do that.
+  open: a narrow viewport, on a site and a page that have one. It stays while the sidebar is open
+  (OpenProject #3455): unmounting it would slide the logo 64px left under the drawer's opening, so
+  it keeps its place and the drawer/scrim simply cover it.
 */
 const showSidebarBtn = computed(() => {
-  return isSidebarAvailable.value && !isWideViewport.value && !isNarrowSidebarOpen.value
+  return isSidebarAvailable.value && !isWideViewport.value
 })
 
 /**
