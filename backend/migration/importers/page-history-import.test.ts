@@ -146,9 +146,7 @@ describe('buildPageHistoryRowsForPage', () => {
     const page = buildStagedPage({
       history: [
         buildHistoryEntry({ oldId: 10, title: 'Welcome', content: 'one' }),
-        // -> Only content changed; title, tags, etc. are identical to the previous entry.
         buildHistoryEntry({ oldId: 11, title: 'Welcome', content: 'two' }),
-        // -> Title changed this time, content did not.
         buildHistoryEntry({ oldId: 12, title: 'Welcome (renamed)', content: 'two' })
       ]
     })
@@ -291,8 +289,8 @@ describe('backfillPageHistoryForPage', () => {
 
     assert.equal(result.inserted, 12000)
     assert.deepEqual(result.failed, [])
-    // -> 12000 rows over a 5000-row chunk size is 3 calls (5000 + 5000 + 2000), well under Postgres's
-    //    65535 bind-parameter ceiling per call (12 fields * 5000 = 60000).
+    // -> Chunking exists for Postgres's 65535 bind-parameter ceiling per statement; 12 is the
+    //    per-row field count the check below multiplies by.
     assert.ok(deps.inserted.length > 1)
     assert.equal(
       deps.inserted.reduce((sum, rows) => sum + rows.length, 0),
@@ -348,9 +346,7 @@ describe('backfillPageHistoryForPage', () => {
     return backfillOrphanedPageHistory(orphaned, 'site-1', deps).then((result) => {
       assert.equal(result.inserted, 2)
       const [row0, row1] = deps.inserted[0]
-      // -> Both rows for the same deleted 2.x page share one synthesized pageId ...
       assert.equal(row0.pageId, row1.pageId)
-      // -> ... which is a real UUID, not the source's numeric old id or anything derived from it.
       assert.match(row0.pageId, /^[0-9a-f-]{36}$/)
       assert.equal(row0.siteId, 'site-1')
       assert.equal(row1.action, 'deleted')
@@ -366,9 +362,7 @@ describe('backfillPageHistoryForPage', () => {
     const result = await backfillOrphanedPageHistory(orphaned, 'site-1', deps)
 
     assert.equal(result.inserted, 2)
-    // -> Each orphaned source page goes through its own backfillPageHistoryForPage call (and
-    //    therefore its own insertVersions call), the same way two real pages are isolated from
-    //    each other.
+    // -> Two calls, not one batch: each orphaned source page runs through its own backfill.
     assert.equal(deps.inserted.length, 2)
     assert.notEqual(deps.inserted[0][0].pageId, deps.inserted[1][0].pageId)
   })

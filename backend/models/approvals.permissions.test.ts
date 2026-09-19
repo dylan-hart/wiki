@@ -13,12 +13,6 @@ import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvalRules.ts'
 import type { GroupRule, AccessActor } from './groups.ts'
 
-/**
- * How many suggestions are still waiting on a page, read straight off the table.
- *
- * The model used to carry this as `countSubmissions()`, but nothing in production ever called it --
- * an assertion helper is what it actually was, so it lives here now rather than on the model.
- */
 async function countOpenSubmissions(pageId: string): Promise<number> {
   return CARDINAL.db.$count(
     submissionsTable,
@@ -27,13 +21,9 @@ async function countOpenSubmissions(pageId: string): Promise<number> {
 }
 
 /**
- * OpenProject #2160/#2165: the approval-rule reviewer queue is a DIFFERENT permission axis from the
- * ordinary page-rule engine. Being named as a reviewer must never stand in for `read:source` (the
- * body a direct "view source" already requires) or `write:pages` (what accepting a suggestion
- * actually does to the page). Covers both halves of the write:pages done-when too: a reviewer who
- * matches the rule but holds no `write:pages` on the target is refused, with the page untouched and
- * the submission left pending rather than partially applied; a reviewer who does hold it still
- * succeeds.
+ * The approval-rule reviewer queue is a DIFFERENT permission axis from the ordinary page-rule
+ * engine: being named as a reviewer never stands in for `read:source` (the body a direct "view
+ * source" requires) or `write:pages` (what accepting a suggestion does to the page).
  */
 describe(
   'approvals reviewer-queue permission gating (DB-backed)',
@@ -44,9 +34,9 @@ describe(
     let approvalsModel: typeof import('./approvals.ts').approvals
     let groupsModel: typeof import('./groups.ts').groups
     let adminActor: PageActor
-    /** Holds only `read:pages` -- named as a reviewer, but never granted `read:source`/`write:pages`. */
+    /** Named as a reviewer, but holds only `read:pages` -- no `read:source`, no `write:pages`. */
     let readOnlyActor: PageActor
-    /** Holds `read:pages` and `write:pages`, but not `read:source` -- the "does hold it" half. */
+    /** Named as a reviewer, and holds `read:pages` + `write:pages`, but not `read:source`. */
     let writeActor: PageActor
 
     const rule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
@@ -69,16 +59,12 @@ describe(
       adminActor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
       readOnlyActor = { id: fixtures.userId, groupIds: [fixtures.groupId], permissions: [] }
 
-      // -> Grants `read:pages` everywhere, and nothing else -- no `read:source`, no `write:pages`.
       await fixtures.db
         .update(groupsTable)
         .set({ rules: [rule()] })
         .where(eq(groupsTable.id, fixtures.groupId))
       await groupsModel.reloadCache()
 
-      // -> A second group, granted `write:pages` too, for the "and still succeeds for one who does
-      //    hold it" half of the done-when.
-      //
       // -> `updateGroup()` -> `clampGuestPatch()` reads `CARDINAL.data.systemIds.guestsGroupId`
       //    unconditionally; the minimal `CARDINAL` from `setupTestDb()` leaves `CARDINAL.data` empty.
       CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
@@ -97,10 +83,8 @@ describe(
         .returning({ id: usersTable.id })
       writeActor = { id: writeReviewer!.id, groupIds: [writeGroupId], permissions: [] }
 
-      // -> One rule covering every page, so this reviewer's `reviewsAll: true` scope has something to
-      //    intersect with `read:pages` against. Both groups are reviewer groups on it -- membership in
-      //    either gets a submission into the review queue, but only `writeGroupId` also grants the
-      //    permission that actually writing the page requires.
+      // -> Both groups are reviewer groups: membership in either gets a submission into the queue,
+      //    but only `writeGroupId` also grants the permission writing the page requires.
       await approvalRules.createRule(fixtures.siteId, {
         name: 'covers everything',
         isEnabled: true,
@@ -148,8 +132,6 @@ describe(
         { groupIds: [], reviewsAll: true }
       )
 
-      // -> `read:pages` still holds, so the row is reviewable at all -- only the current page source
-      //    (which `read:source` gates) is withheld. The suggestion's own proposed text is unaffected.
       assert.ok(detail, 'reviewable: read:pages holds even though read:source does not')
       assert.equal(detail!.pageContent, undefined)
       assert.equal(detail!.content, 'Suggested body')
@@ -249,11 +231,8 @@ describe(
 )
 
 /**
- * `findSubmitRule`'s additive contract: when several enabled rules all let the same groups suggest
- * an edit to a page, the method still answers, but WHICH of them it returns is not something a
- * caller may depend on -- see the doc comment on the method itself. What every caller in this repo
- * actually relies on is truthiness, so that is what this pins down: a non-null result when any rule
- * matches, `null` the moment none does, unaffected by how many others also matched.
+ * `findSubmitRule` is additive: WHICH of several matching rules it returns is deliberately
+ * unspecified, and every caller relies on truthiness alone, so that is all this pins down.
  */
 describe(
   'approvals findSubmitRule additive semantics (DB-backed)',
@@ -298,8 +277,6 @@ describe(
         actor
       )
 
-      // -> Both cover this page for `fixtures.groupId`; nothing here says which one "wins" -- there is
-      //    nothing to win, only whether at least one of them matches
       await approvalRules.createRule(fixtures.siteId, {
         name: 'broad',
         isEnabled: true,
@@ -321,8 +298,6 @@ describe(
         fixtures.groupId
       ])
 
-      // -> The only contract: truthy when covered. Which rule's id came back is deliberately not
-      //    asserted -- that is the exact thing the doc comment says not to rely on.
       assert.ok(rule)
     })
 
@@ -357,14 +332,10 @@ describe(
 )
 
 /**
- * A guest has no account, so `saveSubmission`'s one-open-suggestion-per-page dedup (the
- * `onConflictDoUpdate` path, keyed on `(pageId, authorId)`) never applies to them -- the partial
- * unique index behind it is scoped to `authorId IS NOT NULL` specifically because guests are all the
- * same nobody and cannot be deduplicated against each other. Two different guests suggesting an edit
- * to the same page must therefore both land as their own row, and `getReviewableSubmissions` must
- * still hand a reviewer two distinguishable entries back -- even when both guests left the name and
- * email blank, which is the case the frontend queue has to render without them collapsing into what
- * looks like one submission shown twice (see `InboxReview.vue`'s `authorLabel`).
+ * `saveSubmission`'s one-open-suggestion-per-page dedup (`onConflictDoUpdate` keyed on
+ * `(pageId, authorId)`) rests on a partial unique index scoped to `authorId IS NOT NULL`: guests are
+ * all the same nobody and cannot be deduplicated against each other. Two guests editing one page are
+ * therefore two distinguishable rows, even when both left name and email blank.
  */
 describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -434,8 +405,6 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
       guestEmail: 'bob@example.com'
     })
 
-    // -> Neither replaced the other -- unlike two submissions from the same logged in author, which
-    //    `onConflictDoUpdate` collapses into one row
     assert.equal(await countOpenSubmissions(page.id), 2)
 
     const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
@@ -444,7 +413,6 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     const forPage = reviewable.filter((s) => s.page.id === page.id)
     assert.equal(forPage.length, 2)
     assert.deepEqual(forPage.map((s) => s.author.name).sort(), ['Alice', 'Bob'])
-    // -> Genuinely two different rows, not the same one read twice
     assert.notEqual(forPage[0]!.id, forPage[1]!.id)
   })
 
@@ -476,9 +444,6 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     })
 
     assert.equal(await countOpenSubmissions(page.id), 2)
-    // -> Not the same submission stored twice under one id -- two independent rows, each with its own
-    //    content, which is exactly what lets the frontend disambiguate them by id when their author
-    //    labels are otherwise identical
     assert.notEqual(first.id, second.id)
 
     const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
@@ -489,8 +454,8 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     for (const submission of forPage) {
       assert.equal(submission.author.isGuest, true)
       assert.equal(submission.author.id, null)
-      // -> Blank, not a placeholder string -- the frontend is the layer responsible for turning this
-      //    into "Unknown" and disambiguating two of them, not the model
+      // -> Blank, not a placeholder: turning this into "Unknown" is the frontend's job, not the
+      //    model's.
       assert.equal(submission.author.name, '')
     }
     assert.deepEqual(forPage.map((s) => s.id).sort(), [first.id, second.id].sort())
@@ -498,15 +463,11 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
 })
 
 /**
- * OpenProject #2160/#2165: approval-rule membership (`reviewerGroups`) used to be the ENTIRE gate on
- * the review queue, the raw-source read, and the write that accepting a suggestion performs -- none of
- * `getReviewableSubmissions`, `getSubmissionForReview`, or `approveSubmission` ever called
- * `checkAccess`. A rule with `match: 'START', path: ''` covers the whole site, so any member of its
- * `reviewerGroups` could read and overwrite any page's source regardless of `read:pages`/`read:source`/
- * `write:pages`, the page password gate, or a classification DENY. These assert the fix: a reviewer
- * denied `read:pages` never sees the page in their queue at all; one allowed `read:pages` but denied
- * `read:source` sees the queue entry with no `pageContent`; and `approveSubmission` refuses to write
- * without `write:pages` on the target, leaving the page and the submission untouched.
+ * `reviewerGroups` membership is not itself an access grant. A rule with `match: 'START', path: ''`
+ * covers the whole site, so without their own `checkAccess` calls `getReviewableSubmissions`,
+ * `getSubmissionForReview` and `approveSubmission` would let any reviewer read and overwrite any
+ * page's source regardless of `read:pages`/`read:source`/`write:pages`, the page password gate or a
+ * classification DENY.
  */
 describe(
   'approvals read:pages/read:source/write:pages gating (DB-backed, OpenProject #2160/#2165)',
@@ -528,7 +489,6 @@ describe(
       ;({ groups: groupsModel } = await import('./groups.ts'))
       adminActor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-      // -> Covers the whole site, matching the `match: 'START', path: ''` shape the WP calls out
       await approvalRules.createRule(fixtures.siteId, {
         name: 'covers everything',
         isEnabled: true,
@@ -566,7 +526,6 @@ describe(
       }
     }
 
-    /** A reviewer scope for `reviewerGroupId` -- the actor's own rules decide read:pages/read:source/write:pages. */
     function reviewerScope() {
       return { groupIds: [reviewerGroupId], reviewsAll: false }
     }
@@ -590,7 +549,8 @@ describe(
         authorId: fixtures.userId
       })
 
-      // -> This reviewer's own group grants nothing at all -- no read:pages rule, so checkAccess denies
+      // -> The actor's own group grants nothing -- no `read:pages` rule, so `checkAccess` denies,
+      //    even though `reviewerScope()` still names them a reviewer.
       const blindActor: AccessActor = { groupIds: [randomUUID()], permissions: [] }
       const queue = await approvalsModel.getReviewableSubmissions(
         fixtures.siteId,
@@ -611,17 +571,6 @@ describe(
       assert.equal(detail, null)
     })
 
-    /**
-     * OpenProject #2341: `getReviewableSubmissions()` was flagged by an automated review as running
-     * `checkAccess(actor, 'read:pages', ...)` twice per row -- once filtering `rows` into
-     * `matchedRows`, then again filtering the already-filtered `matchedRows` into `readableRows` --
-     * a redundant duplicate left over from merging two overlapping branches (#2150/#2160). Reading
-     * the current source shows `matchedRows` is filtered by `matchesPage()` (approval-rule path/tag
-     * matching, which never calls `checkAccess`) and only `readableRows` calls `checkAccess`, so the
-     * two filters are not duplicates of each other -- but this spies on the real `checkAccess` to
-     * prove it directly rather than trust a reading of the source: exactly one call per matched row,
-     * not two, is what distinguishes "already fixed" from "still redundant".
-     */
     test('read:pages is checked exactly once per matched row, not filtered twice (OpenProject #2341)', async () => {
       const pageOne = await pagesModel.createPage(
         fixtures.siteId,
@@ -680,8 +629,8 @@ describe(
       await groupsModel.reloadCache()
       const readOnlyActor: AccessActor = { groupIds: [readOnlyGroup!.id], permissions: [] }
 
-      // -> Spy on the real checkAccess rather than stub it out: this has to exercise the actual
-      //    matchedRows -> readableRows pipeline, only counting how many times it runs.
+      // -> Spied, not stubbed: the real `matchesPage()` -> `checkAccess` pipeline has to run; only
+      //    the call count is under test.
       const originalCheckAccess = groupsModel.checkAccess.bind(groupsModel)
       let callCount = 0
       groupsModel.checkAccess = ((...args: Parameters<typeof originalCheckAccess>) => {
@@ -700,9 +649,9 @@ describe(
         groupsModel.checkAccess = originalCheckAccess
       }
 
-      // -> readOnlyActor's rule ALLOWs read:pages everywhere, so every row `matchesPage()` matched
-      //    is also readable -- matchedRows.length === readableRows.length === queue.length here,
-      //    which is exactly what lets callCount === queue.length prove "once per row", not "twice".
+      // -> This actor's rule ALLOWs `read:pages` everywhere, so every row `matchesPage()` matched is
+      //    also readable -- which is what makes `callCount === queue.length` mean "once per matched
+      //    row", not "twice".
       assert.ok(queue.some((s) => s.page.id === pageOne.id))
       assert.ok(queue.some((s) => s.page.id === pageTwo.id))
       assert.equal(callCount, queue.length)
@@ -764,8 +713,6 @@ describe(
       )
       assert.ok(detail)
       assert.equal(detail!.pageContent, undefined)
-      // -> The rest of the response is still there -- a reviewer can act on the queue entry without
-      //    seeing the page's current source
       assert.equal(detail!.content, 'Suggested content')
     })
 
@@ -827,7 +774,6 @@ describe(
       assert.equal(untouched!.content, 'Original body')
       assert.equal(await countOpenSubmissions(page.id), 1)
 
-      // -> The same submission still succeeds for a reviewer who does hold write:pages
       const applied = await approvalsModel.approveSubmission({
         siteId: fixtures.siteId,
         submissionId: submission.id,

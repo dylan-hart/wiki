@@ -18,13 +18,10 @@ import { makeStagedPage } from '../../test/migrationFixtures.ts'
 
 const buildStagedPage = makeStagedPage
 
-/** In-memory fake standing in for `CARDINAL.models.pages` — records every call so tests can assert on
- * what the importer actually sent it, without touching a database. */
 class FakePagesModel implements PagesWriteModel {
   created: { siteId: string; input: PageInput; actor: PageActor }[] = []
   queued: { siteId: string; id: string; actor: PageActor }[] = []
   private nextId = 1
-  /** Set to make the next createPage() call throw, simulating e.g. pageEmptyContent. */
   failNextCreate: string | null = null
 
   async createPage(siteId: string, input: PageInput, actor: PageActor): Promise<Page> {
@@ -35,9 +32,8 @@ class FakePagesModel implements PagesWriteModel {
     }
     const id = `page-${this.nextId++}`
     this.created.push({ siteId, input, actor })
-    // -> Mirrors the real `models/pages.ts#createPage()`'s own behavior (OpenProject #1716): content
-    //    with no `render` queues its own re-render internally, with no separate caller-side call --
-    //    `page-import.ts` relies on exactly this (OpenProject #1723).
+    // -> Mirrors the real `models/pages.ts#createPage()`: content with no `render` queues its own
+    //    re-render internally, with no separate caller-side call. `page-import.ts` relies on that.
     if (input.render === undefined) {
       this.queued.push({ siteId, id, actor })
     }
@@ -84,18 +80,14 @@ class FakePagesModel implements PagesWriteModel {
 
 const noExistingEntries = () => false
 
-/** What `runImport()` folds a whole run's per-page outcomes back into, so a test can assert against
- * the run as a whole rather than call-by-call. */
 interface ImportRun {
   succeeded: PageImportSuccess[]
   failed: { oldId: number; reason: PageImportFailureReason; message: string }[]
-  /** Every succeeded page's warnings, flattened in processing order. */
   warnings: string[]
   pageIdMap: Map<number, string>
 }
 
-/** Drives `createPageImporter()` over a whole page list one `importOne()` call at a time — exactly
- * what `phases/content.ts` does per record — and collects the run's outcomes. */
+/** One `importOne()` call per page — the calling shape `phases/content.ts` uses. */
 async function runImport(
   pages: StagedPage[],
   deps: ImportPagesDeps,
@@ -293,9 +285,8 @@ describe('per-page import', () => {
     assert.equal(input.publishState, 'published')
     assert.equal(input.render, '<h1>Welcome</h1>')
     assert.equal(actor.id, 'actor-1')
-    // -> Regression coverage for task 3054: the option's permission names must actually reach the
-    //    actor's `forcedPagePermissions` field -- `hasPermission()`'s dedicated escape hatch -- rather
-    //    than the inert `permissions` field `checkAccess()` never reads them from.
+    // -> The names must land on `forcedPagePermissions`, `hasPermission()`'s escape hatch, not on
+    //    the inert `permissions` field `checkAccess()` never reads them from.
     assert.deepEqual(actor.forcedPagePermissions, ['write:scripts', 'write:styles'])
     assert.deepEqual(actor.permissions, [])
     assert.deepEqual(actor.groupIds, [])
@@ -305,11 +296,8 @@ describe('per-page import', () => {
   })
 
   test('carries the staged createdAt/updatedAt through to PageInput rather than dropping them', async () => {
-    // -> Regression test for OpenProject #835 / upstream requarks/wiki#4631 ("Importing from Local
-    //    File System is ignoring dateCreated and date fields"): StagedPage already carries the
-    //    source's real timestamps (content-staging.ts) — this asserts importOne() actually forwards
-    //    them to createPage() instead of leaving PageInput.createdAt/updatedAt unset, which would let
-    //    createPage()'s now() default silently stamp every imported page with import time.
+    // -> Left unset, createPage()'s now() default silently stamps every imported page with import
+    //    time instead of the source's own dates (upstream requarks/wiki#4631).
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({
       createdAt: '2018-05-01T12:00:00.000Z',
@@ -482,17 +470,14 @@ describe('per-page import', () => {
   })
 
   test('a page whose path collides with a pre-existing tree entry never reaches createPage(), and is never retried with a numeric suffix', async () => {
-    // -> Unlike sibling-collision, existing-entry-collision is deliberately NOT retried with a
-    //    suffix at all — phases/content.ts relies on this exact reason firing immediately to treat
-    //    an already-migrated page as an idempotent skip on a re-run of the migration CLI, rather
-    //    than creating a renamed duplicate. See resolveStreamedFileName()'s doc comment.
+    // -> phases/content.ts relies on this reason firing immediately to treat an already-migrated
+    //    page as an idempotent skip on a re-run, rather than creating a renamed duplicate.
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 5, path: 'taken' })
 
     const result = await runImport(
       [staged],
-      // -> Only the unsuffixed name is reported as occupied — "taken-1" would be free, proving the
-      //    importer never even tries it for this reason.
+      // -> "taken-1" is left free, so a suffixed retry would have succeeded had one been attempted.
       {
         pagesModel,
         existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName === 'taken'
@@ -549,10 +534,6 @@ describe('per-page import', () => {
   })
 
   test('sibling-collision: streaming is single-pass, so the earlier page is already created by the time the later, colliding one is discovered — the later one is renamed via a numeric suffix rather than dropped', async () => {
-    // -> A single-pass stream cannot fail both sides of a collision: by the time "foobar" is seen to
-    //    collide with "FooBar", "FooBar" has already been created. See the module doc comment's
-    //    "Streaming input and per-page sibling-collision detection" — the later page retries with
-    //    "foobar-1" and succeeds, rather than being dropped.
     const pagesModel = new FakePagesModel()
     const pages = [
       buildStagedPage({ oldId: 1, path: 'FooBar' }),
@@ -587,10 +568,8 @@ describe('per-page import', () => {
       pages,
       {
         pagesModel,
-        // -> "foobar" itself is free (page 1 claims it), but every numbered suffix "foobar-1"…
-        //    "foobar-100" is reported as already occupying a pre-existing tree entry, so page 2's
-        //    retry budget is exhausted with no free name found — the original sibling-collision (not
-        //    the incidental existing-entry-collisions the suffixed retries hit) is what's reported.
+        // -> Inverted so only "foobar" is free: every suffixed retry hits a pre-existing entry, and
+        //    the original sibling-collision — not those incidental ones — is what gets reported.
         existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName !== 'foobar'
       },
       { siteId: 'site-1', forcedPagePermissions: [] }
@@ -638,7 +617,6 @@ describe('per-page import', () => {
       await importer.importOne(page)
     }
 
-    // -> Page 1's history landed before page 2 was even pulled off the generator.
     assert.deepEqual(order, ['staged:1', 'history:1:page-1', 'staged:2', 'history:2:page-2'])
   })
 
@@ -670,7 +648,6 @@ describe('per-page import', () => {
       { siteId: 'site-1', forcedPagePermissions: [] }
     )
 
-    // -> All three pages were created — the history failure did not abort the run.
     assert.equal(result.succeeded.length, 3)
     assert.equal(result.failed.length, 0)
     assert.equal(pagesModel.created.length, 3)
@@ -679,7 +656,6 @@ describe('per-page import', () => {
     assert.ok(
       page2.warnings.some((w) => /pageHistory backfill failed/.test(w) && /insert failed/.test(w))
     )
-    // -> The other two pages carry no such warning.
     for (const oldId of [1, 3]) {
       const page = result.succeeded.find((s) => s.oldId === oldId)!
       assert.ok(!page.warnings.some((w) => /pageHistory backfill failed/.test(w)))
@@ -720,11 +696,6 @@ describe('createPageImporter', () => {
   })
 
   test('claimedLocations persists across importOne() calls, so repeated collisions keep incrementing the suffix', async () => {
-    // -> Same single-pass semantics as the sibling-collision test above, but driven through separate
-    //    importOne() calls on an importer a test built itself rather than through runImport() — this
-    //    is exactly the calling shape phases/content.ts needs: claimedLocations (and every suffixed
-    //    name a rename has already claimed) must persist in the importer's own closure between calls,
-    //    not just within one loop.
     const pagesModel = new FakePagesModel()
     const importer = createPageImporter(
       { pagesModel, existingEntry: noExistingEntries },
@@ -745,10 +716,9 @@ describe('createPageImporter', () => {
   })
 
   describe('importOne() return value', () => {
-    // -> importOne() never throws for a bad page (a sibling-collision, an existing-entry-collision, a
-    //    createPage() error), so a caller that blindly wrapped it as recorder.create()'s own write
-    //    callback would misreport every failed page as a successful wouldCreate. These assertions are
-    //    what phases/content.ts's toRecordOutcome() routes on.
+    // -> importOne() never throws for a bad page, so a caller that wrapped it as recorder.create()'s
+    //    own write callback would misreport every failed page as a successful wouldCreate. This is
+    //    what phases/content.ts's toRecordOutcome() routes on instead.
     test('resolves { status: "created", pageId } on success, matching pageIdMap and succeeded[]', async () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(
@@ -781,8 +751,8 @@ describe('createPageImporter', () => {
       const importer = createPageImporter(
         {
           pagesModel,
-          // -> Every suffixed retry ("foobar-1".."foobar-100") also collides with a pre-existing tree
-          //    entry, so the retry budget is exhausted and the original sibling-collision is reported.
+          // -> Inverted so only "foobar" is free: every suffixed retry collides too, exhausting the
+          //    retry budget.
           existingEntry: (_siteId, _locale, _parentPath, fileName) => fileName !== 'foobar'
         },
         { siteId: 'site-1', forcedPagePermissions: [] }

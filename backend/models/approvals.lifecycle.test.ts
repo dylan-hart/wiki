@@ -13,14 +13,12 @@ import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvalRules.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
+ * One schema for the whole file rather than one per describe: every `setupTestDb()` call is a
+ * `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same fixture.
  *
- * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
- * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * The `hasTestDatabase()` guard is what a per-describe `{ skip }` cannot do for a FILE-level hook: a
+ * root `before()` runs even when every describe is skipped, so without it an unset `DATABASE_URL`
+ * throws out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -38,12 +36,6 @@ after(async () => {
   await teardownTestDb()
 })
 
-/**
- * How many suggestions are still waiting on a page, read straight off the table.
- *
- * The model used to carry this as `countSubmissions()`, but nothing in production ever called it --
- * an assertion helper is what it actually was, so it lives here now rather than on the model.
- */
 async function countOpenSubmissions(pageId: string): Promise<number> {
   return CARDINAL.db.$count(
     submissionsTable,
@@ -52,15 +44,8 @@ async function countOpenSubmissions(pageId: string): Promise<number> {
 }
 
 /**
- * `approveSubmission` writes to the page and closes the suggestion out -- almost entirely SQL
- * orchestration across the submissions, pages and rules tables -- so this runs the real methods
- * against a migrated, per-run-fresh database (see `test/db.ts`), the same call `models/pages.test.ts`
- * makes for the same reason.
- *
- * Covers the approve-time staleness race: a submission's `baseHash` is checked again immediately
- * before the write, not just when the reviewer's `GET .../submissions/:id` computed `isStale` for
- * display. Includes the two-pending-submissions case, where approving the first must stale the
- * second on the very next read -- there is no cache in front of `getReviewableSubmissions` to miss.
+ * A submission's `baseHash` is re-checked immediately before the write, not only when the reviewer's
+ * `GET .../submissions/:id` computed `isStale` for display.
  */
 
 describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -85,8 +70,7 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       .returning({ id: usersTable.id })
     secondAuthorId = secondAuthor!.id
 
-    // -> One rule covering every page, enabled, so `getReviewableSubmissions` (used below to check
-    //    staleness lands on the *next read* with no manual refresh) has something to match against.
+    // -> One rule covering every page, so `getReviewableSubmissions` has something to match against.
     await approvalRules.createRule(fixtures.siteId, {
       name: 'covers everything',
       isEnabled: true,
@@ -158,7 +142,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       authorId: fixtures.userId
     })
 
-    // -> Somebody else writes to the page in between the reviewer's GET and their approve click
     await pagesModel.updatePage(
       fixtures.siteId,
       page.id,
@@ -176,7 +159,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
 
     assert.deepEqual(result, { ok: false, reason: 'stale' })
 
-    // -> Refused, so the interleaving write is not silently clobbered
     const untouched = await pagesModel.getPage({
       siteId: fixtures.siteId,
       id: page.id,
@@ -184,7 +166,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     })
     assert.equal(untouched!.content, 'Somebody else changed this')
 
-    // -> And the submission is still there to be reconciled, not silently discarded
     const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
@@ -221,7 +202,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       authorId: secondAuthorId
     })
 
-    // Sanity: before either is approved, neither is stale
     const beforeApproval = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
@@ -244,8 +224,8 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       approvalsRequired: 1
     })
 
-    // -> `getReviewableSubmissions` joins the live page row every time it is called -- there is no
-    //    cache sitting in front of it to miss, so this is what "without a manual queue refresh" means
+    // -> `getReviewableSubmissions` joins the live page row on every call, with no cache in front of
+    //    it -- staleness lands on the next read, without a queue refresh.
     const afterFirstApproval = await approvalsModel.getReviewableSubmissions(
       fixtures.siteId,
       actor,
@@ -259,7 +239,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     assert.ok(secondNow, 'the second submission is still in the queue')
     assert.equal(secondNow!.isStale, true)
 
-    // And approving the second is now refused, for exactly the reason it shows as stale
     const approveSecond = await approvalsModel.approveSubmission({
       siteId: fixtures.siteId,
       submissionId: second.id,
@@ -271,10 +250,9 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
   })
 
   /**
-   * OpenProject #2349: the finalizing transaction commits `status: 'approved'` before `updatePage()`
-   * (deliberately non-transactional -- see that transaction's own comment) actually writes the page.
-   * A failure there used to leave the submission stuck `approved` forever with no write behind it and
-   * no retry path, since every other query here requires `status = 'open'` to act on a row.
+   * `updatePage()` runs after the finalizing transaction has already committed `status: 'approved'`,
+   * so a failure there needs an explicit revert: every other query requires `status = 'open'` to act
+   * on a row, leaving the submission otherwise unreachable and unretriable.
    */
   test('reverts the submission back to open (not stuck approved) when updatePage() throws after the approval threshold is met', async () => {
     const page = await makePage('approvals/write-failure', 'Original content')
@@ -320,8 +298,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     })
     assert.equal(untouched!.content, 'Original content')
 
-    // -> Visible in the reviewer queue again, and retriable: a later approve call is not blocked by a
-    //    permanently-resolved row that was never actually written.
     const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
@@ -351,14 +327,6 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
   })
 })
 
-/**
- * OpenProject #828: multi-approver minimum-threshold support. `approveSubmission` used to write the
- * page and close the submission out on the very first approve, whoever cast it -- a single-approver
- * sign-off no matter how many reviewers a rule named. These pin the threshold behaviour a rule's
- * `minApprovals` now adds: an approve short of the threshold only records a vote and leaves the page
- * untouched, the same reviewer approving twice does not count as two different sign-offs, and the
- * threshold enforced is the strictest of every enabled rule currently covering the page.
- */
 describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let pagesModel: typeof import('./pages.ts').pages
   let approvalsModel: typeof import('./approvals.ts').approvals
@@ -451,7 +419,6 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
       approvalsRequired: 2
     })
 
-    // -> Not written yet: only one of the two required approvals is in
     const untouched = await pagesModel.getPage({
       siteId: fixtures.siteId,
       id: page.id,
@@ -459,7 +426,6 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
     })
     assert.equal(untouched!.content, 'Original content')
 
-    // -> Still in the queue, and shows progress towards the threshold
     const pending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
@@ -474,8 +440,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
       hasApproved: true
     })
 
-    // -> A second, DIFFERENT reviewer reaches the threshold and their own content/render is what gets
-    //    written
+    // -> The finalizing reviewer's own content/render is what lands, not the first approver's.
     const secondApprove = await approvalsModel.approveSubmission({
       siteId: fixtures.siteId,
       submissionId: submission.id,
@@ -497,7 +462,6 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
     })
     assert.equal(finalPage!.content, 'Second reviewer content')
 
-    // -> Closed out: gone from the queue
     const afterFinalize = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
@@ -544,7 +508,6 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
       render: '<p>Suggested content</p>',
       actor
     })
-    // -> Same reviewer (`actor`) approving again must not be a second, different sign-off
     const repeated = await approvalsModel.approveSubmission({
       siteId: fixtures.siteId,
       submissionId: submission.id,
@@ -638,24 +601,12 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
   })
 
   /**
-   * OpenProject #1735: `approveSubmission` used to insert the vote, count approvals and (once the
-   * threshold was met) write the page + delete the submission with no serialization at all -- two
-   * concurrent calls could both observe "count has reached the threshold" and both go on to write.
-   * `minApprovals: 1` is the sharpest version of this: a single reviewer's double-submit (a doubled
-   * click, a retried request) is enough to trigger it, since both requests count the same one vote as
-   * meeting the threshold.
+   * `Promise.all`, not sequential `await`s: only genuinely concurrent calls exercise the
+   * transaction's `SELECT ... FOR UPDATE` serializing across two connections.
    *
-   * Fired as genuine concurrent calls (`Promise.all`, not sequential `await`s) against the real
-   * database, so this actually exercises the transaction's `SELECT ... FOR UPDATE` row lock's
-   * cross-connection serialization rather than merely re-describing the code's control flow. One call
-   * must finalize; the other must see the
-   * submission already gone and return `not-found`. `pageHistory`'s `updated` row count is used as
-   * the proxy for "how many times did `updatePage` actually run" -- `hooks.emit('page:edit', ...)`
-   * and `storage.dispatch('page:edit', ...)` are both called exactly once per `updatePage` call (see
-   * `models/pages.ts#updatePage`), so a single history row is sufficient evidence that neither of
-   * those ran twice either, without this test also having to stand up a real storage target (which
-   * needs `CARDINAL.SERVERPATH` and the on-disk module definitions -- out of scope for this fix). A
-   * subscribed webhook is cheap to set up, though, and gives an independent, direct check on top.
+   * `pageHistory`'s `updated` row count stands in for how many times `updatePage` ran -- it fires
+   * `hooks.emit` and `storage.dispatch` once per call, so one history row also rules out a doubled
+   * dispatch without this test standing up a real storage target.
    */
   test('two concurrent approve calls from the same reviewer at minApprovals:1 finalize exactly once', async () => {
     await approvalRules.createRule(fixtures.siteId, {
@@ -732,8 +683,6 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
     )
     assert.equal(webhookJobs.length, 1, 'the page:edit hook should fire exactly once')
 
-    // -> Closed out: gone from the queue, and re-approving the finalized submission is a no-op
-    //    not-found, not a second finalization
     const afterBoth = await approvalsModel.approveSubmission({
       siteId: fixtures.siteId,
       submissionId: submission.id,
@@ -746,15 +695,9 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
 })
 
 /**
- * OpenProject #1735 (part of #1730): `approveSubmission` used to insert the vote, count approvals and
- * -- if the threshold was met -- write the page and delete the submission, all as separate statements
- * on the default connection with no lock. Two requests both reading a threshold-satisfying count could
- * both enter the finalize branch: `onConflictDoNothing` only suppresses a duplicate vote *row* from the
- * same reviewer, not the count both still went on to read, so a single reviewer's double-submit at
- * `minApprovals: 1` produced two `updated` history versions for one approval. `approveSubmission` now
- * takes a `for('update')` row lock inside a transaction spanning the vote-insert through the
- * finalize-or-not decision, so the second call blocks until the first commits, then finds the
- * submission already gone and returns not-found.
+ * `onConflictDoNothing` on the vote insert suppresses a duplicate vote row, but not the count two
+ * concurrent calls both go on to read -- the `for('update')` row lock spanning vote-insert through
+ * the finalize decision is what makes exactly one of them finalize.
  */
 describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let pagesModel: typeof import('./pages.ts').pages
@@ -770,8 +713,7 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
   })
 
   test('two concurrent approvals at minApprovals 1 finalize exactly once; the loser gets not-found', async () => {
-    // -> No rule created: `requiredApprovalsForPage` defaults to 1 when nothing matches, the same
-    //    `minApprovals: 1` case the audit finding calls out.
+    // -> No rule created: `requiredApprovalsForPage` defaults to 1 when nothing matches.
     const page = await pagesModel.createPage(
       fixtures.siteId,
       {
@@ -797,8 +739,6 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
       authorId: fixtures.userId
     })
 
-    // -> The same reviewer's double-submit: a double click or a retried request, both racing to
-    //    finalize the same submission at once.
     const [first, second] = await Promise.all([
       approvalsModel.approveSubmission({
         siteId: fixtures.siteId,
@@ -833,7 +773,6 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
     const updated = entries.items.filter((e) => e.action === 'updated')
     assert.equal(updated.length, 1, 'exactly one updated history version, not two')
 
-    // -> Closed out: gone from the queue, not left behind for either racer to find again
     const pending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
@@ -845,13 +784,6 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
     )
   })
 
-  /**
-   * OpenProject #2354: `approveSubmission`'s finalizing UPDATE had no `status = 'open'` guard on its
-   * WHERE clause, unlike `rejectSubmission`'s. The `for('update')` row lock re-check just above it
-   * already serializes a concurrent approve/decline pair at the Postgres level, so this exercises
-   * that the pairing still resolves to exactly one winner with the guard in place -- never both a
-   * finalized approve AND a successful decline for the same submission.
-   */
   test('a concurrent approve and reject on the same submission resolve to exactly one winner', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -891,8 +823,6 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
 
     const approveWon = approveResult.ok && approveResult.finalized
     const rejectWon = rejectResult === true
-    // -> Exactly one side prevails -- never both (the page written AND the row left declined), and
-    //    never neither (both losing to a state the other side never actually reached).
     assert.notEqual(
       approveWon,
       rejectWon,
@@ -923,12 +853,10 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
 })
 
 /**
- * OpenProject #2187: `approveSubmission` must resolve `write:scripts`/`write:styles` from the
- * SUBMITTER, not the reviewer finalizing the approval -- otherwise a reviewer who happens to hold
- * either permission launders a submitter's `<script>`/inline handler past a grant the submitter
- * never had (see `resolveSubmitterRenderPermissions`'s own comment in `models/approvals.ts`).
- * `reviewer` below holds `manage:system` specifically because that is the case where laundering
- * would be easiest to miss -- it bypasses every page-rule check for the reviewer themselves.
+ * Resolving `write:scripts`/`write:styles` from the reviewer would let one who holds either launder
+ * a submitter's `<script>`/inline handler past a grant the submitter never had. `reviewer` below
+ * holds `manage:system` because that is where laundering would be easiest to miss -- it bypasses
+ * every page-rule check for the reviewer themselves.
  */
 describe(
   'approvals render permissions resolve from the submitter, not the reviewer (DB-backed)',
@@ -953,8 +881,6 @@ describe(
         reviewerGroups: []
       })
 
-      // -> A second user, granted `write:scripts` through a real group rule -- the "submitter who
-      //    DOES hold the permission" half of the assertion below.
       const [scriptedAuthor] = await fixtures.db
         .insert(usersTable)
         .values({
@@ -1082,12 +1008,6 @@ describe(
   }
 )
 
-/**
- * `status`/`resolvedReason`/`resolvedBy` (OpenProject #2125): a freshly-inserted submission is
- * `open` with no resolution recorded yet, before any reviewer has acted on it. Approve/reject
- * actually setting these on resolution is sibling work (#2129) -- this only locks down what the
- * migrated schema itself hands back on insert.
- */
 describe(
   'approvals submission resolution columns (DB-backed)',
   { skip: !hasTestDatabase() },
@@ -1146,12 +1066,9 @@ describe(
 )
 
 /**
- * OpenProject #2129: `rejectSubmission` used to be a bare DELETE, and `approveSubmission` ended in
- * one too -- neither path recorded anything, so a declined suggestion could not be shown back to its
- * author or recovered from a mistaken decline. Both now mark the row (`status`, `resolvedReason`,
- * `resolvedBy`) and retain it. This suite pins that: the row survives resolution with the right
- * fields set, and every "still pending" query (`getReviewableSubmissions`, `countOpenSubmissions`,
- * `getOwnSubmission` via `saveSubmission`'s resubmit path) stops surfacing a resolved row as open.
+ * Approve and reject both mark the row (`status`, `resolvedReason`, `resolvedBy`) and retain it
+ * rather than deleting it, so a decline can be shown back to its author. Every "still pending" query
+ * therefore has to exclude a resolved row rather than relying on its absence.
  */
 describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let pagesModel: typeof import('./pages.ts').pages
@@ -1379,12 +1296,10 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
 
     await approvalsModel.rejectSubmission(fixtures.siteId, first.id, null, actor.id)
 
-    // -> `getOwnSubmission` must not resolve the declined row as still "open"
     assert.equal(await approvalsModel.getOwnSubmission(page.id, fixtures.userId), null)
 
-    // -> And `saveSubmission`'s resubmit path must not collide with the declined row (its partial
-    //    unique index is scoped to `status = 'open'`) -- it creates a fresh, independent row instead
-    //    of silently reopening the declined one
+    // -> The resubmit path must not collide with the declined row: the one-open-submission unique
+    //    index is partial, scoped to `status = 'open'`.
     const second = await approvalsModel.saveSubmission({
       siteId: fixtures.siteId,
       page: pageRef(page),
@@ -1402,12 +1317,6 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
     const secondRow = await rowFor(second.id)
     assert.equal(secondRow!.status, 'open')
   })
-
-  /*
-    OpenProject #2137: the return leg -- what `getResolvedSubmission`/`pageViewerState` hand back once
-    a reviewer has acted, since `hasOpenSuggestion` alone only ever says a suggestion is gone, never
-    what happened to it.
-  */
 
   test('getResolvedSubmission: null while nothing of this author’s has been resolved yet', async () => {
     const page = await makePage('approvals/resolved/none-yet', 'Original content')
@@ -1485,10 +1394,9 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
 
   test('pageViewerState surfaces resolvedSubmission for the author of a declined suggestion', async () => {
     const page = await makePage('approvals/resolved/viewer-state', 'Original content')
-    // -> The describe block's own rule (`before()` above) has `submitterGroups: []`, which
-    //    `findSubmitRule` never matches -- a rule that actually names this actor's group as a
-    //    submitter is what makes `pageViewerState` look up `resolvedSubmission` at all (same gate as
-    //    `hasOpenSuggestion`), scoped to this test's own page so the site-wide rule above is untouched.
+    // -> The describe's own rule has `submitterGroups: []`, which `findSubmitRule` never matches,
+    //    and `pageViewerState` only looks up `resolvedSubmission` for an actor a submit rule names.
+    //    Scoped to this test's page so the site-wide rule stays untouched.
     await approvalRules.createRule(fixtures.siteId, {
       name: 'submitter rule for viewer-state test',
       isEnabled: true,
@@ -1529,12 +1437,8 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
 })
 
 /**
- * OpenProject #1932: `saveSubmission`/`approveSubmission`/`rejectSubmission` each now fire an
- * `approval:*` webhook event beside their primary write, the same convention `models/pages.ts` uses
- * for `page:*`. `CARDINAL.models.hooks.emit` is replaced with a `mock.fn()` after `setupTestDb()` installs
- * the real models, so every call this suite makes is captured directly rather than inferred from a
- * queued job -- `Hooks.emit()`'s own SQL/queuing behaviour is already covered by `Hooks.emit (unit)`
- * above and does not need re-proving here.
+ * `CARDINAL.models.hooks.emit` is stubbed so events are captured directly rather than inferred from
+ * a queued job; `Hooks.emit()`'s own SQL/queuing behaviour is covered by `models/hooks.test.ts`.
  */
 describe('approvals webhook events (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let pagesModel: typeof import('./pages.ts').pages
@@ -1580,9 +1484,8 @@ describe('approvals webhook events (DB-backed)', { skip: !hasTestDatabase() }, (
       actor
     )
 
-    // -> Reset AFTER creating the page, not before: `createPage` fires its own real
-    //    `page:create` through this same mocked `emit`, and that call is not what this test
-    //    is about.
+    // -> Reset after creating the page: `createPage` fires its own `page:create` through this same
+    //    stubbed `emit`.
     emit.mock.resetCalls()
 
     const submission = await approvalsModel.saveSubmission({
@@ -1656,10 +1559,8 @@ describe('approvals webhook events (DB-backed)', { skip: !hasTestDatabase() }, (
     })
     assert.equal(result.ok, true)
 
-    // -> Filtered to `approval:approved` specifically, not a raw call count: a finalizing approve
-    //    also writes the page through `pages.updatePage`, which fires its own real `page:edit`
-    //    through this same mocked `emit` -- exactly-once is about THIS event, not every hook call
-    //    the write path happens to make.
+    // -> Filtered rather than counted: a finalizing approve also writes the page, whose own
+    //    `page:edit` goes through this same stubbed `emit`.
     const approvedCalls = emit.mock.calls.filter((c) => c.arguments[0] === 'approval:approved')
     assert.equal(approvedCalls.length, 1)
     const [event, siteId, data] = approvedCalls[0]!.arguments
