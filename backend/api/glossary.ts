@@ -13,27 +13,14 @@ interface GlossaryTermBody {
 }
 
 /**
- * Glossary API Routes (OpenProject #870)
+ * Admin routes are gated on `manage:glossary` rather than `manage:sites`, which grants far more
+ * than glossary management needs.
  *
- * Every admin route (list/create/update/delete, export/import, save, versions) is gated behind its
- * own `manage:glossary` global permission (OpenProject #1116) -- not `manage:sites`, which also
- * grants site creation/deletion/config editing, far more than glossary management needs.
- * `manage:system` still bypasses every check regardless, per the shared permission hook. `GET
- * .../terms` is the one exception: it carries no route-level permission, the same way `api/tags.ts`
- * doesn't, because it is what the editor's own live preview and save-time render pull from to match
- * against — refusing it there would refuse rendering, not just the admin screen.
- *
- * The single-term create/update/delete routes below have no in-repo caller — the admin UI stages
- * edits locally and applies them wholesale through `.../glossary/save` instead (see that route's own
- * comment) — but they remain a legitimate programmatic surface for an API-key client to manage one
- * term at a time. `models/glossary.ts`'s `createTerm`/`updateTerm`/`deleteTerm` now each record a
- * `glossary_versions` snapshot in the same transaction as the write (OpenProject #1891), so a write
- * through one of these routes is no longer invisible to a later "restore previous version".
+ * The single-term create/update/delete routes have no in-repo caller -- the admin UI applies its
+ * staged edits wholesale through `.../glossary/save` -- and stay as the API surface for managing
+ * one term at a time.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST GLOSSARY TERMS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/glossary',
     {
@@ -61,21 +48,14 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST RESOLVED TERMS FOR RENDERING
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/glossary/terms',
     {
       /*
-        No route-level permissions, and genuinely public -- a term's name and definition are not
-        gated content, the same way an Iconify icon isn't. This is
-        the cached, resolved list the rendering pipeline matches against (see
-        `renderers/modules/markdown-it-glossary.js`), fetched by the editor itself so its live preview
-        and the render it saves stay in step with what a reader will eventually see. Each term's
-        `link` IS gated, though (OpenProject #1127): `getCachedTerms` resolves it against the calling
-        actor's own `read:pages` access, so an editor with no access to a term's canonical page gets
-        `link: null` for it -- the page's title/existence never leaks into a render this route feeds.
+        No route-level permissions, and public: a term's name and definition are not gated content,
+        and the editor's live preview and save-time render both match against this list. Each term's
+        `link` IS gated: `getCachedTerms` resolves it against the actor's own `read:pages`, so a
+        canonical page's existence never leaks through it.
       */
       schema: {
         summary: 'List the resolved glossary terms the rendering pipeline matches against',
@@ -101,17 +81,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST GLOSSARY ACRONYMS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/glossary/acronyms',
     {
       /*
-        No route-level permissions, same reasoning as `.../glossary/terms` just above: an acronym's
-        canonical casing carries no page-access sensitivity of its own (OpenProject #2575), and this
-        is what the frontend's path-segment humanizer consults to render e.g. "uss" as "USS" on any
-        page/nav/breadcrumb display, not only inside the admin area.
+        No route-level permissions: an acronym's casing carries no page-access sensitivity, and the
+        frontend's path-segment humanizer reads this on every page, not only in the admin area.
       */
       schema: {
         summary: 'The site’s acronym lookup, for the path-segment humanizer',
@@ -130,9 +105,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE GLOSSARY TERM
-   */
   app.post<{ Params: { siteId: string }; Body: GlossaryTermBody }>(
     '/sites/:siteId/glossary',
     {
@@ -174,9 +146,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE GLOSSARY TERM
-   */
   app.put<{ Params: { siteId: string; termId: string }; Body: GlossaryTermBody }>(
     '/sites/:siteId/glossary/:termId',
     {
@@ -222,9 +191,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE GLOSSARY TERM
-   */
   app.delete<{ Params: { siteId: string; termId: string } }>(
     '/sites/:siteId/glossary/:termId',
     {
@@ -268,9 +234,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * EXPORT GLOSSARY AS JSON
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/glossary/export',
     {
@@ -296,9 +259,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * IMPORT GLOSSARY FROM JSON
-   */
   app.post<{ Params: { siteId: string }; Body: GlossaryExport }>(
     '/sites/:siteId/glossary/import',
     {
@@ -330,9 +290,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SAVE STAGED GLOSSARY EDITS
-   */
   app.post<{ Params: { siteId: string }; Body: { terms: GlossaryExportTermInput[] } }>(
     '/sites/:siteId/glossary/save',
     {
@@ -373,9 +330,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST GLOSSARY VERSIONS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/glossary/versions',
     {
@@ -404,9 +358,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET ONE GLOSSARY VERSION
-   */
   app.get<{ Params: { siteId: string; versionId: string } }>(
     '/sites/:siteId/glossary/versions/:versionId',
     {
@@ -445,20 +396,9 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * QUEUE EVERY PAGE FOR RERENDER (OpenProject #3181)
-   *
-   * Glossary term matching runs at render time, not retroactively against every already-stored
-   * page's HTML the moment a term is added or edited -- so an admin who wants a term applied across
-   * the whole site right away has, until now, had to trigger the per-page Rerender action one page at
-   * a time. This is the bulk escape hatch: every markdown page of the site is queued through
-   * `CARDINAL.models.pages.queueRerenderAllPages()`, the very same render queue the single-page action
-   * and every ordinary save already use.
-   *
    * Gated on `manage:glossary` rather than a per-page `write:pages` check, unlike
-   * `POST .../pages/bulk`'s own `render` action: this route is not scoped to an admin-picked
-   * selection of pages that caller may or may not be permitted to edit -- it is "rerender everything
-   * this glossary can affect", the same administrative reach every other glossary route already
-   * carries.
+   * `POST .../pages/bulk`'s `render` action: this is not a caller-picked selection of pages but
+   * everything the glossary can affect -- the reach every other glossary route already carries.
    */
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/glossary/rerender-all-pages',
@@ -466,8 +406,7 @@ async function routes(app: FastifyInstance) {
       config: {
         permissions: ['manage:glossary']
       },
-      // -> Same throttle the single-page and bulk page-render routes use (`helpers/rateLimit.ts`) --
-      //    one call here can still queue a browser render for every page on the site.
+      // -> One call can queue a browser render for every page on the site.
       preHandler: limitRenders,
       schema: {
         summary: 'Queue every page of a site to be rendered again from its source',
@@ -500,9 +439,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RESTORE A GLOSSARY VERSION
-   */
   app.post<{ Params: { siteId: string; versionId: string } }>(
     '/sites/:siteId/glossary/versions/:versionId/restore',
     {

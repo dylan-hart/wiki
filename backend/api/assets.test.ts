@@ -10,16 +10,6 @@ import { SVG_CSP } from '../helpers/security.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('download route: byte-serving behavior', () => {
-  /**
-   * Exercises `/sites/:siteId/assets/:assetId/content` at the HTTP layer via `app.inject()`,
-   * mirroring `controllers/files.test.ts` for the public route: `readContent()`'s own
-   * streaming/directAccess branching is covered at the model level in `models/assets.test.ts`, so
-   * this proves only what this task changed at the route layer — that `Content-Disposition`,
-   * `X-Content-Type-Options` and (for an SVG- or HTML-typed asset) `Content-Security-Policy` are set
-   * exactly the same way whichever kind of result `readContent()` hands back, that the unified
-   * `dispositionFor()` predicate (OpenProject #2164) agrees with `/_files/`'s, and that a
-   * `redirectUrl` short-circuits to a 302 before any of them are touched.
-   */
   const siteId = '11111111-1111-1111-1111-111111111111'
   const assetId = '22222222-2222-2222-2222-222222222222'
 
@@ -42,11 +32,7 @@ describe('download route: byte-serving behavior', () => {
   let readContentCalledWith: any
   let resolvedAsset: any
 
-  /**
-   * `security.forceAssetDownload: true` matches `base.yml`'s real default, same as
-   * `controllers/files.test.ts`'s own `buildApp` -- a test that wants realistic behavior needs it
-   * here too, since this stub bypasses the base.yml merge entirely.
-   */
+  /** `forceAssetDownload: true` is `base.yml`'s default, which this stub's config never merges. */
   async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     return buildTestApp({
       routes,
@@ -63,8 +49,6 @@ describe('download route: byte-serving behavior', () => {
           assets: {
             getAsset: async () => resolvedAsset ?? asset
           },
-          // -> `readContent` moved to `models/assetServing.ts` when the serving cache was split out
-          //    of `models/assets.ts`; the `/content` route reaches it there now.
           assetServing: {
             readContent: async (a: any, sId: string) => {
               readContentCalledWith = { a, sId }
@@ -130,13 +114,6 @@ describe('download route: byte-serving behavior', () => {
     await closeTestApp(app)
   })
 
-  /**
-   * OpenProject #1360/#2152/#2164 (2026-08-24 security audit §3): this route's `Content-Disposition`
-   * predicate used to be inverted relative to `/_files/*`'s — `forceAssetDownload ||
-   * !INLINE_EXTS.has(ext)` forced every image to download whenever `forceAssetDownload` was on (the
-   * shipped default), and forced every non-image extension to download regardless of the setting.
-   * Both routes now call the one shared `models/assets.ts#dispositionFor` predicate.
-   */
   test('never forces an inline (INLINE_EXTS) extension to download, even with forceAssetDownload on (dispositionFor, OpenProject #2164)', async () => {
     resolvedAsset = { ...asset, fileName: 'photo.png', fileExt: 'png', mimeType: 'image/png' }
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
@@ -206,18 +183,6 @@ describe('download route: byte-serving behavior', () => {
 })
 
 describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
-  /**
-   * Regression test for task 699, widened by OpenProject #1587/#1593: originally only the two
-   * siteId-scoped asset READ routes (`GET .../assets/:assetId` and `GET .../assets/:assetId/content`)
-   * were gated, via a `guardSiteEnabled()` call hand-applied in each — upload/rename/delete were
-   * DELIBERATELY left reachable so an administrator could keep cleaning up a disabled site's content.
-   * The 2026-08-24 audit found that gap worth closing instead: `api/assets.ts:68/328/400` (upload,
-   * rename, delete) are named in OpenProject #1587 as part of the surface its shared preHandler
-   * (`siteEnabledPreHandler`, `helpers/siteResolution.ts`) now covers, same as every other `:siteId` route.
-   * `assets.ts` itself no longer calls `guardSiteEnabled` anywhere, so this suite wires the same
-   * preHandler onto its own standalone app below (mirroring how `api/index.ts` wires it in
-   * production).
-   */
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
   const ASSET_ID = '33333333-3333-4333-8333-333333333333'
@@ -236,9 +201,8 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
-    //    before the route file it covers is registered — `assets.ts` no longer calls
-    //    `guardSiteEnabled` itself (OpenProject #1593).
+    // -> As `api/index.ts` wires it: the guard is a plugin-level hook added before the route file
+    //    is registered, not something `assets.ts` calls itself.
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(routes)
@@ -326,12 +290,6 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
     assert.equal(getAssetCalls, 1)
   })
 
-  /*
-    UPLOAD/RENAME/DELETE carried no guard at all before OpenProject #1587/#1593 -- a disabled site's
-    file manager stayed fully writable to anyone still holding its siteId. All three now answer 403
-    through the shared preHandler wired above, before the handler ever touches `CARDINAL.models.assets`.
-  */
-
   test('UPLOAD asset: answers 403 for a disabled site, without ever calling upload', async () => {
     uploadCalls = 0
     const res = await app.inject({
@@ -383,12 +341,8 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   })
 
   /**
-   * Regression tests for task 676: `mayOnAsset` takes an explicit `siteId` and threads it into the
-   * `RulePageRef` passed to `checkAccess`, so a page rule scoped to one site (task 671) is enforced
-   * for assets, not just pages. Exercised directly, plus one route wiring check per call site that
-   * can reach `mayOnAsset` without extra session setup (upload requires an authenticated session and
-   * is covered indirectly by the direct `mayOnAsset` test instead). Sharing this describe's app/CARDINAL
-   * setup rather than standing up its own, since both cover the same siteId-scoped asset routes.
+   * `mayOnAsset` site scoping: a page rule scoped to one site has to hold for assets too. These
+   * share this describe's app and `CARDINAL` setup rather than standing up their own.
    */
 
   test('mayOnAsset: threads siteId into the RulePageRef passed to checkAccess', () => {
@@ -484,15 +438,6 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   })
 })
 
-/**
- * MOVE ASSET (OpenProject #2447)
- *
- * Exercised at the HTTP layer: the source/destination permission split (`manage:assets` at the
- * current folder, `write:assets` at the destination -- the same shape the page move route checks),
- * `folderId` winning over `parentPath`, and the destination-folder-must-resolve-in-this-site 404 --
- * deliberately stricter than upload's own OpenProject #2131 leniency, since a move's destination is
- * explicit user intent rather than a merely-suggested parent.
- */
 describe('MOVE ASSET route (OpenProject #2447)', () => {
   const SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   const ASSET_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
@@ -602,8 +547,7 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
     checkAccessCalls = []
     moveAssetCalls = []
     getFolderByIdCalls = []
-    // -> Allow the first (source, manage:assets) check and deny the second (destination,
-    //    write:assets) -- the split this route checks in order.
+    // -> Allows the first (source) check and denies the second (destination)
     const originalCheckAccess = (globalThis as any).CARDINAL.models.groups.checkAccess
     ;(globalThis as any).CARDINAL.models.groups.checkAccess = (
       _actor: any,
@@ -665,8 +609,7 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
       getFolderByIdCalls.map((c) => c.id),
       [unknownFolderId]
     )
-    // -> Only the source-permission check ran; the destination check never runs against an
-    //    unresolved folder
+    // -> Only the source check: the destination check never runs against an unresolved folder
     assert.equal(checkAccessCalls.length, 1)
     assert.equal(moveAssetCalls.length, 0)
   })
@@ -720,14 +663,6 @@ describe('MOVE ASSET route (OpenProject #2447)', () => {
   })
 })
 
-/**
- * UPLOAD ASSET: `parentPath` resolution (OpenProject #879)
- *
- * A pending-asset upload now names its destination folder by the page's own parent path rather than
- * an already-known folder ID. Exercised at the HTTP layer via `app.inject()`, standing in for
- * `@fastify/session` the same way `pages.test.ts` does — a preHandler reads an authenticated session
- * off the `x-test-session` header, since the upload route requires one.
- */
 describe('upload route: parentPath resolution (OpenProject #879)', () => {
   const SITE_ID = '44444444-4444-4444-8444-444444444444'
   const RESOLVED_FOLDER_ID = '55555555-5555-4555-8555-555555555555'
@@ -779,10 +714,6 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
             }
           },
           tree: {
-            // -> Echoes back a resolved-in-this-site folder for the given id (OpenProject #2127:
-            //    getFolderById is now siteId-scoped, and the upload route trusts its resolved `.id`
-            //    rather than the raw query param) -- a foreign/unknown id is exercised in its own
-            //    dedicated test below with a `null`-returning override.
             getFolderById: async (id: string, _siteId: string) => {
               getFolderByIdCalls.push(id)
               return { id, folderPath: '', fileName: '' }
@@ -803,8 +734,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
               return uploadedAsset
             }
           },
-          // -> The upload route now carries `limitUploads` as a preHandler (OpenProject #3234); this
-          //    suite is about the route's own logic, not the limiter's, so it always allows.
+          // -> The upload route carries `limitUploads` as a preHandler; this suite always allows.
           rateLimits: {
             consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
           }
@@ -849,10 +779,8 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     checkAccessCalls = []
     const res = await app.inject({
       method: 'POST',
-      // -> Mixed case and a wrapping slash: `getFolder`/`createFolder` would resolve and create
-      //    this at the same normalized path as `guides/setup` regardless, so the permission check
-      //    must be run against that same normalized string, not the raw one, or a page rule written
-      //    (as every page path is) in normalized form could be evaded just by changing the casing.
+      // -> Mixed case and wrapping slashes: the folder is created at the normalized path either
+      //    way, so a rule written in normalized form must not be evadable by re-casing the request.
       url: `/sites/${SITE_ID}/assets?fileName=photo.png&parentPath=%2FGuides%2FSetup%2F`,
       headers: { ...sessionHeader(), 'content-type': 'image/png' },
       payload: Buffer.from([1, 2, 3])
@@ -905,12 +833,6 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     }
   })
 
-  /**
-   * OpenProject #1666: the upload route looked `folderId` up by bare id with no site check, unlike
-   * CREATE/RENAME/DELETE FOLDER in `tree.ts` -- a `folderId` from another site let the permission
-   * check evaluate against the wrong (site-root) destination instead of refusing the request. Also
-   * covers the missing/nonexistent-id case, which fell through the same way.
-   */
   test('rejects a `folderId` belonging to another site (404, no upload, permission check never runs against the wrong destination)', async () => {
     getFolderByIdCalls = []
     checkAccessCalls = []
@@ -943,7 +865,9 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     checkAccessCalls = []
     uploadCalls = []
     const missingFolderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-    // -> Default mock from `before()` returns null for any id, standing in for "no such row"
+    // FIXME: the title is wrong. The `before()` stub answers a row with no `siteId`, so this 404 is
+    //    the route's wrong-site check; a genuinely unresolvable id (`null`) uploads to the root
+    //    instead, as the test below asserts. Retitle, or drop as a duplicate of the test above.
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${missingFolderId}`,
@@ -956,12 +880,6 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     assert.equal(uploadCalls.length, 0)
   })
 
-  /**
-   * OpenProject #2127/#2131: `getFolderById()` is now scoped to the request's own site, so a
-   * `folderId` that resolves to nothing there (unknown, or belonging to another site) must not
-   * reach `upload()` as a parent -- previously the raw, unverified query param was passed straight
-   * through regardless of whether it resolved to anything at all.
-   */
   test('a folderId that does not resolve in this site is never passed through to upload()', async () => {
     getFolderCalls = []
     getFolderByIdCalls = []
@@ -982,8 +900,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
       })
       assert.equal(res.statusCode, 200)
       assert.deepEqual(getFolderByIdCalls, [foreignFolderId])
-      // -> Checked against the root, not the foreign folder's (nonexistent, from this site's view)
-      //    path -- the whole point of scoping the lookup
+      // -> Checked against the root, not the foreign folder's path
       assert.equal(checkAccessCalls[0].path, 'photo.png')
       assert.equal(uploadCalls[0].folderId, undefined)
     } finally {
@@ -1014,14 +931,6 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
   })
 })
 
-/**
- * UPLOAD ASSET route: rate limit wiring (OpenProject #3234).
- *
- * `helpers/rateLimit.test.ts` covers `limitUploads` itself in isolation; this proves it is actually
- * attached to the route as a `preHandler` -- a burst of single-file uploads exceeding the configured
- * limit is refused with 429 before `CARDINAL.models.assets.upload` is ever called, and a normal,
- * one-at-a-time caller is unaffected.
- */
 describe('UPLOAD ASSET route: rate limit (OpenProject #3234)', () => {
   const SITE_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
@@ -1051,8 +960,6 @@ describe('UPLOAD ASSET route: rate limit (OpenProject #3234)', () => {
               return { id: 'asset-1' }
             }
           },
-          // -> A minimal stand-in for the real counter: `allowed` flips once the test wants the next
-          //    request refused, rather than re-deriving `helpers/rateLimit.ts`'s own counting logic.
           rateLimits: {
             consume: async (key: string) => {
               consumeCalls.push({ key })
@@ -1096,10 +1003,8 @@ describe('UPLOAD ASSET route: rate limit (OpenProject #3234)', () => {
   })
 
   test('normal single-file usage (one upload at a time) is unaffected', async () => {
-    // -> The previous test's refusal is memoized in the shared `activeBanMemo` (TTL'd to its own
-    //    `retryAfter`) so that a banned key is refused without reaching `consume()` again -- clear it
-    //    here so this test's `allowed = true` genuinely reaches the stub above rather than being
-    //    short-circuited by the earlier ban.
+    // -> The previous test's refusal is memoized in the shared `activeBanMemo`, which would refuse
+    //    this request without ever reaching the `consume()` stub.
     activeBanMemo.clear()
     uploadCalls = 0
     consumeCalls = []

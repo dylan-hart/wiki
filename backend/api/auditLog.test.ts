@@ -9,15 +9,6 @@ import { AUDIT_LOG_RETENTION_DAYS_FLOOR } from '../models/auditLog.ts'
 
 await ensureTemporal()
 
-/**
- * DB-backed route test for OpenProject #2237: `PUT /_api/audit-log/settings` against a real,
- * migrated database and the real `CARDINAL.models.auditLog` -- what this proves is the route's own
- * behavior (recording `auditLog.retentionChanged` before the new value takes effect, and rejecting
- * a value below the floor), not `record()`/`purge()`'s own SQL orchestration, which is
- * `models/auditLog.test.ts`'s job. Mirrors `api/classificationLevels.test.ts`'s DB-backed pattern,
- * including its fake permission `preHandler` standing in for the real session/cookie hook in
- * `index.ts`.
- */
 describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let app: FastifyInstance
   let fixtures: TestFixtures
@@ -27,16 +18,13 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
     fixtures = await setupTestDb()
     ;({ auditLog: auditLogModel } = await import('../models/auditLog.ts'))
 
-    // `setRetentionDays()` persists through `CARDINAL.configSvc.saveToDb()`, which `test/db.ts`'s shared
-    // fixture does not install (no DB-backed suite has needed it before this one) -- a minimal stub
-    // is enough here since this route's own contract is about ordering and the in-memory value, not
-    // config persistence itself.
+    // `setRetentionDays()` persists through `CARDINAL.configSvc.saveToDb()`, which `setupTestDb()`
+    // does not install.
     ;(globalThis as any).CARDINAL.configSvc = {
       saveToDb: async () => true
     }
 
-    // -> The REAL permission hook, over a session seeded from a test header rather than a cookie.
-    //    No `wiki`: `setupTestDb()` already installed the real one.
+    // -> No `wiki`: `setupTestDb()` already installed the global.
     app = await buildTestApp({ routes: auditLogRoutes, session: 'header', permissions: true })
   })
 
@@ -46,9 +34,8 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   const asAdmin = { 'x-test-permissions': JSON.stringify(['manage:system']) }
-  // -> An authenticated caller holding SOMETHING, just not what the route asks for: that is the 403
-  //    case. A request carrying no session at all is a 401, which the real hook answers and this
-  //    test is not about.
+  // -> Holds something, just not what the route asks for: that is the 403 case. No session at all
+  //    is a 401.
   const asUnprivileged = { 'x-test-permissions': JSON.stringify(['read:pages']) }
 
   test('PUT /settings records auditLog.retentionChanged before the new retention takes effect', async () => {
@@ -56,8 +43,6 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
     let entryExistedDuringSave = false
     const originalSaveToDb = (globalThis as any).CARDINAL.configSvc.saveToDb
     ;(globalThis as any).CARDINAL.configSvc.saveToDb = async (...args: unknown[]) => {
-      // By the time the setting is actually persisted, the record of the change must already be in
-      // the log -- this is the "before the new retention takes effect" ordering the route promises.
       const { total } = await auditLogModel.list({ event: 'auditLog.retentionChanged' })
       entryExistedDuringSave = total > 0
       return originalSaveToDb(...args)
@@ -96,7 +81,7 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     const after = (await auditLogModel.list({ event: 'auditLog.retentionChanged' })).total
     assert.equal(after, before)
-    // The floor is a real value, not a formality -- confirm the previously-applied setting held.
+    // Still the 45 the previous test applied.
     assert.equal(auditLogModel.getRetentionDays(), 45)
   })
 

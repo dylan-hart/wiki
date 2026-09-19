@@ -3,40 +3,23 @@ import type { AuditEvent } from '../../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * One boolean system flag, as the pair of routes it needs: a GET answering `{ isEnabled }` and a PUT
- * setting it (API-F7).
- *
- * `/api`, `/metrics` and `/pageviews` were three PUT handlers that were line-for-line identical
- * apart from a config key, an audit event name and three message strings, plus three near-identical
- * pairs of route schemas. Everything a reader of `/_api`'s Swagger UI sees is still written per
- * toggle -- summaries, descriptions, the state label every message is built from -- which is why
- * this takes an options object rather than three positional arguments. What is shared is only the
- * mechanism: merge onto the config object already in memory (so a sibling key survives), persist
- * that ONE config key, put the in-memory value back and answer 500 if the write failed, and record
- * the audit event with the new value.
- *
- * `GET /flags` and `GET|PUT /security` are deliberately NOT built from this: neither is a single
- * boolean, and both carry validation of their own.
+ * One boolean system flag as its GET/PUT route pair. Only the mechanism is shared: everything a
+ * Swagger reader sees is still written per toggle. `/flags` and `/security` are deliberately NOT
+ * built from this: neither is a single boolean, and both carry validation of their own.
  */
 interface FlagToggleOptions {
-  /** The path both halves answer on, e.g. `/api`. */
   path: string
-  /** The `CARDINAL.config` key this flag lives under -- also the one key handed to `saveToDb`. */
   configKey: string
-  /** The audit event the PUT records. */
   auditEvent: AuditEvent
   /** What the flag is called at the START of a sentence: `API`, `Metrics endpoint`, ... */
   label: string
   /** What it is called mid-sentence, state included: `API state`, `metrics endpoint state`, ... */
   stateLabel: string
-  /** Swagger summary for each half. */
   summary: { get: string; put: string }
-  /** Swagger description for each half. */
   description: { get: string; put: string }
   /**
-   * Fields the GET answers ALONGSIDE `isEnabled`: `properties` is merged into its 200 schema (after
-   * `isEnabled`, so the serialized key order is unchanged), `value()` produces them per request.
-   * `/pageviews` is the one toggle that has any.
+   * Fields the GET answers alongside `isEnabled`. `value()`'s keys must be declared in
+   * `properties`, which is merged into the 200 schema: the serializer drops anything undeclared.
    */
   extraGet?: {
     properties: Record<string, any>
@@ -146,15 +129,7 @@ function registerFlagToggle(app: FastifyInstance, opts: FlagToggleOptions): void
   )
 }
 
-/**
- * Instance-wide settings: the feature flags, the security settings, and the three boolean toggles
- * (API, metrics endpoint, pageview tracking) plus the pageview hash-key rotation that sits with
- * them.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * SYSTEM FLAGS
-   */
   app.get(
     '/flags',
     {
@@ -176,9 +151,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE SYSTEM FLAGS
-   */
   app.put<{ Body: Record<string, any> }>(
     '/flags',
     {
@@ -233,9 +205,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET SECURITY CONFIGURATION
-   */
   app.get(
     '/security',
     {
@@ -262,9 +231,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE SECURITY CONFIGURATION
-   */
   app.put<{ Body: Record<string, any> }>(
     '/security',
     {
@@ -324,9 +290,7 @@ async function routes(app: FastifyInstance) {
       }
     }
   )
-  /**
-   * API ACCESS
-   */
+
   registerFlagToggle(app, {
     path: '/api',
     configKey: 'api',
@@ -340,9 +304,6 @@ async function routes(app: FastifyInstance) {
     }
   })
 
-  /**
-   * PROMETHEUS METRICS ENDPOINT
-   */
   registerFlagToggle(app, {
     path: '/metrics',
     configKey: 'metrics',
@@ -359,9 +320,6 @@ async function routes(app: FastifyInstance) {
     }
   })
 
-  /**
-   * PAGEVIEW TRACKING
-   */
   registerFlagToggle(app, {
     path: '/pageviews',
     configKey: 'pageviews',
@@ -376,8 +334,6 @@ async function routes(app: FastifyInstance) {
       get: 'Whether page views are logged at all (OpenProject #1238). While this is off, neither write path -- the page-read route nor the MCP `get_page` tool -- inserts a row, so this is the switch behind the knowledge graph\'s "size by page visit volume" control (OpenProject #1140). Also returns instance-wide totals (OpenProject #2335) so the admin page can show real evidence tracking is working, not just the switch itself -- these are NOT gated on `isEnabled`, so a recently-disabled instance still shows what was already recorded.',
       put: "Turning it off stops the write path from inserting any new pageview row, immediately -- it does not merely stop a later read from counting what's already there. Existing rows are untouched (and still age out on the normal 2-year retention job) until tracking is turned back on."
     },
-    // -> The only toggle whose GET answers more than `isEnabled`: the totals `AdminPageviews.vue`
-    //    shows as evidence tracking is actually recording something.
     extraGet: {
       properties: {
         summary: {
@@ -395,9 +351,6 @@ async function routes(app: FastifyInstance) {
     }
   })
 
-  /**
-   * ROTATE PAGEVIEW HASH KEY
-   */
   app.post(
     '/pageviews/rotate-key',
     {

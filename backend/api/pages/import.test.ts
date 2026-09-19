@@ -7,14 +7,8 @@ import { MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_SIZE } from '../../models/import.ts'
 import { CustomError } from '../../helpers/common.ts'
 
 /**
- * Route-level test for `POST /sites/:siteId/pages/import`.
- *
- * The conversion itself (format validation, size limits, error surfacing) is `models/import.ts`'s
- * job and is covered in `models/import.test.ts`. What belongs to the route, and what this file
- * checks, is the wiring around it: that it is gated on the page-rule `write:pages` permission at the
- * declared `path` — checked in the handler, per the "No route-level permissions:" convention, since
- * `config.permissions` cannot see page rules — and that the uploaded bytes and declared format reach
- * the model unchanged.
+ * `pageImport.convertToMarkdown` is stubbed in both suites: conversion is covered in
+ * `models/import.test.ts`, so these check only the routes' wiring around it.
  */
 describe('POST /sites/:siteId/pages/import', () => {
   let app: FastifyInstance
@@ -26,9 +20,7 @@ describe('POST /sites/:siteId/pages/import', () => {
     convertToMarkdown = mock.fn(async () => ({ markdown: '# Converted\n' }))
 
     const wiki = {
-      // -> `defaultLocale()` reads `CARDINAL.sites[siteId]?.config?.locales?.primary`, falling back to
-      //    'en' -- an empty `sites` map is enough for that fallback to be exercised without throwing
-      //    on an undefined `CARDINAL.sites`.
+      // -> `defaultLocale()` indexes `CARDINAL.sites`: an empty map lets it fall back, not throw
       sites: {},
       models: {
         groups: {
@@ -93,7 +85,6 @@ describe('POST /sites/:siteId/pages/import', () => {
     })
     assert.equal(res.statusCode, 403)
     assert.equal(convertToMarkdown.mock.callCount(), 0)
-    // -> Checked against the declared `path`, the same permission CREATE PAGE checks
     const [, permission, page] = checkAccess.mock.calls[0].arguments as [
       unknown,
       string,
@@ -220,18 +211,13 @@ describe('POST /sites/:siteId/pages/import', () => {
   })
 })
 
-/**
- * Builds a `multipart/form-data` body for `app.inject()`, using the platform's own `Response` to do
- * the encoding (boundary, per-part headers) rather than hand-rolling it — the same bytes a browser's
- * `fetch(..., { body: formData })` would send.
- */
+/** `Response` encodes the multipart body (boundary, part headers) exactly as a browser would. */
 async function buildMultipartPayload(
   files: {
     fieldName?: string
     fileName: string
     content: string
     type?: string
-    /** Sent as this file's own `formats` field (OpenProject #1209) when given, overriding autodetection. */
     formatOverride?: string
   }[]
 ): Promise<{ payload: Buffer; contentType: string }> {
@@ -242,8 +228,7 @@ async function buildMultipartPayload(
       new Blob([file.content], { type: file.type ?? 'text/plain' }),
       file.fileName
     )
-    // -> Interleaved right after its own file, same order the frontend sends them in — the route
-    //    pairs a `formats` field with whichever upload it most recently pushed.
+    // -> Right after its own file: the route pairs a `formats` field with the upload just before it
     if (file.fieldName === undefined || file.fieldName === 'files') {
       form.append('formats', file.formatOverride ?? '')
     }
@@ -254,14 +239,6 @@ async function buildMultipartPayload(
   return { payload, contentType }
 }
 
-/**
- * Route-level test for `POST /sites/:siteId/pages/import/batch` (OpenProject #849).
- *
- * Same division of labor as the single-file import route above: conversion itself is
- * `models/import.ts`'s job, already covered by `models/import.test.ts`. What this suite checks is
- * the route's own wiring — the `write:pages` permission gate, that every uploaded file reaches the
- * model, and that one file failing does not stop the rest of the batch from converting.
- */
 describe('POST /sites/:siteId/pages/import/batch', () => {
   let app: FastifyInstance
   let checkAccess: ReturnType<typeof mock.fn>
@@ -476,14 +453,8 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
   })
 
   /**
-   * Regression test (OpenProject #849 fix): `@fastify/multipart`'s default `throwFileSizeLimit: true`
-   * makes an oversized file's `toBuffer()` reject as the route's own comment describes, but it ALSO
-   * latches that rejection and replays it out of `req.files()`'s iterator on the very next
-   * `for await` step — even one that only advances past files already handled locally — turning "one
-   * bad file fails independently" into a 413 for the whole batch regardless of how many files after
-   * it converted fine. This sends a real oversized file (`MAX_IMPORT_SIZE`-plus-one, so the size
-   * limit itself trips rather than being mocked) ahead of a good one and asserts the batch still
-   * answers 200 with one failed entry and one successful one, not a request-level failure.
+   * A real oversized file goes first: `@fastify/multipart`'s default replays a size rejection on
+   * the iterator's next step, which would fail the good file after it with a 413 for the batch.
    */
   test('an oversized file fails only its own entry, not the whole batch', async () => {
     const { payload, contentType } = await buildMultipartPayload([
@@ -553,13 +524,7 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     }
   })
 
-  /**
-   * OpenProject #2204: the aggregate ceiling that backstops the whole batch, distinct from the
-   * per-file `MAX_IMPORT_SIZE` regression test above — five files, each right at (not over) the
-   * per-file limit so none is individually truncated, whose sum is still well past
-   * `MAX_IMPORT_BATCH_BYTES` (four times a single file's own limit). The whole request must be
-   * refused rather than converting the files that fit before the ceiling was crossed.
-   */
+  // -> Each file is AT the per-file limit, not over it, so only the aggregate ceiling can trip
   test('a batch exceeding the aggregate byte ceiling is refused, not partially converted', async () => {
     const perFile = 'x'.repeat(MAX_IMPORT_SIZE)
     const { payload, contentType } = await buildMultipartPayload(

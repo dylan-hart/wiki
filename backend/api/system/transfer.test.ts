@@ -9,15 +9,8 @@ import { importModel } from '../../models/siteImport.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
- * Task 2213: `POST /import`'s content-type parser used to be `parseAs: 'buffer'`, materialising the
- * whole archive as one in-memory `Buffer` before a single byte reached `<dataPath>/imports/`. It now
- * has no `parseAs` at all, which is what hands the parser the raw request stream instead — this
- * suite runs the real `systemRoutes` plugin with the real `importModel` (against a throwaway
- * `dataPath`) rather than mocking either, so what it actually asserts is that the archive lands on
- * disk at all, with the exact bytes sent, and that `req.body` resolves to that file's path rather
- * than a `Buffer` — the architectural change this task made. Only `CARDINAL.models.sites.getSiteById` and
- * `CARDINAL.scheduler.addJob` are mocked, since a real target site and a real job queue are their own
- * suites' concerns.
+ * The real `importModel` against a throwaway `dataPath`, not a mock: what has to hold is that the
+ * archive is streamed to disk byte for byte and `req.body` is its path, never a `Buffer`.
  */
 describe('POST /import (streamed upload)', () => {
   let app: FastifyInstance
@@ -80,9 +73,6 @@ describe('POST /import (streamed upload)', () => {
 
     assert.equal(addJob.mock.callCount(), 1)
     const jobPayload = (addJob.mock.calls[0]!.arguments[0] as any).payload
-    // -> The content-type parser resolved `req.body` (what `addJob`'s payload carries as `filePath`)
-    //    to a string path on disk, never a `Buffer` -- proof the archive was streamed to
-    //    `<dataPath>/imports/` rather than held whole in the request thread's memory.
     assert.equal(typeof jobPayload.filePath, 'string')
     assert.match(jobPayload.filePath, /imports[/\\].+\.tar\.gz$/)
     assert.deepEqual(await fsp.readFile(jobPayload.filePath), body)

@@ -4,15 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import diagramRoutes from './diagrams.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Route-level test for `POST /diagrams/render`.
- *
- * Driving a real headless browser or PlantUML server is `models/diagramRender.ts`'s job —
- * `diagramRender.test.ts` covers that without either. What belongs to the route, and what this file
- * checks, is the wiring: a request needs a session (no route-level `permissions`, since this touches
- * no page or group-wide capability — see the handler comment), the request body reaches the model
- * unchanged, and the model's result becomes the response body with the right content type.
- */
+/** Route wiring only: the rendering itself is `models/diagramRender.test.ts`'s job. */
 
 let app: FastifyInstance
 let render: ReturnType<typeof mock.fn>
@@ -34,8 +26,6 @@ before(async () => {
           consume: mock.fn(async () => ({ allowed: true, retryAfter: 0 }))
         }
       },
-      // -> Resolved and passed to the model on every render, same as the SEO hook does for its own
-      //    non-site-scoped lookups — see `diagrams.ts`'s handler comment.
       sitesMappings: { '*': 'default-site-id', 'site-b.example.com': 'site-b-id' }
     }
   })
@@ -130,9 +120,8 @@ test('the body schema no longer accepts a `server` override — it is stripped b
     }
   })
 
-  // -> `additionalProperties: false` plus Fastify's default `removeAdditional: true` means an
-  //    undeclared field like this is silently dropped from `req.body` rather than failing
-  //    validation outright — the request still succeeds, but the model never sees a `server` value.
+  // -> `additionalProperties: false` under Fastify's default `removeAdditional` drops an undeclared
+  //    field rather than failing validation, hence 200 and not 400.
   assert.equal(res.statusCode, 200)
   assert.equal(render.mock.callCount(), 1)
   assert.deepEqual(render.mock.calls[0].arguments[0], {

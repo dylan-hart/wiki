@@ -4,16 +4,6 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import pagesRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/translationStatus` (OpenProject #2475).
- *
- * Same lightweight fastify-`inject` harness as `read.backlinks.test.ts`: fake
- * `CARDINAL.models.pages`/`CARDINAL.models.groups` stand in for the real Drizzle-backed models, so this
- * exercises the route's wiring -- target-page gating via `requireReadablePage`, the
- * publishState/`read:pages` narrowing per candidate row, and handing the survivors to
- * `computeTranslationStatus` -- without a database.
- */
-
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
@@ -54,8 +44,7 @@ function actorForRequest(req: FastifyRequest) {
   }
 }
 
-/** Grants `read:pages` per-locale via a `read:pages:<locale>` marker in `testPagePermissions`,
- *  the same per-row-gating shape `read.backlinks.test.ts` uses per-path. */
+/** A `read:pages:<locale>` marker in `testPagePermissions` grants `read:pages` for that locale. */
 function checkAccess(
   actor: { permissions: string[]; pagePermissions: string[] },
   permission: string,
@@ -140,7 +129,6 @@ test('reports one entry per active locale, stale/missing computed against the pr
       publishState: 'published',
       updatedAt: new Date('2026-01-01T00:00:00Z')
     }
-    // -> `de` has no row at all -- missing
   ]
   const res = await app.inject({
     method: 'GET',
@@ -179,7 +167,6 @@ test('drops a translation row the caller may not read:pages on', async () => {
   const res = await app.inject({
     method: 'GET',
     url: `/sites/${SITE_ID}/pages/${PAGE_ID}/translationStatus`,
-    // -> May read the target page (`en`) but not the `fr` translation
     headers: sessionHeader(['en'])
   })
   assert.equal(res.statusCode, 200)

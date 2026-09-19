@@ -8,29 +8,15 @@ import { resolvePageRule, type RulePageRef } from '../../helpers/pageRules.ts'
 import type { GroupRule } from '../../models/groups.ts'
 
 /**
- * OpenProject #3410: the PATCH page route and the bulk `retag` action each already require
- * `write:pages` against a page AS IT STANDS (its current tags) before touching it. Neither one used
- * to also require it against the page AS IT WOULD LEAVE (its post-change tags), which meant a
- * `write:pages`-holding editor could add a tag their group is DENIED on tag-scoped rules -- walking a
- * page INTO a branch a tag rule protects -- or remove a tag that is the only thing protecting a page
- * from them, with no rule ever weighing in on the tags the page is actually ending up with.
- *
- * `checkAccess` is wired to the real `resolvePageRule` here, following `write.test.ts`'s
- * "PUT …/path — destination permission" pattern directly, so what passes is the actual band-ranked
- * rule engine seeing the post-change ref, not a stub agreeing it was called with some object.
+ * `checkAccess` is wired to the real `resolvePageRule`, so a pass is the rule engine seeing the
+ * post-change ref, not a stub agreeing it was called.
  */
 describe('retag checks the page as it leaves, not just as it stands (OpenProject #3410)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
   const OTHER_ID = '33333333-3333-4333-8333-333333333333'
 
-  /**
-   * Ordinary write access anywhere in `en`, on every page -- the baseline every test starts from.
-   * Carries `write:tags` alongside `write:pages` (OpenProject #3393 added a second, independent
-   * both-sides check on top of #3410's `write:pages` one) so this suite, written against the
-   * `write:pages` gate alone, keeps exercising exactly that gate rather than tripping over the newer
-   * one too.
-   */
+  /** Carries `write:tags` too, so the `write:pages` gate is the only one that can refuse here. */
   const writeAnywhere: GroupRule = {
     id: 'write-anywhere',
     name: 'Write anywhere',
@@ -42,7 +28,6 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
     sites: []
   }
 
-  /** The tag-scoped DENY the acceptance criteria is written against. */
   const denyConfidential: GroupRule = {
     id: 'deny-confidential',
     name: 'Deny confidential',
@@ -66,8 +51,7 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
     let target: { id: string; path: string; locale: string; tags: string[]; classification: null }
 
     before(async () => {
-      // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` for the collab-save
-      //    notification regardless of whether this test's own assertions care about the timestamp.
+      // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()`.
       await ensureTemporal()
       const wiki = {
         models: {
@@ -166,8 +150,7 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
       })
       assert.equal(res.statusCode, 200)
       assert.equal(updatePageCalls.length, 1)
-      // -> Exactly one write:pages check (the pre-change `hasWrite` gate) -- the retag check never
-      //    runs a second one, since the set did not actually change.
+      // -> The one call is the pre-change `hasWrite` gate.
       assert.equal(checkAccessCalls, 1)
     })
 
@@ -189,8 +172,6 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
       })
       assert.equal(res.statusCode, 200)
       assert.equal(updatePageCalls.length, 1)
-      // -> Same single pre-change `hasWrite` check as the "reordered tags" test above -- `req.body.tags`
-      //    being entirely absent (not just unchanged) short-circuits the retag check the same way.
       assert.equal(checkAccessCalls, 1)
     })
   })
@@ -275,10 +256,8 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
     })
 
     test('within one batch, only the page whose RESULTING tags a rule denies is skipped -- proven with a rule the PRE-change ref alone could not have caught', async () => {
-      // -> A TAGALL rule denying `draft` + `confidential` TOGETHER: neither page currently carries
-      //    both, so every page's PRE-change ref passes `checkAccess` -- only the page whose tags
-      //    would carry both AFTER this add is caught, which is exactly the gap the "as it leaves"
-      //    check (not the pre-existing "as it stands" one) exists to close.
+      // -> TAGALL on `draft` + `confidential` together: no page carries both yet, so every
+      //    pre-change ref passes and only the post-change check can catch the page that would.
       const denyDraftAndConfidential: GroupRule = {
         id: 'deny-draft-confidential',
         name: 'Deny draft+confidential together',
@@ -314,11 +293,9 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
       assert.equal(res.statusCode, 200)
       const body = res.json()
       const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
-      // -> PAGE_ID: ends up with `confidential` alone -- the TAGALL rule needs both, so this is fine.
+      // -> Ends up with `confidential` alone; the TAGALL rule needs both.
       assert.equal(byId[PAGE_ID].status, 'done')
-      // -> OTHER_ID: already had `draft`, and gaining `confidential` completes the denied pair. Its
-      //    CURRENT tags (`draft` alone) never matched the rule, so only the post-change check catches
-      //    this.
+      // -> Already had `draft`, so gaining `confidential` completes the denied pair.
       assert.equal(byId[OTHER_ID].status, 'skipped')
       assert.deepEqual(updateCalls, [{ id: PAGE_ID, patch: { tags: ['confidential'] } }])
       assert.deepEqual(body.counts, { done: 1, skipped: 1 })
@@ -354,11 +331,8 @@ describe('retag checks the page as it leaves, not just as it stands (OpenProject
       assert.equal(res.statusCode, 200)
       const body = res.json()
       const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
-      // -> PAGE_ID gains `news`: a real change, allowed, and applied.
       assert.equal(byId[PAGE_ID].status, 'done')
-      // -> OTHER_ID already carries `news`: no set change, so the retag check is skipped -- but the
-      //    write itself still happens unconditionally, same as before this Task (the check being
-      //    skipped is a permission-check optimization, not a "nothing to do" short-circuit).
+      // -> Already carries `news`: the retag check is skipped, but the write still happens.
       assert.equal(byId[OTHER_ID].status, 'done')
       assert.equal(updateCalls.length, 2)
     })

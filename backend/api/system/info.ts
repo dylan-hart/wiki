@@ -12,15 +12,9 @@ import {
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Every node of this cluster connected to this database, with how it is using the connection pool.
- *
- * There is no node registry: a node is only known by the connections it holds, which it labels
- * `Cardinal.js - <instance id>:<purpose>`. Two of those purposes hold a listener rather than doing query
- * work, so they are counted apart.
- *
- * Shared by the list route and the dashboard count, so that the number on the dashboard is the
- * number of rows the cluster page shows. Also exported so `controllers/metrics.ts` can source
- * `instancesTotal` from the same query rather than inventing a second one.
+ * There is no node registry: a node is known only by the connections it holds, which it labels
+ * `Cardinal.js - <instance id>:<purpose>`. Every purpose but `MAIN`/`WORKER` holds a listener
+ * rather than doing query work, so it is counted apart.
  */
 export async function getClusterNodes(): Promise<Record<string, any>[]> {
   const instRaw = await CARDINAL.db.execute(
@@ -28,18 +22,15 @@ export async function getClusterNodes(): Promise<Record<string, any>[]> {
   )
   const insts: Record<string, any> = {}
   for (const inst of instRaw.rows as any[]) {
-    // -> Read the id out of `<product> - <instance id>:<purpose>` by its separators rather than by a
-    //    fixed offset. The offset this used to be (`substring(10, 20)`) was the length of the old
-    //    product-name prefix, so it silently returned the wrong slice the moment the name changed.
+    // -> By separator, never by fixed offset: an offset silently returns the wrong slice the moment
+    //    the product-name prefix changes length.
     const instId = inst.application_name.split(' - ')[1]?.split(':')[0] ?? ''
     const conType = [':MAIN', ':WORKER'].some((ct) => inst.application_name.endsWith(ct))
       ? 'main'
       : 'sub'
-    // -> `db.execute()` with a raw SQL template returns timestamps as postgres-format strings
-    //    (e.g. `2026-07-25 13:17:36.230177+00`) rather than Dates, which is what the previous
-    //    `DateTime.fromSQL()` call was for. Temporal.Instant.from parses that format as-is,
-    //    including the space separator and the hour-only `+00` offset. Rendered with
-    //    millisecond precision to match the timestamps produced elsewhere.
+    // -> Raw `db.execute()` returns timestamps as postgres-format strings
+    //    (`2026-07-25 13:17:36.230177+00`), not Dates. `Temporal.Instant.from` parses that as-is,
+    //    space separator and hour-only offset included.
     inst.backend_start = Temporal.Instant.from(inst.backend_start).toString({
       smallestUnit: 'millisecond'
     })
@@ -67,14 +58,7 @@ export async function getClusterNodes(): Promise<Record<string, any>[]> {
   return Object.values(insts)
 }
 
-/**
- * Read-only system information: the instance/database/runtime summary the admin dashboard opens
- * with, the cluster-node listing behind it, and the upstream version check.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * SYSTEM INFO
-   */
   app.get(
     '/info',
     {
@@ -240,9 +224,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST CLUSTER NODES
-   */
   app.get(
     '/cluster',
     {
@@ -295,9 +276,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CHECK FOR UPDATE
-   */
   app.post(
     '/checkForUpdate',
     {
@@ -335,8 +313,7 @@ async function routes(app: FastifyInstance) {
         maxRetries: 0,
         promise: true
       })
-      // NOTE: `addJob` resolves to undefined if enqueueing failed, in which case this throws —
-      // preserving the existing behavior.
+      // -> `addJob` resolves to undefined when enqueueing failed, and this then throws into a 500.
       await renderJob!.promise
       return {
         current: CARDINAL.version,

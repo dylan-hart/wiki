@@ -4,15 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import apiKeysRoutes from './apiKeys.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * `POST /_api/api-keys`'s `scope` field is validated against the closed permission vocabulary
- * (`helpers/permissions.ts`) via the `ApiKeyScopePermission` schema, the same way `groups` is
- * validated against a UUID shape. This is a self-contained test of that wiring: `CARDINAL.models.groups`
- * and `CARDINAL.models.apiKeys.createKey` are stubbed so the request never touches the database, keeping
- * the assertion on the route's schema and body-handling rather than on model/SQL behavior (covered
- * separately in `models/apiKeys.test.ts`).
- */
-
 const GROUP_ID = '11111111-1111-4111-8111-111111111111'
 const SITE_ID = '22222222-2222-4222-8222-222222222222'
 const LEVEL_ID = '33333333-3333-4333-8333-333333333333'
@@ -61,10 +52,8 @@ before(async () => {
   app = await buildTestApp({
     routes: apiKeysRoutes,
     wiki,
-    // -> A request carrying the `x-simulate-api-key` test header is treated as
-    //    bearer-token-authenticated (OpenProject #2190) — `manage:system`, so it would pass the real
-    //    route-permission gate too, the same as any admin-issued key that the real `onRequest` hook
-    //    resolves permissions from.
+    // -> `x-simulate-api-key` makes the request bearer-token-authenticated, with `manage:system` so
+    //    it passes the route-permission gate.
     session: (req: any) => {
       if (req.headers['x-simulate-api-key']) {
         req.apiKey = { id: 'caller-key-id', permissions: ['manage:system'] }
@@ -239,11 +228,6 @@ test('omitting siteId creates an instance-wide key (null)', async () => {
   assert.equal(createKeyCalls[0].siteId, null)
 })
 
-/**
- * OpenProject #989: issuing/revoking an admin-issued API key is one of the events the audit log is
- * meant to capture. The tests above stub `auditLog.record` only to keep the route from throwing —
- * this checks it is actually called, with the id `createKey` returned rather than the key itself.
- */
 test('creating a key records an apiKey.issued audit log entry, never the key value', async () => {
   createKeyCalls = []
   ;(globalThis as any).CARDINAL.models.auditLog.record.mock.resetCalls()
@@ -267,12 +251,6 @@ test('creating a key records an apiKey.issued audit log entry, never the key val
   assert.equal(JSON.stringify(call).includes('signed.jwt.token'), false)
 })
 
-/**
- * OpenProject #2190: a bearer-token (API key) caller cannot mint or revoke a key, including itself --
- * even with `manage:system`, which is enough to pass the route-permission gate `index.ts`'s
- * `preHandler` applies from `req.apiKey.permissions`. Session-authenticated requests (no `req.apiKey`
- * set, the shape every other test in this file already uses) are unaffected.
- */
 test('POST / refuses a request carrying a verified req.apiKey, even with manage:system', async () => {
   createKeyCalls = []
   const res = await app.inject({

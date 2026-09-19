@@ -25,27 +25,12 @@ import {
 } from '../../helpers/pageAccess.ts'
 
 /**
- * Logs a best-effort pageview for the page-read route below (OpenProject #1238) -- the REST half of
- * the two write paths #1140's graph sizing needs; `mcp/tools/getPage.ts`'s `get_page` tool is the
- * other. Never throws: `models/pageviews.ts#record()` swallows its own failures and no-ops entirely
- * while the admin opt-out is off, so this can be called unconditionally without guarding the read it
- * rides along with.
+ * Never awaited: `models/pageviews.ts#record()` swallows its own failures.
  *
- * `req.apiKey` set means a bearer key called this route directly (not through MCP, which never reaches
- * here), so it counts as `api` rather than `browser` — hashing the key's own id, exactly the way
- * `mcp/tools/getPage.ts` hashes `ctx.keyId` for the same reason: two different keys are two different
- * visitors, the same key reused is one.
- *
- * A `browser` visitor is identified by its own session id, which only survives past this one request if
- * something writes to the session (`saveUninitialized: false` in `index.ts`) — the same gap
- * `POST .../unlock`'s own doc comment describes ("unlocking one is what first gives an anonymous reader
- * a session"). Setting `pageViewed` is what closes it here: without it, an anonymous reader with no
- * other reason to touch their session would look like a brand new visitor on every single view.
- *
- * That write is gated on the same `CARDINAL.config.pageviews.isEnabled` opt-out `record()` itself checks
- * (OpenProject #2251): with tracking off there is no visitor identity worth preserving across requests,
- * so forcing a session (and the `Set-Cookie` + permanent `sessions` row that comes with it) for every
- * anonymous read would only defeat `saveUninitialized: false` for nothing in return.
+ * A `browser` visitor is keyed by session id, which only outlives the request if something writes
+ * to the session (`saveUninitialized: false`) -- hence `pageViewed`; without it every anonymous
+ * view looks like a new visitor. The write is gated on `pageviews.isEnabled`, since with tracking
+ * off it would mint a cookie and a `sessions` row per anonymous read for nothing.
  */
 function recordPageview(req: FastifyRequest, siteId: string, pageId: string): void {
   if (req.apiKey) {
@@ -69,26 +54,13 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
 }
 
 /**
- * The page permissions that make a page's password irrelevant to the holder — asked of
- * `CARDINAL.models.groups.mayHoldPermissionSomewhere()` rather than any one page's rule.
- *
- * Used only by search, which spans many pages that may each carry a different rule, so there is no
- * single page here to ask `mayOnPage()` about. This is deliberately coarser than `mayBypassPassword()`
- * (`helpers/pageAccess.ts`): search either hides every protected excerpt from this searcher or none of
- * them, rather than deciding page by page. (`manage:system` needs no entry here —
- * `mayHoldPermissionSomewhere()` already short-circuits on it.)
+ * Asked of `mayHoldPermissionSomewhere()`, not of one page's rule: search spans many pages, so it
+ * is deliberately coarser than `mayBypassPassword()` — it hides every protected excerpt from a
+ * searcher or none of them.
  */
 const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 
-/**
- * Fills in each result's `localeStatus` (OpenProject #2476) -- the admin pages view's per-locale
- * staleness/missing column -- in place, mutating `results` rather than returning a new array, since
- * the caller already holds the exact array the response schema is about to serialize.
- *
- * One batched `getTranslationRows` call over every distinct path on this page of results, not one
- * query per row: `results` is already capped at `limit` (at most 100), so the join stays a single,
- * small `IN (...)` read regardless of how many locales end up represented.
- */
+/** Mutates `results` in place, with one batched query for the whole page of results. */
 async function attachLocaleStatus(siteId: string, results: SearchResult[]): Promise<void> {
   if (results.length < 1) {
     return
@@ -111,17 +83,12 @@ async function attachLocaleStatus(siteId: string, results: SearchResult[]): Prom
 }
 
 /**
- * Whether semantic search may actually be used on this site right now -- the AND of Task #3095's
- * boot-time pgvector capability flag and this site's own `search.config.semanticEnabled` admin
- * setting (Task #3104), exactly how Task #3103 defines the combined `features.semanticSearch` flag.
+ * Both the boot-time pgvector capability flag and the site's own `semanticEnabled` setting: the
+ * capability flag alone would bypass a site admin's off-switch.
  *
- * Computed locally rather than calling into Task #3103's own work: neither it nor Task #3095's
- * `CARDINAL.capabilities` typing exists yet in this worktree (see the round-2 coordination note's
- * ground-truth check), and #3103's own ownership note assigns it the site-info route, not a shared
- * helper. Once #3103 lands, prefer whatever it exports over keeping this as a second, independently
- * -drifting copy of the same AND -- the coordination note calls this out by name as the "flag
- * triangle" risk: reading the capability flag alone here would silently bypass a site admin's own
- * off-switch.
+ * TODO: `api/sites.ts#semanticSearchAvailable` is a second copy of this AND. Hoist one into
+ * `helpers/` (a route file may not import another) and drop the `as any`:
+ * `CardinalGlobal.capabilities` is typed.
  */
 function semanticSearchEnabledFor(siteId: string): boolean {
   const capabilityEnabled = Boolean((CARDINAL as any).capabilities?.semanticSearch)
@@ -129,15 +96,7 @@ function semanticSearchEnabledFor(siteId: string): boolean {
   return capabilityEnabled && siteEnabled
 }
 
-/**
- * Read-side page routes: finding a page, opening one, unlocking a protected one, and the small
- * lookups a page view makes around it -- its translations, what links to it, the alias it answers to,
- * and what the reader themselves may do here.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * SEARCH PAGES
-   */
   app.get<{
     Params: { siteId: string }
     Querystring: {
@@ -287,12 +246,8 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const actor = actorFrom(req)
       const accessActor = CARDINAL.models.groups.actorForRequest(req)
-      // -> "May write pages somewhere on this site" and "may read a locked page's text anywhere on
-      //    this site" are the same question here — both amount to holding `write:pages`/
-      //    `manage:pages` via SOME rule scoped to this site, not the (unrelated) group-wide
-      //    permission list. See `mayHoldPermissionSomewhere()`'s own doc for why DENY is ignored,
-      //    why the site is threaded through (OpenProject #2146/#2162), and why this can't be asked
-      //    per page the way `mayOnPage()` is elsewhere.
+      // -> One answer serves both `includeDrafts` and `hideProtectedContent`: each means holding
+      //    `write:pages`/`manage:pages` through some rule on this site.
       const maySeeEverything = CARDINAL.models.groups.mayHoldPermissionSomewhere(
         accessActor,
         PAGE_PASSWORD_BYPASS_ROLES,
@@ -311,13 +266,8 @@ async function routes(app: FastifyInstance) {
         offset: req.query.offset,
         limit: req.query.limit,
         publicOnly: !actor,
-        // -> So that a page the caller could not open never shows up as a result
         actor: accessActor,
-        // -> An unpublished page is only of interest to someone who could have written it
         includeDrafts: maySeeEverything,
-        // -> Same rule as the page view: a protected page's text is for whoever holds the password, and
-        //    a search excerpt is that text. Its title and description are not covered, so the page is
-        //    still listed. Global rather than per page — since a search spans many pages at once.
         hideProtectedContent: !maySeeEverything
       })
       if (req.query.includeLocaleStatus) {
@@ -327,9 +277,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SEARCH PAGES — SEMANTIC
-   */
   app.get<{
     Params: { siteId: string }
     Querystring: {
@@ -345,9 +292,8 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/pages/search/semantic',
     /*
-      No route-level permissions: visibility is enforced per row via `filterVisible`, inherited
-      through `CARDINAL.models.semanticSearch.search()` (Feature #3092) — same convention as `pages/search`
-      above.
+      No route-level permissions: visibility is enforced per row by `filterVisible`, inside
+      `CARDINAL.models.semanticSearch.search()`.
     */
     {
       schema: {
@@ -436,9 +382,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET PAGE FOR INCLUSION
-   */
   app.get<{ Params: { siteId: string }; Querystring: { path: string; locale?: string } }>(
     '/sites/:siteId/pages/include',
     {
@@ -473,16 +416,13 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      // -> The stored form of whatever the including page wrote, since that is what it is looked up
-      //    by. The site root is the `home` page.
       const path = normalizePagePath(req.query.path)
       const page = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         hash: generatePathHash(path || 'home'),
         locale: req.query.locale,
         publicOnly: !actor,
-        // -> Only ever needs the body's presence/absence, which `isLocked` already answers below, so
-        //    the password value itself is never read back here.
+        // -> `isLocked` is all an include needs, so the password is never read back.
         unlocked: (page) => unlockedFor(req, req.params.siteId, page),
         withPassword: false
       })
@@ -502,9 +442,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET PAGE
-   */
   app.get<{
     Params: { siteId: string; pageIdOrHash: string }
     Querystring: { withContent?: boolean; locale?: string }
@@ -513,8 +450,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. `read:pages` is checked against this page below, and — only when
-        `withContent` actually asked for the source — `read:source` on top of it.
+        granted by a group's RULES. Checked against this page below.
       */
       schema: {
         summary: 'Get a single page',
@@ -557,13 +493,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
-      //    `apiKeySitePinHook` in `index.ts` for every `/sites/:siteId/...` route, this one
-      //    included; see `helpers/apiKeySite.ts`.
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
-      // -> `read:source` (checked below, ON THIS PAGE) is the sole gate on the source, for an
-      //    anonymous caller exactly as for a signed-in one -- see `mayOnPage(req, 'read:source', ...)`
+      // -> Not gated on `actor`: `mayReadSource()` below is the sole gate, anonymous or not.
       const wantsContent = Boolean(req.query.withContent)
       const page = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
@@ -571,8 +503,7 @@ async function routes(app: FastifyInstance) {
         locale: req.query.locale,
         withContent: wantsContent,
         publicOnly: !actor,
-        // -> Both answered once the page is known, since a hash does not say which page it is yet, and
-        //    the bypass is decided per page (`mayOnPage()`), not from a group-wide permission list.
+        // -> Callbacks: a hash does not say which page it is yet, and both are decided per page.
         unlocked: (page) => unlockedFor(req, req.params.siteId, page),
         withPassword: (page) => mayBypassPassword(req, req.params.siteId, page)
       })
@@ -582,35 +513,12 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'read:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read this page.')
       }
-      // -> A separate permission from `read:pages`: reading the rendered page is not reading its
-      //    source. `mayReadSource` also admits `write:pages`/`manage:pages` (OpenProject #3391) --
-      //    an editor who cannot read the source cannot open the editor.
       if (wantsContent && !mayReadSource(req, req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's source.")
       }
-      // -> Best-effort, never awaited: see `recordPageview()`'s own doc comment.
       recordPageview(req, req.params.siteId, page.id)
-      /*
-        The reader's own standing on this page, carried back with it.
-
-        Three questions the page view used to ask as three more requests — what may I do here, may I
-        suggest an edit, do I review this page — each of which had to load the page again to answer.
-        They are answered here from the page already in hand, against rules already in memory, which
-        is what makes a page view one request instead of four.
-      */
       const actorId = actor?.id ?? null
-      /*
-        `rev N · M changes` for the metadata rail's Revision section (OpenProject #2651), carried back
-        with the page rather than fetched separately -- the history route is keyset-paginated over
-        whole versions, which is the wrong shape for "just where the newest one stands", and the rail
-        must not cost the page view a second round trip.
-
-        History data, so it is gated on `read:history` ON THIS PAGE, checked with `mayOnPage` like
-        every other permission here: `read:history` is a page rule permission, and a route-level
-        `config.permissions` reads the group-wide list only, so declaring it there would refuse
-        everybody. A reader without it gets no `revision` key at all (not a zeroed one), and pays for
-        no query either.
-      */
+      // -> The reader's standing on this page rides back with it, so a page view is one request.
       const [approvalState, isWatching, commentsCount, revision] = await Promise.all([
         CARDINAL.models.approvals.pageViewerState(req, req.params.siteId, {
           id: page.id,
@@ -620,33 +528,22 @@ async function routes(app: FastifyInstance) {
           allowContributions: page.allowContributions,
           classification: page.classification
         }),
-        // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
         CARDINAL.models.pageWatching.isWatching(page.id, actorId),
         CARDINAL.models.comments.countForPage(page.id),
         mayOnPage(req, 'read:history', req.params.siteId, page)
           ? CARDINAL.models.pageHistory.revisionSummary(page.id)
           : null
       ])
-      /*
-        Who else already has this page open, on this instance — a cheap "someone else has this open"
-        hint for before a collab session starts, drawn straight from whatever room `core/collab.ts`
-        already has for the page. No query: it is in memory or it is nothing. Left at zero on a site
-        without the feature, since a room can never exist there and the number would be misleading if
-        the feature were re-enabled and disabled again while a stale one lingered.
-      */
+      // -> In-memory and per-instance: read from the page's `core/collab.ts` room, if one exists.
+      //    Zero when the feature is off, so a stale room cannot leak a count.
       const collabEnabled = Boolean(
         CARDINAL.sites[req.params.siteId]?.config?.features?.collaborativeEditing
       )
       const activeEditors = collabEnabled
         ? CARDINAL.collab.participantInfo(page.id)
         : { count: 0, names: [] }
-      /*
-        A recovery draft (OpenProject #2455) is nothing but a collaboration room's own leftover
-        content, so it can only exist -- and only matters -- to whoever could have written the room in
-        the first place: `write:pages` on this page, the same permission the collaboration websocket
-        itself checks. Skipped for anyone else, the same way `activeEditors` above is skipped when the
-        feature is off, so this never runs an extra query for a plain reader.
-      */
+      // -> A recovery draft is a collab room's leftover content, so it is only for whoever could
+      //    have written to the room: `write:pages`, the permission the collab websocket checks.
       const draft =
         collabEnabled && mayOnPage(req, 'write:pages', req.params.siteId, page)
           ? ((await CARDINAL.models.pageDrafts.summary(page.id)) ?? null)
@@ -668,9 +565,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UNLOCK PAGE
-   */
   app.post<{
     Params: { siteId: string; pageIdOrHash: string }
     Querystring: { locale?: string }
@@ -678,7 +572,6 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/pages/:pageIdOrHash/unlock',
     {
-      // -> A password endpoint like the ones in `api/auth/site.ts`, and limited with them
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Unlock a password-protected page',
@@ -739,28 +632,19 @@ async function routes(app: FastifyInstance) {
         return reply.unauthorized('Incorrect password.')
       }
       /*
-        Recorded per page rather than as a blanket "this session may read protected pages": each
-        password is a separate secret, and knowing one says nothing about the others.
-
-        Writing to the session is what creates one for an anonymous reader — `saveUninitialized` is
-        off, so no row exists until this point. That is the intent: the unlock has to outlive the
-        request, and it is the reader's own deliberate action that starts it.
+        Recorded per page, not as a blanket unlock: each password is a separate secret. This write is
+        also what first creates a session for an anonymous reader (`saveUninitialized` is off), which
+        is intended — the unlock has to outlive the request.
       */
       req.session.unlockedPages = [...new Set([...(req.session.unlockedPages ?? []), page.id])]
       return page
     }
   )
 
-  /**
-   * PAGE TRANSLATIONS
-   */
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/translations',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and `manage:pages` here is
-        a page permission granted by a rule. Checked against this page below instead.
-      */
+      // -> No route-level `permissions`: `manage:pages` is a page permission, checked below.
       schema: {
         summary: "Get a page's translations",
         description:
@@ -811,17 +695,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PAGE TRANSLATION STATUS (OpenProject #2475)
-   */
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/translationStatus',
     {
       /*
-        No route-level `permissions`: `read:pages` is a page permission granted by a group's
-        RULES. Checked against the target page via `requireReadablePage` (folded into 404 when
-        missing or unreadable), and again per candidate translation row below -- same pattern as
-        the backlinks route just above.
+        No route-level `permissions`: `read:pages` is a page permission, checked against the target
+        page by `requireReadablePage` and again per translation row below.
       */
       schema: {
         summary: "Get a page's per-locale translation staleness/missing status",
@@ -855,9 +734,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A staleness badge reveals no part of this page's body, so a password still standing
-      //    between the caller and the text is not a reason to refuse it -- same reasoning as
-      //    backlinks' own `allowLocked: true`.
+      // -> `allowLocked`: a staleness badge reveals none of the page's body.
       const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
         allowLocked: true
       })
@@ -869,9 +746,6 @@ async function routes(app: FastifyInstance) {
         req.params.siteId,
         page.path
       )
-      // -> Same two-step narrowing as `api/graph.ts`'s node listing: publication-state exclusion
-      //    for an anonymous caller first (a draft/scheduled translation must never reach one),
-      //    then `read:pages` per candidate row.
       const visibleRows = (
         actor ? rows : rows.filter((row) => row.publishState === 'published')
       ).filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
@@ -885,17 +759,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PAGE BACKLINKS (OpenProject #1914)
-   */
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/backlinks',
     {
       /*
-        No route-level `permissions`: `read:pages` is a page permission granted by a group's
-        RULES. Checked against the target page via `requireReadablePage` (folded into 404 when
-        missing or unreadable), and again per candidate row below -- exactly as `api/graph.ts`'s
-        edge assembly filters graph nodes.
+        No route-level `permissions`: `read:pages` is a page permission, checked against the target
+        page by `requireReadablePage` and again per linking row below.
       */
       schema: {
         summary: 'Pages linking to this page',
@@ -914,8 +783,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> `allowLocked`: a backlinks listing reveals no part of this page's body, so a password
-      //    still standing between the caller and the text is not a reason to refuse it.
+      // -> `allowLocked`: a backlinks listing reveals none of the page's body.
       const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
         allowLocked: true
       })
@@ -935,17 +803,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RESOLVE ALIAS
-   */
   app.get<{ Params: { siteId: string; alias: string } }>(
     '/sites/:siteId/pages/alias/:alias',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
+      // -> No route-level `permissions`: `read:pages` is a page permission, checked below.
       schema: {
         summary: 'Resolve a page alias to its path',
         tags: ['Pages'],
@@ -989,9 +850,8 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('No page uses this alias.')
       }
-      // -> Resolving an alias tells the caller a page exists and where it is, which is only theirs
-      //    to know if they may read it. Locale and tags come along too, so a locale- or tag-scoped
-      //    rule is evaluated here exactly as it would be for the same page reached by its own path.
+      // -> 404, not 403: an alias reveals that a page exists and where, which is only for whoever
+      //    may read it. Locale and tags go along so locale- and tag-scoped rules apply as by path.
       if (
         !mayOnPage(req, 'read:pages', req.params.siteId, {
           path: target.path,
@@ -1005,9 +865,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PAGE USER PERMISSIONS
-   */
   app.post<{ Params: { siteId: string }; Body: { path: string; locale?: string } }>(
     '/sites/:siteId/pages/userPermissions',
     {
@@ -1048,17 +905,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      // -> Rules now fail closed on locale (`RulePageRef` requires it), so which locale this asks
-      //    about actually decides the answer -- the site's primary locale is the default for a
-      //    caller who doesn't say, not a stand-in for a param that doesn't exist.
       const path = req.body.path.replace(/^\/+/, '')
       const locale = req.body.locale ?? defaultLocale(req.params.siteId)
-      // -> Tags come from the stored page, never from the request body: the body carries no `tags`
-      //    field at all (see the schema above), so a client positing one has nothing to read it back
-      //    from -- a tag-scoped rule is judged on what the page actually carries, not on what a caller
-      //    claims it does. A path with no page behind it yet (this route doubles as a create-permission
-      //    check) resolves no row, and `tags`/`classification` fall back to the same "unknown" a
-      //    not-yet-existing page always has.
+      // -> Tags come from the stored page, never the request: a tag-scoped rule is judged on what
+      //    the page carries, not on what a caller claims. A path with no page yet (this doubles as
+      //    a create-permission check) has none.
       const page = await CARDINAL.models.pages.getPage({
         siteId: req.params.siteId,
         hash: generatePathHash(path || 'home'),

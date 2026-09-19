@@ -5,21 +5,8 @@ import systemRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 
-// `getClusterNodes()` (in `./info.ts`) calls `Temporal.Instant.from()` unconditionally on every row;
-// `ensureTemporal()` polyfills the global for real on this sandbox's Node, which lacks it natively --
-// see `test/temporal.ts` for why this is needed at all.
 await ensureTemporal()
 
-/**
- * Regression test for task 711 (Feature 411): the admin area used to expose this cluster-node
- * listing as `GET /_api/system/instances`, with an `instancesTotal` count on `/_api/system/info` --
- * a name that reads as a synonym of the unrelated `AdminSites.vue` / `/_admin/sites` multi-tenancy
- * concept out of context. Both were renamed to `cluster` / `clusterTotal`; this pins the new route
- * and field names, plus the row-grouping logic in `getClusterNodes()` (unchanged, just renamed from
- * `getInstances()`), against a fake `pg_stat_activity` result set rather than a real Postgres --
- * `CARDINAL.db.execute` is stubbed to return two connections for one instance and one for another, which
- * is exactly the shape `getClusterNodes()` groups by `application_name`.
- */
 describe('GET /cluster (renamed from /instances)', () => {
   const FAKE_ROWS = [
     {
@@ -87,12 +74,8 @@ describe('GET /cluster (renamed from /instances)', () => {
 })
 
 /**
- * The instance id is read out of `<product> - <instance id>:<purpose>` by its separators, not by a
- * fixed character offset. It used to be `substring(10, 20)` -- exactly the length of the product-name
- * prefix that happened to be in use -- so renaming the product silently sliced the wrong ten
- * characters out of every row and every node came back with a garbled id, with nothing failing
- * loudly. This drives the same handler with a deliberately differently-sized prefix to pin that the
- * parse no longer depends on the brand's length.
+ * A fixed character offset would silently slice a garbled id out of every row the day the product
+ * name changes length, so this drives the handler with a differently-sized prefix.
  */
 describe('GET /cluster parses the instance id by separator, not by offset', () => {
   let app: FastifyInstance
@@ -108,7 +91,6 @@ describe('GET /cluster parses the instance id by separator, not by offset', () =
               {
                 usename: 'wiki',
                 client_addr: '10.0.0.1',
-                // -> A product-name prefix of a different length to the one the app ships with.
                 application_name: 'Q - 0123456789:MAIN',
                 backend_start: '2026-08-17 09:00:00.000000+00',
                 state_change: '2026-08-17 09:05:00.000000+00'
@@ -133,19 +115,9 @@ describe('GET /cluster parses the instance id by separator, not by offset', () =
 })
 
 /**
- * Task 605 verification pass: `GET /_api/system/info`'s response schema is what Fastify actually
- * serializes through (fast-json-stringify), so any property the handler returns but the schema does
- * not declare is silently dropped from the wire response, not merely undocumented. Two fields were
- * caught this way:
- *
- * - `dbVersion`: the handler always returned it, and `AdminSystem.vue` always read it (`PostgreSQL
- *   {{ dbVersion }}`), but it was never declared in the `response.200.properties`, so the card has
- *   been silently rendering "PostgreSQL" with nothing after it since the route was written.
- * - `httpPort`: declared in the schema, but the handler had hardcoded `httpPort: 0` — dead weight
- *   that the schema promised meant something. Fixed to read the real `CARDINAL.config.port`.
- *
- * `CARDINAL.db.$count` / `.execute` are stubbed rather than pulling in the db/schema/drizzle graph,
- * matching `sites.test.ts`'s pattern for a self-contained unit test of the route's response shape.
+ * Fastify serializes through the response schema (fast-json-stringify), so a property the handler
+ * returns but the schema does not declare is silently dropped from the wire. These assert on the
+ * serialized body for that reason.
  */
 describe('GET /info', () => {
   let app: FastifyInstance

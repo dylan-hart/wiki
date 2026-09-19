@@ -6,21 +6,6 @@ import { siteEnabledPreHandler } from '../../helpers/siteResolution.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 
-/**
- * Route-wiring tests for `GET /sites/:siteId/pages/search/semantic` (Epic #3050, Task #3102).
- *
- * `CARDINAL.models.semanticSearch.search()` is stubbed outright -- the real multi-hop retrieval/ranking
- * logic has its own coverage in `models/semanticSearch.test.ts` (Feature #3092). This suite covers
- * only what `read.ts` itself does: the unknown-site 404, the `features.semanticSearch` 503 gate (both
- * halves — the boot-time capability flag AND the site's own admin setting, so neither alone can turn
- * the route on), that query/locales/limit/offset/path/tags/editor/publishState (OpenProject #3328)
- * reach `search()` as documented, and that the route forwards the caller's actor through to
- * `search()` rather than doing its own filtering (or none at all). The stub's returned rows use the
- * real `SemanticSearchResult` shape (`pageId`/`chunkText`/`chunkIndex`/`distance`/`hop`, OpenProject
- * #3122) rather than the earlier stub's full-text-`SearchResult` shape, so this suite would catch a
- * route/schema drift back toward that stale shape.
- */
-
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const UNKNOWN_SITE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
@@ -38,16 +23,10 @@ let searchCalls: Array<{
     publishState?: string
   }
 }>
-/** Every "page" the stub model could return, each visible only to the actor named in `visibleTo`. */
 let allPages: Array<{ id: string; path: string; visibleTo: string | null }>
 let capabilityEnabled: boolean
 let siteSemanticEnabled: boolean
-/**
- * OpenProject #3137: when set, replaces the `sites` getter's usual `search.config.semanticEnabled`
- * shape with this literal `search` value instead — used to prove the route reads the same nesting
- * `api/search.ts`'s PATCH handler actually saves to, not the shallower shape a since-fixed bug once
- * read from.
- */
+/** When set, stands in for the site's whole `search` config, to present a mis-nested shape. */
 let siteSearchConfigOverride: Record<string, any> | null
 
 async function search(
@@ -65,9 +44,8 @@ async function search(
   }
 ) {
   searchCalls.push({ query, actor, siteId, locales, options })
-  // -> Mimics what the real `models/semanticSearch.ts#search()` does with `filterVisible`: a page
-  //    only appears for the actor it names, or for everyone when it names none. Proves the route
-  //    passes the actor through rather than filtering itself (or not filtering at all).
+  // -> Mimics the model's own visibility filter, so a filtered response proves the route passed the
+  //    actor through
   const visible = allPages.filter((p) => p.visibleTo === null || p.visibleTo === actor?.id)
   return {
     results: visible.map((p) => ({
@@ -93,9 +71,8 @@ let app: FastifyInstance
 before(async () => {
   await ensureTemporal()
   const wiki = {
-    // -> Getters, not plain values: `createWikiStub`'s deep merge copies property DESCRIPTORS, so
-    //    these are re-evaluated on every access and can be steered per test via the module-level
-    //    flags below, without rebuilding the app.
+    // -> Getters, which `createWikiStub`'s deep merge preserves: the module-level flags steer these
+    //    per test without rebuilding the app
     get capabilities() {
       return { semanticSearch: capabilityEnabled }
     },
@@ -118,9 +95,8 @@ before(async () => {
       }
     }
   }
-  // -> The unknown-site 404 lives in `siteEnabledPreHandler`, registered once for the real `/_api`
-  //    tree in `api/index.ts` -- a plugin-only test app has to add it itself to see that behavior,
-  //    same pattern `api/search.test.ts` uses.
+  // -> The unknown-site 404 lives in `siteEnabledPreHandler`, which `api/index.ts` registers for
+  //    the real tree -- a plugin-only test app has to add it itself
   const guardedRoutes: FastifyPluginAsync = async (instance) => {
     instance.addHook('preHandler', siteEnabledPreHandler)
     await instance.register(readRoutes)
@@ -169,12 +145,8 @@ test("503s when the site's own admin setting is off, even with the capability fl
   assert.equal(searchCalls.length, 0)
 })
 
-/**
- * OpenProject #3137: `semanticSearchEnabledFor` used to read `search.semanticEnabled` -- one level
- * shallower than where `api/search.ts`'s PATCH handler actually saves it
- * (`search.config.semanticEnabled`) -- so the route always 503'd regardless of the stored setting.
- * Reproduces the exact stale shape to prove it no longer satisfies the gate.
- */
+// -> The setting is saved at `search.config.semanticEnabled`; one level shallower must not satisfy
+//    the gate
 test('503s when the setting is present but at the old, un-nested `search.semanticEnabled` shape', async () => {
   siteSearchConfigOverride = { semanticEnabled: true }
   const res = await app.inject({
@@ -212,9 +184,8 @@ test('calls the model with query/locales/limit/offset and returns its results wh
   )
   assert.equal(body.totalHits, 1)
 
-  // -> OpenProject #3122: the real chunk-based fields must survive serialization, and the earlier
-  //    stub's full-text fields must not reappear -- proves the response schema matches the model's
-  //    actual `SemanticSearchResult` shape rather than silently stripping/re-adding the wrong ones.
+  // -> The response schema must carry `SemanticSearchResult`'s chunk fields and none of the
+  //    full-text `SearchResult` ones
   const [result] = body.results
   assert.equal(result.pageId, 'page-1')
   assert.equal(result.chunkText, 'chunk of docs/one')

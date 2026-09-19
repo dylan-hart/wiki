@@ -9,24 +9,16 @@ import { installTestWiki } from '../../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
 
-/**
- * The route-plugin wrapper this file's apps need on top of the shared harness: a form-body parser,
- * since a SAML-shaped provider POSTs its callback as `application/x-www-form-urlencoded`.
- */
+/** A SAML-shaped provider POSTs its callback as `application/x-www-form-urlencoded`. */
 const withFormBody: FastifyPluginAsync = async (instance) => {
   await instance.register(fastifyFormBody)
   await instance.register(authenticationRoutes)
 }
 
 /**
- * `POST /auth/:strategyId/callback` is the form-POST counterpart of the existing GET callback, for a
- * provider that answers with a browser form submission rather than a redirect — SAML sends
- * `SAMLResponse` and `RelayState` this way, `RelayState` carrying this route's `state` since SAML
- * defines no `state` parameter of its own (see `AuthFlow.state` in `models/authentication.ts`).
- *
- * `CARDINAL.auth.strategies[...].profile()` and `CARDINAL.models.login.loginWithProvider()` are stubbed:
- * what is under test here is the route's flow-matching/expiry/`state` wiring and body parsing, not a
- * real protocol module or the login model, which have their own coverage.
+ * SAML answers with a browser form POST, `RelayState` carrying this route's `state` since SAML
+ * defines no `state` parameter of its own. The module's `profile()` and `loginWithProvider()` are
+ * stubbed: the route's flow matching, expiry and body parsing are what is under test.
  */
 describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () => {
   const STRATEGY_ID = 'a1111111-1111-1111-1111-111111111111'
@@ -103,9 +95,6 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     app = await buildTestApp({
       routes: withFormBody,
       ajv: true,
-      // -> No @fastify/session in this unit test: the session is a plain object this suite controls
-      //    directly, swapped out per test, standing in for what the real plugin decorates onto the
-      //    request.
       session: () => session
     })
   })
@@ -130,7 +119,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
 
     assert.equal(res.statusCode, 302)
     assert.equal(res.headers.location, '/welcome')
-    // -> The flow is spent, matching the GET callback's own behavior
+    // -> A flow is single-use
     assert.equal(session.authFlow, undefined)
     assert.equal(loginCalls.length, 1)
     assert.equal(loginCalls[0].profile.email, 'ada@example.com')
@@ -170,13 +159,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     assert.equal(loginCalls.length, 0)
   })
 
-  /**
-   * CAS reads `state` off the query string exactly like an OAuth2/OIDC provider does — see `AuthFlow.state`
-   * in `models/authentication.ts` — but carries its own answer in `ticket` rather than `code`. This is the
-   * route-level half of that wiring: the GET callback's typed querystring and the object handed to the
-   * module's `profile()` both need a `ticket` field alongside `code`, or a CAS module never sees the ticket
-   * CAS granted.
-   */
+  /** CAS answers with `ticket` where an OAuth2/OIDC provider answers with `code`. */
   test("a GET callback forwards `ticket` (not `code`) to the module's profile(), alongside `state`", async () => {
     session = { authFlow: freshFlow({ strategyId: CAS_STRATEGY_ID }) }
 
@@ -214,12 +197,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     assert.equal(loginCalls.length, 0)
   })
 
-  /**
-   * `result.redirect` carries a group's `redirectOnLogin`, set by a `manage:groups` holder with no
-   * validation at write time (`api/groups.ts`) — see WP #2215 / epic #2208 §6. This route is the
-   * emitter: it must refuse anything that isn't a safe same-wiki path or complete http(s) URL rather
-   * than hand it to `reply.redirect()` as-is, falling back to the flow's own already-safe `redirect`.
-   */
+  /** `result.redirect` is a group's stored `redirectOnLogin`; the route re-checks it. */
   test('a javascript: result.redirect is refused and falls back to the flow redirect, not emitted as Location', async () => {
     session = { authFlow: freshFlow() }
     loginResult = { authenticated: true, nextAction: 'redirect', redirect: 'javascript:alert(1)' }
@@ -276,10 +254,8 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
 })
 
 /**
- * `GET /auth/:strategyId/authorize` — the open-redirect fix at the start of a provider login. The
- * caller-supplied `redirect` query parameter is stored on the session's `authFlow` for the callback
- * to use later; this suite asserts what actually lands there, rather than the provider redirect
- * itself (`instance.authorizationUrl` is stubbed to a fixed string — the module's own concern).
+ * The response redirects to the provider; `redirect` only takes effect later, at the callback. So
+ * these assert what is stored on the session's `authFlow`.
  */
 describe('GET /auth/:strategyId/authorize (open redirect on the redirect query param)', () => {
   const STRATEGY_ID = 'b1111111-1111-1111-1111-111111111111'
@@ -377,14 +353,6 @@ describe('GET /auth/:strategyId/authorize (open redirect on the redirect query p
   })
 })
 
-/**
- * OpenProject #2208 §6: `GET /auth/:strategyId/authorize`'s `redirect` query parameter used to be
- * guarded with `startsWith('/')` alone -- `'//attacker.example'.startsWith('/')` is true, and a
- * browser resolves a leading `/\` the same protocol-relative way, so both reached the provider round
- * trip and came back as an absolute cross-origin `Location`. Checked here against the flow stored on
- * the session, since the response itself redirects to the PROVIDER, not to `redirect` -- `redirect`
- * only takes effect later, at the callback (covered by the describe block below this one).
- */
 describe('GET /auth/:strategyId/authorize — redirect query validation', () => {
   const STRATEGY_ID = 'a3333333-3333-3333-3333-333333333333'
   let app: FastifyInstance
@@ -473,12 +441,8 @@ describe('GET /auth/:strategyId/authorize — redirect query validation', () => 
 })
 
 /**
- * OpenProject #2208 §6: the callback's `reply.redirect(result.redirect || redirect)` used to emit
- * `result.redirect` -- ultimately a group's `redirectOnLogin`/`redirectOnFirstLogin` -- as a raw
- * `Location` header with no validation of its own, so an unvalidated stored value became a
- * server-emitted header on this specific route even before OpenProject #2208's group/site field
- * validation (#2214) existed. Covered here independently of that fix, since this route must refuse
- * such a value regardless of whether it ever should have been stored in the first place.
+ * The route refuses an unsafe stored `redirectOnLogin`/`redirectOnFirstLogin` itself, whether or
+ * not write-time validation should have kept it out of the database.
  */
 describe('GET/POST /auth/:strategyId/callback — result.redirect validation', () => {
   const STRATEGY_ID = 'a4444444-4444-4444-4444-444444444444'
@@ -594,13 +558,6 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
   })
 })
 
-/**
- * OpenProject #3200: a failed provider callback now reaches the audit log, from
- * `finishProviderLogin()`'s one shared catch -- there is no earlier per-branch choke point for a
- * redirect-based strategy the way `login()`'s own `str.authenticate()` catch is for a form-based one,
- * so this single site covers both a `profile()` failure (no identity resolved at all) and a
- * `loginWithProvider()` refusal of an otherwise-valid profile (unlinked account, inactive user, ...).
- */
 describe('GET/POST /auth/:strategyId/callback — login.failed audit recording', () => {
   const STRATEGY_ID = 'a5555555-5555-5555-5555-555555555555'
   let app: FastifyInstance
@@ -683,8 +640,7 @@ describe('GET/POST /auth/:strategyId/callback — login.failed audit recording',
     assert.equal(auditLogRecord.mock.callCount(), 1)
     const entry = (auditLogRecord.mock.calls[0].arguments as any)[0]
     assert.equal(entry.event, 'login.failed')
-    // -> No local user is ever resolved at this layer, even though the account this failure is about
-    //    does exist -- the best identifier available is what the provider's profile asserted.
+    // -> No local user is resolved at this layer, so the provider-asserted email names the actor
     assert.deepEqual(entry.actor, { id: null, name: 'ada@example.com', ip: '127.0.0.1' })
     assert.equal(entry.targetType, 'user')
     assert.equal(entry.targetLabel, 'ada@example.com')

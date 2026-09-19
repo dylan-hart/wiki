@@ -7,14 +7,10 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import configSvc from '../../core/config.ts'
 
 /**
- * OpenProject #2231: every write route in `system.ts` now records an audit entry. DB-backed rather
- * than a stubbed `CARDINAL.models.auditLog` -- `PUT /security` and `POST /history/purge` are the two
- * cases the task calls out by name, and what actually has to be verified is what lands in the real
- * `auditLog` table (actor, changed keys, and -- the point of the task -- that no `auth`/`mail`
- * secret value ever reaches `detail`), not just that `record()` was called with some argument.
- * `CARDINAL.configSvc` is the real `core/config.ts` singleton (not part of `setupTestDb()`'s minimal
- * `CARDINAL`): `Security#updateConfig` writes through it to the real `settings` table this fixture's
- * migration created.
+ * DB-backed rather than a stubbed `CARDINAL.models.auditLog`: what has to hold is what lands in the
+ * real `auditLog` table -- above all that no `auth`/`mail` secret reaches `detail`. The real
+ * `configSvc` is installed by hand: `setupTestDb()`'s minimal `CARDINAL` has none, and
+ * `Security#updateConfig` saves through it.
  */
 describe(
   'Write routes record an audit entry (DB-backed, #2231)',
@@ -28,20 +24,10 @@ describe(
       fixtures = await setupTestDb()
       ;({ auditLog: auditLogModel } = await import('../../models/auditLog.ts'))
       ;(globalThis as any).CARDINAL.configSvc = configSvc
-      // -> `setupTestDb()`'s minimal `CARDINAL.config` is a bare `{}` -- `Security#getConfig()` reads
-      //    `CARDINAL.config.security ?? {}`, so without this, `Security#validate()`'s
-      //    `CORS_MODES.includes(merged.corsMode)` check fails on `undefined` and `PUT /security`
-      //    below 400s instead of exercising the asserted 200 path (OpenProject #2346). `'OFF'` is
-      //    the same default `base.yml` ships; the test's own payload never touches CSP/hostname/regex
-      //    so nothing else in `security` needs seeding.
+      // -> `setupTestDb()`'s `CARDINAL.config` is a bare `{}`, and `Security#validate()` refuses an
+      //    undefined `corsMode`, so `PUT /security` would 400. `'OFF'` is `base.yml`'s default.
       ;(globalThis as any).CARDINAL.config.security = { corsMode: 'OFF' }
 
-      // -> `buildTestApp` brings the REAL error handler: without one that shapes a thrown
-      //    `reply.badRequest()` into `ApiError#`, Fastify's default handler tries to serialize the
-      //    raw error against the route's declared error response schema (which requires
-      //    `ok`/`error`/`statusCode`/`message`), fails, and falls back to a 500 -- masking whichever
-      //    status code the route actually meant to send (OpenProject #2346). No `wiki`:
-      //    `setupTestDb()` already installed the real one, which this suite then patches above.
       app = await buildTestApp({
         routes: systemRoutes,
         ajv: true,
@@ -63,14 +49,9 @@ describe(
       const res = await app.inject({
         method: 'PUT',
         url: '/security',
-        // -> `disallowIframe`/`uploadScanSVG` are real `SECURITY_FIELDS`; `auth`/`mail` are not --
-        //    they stand in for a caller trying to slip a secret-bearing blob through this route. The
-        //    schema has no `additionalProperties: false`, so these pass validation and reach the
-        //    handler; `Security#pickFields` is what has to drop them before `detail` is built.
-        //    (Not `trustProxy` -- OpenProject #2366 fixed its schema from `oneOf` to `anyOf`, but a
-        //    third field alongside `disallowIframe`/`uploadScanSVG` here would just be more surface
-        //    for this specific test to track for no added coverage; the dedicated
-        //    'accepts a real boolean trustProxy' test below covers it.)
+        // -> `auth`/`mail` are not `SECURITY_FIELDS`: they stand in for a secret-bearing blob. The
+        //    schema has no `additionalProperties: false`, so they reach the handler, and
+        //    `Security#pickFields` is what has to drop them before `detail` is built.
         payload: {
           disallowIframe: true,
           uploadScanSVG: false,
@@ -104,10 +85,8 @@ describe(
       assert.equal(res.statusCode, 200, res.body)
       assert.equal(res.json().ok, true)
 
-      // -> `list()` orders newest-first, and this test runs after the `disallowIframe`/
-      //    `uploadScanSVG` one above in the same describe -- but rather than lean on ordering (or
-      //    timestamp ties within the same millisecond), find the entry that actually carries
-      //    `trustProxy`.
+      // -> Found by key rather than by position: the test above wrote an entry for the same event,
+      //    and the two timestamps can tie.
       const { entries } = await auditLogModel.list({ event: 'system.securityUpdated' })
       const entry = entries.find((e) => 'trustProxy' in e.detail)
       assert.ok(entry, 'expected an audit entry recording the trustProxy change')

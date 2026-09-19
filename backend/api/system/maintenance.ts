@@ -5,15 +5,7 @@ import { actorFromRequest } from '../../models/auditLog.ts'
 import { JOB_STATES } from '../../models/jobs.ts'
 import type { FastifyInstance } from 'fastify'
 
-/**
- * Operator actions against the running instance: dropping websocket connections, flushing the
- * cache, the TLS certificate view and renewal, and the three purges (expired API keys, sessions,
- * page history).
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * DISCONNECT WEBSOCKET SESSIONS
-   */
   app.post(
     '/websockets/disconnect',
     {
@@ -58,9 +50,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * FLUSH CACHE
-   */
   app.post(
     '/cache/flush',
     {
@@ -100,9 +89,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET API KEY CERTIFICATE STATE
-   */
   app.get(
     '/certificates',
     {
@@ -136,9 +122,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REGENERATE API KEY CERTIFICATES
-   */
   app.post(
     '/certificates',
     {
@@ -194,9 +177,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PURGE REVOKED API KEYS
-   */
   app.post(
     '/api-keys/purge',
     {
@@ -240,9 +220,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * INVALIDATE USER SESSIONS
-   */
   app.post(
     '/sessions/invalidate',
     {
@@ -291,11 +268,9 @@ async function routes(app: FastifyInstance) {
       })
 
       /*
-        This request's own session, which the rows above no longer include but which would come
-        straight back without this: @fastify/session writes the session it is holding as the response
-        is sent, so deleting the row from under it only means it is written again a moment later, and
-        the one account that would stay logged in is the one that asked for everybody to be logged
-        out. Destroying it detaches it from the request, which is what that hook skips on.
+        This request's own session too: @fastify/session writes the session it holds as the response
+        is sent, so the deleted row would come straight back and the caller alone would stay logged
+        in. Destroying it detaches it from the request, which is what that hook skips on.
       */
       await req.session.destroy()
 
@@ -307,9 +282,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PURGE PAGE HISTORY
-   */
   app.post<{ Body: { olderThan: PurgeTimeframe } }>(
     '/history/purge',
     {
@@ -371,9 +343,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CONVERT LEGACY WYSIWYG JSON ROWS
-   */
   app.post(
     '/wysiwyg/convert',
     {
@@ -431,9 +400,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET LEGACY WYSIWYG JSON CONVERSION RESULT
-   */
   app.get<{ Params: { jobId: string } }>(
     '/wysiwyg/convert/:jobId',
     {
@@ -510,8 +476,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Not in history yet: it may simply not have been picked up off the queue by any instance
-      //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`)
       const pending = await CARDINAL.models.jobs.getPendingEntry(req.params.jobId)
       if (!pending || pending.task !== 'convertWysiwygJson') {
         return reply.notFound('No such conversion job.')

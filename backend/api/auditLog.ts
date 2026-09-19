@@ -6,13 +6,7 @@ import {
   type AuditEvent
 } from '../models/auditLog.ts'
 
-/**
- * Audit Log API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST AUDIT LOG ENTRIES
-   */
   app.get<{
     Querystring: {
       actorId?: string
@@ -83,9 +77,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST AUDIT LOG ACTORS
-   */
   app.get(
     '/actors',
     {
@@ -118,9 +109,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET AUDIT LOG SETTINGS
-   */
   app.get(
     '/settings',
     {
@@ -142,9 +130,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE AUDIT LOG SETTINGS
-   */
   app.put<{ Body: { retentionDays: number } }>(
     '/settings',
     {
@@ -184,8 +169,8 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const from = CARDINAL.models.auditLog.getRetentionDays()
       const to = req.body.retentionDays
-      // OpenProject #2237: write the record BEFORE the new retention takes effect, so a shortened
-      // window cannot swallow the record of its own shortening.
+      // Recorded BEFORE the new retention takes effect, so a shortened window cannot swallow the
+      // record of its own shortening.
       await CARDINAL.models.auditLog.record({
         event: 'auditLog.retentionChanged',
         actor: actorFromRequest(req),

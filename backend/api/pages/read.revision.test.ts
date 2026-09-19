@@ -5,24 +5,10 @@ import pagesRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
- * `GET /sites/:siteId/pages/:pageIdOrHash` — the `revision` block (OpenProject #2651), the backing
- * data for the page metadata rail's `rev 14 · 6 changes` line.
- *
- * Three things are the route's own, and are what this file pins:
- *
- * 1. **The gate.** `read:history` is a PAGE RULE permission, so it is checked with `mayOnPage`
- *    against this page, not declared as a route-level `config.permissions` (that hook reads the
- *    group-wide list and would refuse everybody). A reader without it still gets the page.
- * 2. **Absence, not zero.** `revision` is missing entirely for such a reader, and `changeCount` is
- *    missing for a page with nothing to compare against. The two states render differently, and the
- *    response serializer would happily turn a `null` into a `0` against an `integer` field — so the
- *    assertions here are `undefined`/`in`, never falsiness.
- * 3. **No wasted query.** `revisionSummary` is not called at all when the gate refuses.
- *
- * The summary's own arithmetic is not re-tested here; `models/pageHistory.revision.db.test.ts` owns
- * it against a real database. `buildTestApp` registers the real shared schemas, so a field this
- * route returns but `Page#` does not declare would be stripped before these assertions see it —
- * which is the point of asserting through the HTTP response rather than the handler's return value.
+ * The response serializer would turn a `null` into a `0` against an `integer` field, so absence is
+ * asserted with `undefined`/`in`, never falsiness. `buildTestApp` registers the real shared schemas,
+ * so asserting through the HTTP response also proves `Page#` declares each field: an undeclared one
+ * would be stripped.
  */
 describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651)', () => {
   const SITE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
@@ -35,7 +21,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651
     via: 'editor'
   }
 
-  /** Minimal stand-in for what `getPage` hands back — only what the handler and `Page#` touch. */
   function makeFakePage() {
     return {
       id: PAGE_ID,
@@ -51,8 +36,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651
     }
   }
 
-  /** `pagePermissions` stands in for what a group's RULES grant on this page; `permissions` is the
-   *  global list `pagePermissionsFor`'s `manage:system` bypass reads, and stays empty. */
   function actorForRequest(req: any) {
     const session = req.session as unknown as { testPagePermissions?: string[] } | undefined
     return { permissions: [] as string[], pagePermissions: session?.testPagePermissions ?? [] }
@@ -147,7 +130,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — revision (OpenProject #2651
     const body = await readPage(['read:pages'])
     assert.equal(body.title, 'Some Page')
     assert.equal(body.revision, undefined)
-    // -> And the summary is never derived for a reader who could not be shown it
     assert.deepEqual(revisionSummaryCalls, [])
   })
 

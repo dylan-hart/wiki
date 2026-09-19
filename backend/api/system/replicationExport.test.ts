@@ -8,16 +8,6 @@ import type { FastifyInstance } from 'fastify'
 import systemRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-level test for the instance-wide replication export pair (WP #2489): `POST
- * /replication/export` (queue) and `GET /replication/export/:jobId/download` (poll/download once).
- * Mirrors `transfer.test.ts`'s shape for the analogous per-site pair, but this route takes no
- * `siteId` at all — the whole point is instance-wide scope — so there is no site-pin/enforcement
- * concern to cover here, only the job lifecycle and the download's 404/409/200 states.
- * `CARDINAL.scheduler.addJob`, `CARDINAL.models.jobs.getHistoryEntry` and `CARDINAL.models.auditLog.record` are
- * mocked; `CARDINAL.models.replicationExport.deleteExport` runs for real against a throwaway file so the
- * "downloaded once" delete-after-stream behavior is actually exercised.
- */
 describe('replication export routes', () => {
   let app: FastifyInstance
   let dataPath: string
@@ -166,8 +156,8 @@ describe('replication export routes', () => {
       assert.match(res.headers['content-disposition'] as string, /replication-export-.*\.tar\.gz/)
       assert.deepEqual(res.rawPayload, fileBody)
 
-      // -> `stream.on('close', ...)` fires asynchronously relative to `inject()` resolving — poll
-      //    briefly rather than assuming one tick is enough.
+      // -> The stream's `close` fires some time after `inject()` resolves: poll rather than assume
+      //    one tick is enough.
       for (let i = 0; i < 50 && deleteExport.mock.callCount() < 1; i++) {
         await new Promise((resolve) => setTimeout(resolve, 10))
       }

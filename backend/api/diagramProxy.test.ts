@@ -5,16 +5,7 @@ import diagramProxyRoutes from './diagramProxy.ts'
 import { activeBanMemo } from '../helpers/rateLimit.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Route-level test for `POST /sites/:siteId/diagrams/render`.
- *
- * Driving a real Kroki/PlantUML server is `models/diagramProxy.ts`'s job — `diagramProxy.test.ts`
- * covers that with a mocked `fetch`, not this file. What belongs to the route, and what this checks:
- * the request is reachable with no session at all (no route-level `permissions` — see the handler
- * comment), the request body and resolved `:siteId` reach the model unchanged, the model's result
- * becomes the response body under its own content type with `Cache-Control: no-store`, and the rate
- * limiter is wired in front of the model.
- */
+/** Route wiring only: talking to a Kroki/PlantUML server is `models/diagramProxy.test.ts`'s job. */
 
 const SITE_ID = '11111111-1111-1111-1111-111111111111'
 
@@ -29,8 +20,7 @@ before(async () => {
   app = await buildTestApp({
     routes: diagramProxyRoutes,
     ajv: true,
-    // -> No `session` option at all: this route is reachable with no session decorated on the
-    //    request whatsoever, the same as a real anonymous reader's request.
+    // -> No `session` option: every request here is anonymous, as a real reader's is.
     wiki: {
       models: {
         diagramProxy: { render },
@@ -50,10 +40,8 @@ beforeEach(() => {
   }))
   consume.mock.resetCalls()
   consume.mock.mockImplementation(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-  // -> `limitRenders` fronts its own `CARDINAL.models.rateLimits.consume` with an in-process ban memo
-  //    (`helpers/rateLimit.ts#activeBanMemo`), keyed by IP here since every request in this file is
-  //    anonymous — cleared per test so a refusal in one test can't silently ban every test after it
-  //    that shares the same injected IP.
+  // -> `limitRenders` fronts `consume` with an in-process ban memo, keyed by IP for an anonymous
+  //    request: left standing, one test's refusal would ban every later test on the injected IP.
   activeBanMemo.clear()
 })
 

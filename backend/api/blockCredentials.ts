@@ -3,30 +3,22 @@ import { ORIGIN_PATTERN_SOURCE } from '../helpers/network.ts'
 import { maySiteAdmin } from '../helpers/siteRules.ts'
 
 /*
-  Credential management is gated by the same `manage:sites` / `site:blocks` pair `api/blocks.ts`'s own
-  routes use, not a permission of its own — a group trusted to decide which blocks a site runs is the
-  same group trusted to decide which endpoints those blocks may authenticate to. See
-  `models/groups.ts#checkSiteAdminAccess` for why the global half is site-blind.
+  Gated by the same `manage:sites` / `site:blocks` pair as `api/blocks.ts`, not a permission of its
+  own: a group trusted to decide which blocks a site runs is the same group trusted to decide which
+  endpoints those blocks may authenticate to.
 */
 
 /**
- * Block Credentials API Routes (OpenProject #868)
- *
- * A per-site store for secrets a server-fetching block (`block-live-data`) needs but must never hold
- * itself — a block prop lives in a page's own markdown, readable by anyone with `read:source`. See
- * `models/blockCredentials.ts`'s header comment for the full design. Every response here is the
- * `BlockCredential` shape, which has no `secret` field — the secret is written once, at creation or
- * rotation, and never read back through this API again.
+ * A per-site store for secrets a server-fetching block (`block-live-data`) needs but must never
+ * hold itself: a block prop lives in a page's own markdown, readable by anyone with `read:source`.
+ * No response here carries the secret — it is written at creation or rotation and never read back.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST SITE BLOCK CREDENTIALS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/block-credentials',
     {
-      // No route-level `permissions`: gated by `site:blocks` (a site-scoped rule, see
-      // `helpers/siteRules.ts`), which the group-wide hook cannot check — see `checkSiteAdminAccess`.
+      // No route-level `permissions`: `site:blocks` is a site-scoped rule, which the group-wide
+      // hook cannot check.
       schema: {
         summary: "List a site's block credentials",
         description:
@@ -52,9 +44,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE A BLOCK CREDENTIAL
-   */
   app.post<{
     Params: { siteId: string }
     Body: { name: string; secret: string; allowedOrigins: string[] }
@@ -108,9 +97,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * ROTATE A BLOCK CREDENTIAL'S SECRET
-   */
   app.post<{ Params: { siteId: string; credentialId: string }; Body: { secret: string } }>(
     '/sites/:siteId/block-credentials/:credentialId/rotate',
     {
@@ -160,9 +146,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE A BLOCK CREDENTIAL'S ALLOWED ORIGINS
-   */
   app.post<{
     Params: { siteId: string; credentialId: string }
     Body: { allowedOrigins: string[] }
@@ -222,9 +205,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE A BLOCK CREDENTIAL
-   */
   app.delete<{ Params: { siteId: string; credentialId: string } }>(
     '/sites/:siteId/block-credentials/:credentialId',
     {

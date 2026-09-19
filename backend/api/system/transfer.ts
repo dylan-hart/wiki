@@ -5,27 +5,18 @@ import { JOB_STATES } from '../../models/jobs.ts'
 import { actorFromRequest } from '../../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-/** How large an uploaded content archive may be — a whole site's worth of asset bytes, not one image. */
+/** Sized for a whole site's worth of asset bytes, not one image. */
 const importUploadLimit = 500 * 1024 * 1024
 
-/**
- * Moving a site's content in and out of this instance: the export job and its download, the
- * streamed archive import, and the content scan that reports what an import would find. Owns the
- * gzip body parser the import upload needs -- `register()` is a real encapsulation boundary, so no
- * other system route sees it.
- */
 async function routes(app: FastifyInstance) {
-  // -> An import upload is the raw archive rather than a multipart form, same reasoning and same
-  //    pattern as `PUT /sites/:siteId/images/:kind`: one file, no fields, no dependency to add.
-  //    Registered inside this plugin, so every other route keeps rejecting this body outright. The
-  //    accepted types cover what a browser reports for a `.tar.gz` across platforms.
+  // -> A raw archive rather than a multipart form: one file, no fields, no dependency to add.
+  //    Registered inside this plugin, and `register()` is an encapsulation boundary, so every other
+  //    route keeps rejecting this body. The accepted types cover what a browser reports for a
+  //    `.tar.gz` across platforms.
   //
-  // -> No `parseAs` here, deliberately: that's what hands the parser the raw request stream instead
-  //    of a fully-buffered `Buffer` (Fastify only auto-buffers for `parseAs: 'buffer' | 'string'`).
-  //    `saveUpload` streams it straight to `<dataPath>/imports/`, so a 500 MB archive never sits
-  //    resident in the request thread's memory as one allocation — see `models/siteImport.ts`. It
-  //    also takes over enforcing `bodyLimit` as bytes arrive, since Fastify's own automatic
-  //    `Content-Length` check only runs for the buffered parser kinds.
+  // -> No `parseAs`, deliberately: that is what hands the parser the raw request stream instead of
+  //    a buffered `Buffer`, so `saveUpload` streams straight to `<dataPath>/imports/`. It also has
+  //    to enforce `bodyLimit` itself as bytes arrive: Fastify only does so for the buffered kinds.
   app.addContentTypeParser(
     ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
     { bodyLimit: importUploadLimit },
@@ -33,9 +24,6 @@ async function routes(app: FastifyInstance) {
       CARDINAL.models.import.saveUpload(payload, importUploadLimit)
   )
 
-  /**
-   * EXPORT CONTENT
-   */
   app.post<{ Body: { siteId: string } }>(
     '/export',
     {
@@ -82,8 +70,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> `siteId` here is a body field, not `req.params.siteId`, and this route is `manage:system`
-      //    only -- no `enforceApiKeySite()` call; see `helpers/apiKeySite.ts`'s doc comment for why.
+      // -> No `enforceApiKeySite()` on this body `siteId`, on purpose: see `helpers/apiKeySite.ts`.
       const added = await CARDINAL.scheduler.addJob({
         task: 'exportContent',
         payload: { siteId: req.body.siteId }
@@ -108,9 +95,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DOWNLOAD CONTENT EXPORT
-   */
   app.get<{ Params: { jobId: string } }>(
     '/export/:jobId/download',
     {
@@ -171,9 +155,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const stream = fs.createReadStream(result.filePath)
-      // -> Best-effort cleanup once the bytes are actually on the wire, not before: deleting on the
-      //    happy path here is what keeps a downloaded export from sitting in `<dataPath>/exports/`
-      //    until `purgeExports` gets to it on its own schedule.
+      // -> On `close`, so the bytes are on the wire first. Best-effort: `purgeExports` sweeps up.
       stream.on('close', () => {
         CARDINAL.models.export.deleteExport(result.filePath).catch(() => {})
       })
@@ -185,9 +167,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * IMPORT CONTENT
-   */
   app.post<{ Querystring: { targetSiteId: string }; Body: string }>(
     '/import',
     {
@@ -237,15 +216,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> The content-type parser above already streamed the body to disk — validating it (gzip
-      //    magic number, non-empty) as part of that same save, since there is no in-memory buffer
-      //    left here to check. `req.body` is the path it landed at.
+      // -> `req.body` is the path the content-type parser streamed the upload to, having already
+      //    checked its gzip magic number there: no in-memory buffer is left here to validate.
       const filePath = req.body
-      // -> OpenProject #2201: targetSiteId comes from the querystring, not `req.params`, so the
-      //    global preHandler in `index.ts` never sees it -- checked before anything else, since this
-      //    route replaces the target site's entire content. The upload is already on disk by the
-      //    time this runs (the content-type parser above saved it), so a refusal here still has to
-      //    clean it up rather than leaving it orphaned, same as every other early return below.
+      // -> `targetSiteId` is a querystring field, so the global site-pin `preHandler` never sees
+      //    it. The upload is already on disk by now, so every early return has to delete it.
       if (!enforceApiKeySite(req, reply, req.query.targetSiteId)) {
         await CARDINAL.models.import.deleteUpload(filePath)
         return
@@ -286,9 +261,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SCAN FOR PAGE PROBLEMS
-   */
   app.post(
     '/pages/scan',
     {
@@ -336,9 +308,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET PAGE PROBLEMS SCAN RESULT
-   */
   app.get<{ Params: { jobId: string } }>(
     '/pages/scan/:jobId',
     {
@@ -444,8 +413,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Not in history yet: it may simply not have been picked up off the queue by any instance
-      //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`)
       const pending = await CARDINAL.models.jobs.getPendingEntry(req.params.jobId)
       if (!pending || pending.task !== 'scanPageProblems') {
         return reply.notFound('No such scan job.')

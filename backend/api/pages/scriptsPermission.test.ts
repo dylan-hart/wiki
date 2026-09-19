@@ -5,18 +5,6 @@ import pagesRoutes from './index.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload` need `write:scripts` ON THIS PAGE, and
- * `scriptCss` needs `write:styles` ON THIS PAGE, both on top of (not implied by) `write:pages` --
- * same standalone-per-field shape `publishPermission.test.ts` proves for `publish:pages`. A save
- * lacking the matching permission is refused with 403 BEFORE `createPage()`/`updatePage()` runs --
- * never silently dropped, which is what the pre-a3a6c7994 version of this feature did
- * (`buildScripts()`'s old doc comment: "Silently dropped rather than refused").
- *
- * Route-level only, following `publishPermission.test.ts`'s own pattern directly: a real Fastify
- * instance with `CARDINAL.models.pages`/`CARDINAL.models.groups` stubbed to the smallest surface each
- * test needs, rather than a database.
- */
 describe('pages API — write:scripts/write:styles gate scriptJsLoad/scriptJsUnload/scriptCss (OpenProject #3402)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
@@ -36,14 +24,12 @@ describe('pages API — write:scripts/write:styles gate scriptJsLoad/scriptJsUnl
   let createPageCalls: any[]
   let updatePageCalls: any[]
   let checkAccessCalls: string[]
-  /** Which permissions `checkAccess` grants, by permission name -- every test overrides what it needs. */
   let grantedPermissions: Set<string>
 
   let app: FastifyInstance
 
   before(async () => {
-    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` for the collab-save
-    //    notification regardless of whether this test's own assertions care about the timestamp.
+    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()`.
     await ensureTemporal()
     const wiki = {
       models: {
