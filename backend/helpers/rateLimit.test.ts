@@ -22,14 +22,6 @@ import { installTestWiki } from '../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
 
-/**
- * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
- * `index.ts` (not a per-route hook like `limitAuthAttempts`/`limitRenders`), so it is exercised here
- * the way `api/apiKeys.test.ts` exercises route wiring: a real fastify instance with `@fastify/
- * sensible` registered (for the real `reply.tooManyRequests()`), `CARDINAL.models.rateLimits.consume`
- * stubbed so no database is touched, and an inline route standing in for "any `/_api/` route with a
- * verified key attached".
- */
 describe('limitApiKey', () => {
   let consumeCalls: any[]
   let consumeResult: { allowed: boolean; hits: number; retryAfter: number }
@@ -98,11 +90,9 @@ describe('limitApiKey', () => {
   beforeEach(() => {
     consumeCalls = []
     warn.mock.resetCalls()
-    // -> The ban memo is a module-level singleton shared across every test in this file; clearing it
-    //    here keeps a ban memoized by one test from leaking into the next test reusing the same key.
+    // -> Both are module-level state shared across this file: a ban or a pending summary window
+    //    left by one case must not leak into the next one reusing the same key.
     activeBanMemo.clear()
-    // -> The coalescer's pending windows are module-level and shared across cases, exactly like the
-    //    ban memo above.
     resetCoalesce()
   })
 
@@ -134,11 +124,6 @@ describe('limitApiKey', () => {
     })()
   })
 
-  /**
-   * OpenProject #2731. Each `/probe` request hits `activeBanMemo` after the first refusal (since
-   * `consumeWithBanMemo` memoizes a banned verdict), so the memo is cleared mid-loop to force every
-   * iteration through `logRefusal` the way twenty genuinely separate refused requests would.
-   */
   test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     consumeResult = { allowed: false, hits: 301, retryAfter: 120 }
@@ -159,15 +144,6 @@ describe('limitApiKey', () => {
   })
 })
 
-/**
- * Unit tests for `limitApiRequests` (task 635, feature 398): the general `/_api/*` rate-limit hook.
- *
- * `CARDINAL.models.rateLimits.consume` is stubbed rather than exercised against a real database — the
- * database-backed fixed-window logic itself belongs to `models/rateLimits.ts`, not this helper. What
- * this file covers is the hook's own job: which key it builds for a given request, which requests it
- * exempts, and how it turns a refused verdict into a 429 with `Retry-After` — matching
- * `limitAuthAttempts`/`limitRenders`'s existing shape.
- */
 describe('limitApiRequests', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
 
@@ -180,11 +156,7 @@ describe('limitApiRequests', () => {
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     warn = mock.fn()
-    // -> Same reasoning as `limitApiKey`'s `beforeEach` above: several tests below reuse the same
-    //    IP/key on purpose, so a ban memoized by one must not carry into the next.
     activeBanMemo.clear()
-    // -> The coalescer's pending windows are module-level and shared across cases, exactly like the
-    //    ban memo above.
     resetCoalesce()
     wikiHandle = installTestWiki({
       config: {
@@ -323,10 +295,8 @@ describe('limitApiRequests', () => {
   })
 
   test('two different API keys get independent counters', async () => {
-    // -> A stateful stand-in for `CARDINAL.models.rateLimits.consume`: a real per-key counter (not just a
-    //    fixed verdict), so this exercises what the task asks for directly — that two different
-    //    `req.apiKey.id` values never share a bucket — rather than just asserting the key strings
-    //    differ (which the "keys by ..." tests above already do).
+    // -> A real per-key counter rather than a fixed verdict, so this shows the buckets are separate
+    //    and not merely that the key strings differ.
     const hits = new Map<string, number>()
     consume.mock.mockImplementation(async (key: string, policy: any) => {
       const n = (hits.get(key) ?? 0) + 1
@@ -354,14 +324,12 @@ describe('limitApiRequests', () => {
       siteId: null
     }
 
-    // Exhaust key A's limit (2 allowed, 3rd refused).
     await limitApiRequests(makeReq({ apiKey: keyA }), makeReply())
     await limitApiRequests(makeReq({ apiKey: keyA }), makeReply())
     const replyA3 = makeReply()
     await limitApiRequests(makeReq({ apiKey: keyA }), replyA3)
     assert.equal((replyA3.tooManyRequests as any).mock.calls.length, 1)
 
-    // Key B's first attempt is unaffected by A having just been refused.
     const replyB1 = makeReply()
     await limitApiRequests(makeReq({ apiKey: keyB }), replyB1)
     assert.equal((replyB1.tooManyRequests as any).mock.calls.length, 0)
@@ -390,23 +358,19 @@ describe('limitApiRequests', () => {
       })
     const anonReq = () => makeReq({ ip: '203.0.113.4' })
 
-    // Exhaust the API key's limit.
     await limitApiRequests(apiKeyReq(), makeReply())
     await limitApiRequests(apiKeyReq(), makeReply())
     const replyKey3 = makeReply()
     await limitApiRequests(apiKeyReq(), replyKey3)
     assert.equal((replyKey3.tooManyRequests as any).mock.calls.length, 1)
 
-    // The same-looking anonymous caller (no API key) is on its own counter and unaffected.
     const replyAnon1 = makeReply()
     await limitApiRequests(anonReq(), replyAnon1)
     assert.equal((replyAnon1.tooManyRequests as any).mock.calls.length, 0)
   })
 
   test('does not build the same key as limitAuthAttempts, so the two never share a counter', async () => {
-    // -> `limitAuthAttempts` consumes `auth:<ip>`; confirms this hook's IP-keyed bucket is namespaced
-    //    differently, so applying both to an auth endpoint never double-counts one attempt against a
-    //    single counter. See the rationale in `helpers/rateLimit.ts#limitApiRequests`.
+    // -> `limitAuthAttempts` consumes `auth:<ip>`, and both hooks run on an auth endpoint.
     const req = makeReq({ ip: '203.0.113.9' })
     await limitApiRequests(req, makeReply())
     const key = consume.mock.calls[0].arguments[0]
@@ -414,11 +378,6 @@ describe('limitApiRequests', () => {
     assert.equal(key, 'api:ip:203.0.113.9')
   })
 
-  /**
-   * OpenProject #2731: this refusal line used to fire once per refused request, no coalescing at
-   * all. Same shape as `limitAuthAttempts`'s own ban-line coalescing test below, adapted for this
-   * hook's key/message/field naming.
-   */
   test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     consume.mock.mockImplementation(async () => ({ allowed: false, hits: 301, retryAfter: 120 }))
@@ -439,12 +398,8 @@ describe('limitApiRequests', () => {
 })
 
 /**
- * Unit tests for `consumeAccountAuthAttempt` (work package 2075(b)): the account-keyed brute-force
- * counter `models/users.ts#login` and `#loginTFA` consume alongside `limitAuthAttempts`'s existing
- * `req.ip`-keyed one. Its entire point is that it takes no `req.ip` at all — the bucket is keyed
- * purely on the account identifier — so the "bounds guessing across differing req.ip values" part of
- * the work package's done-when criteria is inherent to the function's signature, not something a test
- * has to construct differing IPs to observe.
+ * `consumeAccountAuthAttempt` takes no `req.ip` at all, so bounding guesses across differing
+ * addresses is inherent to its signature rather than something a test builds addresses to observe.
  */
 describe('consumeAccountAuthAttempt', () => {
   let consume: ReturnType<typeof mock.fn>
@@ -503,10 +458,6 @@ describe('consumeAccountAuthAttempt', () => {
   })
 
   test('repeated attempts against one account are refused once the policy limit is reached, regardless of what req.ip each attempt would have carried', async () => {
-    // -> A stateful stand-in for `CARDINAL.models.rateLimits.consume`, the same pattern
-    //    `limitApiRequests`'s "two different API keys get independent counters" test uses: a real
-    //    per-key counter rather than a fixed verdict, so this exercises the actual bound rather than
-    //    just asserting the key string.
     const hits = new Map<string, number>()
     consume.mock.mockImplementation(async (key: string, policy: any) => {
       const n = (hits.get(key) ?? 0) + 1
@@ -515,8 +466,6 @@ describe('consumeAccountAuthAttempt', () => {
     })
     ;(globalThis as any).CARDINAL.config.security.authRateLimitMax = 3
 
-    // Three attempts against "victim@example.com" succeed (are allowed through); a fourth — even
-    // though nothing here ever passed an ip for any of them — is refused.
     for (let i = 0; i < 3; i++) {
       const verdict = await consumeAccountAuthAttempt('victim@example.com')
       assert.equal(verdict.allowed, true)
@@ -544,11 +493,6 @@ describe('consumeAccountAuthAttempt', () => {
   })
 })
 
-/**
- * `isPublicRateLimitedPath` (OpenProject #2274): which root-mounted paths the new public-surface
- * limiter hook applies to, matching the exact set `index.ts` registers with no prefix or under
- * `/_files`, `/_site`, `/_icons`, `/_thumb`.
- */
 describe('isPublicRateLimitedPath', () => {
   test('matches the two bare root files exactly', () => {
     assert.equal(isPublicRateLimitedPath('/sitemap.xml'), true)
@@ -571,12 +515,6 @@ describe('isPublicRateLimitedPath', () => {
   })
 })
 
-/**
- * Unit tests for `limitPublicRequests` (OpenProject #2274): the root-mounted public-surface rate
- * limit hook. Same `CARDINAL.models.rateLimits.consume` stubbing approach as `limitApiRequests` above —
- * what this covers is the hook's own key-building, exemption and 429 shape, not the database-backed
- * fixed-window logic in `models/rateLimits.ts`.
- */
 describe('limitPublicRequests', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
 
@@ -656,10 +594,8 @@ describe('limitPublicRequests', () => {
   })
 
   test('an anonymous /_api/ caller and an anonymous public-route caller get independent counters', async () => {
-    // -> `limitApiRequests`'s policy is configurable (`apiRateLimitMax`), unlike
-    //    `limitPublicRequests`'s fixed `PUBLIC_DEFAULTS`, so exhausting the `/_api/` bucket with a
-    //    low configured max is the reliable way to drive one bucket to refusal in a handful of
-    //    calls without also needing to replicate the public policy's own fixed number here.
+    // -> The `/_api/` side is the one exhausted because only its max is configurable; the public
+    //    policy is the fixed `PUBLIC_DEFAULTS`.
     const hits = new Map<string, number>()
     consume.mock.mockImplementation(async (key: string, policy: any) => {
       const n = (hits.get(key) ?? 0) + 1
@@ -671,7 +607,6 @@ describe('limitPublicRequests', () => {
       apiRateLimitMax: 2
     }
 
-    // Exhaust the /_api/ counter for this IP.
     const apiReq = {
       method: 'GET',
       url: '/_api/pages',
@@ -685,13 +620,11 @@ describe('limitPublicRequests', () => {
     await limitApiRequests(apiReq, replyApi3)
     assert.equal((replyApi3.tooManyRequests as any).mock.calls.length, 1)
 
-    // The same address hitting the public-route limiter is on its own counter and unaffected.
     const replyPublic1 = makeReply()
     await limitPublicRequests(makeReq(), replyPublic1)
     assert.equal((replyPublic1.tooManyRequests as any).mock.calls.length, 0)
   })
 
-  /** OpenProject #2731. Same shape as `limitApiRequests`'s coalescing test above. */
   test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     consume.mock.mockImplementation(async () => ({ allowed: false, hits: 601, retryAfter: 90 }))
@@ -712,11 +645,8 @@ describe('limitPublicRequests', () => {
 })
 
 /**
- * Task 2222: an in-process memo of active bans fronts every call `helpers/rateLimit.ts` makes to
- * `CARDINAL.models.rateLimits.consume()`, so a request from a key already serving a ban is refused
- * without a second database write. Exercised through `limitApiRequests` — the shared
- * `consumeWithBanMemo` wrapper it (and `limitAuthAttempts`/`limitRenders`/`limitApiKey`) calls into
- * is the thing actually under test here, not anything specific to this one hook.
+ * Exercised through `limitApiRequests`, but the shared `consumeWithBanMemo` wrapper is what is under
+ * test, not anything specific to that hook.
  */
 describe('rate-limit ban memo', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
@@ -763,8 +693,6 @@ describe('rate-limit ban memo', () => {
     assert.equal((reply1.tooManyRequests as any).mock.calls.length, 1)
     assert.deepEqual((reply1.header as any).mock.calls[0].arguments, ['Retry-After', '120'])
 
-    // -> Same key, second request: refused straight out of the memo. `consume` must not be called
-    //    again — that is the database write this task exists to avoid.
     const reply2 = makeReply()
     await limitApiRequests(makeReq(), reply2)
     assert.equal(consume.mock.calls.length, 1)
@@ -779,19 +707,13 @@ describe('rate-limit ban memo', () => {
     await limitApiRequests(makeReq(), makeReply())
     await limitApiRequests(makeReq(), makeReply())
 
-    // -> Three allowed requests, three real consume() calls: nothing about an allowed verdict is
-    //    ever cached, matching `models/rateLimits.ts`'s shared-counter-across-instances requirement.
     assert.equal(consume.mock.calls.length, 3)
   })
 
   /**
-   * `lru-cache` tracks TTL against `performance.now()`, not `Date.now()` (see `perf.js` in the
-   * package) — a portable-timestamp fallback exists only for environments with no `performance`
-   * global, which Node always has. `node:test`'s `mock.timers` fakes `Date` (and, if asked, the
-   * timer functions), but not `performance.now()`, so advancing a mocked `Date` does nothing to
-   * this cache's own clock. Faking `performance.now()` directly — via `mock.method`, which works
-   * because it's a writable, configurable prototype method — is what actually controls the memo's
-   * notion of elapsed time.
+   * `lru-cache` tracks TTL against `performance.now()`, which `node:test`'s `mock.timers` does not
+   * fake, so advancing a mocked `Date` would not move the memo's clock. Faking `performance.now()`
+   * itself does.
    */
   function withFakePerfNow(startMs: number) {
     let now = startMs
@@ -815,20 +737,16 @@ describe('rate-limit ban memo', () => {
       await limitApiRequests(makeReq(), makeReply())
       assert.equal(consume.mock.calls.length, 1)
 
-      // Still within the 5s ban: refused from the memo, no second database call.
       const replyStillBanned = makeReply()
       await limitApiRequests(makeReq(), replyStillBanned)
       assert.equal(consume.mock.calls.length, 1)
       assert.equal((replyStillBanned.tooManyRequests as any).mock.calls.length, 1)
 
-      // Advance the clock past the ban's retryAfter.
       clock.advance(5_001)
       consume.mock.mockImplementationOnce(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
       const replyAfterExpiry = makeReply()
       await limitApiRequests(makeReq(), replyAfterExpiry)
 
-      // -> The memo entry is gone, so this reaches the database again rather than staying refused
-      //    forever off the original, now-stale memo entry.
       assert.equal(consume.mock.calls.length, 2)
       assert.equal((replyAfterExpiry.tooManyRequests as any).mock.calls.length, 0)
     } finally {
@@ -849,8 +767,6 @@ describe('rate-limit ban memo', () => {
       clock.advance(4_000)
       const reply = makeReply()
       await limitApiRequests(makeReq(), reply)
-      // -> Still refused out of the memo (consume() not called again), but the reported Retry-After
-      //    reflects the ~6s actually left, not the original 10s the ban started with.
       assert.equal(consume.mock.calls.length, 1)
       assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '6'])
     } finally {
@@ -859,11 +775,6 @@ describe('rate-limit ban memo', () => {
   })
 })
 
-/**
- * Unit tests for `limitRenders`: the per-route render-request limiter. `CARDINAL.models.rateLimits.consume`
- * is stubbed the same way as the other hooks in this file — the fixed-window logic itself belongs to
- * `models/rateLimits.ts`.
- */
 describe('limitRenders', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
 
@@ -920,7 +831,6 @@ describe('limitRenders', () => {
     assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
   })
 
-  /** OpenProject #2731. Same shape as `limitApiRequests`'s coalescing test above. */
   test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     consume.mock.mockImplementation(async () => ({ allowed: false, hits: 11, retryAfter: 90 }))
@@ -941,14 +851,6 @@ describe('limitRenders', () => {
   })
 })
 
-/**
- * Unit tests for `limitUploads` (OpenProject #3234): the fixed, non-configurable limit shared by the
- * two single-file upload routes (`POST .../assets`, `POST .../blocks`). `api/assets.test.ts` and
- * `api/blocks.test.ts` cover the route wiring (the preHandler is actually attached, and a burst
- * against either route is actually refused); this file covers only the hook's own job — what key it
- * builds, the `manage:system` exemption, and how it turns a refused verdict into a 429 with
- * `Retry-After`, the same shape as {@link limitRenders} above.
- */
 describe('limitUploads', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
 
@@ -1010,7 +912,6 @@ describe('limitUploads', () => {
     assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
   })
 
-  /** Same coalescing shape `limitRenders`'s own test above proves (OpenProject #2731). */
   test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     consume.mock.mockImplementation(async () => ({ allowed: false, hits: 21, retryAfter: 45 }))
@@ -1031,12 +932,6 @@ describe('limitUploads', () => {
   })
 })
 
-/**
- * Unit tests for `limitGuestComments` (OpenProject #2256): the fixed, non-configurable per-IP limit
- * on anonymous comment posting. `api/comments.ts` is what decides *when* to call this (only on the
- * guest branch); this file covers only the hook's own job — what key it builds, and how it turns a
- * refused verdict into a 429 with `Retry-After`, matching `limitApiKey`/`limitApiRequests`'s shape.
- */
 describe('limitGuestComments', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
 
@@ -1114,7 +1009,6 @@ describe('limitGuestComments', () => {
     assert.equal((replyOther.tooManyRequests as any).mock.calls.length, 0)
   })
 
-  /** OpenProject #2731. Same shape as `limitApiRequests`'s coalescing test above. */
   test('folds a burst of refusals into threshold individual lines and one summary carrying the count', async () => {
     mock.timers.enable({ apis: ['setTimeout'] })
     consume.mock.mockImplementation(async () => ({ allowed: false, hits: 6, retryAfter: 120 }))
@@ -1134,14 +1028,6 @@ describe('limitGuestComments', () => {
   })
 })
 
-/**
- * Unit tests for `enforceCommentCooldown` (WP #3377): the native comment provider's admin-configured
- * `minDelay` policy, now enforced through a real, database-backed counter instead of the module's own
- * pure `checkRateLimit()` compare. `api/comments.ts` decides *when* to call this (only when the
- * active provider has `minDelay > 0` and the poster lacks `manage:comments`) and what `bucketKey` to
- * pass; this file covers only the hook's own job — the key/policy it builds, and how it turns a
- * refused verdict into a 429 with `Retry-After`.
- */
 describe('enforceCommentCooldown', () => {
   const makeReply = (): FastifyReply => makeReplyStub().reply
 
@@ -1238,16 +1124,6 @@ describe('enforceCommentCooldown', () => {
   })
 })
 
-/**
- * The IP-keyed limiter on the authentication endpoints. Its ban line was the first refusal line in
- * this file to be coalesced (OpenProject #2673); the other five limiters' own refusal lines were
- * given the same treatment afterward (OpenProject #2731).
- *
- * A banned key is refused on every request it keeps making, so a guessing run that has already
- * tripped the limit would otherwise write one line per attempt. The first three in a window are
- * logged in full and carry `hits` — the count the ban was decided on — and the rest fold into one
- * summary emitted when the window closes.
- */
 describe('limitAuthAttempts', () => {
   const makeAuthReq = (
     overrides: Partial<FastifyRequest> | Record<string, any> = {}
@@ -1265,8 +1141,6 @@ describe('limitAuthAttempts', () => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     warn = mock.fn()
     activeBanMemo.clear()
-    // -> The coalescer's pending windows are module-level and shared across cases, exactly like the
-    //    ban memo above.
     resetCoalesce()
     wikiHandle = installTestWiki({
       config: {

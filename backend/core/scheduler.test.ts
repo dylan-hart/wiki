@@ -1,11 +1,6 @@
 /**
  * `core/scheduler.ts`'s job bookkeeping: queueing (`addScheduled`, `addJob`), the completion-promise
  * map, and shutdown. Pure — no database, no worker pool.
- *
- * The rest of this module's coverage lives in three siblings, split out of one 1,682-line file
- * (TEST-F14) so the pure/DB boundary is a filename property rather than something a reader has to
- * derive from a `{ skip }` option per describe: `scheduler.execution.test.ts` (running a job, in
- * process and on a worker), `scheduler.reaping.db.test.ts` and `scheduler.schema.db.test.ts`.
  */
 
 import assert from 'node:assert/strict'
@@ -21,46 +16,17 @@ before(async () => {
   scheduler = (await import('./scheduler.ts')).default
 })
 
-/**
- * Regression test for two coupled pre-existing bugs in `addScheduled()`'s future-job-scheduling loop:
- *
- * 1. `plannedIterations.next()` was read with the old ES-iterator shape (`.value` / `.done`), but
- *    cron-parser v5's `next()` returned the `CronDate` directly — neither property exists on it.
- *    `next.value.getTime()` therefore threw the moment the `existingJobs.some(...)` callback actually
- *    ran (i.e. whenever at least one job is already scheduled for the task), and the throw was
- *    swallowed by the surrounding `catch { break }` — so the loop added *zero* new jobs instead of the
- *    ones still due. `next.done` was likewise always `undefined` (falsy), so with an empty
- *    `existingJobs` the loop never terminated naturally and only ever stopped at the 10-iteration cap.
- * 2. The adjacent `addJob({ ... })` call passed a `useWorker` property that isn't part of
- *    `AddJobOptions` (already re-derived internally by `addJob` from `this.tasks`), and handed
- *    `waitUntil` an ISO string where `AddJobOptions.waitUntil` — and the `timestamp()` column it is
- *    written to — expect a `Date`.
- *
- * OpenProject #3177 later replaced cron-parser with `croner` (dropping luxon, a transitive
- * dependency of cron-parser), which has no ES-iterator at all — `nextRun(prev)` returns a plain
- * `Date | null` directly, the shape this loop already assumed once fixed — so bug 1 as originally
- * described cannot recur, but this suite still stands as the coverage for the loop's dedup, cap and
- * termination behaviour against whichever cron library is underneath it.
- *
- * This drives the real `addScheduled()` against lightweight fakes for `CARDINAL.db`, rather than a live
- * Postgres connection or a re-implementation of the loop's logic, so it fails under the pre-fix code
- * and passes only once the actual fix is in place.
- */
 describe('addScheduled (fake CARDINAL)', () => {
   let insertedJobs: any[]
   let scheduleJobsMock: any[]
   let existingJobsMock: any[]
   let wikiHandle: { restore(): void }
 
-  // -> Set per-test (default: always succeeds) so the failing-insert test below can make every
-  //    `addJob` insert reject without touching the rest of the fixture.
   let insertShouldFail: boolean
 
   before(() => {
-    // -> Shared by both `db.select` and `trx.select` below: OpenProject #1998 requires
-    //    `addScheduled()` to read `scheduledJobs`/`existingJobs` through its own transaction (`trx`),
-    //    not the ambient `CARDINAL.db` handle, so the fake `trx` handed to the `transaction()` callback
-    //    must expose `select()` too, not just `update().set().where()`.
+    // -> `addScheduled()` reads both selects through its own transaction (`trx`), so the fake `trx`
+    //    exposes `select()` too.
     const selectImpl = () => ({
       from: (table: any) => {
         if (table === jobScheduleTable) {
@@ -83,9 +49,6 @@ describe('addScheduled (fake CARDINAL)', () => {
                 where: async () => ({ rowCount: 1 })
               })
             }),
-            // -> `addScheduled()` now reads both selects through `trx` rather than the ambient
-            //    `CARDINAL.db` pool handle (OpenProject #1998) -- shared `selectImpl`, same fake data,
-            //    same table-dispatch shape as `CARDINAL.db.select()` below.
             select: selectImpl
           }),
         select: selectImpl,
@@ -116,17 +79,14 @@ describe('addScheduled (fake CARDINAL)', () => {
 
   test('schedules future jobs from a cron even when a job is already scheduled for that task', async () => {
     scheduleJobsMock = [{ task: 'testTask', cron: '* * * * *', payload: { foo: 'bar' } }]
-    // -> Non-empty and matching `job.task`, which is what made the pre-fix `.some()` callback run (and
-    //    throw) at all. Its `waitUntil` is far in the past so it can never collide with a freshly
-    //    computed near-future iteration.
+    // -> Matches `job.task` so the dedupe callback actually runs; its `waitUntil` is far in the
+    //    past so it cannot collide with a near-future iteration.
     existingJobsMock = [{ task: 'testTask', waitUntil: new Date(0) }]
 
     await scheduler.addScheduled()
 
-    // Pre-fix: `.some()`'s callback throws on the very first iteration (existingJobsMock is
-    // non-empty), caught by `catch { break }` before any `addJob` call — zero rows inserted.
-    // Fixed: a minutely cron over the ~24h05m window has far more than 10 due iterations, so the
-    // 10-iteration cap is what stops it.
+    // A minutely cron has far more than 10 due iterations in the window, so the 10-addition cap is
+    // what stops it.
     assert.equal(insertedJobs.length, 10)
 
     for (const job of insertedJobs) {
@@ -134,12 +94,10 @@ describe('addScheduled (fake CARDINAL)', () => {
       assert.deepEqual(job.payload, { foo: 'bar' })
       assert.ok(job.waitUntil instanceof Date, 'waitUntil must be a Date, not an ISO string')
       assert.ok(!Number.isNaN(job.waitUntil.getTime()))
-      // -> Derived internally by `addJob` from `this.tasks`, not passed as a `useWorker` option (which
-      //    `AddJobOptions` does not have).
+      // -> Derived by `addJob` from `this.tasks`, which is empty here.
       assert.equal(job.useWorker, true)
     }
 
-    // Iterations must be strictly increasing in time, with no collisions.
     const times = insertedJobs.map((j) => j.waitUntil.getTime())
     assert.equal(new Set(times).size, times.length)
     for (let i = 1; i < times.length; i++) {
@@ -148,8 +106,10 @@ describe('addScheduled (fake CARDINAL)', () => {
   })
 
   test('adds no jobs and does not throw when the schedule has no due iterations left', async () => {
-    // A cron expression that only fires on Feb 29th never matches inside a 24h05m window unless today
-    // happens to be one, reliably exercising the natural (non-cap) loop termination path.
+    // Fires on Feb 29th only, so the window holds no due iteration and the loop ends naturally
+    // rather than at the cap.
+    // FIXME: fails when run in the 24h05m before a Feb 29th -- derive the cron from a date outside
+    // the window instead.
     scheduleJobsMock = [{ task: 'leapTask', cron: '0 0 29 2 *', payload: {} }]
     existingJobsMock = []
 
@@ -159,18 +119,9 @@ describe('addScheduled (fake CARDINAL)', () => {
   })
 
   test('a `*/5 * * * *` cron produces multiple distinct rows capped at 10, and a second call does not duplicate rows already in existingJobs', async () => {
-    // Task 573's explicit verification ask: a cron due more than once inside the ~24h05m window (every
-    // 5 minutes fires ~289 times) must yield several distinct `jobs` rows on a single `addScheduled()`
-    // call, capped at 10 -- and a follow-up call, once those rows are visible via `existingJobs`, must
-    // not re-insert any of them. This exercises the real dedup comparison
-    // (`j.waitUntil.getTime() === next.getTime()`) rather than just the loop's cap/termination logic
-    // covered by the tests above.
-    //
-    // Note the loop's cap counts *additions*, not iterations examined: once the next 10 due iterations
-    // are all already scheduled, it skips past every one of them (proving the dedup check works) and
-    // keeps going until it has added 10 genuinely new rows further out in the window -- it does not
-    // stop at zero. So the correct assertion for "does not duplicate" is that the two calls' rows never
-    // overlap, not that the second call adds nothing.
+    // The loop's cap counts additions, not iterations examined: a second call skips the 10 rows
+    // already scheduled and adds 10 new ones further out. So "does not duplicate" means the two
+    // calls' rows never overlap, not that the second call adds nothing.
     scheduleJobsMock = [{ task: 'fiveMinTask', cron: '*/5 * * * *', payload: {} }]
     existingJobsMock = []
 
@@ -184,7 +135,6 @@ describe('addScheduled (fake CARDINAL)', () => {
       'all 10 rows from the first call must be distinct'
     )
 
-    // Simulate the rows now being visible to the next lock-holder's `existingJobs` query.
     existingJobsMock = insertedJobs.map((j) => ({ task: j.task, waitUntil: j.waitUntil }))
     insertedJobs = []
 
@@ -209,11 +159,6 @@ describe('addScheduled (fake CARDINAL)', () => {
     }
   })
 
-  // -> OpenProject #929: reapStaleJobs() no longer produces a scheduled row with a null waitUntil
-  //    (see core/scheduler.test.ts's DB-backed reapStaleJobs suite), but this loop must not crash if
-  //    one exists anyway -- pre-fix, `j.waitUntil.getTime()` throwing on the very first `.some()`
-  //    comparison against such a row was silently swallowed by the surrounding `catch { break }`,
-  //    which stopped this task's loop before adding a single one of its due iterations.
   test('a null waitUntil among existingJobs does not crash the dedupe check or block scheduling', async () => {
     scheduleJobsMock = [{ task: 'testTask', cron: '* * * * *', payload: {} }]
     existingJobsMock = [{ task: 'testTask', waitUntil: null }]
@@ -227,15 +172,11 @@ describe('addScheduled (fake CARDINAL)', () => {
     }
   })
 
-  // -> OpenProject #1998: pre-fix, `addScheduled()` fired `this.addJob(...)` without awaiting it, so
-  //    `addedFutureJobs`/`totalAdded` were incremented from the call itself rather than its outcome --
-  //    a run whose inserts all failed (`addJob` swallows its own errors and returns `undefined`) still
-  //    logged "Scheduled N new future planned jobs". Awaiting each call and counting only a returned
-  //    `id` means a total insert failure must report zero added rows.
+  // FIXME: asserts only the fake's own `insertedJobs`, which is empty whenever the insert throws.
+  // Assert that `addScheduled()` itself returns 0, which is what the title claims.
   test('reports zero jobs added when every addJob insert fails', async () => {
-    // -> Hourly rather than minutely: keeps the failing-insert loop's iteration count small (it can no
-    //    longer stop early via the 10-addition cap, since nothing ever succeeds) while still covering
-    //    more than one due iteration in the ~24h05m window.
+    // -> Hourly rather than minutely: nothing ever succeeds, so the 10-addition cap cannot stop the
+    //    loop early and every due iteration in the window is attempted.
     scheduleJobsMock = [{ task: 'testTask', cron: '0 * * * *', payload: {} }]
     existingJobsMock = []
     insertShouldFail = true
@@ -246,14 +187,6 @@ describe('addScheduled (fake CARDINAL)', () => {
   })
 })
 
-/**
- * `expireCompletionPromises()`, OpenProject #928: the only way an `addJob({ promise: true })` deferred
- * ever otherwise settled was a `jobCompleted` NOTIFY -- and postgres NOTIFY is not durable, so one
- * missed during a LISTEN reconnect left the deferred, and everything awaiting it, pending forever. This
- * sweep rejects (and stops tracking) any entry older than its ceiling, driven entirely by
- * `completionPromises`/`CARDINAL.config` -- no database or real timers involved, so it runs as a fast fake-
- * CARDINAL unit test rather than needing the DB-backed fixture below.
- */
 describe('expireCompletionPromises (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
 
@@ -266,11 +199,8 @@ describe('expireCompletionPromises (fake CARDINAL)', () => {
   })
 
   /**
-   * A `CompletionPromise`-shaped entry `ageSeconds` in the past, recording whether/how it settled.
-   * `promise` is a real `Promise` wired to `resolve`/`reject`, matching production's
-   * `createDeferred()` shape (task 1993) -- `expireCompletionPromises()` attaches a no-op `.catch()`
-   * to it before rejecting, so a test entry without a matching live promise would throw calling
-   * `.catch()` on `undefined`.
+   * `promise` must be a real `Promise` wired to `resolve`/`reject`: `expireCompletionPromises()`
+   * attaches a no-op `.catch()` to it before rejecting.
    */
   function makeEntry(ageSeconds: number) {
     const added = (globalThis as any).Temporal.Now.instant().subtract({ seconds: ageSeconds })
@@ -303,7 +233,7 @@ describe('expireCompletionPromises (fake CARDINAL)', () => {
 
   test('rejects and drops an entry older than 2x staleJobTimeout', () => {
     wikiHandle = installTestWiki({ config: { scheduler: { staleJobTimeout: 10 } } })
-    const { entry, getRejection } = makeEntry(25) // -> past the 20s (10 * 2) ceiling
+    const { entry, getRejection } = makeEntry(25)
     scheduler.completionPromises.push(entry)
 
     scheduler.expireCompletionPromises()
@@ -315,7 +245,7 @@ describe('expireCompletionPromises (fake CARDINAL)', () => {
 
   test('leaves an entry younger than the ceiling untouched', () => {
     wikiHandle = installTestWiki({ config: { scheduler: { staleJobTimeout: 10 } } })
-    const { entry, getRejection, wasResolved } = makeEntry(5) // -> well under the 20s ceiling
+    const { entry, getRejection, wasResolved } = makeEntry(5)
     scheduler.completionPromises.push(entry)
 
     scheduler.expireCompletionPromises()
@@ -327,7 +257,7 @@ describe('expireCompletionPromises (fake CARDINAL)', () => {
 
   test('falls back to the default stale job timeout (doubled) when nothing is configured', () => {
     wikiHandle = installTestWiki({ config: { scheduler: {} } })
-    const { entry } = makeEntry(5) // -> far under the multi-hour default ceiling
+    const { entry } = makeEntry(5)
     scheduler.completionPromises.push(entry)
 
     scheduler.expireCompletionPromises()
@@ -351,19 +281,6 @@ describe('expireCompletionPromises (fake CARDINAL)', () => {
   })
 })
 
-/**
- * OpenProject #1993: `addJob({ promise: true })` used to push the `completionPromises` entry
- * *before* `CARDINAL.db.insert(...)`. If the insert then rejected, the outer `catch` logged and
- * returned `undefined` -- the caller never received `jobDefer.promise`, so nothing was ever
- * attached to it, but the entry stayed tracked in `completionPromises` regardless. Roughly two
- * hours later (`staleJobTimeout` * `COMPLETION_PROMISE_TTL_MULTIPLIER`),
- * `expireCompletionPromises()` rejected that orphaned, handler-less promise -- an unhandled
- * rejection with nothing left in the call stack to explain it, and (per `index.ts`'s
- * `uncaughtException` handler) fatal to the whole instance.
- *
- * The fix moves the push to after a successful insert, so a rejecting insert leaves nothing in
- * `completionPromises` for `expireCompletionPromises()` to ever reject.
- */
 describe('addJob (fake CARDINAL, rejecting insert)', () => {
   let wikiHandle: { restore(): void }
 
@@ -408,8 +325,7 @@ describe('addJob (fake CARDINAL, rejecting insert)', () => {
       await scheduler.addJob({ task: 'testTask', promise: true })
       scheduler.expireCompletionPromises()
 
-      // -> Give any unhandled rejection a microtask/macrotask turn to actually fire before asserting
-      //    its absence.
+      // -> An unhandled rejection needs a macrotask turn to fire before its absence is asserted.
       await new Promise((resolve) => setImmediate(resolve))
 
       assert.equal(scheduler.completionPromises.length, 0)
@@ -424,16 +340,6 @@ describe('addJob (fake CARDINAL, rejecting insert)', () => {
   })
 })
 
-/**
- * `stop()`'s bounded drain of in-flight jobs, OpenProject #2019. `processJob()` tracks each
- * `runJob` promise in `inFlightJobs`; `stop()` must (1) clear `pollingRef`/`scheduledRef`
- * synchronously, before it starts waiting on anything, so no new job is claimed mid-shutdown, (2)
- * actually await whatever was already in flight rather than dropping it, and (3) not let a job that
- * never settles on its own hold shutdown open past a bound.
- *
- * Drives the real `stop()` against a fake `workerPool`/`listenerHandle` (no real pool, no pubsub) so
- * only the drain behavior itself is under test.
- */
 describe('stop (fake CARDINAL)', () => {
   let wikiHandle: { restore(): void }
   let destroyCalls: number
@@ -441,9 +347,8 @@ describe('stop (fake CARDINAL)', () => {
   beforeEach(() => {
     destroyCalls = 0
     wikiHandle = installTestWiki({
-      // -> 0.05s taskTimeout + the fixed 1s SHUTDOWN_DRAIN_GRACE = a ~1.05s bound: short enough to
-      //    keep this suite fast, long enough to clearly separate "waited out the bound" from
-      //    "resolved immediately".
+      // -> 0.05s taskTimeout + the fixed 1s SHUTDOWN_DRAIN_GRACE = a ~1.05s drain bound: fast, yet
+      //    clearly separable from resolving immediately.
       config: { scheduler: { taskTimeout: 0.05 } }
     })
     scheduler.pollingRef = setInterval(() => {}, 1_000_000)
@@ -471,8 +376,7 @@ describe('stop (fake CARDINAL)', () => {
 
     const stopPromise = scheduler.stop()
 
-    // -> `stop()` runs synchronously up to its first `await` -- by the time control returns here,
-    //    both refs must already be nulled, regardless of how long the drain that follows takes.
+    // -> `stop()` has run synchronously up to its first `await` by the time control returns here.
     assert.equal(scheduler.pollingRef, null)
     assert.equal(scheduler.scheduledRef, null)
 
@@ -496,13 +400,12 @@ describe('stop (fake CARDINAL)', () => {
   })
 
   test('a never-settling in-flight job does not prevent stop() from resolving within the bound', async () => {
-    scheduler.inFlightJobs.add(new Promise<void>(() => {})) // -> deliberately never settles
+    scheduler.inFlightJobs.add(new Promise<void>(() => {}))
 
     const start = Date.now()
     await scheduler.stop()
     const elapsed = Date.now() - start
 
-    // Bound is taskTimeout (0.05s) + SHUTDOWN_DRAIN_GRACE (1s) = ~1.05s.
     assert.ok(elapsed < 3000, `expected stop() to resolve within the bound, took ${elapsed}ms`)
     assert.ok(
       elapsed >= 900,

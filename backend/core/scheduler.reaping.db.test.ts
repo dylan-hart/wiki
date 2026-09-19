@@ -1,11 +1,6 @@
 /**
- * `core/scheduler.ts#reapStaleJobs()` against a real, migrated Postgres: the claim-and-retry race a
- * mock of the query builder could only re-describe, and the same cutoff re-run under a non-UTC `TZ`.
- *
- * Split out of `core/scheduler.test.ts` (TEST-F14); see that file's header for the whole map. Both
- * describes below carry their own `{ skip: !hasTestDatabase() }` and their own `before()` — the one
- * that resets `scheduler.tasks`/`maxWorkers` moved here with the describe that sets it, since those
- * are process-global fields on the singleton and the pure suites must not inherit them.
+ * `reapStaleJobs()` and `processJob()`'s claim path against a real, migrated Postgres: the SQL's
+ * atomicity and row-level locking are under test, which a mocked query builder cannot verify.
  */
 
 import assert from 'node:assert/strict'
@@ -23,13 +18,8 @@ before(async () => {
 })
 
 /**
- * Task 704 (b)/(c): `reapStaleJobs()`'s stale-claim recovery and its concurrency guarantee, plus a
- * regression for a bug this verification turned up in `processJob()`'s reclaim path — all run against
- * a real, migrated Postgres (see `test/db.ts`), not a mock of the query builder: the thing under test
- * *is* the SQL's atomicity and row-level locking, which a mock would only be re-describing.
- *
- * Every test tracks the ids it creates and deletes them in `afterEach`, so `reapStaleJobs()` — which
- * sweeps every stale row in the table, not just one test's own — never sees another test's leftovers.
+ * `reapStaleJobs()` sweeps every stale row in the table, not just one test's own, so every test
+ * deletes the ids it created in `afterEach`.
  */
 describe(
   'reapStaleJobs / processJob claim-and-retry (DB-backed)',
@@ -44,9 +34,7 @@ describe(
       scheduler.tasks = {}
       scheduler.maxWorkers = 1
       scheduler.activeWorkers = 0
-      // -> `taskTimeout: 1`: short enough to keep the new "in-process task that never settles" test
-      //    below fast, and otherwise unused by every other test in this block (none of them exercise
-      //    `executeInProcess()`'s ceiling, only `staleJobTimeout`/`retryBackoff`/`maxRetries`).
+      // -> `taskTimeout: 1` keeps the never-settling in-process task test fast.
       CARDINAL.config = {
         scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2, taskTimeout: 1 }
       }
@@ -129,8 +117,6 @@ describe(
         .where(eq(jobsTable.id, row.id))
       assert.ok(requeuedJob, 'a fresh row must exist in jobs for the next instance to pick up')
       assert.equal(requeuedJob.task, 'stuckTask')
-      // -> OpenProject #929: a null waitUntil here crashes addScheduled()'s dedupe check
-      //    (`j.waitUntil.getTime()`) the next time it runs, for any scheduled row of the same task.
       assert.ok(
         requeuedJob.waitUntil instanceof Date,
         'a requeued row must carry an explicit waitUntil, never null'
@@ -167,19 +153,12 @@ describe(
         .select()
         .from(jobHistoryTable)
         .where(eq(jobHistoryTable.id, row.id))
-      // -> Still marked interrupted (the UPDATE claim doesn't discriminate on attempt count) — it is
-      //    only the requeue-into-`jobs` step that skips it.
+      // -> The claiming UPDATE ignores attempt count; only the requeue into `jobs` skips this row.
       assert.equal(after1.state, 'interrupted')
       const stillQueued = await fixtures.db.select().from(jobsTable).where(eq(jobsTable.id, row.id))
       assert.equal(stillQueued.length, 0)
     })
 
-    /**
-     * OpenProject #2672: the sweep's own two outcome lines. A job abandoned outright is the one thing
-     * here nothing will ever revisit, so it is named individually at `warn` — task, job id and the
-     * attempt it died on — while the roll-up says how many were found against how many made it back
-     * into the queue. Asserted on scope, level and fields rather than on rendered text.
-     */
     test('an abandoned interrupted job is named at warn, with its attempt out of the total', async () => {
       const row = await insertActiveHistory({ attempt: 3, maxRetries: 2 })
       historyIds.push(row.id)
@@ -217,9 +196,7 @@ describe(
       CARDINAL.logger.debug = debug as any
 
       try {
-        // -> Nothing inserted by this test, and every other test in this file cleans up its own rows
-        //    in `afterEach` against a schema of its own (`test/db.ts`), so this sweep genuinely has
-        //    nothing to find.
+        // -> Nothing to find: this test inserts no rows, and every other one deletes its own.
         await scheduler.reapStaleJobs()
       } finally {
         CARDINAL.logger.warn = originalWarn
@@ -239,16 +216,9 @@ describe(
     })
 
     /**
-     * OpenProject #928: a job that is abandoned outright (no attempts left) is never picked up and run
-     * again by anything, so `runJob()`'s own `jobCompleted` NOTIFY -- the ordinary way a completion
-     * promise settles -- is never going to fire for it. `reapStaleJobs()` must send that NOTIFY itself
-     * for exactly this case, or the only thing standing between an `addJob({ promise: true })` caller
-     * and hanging forever is `expireCompletionPromises()`'s much longer ceiling.
-     *
-     * `CARDINAL.scheduler` here is `createSchedulerStub()`'s plain object (`test/db.ts`), not the real
-     * `scheduler` module under test -- `notifier` (module-scope in `scheduler.ts`) reads
-     * `CARDINAL.scheduler.pubsubClient` on every send, so handing that stub object a fake `query()` is what
-     * lets a NOTIFY attempt be observed without a second, real LISTEN/NOTIFY client.
+     * `CARDINAL.scheduler` is `createSchedulerStub()`'s plain object, not the module under test.
+     * `notifier` reads `CARDINAL.scheduler.pubsubClient` on every send, so a fake `query()` there
+     * observes the NOTIFY without a real LISTEN/NOTIFY client.
      */
     test('sends a jobCompleted NOTIFY for a job it abandons, since nothing else ever will', async () => {
       const row = await insertActiveHistory({
@@ -262,9 +232,8 @@ describe(
 
       try {
         await scheduler.reapStaleJobs()
-        // -> `notifier.send()` (helpers/pubsub.ts) is deliberately fire-and-forget -- queued behind a
-        //    promise chain `reapStaleJobs()` itself never awaits -- so a beat is needed for the queued
-        //    `query()` call to actually run before it can be asserted against.
+        // TODO: drop this wait -- `reapStaleJobs()` awaits `notifier.drained()` before returning,
+        // so the queued `query()` has already run.
         await new Promise((resolve) => setTimeout(resolve, 50))
       } finally {
         CARDINAL.scheduler.pubsubClient = null
@@ -307,19 +276,13 @@ describe(
       assert.equal(after1.state, 'interrupted')
     })
 
-    /**
-     * OpenProject #2009: `.onConflictDoNothing({ target: jobsTable.id })` is what makes a job the
-     * original (still-alive) runner already re-queued a silent no-op instead of a duplicate-key
-     * throw. `runJob`'s own retry insert (line ~492) spreads `...job` and therefore reuses the same
-     * id, so a runner finishing its retry-scheduling just as this sweep claims the same history row
-     * is a real race, not a hypothetical one.
-     */
     test('a job the original runner already requeued is a conflict no-op, not a duplicate-key throw', async () => {
       const row = await insertActiveHistory({ maxRetries: 5 })
       historyIds.push(row.id)
       jobIds.push(row.id)
 
-      // -> Stands in for the still-alive original runner's own retry insert reaching `jobs` first.
+      // -> Stands in for the still-alive original runner's retry insert, which reuses the job id,
+      //    reaching `jobs` first.
       await fixtures.db.insert(jobsTable).values({
         id: row.id,
         task: row.task,
@@ -343,16 +306,6 @@ describe(
       )
     })
 
-    /**
-     * OpenProject #2009: before this fix, the whole per-job requeue loop and the initial claiming
-     * `UPDATE` shared one outer `try`/`catch` -- a single failing insert aborted the loop, silently
-     * stranding every job after it in the array (marked `interrupted` in history, absent from `jobs`,
-     * and invisible to a later sweep, which only ever looks at `state = 'active'` rows).
-     *
-     * `CARDINAL.db.insert` is temporarily wrapped to reject only the middle job's insert, modelling
-     * whatever real failure (a constraint violation, a dropped connection) the outer catch used to
-     * treat as fatal for the whole batch.
-     */
     test('one job failing to requeue does not strand the stale jobs after it', async () => {
       const rowA = await insertActiveHistory({ task: 'reap2009TaskA' })
       const rowB = await insertActiveHistory({ task: 'reap2009TaskB' })
@@ -377,9 +330,6 @@ describe(
         }
       }
 
-      // -> The whole call, not `String(msg)`: since the Phase 2 sweep (#2665) the job id and the
-      //    error are FIELDS on a scoped record, not text pasted into the message, so a stub that
-      //    keeps only the first argument keeps the scope (`'jobs'`) and can never match either.
       const warnCalls: any[][] = []
       const originalWarn = CARDINAL.logger.warn
       CARDINAL.logger.warn = ((...args: any[]) => {
@@ -411,17 +361,6 @@ describe(
       assert.equal((failedRequeue[2].error as Error).message, 'simulated insert failure')
     })
 
-    /**
-     * OpenProject #1996: `runJob()`'s in-process branch used to `await` the task call directly, with
-     * no ceiling -- unlike `executeOnWorker()`, which already races against `taskTimeout`. A task
-     * whose promise never settles left `runJob()` (and therefore `processJob()`'s
-     * `Promise.allSettled`) pending forever, so `activeWorkers` was never returned and, after enough
-     * wedged jobs, the instance stopped claiming any further job at all. `executeInProcess()` gives
-     * the in-process branch the same race-against-a-timer shape, so `runJob()` always settles and
-     * this bookkeeping always completes. This is a DB-backed integration test of that fix through the
-     * full `processJob()` claim path, complementing the pure-unit `executeInProcess (fake CARDINAL)` suite
-     * above, which exercises the same ceiling in isolation.
-     */
     test('an in-process task whose promise never settles is recorded failed and returns activeWorkers to 0', async () => {
       scheduler.tasks = { neverSettles: () => new Promise(() => {}) }
       try {
@@ -457,17 +396,8 @@ describe(
     })
 
     /**
-     * Bug found by this verification task: `processJob()`'s claim step re-inserts a `jobHistory` row
-     * with a fresh `attempt` count, but on a *reclaim* (the row already exists — exactly the case right
-     * after `reapStaleJobs()` has interrupted it) that insert conflicts, and the `onConflictDoUpdate`
-     * only wrote `state`/`executedBy`/`startedAt` — never `attempt`. A job whose worker or process keeps
-     * dying before `runJob()`'s own bookkeeping ever runs (the scenario `reapStaleJobs()` exists for)
-     * therefore has its `jobHistory.attempt` frozen at whatever it was on the very first claim, so the
-     * `job.attempt > job.maxRetries` cutoff in `reapStaleJobs()` never trips: `maxRetries` stops being
-     * honored, and the job is requeued forever instead of being abandoned.
-     *
-     * `runJob()` is stubbed to a no-op here to model exactly that: claimed, then the process disappears
-     * before it can record anything — the same state a `kill -9` mid-task leaves behind.
+     * `runJob()` is stubbed to a no-op to model a process killed mid-task: the job is claimed and
+     * nothing is ever recorded.
      */
     test('reclaiming after an interruption advances attempt, so maxRetries is eventually honored', async () => {
       const originalRunJob = scheduler.runJob
@@ -487,7 +417,6 @@ describe(
         historyIds.push(job!.id)
         jobIds.push(job!.id)
 
-        // Attempt 1: claimed, then the process "dies" (runJob stubbed) before recording anything.
         await scheduler.processJob()
         await fixtures.db
           .update(jobHistoryTable)
@@ -500,8 +429,11 @@ describe(
           'attempt 1 should be requeued: its one retry has not been used yet'
         )
 
-        // Attempt 2 (the retry): reclaimed via the SAME jobHistory row from attempt 1 — this is what
-        // exercises the insert's ON CONFLICT DO UPDATE path specifically.
+        // The retry reclaims the SAME jobHistory row, which exercises the insert's ON CONFLICT DO
+        // UPDATE path.
+        // FIXME: backdate `jobs.waitUntil` first, as the `lastErrorMessage` test does -- if this
+        // claim misses the requeued row, `secondReap` is 0 for the wrong reason and the test
+        // passes vacuously.
         await scheduler.processJob()
         await fixtures.db
           .update(jobHistoryTable)
@@ -519,13 +451,6 @@ describe(
       }
     })
 
-    /**
-     * OpenProject #2084: the reclaim upsert's `set` clause refreshed `state`/`executedBy`/`startedAt`/
-     * `attempt` but left `lastErrorMessage` untouched, so a job interrupted, requeued, reclaimed and
-     * then *succeeded* on retry still carried `reapStaleJobs()`'s stale-instance message forever —
-     * `runJob()`'s own success path only ever sets `state`/`completedAt`, never touching the column
-     * either. A reclaim must start the row as clean as a fresh claim.
-     */
     test('reclaiming after an interruption clears lastErrorMessage once the retry succeeds', async () => {
       const originalTasks = scheduler.tasks
       scheduler.tasks = { retrySucceeds: async () => {} }
@@ -544,8 +469,7 @@ describe(
         historyIds.push(job!.id)
         jobIds.push(job!.id)
 
-        // Attempt 1: claimed, then the process "dies" before recording anything (runJob stubbed), so
-        // reapStaleJobs() flips the row to 'interrupted' and stamps a stale-instance lastErrorMessage.
+        // A no-op `runJob()` models a process killed mid-task: claimed, nothing recorded.
         const originalRunJob = scheduler.runJob
         scheduler.runJob = async () => {}
         try {
@@ -567,16 +491,10 @@ describe(
         assert.match(interrupted!.lastErrorMessage ?? '', /No instance reported on this job/)
 
         /*
-          Attempt 2 (the retry): reclaimed via the SAME jobHistory row — this exercises the ON
-          CONFLICT DO UPDATE path — and this time the task actually runs to completion.
-
-          `waitUntil` is stamped into the past first rather than left as `reapStaleJobs()` wrote it.
-          That value is Node's `new Date()`, while `processJob()` claims on `"waitUntil" <= NOW()` and
-          postgres's `NOW()` is the CLAIMING TRANSACTION'S START — so a requeued row can be a
-          millisecond or two in that transaction's future and simply not be claimed. In a running
-          instance the next poll picks it up and nothing is lost; here it left the row `interrupted`
-          and failed the assertion below, intermittently and only under load. A definite past instant
-          is what a later poll would see, which is the state this test is actually about.
+          `waitUntil` is backdated rather than left as `reapStaleJobs()` wrote it. That value is Node's
+          `new Date()`, while `processJob()` claims on `"waitUntil" <= NOW()` and postgres's `NOW()` is
+          the claiming transaction's start -- so a requeued row can be a millisecond or two in that
+          transaction's future and not be claimed until a later poll.
         */
         await fixtures.db
           .update(jobsTable)
@@ -596,18 +514,9 @@ describe(
     })
 
     /**
-     * OpenProject #2072: `processJob()` read `activeWorkers` and only incremented it *after* awaiting
-     * the whole claim transaction, so two overlapping callers (the polling interval and a burst of
-     * `newJob` NOTIFYs both call this, unsynchronized) could both compute the same `availableWorkers`
-     * and each claim up to `maxWorkers` jobs of their own -- `maxWorkers` bounded nothing.
-     *
-     * `Promise.all` fires both calls back-to-back in the same tick: JS runs each call's synchronous
-     * prefix -- reading `activeWorkers`, and (once fixed) reserving the slots -- to completion before
-     * yielding at its first `await`, so the second call's synchronous prefix always runs before the
-     * first call's claim transaction has even started. That makes the outcome deterministic rather
-     * than a timing race: fixed, the second call always sees the first call's reservation already
-     * made and returns immediately having claimed nothing; unfixed, it always sees the pre-reservation
-     * `activeWorkers` and proceeds to claim its own batch regardless.
+     * Deterministic, not a timing race: `Promise.all` starts both calls in one tick, and each runs
+     * its synchronous prefix -- reading `activeWorkers` and reserving its slots -- before yielding
+     * at its first `await`, so the second call always sees the first's reservation.
      */
     test('two concurrent processJob() calls together claim no more than maxWorkers jobs', async () => {
       const originalRunJob = scheduler.runJob
@@ -682,16 +591,9 @@ describe(
 )
 
 /**
- * OpenProject #1653: `reapStaleJobs()`'s cutoff comparison (`lt(jobHistoryTable.startedAt, cutoff)`)
- * runs entirely server-side -- both the `startedAt` values written above and the `cutoff` computed
- * from `Temporal.Now.instant()` are sent to postgres as parameters and compared there, never
- * round-tripped back through the `pg` driver's own `Date` reconstruction -- so it should select the
- * same rows regardless of the Node process's local `TZ`. See
- * `docs/audit-2026-08-24/correctness-data-schema.md` §2 for the read-side counterpart of this defect
- * (`models/jobs.ts#isHealthy`/`#cleanHistory`, `models/users.ts#validateToken`) that this suite does
- * NOT exercise here, precisely because `reapStaleJobs()`'s own cutoff never reads a `timestamp` column
- * back into JS before comparing it. This is regression coverage that the stale-job cutoff keeps
- * selecting the right rows even off UTC, gated the same way the DB-backed suite above is.
+ * `reapStaleJobs()`'s cutoff comparison runs server-side -- `startedAt` and `cutoff` both reach
+ * postgres as parameters and are never read back through the `pg` driver's `Date` reconstruction --
+ * so it must select the same rows whatever the Node process's `TZ`.
  */
 describe(
   'reapStaleJobs stale-cutoff correctness under a non-UTC TZ (DB-backed)',

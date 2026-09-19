@@ -1,27 +1,14 @@
 /**
- * The 5 ajv string `format:` validators this instance's schemas actually use, hand-registered
- * instead of pulling in the `ajv-formats` package (OpenProject #3081/#3115).
+ * Hand-registered instead of pulling in the CJS `ajv-formats` package, which needs a `.default`
+ * interop read and an `as any` cast against `@fastify/ajv-compiler`'s plugin-options type. Only the
+ * formats the schemas use are here.
  *
- * `ajv-formats` is CJS and ships ~20 formats; schema `format:` usage across `api/schemas/` only
- * ever exercises `uuid`, `date-time`, `email` and `hostname` — plus this codebase's own `hexcolor`,
- * which was already hand-registered here before the other 4 joined it, proving the pattern. Reusing
- * the package for 4 formats meant a `.default` CJS-interop read and an `as any` cast bridging
- * `@fastify/ajv-compiler`'s `unknown` plugin-options type against `ajv-formats`' own narrower one;
- * neither is needed once the validators are plain functions.
+ * `uuid`, `hostname` and `email` are `ajv-formats`' `fullFormats` regexes verbatim. `date-time` is
+ * its `fastFormats` regex instead: callers need a well-shaped RFC 3339 timestamp, not calendar
+ * validity.
  *
- * `uuid`, `hostname` and `email` below are `ajv-formats`' own `fullFormats` regex definitions
- * (`ajv-formats/dist/formats.js`) verbatim — the mode every call site that used to register the
- * plugin ran in (`{}` options, which default to `fullFormats` over `fastFormats`). `date-time` uses
- * `fullFormats`' simpler `fastFormats` sibling instead: `fullFormats`' own `date-time` is a semantic
- * function (real day-in-month/leap-year/leap-second checks), while every place this codebase
- * validates a `date-time` on the way in (`api/auditLog.ts`'s `from`/`to` querystring) only needs a
- * well-shaped RFC 3339 timestamp, not calendar validity — a plain regex keeps this format the same
- * shape as the other 4 rather than pulling `Temporal` into ajv setup for it alone.
- *
- * Shared by every place that builds a fastify/ajv instance carrying this instance's schemas:
- * `createHttpApp()` (the real server), `test/fastify.ts#buildTestApp` (the route-test harness) and
- * `helpers/apiKeySite.coverage.test.ts` (its own bare-fastify route scan) — one definition, so the
- * three can never drift into validating a schema `format:` differently from each other.
+ * Shared by the real server and every test harness that builds an ajv instance, so none can
+ * validate a schema `format:` differently from the others.
  */
 export function registerAjvFormats(ajv: any): void {
   // -> Accepts the shorthand, alpha and full forms a color picker can produce:

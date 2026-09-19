@@ -53,8 +53,6 @@ describe('splitDisplayName', () => {
   })
 
   test('is deliberately naive: a particle surname splits the same way as any other', () => {
-    // -> Feature #2608 rejected a name-parsing library precisely so this stays an obvious guess a
-    //    person can correct, rather than a confident wrong answer nobody looks at.
     assert.deepEqual(splitDisplayName('Ludwig van Beethoven'), {
       firstName: 'Ludwig',
       lastName: 'van Beethoven'

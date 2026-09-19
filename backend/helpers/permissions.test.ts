@@ -73,28 +73,15 @@ describe('helpers/permissions', () => {
 })
 
 /**
- * Cross-workspace drift guard (OpenProject #1938, replacing the circular check that used to live in
- * `frontend/src/helpers/apiKeyScopes.test.js`). That test retyped this file's own union as a
- * frontend literal (`BACKEND_ALL_PERMISSIONS`) and compared it to `API_KEY_SCOPES` -- two files in
- * the same directory, neither ever reading this one. `GLOBAL_PERMISSIONS`/`PAGE_PERMISSIONS`/
- * `SITE_PERMISSIONS` above are the real source of truth; this suite reads the two frontend files
- * that are supposed to mirror them **as text** (a backend TS test cannot import frontend JS/Vue
- * across the workspace boundary, and vice versa) and
- * extracts their permission string literals for comparison.
- *
- * Verify by adding a throwaway permission to `GLOBAL_PERMISSIONS` or `PAGE_PERMISSIONS` above: this
- * suite fails until `apiKeyScopes.js`, `GroupEditOverlay.vue` and `GroupRulesEditor.vue` are all
- * updated to match.
+ * Reads the frontend files that mirror these lists **as text** -- a backend TS test cannot import
+ * frontend JS/Vue across the workspace boundary -- and compares their permission string literals.
  */
 describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
   const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
   const apiKeyScopesPath = path.join(REPO_ROOT, 'frontend/src/helpers/apiKeyScopes.js')
   const groupEditOverlayPath = path.join(REPO_ROOT, 'frontend/src/components/GroupEditOverlay.vue')
-  // -> The rule editor moved out of `GroupEditOverlay.vue` into its own component; `RULES_DATA`
-  //    went with it, while `PERMISSIONS_DATA` stayed behind.
   const groupRulesEditorPath = path.join(REPO_ROOT, 'frontend/src/components/GroupRulesEditor.vue')
 
-  /** The `[...]` array literal following the first occurrence of `marker`, matched by bracket depth. */
   function extractArrayLiteral(text: string, marker: string): string {
     const markerIdx = text.indexOf(marker)
     assert.ok(markerIdx !== -1, `marker not found: ${marker}`)
@@ -110,12 +97,10 @@ describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
     throw new Error(`unterminated array literal for marker: ${marker}`)
   }
 
-  /** Bare quoted permission-shaped string literals (`'verb:noun'`) anywhere in the given text. */
   function extractBarePermissionLiterals(text: string): string[] {
     return [...text.matchAll(/'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
   }
 
-  /** `permission: '...'`-keyed literals, the shape both editors' arrays use. */
   function extractKeyedPermissionLiterals(text: string): string[] {
     return [...text.matchAll(/permission:\s*'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
   }
