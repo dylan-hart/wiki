@@ -26,19 +26,14 @@ import {
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
 
-/** A permissive stand-in actor for getNav() calls in tests that aren't specifically
- *  about page-rule filtering (OpenProject #2155) -- manage:system bypasses checkAccess
- *  entirely, matching this file's pre-#2155 behavior for everything but the dedicated
- *  permission-filtering tests, which build their own narrower actor. */
+/** A stand-in actor for getNav() calls in tests that aren't about page-rule filtering --
+ *  manage:system bypasses checkAccess entirely. The filtering tests build their own
+ *  narrower actor. */
 const ADMIN_ACTOR = { groupIds: [] as string[], permissions: ['manage:system'] }
 
 /**
- * Forces a navigation row's mode to `static` directly, bypassing the schema's own default (`auto`,
- * since OpenProject #2745 -- `static` before it). Several tests in this file exist to verify raw
- * item storage/retrieval mechanics (`setNavItems`, `copyNav`, `updateNavigation`'s write side, ...)
- * independently of the mode-generation feature -- they assert that `getNav` echoes back exactly what
- * was stored, which only holds for a `static` menu. The mode axis itself has its own dedicated
- * describe block further down this file.
+ * The schema defaults a navigation row's mode to `auto`. A test asserting that `getNav` echoes back
+ * exactly what was stored only holds for a `static` menu, so it forces the column here.
  */
 async function forceStaticMode(navId: string): Promise<void> {
   await CARDINAL.db
@@ -47,14 +42,6 @@ async function forceStaticMode(navId: string): Promise<void> {
     .where(eq(navigationTable.id, navId))
 }
 
-/**
- * OpenProject #2208 §3: pure unit coverage of the item-target validation `setNavItems`,
- * `updateNavigation` and `copyNav` all now call before writing — no `CARDINAL` global and no database
- * needed, per this repo's own preference for a pure test over a DB-backed one wherever the thing
- * under test is not itself SQL orchestration. The
- * DB-backed `setNavItems`/`copyNav` describe blocks further down in this file cover the write/copy
- * round trip itself; this covers the validation logic they both now run on the way in.
- */
 describe('isValidNavItemTarget / assertValidNavItems / sanitizeNavItemTargets', () => {
   test('an absent or empty target is valid (header/separator, or an unpointed link)', () => {
     assert.equal(isValidNavItemTarget(undefined), true)
@@ -152,11 +139,6 @@ describe('isValidNavItemTarget / assertValidNavItems / sanitizeNavItemTargets', 
   })
 })
 
-/**
- * `listOverrides` is a flat, indexed scan against `tree` — no ltree ancestry logic to mock, so this
- * runs the real method against a migrated, per-run-fresh database (see `test/db.ts`), the same
- * approach `models/pages.test.ts` takes for its own SQL-orchestration-heavy paths.
- */
 describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
@@ -224,8 +206,6 @@ describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, (
     const overrides = await navigationModel.listOverrides(fixtures.siteId)
     const relevant = overrides.filter((o) => ['Alpha', 'Zebra'].includes(o.title))
 
-    // -> Both at the site root (empty folderPath), so ordering falls through to fileName: alpha before
-    //    zebra
     assert.deepEqual(
       relevant.map((o) => o.title),
       ['Alpha', 'Zebra']
@@ -285,10 +265,9 @@ describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, (
 })
 
 /**
- * `setNavItems` is what the admin-launched editor (Task 433) saves against: unlike
- * `updateNavigation`, it writes straight to a navigation row by id, with no page/mode resolution --
- * the caller (AdminNavigation.vue) already knows which row it means, either a site-wide default's own
- * row id (from `ensureSiteNav`) or an override's own `navigationId` from `listOverrides`.
+ * `setNavItems` writes straight to a navigation row by id, with no page/mode resolution: its
+ * caller already knows which row it means -- a site-wide default's own row id, or an override's
+ * `navigationId`.
  */
 describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -311,7 +290,6 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     const items = [{ id: 'a', type: 'link' as const, label: 'Home', target: '/' }]
 
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-    // -> The row is a real, freshly-generated id -- not the site id it belongs to
     assert.notEqual(siteNavId, fixtures.siteId)
     await forceStaticMode(siteNavId)
 
@@ -360,15 +338,13 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   /**
-   * OpenProject #1360/#2208 (2026-08-24 security audit §3): a nav item's `target` renders as an
-   * unsanitized `<a :href>` (`WItem.vue`) for every reader of every page on the site, so it must be a
-   * same-origin path or an `http(s)`/`mailto`/`tel` target — never `javascript:` or a scheme-relative
-   * `//host` a browser would resolve as absolute and off-origin.
+   * A nav item's `target` renders as an unsanitized `<a :href>` for every reader of every page on
+   * the site, so it must be a same-origin path or an `http(s)`/`mailto`/`tel` target — never
+   * `javascript:` or a scheme-relative `//host` a browser resolves as absolute and off-origin.
    */
   test('rejects a javascript: target, top-level or nested, and writes nothing', async () => {
-    // -> A locale of its own, distinct from every other test in this describe block: `ensureSiteNav`
-    //    is idempotent per `(siteId, locale)`, and reusing a locale another test already wrote to
-    //    would make the "wrote nothing" assertion below see that test's leftover items instead.
+    // -> A locale no other test here uses: `ensureSiteNav` is idempotent per `(siteId, locale)`, so
+    //    a shared locale would show this test another test's leftover items.
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'nl')
 
     await assert.rejects(
@@ -395,7 +371,6 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
       /has an invalid target/
     )
 
-    // -> Neither attempt wrote anything -- the row is still whatever ensureSiteNav seeded it with
     const stored = await navigationModel.getNav(fixtures.siteId, siteNavId, {
       actor: ADMIN_ACTOR,
       unfiltered: true
@@ -432,11 +407,6 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 })
 
-/**
- * `copyNav` is what a "copy from locale"/cross-site copy button saves against: unlike `setNavItems`,
- * it reads a whole source menu and writes cloned items onto a target, rather than items the caller
- * already assembled itself.
- */
 describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
@@ -492,7 +462,6 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.notEqual(copied!.children![0]!.id, 'source-child')
     assert.equal(copied!.children![0]!.label, 'Child')
 
-    // -> The source is left untouched
     const sourceStillIntact = await navigationModel.getNav(fixtures.siteId, sourceId, {
       actor: ADMIN_ACTOR,
       unfiltered: true
@@ -534,14 +503,10 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2217: `copyNav` used to copy `target` unrewritten, so a source menu poisoned before
-   * this check existed (or written straight to the database) could reintroduce a `javascript:` item
-   * into a fresh menu via a plain "copy from locale". A safe target still travels over unchanged.
-   *
-   * `setNavItems` itself now refuses a `javascript:` target outright (`assertValidNavItems`), so the
-   * poisoned source row here is written straight to the table with a raw `CARDINAL.db.update` -- exactly
-   * the "predates this validation" scenario `sanitizeNavItemTargets`'s own doc comment describes --
-   * rather than through the model, which this test would never get past otherwise.
+   * `setNavItems` refuses a `javascript:` target outright (`assertValidNavItems`), so the poisoned
+   * source row is written straight to the table with a raw `CARDINAL.db.update` rather than through
+   * the model -- the "menu poisoned before this validation existed" case `copyNav`'s own rewrite
+   * exists for.
    */
   test('drops an unsafe target instead of duplicating it onto the target menu', async () => {
     const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ja')
@@ -610,8 +575,8 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * The site-wide default menu is identified by `(siteId, locale)`, not by `id === siteId`: a site with
- * more than one active locale needs a menu per locale, and each one's row id is a real, independently
+ * The site-wide default menu is identified by `(siteId, locale)`, not by `id === siteId`: a site
+ * with more than one active locale needs a menu per locale, and each row id is an independently
  * generated uuid rather than something a caller can derive from the site id.
  */
 describe(
@@ -727,11 +692,6 @@ describe(
   }
 )
 
-/**
- * `siteRoots` is what a "copy from" picker (Feature 359) lists to let an admin choose a source menu
- * without knowing a raw navigation uuid: the site-wide default's own row id for each of the site's
- * active locales, the same locale-scoped lookup `ensureSiteNav` provides one locale at a time.
- */
 describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
@@ -787,9 +747,8 @@ describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () =>
 })
 
 /**
- * `updateNavigation`'s `menuMode` param is a different axis from its `mode` param: `mode` is the
- * ENTRY's cascade setting (inherit/override/...), `menuMode` is the RESOLVED MENU ROW's own source
- * (static/auto/mixed). This is the wiring `NavEditMenu.vue`'s mode selector (Task 464) saves through.
+ * `menuMode` is a different axis from `mode`: `mode` is the ENTRY's cascade setting
+ * (inherit/override/...), `menuMode` is the RESOLVED MENU ROW's own source (static/auto/mixed).
  */
 describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -908,10 +867,9 @@ describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDat
 })
 
 /**
- * OpenProject #2796: the insert path used to only set the new row's `mode` column when `menuMode`
- * was explicitly passed, so a brand-new override/inherit row saved with `items` but no `menuMode`
- * fell through to the schema's own default (`auto`, since OpenProject #2745) instead of `static` --
- * `getNav()` then ignored the just-saved `items` entirely and generated from the page tree instead.
+ * A new row saved with `items` but no `menuMode` has to land on `static`, not the schema's own
+ * `auto` default: an `auto` row ignores its stored `items` and generates from the page tree, so the
+ * items just saved would never be served.
  */
 describe(
   'navigation updateNavigation insert-path mode default (DB-backed)',
@@ -994,11 +952,6 @@ describe(
   }
 )
 
-/**
- * `mode` (static/auto/mixed) is a column landed ahead of the tree-walk resolver that will read it --
- * this task only checks the schema default holds and that the column round-trips, not any resolution
- * behavior.
- */
 describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
@@ -1068,10 +1021,8 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   /**
-   * OpenProject #2127: `getMode()` used to select on `navigationTable.id` alone, so a
-   * `site:navigation` delegate scoped to one site could pass an id belonging to a DIFFERENT site
-   * and learn its mode. Every neighbouring method here (`getNav()`, `setNavItems()`, `copyNav()`)
-   * already pairs `id` with `siteId`; this locks `getMode()` down the same way.
+   * `getMode()` pairs `id` with `siteId` like every neighbouring method, so a `site:navigation`
+   * delegate scoped to one site cannot learn another site's mode by passing its row id.
    */
   test('getMode does not return a row belonging to a different site', async () => {
     const [otherSite] = await CARDINAL.db
@@ -1085,21 +1036,17 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
       .where(eq(navigationTable.id, otherNavId))
 
     assert.equal(await navigationModel.getMode(otherSite!.id, otherNavId), 'auto')
-    // -> Asked for with THIS test's own siteId instead -- must not see the other site's row
+    // -> The same row id under this test's own siteId: the not-found default, not the other site's
     assert.equal(await navigationModel.getMode(fixtures.siteId, otherNavId), 'static')
 
-    // -> No site cleanup here: its nav row still references it (a bare site delete would 23503 on
-    //    the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
+    // -> No site cleanup: its nav row still references it (a bare delete would 23503 on the FK),
+    //    and teardownTestDb() drops the whole schema anyway.
   })
 })
 
 /**
- * `generateFromTree` is SQL orchestration in the same shape as `tree.browse()` -- a join, an `EXISTS`
- * subquery and a comparator a mock of the query builder would mostly just be re-describing -- so this
- * runs the real method against a migrated, per-run-fresh database, same approach as the rest of this
- * file. Private on the class (it is not wired into `getNav` yet -- a later task in this feature does
- * that), so tests reach it through an `any` cast rather than TypeScript's own privacy, which is a
- * compile-time-only concept the test runtime does not enforce anyway.
+ * `generateFromTree` is private on the class, so these reach it through an `any` cast -- TypeScript
+ * privacy is compile-time only and the test runtime does not enforce it.
  */
 describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -1192,10 +1139,8 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       'a reader with no way to populate the folder still sees it dropped as a dead end'
     )
 
-    // -> OpenProject #2515: the same folder is NOT a dead end for an actor who could populate it --
-    //    `manage:system` already means they could add or publish a page under this path right now,
-    //    so it is kept as a childless leaf instead of being dropped the way the reader's view above
-    //    still drops it.
+    // -> Not a dead end for an actor who could populate it: `manage:system` means they could add or
+    //    publish a page under this path, so it stays as a childless leaf rather than being dropped.
     const managerItems = await generate()
     const folderItem = managerItems.find((item) => item.label === 'unpublished-only')
     assert.ok(folderItem, 'an actor who could populate the folder must still see it')
@@ -1222,8 +1167,8 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       mode: 'override'
     })
 
-    // -> A sibling, non-boundary folder recurses normally, so the boundary's lack of children is
-    //    contrasted against a case that walks all the way down
+    // -> A non-boundary sibling, so the boundary's lack of children is contrasted against a folder
+    //    that does recurse
     await treeModel.createFolder({
       parentPath: '',
       pathName: 'plain-section',
@@ -1347,13 +1292,6 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(item!.children![0].target, '/fr/french-section/page-fr')
   })
 
-  /**
-   * OpenProject #2155: an auto/mixed menu used to run no page-rule check at all -- every published,
-   * browsable page in the walked subtree reached the caller regardless of a path/tag/classification
-   * DENY. These lock down the fix: a denied page never appears, and a folder left with nothing
-   * visible under it (once the actor's own rules are applied) is dropped as a dead end, the same
-   * way `holdsVisiblePages` already drops one with no visible descendant at all.
-   */
   test('a guest actor never sees an entry under a path DENY, and the emptied folder is dropped too', async () => {
     const groupsModel = (await import('./groups.ts')).groups
     await pagesModel.createPage(
@@ -1409,11 +1347,9 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       true,
       'an unrelated, allowed page must still appear'
     )
-    // -> The folder auto-created for the denied page's own path segment is titled with that raw
-    //    segment (`createFolder`'s `title: fileName` -- there is no humanization step). Matched by
-    //    that literal id/label rather than a guessed, humanized title -- and checked for absence
-    //    among top-level items rather than an exact list, since this describe block's tree
-    //    accumulates content across its other tests too (no per-test cleanup).
+    // -> The folder auto-created for the denied page's path segment is titled with that raw segment
+    //    (`createFolder` sets `title: fileName`, with no humanization step). Absence among the
+    //    top-level items rather than an exact list, since this block's tree accumulates.
     assert.equal(
       items.some((item: NavigationItem) => item.label === 'denied-section'),
       false,
@@ -1424,8 +1360,8 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       false,
       'the denied page itself must never appear, even nested'
     )
-    // -> Sanity check against the same rules through the real engine: the section itself is
-    //    genuinely denied, not merely absent from this particular tree shape
+    // -> Through the rule engine directly: the section is genuinely denied, not merely absent from
+    //    this particular tree shape
     assert.equal(
       groupsModel.checkAccess(guestActor, 'read:pages', {
         path: 'denied-section/secret-page',
@@ -1480,23 +1416,13 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       null
     )
 
-    // -> A blanket root DENY means the filtered walk finds nothing at all, regardless of how much
-    //    the tree already holds from earlier tests in this describe block...
+    // -> A blanket root DENY empties the filtered walk however much this block's tree already holds
     assert.deepEqual(filtered, [])
-    // -> ...while the unfiltered walk (an editor's "full" preview) still shows the real structure,
-    //    the same reasoning `isVisibleTo` is already skipped for -- including the page this test
-    //    itself just created, proving the check was genuinely skipped rather than the tree being
-    //    coincidentally empty.
+    // -> The unfiltered walk still returns that tree, so the check was genuinely skipped rather
+    //    than the tree being coincidentally empty
     assert.ok(unfilteredResult.length > 0)
   })
 
-  /**
-   * OpenProject #2515: an empty folder used to be dropped from the generated nav for every viewer
-   * alike, including the author who just created it and holds `write:pages`/`manage:pages` right
-   * there -- for them it isn't a dead end, it's an empty container waiting to be used. These lock
-   * down the fix without disturbing the existing dead-end behavior for anyone who genuinely
-   * couldn't populate the folder.
-   */
   test('an actor holding write:pages over an otherwise-empty folder still sees it, as a childless leaf', async () => {
     const groupsModel = (await import('./groups.ts')).groups
     await treeModel.createFolder({
@@ -1610,11 +1536,6 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
   })
 })
 
-/**
- * `getNav`'s mode branch: this is what wires `generateFromTree` in, so it runs against a real,
- * migrated database like the rest of this file's SQL-orchestration-heavy suites, rather than mocking
- * the query builder.
- */
 describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
@@ -1684,12 +1605,11 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
         },
         { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
       )
-      .catch(() => {}) // -> May already exist from the previous test in this describe; irrelevant here
+      .catch(() => {}) // -> May already exist from an earlier test here
     await setMode(siteNavId, 'auto')
 
-    // -> Generated items never carry `visibilityGroups`, so they are always visible -- this just
-    //    confirms the filtering pass runs at all (it would throw/behave differently on `unfiltered`
-    //    input shaped unexpectedly) and that `unfiltered` still returns the same generated set
+    // -> Generated items never carry `visibilityGroups`, so nothing can be filtered out: this only
+    //    confirms the filtering pass runs over generated input at all
     const filtered = await navigationModel.getNav(fixtures.siteId, siteNavId, {
       actor: ADMIN_ACTOR,
       userGroups: []
@@ -1729,7 +1649,6 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
 
     assert.equal(ids[0], 'pinned-before')
     assert.ok(generatedIndex > 0, 'generated item comes after the pinned-before item')
-    // -> Unpinned and explicitly-'after' stored items both land after every generated item
     assert.ok(ids.indexOf('unpinned') > generatedIndex)
     assert.equal(ids[ids.length - 1], 'pinned-after')
     assert.equal(ids[ids.length - 2], 'unpinned')
@@ -1773,12 +1692,9 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
   })
 
   /**
-   * OpenProject #2442: a page/folder-level override's generated menu resolves to the override's own
-   * section root (its siblings, per the test just above), not the locale root -- so a TOP-LEVEL
-   * generated item's own `folderId` must be that section's folder id, and `getNavRoot` must hand the
-   * same path/id back for the sidebar's own root-level "create here" action to target. Both used to
-   * be wrong: `generateFromTree`'s initial call always defaulted `parentFolderId` to `null`
-   * regardless of `rootFolderPath`, and there was no `getNavRoot` at all.
+   * An override's generated menu resolves to the override's own section root, not the locale root,
+   * so a TOP-LEVEL generated item's `folderId` is that section's folder id -- and `getNavRoot` has
+   * to hand the same path/id back for the sidebar's root-level "create here" action to target.
    */
   test("an override's generated top-level items and getNavRoot both resolve to the override's own section root, not the locale root", async () => {
     const [sectionFolder] = await CARDINAL.db
@@ -1794,9 +1710,9 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
         )
       )
       .limit(1)
-    // -> Created by the previous test's page, which auto-creates its own containing folder --
-    //    confirmed present rather than re-created, so a fixture ordering change fails loudly here
-    //    instead of silently asserting against `undefined`.
+    // -> Created by the previous test's page, which auto-creates its containing folder. Confirmed
+    //    rather than re-created, so a fixture reordering fails loudly instead of asserting against
+    //    `undefined`.
     assert.ok(sectionFolder, "expected the 'sibling-scope' folder auto-created above to exist")
 
     const overriddenPage = await pagesModel.createPage(
@@ -1887,7 +1803,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
         },
         { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
       )
-      .catch(() => {}) // -> May already exist from the previous test in this describe; irrelevant here
+      .catch(() => {}) // -> May already exist from an earlier test here
     await navigationModel.setNavItems(fixtures.siteId, siteNavId, [
       { id: 'stored-before', type: 'link', label: 'Stored Before', target: '/', pinned: 'before' },
       { id: 'stored-after', type: 'link', label: 'Stored After', target: '/' }
@@ -1906,13 +1822,9 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
 })
 
 /**
- * OpenProject #2155: `generateFromTree` never asked the page-rule engine anything before this feature
- * -- an `auto`/`mixed` menu's entries came straight from `pageIsVisible` (browsable + published) with
- * no `read:pages` check at all, so a plain path DENY, or a `CLASSIFICATION` DENY, leaked through an
- * unauthenticated `GET .../navigation/:navId` the same as anything else in the tree. These assert the
- * fix: a reader denied `read:pages` on an entry never sees it generated, an authorized reader still
- * does, and a folder left with nothing visible under it (because every descendant was individually
- * denied, not because none existed) is dropped rather than shown as an empty dead end.
+ * An `auto`/`mixed` menu's entries are served to whoever asks for the menu, so `generateFromTree`
+ * owes each candidate a `read:pages` check on top of `pageIsVisible` (browsable + published) --
+ * otherwise a path or `CLASSIFICATION` DENY leaks through an unauthenticated read of the menu.
  */
 describe(
   'navigation getNav read:pages filtering (DB-backed, OpenProject #2155)',
@@ -1940,9 +1852,6 @@ describe(
       })
       restrictedClassificationId = restrictedLevel.id
 
-      // -> Broadly allows read:pages, then carves out a path DENY and a classification DENY on top --
-      //    exactly the "a plain path DENY leaks here too" and "a classification DENY leaks here too"
-      //    scenarios #2150/#2155 describe.
       const [group] = await CARDINAL.db
         .insert(groupsTable)
         .values({
@@ -2020,7 +1929,6 @@ describe(
         asDenied.some((item) => item.label === 'Secret Page'),
         false
       )
-      // -> The folder holding only that page is a dead end for this reader -- dropped, not shown empty
       assert.equal(
         asDenied.some((item) => item.label === 'denied-path'),
         false
@@ -2075,7 +1983,7 @@ describe(
           },
           adminActor
         )
-        .catch(() => {}) // -> May already exist from an earlier test in this describe; irrelevant here
+        .catch(() => {}) // -> May already exist from an earlier test here
 
       const full = await navigationModel.getNav(fixtures.siteId, siteNavId, {
         actor: deniedActor,
@@ -2108,13 +2016,9 @@ function expectedTransition(
 }
 
 /**
- * `models/navigation.ts` is almost entirely SQL — a menu lookup, an ancestor-cascade query written in
- * raw `ltree` operators, and a tree-entry update coordinated with it — so this runs the real methods
- * against a migrated, per-run-fresh database (see `test/db.ts`) rather than mocking the query builder.
- *
- * Doubles as the proof that the shared DB fixture is sufficient for `models/navigation.ts` to run:
- * standing that up is this task's actual deliverable (Feature 361, task 465), and `seedTreeEntry()` is
- * the fixture helper it adds for every later task in this Feature to build on.
+ * `models/navigation.ts` is almost entirely SQL — a menu lookup, an ancestor-cascade query written
+ * in raw `ltree` operators, and a tree-entry update coordinated with it — so these run the real
+ * methods against a migrated, per-run-fresh database rather than mocking the query builder.
  */
 describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -2130,11 +2034,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * A real `navigation` row's id -- `tree.navigationId` has an FK against it (`ON DELETE SET NULL`,
-   * task 2100/db/migrations/20260825202930_main), so a sentinel used only to distinguish which
-   * ancestor's id `inheritedNavId()`/a cascade update resolved to must still be a row that exists,
-   * not a bare `randomUUID()` (which now fails the insert outright). Its `items` are never read by
-   * these tests, only its `id`.
+   * `tree.navigationId` has an FK against `navigation.id`, so a sentinel used only to tell which
+   * ancestor a cascade resolved to still has to be a row that exists -- a bare `randomUUID()` fails
+   * the insert. Only the `id` is ever read back.
    */
   async function createNavId(): Promise<string> {
     const [nav] = await fixtures.db
@@ -2160,9 +2062,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       []
     )
 
-    // -> A page's menu is saved before ensureSiteNav would run again for the same locale (e.g. a
-    //    second edit); onConflictDoNothing is what keeps that second call from wiping it back to
-    //    empty.
+    // -> A second ensureSiteNav for the same locale runs after items have been saved (a second
+    //    edit); onConflictDoNothing is what keeps it from wiping them back to empty.
     await navigationModel.updateNavigation({
       siteId: fixtures.siteId,
       pageId: (await seedTreeEntry(fixtures.db, { siteId: fixtures.siteId, path: 'home' })).id,
@@ -2230,7 +2131,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ]
     await navigationModel.setNavItems(otherSiteId, otherNavId, secretItems)
 
-    // -> The row is real and readable under its own site...
     assert.deepEqual(
       await navigationModel.getNav(otherSiteId, otherNavId, {
         actor: ADMIN_ACTOR,
@@ -2238,8 +2138,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }),
       secretItems
     )
-    // -> ...but a caller holding only `fixtures.siteId`'s id cannot read it by guessing/reusing the
-    //    row id under the wrong site, the same way `setNavItems`/`copyNav`'s writes already refuse to.
     assert.deepEqual(
       await navigationModel.getNav(fixtures.siteId, otherNavId, {
         actor: ADMIN_ACTOR,
@@ -2280,11 +2178,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * `ancestorNavId()` (private) is the ltree cascade query at the heart of the model; it is only
-   * reachable through its public wrapper `inheritedNavId()`, which just resolves the calling entry's
-   * `folderPath` first. These seed a tree by hand (rather than going through `updateNavigation`, which
-   * exercises the same query indirectly above) so each case isolates exactly one thing the raw SQL has
-   * to get right.
+   * `ancestorNavId()` (private) is the ltree ancestry query at the heart of the model, reachable
+   * only through `inheritedNavId()`, which resolves the calling entry's `folderPath` first. These
+   * seed a tree by hand so each case isolates one thing the raw SQL has to get right.
    */
   describe('inheritedNavId / ancestorNavId resolution', () => {
     test('a root-level page (empty folderPath) resolves to the site menu without querying tree', async (t) => {
@@ -2293,13 +2189,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       const result = await navigationModel.inheritedNavId(fixtures.siteId, root.id)
 
-      // -> The site's own nav row id for this entry's locale — never `siteId` itself, per
-      //    `ensureSiteNav`'s own contract (locale-scoped site menus, #990).
       const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
       assert.equal(result, enSiteNavId)
-      // -> `ancestorNavId` short-circuits on an empty folderPath before ever building the ltree query;
-      //    `getEntry`'s own lookup goes through the query builder, not `db.execute`, so a call here
-      //    would only come from the raw-SQL branch this case must not reach.
+      // -> `getEntry`'s own lookup goes through the query builder, not `db.execute`, so any call
+      //    here would have to come from the raw-SQL ltree branch an empty folderPath must skip.
       assert.equal(executeSpy.mock.callCount(), 0)
     })
 
@@ -2313,7 +2206,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId,
         path: 'plain-branch/leaf'
       })
-      // -> Sanity: the ancestor really is on the default mode, not incidentally excluded some other way
+      // -> The ancestor is on the default mode, not incidentally excluded some other way
       assert.equal(folder.navigationMode, 'inherit')
 
       const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
@@ -2353,8 +2246,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       const result = await navigationModel.inheritedNavId(fixtures.siteId, page.id)
 
-      // -> Must be exactly null (a hidden sidebar), not coerced to the site id the way "no match at
-      //    all" is. `assert.equal` would let `undefined` slip through here just as easily as `null`.
+      // -> Exactly null (a hidden sidebar), not the site menu "no match at all" falls back to.
+      //    `assert.equal` would let `undefined` through here as readily as `null`.
       assert.strictEqual(result, null)
       assert.notEqual(result, fixtures.siteId)
       void folder
@@ -2369,10 +2262,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationMode: 'override',
         navigationId: farNavId
       })
-      // -> The nearer ancestor hides rather than overrides, so a wrong answer here can't be mistaken
-      //    for "picked some override" — it has to specifically be the deeper row's null, not the
-      //    shallower row's navigationId, and ORDER BY nlevel(...) DESC is what makes that true instead
-      //    of depending on whichever row postgres happens to scan first.
+      // -> The nearer ancestor hides rather than overrides, so the answer has to be specifically
+      //    the deeper row's null and not the shallower row's navigationId. The `ORDER BY nlevel`
+      //    DESC is what makes that hold instead of whichever row postgres happens to scan first.
       await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'levels/nested',
@@ -2419,16 +2311,13 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * The mode-transition matrix (navigation.ts:220-284): every `NAVIGATION_MODES` value, arrived at
-   * from a prior mode that cascaded (`override`) and one that didn't (`inherit`), checking the
-   * persisted `navigationMode`/`navigationId` on the entry itself and, via a seeded `inherit` child,
-   * whether a cascade `UPDATE` ran at all — not just what `cascadeTo` computes to internally.
+   * Every `NAVIGATION_MODES` value against both a cascading and a non-cascading prior mode, checked
+   * on the persisted rows rather than on what `cascadeTo` computes internally.
    *
-   * Every case seeds a fresh top-level folder (`folderPath === ''`), so `ancestorNavId` always
-   * resolves to `fixtures.siteId` without depending on the ltree query already covered above, and
-   * `ownNavId` is always the folder's own id (never the site-root special case, covered separately
-   * below). The child starts on a random sentinel `navigationId` that matches neither candidate, so
-   * "cascade did not touch it" and "cascade set it to X" are never ambiguous.
+   * Each case seeds a fresh TOP-LEVEL folder, so `ancestorNavId` resolves to the site's own nav row
+   * without leaning on the ltree query covered above, and `ownNavId` is the folder's own id (never
+   * the site-root special case, covered below). The child starts on a sentinel `navigationId`
+   * matching neither candidate, so "untouched" and "set to X" are never ambiguous.
    */
   describe('updateNavigation mode-transition matrix', () => {
     const priorByCategory = { cascading: 'override', noncascading: 'inherit' } as const
@@ -2456,9 +2345,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
             navigationId: sentinelNavId
           })
 
-          // -> The root folder has no overriding/hiding ancestor of its own, so it falls back to the
-          //    site's locale-scoped nav row — never `fixtures.siteId` itself (`ensureSiteNav`'s
-          //    contract, #990).
+          // -> No overriding/hiding ancestor above a top-level folder, so it falls back to the
+          //    site's locale-scoped nav row — never `fixtures.siteId` itself.
           const ancestorId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
           const ownNavId = folder.id
           const { navId: expectedNavId, cascadeTo: expectedCascadeTo } = expectedTransition(
@@ -2489,8 +2377,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
             .from(treeTable)
             .where(eq(treeTable.id, child.id))
           if (expectedCascadeTo === undefined) {
-            // -> No cascade UPDATE ran at all: the child's navigationId is exactly what it was
-            //    seeded with, not merely "unchanged from some computed value".
             assert.equal(persistedChild!.navigationId, sentinelNavId)
           } else {
             assert.equal(persistedChild!.navigationId, expectedCascadeTo)
@@ -2503,10 +2389,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * The cascade `UPDATE` (navigation.ts:260-284) in isolation from the mode-decision logic already
-   * covered above: each case builds its own multi-level tree (at least 3 levels deep, with a branch
-   * and a sub-branch) and asserts directly against the persisted `tree` rows, since the cascade's
-   * entire effect is on rows `updateNavigation()` never returns.
+   * The cascade `UPDATE` in isolation from the mode-decision logic covered above. Each case asserts
+   * directly against the persisted `tree` rows, since the cascade's entire effect is on rows
+   * `updateNavigation()` never returns.
    */
   describe('cascade UPDATE across a multi-level tree', () => {
     test('(a) override cascades navigationId to every inherit-mode descendant beneath it, at every depth', async () => {
@@ -2605,17 +2490,15 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         mode: 'override'
       })
 
-      // -> branch itself has no nearer override/hide above it (other than root, the source of the
-      //    cascade), so it picks up the cascade normally.
+      // -> Nothing between `branch` and `root`, the source of the cascade, so it picks it up.
       const [branchRow] = await fixtures.db
         .select()
         .from(treeTable)
         .where(eq(treeTable.id, branch.id))
       assert.equal(branchRow!.navigationId, navigationId)
 
-      // -> The nearer-override entry's own row: excluded outright by the WHERE clause's
-      //    navigationMode = 'inherit' filter, since its mode is 'override', not touched by this
-      //    ancestor's cascade.
+      // -> The nearer-override row itself is excluded by the UPDATE's `navigationMode = 'inherit'`
+      //    filter, before the boundary anti-join is even consulted.
       const [nearerOverrideRow] = await fixtures.db
         .select()
         .from(treeTable)
@@ -2623,7 +2506,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(nearerOverrideRow!.navigationId, nearerOverrideNavId)
       assert.equal(nearerOverrideRow!.navigationMode, 'override')
 
-      // -> Everything beneath the nearer override — the NOT EXISTS guard's actual job — stays
+      // -> Everything beneath the nearer override — the boundary anti-join's actual job — stays
       //    exactly as seeded, at both depths.
       const [belowOverrideRow] = await fixtures.db
         .select()
@@ -2637,7 +2520,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         .where(eq(treeTable.id, deeperBelowOverride.id))
       assert.equal(deeperRow!.navigationId, deeperBelowOverrideSentinel)
 
-      // -> Same guard, but for a nearer 'hide' rather than 'override'.
+      // -> Same guard, for a nearer 'hide' rather than 'override'.
       const [nearerHideRow] = await fixtures.db
         .select()
         .from(treeTable)
@@ -2662,8 +2545,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationId: rootNavId
       })
       const midNavId = await createNavId()
-      // -> `mid` starts out cascading in its own right (mode 'override'); `child`/`grandchild` below
-      //    it hold `midNavId` because a prior cascade from `mid` put it there.
+      // -> `mid` starts out cascading in its own right; `child`/`grandchild` hold `midNavId` as a
+      //    prior cascade from `mid` would have left them.
       const mid = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-c-root/mid',
@@ -2703,7 +2586,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
 
       assert.equal(navigationMode, 'inherit')
-      // -> The next ancestor up is `root`, still on 'override' — that's what `mid` and its
+      // -> The next ancestor up is `root`, still on 'override' — what `mid` and its
       //    still-inheriting descendants hand off to.
       assert.equal(navigationId, rootNavId)
 
@@ -2720,8 +2603,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         .where(eq(treeTable.id, grandchild.id))
       assert.equal(grandchildRow!.navigationId, rootNavId)
 
-      // -> The nearer override nested under `mid` is untouched by `mid`'s own transition (its mode
-      //    isn't 'inherit')...
+      // -> Untouched by `mid`'s own transition, since its mode isn't 'inherit'...
       const [nearerOverrideRow] = await fixtures.db
         .select()
         .from(treeTable)
@@ -2737,7 +2619,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         .where(eq(treeTable.id, deepUnderNearer.id))
       assert.equal(deepRow!.navigationId, nearerOverrideNavId)
 
-      // -> `root` itself is above `mid`, outside `mid`'s cascade scope entirely — untouched.
+      // -> `root` is above `mid`, outside `mid`'s cascade scope entirely.
       const [rootRow] = await fixtures.db.select().from(treeTable).where(eq(treeTable.id, root.id))
       assert.equal(rootRow!.navigationId, rootNavId)
       assert.equal(rootRow!.navigationMode, 'override')
@@ -2823,11 +2705,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     /**
-     * The CTE anti-join (navigation.ts's `boundaries` CTE in `updateNavigation()`'s cascade UPDATE)
-     * collects every override/hide boundary path once, up front. This is the case that would break
-     * first if the de-correlation ever dropped a boundary row: a boundary directly nested under
-     * another boundary, rather than the outer boundary's own non-boundary descendant that every
-     * other case here exercises.
+     * The cascade's `boundaries` CTE collects every override/hide boundary path once, up front. A
+     * boundary directly nested under another boundary is the case a dropped boundary row would break
+     * first -- every other case here uses a boundary's plain, non-boundary descendant.
      */
     test('(f) a boundary directly nested under another boundary still shields its own subtree, and the outer boundary still shields the inner boundary itself', async () => {
       const root = await seedTreeEntry(fixtures.db, {
@@ -2845,8 +2725,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationId: outerNavId
       })
 
-      // -> Nested directly under the outer boundary, itself a boundary (hide) rather than a plain
-      //    inheriting descendant.
       const innerBoundary = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-f-root/outer/inner',
@@ -2868,8 +2746,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         mode: 'override'
       })
 
-      // -> The outer boundary's own row is excluded by the `navigationMode = 'inherit'` filter, not
-      //    touched by root's cascade.
+      // -> The outer boundary's own row is excluded by the `navigationMode = 'inherit'` filter.
       const [outerRow] = await fixtures.db
         .select()
         .from(treeTable)
@@ -2877,9 +2754,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(outerRow!.navigationId, outerNavId)
       assert.equal(outerRow!.navigationMode, 'override')
 
-      // -> The inner boundary sits under the outer boundary, so the outer boundary's own
-      //    "boundaryPath" shields it from root's cascade too -- it keeps its own mode/id rather
-      //    than picking up root's navigationId.
+      // -> The outer boundary's own `boundaryPath` shields the inner boundary from root's cascade
+      //    too, so it keeps its own mode/id.
       const [innerRow] = await fixtures.db
         .select()
         .from(treeTable)
@@ -2887,8 +2763,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(innerRow!.navigationId, null)
       assert.equal(innerRow!.navigationMode, 'hide')
 
-      // -> Everything beneath the inner boundary is shielded by the inner boundary's own
-      //    "boundaryPath" -- exactly the anti-join row the de-correlated CTE must still produce.
+      // -> Everything beneath the inner boundary is shielded by its own `boundaryPath` -- the
+      //    anti-join row the CTE has to still produce for a nested boundary.
       const [belowInnerRow] = await fixtures.db
         .select()
         .from(treeTable)
@@ -2896,15 +2772,15 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(belowInnerRow!.navigationId, belowInnerSentinel)
       assert.equal(belowInnerRow!.navigationMode, 'inherit')
 
-      // -> Sanity: root's cascade did reach *something* -- confirms this isn't a vacuous pass where
-      //    the whole subtree got excluded for an unrelated reason.
+      // -> Root's cascade did reach *something*, so this isn't a vacuous pass with the whole
+      //    subtree excluded for an unrelated reason.
       assert.notEqual(navigationId, null)
     })
   })
 
   /**
-   * `items`-target routing (navigation.ts:199-218): which menu a page's saved items land in is the
-   * *mode's* answer, not the entry's own id — except when that would mean nowhere at all.
+   * Which menu a page's saved items land in is the *mode's* answer, not the entry's own id — except
+   * when that would mean nowhere at all.
    */
   describe('updateNavigation items-target routing', () => {
     const items: NavigationItem[] = [{ id: 'x', type: 'link', label: 'X', target: '/x' }]
@@ -2923,8 +2799,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         items
       })
 
-      // -> Top-level page: the resolved ancestor is the site's own locale-scoped menu row, distinct
-      //    from both the page's own id and the site id itself.
       assert.notEqual(navigationId, fixtures.siteId)
       assert.notEqual(navigationId, page.id)
       assert.equal(navigationId, await navigationModel.ensureSiteNav(fixtures.siteId, 'en'))
@@ -2936,7 +2810,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         items
       )
 
-      // -> No menu was ever created under the page's own id.
       const ownRow = await fixtures.db
         .select()
         .from(navigationTable)
@@ -2971,7 +2844,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         }),
         items
       )
-      // -> The site (ancestor) menu is untouched by a save that targeted the page's own menu.
       assert.deepEqual(
         await navigationModel.getNav(fixtures.siteId, siteNavId, {
           actor: ADMIN_ACTOR,
@@ -3011,15 +2883,14 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         }
       )
 
-      // -> No menu row was ever created for the page (the throw happens before that insert).
+      // -> The throw lands before the items insert, so the page has no menu row.
       const ownRow = await fixtures.db
         .select()
         .from(navigationTable)
         .where(eq(navigationTable.id, page.id))
       assert.equal(ownRow.length, 0)
 
-      // -> The tree update (navigationMode/navigationId, which runs after the items write) never
-      //    ran either: the page is exactly as seeded.
+      // -> The tree update runs after the items write, so it never ran either.
       const [persistedPage] = await fixtures.db
         .select()
         .from(treeTable)
@@ -3031,12 +2902,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * The site-root special case (navigation.ts:706-707): the home page (`folderPath === ''`,
-   * `fileName === 'home'`) uses its locale's site-wide nav row (`ensureSiteNav`'s id, never `siteId`
-   * itself — see #990) as its `ownNavId`, so editing its items writes to the site's own navigation
-   * row rather than a page-owned one. Each case uses a brand-new site, seeded directly rather than
-   * through `setupTestDb()`'s shared fixture, so the navigation row's prior state (absent vs.
-   * already populated) is exactly what the case controls.
+   * The home page (`folderPath === ''`, `fileName === 'home'`) uses its locale's site-wide nav row
+   * as its `ownNavId`, so editing its items writes to the site's own navigation row rather than a
+   * page-owned one. Each case seeds a brand-new site rather than reusing `setupTestDb()`'s, so that
+   * row's prior state (absent vs. already populated) is exactly what the case controls.
    */
   describe('updateNavigation site-root special case (home page)', () => {
     async function createSite(): Promise<string> {
@@ -3053,7 +2922,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     test("fresh site: saving the home page items exercises ensureSiteNav's onConflictDoNothing insert", async () => {
       const siteId = await createSite()
-      // -> Nothing has ever called ensureSiteNav for this site — confirm no navigation row exists yet.
       const beforeRow = await fixtures.db
         .select()
         .from(navigationTable)
@@ -3071,8 +2939,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         items
       })
 
-      // -> ownNavId resolved to the site's own (locale-scoped) nav row, not the home page's own tree
-      //    entry id, and not the site id itself.
       const enSiteNavId = await navigationModel.ensureSiteNav(siteId, 'en')
       assert.equal(navigationId, enSiteNavId)
       assert.notEqual(navigationId, siteId)
@@ -3081,7 +2947,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         await navigationModel.getNav(siteId, enSiteNavId, { actor: ADMIN_ACTOR, unfiltered: true }),
         items
       )
-      // -> Exactly one navigation row for this site — the insert path, not a duplicate.
       const afterRow = await fixtures.db
         .select()
         .from(navigationTable)
@@ -3120,8 +2985,6 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
 
       assert.equal(navigationId, enSiteNavId)
-      // -> onConflictDoUpdate's `set: { items }` replaces the array outright — the old items are
-      //    gone, not merged alongside the new one.
       assert.deepEqual(
         await navigationModel.getNav(siteId, enSiteNavId, { actor: ADMIN_ACTOR, unfiltered: true }),
         replacementItems
@@ -3131,11 +2994,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * The FK added for #1699: `tree.navigationId` references `navigation.id` with `onDelete: 'set
- * null'`. Exercised directly against the schema constraint rather than through any model method,
- * since the behaviour under test is the migration's `ON DELETE SET NULL` clause itself — deleting a
- * menu a tree row points at must null that pointer out rather than erroring (as the FK's default
- * RESTRICT would) or leaving a dangling id behind (as no constraint at all did before this change).
+ * `tree.navigationId` references `navigation.id` with `onDelete: 'set null'`. Exercised directly
+ * against the schema constraint rather than through a model method, since the behaviour under test
+ * is the migration's own clause.
  */
 describe('tree.navigationId FK onDelete set null (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -3160,8 +3021,8 @@ describe('tree.navigationId FK onDelete set null (DB-backed)', { skip: !hasTestD
       navigationId: nav!.id
     })
 
-    // -> Must not throw: a RESTRICT (the FK's default with no onDelete clause) or a missing
-    //    constraint entirely would either reject this delete or leave `entry` pointing at a dead id.
+    // -> Must not throw: RESTRICT (the FK's default) would reject this delete, and no constraint at
+    //    all would leave `entry` pointing at a dead id.
     await fixtures.db.delete(navigationTable).where(eq(navigationTable.id, nav!.id))
 
     const [after] = await fixtures.db
@@ -3183,13 +3044,10 @@ describe('tree.navigationId FK onDelete set null (DB-backed)', { skip: !hasTestD
 })
 
 /**
- * OpenProject #1698: `tree.addEntry` used to resolve a new/moved page's `navigationId` by calling
- * `ensureSiteNav` directly (hardcoded at the old `addPage` call site), ignoring any overriding/hiding
- * folder above it. It now calls `ancestorNavId` -- the same ltree-ancestry walk `inheritedNavId` uses
- * -- after the folder is resolved, so a page landing under an `override`d folder picks up that
- * folder's menu immediately, not the site-wide one. `movePage` deletes and re-inserts the tree entry
- * through the same `addPage`, so it gets this for free; the second case here proves that directly
- * rather than assuming it from the shared code path.
+ * `tree.addEntry` resolves a new or moved page's `navigationId` through `ancestorNavId` once the
+ * folder is known, so a page landing under an overriding folder picks up that folder's menu rather
+ * than the site-wide one. `movePage` re-inserts the entry through the same path; the second case
+ * proves that rather than assuming it from the shared code.
  */
 describe(
   'navigation navigationId resolves from folder ancestry in tree.addEntry (DB-backed)',
@@ -3264,7 +3122,7 @@ describe(
         actor
       )
       const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-      // -> Sanity: it starts on the site-wide menu, as a root-level page should
+      // -> Starts on the site-wide menu, as a root-level page should
       assert.equal(page.navigationId, siteNavId)
 
       const moved = await pagesModel.movePage(
@@ -3280,13 +3138,10 @@ describe(
 )
 
 /**
- * The generated-tree cache `getGeneratedTree` builds inside `getNav` (OpenProject #1825), proven
- * behaviorally rather than by counting queries: a direct, bypass-the-model mutation of a `tree` row a
- * generated menu depends on is invisible to a warm cache, and becomes visible again only once one of
- * the real write paths this feature invalidates from (or `invalidateCache` itself) runs. This is a
- * black-box proof of "no further query on a second call" — the point the query count itself would
- * otherwise be checked for — since none of `generateFromTree`'s query-builder calls round-trip through
- * `db.execute()`, which is the only spy point every other query-counting case in this file uses.
+ * The generated-tree cache `getGeneratedTree` builds inside `getNav`, proven behaviorally rather
+ * than by counting queries: none of `generateFromTree`'s query-builder calls round-trip through
+ * `db.execute()`, this file's only spy point. A direct `tree` mutation stands in for the count --
+ * invisible while the cache is warm, visible once an invalidating write or `invalidateCache` runs.
  */
 describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -3328,8 +3183,8 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
     const first = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: ADMIN_ACTOR })
     assert.equal(first.find((item) => item.id === page.id)?.label, 'Original Title')
 
-    // -> Bypasses every model write path this feature invalidates from -- a genuine "nothing told the
-    //    cache" probe, not just a fast-follow write that happened to invalidate anyway
+    // -> Bypasses every model write path that invalidates -- a genuine "nothing told the cache"
+    //    probe, not a write that happened to invalidate anyway
     await CARDINAL.db
       .update(treeTable)
       .set({ title: 'Mutated Behind The Cache' })
@@ -3354,8 +3209,8 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
   test('createPage (tree.addPage) invalidates so a previously-cached menu picks up a page created afterwards', async () => {
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     await setMode(siteNavId, 'auto')
-    // -> Both top-level (no parent folder), so each shows up directly in the site-root walk rather
-    //    than nested under an auto-created folder -- keeps the assertion below a flat top-level check
+    // -> Both top-level, so each shows up directly in the site-root walk rather than nested under
+    //    an auto-created folder, keeping the assertions below flat
     await pagesModel.createPage(
       fixtures.siteId,
       { path: 'addpage-invalidation-first', title: 'First', editor: 'markdown', content: '# Hi' },
@@ -3417,8 +3272,8 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
       locale: 'en',
       siteId: fixtures.siteId
     })
-    // -> An empty folder holds no visible page, so it would not appear anyway -- give it one so the
-    //    walk's `holdsVisiblePages` EXISTS actually includes it, isolating what this test means to prove
+    // -> An empty folder holds no visible page and would not appear anyway; giving it one is what
+    //    leaves cache invalidation as the only thing this test can fail on
     await pagesModel.createPage(
       fixtures.siteId,
       { path: 'fresh-folder/inside', title: 'Inside', editor: 'markdown', content: '# Hi' },
@@ -3490,10 +3345,8 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     await setMode(siteNavId, 'auto')
 
-    // -> The folder itself is the top-level generated item here ('Inside Section' is nested a level
-    //    below it) -- and it is exactly what a `hide` on the folder drops outright, so asserting on
-    //    the folder's own presence is both the simpler check and the one `generateFromTree`'s
-    //    hide-boundary rule (dropped, not just emptied) actually promises
+    // -> The folder is the top-level generated item ('Inside Section' is nested below it), and a
+    //    `hide` on it is what `generateFromTree`'s boundary rule drops outright rather than empties
     const beforeHide = await navigationModel.getNav(fixtures.siteId, siteNavId, {
       actor: ADMIN_ACTOR
     })
@@ -3537,8 +3390,8 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
     ])
     await setMode(siteNavId, 'mixed')
 
-    // -> Warms the shared generated-tree cache from a call that also carries the restricting group,
-    //    so the generated portion is genuinely cached before the group-blind assertion below runs
+    // -> Warms the shared generated-tree cache from a call carrying the restricting group, so the
+    //    generated portion is genuinely cached before the group-blind read below
     const withGroup = await navigationModel.getNav(fixtures.siteId, siteNavId, {
       actor: ADMIN_ACTOR,
       userGroups: ['editors']
@@ -3554,18 +3407,14 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
       withoutGroup.some((item) => item.id === 'restricted-item'),
       false
     )
-    // -> The shared, cached generated portion is untouched by the other actor's missing group
+    // -> The shared cached generated portion survives the other actor's missing group
     assert.ok(withoutGroup.some((item) => item.label === 'Mixed Actor Page'))
   })
 })
 
 /**
- * The content lifecycle log line (OpenProject #2674): one `info nav updated` record per menu
- * rewrite, from either editor — the admin menu editor (`setNavItems`) and the page-context one
- * (`updateNavigation`).
- *
- * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
- * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
+ * One `info nav updated` record per menu rewrite, from either editor. Asserted on the scope and the
+ * fields a call passed, never a rendered string -- the renderer is `core/logger.ts`'s business.
  */
 describe('navigation lifecycle log lines (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures

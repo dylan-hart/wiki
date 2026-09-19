@@ -3,23 +3,20 @@ import * as Y from 'yjs'
 import { pageDrafts as pageDraftsTable } from '../db/schema.ts'
 
 /**
- * How long an abandoned draft (page never reopened after a crash/tab-close) is kept before it is
- * swept — see {@link PageDrafts.purgeStale}. A row this old outlived any plausible "reopen the page
- * and get offered the recovery" window; keeping it forever would only grow the table for content
- * nobody is coming back for. Exported for `models/pageDrafts.db.test.ts`, which checks the real
- * constant rather than a hardcoded copy of it.
+ * How long an abandoned draft (page never reopened after a crash/tab-close) is kept before
+ * {@link PageDrafts.purgeStale} sweeps it: past this, nobody is coming back to be offered the
+ * recovery, and the row is pure table growth.
  */
 export const STALE_DRAFT_DAYS = 30
 
-/** One page's autosaved draft, as `core/collab.ts` needs it to reseed a room: the raw Yjs state and
- * when it was last updated. */
+/** One page's autosaved draft: the raw, undecoded Yjs state and when it was last written. */
 export interface PageDraft {
   state: Buffer
   updatedAt: Date
 }
 
-/** The plain fields a draft's Yjs state decodes to — what the recovery-restore flow (OpenProject
- * #2455) actually hands the frontend, rather than a raw Yjs update it has no use for over HTTP. */
+/** The plain fields a draft's Yjs state decodes to — what the recovery-restore flow hands the
+ * frontend, rather than a raw Yjs update it has no use for over HTTP. */
 export interface PageDraftContent {
   content: string
   title: string
@@ -37,10 +34,8 @@ export interface PageDraftSummary {
 }
 
 /**
- * The inverse of `core/collab.ts#buildSeed`: read a Yjs document's text/props back out as plain
- * values. Applied to a scratch `Y.Doc` built from a stored draft's raw state, never to a live room's
- * own doc — decoding a draft for the recovery-restore flow (OpenProject #2455) has nothing to do with
- * the room it may or may not still be part of.
+ * The inverse of `core/collab.ts#buildSeed`. Applied to a scratch `Y.Doc` built from a stored
+ * draft's raw state, never to a live room's own doc.
  */
 function decodeDraftState(state: Uint8Array): Omit<PageDraftContent, 'authorName' | 'updatedAt'> {
   const doc = new Y.Doc()
@@ -59,22 +54,14 @@ function decodeDraftState(state: Uint8Array): Omit<PageDraftContent, 'authorName
 }
 
 /**
- * Page drafts model (OpenProject #2454 / #2455)
- *
  * The durable half of collaborative-editing autosave-and-recover: `core/collab.ts` debounce-persists
- * a room's live Yjs document state here as edits happen (and once more, with best-effort author
- * attribution, as the room empties out), and reads it back to seed a room that has to be rebuilt from
- * scratch. The very same row backs the reader-facing recovery prompt — `summary()` for the
- * lightweight "there is one" signal folded into a page read, `getContent()` to decode the full thing
- * once a reader has chosen to restore it — see `db/schema.ts`'s `pageDrafts` table comment for the
- * full picture, including why the row is deleted rather than merely marked stale once a real save
- * lands.
+ * a room's live Yjs state here as edits happen, and again with best-effort author attribution as the
+ * room empties out. The same row backs the reader-facing recovery prompt.
  */
 class PageDrafts {
-  /** The persisted draft for a page, or `undefined` when none exists (never edited collaboratively
-   * since its last save, or never edited at all). Raw Yjs state, undecoded — `getContent()` is what a
-   * caller wanting the plain content/title/description/icon out of it wants instead; `core/collab.ts`
-   * deliberately never calls this to reseed a room (OpenProject #2957), only ever `save()`/`clear()`. */
+  /** Raw Yjs state, undecoded — a caller wanting plain content/title/description/icon wants
+   * `getContent()` instead. Room seeding deliberately does not use this; see
+   * `core/collab.ts#initRoom`. */
   async get(pageId: string): Promise<PageDraft | undefined> {
     const [row] = await CARDINAL.db
       .select({ state: pageDraftsTable.state, updatedAt: pageDraftsTable.updatedAt })
@@ -84,9 +71,8 @@ class PageDrafts {
     return row
   }
 
-  /** The full stored draft for a page, decoded into plain content/title/description/icon, or
-   * `undefined` when there is none — what the `GET .../pages/:pageId/draft` route hands the reader
-   * once they have chosen to restore it (OpenProject #2455). */
+  /** The stored draft decoded into plain fields — what the draft route hands a reader who has
+   * chosen to restore it. */
   async getContent(pageId: string): Promise<PageDraftContent | undefined> {
     const [row] = await CARDINAL.db
       .select({
@@ -105,7 +91,7 @@ class PageDrafts {
 
   /**
    * Just enough to say "there is one, from roughly when, possibly by whom" -- what `viewer.draft`
-   * needs to offer a restore without decoding the draft's Yjs state on every page read.
+   * needs to offer a restore without decoding Yjs state on every page read.
    */
   async summary(pageId: string): Promise<PageDraftSummary | undefined> {
     const [row] = await CARDINAL.db
@@ -117,13 +103,10 @@ class PageDrafts {
   }
 
   /**
-   * Persist a room's current Yjs state as the page's draft, replacing whatever was stored before.
-   *
-   * One row per page (`pageId` is the primary key), so a collaborative session's debounced writes
-   * simply overwrite the previous snapshot rather than accumulating a history — the draft is a
-   * recovery copy of "the latest synced state", not a version log. `authorName` is best-effort
-   * attribution of whoever was last known to be editing (OpenProject #2455) — pass `null` when it is
-   * not known at the point of this particular write; a later write with a name overwrites it.
+   * One row per page (`pageId` is the primary key), so a session's debounced writes overwrite the
+   * previous snapshot rather than accumulating history — the draft is a recovery copy of the latest
+   * synced state, not a version log. `authorName` is best-effort attribution of whoever was last
+   * known to be editing: pass `null` when unknown here, and a later write with a name overwrites it.
    */
   async save(
     pageId: string,
@@ -142,16 +125,14 @@ class PageDrafts {
       })
   }
 
-  /** Forget a page's draft, e.g. once its content has genuinely been saved. Safe to call for a page
-   * with no draft row. */
+  /** Safe to call for a page with no draft row. */
   async clear(pageId: string): Promise<void> {
     await CARDINAL.db.delete(pageDraftsTable).where(eq(pageDraftsTable.pageId, pageId))
   }
 
   /**
-   * Drop drafts nothing has touched in {@link STALE_DRAFT_DAYS} — a page abandoned mid-edit and never
-   * reopened. Everything else is already cleared on save by `core/collab.ts#pageSaved()`; this is
-   * only the backstop for what that path never sees.
+   * Drop drafts nothing has touched in {@link STALE_DRAFT_DAYS}. A draft whose page was genuinely
+   * saved is already cleared by `core/collab.ts`; this is only the backstop for what that never sees.
    *
    * @returns How many rows were dropped
    */

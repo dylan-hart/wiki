@@ -10,12 +10,10 @@ import {
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
- * `models/pageDrafts.ts` (OpenProject #2454 / #2455) is a thin upsert/select/delete layer over one
- * table, so it is exercised against a real database rather than mocked — the same reasoning
- * `rateLimits.test.ts` gives for its own DB-backed suite. Its actual behavioural promises (debounce,
- * which fallback tier `initRoom()` prefers, the `RELAYED`-origin no-op guard, attribution bookkeeping)
- * belong to `core/collab.*.test.ts` instead; this file only pins the storage layer those tests stub
- * out, plus the Yjs-state decode `getContent()` does for the recovery-restore route.
+ * `models/pageDrafts.ts` is a thin upsert/select/delete layer over one table, so it is exercised
+ * against a real database rather than mocked. The behavioural promises around it (debounce,
+ * attribution bookkeeping) belong to `core/collab.*.test.ts`; this file pins only the storage layer
+ * those tests stub out, plus the Yjs decode `getContent()` does.
  */
 describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -34,9 +32,8 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   /**
    * A minimal, valid `pages` row for `pageDrafts.pageId`'s FK to reference — inserted directly rather
-   * than through `models/pages.ts#createPage()`, which this suite has no other use for (no locale
-   * seeding, no renderQueue stub). One fresh row per test, so `purgeStale()`'s and `clear()`'s tests
-   * never see another test's leftover draft.
+   * than through `createPage()`, which would pull in locale seeding and a renderQueue stub this suite
+   * has no other use for. One fresh row per test, so no test sees another's leftover draft.
    */
   async function seedPage(): Promise<string> {
     const [row] = await fixtures.db
@@ -58,8 +55,7 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
     return row!.id
   }
 
-  /** A real Yjs update carrying the given content/title/description/icon — what `core/collab.ts`
-   * actually persists, and what `getContent()` has to decode back out. */
+  /** A real Yjs update shaped as `core/collab.ts` persists it: text `content` plus a `props` map. */
   function buildState(fields: {
     content?: string
     title?: string
@@ -221,7 +217,7 @@ describe('pageDrafts (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('purgeStale() drops only rows untouched for over STALE_DRAFT_DAYS', async () => {
     const stalePageId = await seedPage()
-    await pageDraftsModel.save(pageId, fixtures.siteId, new Uint8Array([1])) // fresh
+    await pageDraftsModel.save(pageId, fixtures.siteId, new Uint8Array([1]))
     await pageDraftsModel.save(stalePageId, fixtures.siteId, new Uint8Array([2]))
     await fixtures.db
       .update(pageDraftsTable)

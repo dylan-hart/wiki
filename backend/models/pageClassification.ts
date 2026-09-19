@@ -5,29 +5,16 @@ import { paginate } from '../helpers/pagination.ts'
 import type { WikiDbOrTx } from '../core/db.ts'
 
 /**
- * Page classification model
- *
  * A page's classification level and the one rule that governs it: a page may never be more open than
- * its immediate parent page (the floor invariant, OpenProject #1079/#1080). Everything here reads or
- * writes `pages.classification` and consults `models/classificationLevels.ts`; none of it touches the
- * rest of a page.
- *
- * Split out of `models/pages.ts` (MOD-F18) for exactly that reason — it is a coherent subject with
- * one seam back into page writes (`parentClassification`, which `createPage`, `updatePage` and
- * `moveOnePageInTx` each ask before letting a level through) rather than a layer of it.
+ * its immediate parent page (the floor invariant).
  */
 class PageClassification {
   /**
-   * The immediate-parent classification floor for a set of `(locale, path)` pairs, in one query over
-   * their distinct parent paths — the batched form of `parentClassification`, for a caller checking
-   * the floor invariant against many targets at once (the classification-conflicts resolve route,
-   * OpenProject #1897/#1902).
+   * The batched form of `parentClassification`: one query over the distinct parent paths.
    *
-   * @returns A Map keyed by `${locale}\0${path}` (the ORIGINAL pair passed in, not the derived parent
-   *          path) so a caller looks up each of its own targets directly without re-deriving the
-   *          parent path itself. Every input pair gets an entry — `null` when `path` is root-level or
-   *          its parent has no page (an empty folder), the same "null means no floor" contract
-   *          `parentClassification` itself has.
+   * @returns A Map keyed by `${locale}\0${path}` — the ORIGINAL pair passed in, not the derived
+   *          parent path, so a caller looks up its own targets without re-deriving anything. Every
+   *          input pair gets an entry; `null` means no floor, as in `parentClassification`.
    */
   async parentClassifications(
     siteId: string,
@@ -80,13 +67,8 @@ class PageClassification {
    * The immediate parent PAGE's classification, or null when there is none -- either because `path`
    * is at the root, or because nothing is actually published at the parent path (an empty folder).
    *
-   * "Immediate parent only" is the floor invariant's own scope (OpenProject #1080): a page is checked
-   * against its immediate parent's classification, not the whole ancestor chain, since a real parent
-   * already satisfies the floor against ITS OWN parent by induction.
-   *
-   * Public rather than private: `api/pages/classification.ts`'s classification-conflicts resolve route needs it to
-   * enforce the same floor invariant against an admin-chosen target level (see that route's own
-   * comment on why `bulkSetClassification` alone was not enough).
+   * Immediate parent only, not the whole ancestor chain: a real parent already satisfies the floor
+   * against ITS OWN parent by induction.
    */
   async parentClassification(
     siteId: string,
@@ -113,9 +95,6 @@ class PageClassification {
   }
 
   /**
-   * The classification a new page should be created with, and the floor-invariant check on an
-   * explicitly requested one (OpenProject #1079/#1080).
-   *
    * No parent page to inherit a floor from (root-level, or an empty folder) means no constraint: an
    * explicit request is honored as given, and the default is the most-open configured level.
    */
@@ -134,11 +113,6 @@ class PageClassification {
   }
 
   /**
-   * The two refusals a requested classification can meet: a level that does not exist, and one that
-   * would sit below the floor its parent page sets (OpenProject #1079/#1080). The only two places
-   * either error is thrown — a page being created with an explicit level, and a page being edited to
-   * one — asked exactly the same pair of questions.
-   *
    * @param floorId The parent page's classification, or null when there is no parent to inherit a
    *   floor from (root-level, or an empty folder) — in which case any existing level is allowed
    * @throws CustomError `classificationInvalid` or `classificationBelowFloor`, both 400
@@ -162,8 +136,8 @@ class PageClassification {
 
   /**
    * Every published page under `parentPath` (any depth) whose classification sits below `floorId` --
-   * what a retroactive parent-classification raise surfaces for an admin to resolve explicitly rather
-   * than cascading silently (OpenProject #1080's "classification resolution dialog").
+   * what a parent-classification raise surfaces for an admin to resolve explicitly rather than
+   * cascading silently.
    */
   async descendantsBelowFloor(
     siteId: string,
@@ -193,21 +167,12 @@ class PageClassification {
   }
 
   /**
-   * Bump a set of pages (by id, all on this site) to a classification, in one transaction -- what
-   * resolving a classification-resolution-dialog conflict actually does to the descendants an admin
-   * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
-   * place that decides who may call this and validates the target level, the same layering
-   * `updatePage`'s own caller (`api/pages/write.ts`) already follows for the declassification guardrail.
+   * Bump a set of pages (by id, all on this site) to a classification. No floor or permission checks
+   * here: the API route decides who may call this and validates the target level.
    *
-   * `.returning()` gets the raw rows for free off the same write -- exactly what
-   * `CARDINAL.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
-   * explains why), and without it every external search module keeps indexing the old
-   * classification, so a raise leaves those pages searchable at their prior, more open level (an
-   * external module decides `read:pages` visibility per-hit off the indexed copy -- see
-   * `modules/search/algolia/search.ts`). And since `pageClassification` is part of what
-   * `glossary.ts#getRawCachedTerms` caches per term, a batch that changes it needs the cache dropped
-   * too -- one call after the loop covers the whole batch, same as `deleteOrphaned`'s glossary
-   * invalidation.
+   * The search re-index is not optional -- an external engine decides `read:pages` visibility per-hit
+   * off the indexed copy, so skipping it leaves raised pages searchable at their prior, more open
+   * level. The glossary caches `pageClassification` per term, so it has to be dropped too.
    */
   async bulkSetClassification(
     siteId: string,
@@ -232,10 +197,6 @@ class PageClassification {
   }
 
   /**
-   * How many pages currently carry each classification level, instance-wide or narrowed to one site
-   * (OpenProject #1081) -- the coverage half of the epic's auditability goal: what does the wiki
-   * actually consider sensitive, at a glance, before drilling into any one level's pages.
-   *
    * Every level is included even at zero, in level order (most-open first) -- a level nothing is
    * classified as is itself worth an admin seeing, not a row silently missing from the report.
    */
@@ -256,12 +217,7 @@ class PageClassification {
     }))
   }
 
-  /**
-   * Every page currently at one classification level, instance-wide or narrowed to one site
-   * (OpenProject #1081) -- the drill-down `classificationReport()`'s counts point into. Paginated,
-   * newest-updated first; metadata only, matching `listAllForSite()`'s own reasoning for staying out
-   * of content.
-   */
+  /** The drill-down `classificationReport()`'s counts point into. Metadata only, never content. */
   async listByClassification(
     levelId: string,
     { siteId, limit = 50, offset = 0 }: { siteId?: string; limit?: number; offset?: number } = {}

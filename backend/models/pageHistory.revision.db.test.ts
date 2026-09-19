@@ -4,20 +4,13 @@ import { pageHistory as pageHistoryTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
- * `models/pageHistory.ts#revisionSummary` (OpenProject #2651) — the `rev N · M changes` the page
- * metadata rail draws, derived per page read from the history table itself.
- *
- * DB-backed rather than mocked because the whole method IS two SQL reads: a `count(*)` and a
- * two-row, `(versionDate DESC, id DESC)`-ordered fetch of the newest sources (now including `via`,
- * OpenProject #2719's MCP provenance badge). A stubbed query builder would only re-describe the
- * statements rather than verify that the count matches the rows present or that the ordering picks
- * the right pair. What it wraps around those reads — the floor of 1, the omitted change count, the
- * line arithmetic, the `via` fallback for a page with no rows left to read one off of — is exercised
- * through the same calls.
+ * DB-backed rather than mocked because `revisionSummary` IS two SQL reads: a `count(*)` and a
+ * two-row, `(versionDate DESC, id DESC)`-ordered fetch. A stubbed query builder would re-describe
+ * the statements rather than verify the ordering picks the right pair.
  *
  * `pageHistory.pageId` is deliberately not a foreign key (the history of a deleted page outlives the
- * page — see its column note in `db/schema.ts`), so these rows are seeded against a random page id
- * with no `pages` row behind it. That is a real, supported state for this table, not a shortcut.
+ * page), so these rows are seeded against a random page id with no `pages` row behind it — a real,
+ * supported state for this table, not a shortcut.
  */
 describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -33,9 +26,8 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
   })
 
   /**
-   * Seeds one history row per entry of `contents`, oldest first, each a minute after the last so the
-   * `(versionDate DESC, id DESC)` ordering has a real timeline to sort rather than a tie. `via`
-   * defaults to `'editor'` for every entry that doesn't name one, matching the column's own default.
+   * One row per entry of `contents`, oldest first, each a minute after the last so the
+   * `(versionDate DESC, id DESC)` ordering has a real timeline to sort rather than a tie.
    */
   async function seedHistory(
     contents: (string | null)[],
@@ -71,7 +63,7 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(summary.ordinal, 1)
     // -> Absent, not zero: `rev 1` renders alone, and `· 0 changes` must never be reachable
     assert.equal('changeCount' in summary, false)
-    // -> No row to answer from: falls back to the column's own default rather than being undefined
+    // -> No row to answer from: falls back to the column's default rather than being undefined
     assert.equal(summary.via, 'editor')
   })
 
@@ -83,10 +75,9 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
 
   test('the change count is added plus removed lines between the two newest versions', async () => {
     /*
-      one → two: `beta` becomes `BETA` (1 removed + 1 added) and `delta` is appended (1 added), so a
-      unified diff of the pair shows three changed lines. `zero` is two versions back and must not be
-      part of the answer -- it is there to prove the diff is newest-vs-predecessor, not
-      newest-vs-oldest.
+      one → two: `beta` becomes `BETA` (1 removed + 1 added) and `delta` is appended (1 added) --
+      three changed lines. `zero` is two versions back and must not count: it proves the diff is
+      newest-vs-predecessor, not newest-vs-oldest.
     */
     const zero = 'nothing like the others\n'
     const one = 'alpha\nbeta\ngamma\n'
@@ -121,8 +112,8 @@ describe('pageHistory.revisionSummary (DB-backed)', { skip: !hasTestDatabase() }
   })
 
   test('versions written in the same millisecond still resolve to one newest pair', async () => {
-    // -> The `(versionDate DESC, id DESC)` tie-break: whichever id wins, the count is over the same
-    //    two rows and the answer is one of the two orderings, never an error or a missing row.
+    // -> The `(versionDate DESC, id DESC)` tie-break: whichever id wins, the answer is one of the
+    //    two orderings, never an error or a missing row.
     const pageId = crypto.randomUUID()
     const versionDate = new Date(Date.UTC(2026, 0, 2, 9, 30, 0))
     for (const content of ['first\n', 'first\nsecond\n']) {
