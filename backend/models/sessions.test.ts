@@ -12,20 +12,6 @@ import { authSecretSigner } from '../helpers/authSecretSigner.ts'
 import configSvc from '../core/config.ts'
 import { sessionStoreAdapter } from './sessions.ts'
 
-/**
- * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login and
- * otherwise live for up to the 30-day cookie age -- `clearSessionsFromUser` existed with zero
- * callers, and `clearSessionsForGroup` is new here, both wired into the deactivation /
- * group-membership / group-permission-change routes in `api/users/admin.ts` and `api/groups.ts`.
- *
- * OpenProject #2248: `purgeExpiredSessions` is the same table's housekeeping counterpart --
- * `@fastify/session` never calls `store.destroy` on a stale row, so a row past the cookie's 30-day
- * window is otherwise never revisited on its own.
- *
- * This is the SQL orchestration itself (deletes, one filtered by a membership lookup, one by an age
- * predicate) -- exactly the DB-backed case this repo's testing convention carves out from the pure-unit
- * default.
- */
 describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sessionsModel: typeof import('./sessions.ts').sessions
@@ -35,10 +21,9 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     ;({ sessions: sessionsModel } = await import('./sessions.ts'))
-    // -> Not part of the minimal `installTestWiki()` fixture (`test/db.ts`) — added here because
-    //    `rotateSecret()` below is the one model method that needs it, via `saveToDb()`. The real
-    //    module, not a stub: it upserts through `CARDINAL.models.settings.updateConfig`, which works fine
-    //    unseeded against this suite's own fresh schema.
+    // -> Not part of the minimal `installTestWiki()` fixture; `rotateSecret()` is the one method
+    //    that needs it, via `saveToDb()`. The real module rather than a stub, since its upsert
+    //    works unseeded against this suite's own fresh schema.
     CARDINAL.configSvc = configSvc
     CARDINAL.config.auth = { secret: 'fixture-initial-secret-value' }
 
@@ -94,7 +79,6 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
       { userId: secondUserId, groupId: secondGroupId }
     ])
 
-    // -> A third user with a session, but no membership in the group being cleared.
     const [thirdUser] = await fixtures.db
       .insert(usersTable)
       .values({ email: 'unrelated@example.com', name: 'Unrelated', isActive: true })
@@ -141,13 +125,6 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal((await fixtures.db.select().from(sessionsTable)).length, 1)
   })
 
-  /**
-   * OpenProject #2172: a cookie signed before `rotateSecret()` must stop unsigning right after it
-   * runs, with no restart -- the real regression this whole mechanism exists to close (the old
-   * `index.ts` FIXME this task removed). `helpers/authSecretSigner.test.ts` covers the signer's
-   * read-fresh-per-call mechanism in isolation, with no DB; this is the round trip through the real
-   * model method, which is also what actually swaps `CARDINAL.config.auth.secret` here.
-   */
   test('rotateSecret invalidates already-signed cookies immediately, and new ones verify under the new secret', async () => {
     const signedBeforeRotation = authSecretSigner.sign('session-before-rotation')
     assert.equal(authSecretSigner.unsign(signedBeforeRotation).valid, true)
@@ -202,16 +179,9 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 })
 
-/**
- * The @fastify/session store adapter (CORE-F12): three copies of the same
- * `try { clb(null, await …) } catch (err) { clb(err, null) }` wrapper, written out inline in
- * `index.ts` until they collapsed onto one `settle()` here. No database — what is under test is the
- * promise-to-callback translation, including the rejection path, which nothing exercised before.
- */
 describe('sessionStoreAdapter', () => {
   let previousWiki: any
 
-  /** Installs a `CARDINAL.models.sessions` whose three methods are whatever this test needs. */
   function installSessionsModel(stub: Record<string, (...args: any[]) => Promise<any>>) {
     previousWiki = (globalThis as any).CARDINAL
     ;(globalThis as any).CARDINAL = { models: { sessions: stub } }

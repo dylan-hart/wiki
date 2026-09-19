@@ -31,38 +31,24 @@ import {
 import { CustomError } from '../helpers/common.ts'
 import { purgeFilesOlderThan } from '../helpers/fsPurge.ts'
 
-/** How long an uploaded replication archive sits on disk before `purgeExpired` sweeps it, in seconds. */
 const IMPORT_TTL_SECONDS = 24 * 60 * 60
 
 /**
- * The manifest/tarball shape this model reads back (entry list, table ordering, the settings-wipe
- * caveat). Bumped only when that shape changes; an archive naming a
- * different version is refused outright rather than restored best-effort, same precedent as
- * `models/export.ts#EXPORT_FORMAT_VERSION`/`models/siteImport.ts`. Deliberately independent of
- * `EXPORT_FORMAT_VERSION` — that constant describes one site's content archive, an unrelated payload.
+ * Bumped when the manifest/tarball shape changes; an archive naming any other version is refused
+ * outright rather than restored best-effort. Deliberately independent of
+ * `models/export.ts#EXPORT_FORMAT_VERSION`, which describes one site's content archive.
  */
 export const REPLICATION_FORMAT_VERSION = 1
 
-/** Column counts for the tables this model restores that `siteImport.ts` does not already cover a
- *  chunk size for. Same derivation as that file's own constants: `floor(MAX_BIND_PARAMETERS /
- *  boundColumnCount)`. See `db/schema.ts` for each table's real column list. */
+/** Chunk sizes for the tables `siteImport.ts` does not already export one for, derived the same way:
+ *  `floor(MAX_BIND_PARAMETERS / boundColumnCount)` over each table's `db/schema.ts` columns. */
 const MAX_BIND_PARAMETERS = 65535
-/** `sites`: id, hostname, isEnabled, config, createdAt. */
 const SITE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 5)
-/** `classificationLevels`: id, name, sortOrder, createdAt, updatedAt. */
 const CLASSIFICATION_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 5)
-/** `groups`: id, name, permissions, rules, redirectOnLogin, redirectOnFirstLogin, redirectOnLogout,
- *  isSystem, createdAt, updatedAt. */
 const GROUP_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 10)
-/** `users`: id, email, name, auth, meta, passkeys, prefs, hasAvatar, isActive, isSystem, isVerified,
- *  lastLoginAt, createdAt, updatedAt. */
 const USER_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
-/** `userGroups`: userId, groupId. */
 const USER_GROUP_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 2)
-/** `comments`: id, content, render, guestName, guestEmail, guestIp, createdAt, updatedAt, pageId,
- *  siteId, authorId, replyTo. */
 const COMMENT_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 12)
-/** `settings`: key, value. */
 const SETTING_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 2)
 
 export interface ReplicationImportReport {
@@ -80,31 +66,20 @@ export interface ReplicationImportReport {
   settings: number
 }
 
-/** One row as read out of a JSON archive entry — no static shape beyond having an `id`. */
 type ArchiveRow = Record<string, any>
 
-/** Drop the two columns `models/export.ts#stripDerived` already excludes from a page export, in case
- *  a producer ever includes them anyway — `ts` is a `tsvector` postgres computes from other columns,
- *  not a value this can hand back to it, and `searchContent` is derived at index time.
- *
- *  Exported for its own pure unit test. */
+/** Guards against a producer that includes either column anyway: `ts` is a `tsvector` postgres
+ *  computes from other columns, not a value this can hand back to it, and `searchContent` is derived
+ *  at index time. */
 export function stripDerivedPageColumns(row: ArchiveRow): ArchiveRow {
   const { ts: _ts, searchContent: _searchContent, ...rest } = row
   return rest
 }
 
 /**
- * Order comment rows so every reply comes after the row it replies to, since `comments.replyTo`
- * self-references another row in the same table and a single chunked insert cannot guarantee that
- * ordering across an arbitrary chunk boundary the way a plain foreign key elsewhere in this archive
- * can.
- *
- * Multi-pass rather than a single sort: each pass takes every row whose `replyTo` is either null or
- * already placed, until nothing is left. A row whose `replyTo` never resolves — a dangling reference,
- * or a genuine cycle, neither of which real exported data should ever contain — is reported rather
- * than silently dropped or looped on forever.
- *
- * Exported for its own pure unit test.
+ * `comments.replyTo` self-references another row in the same table, so a chunked insert cannot
+ * guarantee a reply lands after its parent the way a plain foreign key elsewhere in this archive
+ * can. Multi-pass rather than a single sort, since the depth is unbounded.
  */
 export function orderCommentsByReplyDepth(rows: ArchiveRow[]): ArchiveRow[] {
   const byId = new Map(rows.map((row) => [row.id, row]))
@@ -119,9 +94,8 @@ export function orderCommentsByReplyDepth(rows: ArchiveRow[]): ArchiveRow[] {
       remaining.filter((row) => row.replyTo != null && !placed.has(row.replyTo))
     ]
     if (ready.length === 0) {
-      // -> Nothing in this pass could be placed: every remaining row's `replyTo` points at another
-      //    remaining row, so it's a cycle rather than a chain — should never occur in real exported
-      //    data, but refused outright rather than silently dropped.
+      // -> Nothing placeable: every remaining row points at another remaining row, so it is a cycle
+      //    rather than a chain, and refusing it beats looping forever.
       unresolvable = [...unresolvable, ...notReady]
       break
     }
@@ -142,49 +116,27 @@ export function orderCommentsByReplyDepth(rows: ArchiveRow[]): ArchiveRow[] {
 }
 
 /**
- * Target-side bulk-import model
- *
- * Restores a whole-instance snapshot tarball into this instance, wiping every table the snapshot
- * covers before inserting the archive's own rows — the "wipe-and-replace" half of Feature #2437's
- * scheduled replication (the other half, producing the archive, is sibling WP #2489/`models/
- * export.ts` territory, source side, not yet built). This class implements exactly the manifest
- * shape, table ordering and accepted settings-wipe consequence `REPLICATION_FORMAT_VERSION` above
- * fixes.
- *
- * Reuses `models/siteImport.ts#readArchive`/`#readJson` for the tar-reading mechanics (asset blobs
- * staged to disk, decompressed-size ceilings, JSON entries fully buffered) rather than re-deriving
- * them — the archive shape for assets specifically is unchanged from that file's own (`assets/
- * manifest.json` + `assets/<id>.data`/`.preview` entries).
+ * Target side of replication: restores a whole-instance snapshot tarball, wiping every table the
+ * snapshot covers — settings included — before inserting the archive's own rows.
  *
  * **No id remapping**, unlike `siteImport.ts`: a whole-instance wipe-and-replace has no coexistence
- * case (every row of every covered table is gone before anything is inserted), so the archive's own
- * ids are used exactly as given — see the design doc's Context section for why that differs from the
- * single-site restore this otherwise mirrors.
+ * case, so the archive's own ids are used exactly as given.
  *
- * **Cache/index invalidation is deliberately not this method's job**, matching `siteImport.ts`'s own
- * convention. There are two callers of `importSnapshot()` -- the manual-upload task
- * (`tasks/simple/replication-import.ts`) and the scheduled cron-driven pull
- * (`models/replication.ts#pull()`) -- and both run the same shared post-import step
- * (`helpers/replicationPostImport.ts`) once this has actually returned successfully: reloading the
- * `ClusterReloaded` caches (`sites`, `groups`, `classificationLevels`), invalidating the glossary and
- * asset path-resolution caches, and queuing search reindexing (OpenProject #2517).
+ * **Cache/index invalidation is deliberately not this model's job**, matching `siteImport.ts`'s own
+ * convention: every caller of `importSnapshot()` runs `helpers/replicationPostImport.ts` once it has
+ * returned successfully.
  */
 class ReplicationImportModel {
-  /** `<dataPath>/imports/replication` — separate from `siteImport.ts`'s own `<dataPath>/imports`, so
-   *  the two importers' TTL sweeps never race the same directory. */
+  /** Separate from `siteImport.ts`'s own `<dataPath>/imports`, so the two importers' TTL sweeps
+   *  never race the same directory. */
   get importsPath(): string {
     return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'imports', 'replication')
   }
 
   /**
-   * Save an uploaded archive to `<dataPath>/imports/replication/`, streaming it straight from the
-   * request — same approach and same reasoning as `models/siteImport.ts#saveUpload`, which this
-   * mirrors line-for-line (see that method's own doc comment for the full rationale on why
-   * `bodyLimit` is enforced mid-stream and the gzip check runs after the write completes).
-   *
-   * @returns The path the queued job reads it back from.
-   * @throws {CustomError} the body exceeded `bodyLimit` (413), nothing was sent (400), or the saved
-   *   file's first two bytes are not the gzip magic number (400).
+   * Streamed straight from the request: `bodyLimit` is enforced mid-stream so an oversized body is
+   * refused before it is all on disk, and the gzip magic number is only checkable once the write
+   * has completed.
    */
   async saveUpload(stream: NodeJS.ReadableStream, bodyLimit: number): Promise<string> {
     await fs.mkdir(this.importsPath, { recursive: true })
@@ -239,28 +191,16 @@ class ReplicationImportModel {
     return filePath
   }
 
-  /** Delete one uploaded archive. Best-effort and idempotent. */
   async deleteUpload(filePath: string): Promise<void> {
     await fs.unlink(filePath).catch(() => {})
   }
 
-  /** Sweep `<dataPath>/imports/replication/` of anything older than the TTL — an upload whose job
-   *  never ran to completion to clean up after itself. Safe to call when the directory does not
-   *  exist yet.
-   *
-   * @returns How many files were removed */
+  /** Catches uploads whose job never ran to completion to clean up after itself. */
   async purgeExpired(): Promise<number> {
     return purgeFilesOlderThan(this.importsPath, IMPORT_TTL_SECONDS)
   }
 
-  /**
-   * Wipe this instance's replicated tables and replace them with a snapshot archive's own rows, in
-   * one transaction.
-   *
-   * @param filePath Path to the uploaded archive, as returned by `saveUpload`.
-   * @returns How many rows of each kind were restored, which the caller (`replicationImport`'s task)
-   *   records on the job's history row via `CARDINAL.models.jobs.setResult`.
-   */
+  /** Wipe and replace in one transaction, so a failure part-way leaves the instance as it was. */
   async importSnapshot(filePath: string): Promise<ReplicationImportReport> {
     const { entries, assetBlobs, stagingDir } = await readArchive(filePath)
 
@@ -290,9 +230,8 @@ class ReplicationImportModel {
       const assetManifest = readJson<ArchiveRow[]>(entries, 'assets/manifest.json')
       const settingRows = readJson<ArchiveRow[]>(entries, 'settings.json')
 
-      // -> Staged to disk by `readArchive` rather than held in memory — read back here, one asset at
-      //    a time, only now that a row is actually about to be built for it. Mirrors
-      //    `siteImport.ts#importSite`'s own `mappedAssetRows`.
+      // -> `readArchive` stages asset blobs to disk rather than buffering them, so `assetBlobs`
+      //    holds paths, not bytes.
       const assetRows = await Promise.all(
         assetManifest.map(async (meta) => {
           const dataPath = assetBlobs[`assets/${meta.id}.data`]
@@ -306,9 +245,8 @@ class ReplicationImportModel {
       )
 
       await CARDINAL.db.transaction(async (tx) => {
-        // -> Children first, mirroring each table's real foreign keys (see the design doc's ordering
-        //    table) — a mid-transaction failure rolls back the whole thing, so this order only has to
-        //    satisfy Postgres's own constraint checks, not guard against a partial state surviving.
+        // -> Children first, mirroring each table's foreign keys: the order only has to satisfy
+        //    Postgres's own constraint checks, since a failure rolls the whole transaction back.
         await tx.delete(commentsTable)
         await tx.delete(pageHistoryTable)
         await tx.delete(treeTable)
@@ -337,8 +275,8 @@ class ReplicationImportModel {
         for (const batch of chunk(userGroupRows, USER_GROUP_INSERT_CHUNK_SIZE)) {
           await tx.insert(userGroupsTable).values(batch as any)
         }
-        // -> Navigation before tree: a tree row's `navigationId` (a per-entry override) is a foreign
-        //    key into `navigation.id`.
+        // -> Navigation before tree: a tree row's `navigationId` is a foreign key into
+        //    `navigation.id`.
         for (const batch of chunk(navigationRows, NAVIGATION_INSERT_CHUNK_SIZE)) {
           await tx.insert(navigationTable).values(batch as any)
         }
@@ -354,11 +292,8 @@ class ReplicationImportModel {
         for (const batch of chunk(pageHistoryRows, PAGE_HISTORY_INSERT_CHUNK_SIZE)) {
           await tx.insert(pageHistoryTable).values(batch as any)
         }
-        // -> One chunk of a topologically-ordered list at a time: a chunk boundary can still separate
-        //    a reply from its parent, but the parent was always inserted in an earlier or the same
-        //    chunk by construction (`orderCommentsByReplyDepth`), and each `.insert()` call commits
-        //    within the same transaction before the next chunk's rows are bound, so the FK is always
-        //    satisfied by the time a later chunk's reply rows are inserted.
+        // -> Safe across chunk boundaries only because `orderCommentsByReplyDepth` puts every parent
+        //    in an earlier or the same chunk as its reply.
         for (const batch of chunk(commentRows, COMMENT_INSERT_CHUNK_SIZE)) {
           await tx.insert(commentsTable).values(batch as any)
         }

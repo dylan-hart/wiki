@@ -1,7 +1,6 @@
 import proxyAddr from '@fastify/proxy-addr'
 import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
-/** Fields stored in the `security` settings blob. */
 export const SECURITY_FIELDS = [
   'apiRateLimitBan',
   'apiRateLimitEnabled',
@@ -27,23 +26,13 @@ export const SECURITY_FIELDS = [
   'uploadScanSVG'
 ] as const
 
-/** A duration as the admin area writes it: `30m`, `14d`, `1y`. */
 const DURATION_PATTERN = /^\d+[smhdwy]$/
 
 /**
- * Validate a trusted-proxy specification exactly the way it will actually be parsed at request time:
- * `getTrustProxyFn` in the vendored `fastify/lib/request.js` splits a string `trustProxy` on commas,
- * trims each entry, and hands the array to `@fastify/proxy-addr`'s own `compile()` -- the function
- * that throws on anything it cannot resolve to an address, a CIDR range, or one of its three named
- * ranges (`loopback`, `linklocal`, `uniquelocal`). Round-tripping through the same function here,
- * rather than a hand-written address/CIDR regex, is what keeps "accepted by the admin form" and
- * "trusted at request time" from ever drifting apart -- and it means a trailing comma or blank entry
- * (`'10.0.0.0/8,'` splits to `['10.0.0.0/8', '']`) is rejected here exactly as it would silently
- * become an untrusted-everything spec if it reached Fastify unvalidated.
- *
- * Exported so `security.test.ts` can assert against what will actually be accepted at runtime.
- *
- * @returns The reason it is invalid, or null when it is fine
+ * Round-trips through the same comma-split and `proxyAddr.compile()` that Fastify's own
+ * `getTrustProxyFn` applies to a string `trustProxy` at request time, rather than a hand-written
+ * address/CIDR regex, so "accepted by the admin form" cannot drift from "trusted at request time"
+ * -- a trailing comma or blank entry (`'10.0.0.0/8,'`) included.
  */
 export function validateTrustProxySpec(spec: string): string | null {
   try {
@@ -55,44 +44,24 @@ export function validateTrustProxySpec(spec: string): string | null {
 }
 
 /**
- * Security model
- *
- * The admin area's security view, which is exactly the `security` settings blob. Most of it is read
- * when the HTTP server starts — see the `Security` section of `index.ts` — so saving here takes
- * effect on the next restart.
+ * Most of this blob is read once, while the HTTP server is being built (`core/http/security.ts`,
+ * `core/http/session.ts`), so a save here only takes effect on the next restart.
  */
 class Security {
   /**
-   * Runtime diagnostic, not a stored setting: the moment (if ever, since this process started) a
-   * request showed the classic reverse-proxy misconfiguration (upstream discussion #6866, task
-   * 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`), but
-   * this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself, so
-   * `request.protocol` can only ever reflect the raw, plaintext connection.
-   *
-   * Originally this meant the session cookie itself came out insecure (`secure: 'auto'` resolving
-   * `false`). As of task 2109 that is no longer true: the session cookie's `Secure`, `SameSite` and
-   * `__Host-` name are all pinned unconditionally in `index.ts`'s `fastifySession` registration, so
-   * this misdetection can no longer weaken it. What it still breaks is everything else that reads
-   * `request.protocol` to decide what scheme it is talking: `api/auth/provider.ts#callbackUrl()`
-   * builds the OAuth/SAML return URL from it (wrong scheme there fails the whole federated login,
-   * not just the cookie), and `controllers/seo.ts` builds the sitemap/robots URLs the same way. The
-   * field name and trigger stay as they are -- same underlying misconfiguration, same fix (turn on
-   * Trust Proxy) -- but the risk it warns about is this broader one now, not a weakened cookie.
-   * Reset only by a restart -- it describes how the process was started, not something that
-   * self-heals while it keeps running the same way.
+   * Runtime diagnostic, not a stored setting: when this process last saw the classic reverse-proxy
+   * misconfiguration -- the proxy reports the connection as HTTPS (`X-Forwarded-Proto: https`) but
+   * this instance neither trusts that header (`trustProxy` off) nor terminated TLS itself, so
+   * `request.protocol` can only reflect the plaintext connection. The session cookie fails closed
+   * rather than downgrading (`core/http/session.ts`); the real damage is to anything deriving a
+   * scheme from `request.protocol`, such as `api/auth/provider.ts#callbackUrl()`'s OAuth/SAML
+   * return URL. Nothing clears it: it describes how the process was started.
    */
   private insecureCookieRiskAt: string | null = null
 
-  /**
-   * Record one request's evidence for the diagnostic above. Called from the `onRequest` hook in
-   * `index.ts` for every request -- deliberately cheap (header lookups only, no I/O) since it runs
-   * on the hot path.
-   */
+  /** On the hot path (every request's `onRequest` hook): header lookups only, no I/O. */
   observeRequest(headers: Record<string, string | string[] | undefined>, protocol: string): void {
     if (CARDINAL.config.security?.trustProxy || protocol === 'https') {
-      // -> Either the header is trusted (so `request.protocol` already reflects it) or this
-      //    instance terminated TLS itself (so the cookie is secure regardless of the header) --
-      //    neither is the misconfiguration this is watching for.
       return
     }
     const forwardedProto = headers['x-forwarded-proto']
@@ -105,16 +74,10 @@ class Security {
     }
   }
 
-  /**
-   * When the diagnostic above last fired, or null if it never has this process.
-   */
   getInsecureCookieRiskAt(): string | null {
     return this.insecureCookieRiskAt
   }
 
-  /**
-   * The security configuration as the admin area expects it
-   */
   getConfig(): Record<string, any> {
     const security = CARDINAL.config.security ?? {}
     const config: Record<string, any> = {}
@@ -124,9 +87,6 @@ class Security {
     return config
   }
 
-  /**
-   * Keep only the fields this model owns, dropping anything else a client sends
-   */
   pickFields(body: Record<string, any>): Record<string, any> {
     const patch: Record<string, any> = {}
     for (const field of SECURITY_FIELDS) {
@@ -138,13 +98,9 @@ class Security {
   }
 
   /**
-   * Check a patch against the settings it will end up merged with.
-   *
-   * Merged rather than in isolation, because these fields constrain each other: turning CSP on with
-   * no directives, or picking the hostname whitelist mode without hostnames, would store a setting
-   * that quietly does nothing.
-   *
-   * @returns The reason it is invalid, or null when it is fine
+   * Checked against the merged result rather than the patch in isolation, because these fields
+   * constrain each other: CSP on with no directives, or the hostname whitelist mode without
+   * hostnames, would store a setting that quietly does nothing.
    */
   validate(patch: Record<string, any>): string | null {
     const merged = { ...this.getConfig(), ...patch }
@@ -169,9 +125,8 @@ class Security {
       }
     }
 
-    // -> Parsed (and its directive names validated) regardless of `enforceCsp`: a typo'd or invented
-    //    directive stored while enforcement is off would otherwise resurface, unvalidated, the
-    //    moment enforcement is later switched on.
+    // -> Parsed regardless of `enforceCsp`: a typo'd directive stored while enforcement is off
+    //    would otherwise resurface, unvalidated, the moment enforcement is switched on.
     let cspDirectives: Record<string, string[]> = {}
     if (merged.cspDirectives) {
       try {
@@ -216,19 +171,11 @@ class Security {
       }
     }
 
-    // -> `trustProxy` accepts a boolean (trust every/no peer, unchanged legacy behavior) or a
-    //    comma-separated address/CIDR list -- the form `index.ts` passes straight through to
-    //    Fastify's own `trustProxy` option, whose vendored `request.js` already refuses to read
-    //    `X-Forwarded-Host`/`-For`/`-Proto` from a peer address the list doesn't cover, falling
-    //    back to the raw socket's own `Host` header instead. That is what closes the tenancy-
-    //    isolation gap where any client could steer `req.hostname` (and therefore site
-    //    resolution) by sending its own `X-Forwarded-Host` while the setting was a bare `true` --
-    //    see `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6. Validated by
-    //    {@link validateTrustProxySpec}, the same comma-splitting Fastify's own `getTrustProxyFn`
-    //    does before handing a string `trustProxy` option to `proxyAddr.compile`
-    //    (`fastify/lib/request.js`) -- round-tripping through the identical package and shape this
-    //    ultimately gets passed to verbatim (`index.ts`'s `trustProxy:
-    //    CARDINAL.config.security.trustProxy`) is what makes "accepted here" mean "accepted there".
+    // -> A boolean (trust every/no peer) or a comma-separated address/CIDR list, passed straight
+    //    through to Fastify's own `trustProxy` option. The list form closes the tenancy-isolation
+    //    gap a bare `true` leaves open: Fastify reads `X-Forwarded-Host`/`-For`/`-Proto` only from
+    //    a peer the list covers, so a client can no longer steer `req.hostname` -- and therefore
+    //    site resolution -- with a header of its own.
     if (typeof merged.trustProxy === 'string' && merged.trustProxy.trim() !== '') {
       const err = validateTrustProxySpec(merged.trustProxy)
       if (err) {
@@ -245,11 +192,7 @@ class Security {
     return null
   }
 
-  /**
-   * Save a validated patch.
-   *
-   * @returns Whether the settings were saved
-   */
+  /** Expects a patch that has already been through {@link validate}. */
   async updateConfig(patch: Record<string, any>): Promise<boolean> {
     const previousSecurity = CARDINAL.config.security
     CARDINAL.config.security = { ...previousSecurity, ...patch }

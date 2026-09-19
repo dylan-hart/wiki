@@ -15,7 +15,7 @@ import type {
 } from './search.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 
-/** A prop shaped the way `parseModuleProps` (helpers/moduleProps.ts) normalizes a `definition.yml` entry. */
+/** Shaped the way `parseModuleProps` normalizes a `definition.yml` entry, not as it is written there. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
   return {
     default: false,
@@ -38,12 +38,8 @@ function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/**
- * A fixture page, cast through `unknown` rather than filled field-for-field: the point of this suite
- * is that `SearchModule`'s hooks compose with the page row and with the reused `SearchPagesResult` /
- * `RebuildResult` shapes, not to re-describe every `pages` column (already covered by `db/schema.ts`
- * and `models/pages.test.ts`).
- */
+/** Cast through `unknown` rather than filled field-for-field: no hook under test reads a column
+ *  beyond these, and re-describing every `pages` column here would only duplicate `db/schema.ts`. */
 function fakePage(overrides: Partial<{ id: string; siteId: string; path: string }> = {}) {
   return {
     id: 'page-1',
@@ -55,12 +51,6 @@ function fakePage(overrides: Partial<{ id: string; siteId: string; path: string 
   } as unknown as SearchIndexablePage
 }
 
-/**
- * A minimal in-memory `SearchModule`, exercised the way `models/search.ts`'s future `ensureModule()`
- * (task #558) will call a real one: every hook mandatory, `query`/`rebuild` returning the exact shapes
- * `models/search.ts` already produces today, so a caller written against the Postgres `db` provider
- * needs no special-casing for a second engine.
- */
 function makeFakeSearchModule(): { calls: string[]; module: SearchModule } {
   const calls: string[] = []
   const module: SearchModule = {
@@ -154,17 +144,15 @@ describe('SearchEngineDefinition', () => {
     assert.equal(definition.key, 'db')
     assert.equal(definition.props.termHighlighting.type, 'boolean')
     // -> dictOverrides is a locale -> dictionary map, not representable by ModuleProp, so it is
-    //    deliberately absent from props (see the comment on SearchEngineDefinition in search.ts).
+    //    deliberately absent from props.
     assert.equal((definition.props as Record<string, unknown>).dictOverrides, undefined)
   })
 })
 
 /**
- * `search.refreshFromDisk()` / `hasImplementation()` / `getDefinition()`, task #558.
- *
- * Reads the same way `Storage.refreshFromDisk()` does (`models/storage.ts`): `CARDINAL.SERVERPATH` points
- * at a throwaway fixture directory rather than the real repo, so this covers the scanning/sorting/prop
- * -normalization logic without depending on what actually ships under `modules/search/*` today.
+ * `CARDINAL.SERVERPATH` points at a throwaway fixture directory rather than the real repo, so the
+ * scanning/sorting/prop-normalization logic is covered without depending on what actually ships
+ * under `modules/search/*`.
  */
 describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () => {
   let dir: string
@@ -189,7 +177,7 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
       ].join('\n')
     )
 
-    // -> Sorted after `db` alphabetically by title, and the only one of the two with an implementation
+    // -> Sorts after `db` by title, and is the only one of the two with an implementation.
     await mkdir(path.join(dir, 'modules/search/zzz-engine'), { recursive: true })
     await writeFile(
       path.join(dir, 'modules/search/zzz-engine/definition.yml'),
@@ -247,14 +235,10 @@ describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () 
 })
 
 /**
- * `search.ensureModule()`, task #558.
- *
- * Unlike `refreshFromDisk()`/`hasImplementation()`, the dynamic import inside `ensureModule()` is a
- * fixed relative specifier (`../modules/search/${key}/search.ts`, resolved from `models/search.ts`'s
- * own location) rather than something built off `CARDINAL.SERVERPATH` — that's exactly what makes it the
- * "extension-sensitive dynamic path" this codebase tracks by hand. So this writes real, throwaway fixture modules
- * under the actual `backend/modules/search/` directory (cleaned up in `after`) instead of a tmp dir,
- * and points `CARDINAL.SERVERPATH` at the real backend root so `hasImplementation()`'s gate agrees with it.
+ * `ensureModule()`'s dynamic import is a fixed relative specifier resolved from `models/search.ts`'s
+ * own location, not something built off `CARDINAL.SERVERPATH` — so these fixtures are real modules
+ * written under the actual `backend/modules/search/` directory (cleaned up in `after`) rather than a
+ * tmp dir, with `CARDINAL.SERVERPATH` pointed at the backend root so `hasImplementation()`'s gate agrees.
  */
 describe('search.ensureModule()', () => {
   const fixtureKey = '__test-fixture-ensure-module'
@@ -305,13 +289,6 @@ describe('search.ensureModule()', () => {
   })
 })
 
-/**
- * `search.getConfig(siteId)`, task #563: `dictOverrides` moved from the instance-wide
- * `CARDINAL.config.search` to the per-site `CARDINAL.sites[siteId].config.search.config`, a sibling of
- * `search.engine` seeded by `models/sites.ts`'s per-site defaults. `termHighlighting` used to live
- * here too, until task #574 moved it into the `db` engine's own per-engine config -- see
- * `search.getEngineConfig()` below.
- */
 describe('search.getConfig()', () => {
   let previousWiki: any
 
@@ -382,15 +359,10 @@ describe('search.getConfig()', () => {
 })
 
 /**
- * `search.query()` / `.rebuild()` / `.created()` / `.updated()` / `.deleted()` / `.renamed()`, task
- * #561: the dispatcher resolves `CARDINAL.sites[siteId]?.config?.search?.engine` (falling back to `db`)
- * and delegates to whatever `SearchModule` that key loads.
- *
  * Modules are injected straight into `search.modules` rather than through real fixture directories:
- * `ensureModule()` already checks that cache before touching disk (see the `describe` above), so
- * seeding it here exercises exactly the dispatcher's resolution logic — reading `CARDINAL.sites`, falling
- * back to `db`, forwarding every argument — without needing a `db/search.ts` capable of running real
- * SQL against a `CARDINAL.db` this suite has none of.
+ * `ensureModule()` checks that cache before touching disk, so seeding it exercises the dispatcher's
+ * resolution without needing a `db/search.ts` capable of running real SQL against a `CARDINAL.db`
+ * this suite has none of.
  */
 describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', () => {
   let previousWiki: any
@@ -464,16 +436,12 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
     search.modules.db = dbModule
     const page = fakePage({ id: 'page-moved', siteId: 'site-default' })
 
-    // -> Both halves of where it was: a move can change the locale as well as the path
     await search.renamed('site-default', page, 'old/path', 'de')
 
     assert.deepEqual(calls, ['renamed:site-default:page-moved:de/old/path'])
   })
 
-  /**
-   * Engine resolution itself is private to the dispatcher (`getActiveEngine`), so its two failure
-   * branches are exercised through `query()` -- the same way every real caller reaches them.
-   */
+  /** `getActiveEngine` is private, so its two failure branches are exercised through `query()`. */
   test('falls back to db when the configured engine has no loaded implementation', async () => {
     const { calls, module: dbModule } = makeFakeSearchModule()
     search.modules.db = dbModule
@@ -503,10 +471,6 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
   })
 })
 
-/**
- * `search.getSiteEngines()` / `.buildEngineConfig()` / `.validateEngineConfig()` / `.selectEngine()`,
- * task #570: the site-scoped engine picker built on top of `refreshFromDisk()`'s definitions.
- */
 describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineConfig/selectEngine)', () => {
   let previousWiki: any
   let previousDefinitions: SearchEngineDefinition[]
@@ -545,11 +509,8 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     }
   }
 
-  /**
-   * A third, distinct fixture (task #556): a required prop left empty must be refused, and a
-   * shaped prop must match its declared `pattern` -- neither `dbDefinition` nor `customDefinition`
-   * declares either, so a dedicated engine keeps those two fixtures' existing tests undisturbed.
-   */
+  /** A third fixture, so adding a `required` prop and a `pattern` prop leaves the other two
+   *  definitions' tests undisturbed. */
   const strictDefinition: SearchEngineDefinition = {
     key: 'strict-engine',
     title: 'Strict Engine',
@@ -670,19 +631,15 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
         }
       }
 
-      // -> Default: `selectEngine()`/`initActiveEngines()` never call this at all, but any future
-      //    caller besides the admin list route must still get the real value by default.
       const unmasked = await search.getSiteEngines('site-e')
       assert.equal(
         unmasked.find((e) => e.key === 'custom-engine')!.config.apiKey,
         'super-secret-key'
       )
 
-      // -> `{ mask: true }`: what the admin GET routes (api/search.ts) actually return.
       const masked = await search.getSiteEngines('site-e', { mask: true })
       const custom = masked.find((e) => e.key === 'custom-engine')!
       assert.equal(custom.config.apiKey, '********')
-      // -> A non-sensitive prop on the same engine is untouched by masking.
       assert.equal(custom.config.mode, 'accurate')
     })
   })
@@ -809,9 +766,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     })
 
     test('does not flag a required prop that is merely absent from the effective config’s defaults when it has no default and nothing stored', () => {
-      // -> Same case as the first test above, restated: `hosts` has no `required: true`, so an
-      //    empty default is fine for it even though it also has a `pattern` -- patterns are only
-      //    checked once a value is non-empty.
+      // -> `hosts` is not `required`, and a `pattern` is only checked once a value is non-empty.
       assert.equal(search.validateEngineConfig('strict-engine', { apiKey: 'k' }), null)
     })
   })
@@ -878,10 +833,6 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
       })
     })
 
-    /**
-     * OpenProject #920: selecting an engine never provisioned it -- nothing called `init()`. Fixed by
-     * having `selectEngine()` call the resolved module's `init()` itself, once the site write succeeds.
-     */
     test('calls the newly selected engine’s init() with the config that was just built and stored', async () => {
       const { calls: initCalls, module: fakeModule } = makeFakeSearchModule()
       search.modules['custom-engine'] = fakeModule
@@ -913,8 +864,8 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
         sites: { updateSite: async () => true }
       }
 
-      // -> `custom-engine` has a definition (so `buildEngineConfig` still runs) but no loaded module
-      //    and no real `search.ts` on disk, so `ensureModule` resolves null and init() is never reached.
+      // -> A definition exists (so `buildEngineConfig` still runs), but with no loaded module and no
+      //    `search.ts` on disk `ensureModule` resolves null and `init()` is never reached.
       const result = await search.selectEngine('site-i', 'custom-engine', { apiKey: 'k' })
       assert.equal(result, true)
     })
@@ -941,11 +892,6 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
   })
 })
 
-/**
- * `search.initActiveEngines()`, OpenProject #920's boot-time counterpart to `selectEngine()`: whatever
- * engine each site currently has active gets provisioned at boot, covering a site that selected a
- * non-`db` engine before this existed.
- */
 describe('search.initActiveEngines()', () => {
   let previousWiki: any
   let previousDefinitions: SearchEngineDefinition[]
@@ -996,13 +942,6 @@ describe('search.initActiveEngines()', () => {
     assert.deepEqual(customCalls, [`init:site-custom:${JSON.stringify({ apiKey: 'k' })}`])
   })
 
-  /**
-   * OpenProject #3162: a site whose stored engine is a retired module (`aws-cloudsearch`, once its
-   * directory is deleted) must degrade to `db` rather than silently doing nothing -- the gap this
-   * closes is that `ensureModule()` returning null for a missing implementation used to `return` here
-   * with no log and no fallback provisioning at all, unlike a module that loads but whose `init()`
-   * throws (already warned below).
-   */
   test('a site whose engine has no implementation on disk falls back to db and logs once', async () => {
     const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
     const warnings: { message: string; fields?: Record<string, any> }[] = []
@@ -1021,10 +960,8 @@ describe('search.initActiveEngines()', () => {
         debug: () => {}
       }
     }
-    // -> Deliberately not registered in `search.modules` and not present in `search.definitions`
-    //    (set to `[customDefinition]` in `before()` above) -- exactly the state after the module
-    //    directory is deleted from disk: `ensureModule('aws-cloudsearch')` cache-misses and its
-    //    `hasImplementation()` probe finds nothing.
+    // -> Registered in neither `search.modules` nor `search.definitions` — the state after a module
+    //    directory is deleted from disk, where `ensureModule()` cache-misses and finds nothing.
     search.modules.db = dbModule
     delete search.modules['aws-cloudsearch']
 
@@ -1077,16 +1014,11 @@ describe('search.initActiveEngines()', () => {
     assert.ok(warnings.some((w) => w.fields?.engine === 'broken-engine'))
   })
 
-  /**
-   * OpenProject #920 follow-up: `init()` reaches an external service with no bound of its own, so a
-   * misconfigured host that never answers -- as opposed to one that actively refuses -- must not be
-   * allowed to stall this sequential loop forever and, with it, every site after the hung one.
-   */
   test('treats a site whose init() never settles as a failure, rather than blocking every other site', async (t) => {
     const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
     const hangingModule: SearchModule = {
       ...dbModule,
-      init: () => new Promise<void>(() => {}) // never resolves or rejects
+      init: () => new Promise<void>(() => {})
     }
     const warnings: { message: string; fields?: Record<string, any> }[] = []
     ;(globalThis as any).CARDINAL = {
@@ -1111,9 +1043,8 @@ describe('search.initActiveEngines()', () => {
 
     try {
       const promise = search.initActiveEngines()
-      // -> The timeout race is set up only after `ensureModule`'s own await resolves, so a couple of
-      //    microtask/tick interleavings are needed before ticking meaningfully advances the clock --
-      //    same technique as `models/pdfExport.test.ts`'s equivalent hang case.
+      // -> The timeout race is set up only after `ensureModule`'s own await resolves, so ticking
+      //    only advances a timer that exists after a few microtask interleavings.
       for (let i = 0; i < 10; i++) {
         await Promise.resolve()
         t.mock.timers.tick(20000)
@@ -1128,18 +1059,11 @@ describe('search.initActiveEngines()', () => {
     assert.ok(warnings.some((w) => /Timed out/.test(w.fields?.error?.message ?? '')))
   })
 
-  /**
-   * OpenProject #1848: sites are now provisioned concurrently, so N sites each timing out costs one
-   * `ENGINE_INIT_TIMEOUT_MS` wait total, not N of them stacked up serially. Two sites here hang at once
-   * -- if the old `for` loop were still in place, the second site's own timeout race wouldn't even be
-   * set up until the first one's 30s race had already rejected, so settling this within a single
-   * timeout window's worth of ticked time is only possible when both races run in parallel.
-   */
   test('two sites hanging at once cost one timeout window, not one per hung site', async (t) => {
     const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
     const hangingModule: SearchModule = {
       ...dbModule,
-      init: () => new Promise<void>(() => {}) // never resolves or rejects
+      init: () => new Promise<void>(() => {})
     }
     const warnings: { message: string; fields?: Record<string, any> }[] = []
     ;(globalThis as any).CARDINAL = {
@@ -1172,11 +1096,10 @@ describe('search.initActiveEngines()', () => {
       const promise = search.initActiveEngines().then(() => {
         settled = true
       })
-      // -> Tick a total of 40s (< 2x the 30s timeout a serial second-site wait would need), in small
-      //    increments with a microtask flush between each so both hanging sites' timers -- set up only
-      //    after their own `ensureModule()` await resolves -- get a chance to be scheduled. If either
-      //    hung site's race were still waiting on the other to finish first, this would not be enough
-      //    ticked time for `initActiveEngines()` to settle.
+      // -> 40s of ticked time in all, under the two stacked 30s waits a serial second site would
+      //    need: this settles only because both hung sites' timeout races run in parallel. Small
+      //    increments with a microtask flush between, so both timers -- set up only after their own
+      //    `ensureModule()` await resolves -- get a chance to be scheduled.
       for (let i = 0; i < 8; i++) {
         await Promise.resolve()
         t.mock.timers.tick(5000)
@@ -1194,16 +1117,6 @@ describe('search.initActiveEngines()', () => {
 })
 
 /**
- * `index.ts`'s boot order, as a structural check against the file itself.
- *
- * Load-bearing since CORE-F5 phase 4: every search engine module now reads its per-site config
- * through `getEngineConfig()`, which completes the stored values with the props declared in that
- * engine's `definition.yml` — and those props only exist once `refreshFromDisk()` has read them off
- * disk. `azure-search` and `aws-cloudsearch` used to sidestep that by reading
- * `CARDINAL.sites[...].config.search.engines[key]` raw and re-applying each default by hand at every use
- * site; they no longer do, so the ordering `index.ts` has always had is now something a reorder could
- * silently break — an engine would come up with an empty config rather than a defaulted one.
- *
  * Text-level rather than behavioural because `index.ts` is a boot script with no seam to call into:
  * `postBoot()` connects to postgres, starts the scheduler and binds a port.
  */
@@ -1212,8 +1125,8 @@ describe("index.ts boots search's definitions before it provisions any engine", 
     const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts')
     const source = await readFile(indexPath, 'utf8')
 
-    // -> Matched with the `await ` prefix so a mention in a comment (or an unawaited call, which
-    //    would break the ordering just as surely) cannot satisfy or skew this
+    // -> The `await ` prefix keeps a mention in a comment -- or an unawaited call, which would break
+    //    the ordering just as surely -- from satisfying or skewing this.
     const refresh = source.indexOf('await CARDINAL.models.search.refreshFromDisk()')
     const init = source.indexOf('await CARDINAL.models.search.initActiveEngines()')
 

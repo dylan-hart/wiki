@@ -45,7 +45,6 @@ describe('orderCommentsByReplyDepth (pure, no DB)', () => {
   })
 
   test('every reply comes after the row it replies to, even when the archive lists it first', () => {
-    // -> Deliberately out of order: the reply (`c2`) is listed before its parent (`c1`).
     const rows = [
       { id: 'c2', replyTo: 'c1' },
       { id: 'c1', replyTo: null }
@@ -81,12 +80,6 @@ describe('orderCommentsByReplyDepth (pure, no DB)', () => {
   })
 })
 
-/**
- * `readArchive`/`readJson` themselves are already covered by `models/siteImport.test.ts` (the module
- * that owns them) — this only proves `importSnapshot` refuses an archive whose format version it does
- * not recognize before touching the database, mirroring `siteImport.ts`'s own precedent, using a
- * fixture built the same way that file's own pure describe builds one.
- */
 describe('importSnapshot format version guard (pure, no DB)', () => {
   let importSnapshot: typeof import('./replicationImport.ts').replicationImportModel.importSnapshot
   let tmpDir: string
