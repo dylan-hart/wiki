@@ -189,6 +189,36 @@ describe('PageComments', () => {
     expect(body.classes()).toContain('page-contents')
   })
 
+  it('themes the comment chrome text (author, count, timestamp, modified) for light and dark mode (OpenProject #3454)', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ updatedAt: '2026-08-02T12:00:00.000Z' })])
+    })
+    const { wrapper } = await mountComments()
+
+    expect(wrapper.find('.page-comments-count').classes()).toEqual(
+      expect.arrayContaining(['text-text-caption', 'dark:text-text-caption-dark'])
+    )
+    expect(wrapper.find('.page-comments-meta strong').classes()).toEqual(
+      expect.arrayContaining(['text-text-body', 'dark:text-text-body-dark'])
+    )
+    const captions = wrapper.findAll('.text-caption').filter((el) => !el.classes('text-primary'))
+    expect(captions.length).toBeGreaterThanOrEqual(3)
+    for (const el of captions) {
+      expect(el.classes()).toContain('dark:text-text-caption-dark')
+    }
+    expect(wrapper.html()).not.toContain('text-grey-6')
+  })
+
+  it('themes the empty-state line for light and dark mode (OpenProject #3454)', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    const { wrapper } = await mountComments({ canWrite: false })
+
+    expect(wrapper.find('.page-comments-empty').classes()).toEqual(
+      expect.arrayContaining(['text-text-caption', 'dark:text-text-caption-dark'])
+    )
+    expect(wrapper.html()).not.toContain('text-grey-6')
+  })
+
   it('shows a modified line only when updatedAt differs from createdAt', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
