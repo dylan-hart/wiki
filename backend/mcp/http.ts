@@ -1,40 +1,16 @@
 /**
- * MCP server, Streamable HTTP transport (spec revision 2025-03-26 and later — request/response POSTs,
- * with an SSE stream on the same endpoint for anything the server needs to push).
+ * MCP server, Streamable HTTP transport (spec revision 2025-03-26 and later): request/response
+ * POSTs, plus an SSE stream on the same endpoint for server pushes. Mounted at `/_mcp` inside the
+ * main Fastify process.
  *
- * Mounted at `/_mcp` in `index.ts`, inside the very same Fastify process `node backend` already runs —
- * the reference/production way to reach this wiki's MCP tools. `mcp/stdio.ts` remains available
- * alongside it as the lightweight local/desktop-client transport (same image, same codebase, a
- * different entrypoint script); see that file's doc comment. Nobody stands up a second image/container
- * for either.
+ * Auth is per request, not per process. This plugin sits outside `/_api/`, so that prefix's
+ * bearer-token hook never runs for it and the `onRequest` hook below stands in. The token is
+ * re-verified on every request whichever session it names, so a session never outlives its key.
  *
- * Auth is per REQUEST, not per process: every request carries its own `Authorization: Bearer <token>`,
- * verified fresh by the `onRequest` hook below exactly like `/_api/` verifies one (`index.ts`) — this
- * plugin is registered outside `/_api/`, so that hook never runs for it, and this one stands in. A
- * personal access token is what makes multiple humans share one endpoint safely: each request is
- * authorized as its own caller's real page-rule grants (`mcp/auth.ts`'s `McpAuthContext`), not a
- * process-wide identity the way stdio's single configured key is.
- *
- * Session lifecycle: the SDK's `WebStandardStreamableHTTPServerTransport` is stateful — one instance
- * per MCP session, addressed by the `Mcp-Session-Id` header a client is handed on `initialize` and
- * echoes on every request after. It speaks the Fetch API's `Request`/`Response`, not Fastify's raw
- * Node req/res — `webBridge.ts`'s `toWebRequest()`/`sendWebResponse()` are the two-way conversion;
- * see that file's own doc comment for why (OpenProject #3160: the v1-shaped, Node-req/res-native
- * adapter would drag `hono` back into this project's tree). `sessions` below is the process-local map
- * from that id to its transport (and the key that opened it); a session that outlives its own key's
- * revocation still gets refused, since the bearer token is re-verified on every request regardless of
- * which session it names.
- *
- * That map is capped and idle-expiring (OpenProject #2207, security/09-dos-resource §7), not a plain
- * unbounded `Map`: the only insertion was `onsessioninitialized` and the only removal was
- * `transport.onclose` (itself only ever fired by an explicit `DELETE`), so nothing swept an entry a
- * client abandoned by crashing or losing its network, and `limitApiKey`'s 300-requests-per-5-minutes
- * ceiling still let a single low-privilege key open on the order of 80,000 sessions a day. `sessions`
- * is now an `LRUCache` — `updateAgeOnGet` so the idle clock restarts on every request against a session
- * still in genuine use (every handler below reads a session via `.get()` before doing anything else),
- * `max` so a sustained flood evicts the longest-idle entry rather than growing forever, and `dispose`
- * closes the evicted entry's transport so the SDK's own cleanup still runs for a session nothing ever
- * called `DELETE` on.
+ * The SDK transport is stateful — one instance per `Mcp-Session-Id` — and speaks the Fetch API's
+ * `Request`/`Response`, hence `webBridge.ts`. `sessions` is capped and idle-expiring because a
+ * client that crashes never sends `DELETE`, and the rate limiter alone does not bound how many
+ * sessions one key can open.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -56,25 +32,19 @@ interface McpSession {
   /** The key that opened this session — a later request naming this session must be the same key. */
   keyId: string
   /**
-   * The identity every tool call on this session is currently authorized against. Mutable, and
-   * updated to that request's own freshly-verified context right before each POST is dispatched (see
-   * the `onRequest` hook above and `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`) — a session
-   * living longer than one request must not keep authorizing every later call against however things
-   * stood when it was opened.
+   * Mutable: refreshed to each request's freshly verified context before dispatch, so a long-lived
+   * session never keeps authorizing against the identity that opened it.
    */
   ctx: McpAuthContext
 }
 
-/** A session idle this long (no request naming it) is evicted -- see the file header comment. */
 const DEFAULT_SESSION_IDLE_TTL_MS = 30 * 60 * 1000
 
-/** Hard cap on live sessions; once exceeded, the longest-idle entry is evicted first. */
 const DEFAULT_SESSION_CAP = 1000
 
+/** Test-only overrides of the two defaults above. */
 interface HttpRoutesOptions {
-  /** Test-only override for `DEFAULT_SESSION_IDLE_TTL_MS`, so a suite need not wait 30 real minutes. */
   sessionIdleTtlMs?: number
-  /** Test-only override for `DEFAULT_SESSION_CAP`, so a suite need not open 1000 real sessions. */
   sessionCap?: number
 }
 
@@ -91,12 +61,10 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     max: opts.sessionCap ?? DEFAULT_SESSION_CAP,
     ttl: opts.sessionIdleTtlMs ?? DEFAULT_SESSION_IDLE_TTL_MS,
     // -> Idle-based, not absolute-lifetime: every handler below `.get()`s a session before acting on
-    //    it, so this restarts the ttl clock on every request against a session still genuinely in use.
+    //    it, which restarts the ttl.
     updateAgeOnGet: true,
-    // -> Only an automatic eviction (cap exceeded or ttl expired) needs the transport closed here — an
-    //    explicit `sessions.delete()` below (DELETE /, or the transport's own `onclose` firing after
-    //    the SDK itself already tore it down) means the transport is already closing/closed, and
-    //    calling `close()` on it again would be redundant at best.
+    // -> Only an automatic eviction (cap or ttl) needs the transport closed here — an explicit
+    //    `sessions.delete()` comes from the transport's own `onclose`, so it is already closed.
     dispose: (session, _sessionId, reason) => {
       if (reason === 'delete') {
         return
@@ -127,13 +95,13 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     try {
       identity = await CARDINAL.models.apiKeys.verify(token)
     } catch (err: any) {
-      // -> `warn`, not `debug` (V8): a refused credential is security-relevant, and at `debug` an
-      //    operator could not see it at all in a production deployment.
+      // -> `warn`, not `debug`: a refused credential is security-relevant, and at `debug` an
+      //    operator could not see it in a production deployment.
       CARDINAL.logger.warn('mcp', 'bearer token refused', { error: err })
       return reply.unauthorized(err.message)
     }
-    // -> Same limiter `/_api/` applies to every bearer-token request; reused as-is rather than
-    //    reinvented, since it already asks exactly the question this endpoint needs answered.
+    // -> The limiter `/_api/` applies to a bearer-token request. It reads `req.apiKey`, as does
+    //    `actorFromRequest` below.
     req.apiKey = identity
     await limitApiKey(req, reply)
     if (reply.sent) {
@@ -164,17 +132,12 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
 
       const server = createMcpServer(CARDINAL.version)
       const newSession: McpSession = { transport: undefined as any, keyId: ctx.keyId, ctx }
-      // -> Tools read the identity through `newSession.ctx`, not the `ctx` captured above, so a later
-      //    request on this same session (below) authorizes against ITS OWN fresh verification rather
-      //    than whichever identity happened to open the session.
+      // -> Through `newSession.ctx`, not the `ctx` captured above — see `McpSession.ctx`.
       registerAllTools(server, () => newSession.ctx)
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: async (sid) => {
           sessions.set(sid, newSession)
-          // -> #1118: the one place an MCP session over HTTP actually comes into being. `actorFromRequest`
-          //   reads `req.apiKey` (set by the `onRequest` hook above) the same way it does for every other
-          //   apiKey-authenticated `/_api/` request, so this entry is attributed identically to those.
           await CARDINAL.models.auditLog.record({
             event: 'mcp.sessionOpened',
             actor: actorFromRequest(req),
@@ -196,10 +159,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
       session = newSession
     }
 
-    // -> Refresh the session's identity to this request's own verification before dispatching — see
-    //    `McpSession.ctx`'s doc comment. A no-op for the branch above (already `ctx`), and what makes a
-    //    revoked/regrouped personal access token stop granting what it used to on the very next call
-    //    of an existing session, not only once the session itself is torn down.
+    // -> Refresh to this request's own verification before dispatching — see `McpSession.ctx`.
     session.ctx = ctx
 
     const webRes = await session.transport.handleRequest(toWebRequest(req), {
@@ -209,7 +169,6 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     await sendWebResponse(reply, webRes)
   })
 
-  /** The session a GET/DELETE names, distinguishing "no such session" from "not yours" — same as POST. */
   function loadOwnSession(
     req: FastifyRequest
   ): { session: McpSession; error: null } | { session: null; error: 'notFound' | 'forbidden' } {
@@ -222,7 +181,7 @@ async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
     if (session.keyId !== ctx.keyId) {
       return { session: null, error: 'forbidden' }
     }
-    // -> Same refresh as the POST handler — see `McpSession.ctx`'s doc comment.
+    // -> Same refresh as the POST handler.
     session.ctx = ctx
     return { session, error: null }
   }

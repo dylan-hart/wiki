@@ -9,20 +9,10 @@ import { reverifyOnToolCall } from './stdio.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * Two kinds of coverage for the MCP stdio entry point's re-verification (OpenProject #2197):
- *
- *  - Static wiring checks (`describe('mcp/stdio.ts wiring', ...)` below) — `mcp/stdio.ts` is a CLI
- *    entry point in the same sense `tasks/migrate.ts` is (`main().catch(...)` runs unconditionally at
- *    module scope), so its timer-based re-verify wiring is never exercised by importing the module
- *    directly; see `tasks/migrate.test.ts`'s own header comment for the same convention. The
- *    timer/shutdown behavior itself is unit-tested in isolation in `mcp/stdioReverify.test.ts`, against
- *    the pure `createReverifyingContext()` `mcp/stdio.ts` wraps.
- *  - Direct behavioral tests of `reverifyOnToolCall` (below the `describe` block) — importing
- *    `stdio.ts` itself for this is safe: everything that behaves like a running CLI server (console
- *    overrides, signal handlers, calling `main()`) is gated on `isEntryPoint`, which is false for an
- *    import. `CARDINAL.models.apiKeys.verify` is mocked so no database is touched — the same pattern
- *    `auth.test.ts` uses for `authenticateApiKey`, which this indirectly re-exercises on every
- *    simulated tool call.
+ * The re-verify wiring lives inside `mcp/stdio.ts`'s `main()`, which only runs as an entry point, so
+ * the `describe` block below asserts it structurally over the source text; `stdioReverify.test.ts`
+ * covers the timer/shutdown behaviour itself. Importing the module is otherwise side-effect free --
+ * the console overrides, signal handlers and `main()` call are all gated on `isEntryPoint`.
  */
 
 const mcpDir = path.dirname(fileURLToPath(import.meta.url))
@@ -41,9 +31,6 @@ describe('mcp/stdio.ts wiring', () => {
 
   test('a failed re-verification is routed through the existing shutdown() path', async () => {
     const source = await readMcpFile('stdio.ts')
-    // -> The onRevoked callback passed to createReverifyingContext must itself call shutdown(1) —
-    //    checked structurally since exercising it end-to-end would mean spawning this file as a real
-    //    child process (it needs its own stdin/stdout, per the file's own header comment).
     const callbackMatch = source.match(
       /createReverifyingContext\(token, ctx, async \(err: any\) => \{([\s\S]*?)\}\)/
     )
@@ -174,13 +161,12 @@ test('a revoked key stops a subsequent tool call from reaching the dispatch, and
     }
   )
 
-  // First call succeeds -- the key is still valid at this point.
   transport.onmessage(toolCallMessage(1))
   await flush()
   assert.equal(dispatched.length, 1)
   assert.equal(shutdownCalls.length, 0)
 
-  // The key is revoked between calls, with no new session -- same long-lived stdio process.
+  // Revoked between calls: a stdio process is one long-lived session, so nothing else re-checks.
   verifyImpl = async () => {
     throw new ApiKeyError('API key has been revoked.')
   }
@@ -188,9 +174,8 @@ test('a revoked key stops a subsequent tool call from reaching the dispatch, and
   transport.onmessage(toolCallMessage(2))
   await flush()
 
-  // The revoked call never reaches the dispatch (no tool handler runs against a stale identity)...
   assert.equal(dispatched.length, 1)
-  // ...and the failure is handed to onVerifyFailed instead, which main() wires to shutdown().
+  // `main()` wires onVerifyFailed to shutdown(1).
   assert.equal(shutdownCalls.length, 1)
   assert.match(shutdownCalls[0].message, /revoked/)
 })
@@ -209,16 +194,14 @@ test('a permission removed from the owner group after boot is no longer honoured
   await flush()
   assert.deepEqual(applyCalls[0].permissions, ['manage:pages'])
 
-  // The owner's group loses manage:pages -- the next verify resolves fine (the token itself is still
-  // valid), just with a smaller McpAuthContext.
+  // Not a revocation: the token still verifies, only the owner's permissions shrink.
   verifyImpl = async () => ({ ...IDENTITY_FULL, permissions: [] })
 
   transport.onmessage(toolCallMessage(2))
   await flush()
 
   assert.deepEqual(applyCalls[1].permissions, [])
-  // Both calls still reach the dispatch -- losing a permission refuses at the tool-handler layer
-  // (checkAccess reading the just-updated ctx), not by blocking the call outright the way a
-  // revoked/expired key does.
+  // Both calls still dispatch: a lost permission refuses inside the tool handler, off the refreshed
+  // ctx, rather than blocking the call the way a revoked key does.
   assert.equal(dispatched.length, 2)
 })

@@ -1,21 +1,8 @@
 /**
- * Minimal boot sequence for the MCP server process (`mcp/stdio.ts`).
- *
- * Modeled on `migration/bootstrap.ts` (itself modeled on `worker.ts`'s minimal `CARDINAL` global): no HTTP
- * server, no scheduler, no cache, no collab websockets, no rate limiter — just enough of `CARDINAL` for the
- * handful of models an MCP tool call actually reads through. A one-shot/long-lived side process pays
- * the import cost of everything it pulls in, and the full `models/index.ts` registry drags in cheerio,
- * sanitize-html, bcrypt and the rest of the HTTP-server-only models for a process that never serves a
- * request.
- *
- * The MCP process is a separate OS process from `node backend` (the stdio transport requires exclusive
- * use of its own stdin/stdout, so it cannot share a process with a chatty Fastify server logging to the
- * same stream) but it is not a standalone *service*: it lives in this same `backend/` workspace, reuses
- * the exact same models, schema and database as the main app, and is deployed as part of the same
- * package — the distinction the work package's "registered alongside the existing Fastify app" guidance
- * is actually drawing (see `mcp/stdio.ts`'s doc comment for the fuller reasoning). `mcp/http.ts` is the
- * transport that DOES run inside the Fastify process, mounted as an ordinary route — it needs none of
- * this trimmed bootstrap, since `index.ts`'s own `preBoot()` already loads the full model registry.
+ * Minimal boot for the stdio MCP process (`mcp/stdio.ts`), modeled on `migration/bootstrap.ts`: no
+ * HTTP server, scheduler, cache or collab. The full `models/index.ts` registry would drag in
+ * cheerio, sanitize-html, bcrypt and other HTTP-only weight for a process that never serves a
+ * request. `mcp/http.ts` runs inside the Fastify process and needs none of this.
  */
 
 import path from 'node:path'
@@ -24,22 +11,9 @@ import dbManager from '../core/db.ts'
 import logger from '../core/logger.ts'
 
 /**
- * Only the models an MCP tool call reads through today: `sites` (site lookup/scoping), `groups`
- * (page-rule permission checks), `apiKeys` (bearer token verification), `search`, `tree` and `pages`
- * (the read surface itself), plus `settings` — not touched by any tool directly, but read by
- * `configSvc.loadFromDb()` below. Extend this list alongside `mcp/tools/` as new tools are added —
- * never import the full registry here, for the reason in the file-level doc comment above.
- *
- * `pageHistory` and `auditLog` (OpenProject #1118/#1119) are here for the same reason `pages` is,
- * not as a new exception to it: `models/pages.ts#createPage()`/`updatePage()` already call
- * `CARDINAL.models.pageHistory.record()` unconditionally on every write, and `mcp/stdio.ts` now calls
- * `CARDINAL.models.auditLog.record()` once at session start (mirrors `mcp/http.ts`'s own
- * `onsessioninitialized`) — omitting either from this trimmed set would throw
- * `Cannot read properties of undefined (reading 'record')` before either write ever reaches the
- * database, over stdio specifically (`mcp/http.ts` runs inside `index.ts`'s full model registry, so
- * it never depended on this list). Both are lightweight (no cheerio/sanitize-html/bcrypt import,
- * unlike several models `models/index.ts` pulls in), so adding them costs nothing the file-level
- * doc comment's "never import the full registry" is protecting against.
+ * Only the models a tool call reaches -- extend alongside `mcp/tools/`, never import the full
+ * registry. `pageHistory` and `auditLog` are not optional: every `models/pages.ts` write records
+ * history, and `mcp/stdio.ts` audit-logs at session start, so omitting either throws on `undefined`.
  */
 async function loadModels(): Promise<CardinalGlobal['models']> {
   const [
@@ -61,7 +35,7 @@ async function loadModels(): Promise<CardinalGlobal['models']> {
     import('../models/pages.ts'),
     import('../models/pageHistory.ts'),
     import('../models/auditLog.ts'),
-    // -> `configSvc.loadFromDb()` below reads `CARDINAL.models.settings.getConfig()` directly
+    // -> No tool touches it; `configSvc.loadFromDb()` below reads it
     import('../models/settings.ts')
   ])
   return {
@@ -78,14 +52,8 @@ async function loadModels(): Promise<CardinalGlobal['models']> {
 }
 
 /**
- * Sets up the ambient `CARDINAL` global and connects it to the database, mirroring `index.ts`'s
- * `preBoot()` for exactly the subset an MCP tool call needs: settings (for `auth.certs` and
- * `api.isEnabled`, which `apiKeys.verify()` reads), the sites cache (`CARDINAL.sites`, read by every
- * tool for site lookup/scoping) and the group page-rules cache (`CARDINAL.models.groups.checkAccess()`,
- * the permission check every read tool applies to its results).
- *
- * `instanceId` distinguishes this process in logs (`mcp-stdio`) the same way `migrate-cli` /
- * `verify-migration-cli` do for the migration CLI.
+ * `index.ts`'s `preBoot()` cut down to what a tool call needs: db settings (`apiKeys.verify()` reads
+ * `auth.certs` and `api.isEnabled`), the sites cache and the group rules cache.
  */
 export async function bootstrapMcpRuntime(instanceId: string): Promise<CardinalGlobal> {
   const CARDINAL = {
@@ -97,9 +65,8 @@ export async function bootstrapMcpRuntime(instanceId: string): Promise<CardinalG
   } as unknown as CardinalGlobal
   global.CARDINAL = CARDINAL
 
-  // -> `silent: true` — the stdio transport (`mcp/stdio.ts`) needs stdout free for JSON-RPC frames
-  //    only; `configSvc.init()`'s own error path still writes to stderr via `console.error`, which is
-  //    safe regardless of transport
+  // -> `silent: true` — the stdio transport needs stdout free for JSON-RPC frames only;
+  //    `configSvc.init()`'s error path writes to stderr, which is safe
   await CARDINAL.configSvc.init(true)
   CARDINAL.logger = logger.init()
 

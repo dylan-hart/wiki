@@ -2,11 +2,8 @@ import { assertSiteInScope, McpToolError } from './auth.ts'
 import type { McpAuthContext } from './auth.ts'
 
 /**
- * A site as `CARDINAL.sites` caches it, narrowed to the fields `mcp/` actually reads. `CARDINAL.sites[id]`
- * itself is now the real Drizzle row type (`db/schema.ts`'s `SiteRow`, OpenProject #3144) rather than
- * `any`, but that type's `config` stays `Record<string, any>` -- this interface keeps its own
- * narrower `config` projection (the specific keys `mcp/` reads) rather than deriving `SiteRow`
- * directly, since `SiteRow` would give up that narrowing.
+ * Not derived from `db/schema.ts`'s `SiteRow`: that type's `config` is `Record<string, any>`, and
+ * this keeps a narrow projection of the keys `mcp/` reads.
  */
 export interface McpSite {
   id: string
@@ -20,12 +17,8 @@ export interface McpSite {
 }
 
 /**
- * Resolve a site by id, refusing one that does not exist or is disabled — the same
- * `helpers/siteResolution.ts`'s `guardSiteEnabled()` check `api/index.ts`'s shared `preHandler` applies to
- * every content/feature `:siteId`-scoped `/_api` route (OpenProject task 1593; `api/sites.ts`'s own
- * site-ADMINISTRATION routes are deliberately excluded there, see its comment), adapted to throw since
- * there is no `FastifyReply` here to write to, and to answer "does not exist" rather than leaving an
- * unknown id as "not my problem" the way that preHandler does.
+ * The check `helpers/siteResolution.ts#guardSiteEnabled` applies to `:siteId`-scoped `/_api` routes,
+ * throwing since there is no `FastifyReply` here to write to.
  */
 export function resolveSite(siteId: string): McpSite {
   const site = CARDINAL.sites[siteId] as McpSite | undefined
@@ -39,10 +32,8 @@ export function resolveSite(siteId: string): McpSite {
 }
 
 /**
- * The site id to use when a tool call does not name one: the configured key's own pinned site, if it
- * has one, else the sole enabled site when there is exactly one — the common single-site wiki. A
- * multi-site instance with an unscoped key must always pass `siteId` explicitly; `list_sites` is how
- * it discovers what to pass, the same role `list_projects` plays in `openproject-mcp`.
+ * For a tool call naming no site: the key's pinned site, else the sole enabled site — the common
+ * single-site wiki. `null` on a multi-site instance, where an unscoped key must pass `siteId`.
  */
 export function resolveDefaultSiteId(ctx: McpAuthContext): string | null {
   if (ctx.siteId) {
@@ -55,10 +46,8 @@ export function resolveDefaultSiteId(ctx: McpAuthContext): string | null {
 }
 
 /**
- * Resolve the site a tool call should act on: the explicit `siteId` argument if given, else
- * `resolveDefaultSiteId()`'s guess — refusing outright when neither settles on one, rather than
- * silently picking an arbitrary site out of several. Also enforces `assertSiteInScope()`, so every
- * tool that resolves its site through here gets the key's site-pinning check for free.
+ * Refuses rather than picking arbitrarily among several sites. Applies `assertSiteInScope()`, so a
+ * tool resolving its site through here needs no site-pin check of its own.
  */
 export function resolveRequestedSite(ctx: McpAuthContext, siteId?: string): McpSite {
   const resolvedId = siteId ?? resolveDefaultSiteId(ctx) ?? undefined

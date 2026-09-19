@@ -1,6 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/server'
 
-/** The version this instance's MCP server reports to a connecting client. */
 export function createMcpServer(version: string): McpServer {
   return new McpServer(
     { name: 'cardinaljs-mcp', version },

@@ -180,10 +180,6 @@ test('actorFor: threads scope and allowedClassifications through, for checkAcces
   })
 })
 
-/**
- * OpenProject #2189/#2199: `actorFor()` threads the key's own site pin through onto the actor too,
- * so `checkAccess()`/`checkSiteAccess()` can refuse a foreign-site ref even from an MCP call.
- */
 test('actorFor: threads siteId through, for checkAccess/checkSiteAccess to refuse a foreign site', () => {
   const actor = actorFor(
     ctx({ permissions: ['read:pages'], groupIds: ['group-a'], siteId: 'site-1' })
@@ -212,8 +208,6 @@ test('assertSiteInScope: a site-scoped key is refused against a different site',
   assert.throws(() => assertSiteInScope(ctx({ siteId: 'site-1' }), 'site-2'), McpToolError)
 })
 
-// -> OpenProject #1119: page-history provenance -- an MCP-authored edit must be distinguishable from
-//   one made through the standard editor.
 test('pageActorFor: null for an admin-issued key (no userId)', () => {
   assert.equal(pageActorFor(ctx({ userId: null })), null)
 })
@@ -233,7 +227,6 @@ test('pageActorFor: a personal access token is attributed to its owner, tagged v
   })
 })
 
-// -> OpenProject #1118: instance-wide audit log visibility into MCP activity.
 test('auditActorFor: named by the key id, the same way actorFromRequest() names any apiKey-authenticated request', () => {
   assert.deepEqual(auditActorFor(ctx({ keyId: 'key-42' })), {
     id: null,

@@ -7,12 +7,6 @@ import {
 } from './pageSerialization.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
-/**
- * `injectFrontMatter` converts a page's `createdAt`/`updatedAt` via `Date#toTemporalInstant()`.
- *
- * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it — the same environment gap `core/scheduler.test.ts` works around.
- */
 before(() => ensureTemporal())
 
 describe('extensionForContentType', () => {
@@ -135,9 +129,8 @@ describe('parseFrontMatter', () => {
   })
 
   test('falls back to the raw text rather than expanding a YAML alias bomb ("billion laughs")', () => {
-    // -> A handful of nested anchors, each referencing the previous one nine times: unbounded, this
-    //    expands to 9^8 (~43M) leaf elements from a header a few hundred bytes long. `load` is called
-    //    with `maxAliases: 0`, so the first `*a0` reference throws before any of that expansion runs.
+    // -> Each anchor references the previous one nine times, so expansion is exponential in the
+    //    number of levels. `maxAliases: 0` throws on the first `*a0` before any of it runs.
     const raw =
       '---\n' +
       'a0: &a0 [x,x,x,x,x,x,x,x,x]\n' +
