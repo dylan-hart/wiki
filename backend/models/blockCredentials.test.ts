@@ -2,12 +2,6 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
-/**
- * `blockCredentials` is almost entirely SQL orchestration around one table, so what is worth locking
- * down against a real database is exactly the thing a query-builder mock would just be re-describing:
- * `getCredentialForResolve()` actually returns the secret and allowlist while every other read leaves
- * the secret off, and a row is scoped to its own site.
- */
 describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let blockCredentials: typeof import('./blockCredentials.ts').blockCredentials

@@ -10,13 +10,6 @@ import {
 } from '../db/schema.ts'
 import type { BlockDefinition } from './blocks.ts'
 
-/**
- * `getSiteBlocks()`, `getCustomBlockCode()` and `deleteCustomBlock()` are all SQL orchestration over
- * two related tables (`blocks`, `blockCode`) — which column a custom row's props/template come from,
- * and which rows a delete removes, is squarely what a mock of the query builder would just be
- * re-describing rather than verifying. This suite runs the real methods against a migrated,
- * per-run-fresh database (see `test/db.ts`).
- */
 describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let blocksModel: typeof import('./blocks.ts').blocks
@@ -30,7 +23,6 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     await teardownTestDb()
   })
 
-  /** Inserts a custom block row (and, unless `withCode` is false, its code row) directly via Drizzle — there is no upload route yet for this task to go through. */
   async function insertCustomBlock(
     overrides: Partial<typeof blocksTable.$inferInsert> = {},
     { withCode = true }: { withCode?: boolean } = {}
@@ -72,10 +64,8 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
   })
 
   test('getSiteBlocks does not source props/template from a built-in row even though the columns exist', async () => {
-    // -> A built-in row as `syncSite()` would actually write one: isCustom false, and the new columns
-    //    left at their schema defaults. `this.definitions` is empty in this suite (no manifest loaded),
-    //    so a built-in reporting anything but empty props/template here would mean the branch in
-    //    `getSiteBlocks()` picked the row instead of the manifest.
+    // -> `this.definitions` is empty in this suite (no manifest loaded), so a built-in reporting
+    //    anything but empty props/template would mean `getSiteBlocks()` picked the row instead.
     await fixtures.db.insert(blocksTable).values({
       siteId: fixtures.siteId,
       block: 'builtin-widget',
@@ -180,9 +170,9 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
   })
 
   test('syncSite is safe to call concurrently for the same site: exactly one row per block key', async () => {
-    // -> Regression for task 1659: two instances booting together both read the same "not present
-    //    yet" snapshot and both reach the insert. `blocks_composite_idx` +
-    //    `onConflictDoNothing` is what keeps that from writing two rows for the same block.
+    // -> Two instances booting together both read the same "not present yet" snapshot and both reach
+    //    the insert. `blocks_composite_idx` + `onConflictDoNothing` is what keeps that from writing
+    //    two rows for the same block.
     blocksModel.definitions = [
       { block: 'boot-race-widget', name: 'Boot Race Widget', description: 'x', icon: 'mdi:cube' }
     ]
@@ -255,8 +245,8 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
 
   test('a createCustomBlock race on the same tag surfaces as a 409 CustomError, not a raw 23505', async () => {
     // -> `isTagTaken()` is only a pre-check, not an atomic reservation: two uploads for the same tag
-    //    can both pass it and both reach the insert, so `blocks_composite_idx` (task 1659) is what
-    //    actually decides the winner. Exactly one of the two should succeed either way.
+    //    can both pass it and both reach the insert, so `blocks_composite_idx` is what actually
+    //    decides the winner. Exactly one of the two should succeed either way.
     const definition = (): BlockDefinition => ({
       block: 'race-widget',
       name: 'Race Widget',
@@ -306,12 +296,6 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
   })
 })
 
-/**
- * `getSiteBlocks` attaches `configFields` from the in-memory manifest (`this.definitions`), the same
- * way it already attaches `props` and `template` — never from the row, since it describes the
- * installed code rather than the site's own copy of it. This suite runs against a real row so it
- * proves the merge, not just the shape of the return value.
- */
 describe('blocks.getSiteBlocks configFields (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let blocksModel: typeof import('./blocks.ts').blocks
@@ -386,12 +370,6 @@ describe('blocks.getSiteBlocks configFields (DB-backed)', { skip: !hasTestDataba
   })
 })
 
-/**
- * `setBlocksState` writes `config` alongside `isEnabled`, sanitised against the block's declared
- * `config` fields (from the manifest, keyed by the row's `block`, not by anything in the request
- * body — see the comment on `sanitizeConfig` for why a stale key is stripped rather than kept). A
- * custom block, having no manifest declaration, is the one case that bypasses sanitization entirely.
- */
 describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let blocksModel: typeof import('./blocks.ts').blocks
@@ -445,13 +423,6 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
     assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 
-  /**
-   * WP #1745: block-kroki's `server` field lives on `props` (an author's per-use setting) and, since
-   * this fix, also on `config` (an admin's site-wide default) — mirroring block-map's
-   * `tileServerUrl`/`apiKey` pair above. Before the fix, `config` on block-kroki's manifest was
-   * missing entirely, so `sanitizeConfig` stripped `server` down to `{}` on every save; this locks in
-   * that it now survives.
-   */
   test('writes a self-hosted server for block-kroki, whose config now declares it', async () => {
     blocksModel.definitions = [
       {
@@ -527,10 +498,9 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
       }
     ]
 
-    // -> This describe block's `before()`/`after()` run once for the whole block, so this test shares
-    //    its schema and `fixtures.siteId` with every other test here -- an earlier test already left a
-    //    'map' row behind. Clear it first so this insert exercises what the test actually means to set
-    //    up, instead of colliding with `blocks_composite_idx` on the leftover row.
+    // -> `before()`/`after()` run once for the whole describe block, so this test shares its schema
+    //    and `fixtures.siteId` with every other test here. Clear the 'map' row an earlier test left
+    //    behind, or this insert collides with `blocks_composite_idx`.
     await fixtures.db
       .delete(blocksTable)
       .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'map')))
@@ -571,8 +541,7 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
       }
     ]
 
-    // -> Same shared-schema reason as the previous test: clear any 'map' row an earlier test in this
-    //    describe block left behind before inserting the one this test actually wants to act on.
+    // -> Same shared-schema reason as the previous test: clear any leftover 'map' row first.
     await fixtures.db
       .delete(blocksTable)
       .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'map')))
@@ -603,13 +572,7 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
     assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 
-  /**
-   * OpenProject #1738: `setBlocksState` deliberately does not queue a re-render of pages that already
-   * embed a block moved to disabled here — see the doc comments on this method and on
-   * `helpers/htmlSanitizePolicy.ts#blockAllowances` for why. Locks in the actual behavior (no `pageRenderQueue`
-   * row, stored `render` left as-is) so neither doc comment can silently drift out of sync with the
-   * code again.
-   */
+  /** Leaving those pages unqueued is deliberate, not an oversight — see `setBlocksState`'s own doc. */
   test('disabling a block leaves pages that embed it unqueued and their stored render untouched', async () => {
     blocksModel.definitions = [
       {
@@ -675,11 +638,9 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
 })
 
 /**
- * `assertValidConfig()`, called from `sanitizeConfig()`, is block-plantuml's own carve-out from the
- * "no per-field validation" rule documented above it: its `server` config is fetched server-side by
- * `DiagramRender#renderPlantuml` (OpenProject task 2223), so a bad value here is not merely a
- * rendering mistake an author would notice — it is refused outright at the point an admin writes it,
- * rather than accepted and only discovered the next time a diagram render tries to reach it.
+ * block-plantuml's `server` config is fetched server-side by `DiagramRender#renderPlantuml`, so a bad
+ * value is not merely a rendering mistake an author would notice: it is refused at the point an admin
+ * writes it, rather than discovered the next time a diagram render tries to reach it.
  */
 describe(
   "blocks.setBlocksState validates block-plantuml's server config (DB-backed)",
@@ -709,12 +670,9 @@ describe(
           config: [{ name: 'server', type: 'string' }]
         }
       ]
-      // -> This describe block's `before()`/`after()` also run once for the whole block, and
-      //    `assertValidConfig()` (`models/blocks.ts`) hardcodes the literal block key 'plantuml' to
-      //    validate against, so this test's row can't just be renamed per-test the way the other
-      //    describe blocks in this file give each test its own unique `block` key. Clear any row a
-      //    previous test in here left behind instead, so every call gets a fresh row rather than
-      //    colliding with `blocks_composite_idx`.
+      // -> `assertValidConfig()` hardcodes the literal block key 'plantuml', so these tests cannot
+      //    each use a unique `block` key the way the other describe blocks here do. Clear any row a
+      //    previous test left behind instead of colliding with `blocks_composite_idx`.
       await fixtures.db
         .delete(blocksTable)
         .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'plantuml')))
@@ -858,10 +816,9 @@ describe(
 )
 
 /**
- * block-kroki's own `server` config is validated the same way block-plantuml's is, and for the same
- * reason (OpenProject task 3228): `DiagramProxy#resolveServer` (`models/diagramProxy.ts`) now fetches
- * it server-side too, once the shared Kroki/PlantUML POST proxy resolves a site's configured engine
- * server. See the describe block above for block-plantuml's identical coverage.
+ * block-kroki's own `server` config is validated for the same reason block-plantuml's is:
+ * `DiagramProxy#resolveServer` (`models/diagramProxy.ts`) fetches it server-side when the shared
+ * Kroki/PlantUML POST proxy resolves a site's configured engine server.
  */
 describe(
   "blocks.setBlocksState validates block-kroki's server config (DB-backed)",

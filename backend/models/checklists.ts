@@ -10,19 +10,16 @@ const startedByUsers = alias(usersTable, 'checklistStartedByUsers')
 const completedByUsers = alias(usersTable, 'checklistCompletedByUsers')
 const checkedByUsers = alias(usersTable, 'checklistCheckedByUsers')
 
-/** How many executions {@link Checklists.listExecutions} answers with when the caller sets no cap. */
 const DEFAULT_HISTORY_LIMIT = 50
 
 /**
  * `blocks/block-checklist/component.js` keys every item by its position (`item-0`, `item-1`, ...).
  * `checkItem` enforces this shape — and that the position is within the execution's own `itemCount` —
- * so a request cannot complete an execution by checking off keys that do not correspond to any real
- * item on the block: without this, `itemCount`-many *distinct* keys of any shape would satisfy the
- * completion threshold in {@link Checklists.checkItem}, regardless of whether they named real items.
+ * because otherwise `itemCount`-many *distinct* keys of any shape would satisfy the completion
+ * threshold without ever naming a real item on the block.
  */
 const ITEM_KEY_PATTERN = /^item-(\d+)$/
 
-/** One item checked off within an execution, as {@link Checklists.getExecutionDetail} returns it. */
 export interface ChecklistItemCheck {
   itemKey: string
   checkedAt: Date
@@ -31,7 +28,6 @@ export interface ChecklistItemCheck {
   checkedByName: string | null
 }
 
-/** One run of a checklist, without its item checks — what the history listing hands back per row. */
 export interface ChecklistExecutionSummary {
   id: string
   siteId: string
@@ -44,11 +40,9 @@ export interface ChecklistExecutionSummary {
   completedAt: Date | null
   completedBy: string | null
   completedByName: string | null
-  /** How many of `itemCount` items have been checked in this execution. */
   checkedCount: number
 }
 
-/** A single execution, item checks included — the per-execution view the spec calls for. */
 export interface ChecklistExecutionDetail extends ChecklistExecutionSummary {
   items: ChecklistItemCheck[]
 }
@@ -68,15 +62,13 @@ const executionColumns = {
 }
 
 /**
- * Checklists model
+ * Data access over `checklistExecutions`/`checklistItemChecks` — the run log behind
+ * `block-checklist`. Distinct from `models/pageHistory.ts` (content revisions) and
+ * `models/approvals.ts` (the editorial publish workflow): this records that someone actually
+ * performed a procedure, not that a page's content changed.
  *
- * Data access over `checklistExecutions`/`checklistItemChecks` — the run log behind `block-checklist`
- * (OpenProject #869). Distinct from `models/pageHistory.ts` (content revisions) and
- * `models/approvals.ts` (the editorial publish workflow): this records that someone actually performed
- * a procedure, not that a page's content changed.
- *
- * No permission checks here, matching `models/comments.ts`: that is `api/checklists.ts`'s job, where
- * the request and the page-rule actor legitimately live.
+ * No permission checks here: that is `api/checklists.ts`'s job, where the request and the page-rule
+ * actor legitimately live.
  */
 class Checklists {
   /**
@@ -87,10 +79,6 @@ class Checklists {
    * not the most recent click. When this check brings the execution's checked count up to its
    * `itemCount`, the execution completes automatically, attributed to whoever just checked the last
    * item.
-   *
-   * `itemKey` must name a real position within the active execution (`item-0` .. `item-{itemCount-1}`,
-   * see {@link ITEM_KEY_PATTERN}) — otherwise the checked-count threshold below could be satisfied by
-   * `itemCount`-many arbitrary distinct keys that never corresponded to the checklist's actual items.
    */
   async checkItem({
     siteId,
@@ -123,8 +111,8 @@ class Checklists {
     })
 
     // -> Validated against the execution's OWN itemCount, not the possibly-stale `itemCount` argument
-    //    above — that one is only used to start a brand new execution; an active execution someone
-    //    else already started keeps the count it was started with.
+    //    above: that one only ever starts a brand new execution, and an active execution someone else
+    //    already started keeps the count it was started with.
     const match = ITEM_KEY_PATTERN.exec(itemKey)
     if (!match || Number(match[1]) >= execution.itemCount) {
       throw new Error(`itemKey must be a valid item position for this checklist, e.g. "item-0".`)
@@ -169,7 +157,7 @@ class Checklists {
   /**
    * The currently active (incomplete) execution for this checklist, creating one if none exists.
    *
-   * Relies on `checklistExecutions_active_idx` (a unique index on `(pageId, blockKey)` scoped to
+   * Relies on `checklistExecutions_active_idx` (unique on `(pageId, blockKey)` scoped to
    * `completedAt IS NULL` rows) to stay correct under concurrent requests: both an insert race and a
    * `SELECT`-then-lost-race fall through to the same `onConflictDoNothing` + re-select, so at most one
    * active execution is ever created regardless of how many requests arrive at once.
@@ -229,7 +217,6 @@ class Checklists {
     return rows[0] ?? null
   }
 
-  /** The most recently started execution of this checklist, item checks included, or `null`. */
   async getLatestExecution(
     pageId: string,
     blockKey: string
@@ -249,7 +236,6 @@ class Checklists {
     return latest ? this.getExecutionDetail(latest.id) : null
   }
 
-  /** One execution, item checks included, or `null` when it does not exist. */
   async getExecutionDetail(executionId: string): Promise<ChecklistExecutionDetail | null> {
     const rows = await CARDINAL.db
       .select(executionColumns)
@@ -279,10 +265,8 @@ class Checklists {
   }
 
   /**
-   * Every execution of this checklist, most recently started first — the run history behind the
-   * "durable, per-execution-queryable" requirement. One query for the executions plus one query for
-   * their checked-item counts (`inArray`, not one count query per row), same shape as
-   * `models/comments.ts`'s `listForAdmin`.
+   * Every execution of this checklist, most recently started first. One query for the executions plus
+   * one grouped query for their checked-item counts, not one count query per row.
    */
   async listExecutions(
     pageId: string,

@@ -11,8 +11,8 @@ import { users as usersTable } from '../db/schema.ts'
 import { checklists } from './checklists.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
-// This dev environment's Node predates 26, so `Temporal` is not a native global here.
-// Shim just enough of `Temporal.Now.instant()` for `checkItem()`'s completion timestamp, unmodified.
+// Shim just enough of `Temporal.Now.instant()` for `checkItem()`'s completion timestamp, for a build
+// whose V8 was compiled without Temporal support.
 if (typeof (globalThis as any).Temporal === 'undefined') {
   ;(globalThis as any).Temporal = {
     Now: { instant: () => ({ epochMilliseconds: Date.now() }) }
@@ -20,8 +20,8 @@ if (typeof (globalThis as any).Temporal === 'undefined') {
 }
 
 /**
- * `checkItem`'s two input guards run before it ever touches `CARDINAL.db`, so they are testable with no
- * database and no `CARDINAL` global at all — unlike the rest of this file, this suite always runs.
+ * `checkItem`'s two input guards run before it ever touches `CARDINAL.db`, which is why this suite
+ * needs neither a database nor a `CARDINAL` global and carries no skip.
  */
 describe('checklists model — validation (no database)', () => {
   test('rejects an empty itemKey', async () => {
@@ -68,9 +68,8 @@ describe('checklists model — validation (no database)', () => {
 })
 
 /**
- * `itemKey` shape validation runs after `_ensureActiveExecution`, which needs `CARDINAL.db` — so unlike
- * the guards above, these two need the DB-backed fixture even though what they are asserting is pure
- * input validation, not SQL behavior.
+ * `itemKey` shape validation runs after `_ensureActiveExecution`, which needs `CARDINAL.db` — so these
+ * need the DB-backed fixture even though what they assert is pure input validation.
  */
 describe('checklists model — itemKey validation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -147,13 +146,6 @@ describe('checklists model — itemKey validation (DB-backed)', { skip: !hasTest
   })
 })
 
-/**
- * `models/checklists.ts` is almost entirely SQL orchestration — an insert guarded by a partial unique
- * index, a conflict-driven idempotent check, a threshold-triggered update, joins across two tables —
- * so a mock of the query builder would mostly be re-describing the code under test rather than
- * verifying it. This suite runs the real methods against a migrated, per-run-fresh database (see
- * `test/db.ts`), matching `models/pages.test.ts`'s own reasoning for the same choice.
- */
 describe('checklists model (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let checklistsModel: typeof import('./checklists.ts').checklists

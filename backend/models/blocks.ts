@@ -29,16 +29,13 @@ export interface BlockDefinition {
   /**
    * Site-level fields an admin sets once for the whole site, as opposed to `props`, which an author
    * sets per use in the editor. Same shape as `props`, reused rather than duplicated: a tile server
-   * URL or an API key is exactly the same kind of field, just filled in by a different person in a
-   * different place (the admin area's block config, not the editor's block picker).
+   * URL or an API key is exactly the same kind of field, just filled in by a different person.
    */
   config?: BlockProp[]
   /**
-   * A block that only ever appears inside another one, such as a single tab of a set of tabs.
-   *
-   * It is never registered for a site: not something to insert on its own, and not something to
-   * switch off separately from its parent. It is still declared here, because that is what lets its
-   * tag and attributes survive a page being saved.
+   * A block that only ever appears inside another one, such as a single tab of a set of tabs. Never
+   * registered for a site: not something to insert on its own, nor to switch off separately from its
+   * parent. Declared anyway, because that is what lets its tag and attributes survive a page save.
    */
   isChild?: boolean
   /** Body the editor writes between the opening and closing lines when inserting the block. */
@@ -71,36 +68,29 @@ const blockSelection = {
   isEnabled: blocksTable.isEnabled,
   isCustom: blocksTable.isCustom,
   config: blocksTable.config,
-  // -> Raw column reads, only meaningful for a custom row — kept off `SiteBlock` under their own
-  //    names so `getSiteBlocks()` below can pick a source (this row, or the manifest) per block
-  //    without a built-in's empty defaults colliding with the field names it maps them onto.
+  // -> Raw column reads, only meaningful for a custom row — aliased so `getSiteBlocks()` below can
+  //    pick a source (this row, or the manifest) per block without a built-in's empty defaults
+  //    colliding with the field names it maps them onto.
   customProps: blocksTable.props,
   customTemplate: blocksTable.template
 }
 
 /**
- * Blocks model
- *
  * Built-in blocks live in the `blocks/` workspace, one directory per block. Their metadata is
  * declared as a `static definition` on each Lit component and collected into
  * `blocks/compiled/blocks.manifest.json` by the rollup build, which is what this model reads —
  * the components themselves cannot be imported outside a browser.
  */
 class Blocks {
-  /** Definitions read from the compiled manifest, refreshed by `refreshFromDisk()`. */
   definitions: BlockDefinition[] = []
 
   /**
-   * Whether the last read of the manifest succeeded.
-   *
    * Told apart from "the manifest lists nothing", because the two mean opposite things to a sync: an
    * empty manifest says every built-in block has been removed, a missing one says nothing at all.
    */
   private manifestLoaded = false
 
   /**
-   * Load the built-in block definitions from the compiled manifest.
-   *
    * Read on every boot, so a block whose name, description or icon changed on disk is picked up by
    * restarting the server — `syncAllSites` is what writes the difference to each site.
    *
@@ -133,11 +123,9 @@ class Blocks {
   }
 
   /**
-   * Say so when the manifest is older than the components it was built from.
-   *
-   * The manifest is a build output, and nothing rebuilds it on the way in here — so editing a block
-   * and restarting the server looks like the change was ignored, when what happened is that the
-   * server read a manifest describing the previous version of the block.
+   * Say so when the manifest is older than the components it was built from. Nothing rebuilds it on
+   * the way in here, so editing a block and restarting the server looks like the change was ignored,
+   * when what happened is that the server read a manifest describing the previous version.
    *
    * Only in a source tree: a packaged instance ships `blocks/compiled` without the sources beside it,
    * where there is nothing to compare against and nothing anybody could rebuild.
@@ -169,18 +157,14 @@ class Blocks {
         )
       }
     } catch {
-      // -> No sources to compare against, which is the normal state of a packaged instance
+      // -> No sources to compare against: the normal state of a packaged instance
     }
   }
 
   /**
-   * Bring a site's block rows in line with what is installed on disk.
-   *
-   * Registers what is missing, writes back a name, description or icon that changed, and drops rows
-   * for built-ins that are no longer there. `isEnabled` and `config` are the site's own and are never
-   * touched — which is why an existing row is updated rather than replaced.
-   *
-   * Custom blocks are left alone entirely: they have no on-disk counterpart to compare against.
+   * Bring a site's block rows in line with what is installed on disk. `isEnabled` and `config` are
+   * the site's own and are never touched — which is why an existing row is updated rather than
+   * replaced. Custom blocks are left alone entirely: they have no on-disk counterpart.
    *
    * @returns How many rows were added, changed and removed
    */
@@ -207,8 +191,7 @@ class Blocks {
         // -> `onConflictDoNothing` rather than a plain insert: this runs from `syncAllSites()` at
         //    every instance's boot, so two instances syncing the same site concurrently both read
         //    `existing` with nothing there and both reach this insert. Without the conflict target
-        //    the second write would 23505 on `blocks_composite_idx` and abort `postBoot()`; with it,
-        //    the loser silently no-ops and the row it would have written is already there.
+        //    the second write would 23505 on `blocks_composite_idx` and abort `postBoot()`.
         const [inserted] = await CARDINAL.db
           .insert(blocksTable)
           .values({
@@ -228,8 +211,8 @@ class Blocks {
         }
         continue
       }
-      // -> Written only when it would change something, so that a boot that found nothing new is a
-      //    boot that wrote nothing — and the count below means what it says
+      // -> Written only when it would change something, so a boot that found nothing new writes
+      //    nothing and the count below means what it says
       if (
         row.name !== definition.name ||
         row.description !== definition.description ||
@@ -296,9 +279,6 @@ class Blocks {
     }
   }
 
-  /**
-   * Fetch the blocks available to a site, built-in first, then by name
-   */
   async getSiteBlocks(siteId: string): Promise<SiteBlock[]> {
     const results = await CARDINAL.db
       .select(blockSelection)
@@ -308,15 +288,13 @@ class Blocks {
     /*
       A built-in block's `props`/`configFields`/`template` come from the manifest rather than the row:
       they describe the component's own attributes, so they belong to the installed code and not to a
-      site's copy of it. Reading them here means an updated block's fields are correct the moment it is
-      deployed, with nothing to migrate.
+      site's copy of it — an updated block's fields are correct the moment it is deployed, with
+      nothing to migrate.
 
       A custom block has no manifest entry — it is not installed code, it is what was uploaded — so it
-      sources `props`/`template` from its own row instead, written when it was uploaded/edited, and
-      reports no `configFields` at all: the admin-config-field-schema concept only applies to a block
-      with a manifest to declare one, so a custom block's `config` is written as given (see
-      `sanitizeConfig()` below). `elementTag` is always `block-{block}` for both kinds — a custom
-      block's upload is rejected (`api/blocks.ts`) unless its code actually registers that exact tag,
+      sources `props`/`template` from its own row and reports no `configFields` at all, which is why
+      its `config` is written as given (see `sanitizeConfig()` below). `elementTag` is always
+      `block-{block}` for both kinds: an upload is rejected unless its code registers that exact tag,
       so there is no override to source from a row.
     */
     type RawRow = SiteBlock & {
@@ -345,19 +323,16 @@ class Blocks {
   }
 
   /**
-   * A site's custom blocks, in just the shape `blockAllowances()` (`helpers/htmlSanitizePolicy.ts`) needs to
-   * admit them to the sanitizer's per-block allowlist: the tag they register under and the prop names
-   * a saved page may put on them.
+   * A site's custom blocks, in just the shape `blockAllowances()` (`helpers/htmlSanitizePolicy.ts`)
+   * needs to admit them to the sanitizer's per-block allowlist: the tag they register under and the
+   * prop names a saved page may put on them.
    *
    * Every custom row, not only enabled ones — `blockAllowances()` already has `getEnabledKeys()`'s
-   * answer and applies that filter itself, the same way it does for the built-in half of the same
-   * list; duplicating the filter here would just be a second copy of the same rule that could disagree
-   * with the first.
+   * answer and applies that filter itself; a second copy of the rule here could disagree with it.
    *
-   * Prop names are trusted here without a second check: `helpers/blockDefinition.ts#extractBlockDefinition()`
-   * is what actually stands between an uploaded prop name and the sanitizer's attribute allowlist
-   * (`/^[a-z][a-z0-9-]*$/`, rejecting anything shaped like a `*`-glob or an `on*` inline-handler name at
-   * upload time) — this method is a plain read, not a second gate.
+   * Prop names are trusted here without a second check:
+   * `helpers/blockDefinition.ts#extractBlockDefinition()` is what stands between an uploaded prop
+   * name and the sanitizer's attribute allowlist, at upload time — this is a plain read, not a gate.
    */
   async getCustomBlockDefinitions(
     siteId: string
@@ -370,8 +345,6 @@ class Blocks {
   }
 
   /**
-   * The keys of the blocks a site has switched on.
-   *
    * Read from the database on every call rather than kept in a cache like this model's definitions.
    * What this answer gates is which blocks survive a page being saved, and a stale `false` silently
    * strips an author's block out of their page — a wrong answer here destroys content rather than
@@ -392,25 +365,20 @@ class Blocks {
    * Strip a config object down to the keys a block still declares.
    *
    * `blockKey` is looked up from the row rather than trusted from the request body, since the point
-   * of this pass is that the caller cannot assert its way past it: a block's `config` field list can
-   * change shape between deploys (a field renamed, or dropped entirely), and without this a key left
-   * over from a previous shape would sit in the row forever — nothing else ever removes it, and the
-   * admin form generated from the current `configFields` has no way to show or clear a key it no
-   * longer knows about.
+   * of this pass is that the caller cannot assert its way past it. A block's `config` field list can
+   * change shape between deploys, and without this a key left over from a previous shape would sit in
+   * the row forever — nothing else removes it, and the admin form generated from the current
+   * `configFields` has no way to show or clear a key it no longer knows about.
    *
    * A custom block is passed through untouched: it has no manifest declaration to check `config`
-   * against in the first place (see `getSiteBlocks()`'s `configFields: []` for the same reason), so
-   * there is nothing here to strip it down to.
+   * against in the first place, so there is nothing here to strip it down to.
    *
    * Deliberately loose beyond that: values are written as given, with no per-field type check against
-   * `BlockProp.type`. This mirrors how page-authored `props` are already trusted — `blockAllowances()`
-   * in `helpers/htmlSanitizePolicy.ts` allow-lists an embedded block's attributes by name only, taking whatever
-   * string value came with them — so `config` is held to the same standard as the sibling data an
-   * admin's site-level form and an author's page-level markup both ultimately feed into the same
-   * component. This was a deliberate choice for new code, not a preserved pre-existing gap, with one
-   * exception carved out since: `assertValidConfig()` below, for exactly the case that comment called
-   * out as worth revisiting — a config value trusted for more than passing through to its own
-   * component, because something here now fetches it server-side.
+   * `BlockProp.type`, mirroring how page-authored `props` are already trusted — `blockAllowances()`
+   * in `helpers/htmlSanitizePolicy.ts` allow-lists an embedded block's attributes by name only,
+   * taking whatever string value came with them. `assertValidConfig()` below is the one carve-out,
+   * for a config value trusted for more than passing through to its own component because something
+   * here fetches it server-side.
    */
   private sanitizeConfig(
     block: { key: string; isCustom: boolean } | undefined,
@@ -429,20 +397,17 @@ class Blocks {
   }
 
   /**
-   * The one config value this file actually revisits the "no per-field validation" note above for:
-   * block-plantuml's `server` is fetched server-side by `DiagramRender#renderPlantuml`
-   * (`models/diagramRender.ts`, OpenProject task 2223) and, alongside block-kroki's own `server`, by
-   * `DiagramProxy#resolveServer` (`models/diagramProxy.ts`, OpenProject task 3228) — unlike every
-   * other block's config, which is only ever handed to that block's own client-side component. A bad
-   * value here is not a rendering inconvenience an author would notice and fix — left unchecked, it is
-   * exactly the SSRF this block's config field exists to close off (OpenProject epic 2216), so it is
-   * refused at the one point a caller can still be turned away: when an admin writes it, not when a
-   * reader's request later makes this model fetch whatever was stored.
+   * The one carve-out from the "no per-field validation" note above: block-plantuml's and
+   * block-kroki's `server` is fetched server-side (`models/diagramRender.ts`,
+   * `models/diagramProxy.ts`), unlike every other block's config, which is only ever handed to that
+   * block's own client-side component. Left unchecked it is exactly the SSRF this config field exists
+   * to close off, so it is refused at the one point a caller can still be turned away: when an admin
+   * writes it, not when a reader's request later makes this model fetch whatever was stored.
    *
    * Empty is left alone (falls back to the public default); anything else must parse as a URL, be
-   * `http:`/`https:`, and carry neither a query string nor a fragment — a query string is what let the
-   * old caller-supplied override fold `/${format}/${encoded}` into itself and reach an arbitrary path
-   * on an otherwise-fine host (see `diagramRender.ts`'s `plantumlUrl()`).
+   * `http:`/`https:`, and carry neither a query string nor a fragment — a query string is what lets a
+   * server value fold `/${format}/${encoded}` into itself and reach an arbitrary path on an
+   * otherwise-fine host.
    */
   private assertValidConfig(blockKey: string, config: Record<string, any>): void {
     if (blockKey !== 'plantuml' && blockKey !== 'kroki') {
@@ -477,18 +442,17 @@ class Blocks {
   /**
    * Enable or disable blocks in bulk, optionally updating each one's site-level `config`.
    *
-   * A state with no `config` writes only `isEnabled`, leaving the row's existing config untouched —
-   * batched with `inArray`. A state that does carry `config` needs its own `UPDATE`, since a differing
-   * JSONB value per row cannot be expressed as one batched write; that config is sanitized first via
-   * `sanitizeConfig`, keyed by the row's own `block`/`isCustom` (fetched up front, since the request
-   * only carries the row id).
+   * A state with no `config` writes only `isEnabled` and is batched with `inArray`; one that carries
+   * `config` needs its own `UPDATE`, since a differing JSONB value per row cannot be expressed as one
+   * batched write. That config is sanitized first, keyed by the row's own `block`/`isCustom` (fetched
+   * up front, since the request only carries the row id).
    *
-   * `config` is left untouched, not cleared, when the caller omits it for a state entry — an empty
-   * object `{}` is a deliberate "clear whatever was set", not the same as "say nothing about it".
+   * Omitting `config` leaves the row's untouched — an empty object `{}` is a deliberate "clear
+   * whatever was set", not the same as "say nothing about it".
    *
    * Deliberately does not queue a re-render of pages that already embed a block moved to disabled here
-   * — see `helpers/htmlSanitizePolicy.ts#blockAllowances`'s doc comment (OpenProject #1738) for why, and for what
-   * keeps a disabled block from reaching a reader in the meantime regardless.
+   * — see `helpers/htmlSanitizePolicy.ts#blockAllowances` for why, and for what keeps a disabled block
+   * from reaching a reader in the meantime regardless.
    *
    * @param states Block IDs with their desired state, and optionally a new site-level config
    * @returns The number of block rows written — a block already in the requested state still counts
@@ -546,9 +510,6 @@ class Blocks {
   }
 
   /**
-   * Fetch a custom block's compiled component code, by id — for the route that serves it to the
-   * browser.
-   *
    * Scoped to `siteId` and `isCustom` the same way `deleteCustomBlock()` is: a block id alone is not
    * enough to say a caller may have it, and a built-in has no row in `blockCode` to find anyway.
    *
@@ -566,11 +527,9 @@ class Blocks {
   }
 
   /**
-   * Whether a tag is already spoken for on a site, by a built-in block or by another custom one.
-   *
-   * A block's tag becomes `<block-{tag}>` in a rendered page, so two blocks answering to the same one
-   * would silently shadow one with the other rather than fail loudly — this is what the upload route
-   * checks before registering a custom block, so that collision is rejected instead.
+   * Whether a tag is already spoken for on a site, by a built-in block or by another custom one. A
+   * block's tag becomes `<block-{tag}>` in a rendered page, so two blocks answering to the same one
+   * would silently shadow one with the other rather than fail loudly.
    *
    * The built-in half is answered from the in-memory manifest (`this.definitions`) rather than a
    * query: a site's built-in rows are always exactly what `syncSite()` last wrote from it, so it is
@@ -598,17 +557,16 @@ class Blocks {
    * Register a newly-uploaded custom block: a `blocks` row plus its compiled code, written together
    * so a failure partway through never leaves one without the other.
    *
-   * `isEnabled` defaults to `true`, the same as a built-in gets on first sync (`syncSite()` above) — a
-   * block an administrator just uploaded is one they meant to make available, not one to leave hidden
-   * behind a second step.
+   * `isEnabled` defaults to `true`, the same as a built-in gets on first sync — a block an
+   * administrator just uploaded is one they meant to make available, not one to leave hidden behind a
+   * second step.
    *
    * Callers are expected to have already resolved the tag collision with `isTagTaken()`, which this
    * still races against: two uploads for the same tag can both pass that check and both reach this
    * insert, so `blocks_composite_idx` is what actually decides the winner. The loser's `23505` is
    * surfaced as a 409 `CustomError` rather than an unhandled raw error.
    *
-   * @param definition The block's own static definition, as `helpers/blockDefinition.ts` extracted it.
-   * @param code The uploaded `component.js` source, stored verbatim for `getCustomBlockCode()` to serve back.
+   * @param code The uploaded `component.js` source, stored verbatim
    */
   async createCustomBlock(
     siteId: string,
@@ -661,13 +619,12 @@ class Blocks {
   }
 
   /**
-   * Delete a custom block. Built-in blocks are rejected, since the next sync would recreate them.
+   * Built-in blocks are rejected, since the next sync would recreate them.
    *
-   * Removes its stored code along with the row itself — `blockCode` is a separate table (see
-   * `db/schema.ts`), so deleting `blocks` alone would leave the code behind as an orphan. Done inside
-   * a transaction, code first, so this method is what is actually responsible for the code going away
-   * rather than depending on the foreign key's `onDelete: 'cascade'` (kept as a safety net for a row
-   * reached some other way, not as a substitute for cleaning it up here).
+   * Removes its stored code along with the row itself — `blockCode` is a separate table, so deleting
+   * `blocks` alone would leave the code behind as an orphan. Done inside a transaction, code first,
+   * so this method is what is actually responsible for the code going away rather than the foreign
+   * key's `onDelete: 'cascade'` (kept as a safety net for a row reached some other way).
    *
    * @returns Whether a block was deleted
    */
