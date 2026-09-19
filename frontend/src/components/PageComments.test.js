@@ -198,8 +198,13 @@ describe('PageComments', () => {
     expect(wrapper.find('.page-comments-count').classes()).toEqual(
       expect.arrayContaining(['text-text-caption', 'dark:text-text-caption-dark'])
     )
+    // The section root carries the body colour so the h2 and the reply textarea (`color: inherit`)
+    // do not fall back to the default black in dark mode. `text-body-dark` is not a defined token.
+    expect(wrapper.find('.page-comments').classes()).toEqual(
+      expect.arrayContaining(['text-text-body', 'dark:text-text-dark'])
+    )
     expect(wrapper.find('.page-comments-meta strong').classes()).toEqual(
-      expect.arrayContaining(['text-text-body', 'dark:text-text-body-dark'])
+      expect.arrayContaining(['text-text-body', 'dark:text-text-dark'])
     )
     const captions = wrapper.findAll('.text-caption').filter((el) => !el.classes('text-primary'))
     expect(captions.length).toBeGreaterThanOrEqual(3)

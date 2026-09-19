@@ -123,4 +123,13 @@ describe('PageCommentsEmbed', () => {
     expect(secondContainer).not.toBe(firstContainer)
     expect(wrapper.find('#disqus_thread').exists()).toBe(true)
   })
+
+  it('puts a body text colour on the section root so the heading follows light/dark mode', async () => {
+    const { wrapper } = mountEmbed()
+    await flushPromises()
+
+    expect(wrapper.find('.page-comments-embed').classes()).toEqual(
+      expect.arrayContaining(['text-text-body', 'dark:text-text-dark'])
+    )
+  })
 })
