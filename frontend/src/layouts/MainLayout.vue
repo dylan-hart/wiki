@@ -1036,17 +1036,19 @@ body.body--cobalt {
   /*    from `.sidebar-actions .icon-lg` above, which wins on source order against the unscoped */
   /*    rule's equal-specificity hover. */
   /* */
-  /*    OpenProject #3224: that same `.icon-lg` rule's `margin: 4px 0 4px 4px` was never meant for */
-  /*    the Top button -- it's Locale/Browse's own inset-tile spacing, sized for flex-1 cells with */
-  /*    room to spare. The Top button sits in a cell that is ALSO exactly 40x40 */
-  /*    (`.sidebar-actions-top` above) and is itself pinned to `width: 40px; height: 40px` by the */
-  /*    unscoped rule this block already overrides, so the inherited margin pushes it past the */
-  /*    cell's edge instead of insetting it. Reset to 0 here, at equal specificity and later in */
-  /*    source order than the `.icon-lg` rule above, so it wins without touching Locale/Browse's */
-  /*    margin or Ledger's own #3133 sizing (which never applied `.icon-lg`'s margin to begin with). */
+  /*    OpenProject #3461 (superseding #3224's flush `margin: 0`): that same `.icon-lg` rule's */
+  /*    `margin: 4px 0 4px 4px` is Locale/Browse's inset-tile spacing. The Top button sits in a */
+  /*    cell that is exactly 40x40 (`.sidebar-actions-top` above) and the unscoped rule pins it to */
+  /*    40x40 too, so the inherited margin used to push it past the cell (#3224). It now takes the */
+  /*    mirrored inset `4px 4px 4px 0` and shrinks to 36x32, so 0+36+4 by 4+32+4 fills the cell */
+  /*    exactly and its hover wash abuts Browse's (separators are hidden here). Declared at equal */
+  /*    specificity and later in source order than the `.icon-lg` and unscoped rules, so it wins */
+  /*    without touching Locale/Browse or Ledger's own #3133 sizing. */
   .sidebar-actions-top .w-btn {
     background-color: transparent;
-    margin: 0;
+    margin: 4px 4px 4px 0;
+    width: 36px;
+    height: 32px;
   }
 }
 

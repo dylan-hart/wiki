@@ -1010,12 +1010,14 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     }
   })
 
-  it('sizes the Top tile to fill its 40x40 cell with no padding under Cobalt', async () => {
+  // -> OpenProject #3461: under Cobalt the Top tile is 36x32 inside the unchanged 40x40 cell, so its
+  //    `4px 4px 4px 0` margin (below) brings the outer box back to exactly 40x40.
+  it('sizes the Top tile to 36x32 inside its 40x40 cell with no padding under Cobalt', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.width).toBe('40px')
-    expect(style.height).toBe('40px')
+    expect(style.width).toBe('36px')
+    expect(style.height).toBe('32px')
     expect(style.padding).toBe('0px')
   })
 
@@ -1043,23 +1045,30 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
   })
 
   /**
-   * OpenProject #3224 ("Cobalt back-to-top button overflows its 40px cell, regression from #3133"):
-   * the Top button inherits `.icon-lg`'s margin the same way Locale/Browse do (#3133, above), but
-   * unlike them it is ALSO pinned to `width: 40px; height: 40px` inside an equally-40px cell (the
-   * "sizes the Top tile to fill its 40x40 cell" test above) -- Locale/Browse have no such fixed size
-   * and simply shrink to make room for the inset margin, but the Top button has nowhere left to give,
-   * so the same margin pushed it past its cell's edge instead of insetting it. This replaces what
-   * used to assert the Top button picked up that 4px inset too (the bug, previously encoded here as
-   * the expected behaviour) -- it must stay flush with its cell, not inset like Locale/Browse.
+   * OpenProject #3461 (supersedes #3224's flush `margin: 0`): the Top button carries the same
+   * 4px inset as Locale/Browse, mirrored on the left (`4px 4px 4px 0`) because the cell's left edge
+   * abuts Browse's own 4px-inset tile. #3224's overflow is avoided by shrinking the button to 36x32
+   * (see the sizing test above), so margin + size sum to exactly the 40x40 cell -- no clipping, and
+   * its hover wash abuts Browse's with no gap (Cobalt hides the separators).
    */
-  it("keeps the Top button flush with its cell under Cobalt, unlike Locale/Browse's inset margin", async () => {
+  it('insets the Top button with margin 4px 4px 4px 0 under Cobalt, filling its cell exactly', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.marginTop).toBe('0px')
-    expect(style.marginRight).toBe('0px')
-    expect(style.marginBottom).toBe('0px')
+    expect(style.marginTop).toBe('4px')
+    expect(style.marginRight).toBe('4px')
+    expect(style.marginBottom).toBe('4px')
     expect(style.marginLeft).toBe('0px')
+    expect(
+      Number.parseInt(style.marginLeft, 10) +
+        Number.parseInt(style.width, 10) +
+        Number.parseInt(style.marginRight, 10)
+    ).toBe(40)
+    expect(
+      Number.parseInt(style.marginTop, 10) +
+        Number.parseInt(style.height, 10) +
+        Number.parseInt(style.marginBottom, 10)
+    ).toBe(40)
   })
 
   it("colours the Top icon from the sidebar-icon token under Cobalt, not #3109's bespoke pink", async () => {
