@@ -49,6 +49,7 @@ function mountMenu({
   path = '',
   navigationId = 'nav-1',
   navigationMode = 'inherit',
+  modeJson = () => Promise.resolve({ mode: 'auto' }),
   attachTo
 } = {}) {
   setActivePinia(createPinia())
@@ -64,7 +65,7 @@ function mountMenu({
 
   API_CLIENT.get.mockImplementation((url) => {
     if (url === `sites/site-1/navigation/${navigationId}/mode`) {
-      return { json: vi.fn().mockResolvedValue({ mode: 'auto' }) }
+      return { json: vi.fn(modeJson) }
     }
     if (url === 'sites/site-1/navigation/pages/page-1/inherited') {
       return { json: vi.fn().mockResolvedValue({ navigationId: 'ancestor-nav' }) }
@@ -92,27 +93,130 @@ describe('NavEditMenu', () => {
     document.documentElement.classList.remove('theme-transition-suppress')
   })
 
+  const segments = (wrapper) => wrapper.findAll('.nav-edit-menu__menu-source button[role="radio"]')
+  const selectedSegments = (wrapper) =>
+    segments(wrapper).filter((b) => b.attributes('aria-checked') === 'true')
+
   /**
-   * OpenProject #2819: `loadMenuMode()`'s resolve used to flip `state.menuMode` from its hardcoded
-   * `'static'` default to the real value while the `w-btn-toggle` was still animating the popup's
-   * open, producing a visible Manual -> Automatic (or -> Mixed) jump. Same fix, same proof, as
-   * `dark.test.js`'s "adds the transition-suppress class synchronously with the flip" case: the
-   * class is still on `<html>` right after the load resolves (it only clears on the next
-   * `requestAnimationFrame`), and `state.menuMode` has already landed by then too.
+   * OpenProject #3463 (regression of #2819): suppressing the transition only hid the ANIMATION of
+   * `loadMenuMode()`'s resolve flipping `state.menuMode` from a hardcoded `'static'` default -- the
+   * wrong value (Manual) still showed until the fetch landed. Mounted with the mode fetch still
+   * pending, no segment may be selected and the hint must be empty; only the resolved value selects.
    */
-  it("suppresses transitions around loadMenuMode's own state.menuMode assignment", async () => {
+  it('selects no menu source segment and shows no hint while the mode fetch is pending', async () => {
+    let resolveMode
+    const { wrapper } = mountMenu({
+      modeJson: () => new Promise((resolve) => (resolveMode = resolve))
+    })
+    await flushPromises()
+
+    expect(segments(wrapper)).toHaveLength(3)
+    expect(selectedSegments(wrapper)).toHaveLength(0)
+    expect(wrapper.find('.nav-edit-menu__menu-source-hint').text()).toBe('')
+
+    resolveMode({ mode: 'auto' })
+    await flushPromises()
+
+    expect(selectedSegments(wrapper).map((b) => b.text())).toEqual(['Automatic'])
+    expect(wrapper.find('.nav-edit-menu__menu-source-hint').text()).toBe(
+      'Menu items are generated automatically.'
+    )
+  })
+
+  it("still suppresses transitions around loadMenuMode's own assignment", async () => {
+    // -> Drain any frame a previous test's load left queued, or its `remove()` lands mid-test
+    await new Promise((resolve) => requestAnimationFrame(resolve))
     const { wrapper } = mountMenu()
     await flushPromises()
 
     expect(document.documentElement.classList.contains('theme-transition-suppress')).toBe(true)
-    const autoSegment = wrapper
-      .findAll('button[role="radio"]')
-      .find((b) => b.text() === 'Automatic')
-    expect(autoSegment.attributes('aria-checked')).toBe('true')
+    expect(selectedSegments(wrapper).map((b) => b.text())).toEqual(['Automatic'])
 
     await new Promise((resolve) => requestAnimationFrame(resolve))
 
     expect(document.documentElement.classList.contains('theme-transition-suppress')).toBe(false)
+  })
+
+  it('leaves nothing selected after a failed load, and never sends a null menuMode on Save or Edit Menu Items', async () => {
+    const { wrapper, siteStore } = mountMenu({ modeJson: () => Promise.reject(new Error('boom')) })
+    await flushPromises()
+
+    expect(selectedSegments(wrapper)).toHaveLength(0)
+    expect(wrapper.find('.nav-edit-menu__menu-source-hint').text()).toBe('')
+
+    const editBtn = wrapper.findAll('button').find((b) => b.text().includes('Edit Menu Items'))
+    await editBtn.trigger('click')
+    expect(siteStore.overlayOpts).not.toHaveProperty('menuMode')
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, navigationMode: 'inherit', navigationId: 'nav-1' })
+    })
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => API_CLIENT.put.mock.calls.length >= 1)
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/navigation/pages/page-1', {
+      json: { mode: 'inherit' }
+    })
+  })
+
+  it('sends menuMode once the reader picks a segment after a failed load', async () => {
+    const { wrapper } = mountMenu({ modeJson: () => Promise.reject(new Error('boom')) })
+    await flushPromises()
+
+    await segments(wrapper)
+      .find((b) => b.text() === 'Mixed')
+      .trigger('click')
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, navigationMode: 'inherit', navigationId: 'nav-1' })
+    })
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => API_CLIENT.put.mock.calls.length >= 1)
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/navigation/pages/page-1', {
+      json: { mode: 'inherit', menuMode: 'mixed' }
+    })
+  })
+
+  it('shows Manual selected when a page with no menu (sidebar hidden) is switched to override', async () => {
+    const { wrapper } = mountMenu({
+      path: 'docs/ingest',
+      navigationId: null,
+      navigationMode: 'hide'
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.nav-edit-menu__menu-source').exists()).toBe(false)
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith(expect.stringContaining('/mode'))
+
+    await wrapper
+      .findAll('[role="radio"]')
+      .find((r) => r.attributes('aria-label') === 'Override, this page and below')
+      .trigger('click')
+
+    expect(selectedSegments(wrapper).map((b) => b.text())).toEqual(['Manual'])
+    expect(wrapper.find('.nav-edit-menu__menu-source-hint').text()).toBe(
+      'Menu items are entered by hand below.'
+    )
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, navigationMode: 'override', navigationId: 'new-nav' })
+    })
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => API_CLIENT.put.mock.calls.length >= 1)
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/navigation/pages/page-1', {
+      json: { mode: 'override', menuMode: 'static' }
+    })
   })
 
   it("loads the resolved menu's source mode on mount and saves it alongside the cascade mode", async () => {
