@@ -973,12 +973,10 @@ body.body--cobalt {
      screen that needs the high end of that range sets `gap` on its own `.w-btn-group` instance
      rather than this rule changing. `!important` on the seam removal beats `WBtnGroup.vue`'s own
      scoped rule outright rather than relying on a specificity count across the two files.
-  2. The editor's markup toolbar (`EditorMarkdown.vue`'s `.editor-markdown-toolbar`, the B/I/S...
-     band) stays a flat, full-width SQUARE band under Cobalt -- not a row of individually
-     `--radius-control`-rounded pill buttons, which is what every other button in the aesthetic
-     draws. This is the one place Cobalt buttons take `border-radius: 0`. Unlayered here, so it beats
-     the `rounded-control` Tailwind utility (`@layer utilities`) with no `!important` needed. The
-     rest of this toolbar's Cobalt treatment (colors) is OpenProject #2870's.
+  2. (Retired, OpenProject #3466.) The editor's markup toolbar used to take a `border-radius: 0`
+     rule here so its buttons read as a square band. Its buttons (and the insert rail's and preview
+     toolbar's) now carry the shared flush-hover primitive in `css/_base.css`, which squares them in
+     Cobalt and Ledger alike and owns the hover fill, so the toolbar-specific rule is gone.
 */
 body.body--cobalt .w-btn-group {
   gap: 8px;
@@ -986,10 +984,6 @@ body.body--cobalt .w-btn-group {
 
 body.body--cobalt .w-btn-group > .w-btn:not(:last-child) {
   border-inline-end: none !important;
-}
-
-body.body--cobalt .editor-markdown-toolbar .w-btn {
-  border-radius: 0;
 }
 
 /*
