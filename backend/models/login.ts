@@ -32,20 +32,16 @@ export interface AfterLoginResult {
   continuationToken?: string
   tfaQRImage?: string
   /**
-   * Present only when this login just activated 2FA (a required `setupTfa` completed with a correct
-   * code): the fresh recovery codes in plaintext, for the client to show and let the user save. Never
-   * present, and never reconstructable, afterwards — only hashes are kept.
+   * Present only when this login just activated 2FA: the fresh codes in plaintext, for the user to
+   * save. Only hashes are kept, so they are never reconstructable afterwards.
    */
   recoveryCodes?: string[]
   redirect: string
 }
 
 /**
- * What `register()` returns: an `AfterLoginResult` when `emailValidation` is off and registration
- * signs the user straight in, or a bare `{ nextAction: 'verify' }` when a confirmation email was sent
- * instead and nothing about the session has changed. `redirect` is the one field `AfterLoginResult`
- * always carries that a pending verification has none of, so it is optional here rather than repeating
- * the whole shape as a union.
+ * `redirect` is optional rather than this being a union: a pending verification answers a bare
+ * `{ nextAction: 'verify' }`, which has none.
  */
 export interface RegisterResult {
   authenticated?: boolean
@@ -56,45 +52,29 @@ export interface RegisterResult {
 }
 
 /**
- * Every way a login can be refused, as one closed vocabulary.
- *
  * Closed rather than free text because this is what an operator greps and counts: `reason=` has to
- * mean the same thing in every line that carries it, and a message assembled per branch would make
- * "how many bad passwords last night" a question about wording. One member per refusal branch below
- * — nothing speculative, nothing that no branch can produce.
- *
- * Note what is NOT here. `strategy-disabled` has no branch: a strategy that is turned off is simply
- * absent from `CARDINAL.auth.strategies`, which is already `unknown-strategy`. And there is no reason
- * distinguishing "no such account" from "wrong password" — both are `bad-credentials`, because the
- * strategy module answers them identically on purpose and inventing the distinction here would
- * publish an account-enumeration oracle into the log.
+ * mean the same thing in every line that carries it. One member per refusal branch, nothing
+ * speculative. No reason distinguishes "no such account" from "wrong password" — both are
+ * `bad-credentials`, because inventing the distinction here would publish an account-enumeration
+ * oracle into the log. A strategy that is turned off is simply absent from
+ * `CARDINAL.auth.strategies`, so it is already `unknown-strategy`.
  */
 export const LOGIN_REFUSAL_REASONS = [
-  /** A form-based strategy was given no password at all. */
   'no-password',
   /** No strategy by that id is loaded — unknown, or configured off. */
   'unknown-strategy',
-  /** The account-keyed rate limiter refused the attempt before it was even tried. */
   'account-rate-limited',
-  /** The strategy module rejected the credential. */
   'bad-credentials',
   /** A provider asserted an address belonging to a system account (the seeded Guest row). */
   'system-account',
-  /** A provider login whose account carries no link to this strategy, or a mismatched one. */
   'account-not-linked',
-  /** A provider login for an unknown address, by a strategy that does not accept new users. */
   'registration-disabled',
-  /** The address is outside the strategy's allowed-email pattern. */
   'email-not-allowed',
-  /** The credential was right, but the account is deactivated. */
   'inactive-user',
-  /** The credential was right, but the account has never been verified. */
   'user-not-verified',
   /** The 2FA continuation could not be issued, or the required setup could not be started. */
   'tfa-failed',
-  /** A wrong TOTP or recovery code. */
   'tfa-incorrect-code',
-  /** Every recovery code on the account has already been used. */
   'tfa-recovery-codes-exhausted',
   /** The forced-password-change continuation could not be issued. */
   'change-password-failed',
@@ -105,13 +85,10 @@ export const LOGIN_REFUSAL_REASONS = [
 export type LoginRefusalReason = (typeof LOGIN_REFUSAL_REASONS)[number]
 
 /**
- * What a refusal line says about the attempt, beyond its reason.
- *
- * Deliberately narrow: no e-mail address, no submitted username, no password. What the caller
- * claimed to be is not evidence of anything and lands in the log verbatim from an unauthenticated
- * request; `user` appears only where the account is already resolved and the credential already
- * proven (the 2FA branches). The audit table keeps the fuller record — `login.failed` rows carry the
- * submitted identifier — under access control this log has none of.
+ * Deliberately narrow: no address, no submitted username, no password. What an unauthenticated
+ * caller claimed to be is not evidence of anything and would land in the log verbatim; `user`
+ * appears only where the account is already resolved and the credential already proven. The audit
+ * table keeps the fuller record, under access control this log has none of.
  */
 interface LoginRefusalContext {
   strategy?: string
@@ -121,25 +98,20 @@ interface LoginRefusalContext {
 }
 
 /**
- * The key one client's refusals are coalesced under. The address is what a guessing run repeats, so
- * it is what a burst is counted per; an attempt with no address to key on (an internal call with no
- * `ip`) shares one bucket rather than escaping coalescing entirely.
+ * An attempt with no address to key on shares one bucket rather than escaping coalescing entirely.
  */
 function refusalLogKey(ip: string | undefined): string {
   return `auth:login-refused:${ip ?? 'unknown'}`
 }
 
 /**
- * The one place a refused login reaches the log.
+ * The one place a refused login reaches the log: every branch that throws calls this rather than
+ * writing its own line, which is what keeps `reason=` a countable vocabulary instead of a sentence.
+ * The per-branch `authDebug` narration is the flag-gated story of one attempt; this is the
+ * operator's countable record of the outcome.
  *
- * Every branch that throws calls this with a {@link LoginRefusalReason} rather than writing its own
- * line, which is what keeps `reason=` a countable vocabulary instead of a sentence. The `authDebug`
- * narration each branch already carries stays where it is: it is the flag-gated, human-readable
- * story of one attempt, and this is the operator's countable record of the outcome.
- *
- * Coalesced over the authentication limiter's own window (`helpers/rateLimit.ts`): the first few
- * refusals from an address are logged in full, and the rest fold into one summary line when the
- * window closes. Twenty wrong passwords from one client is four lines, not twenty.
+ * Coalesced over the authentication limiter's own window: the first few refusals from an address
+ * are logged in full, and the rest fold into one summary line when the window closes.
  */
 function logLoginRefused(reason: LoginRefusalReason, context: LoginRefusalContext = {}): void {
   const { ip, strategy } = context
@@ -156,14 +128,10 @@ function logLoginRefused(reason: LoginRefusalReason, context: LoginRefusalContex
 }
 
 /**
- * OpenProject #3200: the one place `loginTFA()`'s two credential-rejection branches (a wrong code, or
- * every recovery code already spent) reach the audit log. The continuation token already proved the
- * password, so unlike a fresh login's `bad-credentials` refusal this can name the account directly --
- * the same reasoning `afterLoginChecks()`'s own refusals use. Not called from `loginTFA()`'s earlier
- * pre-checks (an unresolvable continuation token, a mismatched strategy, the rate limiter) -- those
- * are refused before anything is actually verified, the same distinction `login()`'s own
- * `no-password`/`unknown-strategy`/`account-rate-limited` refusals make against its `bad-credentials`
- * one.
+ * The continuation token already proved the password, so unlike a fresh login's `bad-credentials`
+ * refusal this may name the account directly. Deliberately not called from `loginTFA()`'s earlier
+ * pre-checks (an unresolvable token, a mismatched strategy, the rate limiter) -- those refuse before
+ * anything has actually been verified.
  */
 async function recordTfaFailure(
   user: { id: string; name: string; email: string },
@@ -184,26 +152,21 @@ async function recordTfaFailure(
 }
 
 /**
- * The fingerprint `checkAndRecordTfaDevice` keys a `tfaKnownDevices` row by: a hash of the client IP
- * plus its User-Agent string. See `docs/decisions/2026-09-15-tfa-new-device-login-fingerprint.md` for
- * why the two collapse into one signal instead of being tracked separately — this codebase has no
- * geoIP lookup that could tell a "new location" from merely "a new IP on an otherwise unchanged
- * network" any more precisely than that.
+ * IP and User-Agent collapse into one signal rather than being tracked separately: there is no geoIP
+ * lookup here that could tell a "new location" from "a new IP on an otherwise unchanged network".
+ * See `docs/decisions/2026-09-15-tfa-new-device-login-fingerprint.md`.
  */
 function tfaDeviceFingerprint(ip: string | undefined, userAgent: string | undefined): string {
   return generateHash(`${ip ?? ''}|${userAgent ?? ''}`)
 }
 
 /**
- * OpenProject #3302: records this 2FA login's device/location fingerprint against the account and
- * reports whether it had never been recorded before — the signal `loginTFA()` fires
- * `sendTfaNewDeviceLogin` on. Called once per successful code verification, `setup` completions
- * included: an account's very first fingerprint is, correctly, a new one.
+ * Called once per successful code verification, `setup` completions included: an account's very
+ * first fingerprint is, correctly, a new one.
  *
- * Two logins racing to record the same never-seen-before fingerprint (two tabs finishing 2FA at
- * once) resolve as "not new" for whichever request's insert loses the unique-index race — the
- * fingerprint genuinely is known by then, regardless of which request got there first, so there is
- * nothing for the loser to newly report.
+ * Two logins racing to record the same never-seen fingerprint resolve as "not new" for whichever
+ * insert loses the unique-index race — it genuinely is known by then, so there is nothing for the
+ * loser to newly report.
  */
 async function checkAndRecordTfaDevice(
   userId: string,
@@ -242,15 +205,9 @@ async function checkAndRecordTfaDevice(
 }
 
 /**
- * Login model
- *
- * The flows that turn a credential into a session: password and provider login, registration, the
- * 2FA and forced-password-change continuations a login can be suspended into, and the forgotten /
- * reset password round trip.
- *
- * Split out of `models/users.ts` (MOD-F12): an account (`models/users.ts`) and the credentials on it
- * (`models/userCredentials.ts`) are both things that exist between requests, while everything here is
- * one request's journey through them.
+ * One request's journey from a credential to a session. The account itself (`models/users.ts`) and
+ * the credentials on it (`models/userCredentials.ts`) are separate models, because both are things
+ * that exist between requests.
  */
 class Login {
   async login(
@@ -261,10 +218,9 @@ class Login {
       const str = CARDINAL.auth.strategies[strategyId] as any
       const strInfo = CARDINAL.data.authentication.find((a: any) => a.key === str.module)
 
-      // -> Defense in depth, not the only guard: the route schema already requires `password` on
-      //    the request body, but a form-based module's own verification bind must not depend on
-      //    that alone — refuse an empty/missing password here too, before `str.authenticate()` ever
-      //    runs, rather than trusting every present and future `useForm` module to check it itself.
+      // -> Defense in depth: the route schema already requires `password`, but a form-based
+      //    module's verification bind must not depend on that alone — the alternative is trusting
+      //    every present and future `useForm` module to check it itself.
       if (strInfo.useForm && !password) {
         CARDINAL.models.flags.authDebug(
           `Login attempt on site ${siteId} using ${str.module} strategy ${strategyId} rejected: no password provided`
@@ -288,12 +244,11 @@ class Login {
       )
 
       /*
-        Account-keyed bound, independent of `req.ip` (which `helpers/rateLimit.ts#limitAuthAttempts`
-        already bounds via the `onRequest` hook on this route, but which a misconfigured
-        `security.trustProxy` can leave client-spoofable per request) -- see
-        `consumeAccountAuthAttempt`'s own doc comment. Only form-based strategies have a credential to
-        guess here; a redirect-based provider (OAuth/SAML) never reaches this branch with a `username`.
-        Checked before `str.authenticate()` so a tripped limit also saves the bcrypt/LDAP round trip.
+        Account-keyed bound, independent of `req.ip` -- which `helpers/rateLimit.ts#limitAuthAttempts`
+        already bounds, but which a misconfigured `security.trustProxy` can leave client-spoofable per
+        request. Only form-based strategies have a credential to guess here; a redirect-based provider
+        never reaches this branch with a `username`. Checked before `str.authenticate()` so a tripped
+        limit also saves the bcrypt/LDAP round trip.
       */
       if (strInfo.useForm && username) {
         const verdict = await consumeAccountAuthAttempt(username)
@@ -306,21 +261,18 @@ class Login {
         }
       }
 
-      // Authenticate
       let user
       try {
         user = await str.authenticate(context)
       } catch (err: any) {
         /*
-          A form-based module (LDAP) verifies the person itself and never resolves a local user — it
-          always throws this once verification succeeds, whether or not an account already exists, so
-          every login (not only the one that creates an account) goes through the same find-or-create
-          path a redirect-based provider uses, which is also what re-syncs group membership on every
-          login. `findOrCreateProviderUser()` enforces `autoProvision` itself, and only for the case
-          that actually needs it: an unknown address with no local account. Gating on it *here* as well
-          would refuse a returning user who already has an account the moment `autoProvision` is turned
-          off — the flag means "accepts new users", not "accepts logins" — so it is deliberately not
-          checked again at this outer layer.
+          A form-based module (LDAP) verifies the person itself and never resolves a local user: it
+          throws this once verification succeeds, whether or not an account already exists, so every
+          login takes the same find-or-create path a redirect-based provider does -- which is also
+          what re-syncs group membership. `autoProvision` is deliberately NOT re-checked here:
+          `findOrCreateProviderUser()` enforces it for the only case that needs it (an unknown
+          address), and gating here too would refuse a returning user the moment it is turned off.
+          The flag means "accepts new users", not "accepts logins".
         */
         if (strInfo.useForm && err instanceof ProvisionableLoginError) {
           const providerStrategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
@@ -333,9 +285,8 @@ class Login {
             `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
           )
           logLoginRefused('bad-credentials', { strategy: strategyId, site: siteId, ip })
-          // -> Never the password, same as the debug line above. No user id either -- an attempt
-          //    that failed authentication is not attributable to an account, only to whatever the
-          //    caller claimed to be.
+          // -> No user id: an attempt that failed authentication is not attributable to an account,
+          //    only to whatever the caller claimed to be.
           await CARDINAL.models.auditLog.record({
             event: 'login.failed',
             actor: { id: null, name: username ?? '', ip },
@@ -348,7 +299,6 @@ class Login {
         }
       }
 
-      // Perform post-login checks
       return this.afterLoginChecks(
         user,
         strategyId,
@@ -369,17 +319,6 @@ class Login {
   }
 
   /**
-   * Log somebody in from what an identity provider said about them, creating the account if the
-   * strategy is set to accept new users.
-   *
-   * An existing account is bound to the provider's own `id`, checked on every later login — the
-   * address alone is never enough, because a provider that can be made to assert an arbitrary email is
-   * otherwise a way to sign in as whichever account already used it. See `findOrCreateProviderUser()`.
-   *
-   * Auto-provisioning is refused rather than silently allowed: a wiki that has not opened its doors to
-   * a provider gets `ERR_REGISTRATION_DISABLED` for an unknown account, and one that has can still
-   * limit who by, with the strategy's email allow-list pattern.
-   *
    * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_ACCOUNT_NOT_LINKED`,
    *         `ERR_LOGIN_FAILED`, `ERR_INACTIVE_USER`
    */
@@ -400,50 +339,27 @@ class Login {
     const user = await this.findOrCreateProviderUser(strategy, profile)
 
     /*
-      A password change is never asked for here: `mustChangePwd` lives on the local strategy's own
-      auth entry and is about a stored password this login never touches, so it stays skipped.
-
-      2FA is deliberately NOT skipped, though: a TOTP
-      secret enrolled under the local strategy is a signal the account's owner wanted a second
-      factor regardless of which door they used to sign in, so `afterLoginChecks()` still stops a
-      provider login at `provideTfa` when one is active there -- independently of whatever MFA the
-      provider itself may already have performed. An account with no locally-enrolled secret sees
-      no change: this call still sails through unless the provider strategy's own `auth` entry (in
-      practice, almost never populated) has one active.
+      `mustChangePwd` lives on the local strategy's own auth entry and is about a stored password
+      this login never touches, so it stays skipped. 2FA deliberately is not: a TOTP secret enrolled
+      under the local strategy is the owner wanting a second factor regardless of which door they
+      sign in through, so `afterLoginChecks()` still stops a provider login at `provideTfa` when one
+      is active there -- independently of whatever MFA the provider itself performed.
     */
     return this.afterLoginChecks(user, strategy.id, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
   /**
-   * Find the account an identity provider's profile belongs to, creating and linking one if the
-   * strategy accepts new users — and syncing group membership either way.
-   *
-   * The account-creation half of what used to be `loginWithProvider()` alone, factored out because
-   * `login()`'s auto-provisioning branch (a form-based module like LDAP, whose `authenticate()` found
-   * no local match and threw `ProvisionableLoginError`) needs exactly the same find-or-create rules
-   * rather than a second copy of them.
+   * Finds the account, creating and linking one if the strategy accepts new users — and syncs group
+   * membership either way.
    *
    * Identity, once an account exists, is `profile.id` matched against the `auth[strategy.id].id` a
-   * previous login stored — never the email address alone, and never a strategy other than this exact
-   * one: a module must not be able to walk in and claim an account linked under a different strategy.
-   * An address matching an account with no stored link for this strategy is refused with
-   * `ERR_ACCOUNT_NOT_LINKED` unless the strategy has `trustEmailForLinking` on, an explicit
-   * administrator opt-in for a provider whose email is verified. A system account (the seeded Guest
-   * row, currently the only one) never signs in through any provider, matched or not.
+   * previous login stored — never the email address alone, and never a strategy other than this
+   * exact one: a module must not be able to walk in and claim an account linked under a different
+   * strategy. `trustEmailForLinking` is the explicit administrator opt-in that waives that for a
+   * provider whose address is verified.
    *
    * `isActive`/`isVerified` are deliberately not checked here: both callers hand the returned user
-   * straight to `afterLoginChecks()`, which is the one place that check belongs now.
-   *
-   * Separated name halves (Feature #2608) reach the account from here and nowhere else in the
-   * provider path. On creation the halves are handed to `createUser()` INSTEAD of a display name, so
-   * `resolveNameFields()` derives `name` from them and the row is not born locally edited; a profile
-   * carrying neither half falls back to the single display name as before. On every later login a
-   * half the account is still missing is filled in, and a half it already has is left alone — a
-   * provider is a source for a field nobody has answered yet, not an authority that overwrites what
-   * a person wrote. Note that "is this authored" is not asked here: `updateUser()` consults the row's
-   * own `nameLocallyEdited` marker to decide whether `name` re-derives, and this method never sets
-   * it. `firstName`/`lastName` are `''` on a row nothing has filled, never null, so the emptiness
-   * test needs no defaulting.
+   * straight to `afterLoginChecks()`, which is the one place that check belongs.
    *
    * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_ACCOUNT_NOT_LINKED`,
    *         `ERR_LOGIN_FAILED`
@@ -457,8 +373,8 @@ class Login {
     const lastName = (profile.lastName ?? '').trim()
     let user = await CARDINAL.models.users.getByEmail(email)
 
-    // -> Checked before anything else: a system account (the seeded Guest row) must never be reachable
-    //    through a provider, linked or not -- getByEmail() has no isSystem filter, unlike its siblings.
+    // -> Before anything else: a system account (the seeded Guest row) must never be reachable
+    //    through a provider, and `getByEmail()` has no `isSystem` filter, unlike its siblings.
     if (user?.isSystem) {
       CARDINAL.models.flags.authDebug(
         `Provider login for <${email}> refused: address belongs to a system account`
@@ -467,10 +383,8 @@ class Login {
       throw new Error('ERR_LOGIN_FAILED')
     }
 
-    // -> Set only when this specific call is the moment a previously-unlinked account gets linked
-    //    to `strategy` via `trustEmailForLinking` -- the "successfully relinks via SSO" event
-    //    `clearMigratedFallbackLocalAuth()` below exists for. Never true for an account that was
-    //    already linked, a brand-new account, or a plain re-write of an existing link.
+    // -> Only the moment a previously-unlinked account gets linked via `trustEmailForLinking` --
+    //    never for an account already linked, a brand-new one, or a re-write of an existing link.
     let justRelinkedViaTrustedEmail = false
 
     if (user) {
@@ -506,13 +420,12 @@ class Login {
       this.assertAllowedProviderEmail(strategy, email, { strategy: strategy.id })
       const userId = await CARDINAL.models.users.createUser({
         // -> The halves win when the provider issued either: passing them alongside `name` would
-        //    mark the row locally edited the moment the provider's display name is not exactly
-        //    `first last` ("Dr. Alice Example"), permanently freezing the derivation.
+        //    mark the row locally edited whenever the display name is not exactly `first last`
+        //    ("Dr. Alice Example"), permanently freezing the derivation.
         ...(firstName || lastName ? { firstName, lastName } : { name: profile.name || email }),
         email,
         // -> Nothing signs in with it: this account authenticates at the provider, and the local
-        //    strategy's own entry is what a password would live under. 24 bytes = 192 bits, at or
-        //    above what this field was given before.
+        //    strategy's own entry is what a password would live under.
         password: randomToken(24),
         groups: strategy.autoEnrollGroups ?? [],
         isVerified: true
@@ -527,11 +440,8 @@ class Login {
       throw new Error('ERR_LOGIN_FAILED')
     }
 
-    /*
-      The link between this account and the provider's, written on every login: it records which
-      account at the provider this is, and it is what tells the profile page that this user signs in
-      through this strategy.
-    */
+    // -> Written on every login, not only at creation: this entry is also what tells the profile
+    //    page that the user signs in through this strategy.
     await CARDINAL.models.userCredentials.patchStrategyAuth(
       user.id,
       strategy.id,
@@ -541,7 +451,6 @@ class Login {
       }
     )
 
-    // -> Only right after the relink above actually took hold, never on an ordinary login.
     if (justRelinkedViaTrustedEmail) {
       await this.clearMigratedFallbackLocalAuth(user)
     }
@@ -554,9 +463,6 @@ class Login {
       await this.syncProviderGroups(user, strategy, profile.groups)
     }
 
-    // -> No-op on a blank/undefined URL and on a user with a manually-uploaded avatar already in
-    //    place -- see `models/users.ts#syncAvatarFromProvider`'s own doc comment for the precedence
-    //    rule. Every login, not only account creation, same as group sync above.
     if (profile.picture) {
       await CARDINAL.models.users.syncAvatarFromProvider(user.id, profile.picture)
     }
@@ -565,23 +471,16 @@ class Login {
   }
 
   /**
-   * Fill in a name half the account does not have yet, from what the provider just reported.
+   * Only an EMPTY half is written. A populated one is left exactly as it is, whoever put it there,
+   * which is what makes a locally corrected name survive every subsequent sign-in.
    *
-   * Only an EMPTY field is written. A populated one is left exactly as it is, whoever put it there —
-   * the user, an administrator, or an earlier login through this same provider — which is what makes
-   * a locally corrected name survive every subsequent sign-in. A provider that reported neither half
-   * costs nothing: no row is read and no statement is issued.
+   * `nameLocallyEdited` is deliberately absent from the patch: `updateUser()` owns that rule, so
+   * setting the marker here would be a second owner of the decision and clearing it would let a
+   * provider quietly undo somebody's edit.
    *
-   * `nameLocallyEdited` is deliberately absent from the patch. `updateUser()` owns the display-name
-   * rule (Task #2639) and re-derives `name` from the resulting pair unless the row is already marked
-   * authored; setting the marker from here would be a second owner of that decision, and clearing it
-   * would let a provider quietly undo somebody's edit.
-   *
-   * The row is re-read and merged back onto `user` afterwards rather than the patch being assigned
-   * onto it: `updateUser()` also re-derives `name`, so the caller — which returns this same object,
-   * and whose `afterLoginChecks()` reads `name` onto the session — would otherwise carry the display
-   * name from before the fill for the rest of the request. That extra read only happens on a login
-   * that actually filled something in, which is at most once per account per half.
+   * The row is re-read and merged back onto `user` rather than the patch being assigned onto it,
+   * because `updateUser()` also re-derives `name` — the caller returns this same object, and its
+   * `afterLoginChecks()` reads `name` onto the session.
    */
   private async fillMissingNameHalves(
     user: any,
@@ -606,28 +505,17 @@ class Login {
   }
 
   /**
-   * Once a migrated fallback account relinks to its real identity provider (the
-   * `trustEmailForLinking` branch in `findOrCreateProviderUser()` above), the orphaned
-   * local-strategy auth entry `createProviderFallbackUserConverter()` originally wrote for it (a
-   * random, unknowable password plus `mustChangePwd: true`) has nothing left to protect and
-   * nothing left to prompt for -- the account signs in through the provider now. Left alone it
-   * keeps showing up everywhere `mustChangePwd` is read as "needs a password reset" (the forced
-   * change-password screen on the rare local login attempt, any admin-facing "needs attention"
-   * list, ...).
+   * Once a migrated fallback account relinks to its real identity provider, the orphaned
+   * local-strategy auth entry `createProviderFallbackUserConverter()` wrote for it (a random,
+   * unknowable password plus `mustChangePwd: true`) has nothing left to protect and nothing left to
+   * prompt for. Left alone it keeps showing up everywhere `mustChangePwd` is read as "needs a
+   * password reset".
    *
-   * Gated on `auth[localStrategyId].migratedFallbackProvider` -- the marker
-   * `createProviderFallbackUserConverter()` writes on every account it creates (Feature #2547's
-   * sibling Task) -- rather than on `mustChangePwd` alone: an admin-forced password reset on a
-   * genuine local account is also stored as `mustChangePwd: true`, and that same account could
-   * separately link a `trustEmailForLinking` strategy of its own one day. Clearing on
-   * `mustChangePwd` alone would let a login through SSO silently cancel a reset an administrator
-   * deliberately imposed. Without the marker present -- an account created before that field
-   * existed, or the sibling Task not yet landed in a given build -- this is correctly a no-op:
-   * there is no other way to tell the two cases apart, so refusing to guess is the safe default.
-   *
-   * Clears the marker at the same time as `mustChangePwd`, so the account also stops looking like
-   * a pending fallback to anything reading the marker for its own purposes (the report surface
-   * planned as this Feature's third Task).
+   * Gated on `auth[localStrategyId].migratedFallbackProvider` rather than on `mustChangePwd` alone:
+   * an admin-forced reset on a genuine local account is stored as `mustChangePwd: true` too, so
+   * clearing on that alone would let a login through SSO silently cancel a reset an administrator
+   * deliberately imposed. Without the marker this is correctly a no-op — there is no other way to
+   * tell the two cases apart.
    */
   private async clearMigratedFallbackLocalAuth(user: { id: string; auth: unknown }): Promise<void> {
     const localStrategyId = CARDINAL.data.systemIds.localAuthId
@@ -649,11 +537,10 @@ class Login {
   }
 
   /**
-   * @param refusalContext Present when this guard is running inside a LOGIN (its two
-   *   `findOrCreateProviderUser` call sites), in which case a refusal is a login outcome and gets a
-   *   `login refused` line. Absent for `register()`'s own use of it below: a self-registration
-   *   turned away for its address is not a login, and labelling it as one would put an event that
-   *   never had a session behind it into the count an operator reads as failed sign-ins.
+   * @param refusalContext Present only when this guard runs inside a login, where a refusal is a
+   *   login outcome and gets a `login refused` line. `register()` passes none: a self-registration
+   *   turned away for its address never had a session behind it, and counting it would distort what
+   *   an operator reads as failed sign-ins.
    * @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a pattern and the address does not match it.
    */
   private assertAllowedProviderEmail(
@@ -664,11 +551,9 @@ class Login {
     if (!strategy.allowedEmailRegex) {
       return
     }
-    // -> Compiling (not running) a pattern is cheap regardless of its shape -- catastrophic
-    //    backtracking is an execution-time cost, not a parse-time one -- so this stays purely to
-    //    keep the existing "invalid pattern" warn log informative for a legacy strategy saved before
-    //    `models/authentication.ts#validateStrategy`'s syntax check existed. It plays no part in the
-    //    actual allow/deny decision below.
+    // -> Compiled but never used: this exists only to keep the "invalid pattern" warn informative
+    //    for a legacy strategy saved before `models/authentication.ts#validateStrategy` checked
+    //    syntax, and plays no part in the allow/deny decision below.
     try {
       new RegExp(strategy.allowedEmailRegex)
     } catch (err: any) {
@@ -677,12 +562,9 @@ class Login {
         error: err
       })
     }
-    // -> `testRegexSafely` bounds both the string tested and the wall-clock time spent testing it,
-    //    so a catastrophic-backtracking pattern can no longer hang the event loop here -- whether it
-    //    is one `models/authentication.ts#validateStrategy`'s save-time check already refuses, or a
-    //    pathological one saved before that check existed (OpenProject #3372). It also returns
-    //    `false` for an unparseable pattern, same as the removed try/catch around the test itself
-    //    used to: a pattern that cannot be trusted to answer allows nobody, rather than everybody.
+    // -> Bounds both the string tested and the time spent testing it, so a catastrophic-backtracking
+    //    pattern saved before the save-time check existed cannot hang the event loop. It answers
+    //    `false` for an unparseable pattern: one that cannot be trusted allows nobody, not everybody.
     const allowed = testRegexSafely(strategy.allowedEmailRegex, email)
     if (!allowed) {
       if (refusalContext) {
@@ -693,15 +575,12 @@ class Login {
   }
 
   /**
-   * Local self-registration's own domain allow-list, distinct from `allowedEmailRegex` above --
-   * `allowedEmailRegex` also gates provider auto-provisioning, but this is scoped to
-   * `register()` alone (WP #2470 / Feature #2430). Empty means unrestricted. Matching is
-   * case-insensitive against the domain after the address's last `@`; `strategy.allowedEmailDomains`
-   * is already lowercased and trimmed at write time (`models/authentication.ts#normalizeEmailDomains`),
-   * so only the incoming email needs folding here.
+   * Local self-registration's own domain allow-list, distinct from `allowedEmailRegex` above, which
+   * also gates provider auto-provisioning; this is scoped to `register()` alone. Empty means
+   * unrestricted. `strategy.allowedEmailDomains` is already lowercased and trimmed at write time
+   * (`models/authentication.ts#normalizeEmailDomains`), so only the incoming address needs folding.
    *
-   * @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a non-empty list and the address's domain
-   *         is not on it.
+   * @throws `ERR_EMAIL_NOT_ALLOWED` when the list is non-empty and the address's domain is not on it.
    */
   private assertAllowedRegistrationDomain(strategy: AuthStrategy, email: string): void {
     if (!strategy.allowedEmailDomains || strategy.allowedEmailDomains.length < 1) {
@@ -717,31 +596,16 @@ class Login {
   }
 
   /**
-   * Reconcile a user's wiki group membership with the groups an identity provider just reported for
-   * them, adding what is newly granted and removing what is no longer reported — mirroring 2.5.x's
-   * `passport-ldapauth` / `passport-saml` modules' add/remove-by-difference behavior.
+   * Four memberships are never touched, whatever the provider reported:
    *
-   * Several memberships are never touched by this, regardless of what was reported:
-   *
-   *   - the guests group, which is anonymous access itself rather than something a provider can grant
-   *     or take away from a real account;
-   *   - any group still named in the strategy's own `autoEnrollGroups` — an administrator put that
-   *     grant there directly, and a provider that has simply stopped mentioning the group should not
-   *     silently undo it;
-   *   - every group carrying `manage:system` (`groups.systemGroupIds()`) and the configured root
-   *     administrators group (`CARDINAL.config.auth.rootAdminGroupId`) — an IdP can never grant or revoke
-   *     wiki-level administrative access, mirroring the same invariant `api/users/admin.ts` enforces for a
-   *     human editing group membership directly. This holds unconditionally, independent of the
-   *     allow-list below;
-   *   - any group outside the strategy's own `mappableGroups` allow-list — an admin-chosen subset of
-   *     what this strategy may grant/revoke at all. The default is empty, so a strategy that has not
-   *     been configured with an allow-list changes no memberships on login.
-   *
-   * Group names are matched case-insensitively and trimmed, since that is how directory group names are
-   * routinely typed inconsistently.
-   *
-   * @param user The account to sync, at minimum `{ id }`
-   * @param reportedGroups Group names as the provider reported them for this login
+   *   - the guests group: anonymous access itself, not something a provider grants a real account;
+   *   - a group the strategy's own `autoEnrollGroups` still grants — an administrator put that grant
+   *     there directly, and a provider that stopped mentioning it should not silently undo it;
+   *   - every `manage:system` group and the configured root administrators group: an IdP can never
+   *     grant or revoke wiki-level administrative access, the same invariant `api/users/admin.ts`
+   *     enforces for a human editing membership directly. Holds independently of the allow-list;
+   *   - anything outside `mappableGroups`, the admin-chosen subset this strategy may touch at all.
+   *     It defaults to empty, so an unconfigured strategy changes no memberships on login.
    */
   async syncProviderGroups(
     user: { id: string },
@@ -753,9 +617,9 @@ class Login {
     const systemGroupIds = await CARDINAL.models.groups.systemGroupIds()
     const neverMapped = new Set([guestsGroupId, rootAdminGroupId, ...systemGroupIds])
     const mappable = new Set(strategy.mappableGroups ?? [])
-    // -> Which of the currently-held allow-listed groups this login is allowed to take away --
-    //    shared with `models/authentication.ts#getGroupSyncWarnings()`, the admin-facing read that
-    //    warns before the same exclusion bites a manual grant (WP #2440).
+    // -> Which of the currently-held allow-listed groups this login may take away. Shared with
+    //    `models/authentication.ts#getGroupSyncWarnings()`, the admin-facing read that warns before
+    //    the same exclusion bites a manual grant -- keep the two on one helper.
     const revocable = new Set(
       syncRevocableGroupIds(strategy, { guestsGroupId, rootAdminGroupId, systemGroupIds })
     )
@@ -779,9 +643,8 @@ class Login {
     const currentSet = new Set(currentGroupIds)
 
     const toAdd = [...matchedGroupIds].filter((id) => !currentSet.has(id))
-    // -> Only a currently-revocable group can ever be removed: `revocable` already excludes
-    //    everything `mappable.has(id)` would let through that must not actually be taken away
-    //    (guests, system/root-admin groups, anything the strategy also `autoEnrollGroups`).
+    // -> `revocable`, not `mappable`: it already excludes what the allow-list would let through but
+    //    must never be taken away (guests, system/root-admin, anything also `autoEnrollGroups`).
     const toRemove = currentGroupIds.filter((id) => revocable.has(id) && !matchedGroupIds.has(id))
 
     if (toAdd.length < 1 && toRemove.length < 1) {
@@ -801,37 +664,18 @@ class Login {
   }
 
   /**
-   * Self-registration through a form-based strategy, mirroring `loginWithProvider()`'s checks for
-   * whether the strategy accepts new users and who by.
+   * Self-registration through a form-based strategy.
    *
-   * When the strategy's `emailValidation` config is on (the local strategy's default), the account is
-   * created unverified and a `verify`-kind token is emailed instead of logging the user in --
-   * `GET /auth/verify/:token` is what turns `isVerified` on. With `emailValidation` off, this ends in
-   * exactly the `afterLoginChecks()` call `loginWithProvider()` makes, so registration signs the user
-   * straight in like every other successful auth path.
+   * An address stuck unverified is not a dead end: registering again resends the link rather than
+   * refusing, since nobody else could have claimed it in the meantime (an unverified account cannot
+   * log in). The submitted `name` and `password` are ignored on that path, so registering somebody
+   * else's still-pending address cannot overwrite its password.
    *
-   * An address stuck unverified -- its verification email lost, or never arrived -- is not a dead
-   * end: registering again with the same address resends the link rather than refusing with
-   * `ERR_EMAIL_ALREADY_EXISTS`, since nobody else could have claimed that address in the meantime (an
-   * unverified account cannot log in). The submitted `name` and `password` are ignored on that path --
-   * only the address that already exists is trusted -- so registering an address that is not yours but
-   * still pending cannot be used to overwrite whatever password it was originally set up with.
-   *
-   * A strategy with `emailValidation` on never throws `ERR_EMAIL_ALREADY_EXISTS`, even for an address
-   * that already has a *verified* account: it answers the same generic `{ nextAction: 'verify' }` a
-   * genuinely new registration would, and emails the real owner a notice that someone tried to
-   * register with their address, instead. This mirrors `forgotPassword()`'s own address-enumeration
-   * design (same file) -- without it, a single unauthenticated registration attempt would confirm
-   * whether a given email address already has an account here, no measurement required. A strategy
-   * with `emailValidation` off has no email step to route this secrecy through -- registration there
-   * signs the caller straight in, so there is nothing to send "the real owner" instead of just
-   * refusing -- and keeps throwing `ERR_EMAIL_ALREADY_EXISTS` for a colliding address.
-   *
-   * A strategy is only ever eligible here when its module is form-based (`useForm: true`) and it is
-   * attached to the site the request came in on -- `createUser()` always writes the submitted password
-   * under the local strategy, so accepting this against a redirect-based provider (SAML, OIDC, LDAP's
-   * own delegation, ...) would mint a permanent local account for an identity that provider was
-   * supposed to own, bypassing it entirely.
+   * With `emailValidation` on, an address that already has a *verified* account also answers the
+   * generic `{ nextAction: 'verify' }` and emails the real owner a notice instead -- mirroring
+   * `forgotPassword()`'s address-enumeration design, without which one unauthenticated attempt would
+   * confirm whether an address has an account here. With it off there is no email step to route that
+   * secrecy through, so a colliding address keeps throwing `ERR_EMAIL_ALREADY_EXISTS`.
    *
    * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
    *         `ERR_EMAIL_NOT_ALLOWED`
@@ -849,10 +693,7 @@ class Login {
     }: {
       siteId: string
       strategyId: string
-      /**
-       * An explicitly authored display name. The sign-up form sends the two halves instead and lets
-       * `models/users.ts#resolveNameFields` derive one (Feature #2608), so this is optional.
-       */
+      /** An explicitly authored display name; the sign-up form sends the two halves instead. */
       name?: string
       firstName?: string
       lastName?: string
@@ -868,8 +709,9 @@ class Login {
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
-    // -> Resolved the way `login()` resolves it: only a form-based module verifies the credentials it
-    //    is handed, so only one may mint a local account through this public form.
+    // -> `createUser()` always writes the submitted password under the local strategy, so accepting
+    //    this against a redirect-based provider would mint a permanent local account for an identity
+    //    that provider was supposed to own. Only a form-based module verifies what it is handed.
     const authModule = CARDINAL.data.authentication.find((a: any) => a.key === strategy.module)
     if (!authModule?.useForm) {
       CARDINAL.models.flags.authDebug(
@@ -900,9 +742,8 @@ class Login {
 
     const normalizedEmail = email.toLowerCase().trim()
 
-    // -> Fail fast, before the existing-account lookup below: a domain refusal is a blanket rule
-    //    about the domain, not about this specific address, so checking it first reveals nothing
-    //    about whether that address already has an account here.
+    // -> Before the existing-account lookup below: a domain refusal is a blanket rule about the
+    //    domain, so checking it first reveals nothing about whether the address has an account here.
     this.assertAllowedRegistrationDomain(strategy, normalizedEmail)
 
     const requiresVerification = Boolean(strategy.config?.emailValidation)
@@ -910,8 +751,7 @@ class Login {
 
     if (existing) {
       if (!requiresVerification) {
-        // -> No email step to route secrecy through on this strategy -- registration here signs the
-        //    caller straight in, so there is nothing to send the real owner instead of just refusing.
+        // -> No email step to route the secrecy through on this strategy.
         throw new Error('ERR_EMAIL_ALREADY_EXISTS')
       }
       if (!existing.isVerified) {
@@ -931,10 +771,8 @@ class Login {
         })
         return { nextAction: 'verify' }
       }
-      // -> A verified account already sits at this address. Answering the same generic
-      //    { nextAction: 'verify' } a fresh registration gets -- rather than ERR_EMAIL_ALREADY_EXISTS
-      //    -- is what keeps this response from confirming the address is taken; the real owner gets a
-      //    notice instead, mirroring forgotPassword()'s design just above.
+      // -> A verified account already sits here, and the generic `{ nextAction: 'verify' }` below is
+      //    what keeps the response from confirming that; the real owner gets a notice instead.
       CARDINAL.models.flags.authDebug(
         `Registration for <${normalizedEmail}> matched an existing verified account; notifying instead of confirming`
       )
@@ -957,10 +795,8 @@ class Login {
 
     this.assertAllowedProviderEmail(strategy, normalizedEmail)
 
-    // -> What the account ends up being called, resolved here only so the verification email below
-    //    can address it. `createUser` still receives the raw three fields and lets
-    //    `resolveNameFields` decide what is stored -- this is not a second derivation, it is the
-    //    same one composer (`deriveDisplayName`) answering the same question.
+    // -> Resolved here only so the verification email below can address the account; `createUser`
+    //    still receives the raw three fields. Not a second derivation -- the same composer.
     const displayName = name ?? deriveDisplayName(firstName ?? '', lastName ?? '')
 
     const userId = await CARDINAL.models.users.createUser({
@@ -1012,7 +848,7 @@ class Login {
     req?: any
   ): Promise<AfterLoginResult> {
     // -> The credential is already proven by the time anything reaches this method, so unlike the
-    //    refusals in `login()` this one can name the account it is about.
+    //    refusals in `login()` these may name the account they are about.
     const refusalContext: LoginRefusalContext = {
       strategy: strategyId,
       site: context?.siteId,
@@ -1026,12 +862,10 @@ class Login {
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
-    // -> The funnel every login path ends in: local, provider, passkey and the 2FA/password-change/
-    //    reset-password continuations all call this method, so this is the one place an account-state
-    //    check is guaranteed to run regardless of which path got here. `restrictLogin` is deliberately
-    //    NOT checked here -- it is a per-strategy (local-only) flag, already enforced by
-    //    `modules/authentication/local/authentication.ts#authenticate()` before a local login ever
-    //    reaches this method, and by `forgotPassword()` before a reset token is minted.
+    // -> Every login path ends in this method, so this is the one place an account-state check is
+    //    guaranteed to run. `restrictLogin` is deliberately NOT checked here: it is a per-strategy
+    //    local-only flag, already enforced by the local module's `authenticate()` and by
+    //    `forgotPassword()` before a reset token is minted.
     if (!user.isActive) {
       logLoginRefused('inactive-user', refusalContext)
       throw new Error('ERR_INACTIVE_USER')
@@ -1041,7 +875,6 @@ class Login {
       throw new Error('ERR_USER_NOT_VERIFIED')
     }
 
-    // Get user groups
     user.groups = await CARDINAL.db.query.users
       .findFirst({
         columns: {},
@@ -1060,7 +893,6 @@ class Login {
       })
       .then((r: any) => r?.groups || [])
 
-    // Get redirect target
     let redirect = '/'
     if (user.groups && user.groups.length > 0) {
       for (const grp of user.groups as any[]) {
@@ -1071,18 +903,15 @@ class Login {
       }
     }
 
-    // Get auth strategy flags
     const authStr = user.auth[strategyId] || {}
 
-    // Is 2FA required?
     if (!skipTFA) {
       /*
-        A TOTP secret enrolled under the local strategy gates every login for the account, not
-        just one made through the local strategy itself -- enrolling it is a deliberate choice by
-        the account's owner, made independently of which door they use to sign in next. Without
-        this fallback, a provider login (whose own `auth[strategyId]` entry almost never has a
-        secret of its own) would sail straight past a second factor the owner explicitly turned
-        on.
+        A TOTP secret enrolled under the local strategy gates every login for the account, not just
+        one made through the local strategy itself: enrolling it is the owner's deliberate choice,
+        made independently of which door they use next. Without this fallback a provider login --
+        whose own `auth[strategyId]` entry almost never has a secret -- would sail straight past a
+        second factor the owner explicitly turned on.
       */
       const localStrategyId = CARDINAL.data.systemIds.localAuthId
       const localAuthStr =
@@ -1156,7 +985,6 @@ class Login {
       }
     }
 
-    // Must Change Password?
     if (!skipChangePwd && authStr.mustChangePwd) {
       try {
         const pwdChangeToken = await CARDINAL.models.userCredentials.generateToken({
@@ -1186,7 +1014,6 @@ class Login {
       }
     }
 
-    // Set Session Data
     await CARDINAL.models.users.updateSession(user, req)
 
     CARDINAL.models.flags.authDebug(
@@ -1194,17 +1021,14 @@ class Login {
     )
 
     // -> Only once the login has actually succeeded: an attempt stopped by 2FA or a forced password
-    //    change is not a login yet.
-    //    Every login path -- local, provider, passkey, and the 2FA / password-change continuations --
-    //    ends up here, so this is the one place the stamp belongs. `updatedAt` is deliberately left
-    //    alone: signing in is not an edit of the account.
+    //    change is not a login yet. `updatedAt` is deliberately left alone -- signing in is not an
+    //    edit of the account.
     await CARDINAL.db
       .update(usersTable)
       .set({ lastLoginAt: sql`now()` })
       .where(eq(usersTable.id, user.id))
 
-    // -> Same reasoning as `user:join` above: a login has no site context, so a site-scoped hook must
-    //    not receive it.
+    // -> A login has no site context, so a site-scoped hook must not receive one.
     await CARDINAL.models.hooks.emit('user:login', null, {
       userId: user.id,
       strategyId,
@@ -1215,11 +1039,10 @@ class Login {
       }
     })
 
-    // -> The one line that says a session now exists, and it is `info`: it is the counterpart the
-    //    `warn auth login refused` lines are read against, and a log showing only the refusals
-    //    cannot answer "did they eventually get in". Never coalesced — a burst of SUCCESSFUL logins
-    //    is not noise, it is the thing an operator most wants to see all of. Ids only, as with a
-    //    refusal: the address and display name are the audit row's business, not the log's.
+    // -> The counterpart the `login refused` lines are read against: a log showing only refusals
+    //    cannot answer "did they eventually get in". Never coalesced — a burst of successful logins
+    //    is not noise. Ids only, as with a refusal: the address and display name belong to the
+    //    audit row, not the log.
     CARDINAL.logger.info('auth', 'login', {
       user: user.id,
       strategy: strategyId,
@@ -1247,14 +1070,12 @@ class Login {
    * Finish a login that stopped for 2FA — either to ask for a code, or to have the user set 2FA up
    * because the strategy or the account requires it.
    *
-   * The continuation token identifies the half-finished login, and is kept rather than consumed while
-   * codes are being tried: a mistyped or just-expired code has to be retryable. It is destroyed here
-   * as soon as one is correct, and by `countTfaFailure()` once too many have not been.
+   * The continuation token is kept rather than consumed while codes are being tried: a mistyped or
+   * just-expired code has to be retryable. It is destroyed here as soon as one is correct, and by
+   * `countTfaFailure()` once too many have not been.
    *
    * @param setup True when the token came from a required setup, in which case a correct code also
-   *              activates the secret that was generated for it. A recovery code cannot complete a
-   *              setup — none exist yet for a secret that has never been activated — so `securityCode`
-   *              must be the 6-digit TOTP code here.
+   *              activates the secret that was generated for it.
    * @throws `ERR_TFA_INVALID_REQUEST`, `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`,
    *         `ERR_TFA_RECOVERY_CODES_EXHAUSTED` or `ERR_TFA_INCORRECT_TOKEN`, plus whatever
    *         `validateToken()` raises for a token that is unknown or expired
@@ -1278,8 +1099,7 @@ class Login {
     req: any
   ): Promise<AfterLoginResult> {
     const isTotpShape = /^[0-9]{6}$/.test(securityCode)
-    // -> Recovery codes only exist once 2FA is active, so they cannot answer a `setupTfa` login —
-    //    that flow only ever proves a freshly-generated TOTP secret works.
+    // -> Recovery codes only exist once 2FA is active, so none can answer a `setupTfa` login.
     const isRecoveryShape = !setup && isRecoveryCodeShape(securityCode)
     if (!continuationToken || (!isTotpShape && !isRecoveryShape)) {
       throw new Error('ERR_TFA_INVALID_REQUEST')
@@ -1298,13 +1118,9 @@ class Login {
       logLoginRefused('unknown-user', { strategy: strategyId, site: siteId, ip })
       throw new Error('ERR_INVALID_USER')
     }
-    // -> Account-keyed bound on the second factor itself: a continuation token proves the password
-    //    was already right, so what is left to guess is the TOTP code or a recovery code, and
-    //    either is guessable enough on its own to be worth bounding per account (see `login()`'s
-    //    own call for the reasoning shared with the password step). Same bucket as `login()`'s own
-    //    call, into the same `auth:user:` key -- TOTP-code and recovery-code guessing against an
-    //    account is bounded together with password guessing against it, not as a separate budget.
-    //    See `consumeAccountAuthAttempt`'s doc comment.
+    // -> The continuation token proves the password was already right, so what is left to guess is
+    //    the TOTP or recovery code. Into the same `auth:user:` bucket as `login()`'s own call: code
+    //    guessing is bounded together with password guessing, not as a separate budget.
     const verdict = await consumeAccountAuthAttempt(user.email)
     if (!verdict.allowed) {
       CARDINAL.models.flags.authDebug(
@@ -1324,8 +1140,8 @@ class Login {
     }
 
     // -> The strategy whose secret actually gates this login: ordinarily the one just logged in
-    //    with, but a provider login stopped by a locally-enrolled secret (see `afterLoginChecks()`)
-    //    records which strategy's secret that was, since it is not this one.
+    //    with, but a provider login stopped by a locally-enrolled secret records which strategy's
+    //    secret that was, since it is not this one.
     const verifyStrategyId = tfaStrategyId || strategyId
 
     let verified: boolean
@@ -1373,9 +1189,8 @@ class Login {
 
     await CARDINAL.models.userCredentials.destroyToken({ token: continuationToken })
 
-    // -> OpenProject #3302: a failure recording the device fingerprint, or sending the resulting
-    //    notice, must not turn an otherwise-verified 2FA login into a rejected one — swallow and log,
-    //    the same pattern `resetPassword()`'s `sendPasswordResetConfirmed` call below uses.
+    // -> A failure recording the device fingerprint, or sending the resulting notice, must not turn
+    //    an otherwise-verified 2FA login into a rejected one.
     try {
       const uaHeader = req?.headers?.['user-agent']
       const userAgent = Array.isArray(uaHeader) ? uaHeader[0] : uaHeader
@@ -1417,8 +1232,8 @@ class Login {
   /**
    * Start 2FA setup from the profile page, for a user who is already logged in.
    *
-   * @returns The QR code to scan, the secret behind it for manual entry, and the token that
-   *          `confirmTfaSetup()` expects back
+   * @returns The QR code, the secret behind it for manual entry, and the token `confirmTfaSetup()`
+   *          expects back
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_ALREADY_ACTIVE`
    */
   async startProfileTfaSetup({
@@ -1435,7 +1250,7 @@ class Login {
       strategyId
     )
     // -> Replacing a working secret would silently invalidate the app entry the user already has;
-    //    turning 2FA off first is the way to start again
+    //    turning 2FA off first is the way to start again.
     if (entry.tfaIsActive) {
       throw new Error('ERR_TFA_ALREADY_ACTIVE')
     }
@@ -1460,8 +1275,7 @@ class Login {
    * Deliberately not `loginTFA()` with `setup`: the user is already logged in, and running the login
    * checks again would rebuild the session and emit a second login event for one visit.
    *
-   * @returns The fresh recovery codes in plaintext, for the profile page to display and let the user
-   *          save — the only time they are ever available again
+   * @returns The fresh recovery codes in plaintext — the only time they are ever available
    * @throws `ERR_TFA_INVALID_REQUEST`, `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or
    *         `ERR_TFA_INCORRECT_TOKEN`
    */
@@ -1486,7 +1300,7 @@ class Login {
         token: continuationToken,
         skipDelete: true
       })
-    // -> The token is a bearer credential, so it only counts for the session that asked for it
+    // -> The token is a bearer credential, so it only counts for the session that asked for it.
     if (!user || user.id !== userId) {
       throw new Error('ERR_INVALID_USER')
     }
@@ -1504,15 +1318,9 @@ class Login {
   }
 
   /**
-   * Where to send a user after logging out.
-   *
-   * A group's own target wins over the site's, which is what the admin area promises: the site setting
-   * says it "can be overridden at the group level". With several groups the first one that names a
-   * target wins, the same arbitrary-but-stable rule the login redirect uses.
-   *
-   * @param userId The user logging out, or null for a request that was not logged in
-   * @param siteId The site being logged out of, if it is known
-   * @returns A path or URL, never empty — the site root when nothing is configured
+   * A group's own target wins over the site's, which is what the admin area promises: the site
+   * setting says it "can be overridden at the group level". With several groups the first one that
+   * names a target wins, the same arbitrary-but-stable rule the login redirect uses.
    */
   async getLogoutRedirect(userId: string | null, siteId?: string): Promise<string> {
     if (userId) {
@@ -1593,20 +1401,14 @@ class Login {
   }
 
   /**
-   * Request a password reset link by email.
-   *
-   * Never throws and never reports which of its checks failed: an unknown/disabled strategy, one
-   * with `allowForgotPassword` off, an email matching no account, an account that has no password
-   * under this strategy (e.g. provider-only), a deactivated account, and one whose password login has
-   * been restricted (`restrictLogin`) are all silently a no-op. `api/auth/site.ts`'s route
-   * answers the same generic success either way, which is what actually closes the
-   * email-enumeration hole -- this method just makes sure there is nothing here (a thrown `ERR_`, a
-   * different return shape) for that route to leak by accident.
+   * Never throws and never reports which of its checks failed -- every refusal below is silently a
+   * no-op. `api/auth/site.ts` answers the same generic success either way, which is what actually
+   * closes the email-enumeration hole; this method just leaves nothing here for it to leak by
+   * accident.
    *
    * The deactivated/restricted checks are also what stops a reset token from ever being minted for
    * such an account: `afterLoginChecks()` (via `resetPassword()`) would refuse the login anyway, but
-   * only after the password hash has already been rewritten -- refusing here means a token never
-   * exists to redeem in the first place.
+   * only after the password hash has already been rewritten.
    */
   async forgotPassword({
     strategyId,
@@ -1653,16 +1455,13 @@ class Login {
   /**
    * Finish a password reset from the `forgotPassword()` email link.
    *
-   * Signs the user straight in on success, exactly like every other token-continuation flow in this
-   * file (`loginChangePassword()`, `loginTFA()`, `register()` with `emailValidation` off) -- there is
-   * no separate "now log in again" step, since possessing a working reset token already proves control
-   * of the account's email address.
+   * Signs the user straight in on success, like every other token-continuation flow in this file:
+   * possessing a working reset token already proves control of the account's email address.
    *
    * Deliberately NOT `skipTFA`, though: unlike `loginChangePassword()`'s continuation token (only
-   * reachable after a login attempt has already cleared 2FA earlier in the same flow), a reset token
-   * is minted straight from an email address with no password or 2FA code involved at all. Skipping TFA
-   * here would let anyone with access to the mailbox alone sign all the way in on an account that has
-   * 2FA active; `afterLoginChecks()` still asks for a code first when it does.
+   * reachable after a login attempt already cleared 2FA), a reset token is minted straight from an
+   * email address, so skipping would let anyone with the mailbox alone sign all the way in on an
+   * account that has 2FA active.
    *
    * @throws `ERR_PASSWORD_TOO_SHORT`, `ERR_INVALID_STRATEGY`, `ERR_INVALID_USER`, plus whatever
    *         `validateToken()` raises for a token that is unknown or expired
@@ -1717,7 +1516,7 @@ class Login {
       })
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a
-      //    failed reset
+      //    failed reset.
       CARDINAL.logger.warn('auth', 'sending the password-reset-confirmed notice failed', {
         user: user.id,
         error: err

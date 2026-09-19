@@ -9,14 +9,8 @@ import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
 import { resetCoalesce } from '../helpers/logCoalesce.ts'
 
 /**
- * `syncProviderGroups` reconciles a user's wiki group membership with what an identity provider just
- * reported for them — add/remove by difference, mirroring 2.5.x's `passport-ldapauth` /
- * `passport-saml` modules, but never touching the guests group, a group the strategy's own
- * `autoEnrollGroups` still grants, a group carrying `manage:system`, or the configured root
- * administrators group — and never granting or revoking a group outside the strategy's own
- * `mappableGroups` allow-list. `CARDINAL.models.groups` and `users.getUserGroupIds` are stubbed rather
- * than run against a real database: what is under test here is the diffing logic, not group
- * persistence, which `models/groups.test.ts`-style DB-backed suites would be the place to cover.
+ * `CARDINAL.models.groups` is stubbed rather than run against a database: the membership diff is what
+ * is under test here, not group persistence.
  */
 describe('login.syncProviderGroups', () => {
   const guestsGroupId = 'group-guests'
@@ -30,9 +24,7 @@ describe('login.syncProviderGroups', () => {
       config: { auth: { rootAdminGroupId } },
       models: {
         flags: { authDebug: () => {} },
-        // -> The real singleton, not a stub: `syncProviderGroups` reads the membership it is
-        //    diffing against through `CARDINAL.models.users.getUserGroupIds`, which each test below
-        //    mocks on that same object.
+        // -> The real singleton, not a stub: each test mocks `getUserGroupIds` on this same object.
         users
       }
     })
@@ -40,8 +32,8 @@ describe('login.syncProviderGroups', () => {
 
   after(() => wiki.restore())
 
-  // `mappableGroups` defaults to empty, same as the real column default — a test exercising a grant
-  // or removal has to opt a group into the allow-list explicitly, same as an administrator would.
+  // `mappableGroups` defaults to empty, matching the real column: a test exercising a grant or
+  // removal has to opt a group into the allow-list explicitly, same as an administrator would.
   function makeStrategy(overrides: Partial<any> = {}): any {
     return {
       id: 'strategy-1',
@@ -52,10 +44,7 @@ describe('login.syncProviderGroups', () => {
     }
   }
 
-  /**
-   * @param allGroups A group may carry `permissions: ['manage:system']`, which is what
-   *   `groups.systemGroupIds()` is stubbed to key off of — mirroring the real implementation.
-   */
+  /** `systemGroupIds()` keys off `permissions: ['manage:system']`, mirroring the real model. */
   function stubGroups(
     t: any,
     allGroups: Array<{ id: string; name: string; permissions?: string[] }>
@@ -210,8 +199,8 @@ describe('login.syncProviderGroups', () => {
       { id: 'group-editors', name: 'Editors' },
       { id: 'group-reviewers', name: 'Reviewers' }
     ])
-    // -> The user already holds group-reviewers, and the IdP reports Editors: with a full
-    //    allow-list both halves of the diff would fire, but neither group is listed here.
+    // -> Both halves of the diff would fire with a full allow-list: the user holds group-reviewers
+    //    and the IdP reports Editors.
     t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
 
     await login.syncProviderGroups({ id: 'user-1' }, makeStrategy({ mappableGroups: [] }), [
@@ -229,7 +218,6 @@ describe('login.syncProviderGroups', () => {
     ])
     t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
 
-    // -> makeStrategy() defaults mappableGroups to [], matching an unconfigured real strategy.
     await login.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors', 'Reviewers'])
 
     assert.equal(assignUserToGroup.mock.calls.length, 0)
@@ -237,24 +225,11 @@ describe('login.syncProviderGroups', () => {
   })
 })
 
-/**
- * `loginTFA`'s new job is dispatch: decide whether a submitted code is shaped like a TOTP code or a
- * recovery code, refuse a recovery code mid-setup (none exist yet for a secret nobody has activated),
- * and refuse one outright once every stored code is spent. Every collaborator this touches —
- * `validateToken`, `verifyTfaCode`, `verifyAndConsumeRecoveryCode`, `destroyToken`, `enableTfa`,
- * `afterLoginChecks` — is a `CARDINAL`/database-backed method of the same `users` singleton, so the
- * dispatch logic itself is tested by mocking those methods on the instance (restored automatically
- * after each test) rather than standing up a database for behavior that is not SQL.
- */
 describe('login.loginTFA', () => {
   function makeUser(overrides: Partial<any> = {}): any {
     return { id: 'user-1', email: 'ada@example.com', auth: { strat: {} }, ...overrides }
   }
 
-  // -> `loginTFA` now consumes the account-keyed rate limit (work package 2075(b)) before verifying
-  //    the submitted code — a real `CARDINAL.models.rateLimits.consume` stand-in that always allows,
-  //    exactly like `syncProviderGroups`'s own `before`/`after` above, since nothing in this suite is
-  //    testing the limiter itself (see `helpers/rateLimit.test.ts#consumeAccountAuthAttempt` for that).
   let wiki: { restore(): void }
 
   before(() => {
@@ -266,9 +241,8 @@ describe('login.loginTFA', () => {
         // -> The real singleton, so the `userCredentials.*` mocks each test installs are the ones
         //    `loginTFA` actually reaches through `CARDINAL.models.userCredentials`.
         userCredentials,
-        // -> A no-op default so the two credential-rejection branches' new `login.failed` audit call
-        //    (OpenProject #3200) doesn't throw here — its own shape is asserted in the "login outcome
-        //    logging" describe below, where the log lines it sits beside are already covered.
+        // -> No-op default so the credential-rejection branches' audit call doesn't throw; its shape
+        //    is asserted in the "login outcome logging" suite.
         auditLog: { record: async () => {} }
       }
     })
@@ -347,11 +321,7 @@ describe('login.loginTFA', () => {
     assert.equal(result.nextAction, 'redirect')
   })
 
-  // -> OpenProject #2361: same typed-error requirement as `login.login`'s own rate-limit test above --
-  //    a refused account-keyed attempt on the 2FA step must throw `AccountRateLimitedError` (carrying
-  //    `retryAfter`), not a plain `Error('ERR_RATE_LIMITED')`, so the route handler can answer 429
-  //    instead of the generic `ERR_`-prefix 400. Refused after `validateToken` resolves the user (the
-  //    rate limit is keyed on `user.email`) but before the submitted code is ever verified.
+  // -> The typed error is what lets the route handler answer 429, not the generic `ERR_` 400.
   test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before the code is verified", async (t) => {
     const user = makeUser()
     t.mock.method(userCredentials, 'validateToken', async () => ({ user, strategyId: 'strat' }))
@@ -574,19 +544,11 @@ describe('login.loginTFA', () => {
 })
 
 /**
- * `login()`'s form-based auto-provisioning branch: a module like LDAP verifies the person itself and,
- * rather than resolving a local user, always signals "this person is real" by throwing
- * `ProvisionableLoginError` — whether or not an account already exists for them (see that class's own
- * doc comment, and `modules/authentication/ldap/authentication.ts`, the module this branch was built
- * for). What is under test here is `login()`'s own dispatch around that catch: `findOrCreateProviderUser()`
- * and `afterLoginChecks()` are stubbed so a returning-vs-new-address distinction can be driven directly,
- * without a database.
- *
- * Regression coverage for a real bug this suite caught: `login()` used to refuse *every* form-based
- * provider login with `ERR_REGISTRATION_DISABLED` the moment a strategy's `autoProvision` flag was off —
- * including a returning user who already has an account. `autoProvision` means "accepts new users", not
- * "accepts logins", and `findOrCreateProviderUser()` already enforces it correctly on its own (only for
- * an address with no existing account) — so `login()` no longer re-checks it before calling in.
+ * A form-based module like LDAP verifies the person itself and always signals "this person is real"
+ * by throwing `ProvisionableLoginError`, whether or not an account already exists. `autoProvision`
+ * means "accepts new users", not "accepts logins", so only `findOrCreateProviderUser()` — stubbed
+ * here — may enforce it; `login()`'s dispatch around the catch must not re-check it, or a returning
+ * user is refused too.
  */
 describe('login.login (form-based provider auto-provisioning)', () => {
   const strategyId = 'strategy-1'
@@ -612,9 +574,6 @@ describe('login.login (form-based provider auto-provisioning)', () => {
       models: {
         flags: { authDebug: () => {} },
         authentication: { getStrategyById },
-        // -> `login()` now consumes the account-keyed rate limit (work package 2075(b)) before
-        //    calling `str.authenticate()` -- a real stand-in that always allows, since nothing in
-        //    this suite is testing the limiter itself.
         rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) }
       }
     })
@@ -700,11 +659,7 @@ describe('login.login (form-based provider auto-provisioning)', () => {
     assert.equal(findOrCreate.mock.calls.length, 0)
   })
 
-  // -> OpenProject #2361: a refused account-keyed attempt must throw the typed
-  //    `AccountRateLimitedError` (carrying `retryAfter`), not a plain `Error('ERR_RATE_LIMITED')` --
-  //    the route handler (`api/auth/site.ts`) tells the two apart to answer 429 instead of the
-  //    generic `ERR_`-prefix 400. Refused before `str.authenticate()` is ever reached, same as the
-  //    always-allowed stub in every other test in this block.
+  // -> The typed error is what lets `api/auth/site.ts` answer 429, not the generic `ERR_` 400.
   test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before authenticate() runs", async (t) => {
     installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: true, config: {} }))
     ;(CARDINAL.models as any).rateLimits.consume = async () => ({
@@ -733,10 +688,8 @@ describe('login.login (form-based provider auto-provisioning)', () => {
 })
 
 /**
- * `login()`'s own defense-in-depth guard against an empty/missing password on a `useForm` strategy
- * (LDAP being the one this actually protects, since its module-level check is the other half of the
- * same fix) — the route schema requiring `password` is the first guard, this is the second, and
- * neither is allowed to depend on the other alone.
+ * Defense in depth: the route schema requiring `password` is the first guard against an empty bind
+ * on a `useForm` strategy, this is the second, and neither may depend on the other alone.
  */
 describe('login.login (empty/missing password guard)', () => {
   const strategyId = 'strategy-1'
@@ -801,16 +754,9 @@ describe('login.login (empty/missing password guard)', () => {
 })
 
 /**
- * What the server log says about a login (OpenProject #2673).
- *
- * The audit table's `login.success` / `login.failed` rows are unchanged and are not what this
- * covers — these are the operator-facing lines beside them: one `info auth login` when a session is
- * actually created, and one `warn auth login refused` per refusal, each carrying a `reason` drawn
- * from the closed {@link LOGIN_REFUSAL_REASONS} vocabulary rather than free text.
- *
- * Pure: no database and no real logger. Every case drives a real refusal branch and reads the
- * arguments the logger stub was called with, so a branch rewired to a different reason (or to no
- * line at all) fails here rather than passing quietly.
+ * The operator-facing log lines, not the audit rows beside them. Each case drives a real refusal
+ * branch and reads what the logger stub was called with, so a branch rewired to a different reason
+ * — or to no line at all — fails here rather than passing quietly.
  */
 describe('login outcome logging', () => {
   const strategyId = 'strategy-1'
@@ -822,11 +768,9 @@ describe('login outcome logging', () => {
   let auditLogRecord: ReturnType<typeof mock.fn>
   let wiki: { restore(): void } | undefined
 
-  /** Every `warn('auth', message, fields)` call, as `[message, fields]`. */
   const warnCalls = (): Array<[string, any]> =>
     warn.mock.calls.map((call: any) => [call.arguments[1], call.arguments[2]])
 
-  /** The single refusal line one case produced, asserted to be exactly one. */
   function soleRefusal(): { message: string; fields: any } {
     const calls = warnCalls().filter(([message]) => message === 'login refused')
     assert.equal(calls.length, 1, `expected one refusal line, got ${JSON.stringify(warnCalls())}`)
@@ -859,7 +803,6 @@ describe('login outcome logging', () => {
     })
   }
 
-  /** A form-based strategy whose `authenticate()` does whatever the case needs. */
   function withStrategy(authenticate: () => Promise<any>): void {
     installWiki({
       auth: { strategies: { [strategyId]: { module: 'local', authenticate } } }
@@ -867,8 +810,8 @@ describe('login outcome logging', () => {
   }
 
   beforeEach(() => {
-    // -> `logLoginRefused` coalesces per address across calls, and the pending windows are module
-    //    level — a burst left over from one case would silence the next case's first refusal.
+    // -> The coalescing windows are module level, so a burst left over from one case would silence
+    //    the next case's first refusal.
     resetCoalesce()
     installWiki()
   })
@@ -1002,10 +945,9 @@ describe('login outcome logging', () => {
   })
 
   test('refuses a wrong 2FA code as reason=tfa-incorrect-code, and records a login.failed audit entry', async (t) => {
-    // -> A local mock rather than the shared `auditLogRecord` spy: this test's own `models` override
-    //    (needed for `userCredentials`) replaces `installWiki()`'s default `models` object wholesale,
-    //    so binding to `auditLogRecord` here would capture its value from before this very call
-    //    reassigns it, and end up asserting against a spy the code under test never calls.
+    // -> A local mock rather than the shared `auditLogRecord` spy: binding to that name here would
+    //    capture its value from before the `installWiki()` call below reassigns it, leaving the
+    //    assertions pointed at a spy the code under test never calls.
     const auditRecord = mock.fn(async () => {})
     installWiki({
       auth: { strategies: { strat: { module: 'local' } } },
@@ -1015,9 +957,8 @@ describe('login outcome logging', () => {
         userCredentials,
         auditLog: { record: auditRecord }
       },
-      // -> `countTfaFailure` is a module function rather than a method on `userCredentials`, so it
-      //    cannot be mocked out; it is let run against a `select()` chain answering no rows, which
-      //    is its own early return.
+      // -> `countTfaFailure` is a module function, not a method on `userCredentials`, so it cannot
+      //    be mocked out; it runs against a `select()` chain answering no rows, its own early return.
       db: {
         select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) })
       }
@@ -1044,9 +985,9 @@ describe('login outcome logging', () => {
     assert.equal(fields.user, 'user-7')
     assert.ok(!JSON.stringify(fields).includes('@'))
 
-    // -> Unlike the warn line above, the audit row IS allowed to carry the account's identity: the
-    //    continuation token already proved the password, so this is naming an already-resolved
-    //    account, not an unauthenticated caller's claim.
+    // -> Unlike the warn line above, the audit row may carry the account's identity: the
+    //    continuation token already proved the password, so this names an already-resolved account
+    //    rather than an unauthenticated caller's claim.
     assert.equal(auditRecord.mock.callCount(), 1)
     const entry = (auditRecord.mock.calls[0].arguments as any)[0]
     assert.equal(entry.event, 'login.failed')

@@ -6,13 +6,12 @@ import {
 } from '../db/schema.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 
-/** `immediate` sends a mail per change; `digest` batches them for a later send. */
 export type WatchNotifyMode = 'immediate' | 'digest'
 
 /**
- * The delivery preference on one watch. Every field optional/nullable throughout: a caller (or a
- * stored row) that leaves one out means "no opinion, use the default" for that field specifically —
- * setting a `notifyMode` does not force the caller to also restate which change types matter.
+ * Every field optional and nullable: a caller (or a stored row) that leaves one out means "no
+ * opinion, use the default" for that field specifically, so setting a `notifyMode` does not force
+ * the caller to also restate which change types matter.
  */
 export interface WatchNotifyPreference {
   notifyMode?: WatchNotifyMode | null
@@ -21,7 +20,6 @@ export interface WatchNotifyPreference {
   notifyOnDeleted?: boolean | null
 }
 
-/** The resolved preference, every field settled — what `resolvePreference` always returns. */
 export interface ResolvedWatchNotifyPreference {
   notifyMode: WatchNotifyMode
   notifyOnEdited: boolean
@@ -30,16 +28,11 @@ export interface ResolvedWatchNotifyPreference {
 }
 
 /**
- * What a watcher gets when they never touch their preference at all.
- *
- * `digest` rather than `immediate`: this is the one knob that is safe to get wrong in either
- * direction EXCEPT this one. An instance can go live, and watches can start accumulating, before
- * anybody has configured outbound mail (`CARDINAL.config.mail`) — see `models/mail.ts`. Defaulting to
- * `immediate` means the very first save on a watched page attempts a send against a transporter that
- * may not exist yet; defaulting to `digest` means it queues instead, harmlessly, until either mail
- * gets configured or the digest job (a later task) ships. Every change type notifies by default,
- * matching the behavior `models/pages.ts#notifyWatchers` already has today (see task 528): nothing
- * about adding a preference should silently narrow what an existing watcher gets told about.
+ * `digest` rather than `immediate`: an instance can go live, and watches start accumulating, before
+ * anybody has configured outbound mail, so `immediate` would make the first save on a watched page
+ * attempt a send against a transporter that may not exist. A digest row queues harmlessly instead.
+ * Every change type notifies by default — adding a preference must not silently narrow what an
+ * existing watcher is told about.
  */
 const DEFAULT_PREFERENCE: ResolvedWatchNotifyPreference = {
   notifyMode: 'digest',
@@ -48,7 +41,6 @@ const DEFAULT_PREFERENCE: ResolvedWatchNotifyPreference = {
   notifyOnDeleted: true
 }
 
-/** Fills in `DEFAULT_PREFERENCE` for whichever fields a stored row left null. */
 export function resolvePreference(stored: WatchNotifyPreference): ResolvedWatchNotifyPreference {
   return {
     notifyMode: stored.notifyMode ?? DEFAULT_PREFERENCE.notifyMode,
@@ -58,7 +50,6 @@ export function resolvePreference(stored: WatchNotifyPreference): ResolvedWatchN
   }
 }
 
-/** Whether a resolved preference wants to hear about this kind of change at all. */
 export function wantsAction(
   preference: ResolvedWatchNotifyPreference,
   action: PageWatchNotifiableAction
@@ -68,7 +59,6 @@ export function wantsAction(
   return preference.notifyOnDeleted
 }
 
-/** A watched page, as the inbox lists it. */
 export interface WatchedPage {
   pageId: string
   path: string
@@ -76,39 +66,29 @@ export interface WatchedPage {
   title: string
   description: string | null
   icon: string | null
-  /** When the page itself last changed, which is what a watcher is watching FOR. */
   updatedAt: Date
-  /** When this person started watching, i.e. how long they have been asking to be told. */
+  /** When this person started watching. */
   watchedAt: Date
-  /** This watch's delivery preference, resolved with `DEFAULT_PREFERENCE` — never a raw null. */
   preference: ResolvedWatchNotifyPreference
 }
 
-/** One person watching a page, as the page metadata rail plates them. */
 export interface PageWatcher {
   userId: string
   name: string
-  /** Up to two letters for the plate — see `initialsFor`. */
   initials: string
-  /** When this person started watching, which is what orders the list. */
   watchedAt: Date
 }
 
-/** `listForPage`'s answer: the leading watchers, and how many there are in total. */
 export interface PageWatchers {
   watchers: PageWatcher[]
-  /** Every watcher of the page, not just the ones returned — what the `+N` remainder counts from. */
+  /** Every watcher of the page, not just the returned slice — what a `+N` remainder counts from. */
   total: number
 }
 
 /**
- * Up to two letters, from the first and last word of a name — `Ada Lovelace` gives `AL`, and a
- * mononym gives its first letter. A nameless account gets a neutral glyph rather than a blank plate.
- *
- * The same derivation `frontend/src/components/CollabPresence.vue` draws its presence avatars with.
- * It is repeated here rather than left to the caller because `initials` is part of THIS route's
- * response contract (see `api/schemas/watcher.ts`), which any consumer reads — not only the SPA,
- * which has its own copy for the avatars it renders from data that never came from here.
+ * Part of this route's response contract (`api/schemas/watcher.ts`), which any consumer reads, so it
+ * is derived here rather than left to the caller — the SPA's own copy in `CollabPresence.vue` draws
+ * presence avatars from data that never came from here.
  */
 export function initialsFor(name: string | null | undefined): string {
   const words = (name ?? '').trim().split(/\s+/).filter(Boolean)
@@ -120,25 +100,12 @@ export function initialsFor(name: string | null | undefined): string {
 }
 
 /**
- * Page watching model
- *
- * Who has asked to be told about which pages, and how: the bell on a page reads `isWatching`, the
- * inbox lists `listForUser`, the page metadata rail's Watching section reads `listForPage`, and
- * `models/pages.ts#notifyWatchers` reads `listWatchers` to resolve who gets a notification — and
- * whether it should be sent right away or left for the digest job — for one change.
- *
  * `listForPage` and `listWatchers` both answer "who watches this page" and are NOT variations of one
  * method: the first is a public, ordered, counted read for display, the second a notification-path
  * read that excludes the actor, honours each watcher's delivery preference and re-checks their own
- * `read:pages`. Each documents where its own line is drawn.
+ * `read:pages`.
  */
 class PageWatching {
-  /**
-   * Whether this user is watching this page.
-   *
-   * Answered for the page view, which asks about every page it draws, so it is a single indexed lookup
-   * on the pair — and not asked at all for a guest, who cannot watch anything.
-   */
   async isWatching(pageId: string, userId: string | null): Promise<boolean> {
     if (!userId) {
       return false
@@ -152,14 +119,10 @@ class PageWatching {
   }
 
   /**
-   * Start watching a page, optionally setting its delivery preference at the same time.
-   *
-   * Idempotent: watching a page one is already watching is what the reader asked for, and the unique
-   * index turns the second row into nothing rather than into an error — which means a preference
-   * passed here only ever takes effect on the FIRST watch. Changing the preference on a watch that
-   * already exists goes through `setPreference()` instead; folding that into an upsert here would
-   * make re-pressing the watch button (a no-op today) silently overwrite whatever the watcher had
-   * chosen, the first time it happened to run with different defaults in the request.
+   * Idempotent: the unique index turns a second watch into nothing rather than an error, so a
+   * preference passed here only ever takes effect on the FIRST watch — changing one afterwards goes
+   * through `setPreference()`. Folding that into an upsert would let re-pressing the watch button
+   * silently overwrite whatever the watcher had chosen.
    */
   async watch({
     siteId,
@@ -178,13 +141,10 @@ class PageWatching {
   }
 
   /**
-   * Change the delivery preference on an existing watch.
-   *
-   * Only the fields passed are touched — omitting `notifyMode` leaves it exactly as stored, it does
-   * not reset it to null — so a caller adjusting one knob in a preferences panel never has to first
-   * read the other three back just to echo them unchanged. Returns whether a watch existed to update:
-   * there is nothing to set a preference ON if the caller is not watching the page, and the route
-   * uses this to tell the two cases apart rather than silently succeeding at nothing.
+   * Only the fields passed are touched — omitting `notifyMode` leaves it exactly as stored rather
+   * than resetting it to null — so a caller adjusting one knob never has to read the other three
+   * back just to echo them. Answers whether a watch existed to update, which is how the route tells
+   * "not watching this page" apart from silently succeeding at nothing.
    */
   async setPreference({
     pageId,
@@ -206,12 +166,9 @@ class PageWatching {
   }
 
   /**
-   * The resolved delivery preference for one watch, or null if there is no such watch.
-   *
-   * Used to answer both `watch` and `setPreference` back to the caller with what is actually stored
-   * now, rather than echoing back whatever the request happened to send — `watch()` silently ignores
-   * a preference passed to an already-existing watch (see its own comment), so echoing the request
-   * body there would show the caller a preference that was never applied.
+   * What lets `watch` and `setPreference` answer with what is actually stored rather than echoing
+   * the request body: `watch()` silently ignores a preference passed to an already-existing watch,
+   * so an echo would show the caller a preference that was never applied.
    */
   async getPreference(
     pageId: string,
@@ -234,10 +191,6 @@ class PageWatching {
     return resolvePreference({ ...row, notifyMode: row.notifyMode as WatchNotifyMode | null })
   }
 
-  /**
-   * Stop watching a page. Also idempotent, for the same reason: the outcome asked for is that no row
-   * exists, and it does not.
-   */
   async unwatch({ pageId, userId }: { pageId: string; userId: string }): Promise<void> {
     await CARDINAL.db
       .delete(watchingTable)
@@ -245,19 +198,14 @@ class PageWatching {
   }
 
   /**
-   * The pages this user watches on a site, most recently watched first.
-   *
    * Joined to the pages rather than storing a copy of the title and the path, so a page that is
    * renamed or moved is listed where it is now — which is the point of watching it. A deleted page
    * takes its rows with it through the foreign key, so nothing here can point at one that is gone.
    *
-   * OpenProject #2173: `read:pages` was checked once, at subscribe time, and never again. A watcher
-   * whose group lost the page (a path DENY written after they subscribed, a CLASSIFICATION rule, a
-   * group membership change) kept seeing the page's title, path and current location here
-   * indefinitely — this now re-checks `read:pages` live, against the row's CURRENT
-   * path/locale/tags/classification, every time the list is read, and simply drops a row that no
-   * longer passes rather than surfacing a 403 for the one entry: watching is per-page, so one revoked
-   * page must not fail the caller's whole list.
+   * `read:pages` is re-checked on every read, against each row's CURRENT
+   * path/locale/tags/classification, not just at subscribe time. A row that no longer passes is
+   * dropped rather than surfaced as a 403: watching is per-page, so one revoked page must not fail
+   * the caller's whole list.
    */
   async listForUser(siteId: string, userId: string): Promise<WatchedPage[]> {
     const rows = await CARDINAL.db
@@ -317,28 +265,13 @@ class PageWatching {
   }
 
   /**
-   * Who is watching this page right now and wants to hear about this kind of change, minus one
-   * person — the actor whose own change this is, since nobody needs telling about their own edit.
-   * Each result carries its own resolved `notifyMode`, which is what tells `notifyWatchers`'s caller
-   * whether to attempt an immediate send or leave the row for the digest job to pick up later.
-   *
    * Called synchronously from `models/pages.ts#notifyWatchers` rather than from the job it queues: a
-   * delete removes the page in the same request, which cascades this table away with it, so the watch
-   * list AND each watcher's preference have to be read before that happens rather than whenever the
-   * queued job gets around to it — by then there would be no row left to read either from. A single
-   * indexed lookup either way — this is the part of notifying watchers that does NOT scale with how
-   * many of them there are; writing a row per watcher is what the job is for.
+   * delete removes the page in the same request, which cascades this table away with it, so the
+   * watch list AND each watcher's preference have to be read before that happens. The live page row
+   * is joined in for the same reason — it is still there to check `read:pages` against.
    *
-   * A watcher whose preference excludes this action type entirely (`wantsAction` false) is left out of
-   * the result, not merely marked — there is nothing to queue for them.
-   *
-   * OpenProject #2173: also filtered through `read:pages`, checked fresh for each watcher's CURRENT
-   * group membership against the page's CURRENT (pre-delete, for a `deleted` action) path, locale,
-   * tags and classification — a watcher whose group has since lost the page entirely must not be
-   * queued a notification, mailed one, or have a `pageWatchEvents` row recorded for one at all. Joined
-   * against `pagesTable` rather than requiring the caller to pass the page's own fields in: this
-   * method already runs while the row still exists (see this class's `notifyWatchers`-facing doc
-   * comment above), so the live row is right there to read.
+   * A watcher whose preference excludes this action, or whose groups have since lost the page, is
+   * left out of the result rather than marked: there is nothing to queue for them.
    */
   async listWatchers(
     siteId: string,
@@ -396,29 +329,16 @@ class PageWatching {
   }
 
   /**
-   * Who is watching this page, oldest watcher first, plus how many there are in total.
-   *
-   * The page metadata rail's Watching section: a row of initial plates and a `+N` remainder. The cap
-   * on how many plates are drawn is the RAIL's decision, so it arrives as `limit` and is nowhere in
-   * here — `total` is always counted over every watcher, not over the returned slice, or the
-   * remainder would be wrong the moment the cap changed.
-   *
-   * Oldest first (`asc` on `createdAt`), not newest: the plates are meant to read as who has been
-   * following the page, and a page whose watchers churn should not have its rail reshuffle. The
-   * ordering is the whole reason `watchedAt` comes back on each row — a consumer can see the order is
-   * real rather than take the array's word for it.
+   * How many plates the rail draws is the RAIL's decision, so it arrives as `limit`; `total` is
+   * counted over every watcher, not the returned slice, or the `+N` remainder would be wrong the
+   * moment the cap changed. Oldest first, so a page whose watchers churn does not reshuffle its rail.
    *
    * **Deliberately NOT filtered by each watcher's own `read:pages`**, unlike `listForUser` and
-   * `listWatchers`. Those two answer "what should this person be shown / be mailed", so a watcher who
-   * has since lost the page has to drop out of their own answer (OpenProject #2173). This answers
-   * "who watches this page", asked BY somebody else; the privacy boundary is the CALLER's `read:pages`
-   * on the page, which `helpers/pageAccess.ts#requireReadablePage` has already enforced before the
-   * route gets here. Re-checking every watcher would also turn a fixed two-query read into one group
-   * -rule evaluation per watcher for a decoration on the page view.
+   * `listWatchers`: this answers "who watches this page", asked BY somebody else, whose own
+   * `read:pages` `helpers/pageAccess.ts#requireReadablePage` has already enforced. Re-checking every
+   * watcher would also turn a fixed two-query read into one group-rule evaluation per watcher.
    *
-   * `pageId` alone is the key — no `siteId`. A page belongs to exactly one site and the route resolved
-   * it within that site already, so a second predicate would assert something the caller has proven;
-   * `listForUser` takes a `siteId` because an inbox genuinely spans sites and this does not.
+   * `pageId` alone is the key: a page belongs to one site, which the route already resolved.
    */
   async listForPage(pageId: string, { limit }: { limit: number }): Promise<PageWatchers> {
     const rows = await CARDINAL.db
@@ -432,10 +352,6 @@ class PageWatching {
       .where(eq(watchingTable.pageId, pageId))
       .orderBy(asc(watchingTable.createdAt), asc(watchingTable.userId))
       .limit(limit)
-    /*
-      Counted separately rather than inferred from `rows.length`, which only equals the total while the
-      page has fewer watchers than the cap -- exactly the case the `+N` remainder does not exist for.
-    */
     const totals = await CARDINAL.db
       .select({ total: count() })
       .from(watchingTable)

@@ -1,7 +1,6 @@
 import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import { decodeTreePath, generatePathHash } from '../helpers/common.ts'
 
-/** A page whose stored `hash` no longer matches `generatePathHash(path)` — see `models/pages.ts`. */
 export interface HashDriftEntry {
   id: string
   siteId: string
@@ -12,16 +11,12 @@ export interface HashDriftEntry {
 }
 
 /**
- * A `tree` row of type `page` with no matching `pages` row, or vice-versa, matched by id.
- *
- * `tree.id` is set to the originating `pages.id` at creation time (`models/tree.ts#addPage`), and
- * `models/pages.ts#getPage` already joins the two tables on that equality — but nothing enforces it:
- * there is no FK either way (`pages.id` cannot reference a polymorphic `tree` row, and `tree.id`
- * covers folders and assets too), so a crash or a bug partway through a delete can leave one side
+ * `tree.id` is set to the originating `pages.id` (`models/tree.ts#addPage`), but nothing enforces
+ * it: there is no FK either way — `pages.id` cannot reference a polymorphic `tree` row, and
+ * `tree.id` covers folders and assets too — so a crash partway through a delete leaves one side
  * behind. The id is the real, if unenforced, link between the two.
  */
 export interface TreeDivergenceEntry {
-  /** `orphanTreeEntry`: a tree page row with no page. `orphanPageRow`: a page with no tree entry. */
   direction: 'orphanTreeEntry' | 'orphanPageRow'
   id: string
   siteId: string
@@ -29,7 +24,6 @@ export interface TreeDivergenceEntry {
   path: string
 }
 
-/** More than one `pages` row sharing the same `(siteId, locale, path)` — should be impossible. */
 export interface DuplicatePathEntry {
   siteId: string
   locale: string
@@ -38,14 +32,9 @@ export interface DuplicatePathEntry {
 }
 
 /**
- * A relation whose `target` points at a page of this wiki that no longer exists.
- *
- * A relation is stored as `{ id, position, label, icon, target, ... }` (see
- * `frontend/src/components/PageRelationDialog.vue`), where `target` is whatever
- * `LinkPickerDialog` produced: `/some/path` for a page of this wiki, or an arbitrary URL for
- * anything else. There is no `pageId` on a relation to look up — the path is all it carries — so
- * "the page id it references" (as this check is sometimes described) means the page, if any, whose
- * `path` matches once the leading slash is stripped, within the same site.
+ * A relation carries no page id — only a `target`, which is `/some/path` for a page of this wiki or
+ * an arbitrary URL for anything else. "Broken" therefore means no page in the same site has that
+ * path once the leading slash is stripped.
  */
 export interface BrokenRelationEntry {
   pageId: string
@@ -57,10 +46,10 @@ export interface BrokenRelationEntry {
 }
 
 /**
- * A `pages` or `tree` row whose path's first segment names an INSTALLED locale — grandfathered in
- * from before that segment was reserved (`models/locales.ts#isReservedLocaleCode`), or a row an
- * import/migration/direct write bypassed the model layer to create. `table` is which one it lives
- * in; a page and its own tree entry both show up here independently, same as the other checks.
+ * A `pages` or `tree` row whose path's first segment names an installed locale — grandfathered in
+ * from before that segment was reserved (`models/locales.ts#isReservedLocaleCode`), or written by
+ * an import or migration bypassing the model layer. A page and its own tree entry show up here
+ * independently, same as the other checks.
  */
 export interface LocaleCollisionEntry {
   table: 'pages' | 'tree'
@@ -88,16 +77,11 @@ interface RelationEntry {
 }
 
 /**
- * Page problems model
- *
  * Five integrity checks across `pages` and `tree` that nothing in the normal write path guarantees
- * stays true, run as one instance-wide scan (`scan()`) rather than per-site — there is no reason a
- * drifted hash or a dangling tree row on one site is more or less worth surfacing than on another.
- * Queued as a background job (`tasks/simple/scan-page-problems.ts`) rather than run inline: a full
- * scan of `pages` and `tree` on a large wiki is not instant.
- *
- * Every check only reports — nothing here writes to the database. An admin reviews the report and
- * decides what, if anything, to fix; auto-repair is deliberately out of scope (see task 586).
+ * stays true. Instance-wide rather than per-site — a drifted hash on one site is no more worth
+ * surfacing than on another — and queued as a background job
+ * (`tasks/simple/scan-page-problems.ts`) because a full scan of both tables is not instant on a
+ * large wiki. Reporting only: nothing here writes, and auto-repair is deliberately out of scope.
  */
 class PageProblemsModel {
   async scan(): Promise<PageProblemsReport> {
@@ -113,8 +97,8 @@ class PageProblemsModel {
       .from(pagesTable)
 
     const pageIdSet = new Set(pageRows.map((p) => p.id))
-    // -> Site-scoped, not global: a relation's `target` is a bare path with no site of its own, so
-    //    it can only ever mean a page of the same site the relation lives on
+    // -> Site-scoped: a relation's `target` is a bare path with no site of its own, so it can only
+    //    ever mean a page of the site the relation lives on
     const pathsBySite = new Map<string, Set<string>>()
     for (const p of pageRows) {
       let paths = pathsBySite.get(p.siteId)
@@ -125,7 +109,6 @@ class PageProblemsModel {
       paths.add(p.path)
     }
 
-    // -> Check 1: hash drift
     const hashDrift: HashDriftEntry[] = []
     for (const p of pageRows) {
       const expectedHash = generatePathHash(p.path)
@@ -141,7 +124,6 @@ class PageProblemsModel {
       }
     }
 
-    // -> Check 3: duplicate (siteId, locale, path) tuples
     const groups = new Map<string, DuplicatePathEntry>()
     for (const p of pageRows) {
       const key = `${p.siteId} ${p.locale} ${p.path}`
@@ -154,14 +136,11 @@ class PageProblemsModel {
     }
     const duplicatePaths = [...groups.values()].filter((group) => group.pageIds.length > 1)
 
-    // -> Check 4: relations pointing at a page that no longer exists
     const brokenRelations: BrokenRelationEntry[] = []
     for (const p of pageRows) {
       const relations = Array.isArray(p.relations) ? (p.relations as RelationEntry[]) : []
       for (const relation of relations) {
         const target = relation?.target
-        // -> Only an internal page link (`/some/path`) is a page reference; anything else (a full
-        //    URL, or malformed data) is not this check's concern
         if (typeof target !== 'string' || !target.startsWith('/')) {
           continue
         }
@@ -179,10 +158,8 @@ class PageProblemsModel {
       }
     }
 
-    // -> Check 2: tree/page divergence, matched by id (see `TreeDivergenceEntry`'s doc comment).
-    //    Fetched for every tree row type (not just `page`), so check 5 below can reuse it rather than
-    //    reading the whole table a second time — a root-level FOLDER shadows a locale prefix exactly
-    //    as a page does, so it belongs in that check too.
+    // -> Every tree row type, not just `page`: the locale-collision pass below reuses this rather
+    //    than reading the table twice, and a root folder shadows a locale prefix as a page does.
     const treeRows = await CARDINAL.db
       .select({
         id: treeTable.id,
@@ -221,14 +198,11 @@ class PageProblemsModel {
       }
     }
 
-    // -> Check 5: rows grandfathered in before locale codes were reserved as first path segments
-    //    (see `models/locales.ts#isReservedLocaleCode`, `models/pages.ts#createPage`/`movePage`,
-    //    `models/tree.ts#createFolder`/`renameFolder`) — every code ever installed, not just active
-    //    on a given site, since a row shadowed by activation later is exactly the case this guards.
+    // -> Every code ever installed, not just those active on a given site: a row shadowed by a
+    //    later activation is exactly the case this guards.
     const installedLocales = await CARDINAL.models.locales.getLocales()
-    // -> Keyed by lowercased code (matching is case-insensitive -- a path segment collides
-    //    regardless of how it's cased) but valued with the code exactly as installed, so a report
-    //    names the real offender (`FR`) rather than an artifact of the matching (`fr`).
+    // -> Matching is case-insensitive, but the value keeps the installed casing so a report names
+    //    the real offender (`FR`) rather than an artifact of the matching (`fr`).
     const codes = new Map(
       installedLocales.map((lc: any) => [String(lc.code).toLowerCase(), String(lc.code)])
     )

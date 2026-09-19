@@ -13,14 +13,10 @@ import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
 /**
- * Task 530: the delivery preference on a watch — `watch()` accepting and persisting it,
- * `setPreference()` changing it after the fact, and the defaults every unset field resolves to.
- *
  * DB-backed rather than mocked: the interesting behavior is the unique-index-driven idempotency of
  * `watch()` (a second call must NOT clobber a preference already stored) and a partial `UPDATE` in
- * `setPreference()` (fields left out of the call must survive untouched) — both are properties of
- * the actual SQL, not of this file's own logic, so a stubbed query builder would only be testing that
- * the stub does what the stub was told to do.
+ * `setPreference()` (fields left out of the call must survive untouched) — both properties of the
+ * actual SQL, which a stubbed query builder would not exercise.
  */
 describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -62,10 +58,9 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
       .returning({ id: usersTable.id })
     watcherId = watcher!.id
 
-    // -> The watcher is an ordinary reader, not an admin: put them in the fixture group and grant it
-    //    a plain `read:pages` ALLOW everywhere, so `listWatchers`/`listForUser`'s OpenProject #2173
-    //    read:pages re-check has something real to pass against (see the DENY-rule case below, which
-    //    narrows this same rule to prove the check actually bites).
+    // -> The watcher is an ordinary reader, not an admin: in the fixture group with a plain
+    //    `read:pages` ALLOW everywhere, so `listWatchers`/`listForUser`'s read:pages re-check has
+    //    something real to pass against (the DENY case below narrows this same rule).
     await fixtures.db
       .insert(userGroupsTable)
       .values({ userId: watcherId, groupId: fixtures.groupId })
@@ -134,7 +129,6 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
       notifyMode: 'immediate'
     })
 
-    // Re-watching (the button pressed twice) with a different preference in the body must be a no-op.
     await pageWatchingModel.watch({
       siteId: fixtures.siteId,
       pageId,
@@ -208,8 +202,7 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
   test('a watcher who lost read:pages is excluded from listWatchers and from their own notification listing (OpenProject #2173)', async () => {
     await pageWatchingModel.watch({ siteId: fixtures.siteId, pageId, userId: watcherId })
 
-    // -> Narrow the fixture group's blanket ALLOW with a DENY on this specific page, then reload the
-    //    cache -- the same "revoked after subscribing" scenario the audit describes.
+    // -> Revoked after subscribing: narrow the blanket ALLOW with a DENY on this page.
     await fixtures.db
       .update(groupsTable)
       .set({
@@ -260,7 +253,7 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
         'a watcher who lost read:pages must not be queued a notification for this page'
       )
     } finally {
-      // -> Restore the blanket ALLOW so no later test in this file inherits the narrowed rule.
+      // -> Restore the blanket ALLOW so no later test inherits the narrowed rule.
       await fixtures.db
         .update(groupsTable)
         .set({
@@ -291,21 +284,16 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
   })
 
   /**
-   * OpenProject #2646: `listForPage`, the page metadata rail's Watching section.
-   *
-   * DB-backed for the same reason the rest of this file is: what is interesting here is the SQL — an
-   * `ORDER BY createdAt` the rows are deliberately NOT inserted in, a `LIMIT` that must not reach the
-   * `COUNT(*)`, and a join to `users` — none of which a stubbed query builder would verify.
+   * DB-backed for the same reason the rest of this file is: an `ORDER BY createdAt` over rows
+   * deliberately NOT inserted in that order, a `LIMIT` that must not reach the `COUNT(*)`, and a
+   * join to `users`.
    *
    * Rows are inserted straight into the table with explicit `createdAt` values rather than through
-   * `watch()`: `watch()` stamps `defaultNow()`, so ordering would rest on how fast three statements
-   * ran, which is not a property worth asserting on.
+   * `watch()`, whose `defaultNow()` would make the ordering rest on how fast the statements ran.
    */
   describe('listForPage', () => {
     let listPageId: string
-    /** Insertion order is deliberately not watch order — the query has to do the sorting. */
     const NAMES = ['Grace Hopper', 'Ada Lovelace', 'Prince', '']
-    /** `watchedAt` per name, so oldest-first is Ada, Prince, Grace, then the nameless account. */
     const WATCHED_AT: Record<string, Date> = {
       'Ada Lovelace': new Date('2026-01-01T00:00:00.000Z'),
       Prince: new Date('2026-02-01T00:00:00.000Z'),
@@ -404,8 +392,8 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
     })
 
     test('another page’s watchers are not counted into this one', async () => {
-      // -> The one thing a `WHERE pageId` typo would not otherwise show up as: `pageId` is the whole
-      //    of the filter here (no `siteId`), so a missing predicate would total the entire table.
+      // -> `pageId` is the whole of the filter here (no `siteId`), so a missing predicate would
+      //    total the entire table.
       const other = await pagesModel.createPage(
         fixtures.siteId,
         {
@@ -428,10 +416,10 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
 
     test('a watcher who lost read:pages is still listed — this answers about the page, not about them', async () => {
       /*
-        The deliberate difference from `listForUser`/`listWatchers`, which both drop such a watcher
-        (OpenProject #2173). Those answer "what should this person see / be mailed"; this answers "who
-        watches this page", asked by somebody else whose OWN read:pages the route has already checked.
-        Asserted rather than left implicit, so a later "consistency" change has to argue with a test.
+        A deliberate difference from `listForUser`/`listWatchers`, which both drop such a watcher.
+        Those answer "what should this person see / be mailed"; this answers "who watches this page",
+        asked by somebody else whose OWN read:pages the route has already checked. Asserted rather
+        than left implicit, so a later "consistency" change has to argue with a test.
       */
       const [outsider] = await fixtures.db
         .insert(usersTable)
@@ -459,10 +447,6 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
   })
 })
 
-/**
- * `initialsFor` is a pure function over a name, so it is tested without a database — the plate the
- * rail draws is exactly two letters, one letter, or a neutral glyph, and nothing else.
- */
 describe('initialsFor (OpenProject #2646)', () => {
   test('takes the first and last word, uppercased', () => {
     assert.equal(initialsFor('Ada Lovelace'), 'AL')

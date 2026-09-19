@@ -4,14 +4,6 @@ import { login } from './login.ts'
 import { userCredentials } from './userCredentials.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-/**
- * OpenProject #3302: `loginTFA()` fires `sendTfaNewDeviceLogin` only for a login whose (IP, User-Agent)
- * fingerprint has never been recorded for the account before — a returning device/location updates its
- * `lastSeenAt` silently. `CARDINAL.db` is stood in for directly (a small select/insert/update stub)
- * rather than run against a real database: what is under test here is `checkAndRecordTfaDevice`'s
- * new-vs-known branching and `loginTFA`'s use of it, not SQL — see `models/login.test.ts`'s own
- * `login.loginTFA` describe block for the same reasoning applied to its other collaborators.
- */
 describe('login.loginTFA (new-device/new-location notice)', () => {
   function makeUser(overrides: Partial<any> = {}): any {
     return {
@@ -25,9 +17,8 @@ describe('login.loginTFA (new-device/new-location notice)', () => {
   }
 
   /**
-   * `existingRows` is what the fingerprint lookup's `.limit(1)` answers -- an empty array is "never
-   * seen before", one row is "already known". `insert`/`update` calls are recorded so a test can
-   * assert exactly one of the two fired.
+   * `existingRows` is what the fingerprint lookup's `.limit(1)` answers -- empty is "never seen
+   * before", one row is "already known".
    */
   function makeDeviceDbStub({ existingRows = [] as any[] } = {}) {
     const insertedValues: any[] = []
