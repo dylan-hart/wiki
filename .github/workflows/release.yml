@@ -141,8 +141,12 @@ jobs:
       # exact commit is stale, was skipped, or #423 hasn't landed in build.yml at all yet. Every
       # step in this section runs before the Docker login/build/push below on purpose — a failure
       # anywhere in this section stops the job and nothing below it ever runs.
+      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner (see
+      # quality.yml; enforced by backend/test/workflowInstallEnv.test.ts).
       - name: Install Backend Dependencies
         working-directory: backend
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: npm ci
 
       - name: Backend Typecheck

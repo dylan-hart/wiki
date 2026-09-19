@@ -80,8 +80,13 @@ jobs:
           yq -iP '.version = strenv(REL_VERSION)' backend/package.json -o json
           yq -iP '.version = strenv(REL_VERSION)' frontend/package.json -o json
 
+      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner (see
+      # quality.yml; enforced by backend/test/workflowInstallEnv.test.ts). The "Prepare build
+      # archive" install below is intentionally without it -- it builds the shipped artifact.
       - name: Install Backend Dependencies
         working-directory: backend
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: npm ci
 
       - name: Build Assets
