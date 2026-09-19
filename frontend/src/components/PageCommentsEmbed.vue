@@ -1,5 +1,5 @@
 <template>
-  <section v-if="canShowEmbed" class="page-comments-embed">
+  <section v-if="canShowEmbed" class="page-comments-embed text-text-body dark:text-text-dark">
     <header class="page-comments-embed-header flex items-center gap-2">
       <h2 class="text-h6 m-0">{{ t(`common.comments.title`) }}</h2>
     </header>
