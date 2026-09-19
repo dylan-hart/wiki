@@ -143,8 +143,14 @@ const state = reactive({
    * which is this ENTRY's cascade setting. Loaded from the currently-resolved menu (`pageStore.navigationId`)
    * on open, via `loadMenuMode`, and saved alongside `mode` as `menuMode` -- see `save()` and
    * `updateNavigation`'s own doc comment for why the two travel separately.
+   *
+   * `null` until `loadMenuMode` resolves, not a hardcoded `'static'` (OpenProject #3463, the same
+   * null-until-loaded pattern as `ProfileInfo.vue`/`ProfilePreferences.vue`, #3281): `w-btn-toggle`
+   * selects no segment for `null` and `menuSourceHint` is empty, so the control never flashes
+   * "Manual" before the real value lands. A failed load leaves it `null` on purpose -- nothing is
+   * selected, and `save()`/`startEditing()` leave `menuMode` out rather than send a `null`.
    */
-  menuMode: 'static',
+  menuMode: null,
   loading: 0
 })
 
@@ -277,6 +283,10 @@ async function loadInheritedNav() {
  */
 async function loadMenuMode() {
   if (!pageStore.navigationId) {
+    // -> Nothing to fetch and nothing pending: a menu this page has no row for yet starts out as
+    //    Manual, so this is the answer, not a guess. Without it the control (shown once the reader
+    //    switches from Hide to Override) would sit with no segment selected for good.
+    state.menuMode = 'static'
     return
   }
   try {
@@ -296,7 +306,8 @@ function startEditing() {
     overlay: 'NavEdit',
     overlayOpts: {
       mode: state.mode,
-      menuMode: state.menuMode,
+      // -> Never a `null` (the mode has not loaded): left out so the overlay falls back to its own default
+      ...(state.menuMode !== null && { menuMode: state.menuMode }),
       // -> A menu this page does not own: only Inherit edits one, and only away from the root, where
       //    inheriting and owning are the same menu. See NavEditOverlay's `navId`.
       ...(!isRoot.value && state.mode === 'inherit' && { navId: state.inheritedNavId })
@@ -311,7 +322,8 @@ async function save() {
     // -> The menu items themselves are what the overlay saves; this popup only ever saves the two
     //    modes -- the entry's cascade (`mode`) and the resolved menu's own source (`menuMode`)
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
-      json: { mode: state.mode, menuMode: state.menuMode }
+      // -> `menuMode` only once loaded: the server treats it as optional, so a null is never sent
+      json: { mode: state.mode, ...(state.menuMode !== null && { menuMode: state.menuMode }) }
     }).json()
     notify({
       type: 'positive',
