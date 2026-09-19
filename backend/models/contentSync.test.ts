@@ -112,6 +112,28 @@ async function makeAsset(fileName: string): Promise<string> {
 }
 
 /**
+ * A `syncedAt` guaranteed to be later than the `updatedAt` of every row this test has already
+ * inserted, whatever the sub-millisecond timing of the inserts.
+ *
+ * `recordSuccess` serialises `syncedAt` with `smallestUnit: 'millisecond'`, which TRUNCATES, while a
+ * freshly inserted row's `updatedAt` is Postgres's own `now()` at microsecond precision. A "sync
+ * right after the insert" written with the Node clock, or with the DB's `now()` read a moment later,
+ * therefore lands *before* the row's `updatedAt` whenever the two fall in the same millisecond: the
+ * row is then still out of date and the count does not move (OpenProject #3441). Reading the DB clock
+ * once and adding a whole second makes the ordering a fact, not a race, and keeps it on one clock.
+ */
+async function dbClock(): Promise<Temporal.Instant> {
+  const [{ dbNow }] = (await CARDINAL.db.execute(sql`select now() as "dbNow"`)).rows as [
+    { dbNow: string }
+  ]
+  return Temporal.Instant.from(dbNow)
+}
+
+async function syncedAfterInserts(): Promise<Temporal.Instant> {
+  return (await dbClock()).add({ seconds: 1 })
+}
+
+/**
  * Read-back oracles: these read `contentSyncState` directly rather than through the model.
  *
  * The model used to carry `getState`/`getStatesForContent`/`getStatesForTarget` for exactly this, but
@@ -292,7 +314,8 @@ test('countOutOfDate drops a page synced after its last update', { skip }, async
     contentType: 'page',
     contentId: pageId,
     targetId,
-    direction: 'push'
+    direction: 'push',
+    syncedAt: await syncedAfterInserts()
   })
 
   assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), before - 1)
@@ -302,32 +325,26 @@ test('countOutOfDate counts a page updated after its last sync again', { skip },
   const targetId = await makeTarget('test-count-updated-after-sync')
   const pageId = await makePage('updated-after-sync')
 
-  // -> `recordSuccess` stamps `lastSyncedAt` from the caller's clock (defaulting to the Node
-  //    process's own `Temporal.Now.instant()`), while `countOutOfDate` compares it against
-  //    `pages.updatedAt`, a column Postgres itself writes. Bumping `updatedAt` with the DB's own
-  //    `now() + interval '1 second'` while leaving `recordSuccess` on the Node clock mixes two
-  //    clocks for what has to be one consistent ordering -- fine on a single host, not guaranteed
-  //    between a CI runner and its separate Postgres service container, and it flaked exactly
-  //    this assertion when the two drifted (OpenProject #2737, previously quarantined). Reading
-  //    Postgres's own `now()` once and deriving both timestamps from it makes the ordering a fact
-  //    about one clock, not two.
-  const [{ dbNow }] = (await CARDINAL.db.execute(sql`select now() as "dbNow"`)).rows as [
-    { dbNow: string }
-  ]
+  // -> Both timestamps are derived from one read of Postgres's own clock, a second apart each:
+  //    `pages.updatedAt` is written by Postgres while `recordSuccess` stamps `lastSyncedAt` from
+  //    whatever instant the caller hands it, so mixing the Node clock in (OpenProject #2737) or
+  //    handing over the DB's `now()` un-padded (#3441: `recordSuccess` truncates to milliseconds, so a
+  //    `now()` within the same millisecond as the page's insert stamps the sync BEFORE the insert)
+  //    lets the "synced" page still count as out of date, and the delta below reads +0 instead of +1.
+  //    Sync at now + 1s, then edit at now + 2s: the ordering holds at any timing.
+  const dbNow = await dbClock()
+  const editedAt = dbNow.add({ seconds: 2 })
   await contentSync.recordSuccess({
     contentType: 'page',
     contentId: pageId,
     targetId,
     direction: 'push',
-    syncedAt: Temporal.Instant.from(dbNow)
+    syncedAt: dbNow.add({ seconds: 1 })
   })
   const whileSynced = await contentSync.countOutOfDate('page', targetId, { siteId })
   await CARDINAL.db
     .update(pagesTable)
-    .set({
-      title: 'edited after sync',
-      updatedAt: sql`${dbNow}::timestamptz + interval '1 second'`
-    })
+    .set({ title: 'edited after sync', updatedAt: new Date(editedAt.epochMilliseconds) })
     .where(eq(pagesTable.id, pageId))
 
   assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), whileSynced + 1)
@@ -343,7 +360,8 @@ test('countOutOfDate applies the same logic to assets', { skip }, async () => {
     contentType: 'asset',
     contentId: assetId,
     targetId,
-    direction: 'push'
+    direction: 'push',
+    syncedAt: await syncedAfterInserts()
   })
   assert.equal(await contentSync.countOutOfDate('asset', targetId, { siteId }), before - 1)
 })
@@ -361,7 +379,8 @@ test('countOutOfDate is scoped to its contentType, not just the target', { skip 
     contentType: 'page',
     contentId: pageId,
     targetId,
-    direction: 'push'
+    direction: 'push',
+    syncedAt: await syncedAfterInserts()
   })
   await makeAsset('count-type-scope.png')
 
