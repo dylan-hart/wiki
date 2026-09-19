@@ -6,16 +6,10 @@ import { jobHistory as jobHistoryTable, jobLock as jobLockTable } from '../db/sc
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { runWithJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 
-/**
- * `JOB_SCHEDULE_SEED` is what `init()` inserts into `jobSchedule` on first boot -- asserted on
- * directly here, without a database, since `init()` itself is a straight `db.insert` of this array.
- */
-
 test('JOB_SCHEDULE_SEED registers storageSyncTick on a short, valid cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'storageSyncTick')
   assert.ok(entry, 'expected a storageSyncTick entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "* * * * *" (every minute)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
@@ -23,7 +17,6 @@ test('JOB_SCHEDULE_SEED registers storageDailyBackup on a valid daily cron', () 
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'storageDailyBackup')
   assert.ok(entry, 'expected a storageDailyBackup entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "30 2 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
@@ -31,7 +24,6 @@ test('JOB_SCHEDULE_SEED registers cleanAuditLog on a valid daily cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'cleanAuditLog')
   assert.ok(entry, 'expected a cleanAuditLog entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "35 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
@@ -39,13 +31,12 @@ test('JOB_SCHEDULE_SEED registers purgePageviews on a valid daily cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageviews')
   assert.ok(entry, 'expected a purgePageviews entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "25 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
 test('JOB_SCHEDULE_SEED never claims two tasks on the same cron expression (OpenProject #2059)', () => {
-  // -> Two entries sharing a cron are claimed in the same `processJob` batch; checkVersion and
-  //    updateLocales sharing '0 0 * * *' was how `CARDINAL.config.update.locales` got silently dropped.
+  // -> Two entries sharing a cron are claimed in the same `processJob` batch, where one task's
+  //    write to shared config can race the other's read of it.
   const crons = JOB_SCHEDULE_SEED.map((e) => e.cron)
   assert.deepEqual(crons, [...new Set(crons)], 'expected every JOB_SCHEDULE_SEED cron to be unique')
 })
@@ -54,7 +45,6 @@ test('JOB_SCHEDULE_SEED registers purgeContentSyncState on a valid daily cron, a
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeContentSyncState')
   assert.ok(entry, 'expected a purgeContentSyncState entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "40 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 
   const crons: string[] = JOB_SCHEDULE_SEED.filter((e) => e.task !== 'purgeContentSyncState').map(
@@ -71,7 +61,6 @@ test('JOB_SCHEDULE_SEED registers purgeUserKeys on a valid daily cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeUserKeys')
   assert.ok(entry, 'expected a purgeUserKeys entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "45 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
@@ -86,7 +75,6 @@ test('JOB_SCHEDULE_SEED registers purgePageWatchEvents on a valid daily cron', (
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageWatchEvents')
   assert.ok(entry, 'expected a purgePageWatchEvents entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "50 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
@@ -94,7 +82,6 @@ test('JOB_SCHEDULE_SEED registers purgePageDrafts on a valid daily cron, at a mi
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageDrafts')
   assert.ok(entry, 'expected a purgePageDrafts entry in the schedule seed (OpenProject #2454)')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "58 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 
   const crons: string[] = JOB_SCHEDULE_SEED.filter((e) => e.task !== 'purgePageDrafts').map(
@@ -111,12 +98,10 @@ test('JOB_SCHEDULE_SEED registers purgeSessions on a valid hourly cron, offset f
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeSessions')
   assert.ok(entry, 'expected a purgeSessions entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "40 * * * *" (once an hour)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 
   const rateLimitsEntry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeRateLimits')
   assert.ok(rateLimitsEntry, 'expected a purgeRateLimits entry in the schedule seed')
-  // -> Both run hourly against the same table-growth concern; they must not land on the same minute.
   assert.notEqual(entry!.cron.split(' ')[0], rateLimitsEntry!.cron.split(' ')[0])
 })
 
@@ -124,7 +109,6 @@ test('JOB_SCHEDULE_SEED registers purgeGuestPii on a valid daily cron', () => {
   const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeGuestPii')
   assert.ok(entry, 'expected a purgeGuestPii entry in the schedule seed')
   assert.equal(entry!.type, 'system')
-  // -> A standard 5-field cron expression, e.g. "55 0 * * *" (once a day)
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
@@ -156,14 +140,9 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
 })
 
 /**
- * Minimal stand-in for the subset of `Temporal` that `isHealthy()` and `cleanHistory()` call between
- * them: `Now.instant()`, `.subtract()`, `Instant.compare()`, plus `Date.prototype.toTemporalInstant`
- * on the read side (`isHealthy()` compares against the `Date` drizzle hands back for the `jobLock`
- * row's `timestamp` column).
- *
- * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap `core/scheduler.test.ts` and
- * `models/users.test.ts` work around, not a spec deviation).
+ * Stand-in for the `Temporal` subset `isHealthy()` and `cleanHistory()` use, for a V8 build
+ * compiled without native `Temporal`. `Date.prototype.toTemporalInstant` is part of it because
+ * `isHealthy()` reads the `jobLock` row's `timestamp` column back as a `Date`.
  */
 function installFakeTemporal(): void {
   const durationToMs = (d: { minutes?: number; seconds?: number }) =>
@@ -188,14 +167,10 @@ function uninstallFakeTemporal(previousTemporal: any): void {
 }
 
 /**
- * OpenProject #1653: both `isHealthy()` and `cleanHistory()` read a `timestamp` (no time zone) column
- * back through drizzle/`pg`, whose default parser reconstructs the resulting `Date` using the Node
- * process's *local* `TZ` for a value that carries no offset of its own -- see
- * `docs/audit-2026-08-24/correctness-data-schema.md` §2, and the epic this work package is part of
- * (converting every such column to `timestamptz`). The defect is invisible on a UTC host, which is
- * exactly why it needs coverage that runs off UTC: every test below runs under `TZ=America/New_York`
- * for its duration, alongside an identical run implied by the rest of this suite already passing
- * under whatever `TZ` CI and a UTC dev host run as.
+ * `isHealthy()` and `cleanHistory()` both read a `timestamp` (no time zone) column back through
+ * drizzle/`pg`, whose parser reconstructs the `Date` using the process's *local* `TZ` for a value
+ * carrying no offset of its own. A mismatch is invisible on a UTC host, so these run pinned to a
+ * non-UTC `TZ`.
  */
 describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -259,7 +234,7 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   describe('cleanHistory (retention cutoff)', () => {
     test('selects the same rows for deletion as it would under UTC', async () => {
-      CARDINAL.config = { scheduler: { historyExpiration: 3600 } } // 1 hour retention
+      CARDINAL.config = { scheduler: { historyExpiration: 3600 } }
 
       await fixtures.db.insert(jobHistoryTable).values({
         task: 'staleHistoryTask',
@@ -270,7 +245,7 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
         attempt: 1,
         maxRetries: 0,
         createdAt: new Date(Date.now() - 7200 * 1000),
-        startedAt: new Date(Date.now() - 7200 * 1000) // 2 hours ago -> past retention
+        startedAt: new Date(Date.now() - 7200 * 1000)
       })
 
       const [freshRow] = await fixtures.db
@@ -284,7 +259,7 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
           attempt: 1,
           maxRetries: 0,
           createdAt: new Date(Date.now() - 10 * 1000),
-          startedAt: new Date(Date.now() - 10 * 1000) // 10 seconds ago -> well within retention
+          startedAt: new Date(Date.now() - 10 * 1000)
         })
         .returning()
 
@@ -299,7 +274,7 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
           attempt: 1,
           maxRetries: 0,
           createdAt: new Date(Date.now() - 7200 * 1000),
-          startedAt: new Date(Date.now() - 7200 * 1000) // 2 hours ago, but still active -> kept
+          startedAt: new Date(Date.now() - 7200 * 1000)
         })
         .returning()
 
@@ -350,13 +325,6 @@ describe('countFailed (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 })
 
-/**
- * OpenProject #2351: `setResult()` fences its write against `helpers/jobExecutionContext.ts`'s
- * attempt number so a stale, timed-out `executeInProcess` task's late call cannot clobber a later
- * retry's result. See `core/scheduler.test.ts`'s `executeInProcess (fake CARDINAL)` suite for coverage
- * of the context itself surviving a stale continuation; this suite covers the actual `UPDATE`
- * fencing against the database.
- */
 describe('setResult (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
 
@@ -424,9 +392,8 @@ describe('setResult (DB-backed)', { skip: !hasTestDatabase() }, () => {
         state: 'active',
         useWorker: false,
         wasScheduled: false,
-        // -> Models `processJob`'s reclaim: the row started at attempt 1, timed out, and was
-        //    reclaimed and completed as attempt 2 -- carrying that attempt's real result -- before
-        //    the abandoned attempt-1 task's own, stale `setResult()` call ever arrives.
+        // -> Models `processJob`'s reclaim: started at attempt 1, timed out, then reclaimed and
+        //    completed as attempt 2 with that attempt's real result.
         attempt: 2,
         maxRetries: 3,
         createdAt: new Date(),
@@ -434,8 +401,7 @@ describe('setResult (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning()
 
-    // -> The stale task was launched under attempt 1, so its captured context still says 1 even
-    //    though the row has since moved to 2.
+    // -> The abandoned task was launched under attempt 1, so its captured context still says 1.
     await runWithJobExecutionContext({ jobId: row!.id, attempt: 1 }, () =>
       jobs.setResult(row!.id, { fileSize: 1 })
     )
@@ -465,8 +431,6 @@ describe('setResult (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning()
 
-    // -> A context captured for some other job id must not fence (or otherwise affect) a write
-    //    aimed at this one.
     await runWithJobExecutionContext({ jobId: 'unrelated-job-id', attempt: 1 }, () =>
       jobs.setResult(row!.id, { fileSize: 5 })
     )

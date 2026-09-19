@@ -2,9 +2,8 @@ import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 
 /**
- * `DiagramProxy.render` never touches a browser (unlike `DiagramRender`'s Mermaid path) — both
- * engines are a plain outbound `fetch`, so every test here mocks `globalThis.fetch` directly, the
- * same way `diagramRender.test.ts` does for its own PlantUML path.
+ * `DiagramProxy.render` never touches a browser — both engines are a plain outbound `fetch`, so
+ * every test here mocks `globalThis.fetch` directly.
  */
 describe('DiagramProxy.render', () => {
   let getSiteBlocks: ReturnType<typeof mock.fn>
@@ -298,8 +297,8 @@ describe('DiagramProxy.render', () => {
     test('refuses a streamed response that grows past the cap with no truthful Content-Length', async () => {
       const stream = new ReadableStream<Uint8Array>({
         pull(controller) {
-          // -> One 1 MB chunk at a time, well past the 10 MB cap after eleven pulls, with no
-          //    `Content-Length` header at all -- the case a header-only check would miss.
+          // -> An endless 1 MB-chunk stream with no `Content-Length` at all -- the case a
+          //    header-only check would miss.
           controller.enqueue(new Uint8Array(1_000_000))
         }
       })

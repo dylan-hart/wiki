@@ -13,11 +13,10 @@ const PUPPETEER_DEFINITION: ExtensionDefinition = {
 
 /**
  * `mountBlockElementScript` runs inside a headless browser via `page.evaluate`, so it can only ever
- * touch `document` off `globalThis` — exactly what is stubbed here, standing in for the page's own DOM
- * without needing a real browser. `importBlockScript`'s single `import()` line is not tested directly:
- * a dynamic import of a network specifier is meaningless outside a real browser page, the same reason
- * `pdfExport.test.ts` never exercises a real `page.goto` either — see `DiagramRender.render`'s tests
- * below for what IS checked about it (that it is called with the right URL).
+ * touch `document` off `globalThis` — exactly what is stubbed here, standing in for the page's own
+ * DOM without needing a real browser. `importBlockScript`'s single `import()` is not tested
+ * directly: a dynamic import of a network specifier is meaningless outside a real browser page, so
+ * only the URL it is called with is checked, in `DiagramRender.render`'s tests below.
  */
 describe('mountBlockElementScript', () => {
   let created: any[]
@@ -144,11 +143,10 @@ describe('extractDiagramScript', () => {
 })
 
 /**
- * `DiagramRender.render` orchestrates both paths end to end. The Mermaid path's `launchBrowser` is
- * mocked the same way `pdfExport.test.ts` mocks its own, so the business logic (the settle wait, the
- * script URL, the timeout guards, closing the browser whether or not the render succeeded) is verified
- * without a real Puppeteer install. The PlantUML path mocks `globalThis.fetch` instead, since it never
- * touches a browser at all — see the model's own class comment for why.
+ * `DiagramRender.render` orchestrates both paths end to end. The Mermaid path mocks `launchBrowser`,
+ * so the settle wait, the script URL, the timeout guards and closing the browser whether or not the
+ * render succeeded are all verified without a real Puppeteer install. The PlantUML path mocks
+ * `globalThis.fetch` instead, since it never touches a browser at all.
  */
 describe('DiagramRender.render', () => {
   let isInstalled: ReturnType<typeof mock.fn>
@@ -171,8 +169,8 @@ describe('DiagramRender.render', () => {
           isInstalled: mock.fn(async () => true)
         },
         // -> Only the PlantUML path reads this, resolving the site's `block-plantuml` config value
-        //    instead of a per-request field (OpenProject task 2223) — an empty list is a site with no
-        //    such row at all, which `resolvePlantumlServer()` treats the same as "nothing configured".
+        //    instead of a per-request field — an empty list is a site with no such row at all, which
+        //    `resolvePlantumlServer()` treats the same as "nothing configured".
         blocks: {
           getSiteBlocks: mock.fn(async (_siteId: string) => [] as any[])
         }
@@ -561,8 +559,8 @@ describe('DiagramRender.render', () => {
       const firstUrl = fetchMock.mock.calls[0].arguments[0] as string
       assert.match(firstUrl, /^https:\/\/www\.plantuml\.com\/plantuml\/svg\//)
 
-      // -> No siteId at all (never happens from the real route, which always resolves one) falls
-      //    back the same way, without even asking the model.
+      // -> No siteId at all -- never happens from the real route -- falls back the same way,
+      //    without even asking the model.
       await diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' })
       assert.equal(getSiteBlocks.mock.callCount(), 1, 'not called again when siteId is undefined')
       const secondUrl = fetchMock.mock.calls[1].arguments[0] as string
