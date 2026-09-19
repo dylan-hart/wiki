@@ -43,10 +43,6 @@ describe('runBootPhaseOrExit', () => {
   })
 
   test('reports the failure as ONE record carrying the error, not a second debug-gated call', async () => {
-    // -> The old shape logged `${label}: ${err.message}` and then, only when `IS_DEBUG` was on, a
-    //    bare second `error(err)` for the stack — so in production the stack was simply absent, and
-    //    in development the two halves could be split apart by an interleaved line. `fields.error`
-    //    puts the situation and the stack in one record at every level (OpenProject #2660).
     const logger = createLoggerStub()
     const exit = mock.fn()
     const err = new Error('boom')
@@ -65,9 +61,7 @@ describe('runBootPhaseOrExit', () => {
   })
 
   test('does not swallow a rejection propagating past the phase—exit is still called, not thrown out', async () => {
-    // -> Sanity check that runBootPhaseOrExit itself never rejects: a caller doing
-    //    `await runBootPhaseOrExit(...)` at the top of index.ts must not see an unhandled rejection
-    //    of its own even when `exit` (injected in tests) doesn't actually terminate the process.
+    // -> `runBootPhaseOrExit` itself must never reject, even when the injected `exit` returns.
     const logger = createLoggerStub()
     const exit = mock.fn()
 
@@ -109,8 +103,6 @@ describe('registerUnhandledRejectionHandler', () => {
     target.emit('unhandledRejection', 'plain string reason')
 
     assert.equal(logger.error.mock.calls.length, 1)
-    // -> No `error` field: there is no `Error` to lift a name or stack out of, and inventing one
-    //    would put a fabricated stack in front of an operator.
     assert.deepEqual(logger.error.mock.calls[0].arguments, [
       'boot',
       'unhandled promise rejection: plain string reason',
@@ -131,9 +123,6 @@ describe('registerUnhandledRejectionHandler', () => {
   })
 
   test('calls exit(1) after logging when an exit is injected', () => {
-    // -> `index.ts` passes `process.exit` here: an unhandled rejection means some in-flight
-    //    operation already gave up, so the process gives up too rather than carrying on in that
-    //    state. Injected as a function so this can be asserted without terminating the test runner.
     const logger = createLoggerStub()
     const target = new EventEmitter()
     const exit = mock.fn()
@@ -159,11 +148,8 @@ describe('registerUnhandledRejectionHandler', () => {
   })
 
   test('does not crash the process—the handler runs instead of the default termination', () => {
-    // -> Registering against a real EventEmitter (not `process`) and asserting the emit doesn't
-    //    throw is this suite's stand-in for "an unhandledRejection raised after boot is logged
-    //    rather than crashing the process unlogged": the whole point of registering a handler is
-    //    that emitting the event no longer falls through to Node's default (process-terminating)
-    //    behavior, and a handler that logs and returns normally is exactly that.
+    // -> A plain EventEmitter stands in for `process`: a handler that logs and returns normally is
+    //    what replaces Node's default, process-terminating behavior.
     const logger = createLoggerStub()
     const target = new EventEmitter()
 

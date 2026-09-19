@@ -2,22 +2,14 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { buildErrorLogContext } from './requestLogContext.ts'
 
 /**
- * The non-`/_api` branch of the global `app.setErrorHandler` in `index.ts` (task 2263).
+ * The non-`/_api` branch of `core/http/errors.ts`'s `setErrorHandler`. A bare `reply.send(error)`
+ * from inside a custom error handler lands at Fastify's `fallbackErrorHandler`, which serialises
+ * `error.code`/`error.message` verbatim -- on routes reachable without a session, that discloses an
+ * `ENOENT`'s absolute path or a pg failure's raw SQL text.
  *
- * The `/_api` branch already answers a fixed `{ ok, error, statusCode, message }` body for an
- * uncaught error, but everything else -- `controllers/render.ts`, `thumb.ts`, `site.ts`, `icons.ts`,
- * `blocks.ts`, `seo.ts`, `files.ts`, every one reachable without a session -- used to fall to a bare
- * `reply.send(error)`. Sending an `Error` from inside a custom error handler re-enters Fastify's own
- * `handleError` and lands at its `fallbackErrorHandler`, which serialises
- * `{ statusCode, code: error.code, message: error.message }` verbatim. `controllers/files.ts`'s
- * uncaught `CARDINAL.models.assetServing.readContent()` is the concrete case this closes: an `ENOENT`/`EACCES`
- * there used to hand an unauthenticated client the absolute deployment path, and a Drizzle/pg
- * failure anywhere in this branch used to hand back raw SQL text naming tables and columns.
- *
- * An error carrying a `statusCode` was set deliberately -- almost always through `@fastify/sensible`
- * (`reply.notFound()`, `reply.forbidden()`, `app.httpErrors.*`, ...), whose messages are curated for
- * disclosure -- so it is answered as-is. Anything else collapses to a fixed generic body carrying no
- * `error.message`/`error.code` text.
+ * An error carrying a `statusCode` was set deliberately -- almost always through
+ * `@fastify/sensible`, whose messages are curated for disclosure -- so it is answered as-is.
+ * Anything else collapses to a fixed generic body carrying no `error.message`/`error.code` text.
  */
 export interface NonApiErrorBody {
   ok: false
@@ -31,9 +23,7 @@ export interface NonApiErrorResponse {
   body: NonApiErrorBody
 }
 
-/**
- * Pure computation of the non-`/_api` error response -- no Fastify instance needed to test it.
- */
+/** Pure, so it is testable with no Fastify instance. */
 export function buildNonApiErrorResponse(error: any): NonApiErrorResponse {
   if (error?.statusCode) {
     return {
@@ -58,21 +48,9 @@ export function buildNonApiErrorResponse(error: any): NonApiErrorResponse {
 }
 
 /**
- * The actual non-`/_api` error handler `index.ts` wires into `app.setErrorHandler`. Answers with
- * `buildNonApiErrorResponse`'s body, logging through `CARDINAL.logger.error` only for a genuine bug --
- * previously these throws reached only Fastify's own pino instance (`index.ts`'s logger option), so
- * they were missing from the admin terminal stream and its backlog.
- *
- * An error carrying a `statusCode` was set deliberately (almost always `@fastify/sensible`'s
- * `reply.notFound()` / `app.httpErrors.*`) and is answered as-is with no log line -- this is
- * `apiErrorHandler`'s own pattern below, which `sendNonApiError` previously diverged from by logging
- * unconditionally, flooding the log with routine 4xx responses (e.g. `controllers/icons.ts`'s "Icon
- * set not found" 404, one per unavailable Iconify prefix a search sweeps across; Bug #2837).
- * Anything else collapses to a fixed generic body and is the only branch that logs.
- *
- * `error`, not `warn` (Bug #2650): a request that ended in an unhandled exception is the canonical
- * case of "a person needs to act", and an operator alerting on `error` saw nothing at all while a
- * crashed request sat one level below a routine version check.
+ * Only an error with no `statusCode` is logged, as in `apiErrorHandler`: a deliberate 4xx is
+ * routine, and logging each one floods the log. It logs at `error`, not `warn` -- a request that
+ * ended in an unhandled exception is what an operator alerting on `error` must see.
  */
 export function sendNonApiError(error: any, reply: FastifyReply): void {
   if (!error?.statusCode) {
@@ -83,13 +61,8 @@ export function sendNonApiError(error: any, reply: FastifyReply): void {
 }
 
 /**
- * The `/_api` branch of the same handler, lifted out of `index.ts` (CORE-F12 / TEST-F2) so the real
- * one can be installed anywhere `/_api/` routes are served — including a test harness, which used to
- * approximate it with dozens of independently-drifting hand-written copies.
- *
- * An error carrying a `statusCode` was set deliberately (almost always `@fastify/sensible`'s
- * `reply.notFound()` / `app.httpErrors.*`) and is answered as-is; anything else is a bug, so it
- * collapses to a fixed generic body and is the only branch that logs.
+ * The `/_api` branch, standalone so the real handler can be installed anywhere `/_api/` routes are
+ * served -- a test harness included. As above, only an error with no `statusCode` is a bug and logs.
  */
 export function apiErrorHandler(error: any, req: FastifyRequest, reply: FastifyReply): void {
   if (error.statusCode) {
@@ -100,13 +73,9 @@ export function apiErrorHandler(error: any, req: FastifyRequest, reply: FastifyR
       message: error.message
     })
   } else {
-    // -> A bare `CARDINAL.logger.error(error)` with no fields gave an operator no way to trace a 500 back to the
-    //    request that caused it. `req.id` is the same correlation id Fastify's own access log
-    //    carries for this request (`genReqId`, in `index.ts`), so the two lines join in an
-    //    aggregator.
-    // -> `error`, not `warn` (Bug #2650). This branch's own comment already calls an error with no
-    //    `statusCode` a bug; a bug that answered a client 500 is exactly what an operator alerting
-    //    on `error` must be woken by.
+    // -> The request context carries `req.id`, the correlation id Fastify's own access log has for
+    //    this request, so the two lines join in an aggregator. `error`, not `warn`: a bug that
+    //    answered a client 500 is what an operator alerting on `error` must be woken by.
     CARDINAL.logger.error('http', 'unhandled error, answered 500', {
       error,
       ...buildErrorLogContext(req)

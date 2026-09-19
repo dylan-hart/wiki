@@ -1,34 +1,23 @@
 /**
- * The pure derivations behind the boot narrative's two composed lines — `boot ready`'s facts and a
- * worker thread's own instance id.
- *
- * Both are computed inside an entry point (`index.ts`, `worker.ts`) that runs its whole boot
- * sequence at import time and therefore cannot be imported by a test at all. Extracting the
- * derivation is what makes it testable, per this task's own note ("test the id derivation as a pure
- * function it imports"); the entry point keeps only the `CARDINAL.logger` call it feeds.
+ * Pure derivations kept out of `index.ts` and `worker.ts`: both run their whole boot sequence at
+ * import time, so a test cannot import them.
  */
 
-/**
- * The one site shape `readyFields` reads. `CARDINAL.sites` values carry far more; none of it matters
- * here.
- */
 export interface ReadySite {
   hostname?: string | null
 }
 
 export interface ReadyFieldsInput {
-  /** `CARDINAL.sites` — keyed by site id, in the order `models/sites.ts#reloadCache` inserted them. */
+  /** `CARDINAL.sites`; insertion order decides which hostname `url` reports. */
   sites: Record<string, ReadySite>
   bindIP: string
   port: number | string
-  /** Milliseconds elapsed since `CARDINAL.startedAt`. */
   ms: number
 }
 
 /**
- * A `type` rather than an `interface` on purpose: only a type alias gets TypeScript's implicit index
- * signature, which is what makes it assignable to `core/logger.ts`'s `LogFields`
- * (`Record<string, unknown>`) without a cast at the call site.
+ * A `type`, not an `interface`: only a type alias gets an implicit index signature, which is what
+ * makes it assignable to `core/logger.ts`'s `LogFields` without a cast.
  */
 export type ReadyFields = {
   sites: number
@@ -37,14 +26,10 @@ export type ReadyFields = {
 }
 
 /**
- * `sites=`, `url=` and `ms=` for the `boot ready` line.
- *
- * `url` is the first site hostname an operator could actually type. The default site's hostname is
- * the catch-all `*` (`models/sites.ts#init`), which is not an address, so a `*` entry is skipped in
- * favour of a later real one; an instance whose sites are all catch-alls falls back to the bound
- * socket instead. No scheme is prepended — whether this instance is reached over http or https is
- * decided by whatever terminates TLS in front of it (`docs/tls-termination.md`), which the process
- * itself does not know.
+ * `url` is the first hostname an operator could actually type: the default site's catch-all `*` is
+ * not an address, so it is skipped, and an instance with only catch-alls reports the bound socket.
+ * No scheme is prepended — whatever terminates TLS in front of the process decides that, and the
+ * process does not know.
  */
 export function readyFields({ sites, bindIP, port, ms }: ReadyFieldsInput): ReadyFields {
   const entries = Object.values(sites ?? {})
@@ -57,19 +42,10 @@ export function readyFields({ sites, bindIP, port, ms }: ReadyFieldsInput): Read
 }
 
 /**
- * A worker thread's `INSTANCE_ID`: the parent instance's id, then the thread's ordinal.
- *
- * Both halves have to be known before the worker's logger is built, so neither can come from a job
- * payload — `worker.ts` used to boot as the literal `'worker'` and overwrite itself with the
- * parent's id on the first job, which filed every boot line it emitted under a different identity
- * than every job line that followed (audit N8). The parent id now arrives through piscina's
- * `workerData` (`core/scheduler.ts`'s pool construction) and the ordinal is the thread's own `threadId`,
- * since one `workerData` object is shared by every worker in the pool and so cannot carry a
- * per-worker index.
- *
- * A worker started outside a pool — nothing does today, but a bare `new Worker('worker.ts')` in a
- * test or a script would — has no parent to name and falls back to `worker`, which is what the id
- * used to be unconditionally.
+ * Both halves must be known before the worker's logger is built, so neither can come from a job
+ * payload: the parent id arrives through piscina's `workerData`, and the ordinal is the thread's
+ * own `threadId`, since one `workerData` object is shared by the whole pool. A worker started
+ * outside a pool has no parent and falls back to `worker`.
  */
 export function workerInstanceId(parentInstanceId: unknown, ordinal: number): string {
   const parent =

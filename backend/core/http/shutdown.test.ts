@@ -47,12 +47,8 @@ describe('registerProbes', () => {
 })
 
 /**
- * The core acceptance criterion (OpenProject #3156): "Probe behaviour is covered by tests: ready →
- * shutting down → closed." Drives `registerProbes` and `runShutdownSequence` together against one
- * real Fastify app — the same wiring `createGracefulShutdown` does in production, minus
- * `close-with-grace`'s real process-signal handlers and its own `process.exit()` call (which would
- * kill the test runner — see `createGracefulShutdown`'s own describe below for why that half is
- * tested differently).
+ * The wiring `createGracefulShutdown` does in production, minus `close-with-grace`'s process-signal
+ * handlers and its `process.exit()`, which would kill the test runner.
  */
 describe('runShutdownSequence: ready → shutting down → closed', () => {
   test('flips /_ready to 503 the instant teardown starts, well before it finishes', async () => {
@@ -63,13 +59,12 @@ describe('runShutdownSequence: ready → shutting down → closed', () => {
     await app.ready()
 
     try {
-      // -> ready
       assert.equal((await app.inject({ method: 'GET', url: '/_ready' })).statusCode, 503)
       ready = true
       assert.equal((await app.inject({ method: 'GET', url: '/_ready' })).statusCode, 200)
 
-      // -> shutting down: the sequence's own app.close() would end the app this test still wants to
-      //    inject against, so a no-op stand-in for `app.close` is passed instead of the real app.
+      // -> A no-op stand-in for `app.close`: the real one would end the app this test still
+      //    injects against.
       const emitter = new EventEmitter()
       const shutdownPromise = runShutdownSequence(
         { signal: 'SIGTERM' },
@@ -82,8 +77,6 @@ describe('runShutdownSequence: ready → shutting down → closed', () => {
         { preCloseDelayMs: 20 }
       )
 
-      // -> Set synchronously, before the pre-close delay even starts — so a probe polled at any
-      //    point from here on reports not-ready, not just once the whole teardown has finished.
       assert.equal((await app.inject({ method: 'GET', url: '/_ready' })).statusCode, 503)
 
       await shutdownPromise
@@ -211,12 +204,6 @@ describe('runShutdownSequence: ready → shutting down → closed', () => {
   })
 })
 
-/**
- * "A SIGTERM during an in-flight request lets it finish within the delay" (OpenProject #3156): the
- * pre-close delay runs entirely BEFORE `app.close()` is ever called, so a request already being
- * served — or one that arrives during the delay — has the whole window to complete on a real,
- * still-open Fastify app, not a stand-in.
- */
 describe('runShutdownSequence: an in-flight request survives the pre-close delay', () => {
   test('a slow request started during the delay completes before app.close() runs', async () => {
     const app = fastify()
@@ -244,16 +231,12 @@ describe('runShutdownSequence: an in-flight request survives the pre-close delay
       { preCloseDelayMs: 60 }
     )
 
-    // -> Started once teardown has already begun (shuttingDown flips synchronously, at the top of
-    //    the sequence), the same window a request already in flight at the moment SIGTERM arrived
-    //    would be in.
+    // -> Started once teardown has begun: the same window a request already in flight when SIGTERM
+    //    arrived is in.
     const res = await app.inject({ method: 'GET', url: '/slow' })
     assert.equal(res.statusCode, 200)
     assert.deepEqual(res.json(), { ok: true })
 
-    // -> The request resolved well inside the 60ms pre-close delay, and close() had not run yet —
-    //    proving it wasn't the request racing a socket teardown that happened to still work, but
-    //    the delay genuinely holding `app.close()` off until after this can complete.
     assert.equal(closeCalledAt.length, 0, 'app.close() must not run before the request resolved')
 
     await shutdownPromise
@@ -266,10 +249,9 @@ describe('runShutdownSequence: an in-flight request survives the pre-close delay
 })
 
 /**
- * `createGracefulShutdown` wires the sequence above up to real `close-with-grace`, which installs
- * real listeners on the real `process` and — once its callback resolves — calls `process.exit()`
- * itself. These tests never let that callback fire (which would kill the test runner): they assert
- * only on what gets INSTALLED, immediately `uninstall()`-ing it again.
+ * Real `close-with-grace` installs listeners on the real `process` and calls `process.exit()` once
+ * its callback resolves. These tests never let that callback fire: they assert only on what gets
+ * installed, then `uninstall()` it.
  */
 describe('createGracefulShutdown: process wiring', () => {
   test('installs listeners for the contracted signal set (SIGINT, SIGTERM, SIGHUP) and uncaughtException', () => {

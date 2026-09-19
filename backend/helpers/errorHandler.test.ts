@@ -43,11 +43,9 @@ describe('buildNonApiErrorResponse', () => {
 })
 
 /**
- * `sendNonApiError` is wired as `index.ts`'s actual non-`/_api` `setErrorHandler` branch here, driven
- * through a real Fastify instance (`app.inject`) rather than hand-built request/reply stand-ins --
- * same technique `helpers/rateLimit.test.ts` uses for the same reason: reply/error interplay
- * (`reply.code().type().send()`, `@fastify/sensible`'s thrown `httpErrors`) is exactly what would be
- * re-describing Fastify's own behavior if mocked instead of exercised.
+ * Driven through a real Fastify instance (`app.inject`) rather than request/reply stand-ins: the
+ * reply/error interplay with `@fastify/sensible`'s thrown `httpErrors` is what is under test, and a
+ * mock would only re-describe Fastify's behavior.
  */
 describe('sendNonApiError', () => {
   let app: FastifyInstance
@@ -89,12 +87,9 @@ describe('sendNonApiError', () => {
       .arguments
     assert.equal(scope, 'http')
     assert.equal(message, 'unhandled error outside /_api')
-    // -> The error rides `fields.error`, not the message: the renderer is what turns it into
-    //    `error="…"` plus a stack, so the sentence stays a sentence.
+    // -> The error rides `fields.error`, not the message: the renderer is what formats it.
     assert.ok((fields.error as Error).message.includes('secret-path'))
-    // -> Bug #2650: this used to be `warn`, one level below the threshold an operator alerts on, so
-    //    a crashed request was invisible to them. Asserted as a level, not merely as "something was
-    //    logged".
+    // -> Asserted as a level: `warn` sits below the threshold an operator alerts on.
     assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
   })
 
@@ -106,20 +101,12 @@ describe('sendNonApiError', () => {
     const body = res.json()
     assert.equal(body.statusCode, 404)
     assert.equal(body.message, 'This page could not be found.')
-    // -> Bug #2837: a deliberate 4xx (icon-set 404s and the like) is expected, curated-message
-    //    behavior, not a bug an operator needs to act on -- mirrors `apiErrorHandler`'s own
-    //    statusCode branch, which has never logged.
+    // -> A deliberate 4xx is routine, not a bug an operator needs to act on.
     assert.equal((globalThis as any).CARDINAL.logger.error.mock.calls.length, 0)
     assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
   })
 })
 
-/**
- * The `/_api` branch of the same `setErrorHandler`, lifted out of `index.ts` by task A15 so the real
- * one can be installed by a test harness rather than approximated by the >= 57 hand-rolled copies
- * TEST-F2 counted across the API suites. Driven through a real Fastify instance for the same reason
- * `sendNonApiError` above is.
- */
 describe('apiErrorHandler', () => {
   let app: FastifyInstance
 
@@ -154,8 +141,7 @@ describe('apiErrorHandler', () => {
       statusCode: 403,
       message: 'You may not do that.'
     })
-    // -> A deliberate refusal is not an operator's problem: only the bare-500 branch logs, and
-    //    Phase 1's access line (#2660) is what will account for 4xx.
+    // -> A deliberate refusal is not an operator's problem: only the bare-500 branch logs.
     assert.equal((globalThis as any).CARDINAL.logger.error.mock.calls.length, 0)
     assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
   })
@@ -180,14 +166,13 @@ describe('apiErrorHandler', () => {
     await app.inject({ method: 'GET', url: '/_api/boom-generic' })
     const calls = (globalThis as any).CARDINAL.logger.error.mock.calls
     assert.equal(calls.length, 1)
-    // -> Bug #2650: at `error`, never at `warn`.
+    // -> At `error`, never at `warn`.
     assert.equal((globalThis as any).CARDINAL.logger.warn.mock.calls.length, 0)
     const [scope, message, fields] = calls[0].arguments
     assert.equal(scope, 'http')
     assert.equal(message, 'unhandled error, answered 500')
     assert.match((fields.error as Error).message, /relation "pages" does not exist/)
-    // -> `buildErrorLogContext`'s keys are spread into the same fields object as the error, so one
-    //    record carries both the cause and the request that produced it.
+    // -> One record carries both the cause and the request that produced it.
     assert.equal(fields.method, 'GET')
     assert.equal(fields.url, '/_api/boom-generic')
     assert.equal(typeof fields.reqId, 'string')

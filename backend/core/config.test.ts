@@ -27,23 +27,8 @@ import {
 import { ensureTemporal } from '../test/temporal.ts'
 import type { WikiDb } from './db.ts'
 
-// `models/jobs.ts#init()` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal`
-// natively on every official Node 26 build (verified against `node:26.8.1-slim`/`node:26.7.0-bookworm`
-// -- see `core/temporal.ts`), but not every environment running this test has that, so install the
-// polyfill only when it is genuinely missing, exactly as `models/security.test.ts` does for the same
-// reason.
+// The DB-backed suites seed through `models/jobs.ts#init()`, which calls `Temporal.Now.instant()`.
 await ensureTemporal()
-
-/**
- * Regression test for `config.init()`'s DB_PASS_FILE (Docker secret) handling: `.trim()` was called
- * on the *Promise* returned by `fs.readFile(...)` rather than on the resolved string, so every read
- * threw `promise.trim is not a function` — the `catch` block always ran and `process.exit(1)` killed
- * the process. Fixed by awaiting the read before calling `.trim()`.
- *
- * `CARDINAL.ROOTPATH`/`CARDINAL.SERVERPATH` point at a throwaway fixture directory rather than the real repo
- * files, so this stays a self-contained unit test of `init()`'s DB_PASS_FILE branch instead of also
- * exercising the real `config.yml`/`base.yml` contents.
- */
 
 let dir: string
 let dbPassFile: string
@@ -65,7 +50,7 @@ before(async () => {
   )
 
   // Trailing newline, as a real Docker secret file (or `echo pass > file`) would produce — this is
-  // what proves the fix actually trims the resolved string rather than just reading it.
+  // what proves the read is trimmed.
   dbPassFile = path.join(dir, 'db-pass.txt')
   await writeFile(dbPassFile, 'sup3rSecret\n')
 
@@ -74,8 +59,8 @@ before(async () => {
   previousDbPassFile = process.env.DB_PASS_FILE
   process.env.DB_PASS_FILE = dbPassFile
 
-  // Pre-fix, the bug's catch block calls process.exit(1) — guard against actually killing the test
-  // runner and instead surface it as a thrown assertion failure.
+  // `init()`'s catch block calls process.exit(1) — throw instead, so a failure surfaces rather than
+  // killing the test runner.
   previousExit = process.exit
   ;(process as any).exit = (code?: number) => {
     throw new Error(`process.exit(${code}) called — DB_PASS_FILE read/trim threw`)
@@ -100,18 +85,6 @@ test('reads and trims the DB_PASS_FILE contents into CARDINAL.config.db.pass', a
   assert.equal(wiki.config.db.pass, 'sup3rSecret')
 })
 
-/**
- * OpenProject #2276: `backend/base.yml` used to declare no `pool.max`, so node-postgres' own default
- * of 10 applied silently — a handful of concurrent requests against any unmetered whole-table
- * surface could occupy the pool entirely and queue every other query, logins included, behind them.
- *
- * Two things are asserted here, matching the WP's own "done when": (1) the *real* `backend/base.yml`
- * shipped in this repo declares an explicit `pool.max` above that library default, and (2) a
- * configured `pool.max` genuinely reaches the options `core/db.ts`'s `init()` passes to `new Pool()`
- * — verified through `resolvePoolSizeOptions`, the exact function `init()` calls right before that
- * constructor call, rather than re-deriving the merge separately here and only proving the two
- * happen to agree.
- */
 describe('pool.max reaches the Pool() options in db.ts', () => {
   test('the real backend/base.yml declares an explicit pool.max, not the node-postgres default of 10', async () => {
     const realBaseYmlPath = path.join(
@@ -159,8 +132,8 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     const wiki = (globalThis as any).CARDINAL
     assert.deepEqual(wiki.config.pool, { min: 1, max: 33 })
 
-    // -> This is the exact call `init()` makes right before `new Pool({ ...literal, ...options })`
-    //    in db.ts — proving the configured value reaches that constructor call, not just CARDINAL.config.
+    // -> The exact call db.ts's `init()` spreads into `new Pool()` — proving the configured value
+    //    reaches that constructor, not just CARDINAL.config.
     assert.deepEqual(resolvePoolSizeOptions(false, wiki.config.pool), { min: 1, max: 33 })
 
     // -> Worker mode ignores the configured value entirely and pins to a single connection.
@@ -168,12 +141,6 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
   })
 })
 
-/**
- * Regression coverage for `core/config.ts:60`'s `toMerged(appdata.defaults.config, appconfig)`:
- * previously a mistyped config.yml key (`logLvel:`, `sceduler:`) merged in silently and did nothing.
- * `init()` now walks the parsed config.yml against base.yml's shape and warns once per key with no
- * counterpart there, at any depth.
- */
 {
   const baseYml =
     'defaults:\n  config:\n    port: 80\n    logLevel: info\n    db:\n      host: localhost\n      pass: basedefaultpass\n      sslOptions:\n        auto: true\n'
@@ -193,9 +160,8 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     const fixtureDir = await setupFixture(
       'port: 3000\nlogLvel: debug\ndb:\n  host: myhost\n  sslOptions:\n    autoo: false\n'
     )
-    // -> Regression coverage for the boot-order bug this replaced `CARDINAL.logger.warn` for: `init()`
-    //    runs before `CARDINAL.logger` exists at every real call site, so `CARDINAL` here deliberately has no
-    //    `logger` at all, proving the warning path no longer depends on it being present.
+    // -> `console.warn`, not `CARDINAL.logger.warn`: `init()` runs before `CARDINAL.logger` exists
+    //    at every real call site.
     const previous = (globalThis as any).CARDINAL
     wikiHandle = installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
     const warn = mock.method(console, 'warn', () => {})
@@ -234,14 +200,6 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
   })
 }
 
-/**
- * `init()` returns where the configuration came from, rather than announcing it: it runs before
- * `CARDINAL.logger` exists at every real call site (the logger reads `CARDINAL.config.logLevel`, so config
- * has to be loaded first), which is the same constraint that puts the unknown-key warnings above on
- * `console.warn`. `index.ts` renders what comes back as `config=` and `overrides=` on the
- * `boot starting` line, so an operator can tell which file was actually read and which environment
- * variables actually changed something (OpenProject #2671).
- */
 describe('init() config provenance', () => {
   const OVERRIDE_VARS = ['CONFIG_FILE', 'PORT', 'WIKI_PORT', 'DB_PASS_FILE'] as const
 
@@ -269,8 +227,8 @@ describe('init() config provenance', () => {
   })
 
   beforeEach(() => {
-    // -> The file-level `before()` exports DB_PASS_FILE for the whole run, so every one of these has
-    //    to start from a known-empty environment rather than inheriting it.
+    // -> The file-level `before()` exports DB_PASS_FILE for the whole run, so each of these starts
+    //    from a known-empty environment rather than inheriting it.
     saved = {}
     for (const name of OVERRIDE_VARS) {
       saved[name] = process.env[name]
@@ -300,7 +258,6 @@ describe('init() config provenance', () => {
 
   test('reports the resolved config path and no overrides when the environment sets none', async () => {
     const { configPath, overrides } = await initInFixture()
-    // -> The absolute path actually read, not the literal `config.yml` the old line printed.
     assert.equal(configPath, path.join(fixtureDir, 'config.yml'))
     assert.deepEqual(overrides, [])
   })
@@ -319,8 +276,6 @@ describe('init() config provenance', () => {
   })
 
   test('does NOT report PORT when the configured port already stands, since nothing read it', async () => {
-    // -> `PORT` is only consulted on the `appconfig.port < 1` branch. Reporting it merely because
-    //    the variable exists would claim an override that changed nothing.
     process.env.PORT = '9999'
     const { overrides } = await initInFixture()
     assert.deepEqual(overrides, [])
@@ -352,10 +307,6 @@ describe('init() config provenance', () => {
   })
 })
 
-/**
- * `config loaded` reports how much of the running configuration came out of the `settings` table and
- * whether this boot is the one that seeded it — replacing the bare `source=db`, which said neither.
- */
 describe('the config loaded line', () => {
   test('counts the DB blob top-level keys, not the merged CARDINAL.config', async () => {
     const info = mock.fn()
@@ -373,7 +324,6 @@ describe('the config loaded line', () => {
     try {
       assert.equal(await configSvc.loadFromDb(), true)
       assert.equal(configSvc.dbKeyCount, 3)
-      // -> The merged config has the yaml key too; the line reports 3, what the DB supplied.
       assert.ok(Object.keys((globalThis as any).CARDINAL.config).length > 3)
     } finally {
       ;(globalThis as any).CARDINAL = previous
@@ -398,16 +348,6 @@ describe('the config loaded line', () => {
   })
 })
 
-/**
- * Regression coverage for OpenProject #2723: `init()`'s only sinks before `CARDINAL.logger` exists are
- * meant to be `console.warn`/`console.error` for something actually worth an operator's attention
- * (a mistyped key, an unreadable config file) -- never a boot-progress announcement. The
- * "Loading configuration from ... OK" pair this replaces used a newline-less `process.stdout.write`
- * plus a bare `console.info(..., 'OK')` even when nothing was silenced, and survived the logging
- * conventions sweep precisely because neither call's receiver is `CARDINAL.logger` --
- * `test/logging-conventions.test.ts` gained its own console-call scan in the same change to close
- * that gap.
- */
 describe('init() prints no boot-progress line (OpenProject #2723)', () => {
   let progressDir: string
   let previousProgressWiki: any
@@ -426,8 +366,7 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
     )
 
     // -> The file-level `before()` above exports DB_PASS_FILE for the whole run, which would make
-    //    the (deliberately retained) `DB_PASS_FILE is defined...` console.info fire here too --
-    //    unrelated to what this describe is about. Cleared for the duration of these tests only.
+    //    `init()`'s `DB_PASS_FILE is defined...` console.info fire here too.
     previousProgressDbPassFile = process.env.DB_PASS_FILE
     delete process.env.DB_PASS_FILE
 
@@ -446,10 +385,8 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
   })
 
   test('a successful, non-silent init() never writes to stdout or announces OK', async () => {
-    // -> `process.stdout.write` itself is not exclusively `init()`'s: `node --test`'s own IPC/reporter
-    //    frames land on the same real call while other tests progress concurrently, so this asserts
-    //    on the CONTENT of what was written rather than on the call count, which the test runner's
-    //    own traffic would make flaky.
+    // -> `node --test`'s own IPC/reporter frames land on the same `process.stdout.write` while
+    //    other tests progress, so this asserts on the CONTENT written rather than the call count.
     const writes: string[] = []
     const write = mock.method(process.stdout, 'write', (chunk: any) => {
       writes.push(String(chunk))
@@ -505,14 +442,10 @@ describe('init() prints no boot-progress line (OpenProject #2723)', () => {
 })
 
 /**
- * DB-backed regression coverage for OpenProject #2044: `ensureSeeded()` holds one advisory lock
- * across the is-empty check plus `initDbValues()`, so two instances booting against the same fresh
- * database can never interleave — see `ensureSeeded()`'s own doc comment in `config.ts`.
- *
  * Deliberately NOT built on `test/db.ts#setupTestDb()`: that fixture pre-inserts a site/user/group
- * directly (bypassing `initDbValues()` entirely) specifically so model tests have something to point
- * at, which would falsify this suite's own precondition — a database that is genuinely still empty.
- * This sets up the bare minimum instead: a fresh schema, migrated, with no rows of its own.
+ * directly, bypassing `initDbValues()`, which would falsify this suite's own precondition — a
+ * database that is genuinely still empty. This sets up the bare minimum instead: a fresh schema,
+ * migrated, with no rows of its own.
  */
 describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   const SYSTEM_IDS = {
@@ -580,9 +513,8 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('exactly one of two concurrent callers seeds; the other observes a fully-seeded DB', async () => {
     const [first, second] = await Promise.all([configSvc.ensureSeeded(), configSvc.ensureSeeded()])
 
-    // -> One caller performed the seed, the other found it already done — never both, and never
-    //    neither (which the old, unlocked code could produce: both see `loadFromDb()` return
-    //    `false` and both race straight into `initDbValues()`).
+    // -> Exactly one seeds. Unlocked, both would see `loadFromDb()` return `false` and race
+    //    straight into `initDbValues()`.
     assert.notEqual(first, second, `expected exactly one seed, got [${first}, ${second}]`)
 
     const siteCount = await db.$count(sitesTable)
@@ -591,24 +523,14 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const groupRows = await db.select({ id: groupsTable.id }).from(groupsTable)
     assert.equal(groupRows.length, 3, 'expected exactly the three standard groups')
 
-    // -> Both calls must agree the DB is now seeded, proving the loser re-checked inside the lock
-    // rather than trusting a stale read from before it blocked.
     assert.equal(await configSvc.loadFromDb(), true)
   })
 })
 
 /**
- * Regression test for OpenProject #3374: `ensureSeeded()` used to take its `wiki:migrate` lock
- * through `withAdvisoryLock` (`helpers/advisoryLock.ts`), the give-up-after-`maxAttempts` primitive
- * built for storage-dispatch jobs — whose default backoff totals only ~15-19s. A fresh-install seed
- * can comfortably outrun that, and its give-up path in production is `index.ts`'s `preBoot()` calling
- * `process.exit(1)`, so a second HA instance booting during another's fresh seed died at boot rather
- * than waiting its turn.
- *
- * Separate `describe` (and its own fresh schema) from "exactly one of two concurrent callers seeds"
- * above, rather than a second `test` reusing that block's `before()`-seeded database: that suite's DB
- * is already seeded by the time this one would run, so `ensureSeeded()` would short-circuit on
- * `loadFromDb()` before either caller ever contended for the lock — nothing to prove.
+ * Its own `describe` and fresh schema, rather than a second `test` in the suite above: that
+ * database is already seeded by the time this would run, so `ensureSeeded()` would short-circuit on
+ * `loadFromDb()` before either caller ever contended for the lock.
  */
 describe(
   'ensureSeeded() (DB-backed): loser behind a slow winner',
@@ -679,15 +601,10 @@ describe(
     test('the loser observes the fully-seeded DB, not an AdvisoryLockAcquisitionError', async () => {
       const originalInitDbValues = configSvc.initDbValues.bind(configSvc)
 
-      // -> Artificially slows the winner's seed well past `withAdvisoryLock`'s OLD worst-case total
-      //    give-up budget (maxAttempts=10, baseDelayMs=100, maxDelayMs=3000: the 9 post-failure delays
-      //    before the 10th and final attempt sum to 17,100ms before jitter, ~20,875ms with the full 25%
-      //    jitter each attempt could add) — standing in for a heavy fresh-install seed (OpenProject
-      //    #3374's `models/icons.ts#init()` doing 6232 sequential inserts) that can genuinely run long
-      //    enough to outrun that budget. This delay is deliberately well past that ceiling (not merely
-      //    "slow"), so this test only passes because `ensureSeeded()` now uses `acquireAdvisoryLock`
-      //    (blocking `pg_advisory_lock`, no attempt ceiling) — the loser waits for exactly as long as
-      //    the winner holds the lock, with no budget to outrun.
+      // -> Slows the winner's seed past `withAdvisoryLock`'s worst-case give-up budget at its
+      //    defaults (~19s with full jitter), standing in for a heavy fresh-install seed. So this
+      //    only passes because `ensureSeeded()` takes the blocking `acquireAdvisoryLock`, which has
+      //    no attempt ceiling: the loser waits for as long as the winner holds the lock.
       const initDbValuesMock = mock.method(configSvc, 'initDbValues', async () => {
         await delay(23_000)
         return originalInitDbValues()
@@ -712,7 +629,6 @@ describe(
         const [first, second] = results.map((r) => (r as PromiseFulfilledResult<boolean>).value)
         assert.notEqual(first, second, `expected exactly one seed, got [${first}, ${second}]`)
 
-        // -> Proves the loser blocked and then re-checked inside the lock, rather than giving up.
         assert.equal(await configSvc.loadFromDb(), true)
 
         const siteCount = await db.$count(sitesTable)

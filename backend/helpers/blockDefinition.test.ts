@@ -216,14 +216,6 @@ describe('extractBlockDefinition', () => {
     assert.equal(result.error.reason, 'no-definition')
   })
 
-  /*
-   * OpenProject #2132: `helpers/htmlSanitizePolicy.ts#blockAllowances()` now admits a custom block's `props`
-   * straight into the sanitizer's per-tag attribute allowlist, trusting each `name` unvalidated --
-   * sanitize-html matches attribute names with `*`-glob support, so an uploaded prop named `on*` or
-   * `*` would otherwise silently open inline event handlers (or every attribute at all) on that
-   * element for every page author, not merely describe one authorable field. This is the check that
-   * closes that gap: a prop name has to look like a plain attribute name to be accepted at all.
-   */
   test('rejects a prop name shaped like an inline-event-handler wildcard (on*)', () => {
     const source = `
       export class BlockTrap extends HTMLElement {

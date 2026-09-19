@@ -1,39 +1,22 @@
 import type { WikiDb } from './db.ts'
 
 /**
- * Attempts to enable the optional pgvector-backed semantic-search capability: the `vector`
- * extension, the `pageEmbeddingChunks` table, and its HNSW cosine-distance index.
+ * Optional, unlike `core/db.ts`'s `REQUIRED_EXTENSIONS`: a host whose role lacks `CREATE EXTENSION`
+ * privilege, or whose Postgres has no pgvector, must boot as it would without this module. So this
+ * never throws -- any failure is logged at `warn` and answered with `false`.
  *
- * Deliberately separate from `core/db.ts`'s `REQUIRED_EXTENSIONS` loop (`syncSchemas()`), which is a
- * different, required-or-boot-fails mechanism -- `ltree`/`pg_trgm`/`pgcrypto` are load-bearing for
- * the migrations that follow them and a missing one is a genuine boot failure. pgvector is not: a
- * locked-down host whose role lacks `CREATE EXTENSION` privilege, or whose Postgres build has no
- * pgvector installed at all, boots exactly as it would without this module. This function therefore
- * never throws -- any failure (missing extension, insufficient privilege, anything else) is caught
- * and logged at `warn`, and the caller reads the boolean return to know whether the capability came
- * up.
+ * Raw SQL rather than a `db/schema.ts` table plus a generated migration: a Drizzle migration has no
+ * "skip this DDL if it fails" affordance, and a failed one blocks every later boot.
  *
- * Deliberately raw SQL rather than a `db/schema.ts` table plus a `drizzle-kit generate` migration:
- * `pageEmbeddingChunks`'s existence is conditional on an extension the operator may not be permitted
- * to install, and a Drizzle migration has no "skip this DDL if it fails" affordance -- a failed
- * migration leaves the migration ledger in a state every later boot refuses to run past.
- *
- * Every statement is `IF NOT EXISTS`, so a repeated call (this module's own DB-backed test calls it
- * more than once, and a clustered boot could race another instance running the same statements) is
- * safe to re-run. `core/db.ts#syncSchemas()` calls this under the same session-scoped advisory lock
- * it already holds across `CREATE SCHEMA`/`CREATE EXTENSION`/`migrate()`, so two instances booting
- * cold at once still serialize through it rather than racing.
- *
- * @returns `true` once the extension, table and index all exist; `false` if any step failed.
+ * Every statement is `IF NOT EXISTS`, and `core/db.ts#syncSchemas()` calls this under the advisory
+ * lock it already holds, so instances booting at once serialize rather than race.
  */
 export async function bootstrapPgvector(db: WikiDb): Promise<boolean> {
   try {
     await db.execute('CREATE EXTENSION IF NOT EXISTS vector')
 
-    // -> Schema-unqualified, matching every other DDL statement `syncSchemas()` runs: the connection's
-    //    `search_path` (set from `CARDINAL.config.db.schema` when the pool is built) is what resolves
-    //    this to the right schema, the same way the Drizzle-generated migrations do. `pages` is
-    //    likewise unqualified for the same reason -- see `db/schema.ts#pages`.
+    // -> Schema-unqualified on purpose, `pages` included: the connection's `search_path` (set from
+    //    `CARDINAL.config.db.schema`) resolves it, as it does for the Drizzle-generated migrations.
     await db.execute(`
       CREATE TABLE IF NOT EXISTS "pageEmbeddingChunks" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

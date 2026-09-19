@@ -18,7 +18,6 @@ describe('purgeFilesOlderThan', () => {
     await fs.rm(dir, { recursive: true, force: true })
   })
 
-  /** Writes a file and back-dates its mtime by `ageSeconds`. */
   async function writeAged(name: string, ageSeconds: number): Promise<string> {
     const filePath = path.join(dir, name)
     await fs.writeFile(filePath, name)

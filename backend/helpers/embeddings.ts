@@ -1,76 +1,41 @@
 /**
- * Local embedding model integration
+ * The one seam over `@huggingface/transformers` (pure JS/WASM ONNX inference, no native compile
+ * step), lazily running `MODEL_NAME` to embed page text for semantic search. Follows
+ * `helpers/images.ts`'s Sharp pattern: a load failure is logged and recorded on
+ * `CARDINAL.models.extensions`, and `null` is returned rather than thrown, so a page save or a
+ * search request degrades instead of crashing.
  *
- * A single seam over `@huggingface/transformers` (pure JS/WASM, ONNX inference — no Python, no
- * native compile step; the actively-maintained successor to `@xenova/transformers`, which the
- * project itself moved on from after 2024 — see OpenProject #3149), lazily running
- * `Xenova/all-MiniLM-L6-v2` to turn page text into a 384-dimension sentence embedding for semantic
- * search (Epic #3050). The legacy `Xenova/*` model id stays valid on the new package — Hugging
- * Face's v3 migration notes document ONNX models published under the old org as unchanged and
- * loadable as-is. Mirrors `helpers/images.ts`'s Sharp pattern: a lazy dynamic import by specifier
- * (so the type checker never has to resolve it), a load failure recorded on
- * `CARDINAL.models.extensions` and logged, and `null` returned rather than thrown so a caller degrades
- * gracefully instead of crashing a page save or a search request.
- *
- * Unlike Sharp, there is no native binary and therefore no per-platform compatibility matrix to
- * consult before attempting a load — `isEmbeddingAvailable()` is optimistic (`true`) until this
- * process has actually tried and failed once. That mirrors `models/extensions.ts#hasLoadFailed`'s
- * own reasoning: Node caches a failed dynamic `import()` for the life of the process, so even a
- * fixed environment needs a restart to be believed again either way.
- *
- * A real embedding call downloads and caches the model's ONNX weights (~90MB) from the Hugging Face
- * hub on first use per process, into `@huggingface/transformers`'s own default local cache directory
- * — UNLESS that cache is already warm. The official Docker image (`dev/build/Dockerfile`) bakes it in
- * at image-build time via `scripts/preseed-embedding-model.ts` (OpenProject #3324): the library's own
- * cache-hit resolution finds those files and skips the network call automatically, with no code
- * change needed here to detect "pre-seeded" — `getExtractor()` below is unchanged either way. That
- * only covers the shipped image, though: a source checkout (`npm install`/`npm run start`, not built
- * from that Dockerfile) still relies on this lazy first-run fetch exactly as before, so this module
- * still needs real (or well-mocked) network access the first time `embedText()` runs there. See
- * `docs/offline-deployment.md`'s "Pre-seeded local embedding model" section for the full picture.
- *
- * Manual verification (not part of the default suite — the model download makes it unsuitable for a
- * fast, offline-safe run): `node -e "const { embedText } = await import('./helpers/embeddings.ts');
- * console.log((await embedText('hello world'))?.length)"` from `backend/`, expecting `384`.
+ * The first embedding call per process downloads the model's ONNX weights (~90MB) from the Hugging
+ * Face hub into the library's own cache, unless that cache is already warm — the official Docker
+ * image pre-seeds it with `scripts/preseed-embedding-model.ts`. A source checkout still needs
+ * network access on first use. See `docs/offline-deployment.md`.
  */
 
-/** The model's own output dimension — `pageEmbeddingChunks.embedding`'s `vector(384)` column matches this. */
+/** The model's output dimension; `core/pgvectorBootstrap.ts`'s `vector(384)` column must match. */
 export const EMBEDDING_DIMENSIONS = 384
 
-/** The Hugging Face model id `embedText` loads, run through `@huggingface/transformers`. Exported so
- * `scripts/preseed-embedding-model.ts` pre-seeds the exact same model this module actually loads,
- * rather than keeping a second hardcoded copy that could drift. */
+/** Exported so `scripts/preseed-embedding-model.ts` pre-seeds the exact model this module loads. */
 export const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2'
 
-/** The npm specifier, held in a variable so a literal `import '@huggingface/transformers'` never has
- * to resolve at typecheck time — matching `helpers/images.ts`/`helpers/puppeteer.ts`'s convention for
- * an optionally-unusable runtime dependency. */
+/** Held in a variable so a literal import never has to resolve at typecheck time. */
 const specifier = '@huggingface/transformers'
 
 /**
- * The narrow slice of `@huggingface/transformers`'s `FeatureExtractionPipeline` this module actually
- * calls: a text in, a pooled/normalized tensor out. Kept untyped beyond this shape (the package's
- * own types are not imported) since the module itself is loaded dynamically by specifier.
+ * The slice of the package's `FeatureExtractionPipeline` this module calls. The package's own types
+ * are not imported, since it is loaded dynamically by specifier.
  */
 export type FeatureExtractor = (
   text: string,
   options: { pooling: 'mean'; normalize: boolean }
 ) => Promise<{ data: ArrayLike<number> }>
 
-/** The lazily-created, process-wide singleton pipeline — loaded once, reused by every `embedText` call. */
 let extractorPromise: Promise<FeatureExtractor> | null = null
 
-/** Whether this process has already tried and failed to load the pipeline once. See the module doc
- * comment for why this makes `isEmbeddingAvailable()` sound even without re-probing anything. */
 let loadFailed = false
 
 /**
- * Load (or reuse) the feature-extraction pipeline, once per process.
- *
- * Load and run are kept apart deliberately, the same way `helpers/images.ts`'s `normalizeImage` keeps
- * loading Sharp apart from running it: only a load failure means the runtime itself is unusable here,
- * and only a load failure should record one and cost `isEmbeddingAvailable()` its optimism for the
- * rest of the process.
+ * Load and run are kept apart deliberately: only a load failure means the runtime itself is
+ * unusable here, so only that is recorded and costs `isEmbeddingAvailable()` its optimism.
  */
 async function getExtractor(): Promise<FeatureExtractor | null> {
   if (loadFailed) {
@@ -87,11 +52,9 @@ async function getExtractor(): Promise<FeatureExtractor | null> {
   } catch (err: any) {
     loadFailed = true
     extractorPromise = null
-    // -> The warn log fires first and `noteLoadFailure` is optional-chained: this call runs on a
-    //    worker thread (`backend/worker.ts`), whose deliberately minimal `CARDINAL.models` can omit
-    //    `extensions` again in the future, and recording the failure must never be able to defeat
-    //    this function's own "never throws" contract by throwing before the real error is even
-    //    logged (OpenProject #3295).
+    // -> Warn first, and optional-chain `noteLoadFailure`: this runs on a worker thread, whose
+    //    minimal `CARDINAL.models` may lack `extensions`, and recording the failure must never
+    //    throw before the real error is logged.
     CARDINAL.logger.warn('search', 'could not load the local embedding model', { error: err })
     CARDINAL.models.extensions?.noteLoadFailure(specifier)
     return null
@@ -99,31 +62,19 @@ async function getExtractor(): Promise<FeatureExtractor | null> {
 }
 
 /**
- * Whether the local embedding model can plausibly be used right now.
- *
- * Synchronous and optimistic: it reports `true` unless this process has already tried and failed to
- * load the pipeline, rather than re-probing `node_modules` or attempting a load itself — an actual
- * load is `embedText`'s job, and doing it here would contradict "importing this module does not
- * itself trigger a model load."
+ * Optimistic: `true` until this process has tried and failed to load the pipeline, and it never
+ * attempts a load itself — that is `embedText`'s job. There is no native binary to probe for, and
+ * Node caches a failed dynamic `import()` for the life of the process, so a failure stands until a
+ * restart.
  */
 export function isEmbeddingAvailable(): boolean {
   return !loadFailed
 }
 
 /**
- * Run already-loaded text through the pipeline and shape its output as a plain embedding vector.
- *
- * Broken out from `embedText` — the same way `helpers/puppeteer.ts#launchUnderSemaphore` is broken
- * out from `launchPuppeteerBrowser` — purely so a test can drive this with a stubbed `extract`
- * function, without needing the real `@huggingface/transformers` package or its model download to
- * exercise the output-shaping and error-handling logic.
- *
- * Truncation to the model's own max token count (256 for MiniLM) is not done here: the pipeline's
- * tokenizer already truncates unconditionally (`truncation: true`, verified against the installed
- * `@huggingface/transformers` pipeline implementation), which is the real safety net regardless of
- * how long `text` is.
- *
- * @returns A 384-length numeric vector, or `null` if running the model on this text failed
+ * Separate from `embedText` so a test can drive it with a stubbed `extract`, without the real
+ * package or its model download. `text` is not truncated to the model's max token count here: the
+ * pipeline's tokenizer already truncates unconditionally.
  */
 export async function extractEmbedding(
   text: string,
@@ -138,12 +89,7 @@ export async function extractEmbedding(
   }
 }
 
-/**
- * Embed a piece of text with the local model, lazily loading it on first call.
- *
- * @returns A 384-length numeric vector, or `null` if the model is unusable on this system or running
- *          it on this text failed — never throws.
- */
+/** Never throws: `null` when the model is unusable on this system or fails on this text. */
 export async function embedText(text: string): Promise<number[] | null> {
   const extract = await getExtractor()
   if (!extract) {

@@ -11,11 +11,8 @@ import type {
 import type { BlockDefinition } from '../models/blocks.ts'
 
 /**
- * Why a `component.js` source failed to yield a `BlockDefinition`.
- *
- * Mirrors the conditions `blocks/rollup.config.mjs` already throws the build over — this module is
- * the one place that decides what "same static definition shape" means, so a build-time rejection
- * and a runtime one never quietly diverge.
+ * All but `invalid-prop-name` mirror what `blocks/rolldown.config.mjs` fails the build over, so a
+ * build-time rejection and a runtime one agree.
  */
 export type BlockDefinitionFailureReason =
   | 'parse-error'
@@ -33,7 +30,6 @@ export type BlockDefinitionResult =
   | { ok: true; definition: BlockDefinition }
   | { ok: false; error: BlockDefinitionFailure }
 
-/** Thrown internally while walking the `static definition` value, caught by `extractBlockDefinition`. */
 class DefinitionValueError extends Error {
   reason: 'interpolated-template' | 'non-literal'
   constructor(reason: 'interpolated-template' | 'non-literal', message: string) {
@@ -43,11 +39,9 @@ class DefinitionValueError extends Error {
 }
 
 /**
- * Turn an ESTree literal node into a plain JS value.
- *
  * Only literals, arrays and objects of literals are supported — a block definition is metadata, so
- * anything computed is a mistake worth rejecting over. Ported from `blocks/rollup.config.mjs`'s
- * `literalToValue()`, which does the same walk with `this.parse` and throws instead of returning.
+ * anything computed is a mistake worth rejecting. Keep in step with `literalToValue()` in
+ * `blocks/rolldown.config.mjs`, the build-time copy of this walk.
  */
 function literalToValue(node: Expression | SpreadElement | null, label: string): unknown {
   if (node === null) {
@@ -111,22 +105,13 @@ function propertyKeyName(key: Expression | PrivateIdentifier, label: string): st
 }
 
 /**
- * What a prop's `name` is allowed to look like: a plain, dash-separated lowercase identifier.
- *
- * `backend/helpers/htmlSanitizePolicy.ts#blockAllowances()` (OpenProject #2132) admits a custom block's `props`
- * straight into the sanitizer's per-tag attribute allowlist, trusting the name unvalidated — sanitize-html
- * matches attribute names with `*`-glob support, so a prop named `on*` or `*` would silently open inline
- * event handlers (or every attribute at all) on that element for every author on every page using the
- * block, not merely describe one authorable field. This is the one check standing between an uploaded
- * prop name and that allowlist, which is why it lives at upload time rather than at render time: render
- * has no way left to tell "declared by this block" from "widened by this block".
+ * `htmlSanitizePolicy.ts#blockAllowances()` admits a custom block's prop names straight into the
+ * sanitizer's per-tag attribute allowlist, and sanitize-html globs attribute names — a prop named
+ * `on*` or `*` would open inline event handlers (or every attribute) on that element. This is the
+ * only check between an uploaded prop name and that allowlist.
  */
 const PROP_NAME_PATTERN = /^[a-z][a-z0-9-]*$/
 
-/**
- * The first `props` entry (if any) whose `name` does not match `PROP_NAME_PATTERN`, for the error
- * message — or `null` when every prop name is safe to admit into the sanitizer's allowlist.
- */
 function findInvalidPropName(props: unknown): string | null {
   if (!Array.isArray(props)) {
     return null
@@ -141,18 +126,9 @@ function findInvalidPropName(props: unknown): string | null {
 }
 
 /**
- * Read the `static definition` a block component declares on its class, the same way the rollup
- * build's `blocksManifest()` plugin does — but from raw source text rather than `this.parse`, which
- * only exists inside a running rollup build.
- *
- * Returns the definition, or a typed failure describing which of the same conditions the build would
- * have rejected it for: unparseable source, no `static definition` found on any top-level class, an
- * interpolated template literal, or any other non-literal expression (a computed key, a function call,
- * a variable reference, and so on).
- *
- * @param source Raw `component.js` text — never evaluated, only parsed.
- * @param label Identifies the source in failure messages (a block directory name at build time, an
- *   upload's filename at runtime). Purely cosmetic.
+ * Reads a component's `static definition` the way the rolldown build's `blocksManifest()` plugin
+ * does, from raw source text: `source` is parsed, never evaluated. `label` only names it in failure
+ * messages.
  */
 export function extractBlockDefinition(
   source: string,
@@ -219,25 +195,8 @@ export function extractBlockDefinition(
 }
 
 /**
- * The custom element tag a `component.js`'s own top-level `customElements.define(...)` call
- * registers, if it makes one with a literal tag name.
- *
- * Every block, built-in or uploaded, is required to register exactly `block-{definition.block}` —
- * that contract is documented on the upload route and is what the frontend's block loader
- * (`loadBlocks()`) and `blockMarkdown()`/`findBlocks()` (`frontend/src/helpers/blocks.js`) both
- * hardcode. Nothing here extracts an override: an upload whose `define()` call names anything other
- * than the tag its own definition promises is a mistake worth rejecting, not a feature to support —
- * see `extractDefinedElementTag`'s caller in `api/blocks.ts` for the check itself.
- *
- * Walks top-level statements only, same as `extractBlockDefinition`'s search for `static
- * definition`: a component that only calls `define()` conditionally, or from inside a function, is
- * not the shape every block in this repo actually uses (`grep -rn 'customElements.define'
- * blocks/*\/component.js` — always a bare top-level call), so is treated as registering nothing
- * findable rather than guessed at.
- *
- * @param source Raw `component.js` text — never evaluated, only parsed.
- * @returns The tag name, or null if the source has no top-level `customElements.define('tag', ...)`
- *   call (optionally through `window.`) with a literal string tag, or fails to parse at all.
+ * Top-level statements only, like `extractBlockDefinition`: a conditional or nested `define()` is
+ * treated as registering nothing rather than guessed at.
  */
 export function extractDefinedElementTag(source: string): string | null {
   let ast
@@ -247,9 +206,7 @@ export function extractDefinedElementTag(source: string): string | null {
     return null
   }
 
-  // -> The last matching call wins, same convention `extractBlockDefinition` uses for the last
-  //    matching `static definition`: a source with more than one define() is unusual, and the last
-  //    one written is the more likely to be the one actually meant.
+  // -> The last matching call wins, as with `extractBlockDefinition`'s `static definition`.
   let tag: string | null = null
   for (const node of ast.body) {
     if (node.type !== 'ExpressionStatement' || node.expression.type !== 'CallExpression') {

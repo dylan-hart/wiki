@@ -10,12 +10,8 @@ import {
 } from './common.ts'
 
 /**
- * OpenProject #831: the site's canonical/public URL — as consumed by `controllers/seo.ts` and, once
- * one exists, any `codeTemplate` comment provider's embed (see `models/commentProviders.ts`) — must
- * match how the request was actually reached, including behind a reverse proxy and on a non-default
- * port. `requestOrigin` is deliberately a one-line pass-through of `req.protocol`/`req.hostname`
- * rather than anything that re-derives scheme/host itself; these tests pin that contract so it can't
- * quietly grow a second, divergent way to compute the same thing.
+ * `requestOrigin` is deliberately a pass-through of `req.protocol`/`req.hostname`; these pin that
+ * it never grows a second way to derive scheme or host.
  */
 describe('requestOrigin', () => {
   test('joins protocol and hostname on the default port, exactly as given', () => {
@@ -23,22 +19,18 @@ describe('requestOrigin', () => {
   })
 
   test('preserves a non-default port carried on the hostname', () => {
-    // -> This is what `req.hostname` looks like when a browser's address bar itself names a
-    //    non-default port, e.g. a dev instance on :3000 with no proxy in front of it at all.
     assert.equal(requestOrigin('http', 'wiki.example.com:3000'), 'http://wiki.example.com:3000')
   })
 
   test('reflects a reverse-proxy-terminated scheme even when it differs from the raw connection', () => {
-    // -> Simulates what Fastify's `trustProxy` hands `req.protocol` when a proxy terminates TLS and
-    //    forwards plain HTTP internally: the *public* scheme, not the one this process actually
-    //    listens on. Getting this wrong is exactly requarks/wiki #2549's failure mode.
+    // -> What `trustProxy` hands `req.protocol` when a proxy terminates TLS: the public scheme, not
+    //    the one this process listens on. Getting it wrong is requarks/wiki #2549's failure mode.
     assert.equal(requestOrigin('https', 'wiki.example.com'), 'https://wiki.example.com')
   })
 
   test('reflects a reverse-proxy-rewritten hostname, port included', () => {
-    // -> `X-Forwarded-Host` under `trustProxy`, e.g. a proxy fronting several internal ports on one
-    //    public non-default port. Getting this wrong is requarks/wiki #2784's failure mode: the
-    //    embed identifies the page by a URL nobody outside the proxy can actually reach.
+    // -> `X-Forwarded-Host` under `trustProxy`. Getting it wrong is requarks/wiki #2784's failure
+    //    mode: an embed identifies the page by a URL nobody outside the proxy can reach.
     assert.equal(requestOrigin('https', 'wiki.example.com:8443'), 'https://wiki.example.com:8443')
   })
 
@@ -68,8 +60,6 @@ describe('isSameOriginWebSocketHandshake', () => {
   })
 
   test('rejects a same hostname on a different port', () => {
-    // -> The origin's `host` carries the port; a page served on :8080 is not this handshake's origin
-    //    just because the hostname matches.
     assert.equal(
       isSameOriginWebSocketHandshake('https://wiki.example.com:8080', 'wiki.example.com'),
       false
@@ -77,8 +67,6 @@ describe('isSameOriginWebSocketHandshake', () => {
   })
 
   test('rejects a missing Origin header', () => {
-    // -> Unlike `resolveOrigin` in `models/passkeys.ts`, a WebSocket handshake has no legitimate
-    //    non-browser caller that would omit it — every real one is a browser upgrade request.
     assert.equal(isSameOriginWebSocketHandshake(undefined, 'wiki.example.com'), false)
   })
 
@@ -172,14 +160,9 @@ describe('isHashedAssetFilename', () => {
     })
   }
 
-  // -> The 6 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
-  //    deliberately fixed entry point name (referenced by a static server-rendered page), and the
-  //    other 5 are hand-authored trees vite never touches. (`bg/` was a sixth until the login
-  //    background it held became a backend-owned branding fallback — see `controllers/site.ts`'s
-  //    `SITE_ASSET_FALLBACKS`, OpenProject #2611; `logo-wikijs.svg`/`logo-wikijs-full.svg` were two
-  //    more until they were deleted as dead, still-shipped upstream branding, OpenProject #2724 —
-  //    NOT replaced with `logo-cardinal.svg` here: that name is coincidentally hash-shaped, 8
-  //    characters between the hyphen and the extension, so it is NOT a safe unhashed example.)
+  // -> Entries under `assets/_assets` that are not vite build output: `renderer.js` is a
+  //    deliberately fixed entry name, the rest are hand-authored trees. `logo-cardinal.svg` is left
+  //    out because it is coincidentally hash-shaped — see the FIXME on `HASHED_ASSET_PATTERN`.
   const unhashedSamples = ['fonts', 'icons', 'illustrations', 'renderer.js', 'storage', 'svg']
 
   for (const name of unhashedSamples) {
@@ -201,19 +184,7 @@ describe('isHashedAssetFilename', () => {
   })
 })
 
-/**
- * Task 3178: replaces the `filesize` dependency's bare `filesize(bytes)` call, the only way
- * `api/system/info.ts` ever invoked it (for `ramTotal`). These values pin the exact strings that
- * call produced, captured against the real `filesize@11.0.22` package before it was removed, so a
- * future change to `formatByteSize` cannot silently drift from what admins were already shown.
- *
- * The values themselves are decimal (1000-based) unit steps, not base-2 — `filesize`'s own default
- * (no options passed) resolves that way despite its "JEDEC" standard name, verified empirically
- * against the installed package rather than assumed. 2 ** 30 - 1 is the one entry that looks
- * surprising at a glance: it is one byte short of 1 GB, but rounds to "1024.00" at the MB step, and
- * `formatByteSize` (matching `filesize`) promotes that to the next unit rather than printing the
- * threshold value verbatim.
- */
+/** Expected strings are the `filesize` package's default (decimal, 1000-based) output. */
 describe('formatByteSize', () => {
   const TABLE: Array<[number, string]> = [
     [0, '0 B'],
@@ -225,7 +196,7 @@ describe('formatByteSize', () => {
     [2 ** 20, '1.05 MB'],
     [2 ** 30 - 1, '1.07 GB'],
     [5 * 2 ** 40, '5.5 TB'],
-    // -> A realistic `os.totalmem()` shape (16 GiB), the actual call site in `api/system/info.ts`.
+    // -> A realistic `os.totalmem()`: 16 GiB.
     [17179869184, '17.18 GB']
   ]
 

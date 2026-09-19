@@ -5,10 +5,6 @@ import logger, { renderJson, renderText } from './logger.ts'
 import type { LogFrame } from './logger.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-/**
- * Pure unit test: `logger.ts` reads only `CARDINAL.config.{logFormat,logLevel}` and `CARDINAL.INSTANCE_ID`,
- * so a minimal stand-in global is enough — no database, no other model.
- */
 function setWiki(config: { logFormat?: unknown; logLevel?: unknown; logScopes?: unknown }) {
   installTestWiki({
     config,
@@ -17,18 +13,14 @@ function setWiki(config: { logFormat?: unknown; logLevel?: unknown; logScopes?: 
 }
 
 /**
- * `node:util`'s `styleText` emits escapes only when it believes the stream is a colour-capable TTY,
- * which is true under a local `node --test` in a terminal and false in CI (and under `NO_COLOR`).
- * Every text-mode assertion runs through this so a suite proves the LAYOUT rather than the
- * environment's colour support — the colouring itself is asserted separately, and skipped when the
- * runner is not producing any.
+ * `styleText` emits escapes only on a colour-capable TTY — not in CI, not under `NO_COLOR` — so
+ * layout assertions strip them; the colouring itself is asserted separately.
  */
 function stripAnsi(line: string): string {
   // oxlint-disable-next-line no-control-regex -- stripping ANSI escapes is the whole point
   return line.replaceAll(/\u001b\[[0-9;]*m/g, '')
 }
 
-/** Whether `styleText` is emitting escapes at all in this runner — see `stripAnsi` above. */
 function colorsEnabled(): boolean {
   return styleText('dim', 'x') !== 'x'
 }
@@ -49,10 +41,7 @@ describe('logger', () => {
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
     assert.equal(parsed.level, 'error')
-    // -> `Error` has no enumerable own properties, so `JSON.stringify`-ing one straight serialized
-    //    it as `{}`, losing the stack exactly where structured logging was requested
-    //    (OpenProject #939). The stack-as-message stand-in that fixed it is gone now that there is
-    //    a real `error` field to put it in, so `message` can stay a sentence.
+    // -> `Error` has no enumerable own properties, so a bare `JSON.stringify` of one yields `{}`.
     assert.notEqual(JSON.stringify(parsed.error), '{}')
     assert.equal(parsed.message, 'connecting failed')
     assert.equal(parsed.error.name, 'Error')
@@ -116,9 +105,6 @@ describe('logger', () => {
 
     const line = logSpy.mock.calls[0]!.arguments[0] as string
     const parsed = JSON.parse(line)
-    // -> The four the pre-scope implementation produced plus `scope`, in the same order, with no
-    //    stray `context` key left behind by an `undefined` merge and no `error` key on a call that
-    //    carried no error.
     assert.deepEqual(Object.keys(parsed), ['timestamp', 'instance', 'level', 'scope', 'message'])
     assert.equal(parsed.message, 'hello world')
     assert.equal(parsed.level, 'info')
@@ -139,9 +125,6 @@ describe('logger', () => {
   })
 
   test('text mode renders a context object as a key=value tail (C1)', () => {
-    // -> This assertion used to say the opposite: text mode threw the context away, so the one
-    //    place the fork added request context (`apiErrorHandler`'s `{ reqId, method, url, … }`) was
-    //    invisible unless the operator ran in JSON mode. Facts belong in fields in BOTH modes.
     setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
@@ -192,21 +175,11 @@ describe('logger threshold', () => {
   })
 })
 
-/**
- * Per-scope thresholds (OpenProject #2663). `logLevel` is the default for a scope that says nothing;
- * a `logScopes` entry or a live override thunk answers for that scope instead.
- *
- * The gate that decides this had to move from the level loop (which stopped attaching listeners past
- * `logLevel`) to inside the listener, since the scope is not known until the call has been
- * normalized — so the first claim below is the behaviour-preservation one: with no overrides at all,
- * nothing about the old threshold changed.
- */
 describe('logger per-scope thresholds', () => {
   afterEach(() => {
     mock.restoreAll()
   })
 
-  /** Every line the run emitted, as `<level> <scope>` pairs, in order. */
   function emitted(logSpy: { mock: { calls: { arguments: unknown[] }[] } }): string[] {
     return logSpy.mock.calls.map((call) => {
       const parsed = JSON.parse(call.arguments[0] as string)
@@ -261,8 +234,6 @@ describe('logger per-scope thresholds', () => {
     const logSpy = mock.method(console, 'log', () => {})
 
     primaryLogger.debug('sql', 'before the flag')
-    // -> The point of the thunk: an administrator flips `sqlLog` mid-run and the very next query
-    //    line is logged, with no restart and no second logger.
     sqlOn = true
     primaryLogger.debug('sql', 'after the flag')
     sqlOn = false
@@ -322,11 +293,6 @@ describe('logger config validation', () => {
     mock.restoreAll()
   })
 
-  /**
-   * Every level and format the app supports boots without complaint. The counterpart to the refusal
-   * cases below: a validator that rejected a valid value would be caught here rather than in
-   * production.
-   */
   for (const logLevel of ['error', 'warn', 'info', 'debug']) {
     for (const logFormat of ['text', 'json']) {
       test(`accepts logLevel '${logLevel}' with logFormat '${logFormat}'`, () => {
@@ -343,10 +309,8 @@ describe('logger config validation', () => {
   }
 
   /**
-   * Each of these used to match no level in the walk, leaving every listener attached — so the
-   * instance logged at `debug` with no indication the configured value had been ignored.
-   * `verbose`/`silly` are the 2.x names this logger has never implemented; the rest are ordinary
-   * typos, including a wrong-case one, since the sample config's values are lowercase.
+   * `verbose`/`silly` are the 2.x level names this logger does not implement; the rest are typos,
+   * wrong case included — validation is case-sensitive.
    */
   for (const logLevel of ['Info', 'INFO', 'warning', 'verbose', 'silly', 'trace', '', undefined]) {
     test(`refuses to boot on logLevel ${JSON.stringify(logLevel)}`, () => {
@@ -364,7 +328,6 @@ describe('logger config validation', () => {
       const line = errorSpy.mock.calls[0]!.arguments[0] as string
       assert.match(line, /logLevel/)
       assert.match(line, /error, warn, info, debug/)
-      // -> The offending value itself, so an operator can see what the merged config actually held.
       assert.ok(
         line.includes(JSON.stringify(logLevel) ?? 'undefined'),
         `expected ${JSON.stringify(line)} to name the rejected value`
@@ -398,20 +361,14 @@ describe('logger config validation', () => {
 
     logger.init({ exit })
 
-    // -> Production's `exit` is `process.exit`, which never returns, so only the first line is ever
-    //    reached there. The injected stub does return, which is what lets this assert that neither
-    //    check is skipped once the other has already failed.
+    // -> Production's `exit` is `process.exit` and never returns, so only the first refusal is
+    //    reached there; the stub returning is what lets this see both.
     assert.equal(exit.mock.calls.length, 2)
     assert.equal(errorSpy.mock.calls.length, 2)
     assert.match(errorSpy.mock.calls[0]!.arguments[0] as string, /logLevel/)
     assert.match(errorSpy.mock.calls[1]!.arguments[0] as string, /logFormat/)
   })
 
-  /**
-   * `logScopes` is validated the same way and for the same reason as `logLevel` (OpenProject #2647's
-   * shape): a typo'd scope name is a scope nothing is ever measured against, so an operator who
-   * asked to trace `storge` would see nothing and be told nothing about why.
-   */
   test('accepts a logScopes map naming real scopes and real levels', () => {
     setWiki({
       logFormat: 'text',
@@ -456,8 +413,7 @@ describe('logger config validation', () => {
       const line = errorSpy.mock.calls[0]!.arguments[0] as string
       assert.match(line, /logScopes/)
       assert.ok(line.includes(JSON.stringify(scope)), 'names the rejected scope')
-      // -> The whole vocabulary, so the operator can find the name they meant without opening the
-      //    source.
+      // -> The refusal lists the vocabulary, so the intended name can be found without the source.
       assert.match(line, /boot, config, db, sql, http/)
     })
   }
@@ -507,8 +463,7 @@ describe('logger config validation', () => {
 
     logger.init({ exit })
 
-    // -> Production's `exit` is `process.exit` and never returns, so only the first is ever reached
-    //    there; the injected stub returning is what lets this prove neither entry is skipped.
+    // -> Two only because the stubbed `exit` returns; `process.exit` would stop at the first.
     assert.equal(exit.mock.calls.length, 2)
     assert.equal(errorSpy.mock.calls.length, 2)
   })
@@ -517,20 +472,12 @@ describe('logger config validation', () => {
     setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init() as any
 
-    // -> They were no-op stubs, which is what made `logLevel: verbose` look like a supported
-    //    configuration rather than the ignored value it was (OpenProject #2647).
+    // -> A no-op stub would make `logLevel: verbose` look like a supported configuration.
     assert.equal(primaryLogger.verbose, undefined)
     assert.equal(primaryLogger.silly, undefined)
   })
 })
 
-/**
- * The text renderer: `<ISO ts> <level padded 5> <scope padded 8>  <message>  <k=v …>`, with the
- * stack — where the level warrants one — on following lines indented two spaces.
- *
- * Every layout assertion runs the line through `stripAnsi` so it proves the shape rather than the
- * runner's colour support; the colouring itself has its own describe below.
- */
 describe('logger text renderer', () => {
   afterEach(() => {
     mock.restoreAll()
@@ -551,9 +498,7 @@ describe('logger text renderer', () => {
   test('lays out timestamp, level, scope and message in fixed columns', () => {
     const line = renderOne((log) => log.info('db', 'connected'))
 
-    // -> `level` padded to 5 plus a separator space, `scope` padded to 8 plus TWO — which is what
-    //    puts the message at a fixed offset whatever the scope's length, so a tailed log reads as
-    //    columns. Checked against the spec's own sample block (2.1), not re-derived.
+    // -> `level` pads to 5 plus one space, `scope` to 8 plus two.
     assert.match(line, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z info {2}db {8}connected$/)
   })
 
@@ -590,8 +535,6 @@ describe('logger text renderer', () => {
     const sub = renderOne((log) => log.info('db', 'connected', { migrations: 0, ms: 528 }))
     const over = renderOne((log) => log.info('boot', 'ready', { sites: 1, ms: 3900 }))
 
-    // -> Sub-second stays in milliseconds (the resolution that matters there); anything longer
-    //    reads as seconds to one decimal. Never `ms=528`, which is the JSON spelling.
     assert.match(sub, /migrations=0 in 528ms$/)
     assert.match(over, /sites=1 in 3\.9s$/)
     assert.doesNotMatch(sub, /ms=528/)
@@ -606,8 +549,6 @@ describe('logger text renderer', () => {
     const [head, ...stack] = line.split('\n')
     assert.match(head!, /attempts=3 error="fetching locale metadata failed: 404"$/)
     assert.ok(stack.length > 0, 'expected the stack on following lines')
-    // -> Two spaces, so the trace reads as a continuation of the record above it rather than as
-    //    another record.
     assert.ok(
       stack.every((stackLine) => stackLine.startsWith('  ')),
       `expected every stack line indented two spaces, got ${JSON.stringify(stack)}`
@@ -623,8 +564,6 @@ describe('logger text renderer', () => {
       'debug'
     )
 
-    // -> A stack is noise on a warning the operator has already decided to live with; it is the
-    //    whole record on an error. `warn` gets one only when they have asked for everything.
     assert.match(atInfo, /error="remote unreachable"$/)
     assert.doesNotMatch(atInfo, /\n/)
     assert.match(atDebug, /\n {2}Error: remote unreachable/)
@@ -666,27 +605,12 @@ describe('logger text renderer', () => {
       errorLine.includes(styleText('red', 'connection lost')),
       'error message should be red'
     )
-    // -> `info` is deliberately plain, level and message both: the level IS the status, so the
-    //    quiet case needs no colour of its own and a `warn` stays visible after a week of tailing.
     assert.ok(infoLine.includes(' info  '), 'info level should be written unwrapped')
     assert.ok(!infoLine.includes(styleText('dim', 'info ')))
     assert.ok(!infoLine.includes(styleText('red', 'connected')))
   })
 })
 
-/**
- * `(scope, message, fields?)` is the ONLY call shape (OpenProject #2668).
- *
- * There used to be a second — the legacy `(msg, context?)` overload #2660 kept while the three area
- * sweeps ran, filed under a sentinel scope `legacy` so a grep over the output said how much was
- * left — and a describe here asserting it rendered. Both are gone: a call missing its scope is a
- * `tsc` error now, which is exactly what proves the sweeps finished, so the coverage that matters
- * lives in the type checker and not in a runtime assertion.
- *
- * What survives from that describe is the half that is still about behaviour rather than about the
- * bridge: an `Error` handed to the logger reaches the record as `{ name, message, stack }`, whether
- * it arrives on a parent call or through a scoped child.
- */
 describe('logger single call shape', () => {
   afterEach(() => {
     mock.restoreAll()
@@ -719,9 +643,6 @@ describe('logger single call shape', () => {
   })
 
   test('a non-Error `error` field stays an ordinary field rather than being promoted', () => {
-    // -> `normalizeCall` lifts `fields.error` into the record's own slot only when it really is an
-    //    `Error`; a route that logs `{ error: 'ECONNREFUSED' }` keeps a plain string field and gets
-    //    no invented `name`/`stack`.
     setWiki({ logFormat: 'json', logLevel: 'debug' })
     const primaryLogger = logger.init()
     const logSpy = mock.method(console, 'log', () => {})
@@ -739,8 +660,6 @@ describe('logger backlog', () => {
   })
 
   test('keeps the last 500 frames and drops the oldest beyond that', () => {
-    // -> 100 was minutes of heartbeat ticks; with those demoted to `debug`, 500 is hours of real
-    //    history for an admin terminal that connects after the fact.
     setWiki({ logFormat: 'json', logLevel: 'debug' })
     const primaryLogger = logger.init()
     mock.method(console, 'log', () => {})
@@ -756,10 +675,8 @@ describe('logger backlog', () => {
   })
 
   test('the backlog holds frames, not rendered lines (OpenProject #2679)', () => {
-    /*
-      Deliberately in TEXT mode: what the admin terminal replays must not depend on how this process
-      happens to be writing its own stdout, which is the whole reason the element type changed.
-    */
+    // -> Text mode on purpose: what the admin terminal replays must not depend on how this process
+    //    renders its own stdout.
     setWiki({ logFormat: 'text', logLevel: 'debug' })
     const primaryLogger = logger.init()
     mock.method(console, 'log', () => {})
@@ -782,7 +699,7 @@ describe('logger backlog', () => {
     assert.equal(frame.message, 'connected')
     assert.deepEqual(frame.fields, { schema: 'public', ms: 528 })
     assert.match(frame.timestamp, /^\d{4}-\d{2}-\d{2}T/)
-    // -> No ANSI, no padding, no `key=value` tail: nothing of the text renderer leaked into it
+    // -> The literal below is a bare ESC byte: no ANSI leaked in from the text renderer
     assert.ok(!JSON.stringify(frame).includes(''))
   })
 
@@ -797,7 +714,6 @@ describe('logger backlog', () => {
 
     assert.equal(frames.length, 1)
     assert.deepEqual(frames, primaryLogger.backlog())
-    // -> stdout still gets the rendered line; only the socket and the backlog changed
     assert.equal(typeof logSpy.mock.calls[0]!.arguments[0], 'string')
     assert.equal(logSpy.mock.calls[0]!.arguments[0], renderText(frames[0]!))
   })
@@ -848,17 +764,11 @@ describe('logger backlog', () => {
     assert.equal(frame.fields.missing, 'undefined')
     assert.equal(frame.fields.big, '9007199254740993')
     assert.match(frame.fields.fn as string, /handler/)
-    // -> A nested `Error` is serialised too, not just the top-level one
     assert.equal((frame.fields.nested as any).cause.message, 'inner')
-    // -> The point of all of the above: the frame survives being put on the wire
     assert.doesNotThrow(() => JSON.stringify(frame))
   })
 })
 
-/**
- * The two renderers, driven directly off a hand-built frame — which is the payoff of #2679's split:
- * neither needs a logger instance, a `CARDINAL` global or a `console.log` spy any more.
- */
 describe('logger renderers', () => {
   const frame: LogFrame = {
     timestamp: '2026-09-06T07:00:00.000Z',
@@ -929,10 +839,6 @@ describe('logger renderers', () => {
   })
 })
 
-/**
- * The scoped-child half. Asserted in JSON mode throughout: that is the format in which the scope and
- * the merged fields are observable as data rather than as a rendered string.
- */
 describe('logger scopes', () => {
   afterEach(() => {
     mock.restoreAll()
@@ -1041,8 +947,6 @@ describe('logger scopes', () => {
     assert.equal(grandchild!.engine, 'db')
     assert.equal(child!.scope, 'storage')
     assert.equal(child!.engine, undefined)
-    // -> The parent names its own scope, and what matters here is that it is NOT `storage` — the
-    //    child never wrote its scope or its fields back onto the logger it was built from.
     assert.equal(parent!.scope, 'boot')
     assert.equal(parent!.target, undefined)
   })
@@ -1087,9 +991,6 @@ describe('logger scopes', () => {
     primaryLogger.scope('icons', { prefix: 'mdi' }).info('icon set enabled')
 
     assert.equal(logSpy.mock.calls.length, 1)
-    // -> The child's scope lands in the scope column and its fields in the `key=value` tail, which is
-    //    the point: a scoped call goes through the one renderer and comes out indistinguishable from
-    //    the same call written out in full.
     assert.match(
       stripAnsi(logSpy.mock.calls[0]!.arguments[0] as string),
       /\binfo\s+icons\s+icon set enabled {2}prefix=mdi$/
@@ -1098,23 +999,14 @@ describe('logger scopes', () => {
 })
 
 /**
- * OpenProject #2678 (audit finding C7) - a regression guard, not a fix: the fix is #2679's frame,
- * asserted above, plus the Live Log page that colours off `frame.level` rather than off escapes.
- *
- * The Bug was that `util.styleText` returns bare text when stdout is not a TTY (Node 22.13+
- * validates the stream by default), so under Docker, systemd or any log pipe the admin Terminal --
- * which was handed the rendered stdout line verbatim -- received no escapes at all and drew every
- * level in one colour. `validateStream: false` was the tempting local patch and is the wrong one:
- * it would put escapes into `docker logs` instead.
- *
- * What makes the page's colour independent of the server's TTY is that the two renderers are
- * separate -- `renderText` writes for stdout, while the socket and the backlog carry the FRAME --
- * so that is what this asserts, in text mode, the only mode where an escape could leak.
- * Deliberately no assertion on rendered message text: the invariant is the shape and the absence of
- * the escape byte, so a reworded line cannot break it.
+ * `util.styleText` returns bare text when stdout is not a TTY (Docker, systemd, any log pipe), so a
+ * socket handed the rendered stdout line would lose its level colours there -- and
+ * `validateStream: false` is the wrong fix, since it would put escapes into `docker logs`. The
+ * socket and the backlog carry the frame instead. Asserted in text mode, the only mode where an
+ * escape could leak.
  */
 describe('the admin Live Log stream carries frames, never a rendered line (#2678)', () => {
-  /** The byte every ANSI sequence opens with, built rather than pasted so the source stays text. */
+  /** Built rather than pasted, so the source stays plain text. */
   const ESC = String.fromCharCode(27)
 
   afterEach(() => {
@@ -1132,8 +1024,6 @@ describe('the admin Live Log stream carries frames, never a rendered line (#2678
 
     assert.equal(emitted.length, 1)
     const frame = emitted[0]!
-    // -> The regression is exactly "the socket was handed the rendered line": a string here, equal
-    //    to what stdout got, is the pre-#2679 behaviour C7 described.
     assert.equal(typeof frame, 'object')
     assert.equal(typeof logSpy.mock.calls[0]!.arguments[0], 'string')
     assert.equal(frame.level, 'warn')
@@ -1150,9 +1040,7 @@ describe('the admin Live Log stream carries frames, never a rendered line (#2678
 
     const emitted: LogFrame[] = []
     primaryLogger.ws.on('log', (frame: LogFrame) => emitted.push(frame))
-    // -> Every level, because the colour was per-level: `error` red, `warn` yellow, `debug` dim.
-    //    The `error` field and its stack ride along too, being the longest strings on a frame and
-    //    the ones a renderer would have coloured.
+    // -> Colour is per-level, and an `error` and its stack are strings a renderer would colour.
     primaryLogger.error('db', 'pool exhausted', { error: new Error('too many clients') })
     primaryLogger.warn('db', 'reconnecting')
     primaryLogger.info('db', 'connected')
@@ -1160,9 +1048,8 @@ describe('the admin Live Log stream carries frames, never a rendered line (#2678
 
     assert.equal(emitted.length, 4)
     for (const frame of emitted) {
-      // -> `JSON.stringify(frame)` is byte-for-byte what `controllers/terminal.ts` sends down the
-      //    websocket, so asserting on it covers `message`, `scope` and every field at once --
-      //    including the stack -- rather than a property list that could grow past the test.
+      // -> `JSON.stringify(frame)` is what `controllers/terminal.ts` sends down the websocket, so
+      //    this covers every field at once, the stack included.
       assert.equal(JSON.stringify(frame).includes(ESC), false)
     }
   })
@@ -1176,10 +1063,6 @@ describe('the admin Live Log stream carries frames, never a rendered line (#2678
     primaryLogger.ws.on('log', (frame: LogFrame) => emitted.push(frame))
     primaryLogger.error('db', 'pool exhausted')
 
-    // -> The other half of the split, and the reason `validateStream: false` is not the fix: a
-    //    person tailing a real terminal still gets a red `error`. Skipped when the runner is not
-    //    colouring at all (CI, `NO_COLOR`) -- which is precisely the non-TTY condition the Bug was
-    //    about, and where the assertion above is the one that matters.
     assert.equal((logSpy.mock.calls[0]!.arguments[0] as string).includes(ESC), true)
     assert.equal(JSON.stringify(emitted[0]!).includes(ESC), false)
   })

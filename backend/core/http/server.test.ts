@@ -16,23 +16,6 @@ import { registerErrorHandler } from './errors.ts'
 import { SHUTDOWN, SHUTTING_DOWN } from './shutdown.ts'
 import { createSilentLogger, installTestWiki } from '../../test/mocks.ts'
 
-/**
- * The Fastify instance itself was built inline in `index.ts` until this split, which is why none of
- * it had a test: the only way to reach that code was to boot the whole process. `createHttpApp()`
- * makes the options block, the `@fastify/sensible` / `@fastify/compress` / `@fastify/websocket`
- * registrations and the graceful-shutdown wiring reachable without a listening socket — `inject()`
- * never binds one — so the settings that decide how every request is parsed and routed can be
- * asserted directly rather than inferred from an e2e failure.
- *
- * `registerStaticAssets()` is the other half: the root favicon route plus two static mounts, whose
- * ORDER relative to `registerSecurity`/`registerSession` is behaviour (Fastify registers plugins in
- * call order), and whose `/_assets/` mount carries the immutable-cache rule
- * `helpers/common.ts#isHashedAssetFilename` decides. Driven here against a throwaway `CARDINAL.ROOTPATH`/
- * `CARDINAL.SERVERPATH` laid out the way a built checkout is, since the favicon route needs a real file
- * under `assets/branding/` to serve (`helpers/common.ts#replyWithFile` `fsp.stat`s it).
- */
-
-/** The minimum `CARDINAL` global `createHttpApp()` and `registerStaticAssets()` actually read. */
 function installWikiStub({
   rootPath = process.cwd(),
   serverPath = rootPath,
@@ -54,35 +37,20 @@ function installWikiStub({
     }
   })
   return () => {
-    // -> `createHttpApp()` (called by every describe below) installs `close-with-grace`'s real
-    //    SIGINT/SIGTERM/SIGHUP/uncaughtException listeners on the real `process` via
-    //    `createGracefulShutdown()`. This test file calls `createHttpApp()` many times over, and
-    //    with nothing removing them, each fresh call's listeners would outlive its own describe
-    //    block and accumulate for the rest of the file — eventually past Node's default
-    //    `MaxListeners` of 10. `uninstall()` is exactly what `close-with-grace` exists to make
-    //    possible here (the replaced `@gquittet/graceful-server` had no equivalent), so it is called
-    //    unconditionally on restore, before `CARDINAL` itself is swapped back.
+    // -> `createHttpApp()` installs `close-with-grace`'s listeners on the real `process`. Without
+    //    `uninstall()` they accumulate across this file's many apps, past Node's `MaxListeners`.
     ;(globalThis as any).CARDINAL?.server?.uninstall?.()
     ;(globalThis as any).CARDINAL = previous
   }
 }
 
-/** One captured `CARDINAL.logger` call, in whichever of the two shapes the caller used. */
 interface RecordedLine {
   level: 'error' | 'warn' | 'info' | 'debug'
-  /** The new shape's scope — or, for a legacy `(msg, context?)` call, the message itself. */
   scope: unknown
-  /** The new shape's message — or, for a legacy call, the context object. */
   message: unknown
   fields: Record<string, unknown>
 }
 
-/**
- * A `CARDINAL.logger` that keeps what it was told rather than printing it.
- *
- * `createSilentLogger()` throws each call away, which is right for a suite that only needs the
- * logger to exist; the access line IS what is under test here, so it has to be readable back.
- */
 function createRecordingLogger(): { lines: RecordedLine[]; logger: any } {
   const lines: RecordedLine[] = []
   const at =
@@ -95,7 +63,6 @@ function createRecordingLogger(): { lines: RecordedLine[]; logger: any } {
   return { lines, logger }
 }
 
-/** The `http`-scoped lines a recording logger captured, in order. */
 function httpLines(lines: RecordedLine[]): RecordedLine[] {
   return lines.filter((line) => line.scope === 'http')
 }
@@ -107,12 +74,8 @@ describe('createHttpApp', () => {
   before(async () => {
     restoreWiki = installWikiStub()
     app = createHttpApp()
-    // -> Pino writes an access line per request to stdout; nothing here is asserting on logs, so
-    //    silence the instance rather than interleaving them with the test runner's own output.
     app.log.level = 'silent'
     app.get('/echo', async (req, reply) => {
-      // -> `reply.notFound` is @fastify/sensible's; reaching for it here is the assertion that the
-      //    plugin registered, since every route in `api/` answers its errors through it.
       if ((req.query as { fail?: string }).fail) {
         return reply.notFound('nope')
       }
@@ -151,8 +114,6 @@ describe("createHttpApp: the ajv 'hexcolor' format", () => {
   before(async () => {
     restoreWiki = installWikiStub()
     app = createHttpApp()
-    // -> Pino writes an access line per request to stdout; nothing here is asserting on logs, so
-    //    silence the instance rather than interleaving them with the test runner's own output.
     app.log.level = 'silent'
     app.post<{ Body: { color: string } }>(
       '/color',
@@ -191,12 +152,8 @@ describe("createHttpApp: the ajv 'hexcolor' format", () => {
 })
 
 /**
- * The 4 formats `ajv-formats` used to supply (OpenProject #3081/#3115): schema `format:` usage
- * across `api/schemas/` exercises exactly `uuid`, `hostname`, `email` and `date-time`, and all 4 are
- * now hand-registered in `createHttpApp()`'s `onCreate` hook the same way `hexcolor` already was.
- * One describe per format, each booting its own app with a single `POST /value` route declaring
- * `{ value: { type: 'string', format } }`, so a value is accepted (200) or refused (400) by the real
- * registration rather than by a copy of the regex asserted against directly.
+ * Each format is driven through a real route, so a value is accepted or refused by
+ * `createHttpApp()`'s own registration rather than by a copy of its regex.
  */
 const HAND_REGISTERED_FORMATS: Array<{ format: string; accept: string[]; reject: string[] }> = [
   {
@@ -233,8 +190,6 @@ for (const { format, accept, reject } of HAND_REGISTERED_FORMATS) {
     before(async () => {
       restoreWiki = installWikiStub()
       app = createHttpApp()
-      // -> Pino writes an access line per request to stdout; nothing here is asserting on logs, so
-      //    silence the instance rather than interleaving them with the test runner's own output.
       app.log.level = 'silent'
       app.post<{ Body: { value: string } }>(
         '/value',
@@ -273,25 +228,15 @@ for (const { format, accept, reject } of HAND_REGISTERED_FORMATS) {
   })
 }
 
-/**
- * The access log (OpenProject #2662).
- *
- * Pino used to write `incoming request` / `request completed` per request straight to stdout, in its
- * own JSON shape, reaching neither the terminal backlog nor the app's own format. `createHttpApp()`
- * now sets `disableRequestLogging` and registers one `onResponse` hook instead, so every request
- * produces exactly one `http`-scoped line on `CARDINAL.logger` — and pino keeps only Fastify's own
- * diagnostics, re-emitted through the same logger by the sidecar stream below.
- */
 describe('createHttpApp: the http access line', () => {
-  /** Boots an app with a recording logger and a handful of routes covering each status band. */
   async function withApp(
     run: (app: FastifyInstance, lines: RecordedLine[]) => Promise<void>
   ): Promise<void> {
     const { lines, logger } = createRecordingLogger()
     const restoreWiki = installWikiStub({ logger })
     const app = createHttpApp()
-    // -> The real error handler, not a replica: the 500 case below asserts that its line and the
-    //    access line carry the same `reqId`, which is only meaningful against the production one.
+    // -> The real error handler, not a replica: the 500 case asserts that its line and the access
+    //    line carry the same `reqId`.
     registerErrorHandler(app)
     app.get('/_api/ok', async () => ({ ok: true }))
     app.get('/_api/missing', async (_req, reply) => reply.notFound('nope'))
@@ -339,10 +284,8 @@ describe('createHttpApp: the http access line', () => {
       const res = await app.inject({ method: 'GET', url: '/_api/boom' })
       assert.equal(res.statusCode, 500)
 
-      // -> Two `http` lines for one request, deliberately: the access record here, and the
-      //    exception with its stack from `helpers/errorHandler.ts` — which logs on the same scope,
-      //    so they are told apart by their message, not by the shape of the call. `reqId` is what
-      //    joins them.
+      // -> Two `http` lines for one request: the access record, and the exception from
+      //    `helpers/errorHandler.ts` on the same scope. `reqId` is what joins them.
       const http = httpLines(lines)
       assert.equal(http.length, 2)
 
@@ -385,11 +328,8 @@ describe('createHttpApp: the http access line', () => {
 
 describe('createHttpApp: pino no longer reaches stdout', () => {
   /**
-   * Captures `process.stdout.write` while still forwarding it, so the runner's own output survives.
-   *
-   * "Nothing reaches stdout" would be false — `CARDINAL.logger` itself prints there. What the acceptance
-   * criterion actually means is that no PINO record does, which is what the `{"level":<n>` prefix
-   * of pino's default JSON line identifies.
+   * Forwards what it captures, so the runner's own output survives. `CARDINAL.logger` prints to
+   * stdout too, so the tests look for pino's `{"level":<n>` JSON prefix rather than for silence.
    */
   async function captureStdout(run: () => Promise<void>): Promise<string[]> {
     const captured: string[] = []
@@ -446,7 +386,6 @@ describe('createHttpApp: pino no longer reaches stdout', () => {
       assert.equal(warned.message, 'Reply was already sent')
       assert.equal(warned.fields.reqId, 'req-42')
 
-      // -> Severity is carried across rather than flattened: an FST_ERR_* stays an error.
       assert.equal(errored.level, 'error')
       assert.equal(errored.message, 'FST_ERR_SEND_INSIDE_ONERR')
       assert.ok(errored.fields.error instanceof Error)
@@ -488,12 +427,10 @@ describe('registerStaticAssets', () => {
     fs.writeFileSync(path.join(rootPath, 'assets/_assets/renderer.js'), 'unhashed')
     fs.writeFileSync(path.join(rootPath, 'blocks/compiled/block-map.js'), 'block')
 
-    // -> Both `ROOTPATH` and `SERVERPATH` point at the same synthetic tree here: the real distinction
-    //    (repo root vs. `backend/`) doesn't matter to a fixture that only ever lays out one of each.
+    // -> `ROOTPATH` and `SERVERPATH` share one synthetic tree: the repo-root vs. `backend/` split
+    //    does not matter to a fixture that lays out one of each.
     restoreWiki = installWikiStub({ rootPath })
     app = createHttpApp()
-    // -> Pino writes an access line per request to stdout; nothing here is asserting on logs, so
-    //    silence the instance rather than interleaving them with the test runner's own output.
     app.log.level = 'silent'
     registerStaticAssets(app)
     await app.ready()
@@ -556,15 +493,11 @@ describe('registerStaticAssets', () => {
 })
 
 /**
- * `frontend/public/favicon.ico` is a deliberate second copy of `ROOT_FAVICON_PATH` — the Vite dev
- * server answers `/favicon.ico` out of `public/` directly, a different path space from the backend's
- * own committed copy this route serves — same pattern, and same drift risk, as
- * `controllers/site.test.ts`'s `SITE_ASSET_FALLBACKS` byte-identical check for `logo-cardinal.svg`.
- * `frontend/scripts/generate-favicon.mjs` writes both from one render, which is what is meant to keep
- * them in step; this is what notices if it didn't.
+ * `frontend/public/favicon.ico` is a deliberate second copy of `ROOT_FAVICON_PATH`: the Vite dev
+ * server answers `/favicon.ico` out of `public/` directly. `frontend/scripts/generate-favicon.mjs`
+ * writes both from one render; this notices if they drift.
  */
 describe('ROOT_FAVICON_PATH — the backend owns its own favicon.ico', () => {
-  /** The real `backend/`, i.e. what `CARDINAL.SERVERPATH` resolves to in a running instance. */
   const serverPath = path.join(import.meta.dirname, '..', '..')
 
   test('resolves to a real file inside backend/', () => {
@@ -587,14 +520,9 @@ describe('ROOT_FAVICON_PATH — the backend owns its own favicon.ico', () => {
 
 describe('registerShutdownLogging', () => {
   /**
-   * Drives the real event names against a bare `EventEmitter` — `ShutdownController.on` is
-   * `(name, callback) => EventEmitter`, so an emitter satisfies the parameter structurally and the
-   * handlers run exactly as `createGracefulShutdown` calls them, with no process signalling
-   * involved.
-   *
-   * Both events, in the order `runShutdownSequence` emits them: `SHUTTING_DOWN` with the reason at
-   * the top of the teardown, then `SHUTDOWN` once the pre-close delay, the close tasks and the
-   * socket close are all done. `emitShuttingDownOnly` covers the first half alone.
+   * A bare `EventEmitter` satisfies `ShutdownController.on` structurally, so the handlers run as
+   * `createGracefulShutdown` calls them with no process signalling. Emits both events, in
+   * `runShutdownSequence`'s order; `startShutdown` stops after the first.
    */
   function emitShutdown(reason?: Error) {
     const { info, warn, server, restore } = startShutdown(reason)
@@ -639,10 +567,9 @@ describe('registerShutdownLogging', () => {
   })
 
   test('stopping is emitted when the teardown starts, not when it ends', () => {
-    // -> The whole point of the split: `runShutdownSequence` runs its pre-close delay, the close
-    //    tasks (scheduler drain, collab close, db pool end) and the socket close BETWEEN the two
-    //    events, so a `stopping` line on SHUTDOWN would appear only after all of that had already
-    //    happened and `ms` would be measured against nothing.
+    // -> `runShutdownSequence` runs its pre-close delay, the close tasks and the socket close
+    //    BETWEEN the two events, so a `stopping` logged on SHUTDOWN would follow the teardown it
+    //    announces and `ms` would measure nothing.
     const { info, server, restore } = startShutdown(new Error('SIGTERM'))
     try {
       assert.equal(info.mock.callCount(), 1)
@@ -661,21 +588,19 @@ describe('registerShutdownLogging', () => {
     assert.equal(info.mock.callCount(), 2)
     assert.equal(warn.mock.callCount(), 1)
     assert.equal(warn.mock.calls[0].arguments[0], 'boot')
-    // -> The `Error` itself under `fields.error`, so the renderer prints its message and its stack.
     assert.equal((warn.mock.calls[0].arguments[2] as { error: Error }).error, boom)
   })
 
   test('a message merely containing a signal name is not exempted', () => {
-    // -> The reason is matched exactly, not by prefix or substring: `runShutdownSequence` sets
-    //    `new Error(<signal>)`, so a longer message is a real fault rather than a clean exit.
+    // -> `runShutdownSequence` sets exactly `new Error(<signal>)`, so a longer message is a real
+    //    fault rather than a clean exit.
     const { warn } = emitShutdown(new Error('SIGTERM handler failed'))
     assert.equal(warn.mock.callCount(), 1)
   })
 
   test('a programmatic stop, which carries no Error at all, is reported but not warned about', () => {
-    // -> A manual `close()` (`close-with-grace`'s own, with neither a `signal` nor an `err`) makes
-    //    `runShutdownSequence` emit both events with `undefined`. That is a deliberate shutdown, not
-    //    an unexpected signal.
+    // -> `close-with-grace`'s manual `close()` carries neither a `signal` nor an `err`, so
+    //    `runShutdownSequence` emits both events with `undefined`.
     const { info, warn } = emitShutdown(undefined)
     assert.deepEqual(info.mock.calls[0].arguments, ['boot', 'stopping', { reason: 'programmatic' }])
     assert.equal(warn.mock.callCount(), 0)

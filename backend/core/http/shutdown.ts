@@ -3,49 +3,34 @@ import closeWithGrace from 'close-with-grace'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 
 /**
- * Replaces `@gquittet/graceful-server` (269 commits from one maintainer, 40k downloads/wk — see
- * `docs/audits/2026-09-13-dependency-audit.md` §3 and section A): `close-with-grace` (mcollina,
- * 353k/wk, the pattern the Fastify docs themselves use) drives the signal/error handling and the
- * process exit, and this module supplies what the old library used to bundle in for free — the
- * `/_live`/`/_ready` probes and the pre-close delay — plus the two events
- * `registerShutdownLogging` (`./server.ts`) already consumes.
- *
- * The observable contract this preserves (OpenProject #3156): the probe paths and status codes, the
- * 5s pre-close delay, the close ordering (scheduler, collab, db), the `SHUTTING_DOWN`/`SHUTDOWN`
- * event pair, and the signal set (SIGINT, SIGTERM, SIGHUP). What it does NOT preserve is the old
- * library's per-signal exit code (1 for SIGHUP, 2 for SIGINT, 15 for SIGTERM) — not part of that
- * enumerated contract, and not worth reimplementing against close-with-grace's own plain 0
- * (graceful)/1 (crash) convention.
+ * `close-with-grace` drives the signal/error handling and the process exit (0 graceful, 1 crash);
+ * this module adds the `/_live`/`/_ready` probes, the pre-close delay and the two events
+ * `./server.ts#registerShutdownLogging` consumes.
  */
 
-/** Emitted once teardown begins, carrying the same reason shape the replaced library did: an `Error`
- * whose `message` is the bare signal name for a signal-triggered shutdown, the real `Error` for an
- * `uncaughtException`-triggered one, or `undefined` for a programmatic `close()`. */
+/** Emitted once teardown begins, with its reason: an `Error` whose `message` is the bare signal
+ * name for a signal-triggered shutdown, the real `Error` for an `uncaughtException`-triggered one,
+ * or `undefined` for a programmatic `close()`. */
 export const SHUTTING_DOWN = 'SHUTTING_DOWN'
 
-/** Emitted once the pre-close delay, the close tasks and `app.close()` have all finished — the very
- * last thing before close-with-grace calls `process.exit()` itself. */
+/** Emitted after `app.close()` — the last thing before close-with-grace calls `process.exit()`. */
 export const SHUTDOWN = 'SHUTDOWN'
 
 /**
- * Spent entirely as a pre-close delay *before* the close tasks run (not a timeout wrapping them) —
- * long enough for `/_ready`'s 503 to reach a load balancer or kube-proxy and for it to stop routing
- * new traffic here, while staying comfortably under a typical 30s Kubernetes
- * `terminationGracePeriodSeconds` once the close tasks' own bounds are added on top. Matches the
- * replaced library's `timeout` option.
+ * A delay *before* the close tasks run, not a timeout wrapping them — long enough for `/_ready`'s
+ * 503 to reach a load balancer or kube-proxy and stop new traffic, while staying under a typical
+ * 30s Kubernetes `terminationGracePeriodSeconds` once the close tasks' own bounds are added on top.
  */
 export const PRE_CLOSE_DELAY_MS = 5000
 
 /**
  * The part of close-with-grace's default event set this module does not want:
  *
- * - The eight signals beyond SIGINT/SIGTERM/SIGHUP are not part of this WP's signal-set contract —
- *   several of them (SIGILL, SIGBUS, SIGFPE, SIGSEGV) are ones Node's own docs say cannot be safely
- *   handled from JavaScript at all.
- * - `unhandledRejection`: `core/processGuards.ts` stays the sole owner of that event (see its own
- *   doc comment) — skipping it here is what keeps this a one-listener event, proven by a test below.
- * - `beforeExit`: fires when the event loop has nothing left to do, which is not a shutdown signal
- *   this codebase has ever reacted to and would fire spuriously in-process under `node --test`.
+ * - The signals beyond SIGINT/SIGTERM/SIGHUP — several of them (SIGILL, SIGBUS, SIGFPE, SIGSEGV)
+ *   are ones Node's own docs say cannot be safely handled from JavaScript at all.
+ * - `unhandledRejection`: `core/processGuards.ts` stays the sole owner of that event.
+ * - `beforeExit`: not a shutdown signal, and it would fire spuriously in-process under
+ *   `node --test`.
  */
 const SKIPPED_EVENTS = [
   'SIGQUIT',
@@ -69,22 +54,17 @@ export interface ShutdownReason {
 }
 
 /**
- * The actual teardown, exported standalone so a test can drive it directly rather than through
- * `close-with-grace`'s real `process` signal handlers and its own `process.exit()` call at the end —
- * see `shutdown.test.ts`'s "ready → shutting down → closed" and in-flight-request coverage.
+ * Exported standalone so a test can drive it without `close-with-grace`'s real `process` signal
+ * handlers and its `process.exit()` at the end.
  *
- * Ordering matches the replaced library exactly: `SHUTTING_DOWN` fires first (so `stopping` is
- * logged when the teardown STARTS, not when it ends), then the pre-close delay, then `closeTasks` —
- * scheduler drain, collab socket close, db pool end — via `Promise.allSettled` (each is internally
- * bounded on its own, so one hanging task cannot hold up the others or the socket close that
- * follows), then `app.close()`, then `SHUTDOWN`.
+ * The order is load-bearing: `SHUTTING_DOWN` first (so `stopping` is logged when the teardown
+ * STARTS), then the pre-close delay, then `closeTasks` via `Promise.allSettled` (each must bound
+ * itself, or a hanging one holds up the socket close), then `app.close()`, then `SHUTDOWN`.
  */
 export async function runShutdownSequence(
   reason: ShutdownReason,
-  // -> Narrower than `Pick<FastifyInstance, 'close'>`: Fastify types `close()` as returning
-  //    `Promise<undefined>` specifically (its overload for a no-callback call), which a test's own
-  //    `async () => {}` stand-in or `Promise<number>`-returning close spy would not satisfy. Any
-  //    `close(): Promise<unknown>` — the real `FastifyInstance` included — satisfies this.
+  // -> Not `Pick<FastifyInstance, 'close'>`: Fastify types `close()` as `Promise<undefined>`, which
+  //    a test's own `async () => {}` stand-in would not satisfy.
   app: { close: () => Promise<unknown> },
   closeTasks: Array<() => Promise<unknown>>,
   emitter: Pick<EventEmitter, 'emit'>,
@@ -107,17 +87,13 @@ export async function runShutdownSequence(
 }
 
 /**
- * The two Fastify routes replacing the old library's own `livenessEndpoint`/`readinessEndpoint`
- * (which it served itself, straight off `app.server`, bypassing Fastify's router entirely). Ordinary
- * routes work just as well here: every leading-underscore path — `/_live`/`/_ready` included — is
- * already excluded from the SEO/site-resolution hooks by `siteRouting.ts#isPageUrl`, and the
- * auth/rate-limit hooks in `authHooks.ts` are scoped to `/_api/`-or-narrower paths, so neither needs
- * a bypass of the rest of the request pipeline.
+ * Ordinary routes, with no bypass of the request pipeline needed: `siteRouting.ts#isPageUrl`
+ * already excludes every leading-underscore path from the SEO/site-resolution hooks, and
+ * `authHooks.ts`'s auth and rate-limit hooks are path-scoped and match neither.
  *
- * `/_live` answers 200 for as long as the process is up, independent of `isReady` — a liveness probe
- * asks only "is this process alive", never "is it ready for traffic". `/_ready` answers 200 only
- * once `isReady()` says so (flipped by `CARDINAL.server.setReady()` once `postBoot()` has populated the
- * caches every request path reads from — see `index.ts`) and 503 from the moment teardown starts.
+ * `/_live` is independent of `isReady` — a liveness probe asks only "is this process alive".
+ * `/_ready` answers 200 once `index.ts` calls `CARDINAL.server.setReady()` after `postBoot()`, and
+ * 503 from the moment teardown starts.
  */
 export function registerProbes(app: FastifyInstance, isReady: () => boolean): void {
   app.get('/_live', async () => ({ status: 'ok' }))
@@ -135,19 +111,14 @@ export interface ShutdownController {
   on: EventEmitter['on']
   setReady: () => void
   isReady: () => boolean
-  /** Removes every listener `close-with-grace` installed on `process` — test cleanup only; nothing
-   * in production ever calls this, since the process is expected to exit right after `SHUTDOWN`. */
+  /** Removes every listener `close-with-grace` installed on `process` — test cleanup only. */
   uninstall: () => void
 }
 
 /**
- * Wires `close-with-grace` up to `runShutdownSequence` above and to a `FastifyInstance`'s own
- * `app.close()`. `delay: false` disables close-with-grace's own race-against-a-hard-timeout feature
- * (distinct from the pre-close delay above, which `runShutdownSequence` always runs): the replaced
- * library never imposed a second, independent kill timer either — each close task already bounds
- * itself (see `runShutdownSequence`'s doc comment) — and a caller wanting one can still send a
- * second signal, which close-with-grace's own `afterFirstSignal`/`afterFirstError` handlers still
- * answer with an immediate `process.exit(1)` regardless of this setting.
+ * `delay: false` disables close-with-grace's own hard kill timer (distinct from the pre-close
+ * delay, which `runShutdownSequence` always runs): each close task already bounds itself, and a
+ * second signal still gets close-with-grace's immediate `process.exit(1)` regardless.
  */
 export function createGracefulShutdown(
   app: { close: () => Promise<unknown> },
@@ -160,9 +131,8 @@ export function createGracefulShutdown(
   const gracefulClose = closeWithGrace(
     {
       delay: false,
-      // -> close-with-grace's own console-only diagnostics (a second signal/error while already
-      //    closing) — routed through CARDINAL.logger like every other line rather than left on stdout
-      //    as a second, differently-shaped producer.
+      // -> close-with-grace's own diagnostics (a second signal/error while already closing), routed
+      //    through CARDINAL.logger rather than left on stdout in a second shape.
       logger: {
         error: (message?: unknown, ...rest: unknown[]) =>
           CARDINAL.logger.warn('boot', [message, ...rest].filter(Boolean).join(' '))

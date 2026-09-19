@@ -1,10 +1,3 @@
-/**
- * `core/collab.ts#claimWysiwygSeed` (OpenProject #2516): the schema-agnostic first-seed marker that
- * arbitrates which client, if any, gets to seed a room's WYSIWYG (TipTap) field from its own
- * locally-loaded ProseMirror JSON. Structured the same way `core/collab.relay.test.ts` exercises
- * `peerState()` -- two "instances" via `test/collabHarness.ts#makeInstance`/`wire`, no database and
- * no second `node backend` process -- since this is the exact same relay/timeout shape, reused.
- */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import collab, { PEER_STATE_TIMEOUT } from './collab.ts'
@@ -45,8 +38,6 @@ describe('claimWysiwygSeed: single instance (no peers)', () => {
     inst.peerPresence = { known: false, checkedAt: Date.now() }
     await harness.openRoom(inst, { id: 'page-2', siteId: 'site-1' })
 
-    // -> Fired back to back, with no `await` in between -- exactly the same-instance race this
-    //    method exists to close with no residual window at all.
     const [first, second] = await Promise.all([
       inst.claimWysiwygSeed('page-2'),
       inst.claimWysiwygSeed('page-2')
@@ -90,15 +81,14 @@ describe('claimWysiwygSeed: cross-instance, nobody answers in time', () => {
   test('falls back to granting locally after PEER_STATE_TIMEOUT, matching peerState()', async (t) => {
     const b = makeInstance('B')
     b.publish = () => {}
-    // -> No peers yet for room creation itself, so `ensureRoom()` falls back to `buildSeed()`
-    //    immediately rather than waiting on a (real, unmocked at this point) peerState() of its own.
+    // -> No peers while the room is created, so `ensureRoom()` seeds immediately rather than
+    //    waiting out a real, not yet mocked, peerState() timeout of its own.
     b.peerPresence = { known: false, checkedAt: Date.now() }
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
     await harness.openRoom(b, { id: 'page-5', siteId: 'site-1' })
 
-    // -> Only now, once the room already exists, do timers get faked and peers "appear" -- the ask
-    //    goes out into the void: same "a peer that never answers looks identical to nobody
-    //    answering at all" setup `collab.relay.test.ts`'s own peerState() timeout test uses.
+    // -> Only now do timers get faked and peers "appear"; with `publish` stubbed, the ask goes
+    //    out into the void.
     t.mock.timers.enable({ apis: ['setTimeout'] })
     b.peerPresence = { known: true, checkedAt: Date.now() }
 
@@ -148,8 +138,7 @@ describe('receiveRelay: wysiwyg-claimed', () => {
     const inst = makeInstance('X')
     inst.rooms.set('page-8', { pageId: 'page-8', wysiwygSeeded: false })
     let resolved = false
-    // -> Matches `claimWysiwygSeed`'s own registered callback shape: the waiter is responsible for
-    //    removing itself, `receiveRelay` only ever invokes whatever is registered.
+    // -> As in `claimWysiwygSeed`: the waiter removes itself, `receiveRelay` only invokes it.
     inst.awaitingWysiwygClaim.set('page-8', () => {
       resolved = true
       inst.awaitingWysiwygClaim.delete('page-8')
@@ -182,8 +171,6 @@ describe('CollabRoom.wysiwygSeeded starts false on every freshly created room', 
   })
 })
 
-// -> Sanity check against the real singleton too, not just `makeInstance()` clones -- confirms the
-//    property is actually declared on `CollabRoom`/wired into `ensureRoom()` in `collab.ts` itself.
 describe('the real collab singleton', () => {
   test('exposes claimWysiwygSeed', () => {
     assert.equal(typeof collab.claimWysiwygSeed, 'function')
