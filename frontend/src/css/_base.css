@@ -328,38 +328,79 @@ body.body--dark:not(.body--cobalt) {
   }
 }
 
-/* The site header's five icon buttons (new page / file manager / inbox / admin / account, in */
-/* `HeaderNav.vue` and `AccountMenu.vue`), plus its logo and the narrow-viewport sidebar toggle at */
-/* the other end of the same bar -- a toolbar band, not a floating action, so the small circular hit */
-/* area `round` gives every other icon button reads wrong here. */
+/* ------------------------------------------------------------------ */
+/* FLUSH-HOVER BUTTONS (OpenProject #3465, Feature #3464) */
+/* ------------------------------------------------------------------ */
 /* */
-/* The caller drops `round` (and the now-inert `dense`, since both of its effects are overridden */
-/* below anyway) and keeps just `flat`. Squared off to a true 64x64 -- the header's own full height, */
-/* matching `min-height` with an explicit `width` -- and FLUSH against each other, with no margin */
-/* between them, so the group reads as one band of the bar rather than a row of separate targets. A */
-/* hover therefore lights the full height of the header, which is what the band is for. */
+/* One class for every toolbar, sidebar and rail button whose hover has to read as a SQUARE cell of */
+/* its container -- edge to edge, no gap to its neighbours -- in Ledger and Cobalt, light and dark. */
+/* The caller keeps `flat` and drops `round` (a disc is exactly what this replaces); `dense`/`size` */
+/* stay legal, because nothing here states a size. */
 /* */
-/* `min-height` and `padding` need `!important` because WBtn sets them as inline styles (a */
-/* JS-computed `style` binding beats any class regardless of layer); see `EditorMarkdown.vue`'s own */
-/* toolbar for the same fight against the same two properties. `width` and `border-radius` don't */
-/* strictly need it (WBtn sets neither), but carry it anyway for consistency with the rest of this */
-/* rule. */
-.w-btn.header-nav-btn {
-  min-height: 64px !important;
-  width: 64px !important;
-  padding: 0 !important;
-  border-radius: 0 !important;
+/*   .flush-hover-btn          square corners, no margin, the shared hover fill; in a Cobalt */
+/*                             `.w-btn-group`, no gap either. Never sets a width or height. */
+/*   .flush-hover-btn--square  for an icon-only button: zero horizontal padding and a 1:1 box, so */
+/*                             the button is a true square at whatever `size`/`dense` it carries. */
+/*                             Not for a labelled button, which would be stretched tall. A `round` */
+/*                             WBtn is already a square box (min-width = min-height) and needs no */
+/*                             modifier. */
+/*   .flush-hover-btn--cap     opt-out: keeps the button's OWN corners (`round`/`rounded` pill, or */
+/*                             Cobalt's `--radius-control`) so it reads as a cap on the end of a */
+/*                             rail -- Page Properties in Cobalt's `.page-actions`. The hover fill, */
+/*                             margin and group gap are still the shared ones. */
+/* */
+/* `!important` on radius, margin and padding, for the reasons `.w-btn.header-nav-btn` documented: */
+/* WBtn writes `min-height`/`padding` as INLINE styles, which no class beats on specificity alone, */
+/* and its `rounded-full`/`rounded-[28px]` utilities would otherwise win a shape fight with any */
+/* stray caller rule. The radius rule is scoped `:not(.flush-hover-btn--cap)` so the cap keeps its */
+/* corners without a second `!important` to fight. */
+.w-btn.flush-hover-btn {
   margin-inline-start: 0 !important;
+}
+.w-btn.flush-hover-btn:not(.flush-hover-btn--cap) {
+  border-radius: 0 !important;
+}
+.w-btn.flush-hover-btn--square {
+  padding: 0 !important;
+  aspect-ratio: 1 / 1;
 }
 
 /* Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the */
 /* `hover:bg-current/10` utility WBtn carries for its flat variant without an `!important` of its own */
-/* -- see `.w-btn.acrylic-btn` above for the same trick. Gated on `(hover: hover)` so a touch tap */
-/* doesn't leave the fill stuck on afterwards. */
+/* -- see `.w-btn.acrylic-btn` above for the same trick. `currentcolor`, so the one rule serves every */
+/* ground: white on Cobalt's blue header, ink on Ledger's white one, either in dark mode. Gated on */
+/* `(hover: hover)` so a touch tap doesn't leave the fill stuck on afterwards. */
 @media (hover: hover) {
-  .w-btn.header-nav-btn:hover {
+  .w-btn.flush-hover-btn:hover {
     background-color: color-mix(in srgb, currentcolor 16%, transparent);
   }
+}
+
+/* Cobalt's `.w-btn-group` takes an 8px gap (`css/tailwind.css`, #2859) so rounded buttons keep their */
+/* own corners. A flush button has none to keep, and the gap would be a dead strip between two hover */
+/* cells. `:has()` lifts this above that rule's specificity without an `!important`. Ledger's group */
+/* draws a hairline seam, not a gap, and is left alone. */
+body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
+  gap: 0;
+}
+
+/* The site header's five icon buttons (new page / file manager / inbox / admin / account, in */
+/* `HeaderNav.vue` and `AccountMenu.vue`), plus its logo and the narrow-viewport sidebar toggle at */
+/* the other end of the same bar -- a toolbar band, not a floating action. */
+/* */
+/* Carried TOGETHER with `flush-hover-btn` (shape, margin, hover), which is what makes them flush; */
+/* this class adds only the one thing the shared class deliberately never states, the header's own */
+/* 64x64 box -- its full height, with `min-height` and an explicit `width`. A hover therefore lights */
+/* the full height of the header, which is what the band is for. The caller drops `round` and the */
+/* now-inert `dense` and keeps just `flat`. */
+/* */
+/* `min-height` and `padding` need `!important` because WBtn sets them as inline styles (a */
+/* JS-computed `style` binding beats any class regardless of layer); see `EditorMarkdown.vue`'s own */
+/* toolbar for the same fight against the same two properties. */
+.w-btn.header-nav-btn {
+  min-height: 64px !important;
+  width: 64px !important;
+  padding: 0 !important;
 }
 
 /* ------------------------------------------------------------------ */

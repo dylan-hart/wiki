@@ -117,9 +117,10 @@ const classes = computed(() => [
   A flanking avatar is 40px, not the 48px an avatar takes on its own. The box has to be set here, not
   just the font size: the avatar this replaces derived its dimensions from its font size, ours does
   not. Its own default is a CSS rule for exactly this reason -- an inline style could not be
-  overridden, which is how BlueprintIcon quietly grew to 48px.
+  overridden, which is how BlueprintIcon quietly grew to 48px. An `identity="plate"` avatar takes the
+  aesthetic's own plate size instead (see `WAvatar.vue`).
 */
-.w-item-section--side > :deep(.w-avatar) {
+.w-item-section--side > :deep(.w-avatar:not(.w-avatar--plate)) {
   width: 40px;
   height: 40px;
   font-size: 24px;

@@ -278,6 +278,13 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
     expect(outsideCobalt).not.toMatch(/&::after\s*\{\s*content:\s*none;\s*\}/)
   })
 
+  it('insets the corner marks past the accent bar on the logical leading edge (OpenProject #3462)', () => {
+    const cobaltStart = block.indexOf('body.body--cobalt &')
+    const outsideCobalt = block.slice(0, cobaltStart)
+    expect(outsideCobalt).toMatch(/&::after\s*\{[^}]*inset-inline-start:\s*-9px;/s)
+    expect(outsideCobalt).not.toMatch(/&::after\s*\{[^}]*(?:\bleft|\bright):/s)
+  })
+
   it('re-rounds the two corners and re-suppresses the marks, but only inside an explicit body.body--cobalt scope', () => {
     const cobaltStart = block.indexOf('body.body--cobalt &')
     const cobaltBlock = block.slice(cobaltStart)
@@ -308,7 +315,7 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
       return { appCss, contentCss }
     }
 
-    async function measure({ dark: darkMode = false, cobalt = false } = {}) {
+    async function measure({ dark: darkMode = false, cobalt = false, rtl = false } = {}) {
       const { appCss, contentCss } = stylesheets
       const page = await browser.newPage()
       try {
@@ -316,7 +323,7 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
           .filter(Boolean)
           .join(' ')
         await page.setContent(
-          `<!doctype html><html><head><style>${appCss}</style><style>${contentCss}</style></head>` +
+          `<!doctype html><html${rtl ? ' dir="rtl"' : ''}><head><style>${appCss}</style><style>${contentCss}</style></head>` +
             `<body class="${bodyClasses}">${SAMPLE}</body></html>`
         )
         return await page.evaluate(() => {
@@ -324,6 +331,10 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
           const cs = getComputedStyle(el)
           const after = getComputedStyle(el, '::after')
           return {
+            afterLeft: after.left,
+            afterRight: after.right,
+            borderLeft: cs.borderLeftWidth,
+            borderRight: cs.borderRightWidth,
             // -> The corner opposite the accent bar under LTR -- top-right, physically.
             radius: cs.borderTopRightRadius,
             afterContent: after.content,
@@ -355,6 +366,25 @@ describe('_page-contents.css admonition corners -- square by default, rounded un
       expect(dark.afterContent).not.toBe('none')
       expect(light.afterBackgroundImage).toMatch(/linear-gradient/)
       expect(dark.afterBackgroundImage).toMatch(/linear-gradient/)
+    })
+
+    // -> OpenProject #3462. The 4px accent bar pushes the padding box in from the border edge, so
+    //    the plain quote's `inset: -5px` left the leading marks flush with the bar's outer edge
+    //    while the trailing side stood 3px clear. `-9px` = -5, less the bar's extra 3px, less the
+    //    `::after`'s own 1px transparent border: the leading stroke ends up 3px clear of the bar's
+    //    outer edge, as `.table-wrap::after` stands clear of its frame.
+    it('pushes the leading corner marks out past the accent bar, leaving the trailing side at the base inset (LTR)', async () => {
+      const m = await measure()
+      expect(m.borderLeft).toBe('4px')
+      expect(m.afterLeft).toBe('-9px')
+      expect(m.afterRight).toBe('-5px')
+    })
+
+    it('mirrors the leading-edge offset under RTL, where the accent bar sits on the right', async () => {
+      const m = await measure({ rtl: true })
+      expect(m.borderRight).toBe('4px')
+      expect(m.afterRight).toBe('-9px')
+      expect(m.afterLeft).toBe('-5px')
     })
 
     it('draws a rounded box with no corner marks under Cobalt, light and dark', async () => {

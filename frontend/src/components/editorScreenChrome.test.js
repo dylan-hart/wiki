@@ -158,13 +158,33 @@ describe('the markdown editor’s own chrome', () => {
     paints its line on an `::after` reading that property.
   */
   /*
-    OpenProject #2870 ("Cobalt polish: Editor"): the markup bar's buttons default to `WBtn`'s
-    `rounded-control` class, which under Cobalt resolves to a real radius (Task #2859's token) --
-    everywhere except this bar, which the design draws as a full-width square band.
+    OpenProject #2870 ("Cobalt polish: Editor"), superseded by #3466: the markup bar's buttons used to
+    be squared by a Cobalt-only rule here and in `tailwind.css`. They now carry the shared
+    `flush-hover-btn` class, which squares them under Ledger and Cobalt alike, so neither copy of the
+    rule may come back (`EditorMarkdown.flushHover.test.js` covers the class itself).
   */
-  it('keeps the markup bar’s buttons square under Cobalt, unlike --radius-control elsewhere', () => {
-    expect(declarations(css, '.body--cobalt .editor-markdown-toolbar .w-btn')).toEqual({
-      'border-radius': '0'
+  it('leaves squaring the markup bar’s buttons to the shared flush-hover class', () => {
+    expect(css).not.toContain('.body--cobalt .editor-markdown-toolbar .w-btn')
+  })
+
+  /*
+    OpenProject #3466: the markup bar's and the preview bar's buttons fill their band's whole content
+    height (no 30px cell floating in a 40px band), and the rail's fill its whole width.
+  */
+  it('lets the bars’ buttons stretch to the band, and the rail’s to the rail', () => {
+    for (const selector of [
+      '.editor-markdown-toolbar .w-btn',
+      '.editor-markdown-preview-toolbar .w-btn'
+    ]) {
+      expect(declarations(css, selector), selector).toEqual({
+        'align-self': 'stretch',
+        'min-height': '0 !important'
+      })
+    }
+    expect(declarations(css, '.editor-markdown-sidebar .w-btn')).toEqual({
+      'align-self': 'stretch',
+      'min-height': '34px !important',
+      padding: '0 !important'
     })
   })
 

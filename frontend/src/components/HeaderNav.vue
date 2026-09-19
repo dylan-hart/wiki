@@ -24,7 +24,7 @@
         -->
         <w-btn
           v-if="showSidebarToggle"
-          class="header-nav-btn"
+          class="flush-hover-btn header-nav-btn"
           flat
           icon="tabler:menu-2"
           color="slate-soft"
@@ -40,7 +40,11 @@
           The mark fills the full 64px band, flush with no inset: the official brand kit's
           illustrated mark reads better at size than the earlier flat placeholder did inset within it.
         -->
-        <w-btn class="header-nav-btn" flat to="/" :aria-label="t(`common.header.home`)">
+        <w-btn
+          class="flush-hover-btn header-nav-btn"
+          flat
+          to="/"
+          :aria-label="t(`common.header.home`)">
           <w-avatar v-if="siteStore.logoText" size="64px" square>
             <img :src="`/_site/current/logo`" alt="" />
           </w-avatar>
@@ -107,7 +111,7 @@
         <template v-else>
           <w-btn
             v-if="userStore.can(`write:pages`)"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:plus"
             color="slate-soft"
@@ -124,7 +128,7 @@
           -->
           <w-btn
             v-if="userStore.can(`write:assets`) || userStore.can(`write:pages`)"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:folder"
             color="slate-soft"
@@ -139,7 +143,7 @@
           -->
           <w-btn
             v-if="siteStore.features.browse"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:hierarchy"
             color="slate-soft"
@@ -169,7 +173,7 @@
           -->
           <w-btn
             v-if="userStore.authenticated"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:inbox"
             color="slate-soft"
@@ -194,7 +198,7 @@
           </w-btn>
           <w-btn
             v-if="userStore.can(`access:admin`)"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:tool"
             color="slate-soft"

@@ -567,7 +567,7 @@ describe('InboxReview against its design file (#2621)', () => {
     })
   }
 
-  it('draws the queue row plate as a 36px slate square', async () => {
+  it('draws the queue row plate as an aesthetic-sized slate identity plate (#3473)', async () => {
     API_CLIENT.get.mockImplementation((url) => {
       if (String(url).endsWith('/approvals/submissions')) {
         return { json: () => Promise.resolve([reviewableSubmission()]) }
@@ -579,10 +579,14 @@ describe('InboxReview against its design file (#2621)', () => {
     const { wrapper } = await mountReview({ initialSubmissionId: null })
 
     const plate = wrapper.find('.w-avatar')
-    expect(plate.attributes('style')).toContain('width: 36px')
-    expect(plate.attributes('style')).toContain('font-size: 18px')
+    // -> Size and shape come from `--size-avatar-plate` / `--radius-avatar`, never inline or `square`
+    expect(plate.attributes('style')).not.toContain('width')
+    expect(plate.attributes('style')).not.toContain('font-size')
     expect(plate.attributes('style')).toContain('var(--color-slate)')
-    expect(plate.classes()).toContain('rounded-none')
+    expect(plate.classes()).toEqual(
+      expect.arrayContaining(['w-avatar--identity', 'w-avatar--plate'])
+    )
+    expect(plate.classes()).not.toContain('rounded-none')
   })
 
   it('draws the four toolbar controls as icon-only squares named by aria-label', async () => {

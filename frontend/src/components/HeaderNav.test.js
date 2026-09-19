@@ -237,6 +237,7 @@ describe('HeaderNav logo button hover target (OpenProject #2610)', () => {
     const homeButton = findHomeButton(wrapper)
     expect(homeButton.exists()).toBe(true)
     expect(homeButton.classes()).toContain('header-nav-btn')
+    expect(homeButton.classes()).toContain('flush-hover-btn')
   })
 
   it('drops `dense`, whose sizing the band overrides anyway, so the two cannot disagree', async () => {
@@ -289,6 +290,7 @@ describe('HeaderNav inline sidebar toggle (OpenProject #2928)', () => {
     const toggle = findToggle(wrapper)
     expect(toggle.exists()).toBe(true)
     expect(toggle.classes()).toContain('header-nav-btn')
+    expect(toggle.classes()).toContain('flush-hover-btn')
     expect(toggle.find('[data-icon="tabler:menu-2"]').exists()).toBe(true)
 
     // -> Ahead of the logo in document order, so the wordmark is what gets pushed right

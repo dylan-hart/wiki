@@ -22,6 +22,7 @@
           click or by arrowing to it; none of them lose their own Enter/Space activation.
         -->
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:link-plus"
           padding="sm sm"
           flat
@@ -35,6 +36,7 @@
                 URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
                 now has no caller. -->
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:photo-plus"
           padding="sm sm"
           flat
@@ -44,7 +46,12 @@
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:json" padding="sm sm" flat :tabindex="sideToolbarRoving.tabindexFor(2)">
+        <w-btn
+          class="flush-hover-btn"
+          icon="tabler:json"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(2)">
           <editor-code-block-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -54,6 +61,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:table-plus"
           padding="sm sm"
           flat
@@ -64,6 +72,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:browser-plus"
           padding="sm sm"
           flat
@@ -74,6 +83,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:puzzle"
           padding="sm sm"
           flat
@@ -84,6 +94,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:book-upload"
           padding="sm sm"
           flat
@@ -94,6 +105,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:mood-plus"
           padding="sm sm"
           flat
@@ -109,6 +121,7 @@
         <!-- -> Icons only: what goes in is a `:tabler:home:` shortcode, and the picker's other tab hands
                 back an `img:` URL, which is not something that syntax can say -->
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:seeding"
           padding="sm sm"
           flat
@@ -124,6 +137,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:scan"
           padding="sm sm"
           flat
@@ -156,6 +170,7 @@
           @keydown="topToolbarRoving.onKeydown"
           @focusin="topToolbarRoving.onFocusin">
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:bold"
             padding="xs sm"
             flat
@@ -166,6 +181,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:italic"
             padding="xs sm"
             flat
@@ -176,6 +192,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:strikethrough"
             padding="xs sm"
             flat
@@ -193,6 +210,7 @@
             button's own layout.
           -->
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:heading"
             padding="xs sm"
             flat
@@ -215,6 +233,7 @@
             </w-menu>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:subscript"
             padding="xs sm"
             flat
@@ -225,6 +244,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:superscript"
             padding="xs sm"
             flat
@@ -237,6 +257,7 @@
           <!-- -> The design rules the inline-markup group off from the block-level group here -->
           <w-separator class="editor-markdown-toolbar-rule" vertical />
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:quote"
             padding="xs sm"
             flat
@@ -313,6 +334,7 @@
             </w-menu>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:list"
             padding="xs sm"
             flat
@@ -323,6 +345,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:list-numbers"
             padding="xs sm"
             flat
@@ -333,6 +356,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:list-check"
             padding="xs sm"
             flat
@@ -355,6 +379,7 @@
             </w-menu>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:code"
             padding="xs sm"
             flat
@@ -365,6 +390,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:keyboard"
             padding="xs sm"
             flat
@@ -378,6 +404,7 @@
           <template v-if="!state.previewShown">
             <w-space />
             <w-btn
+              class="flush-hover-btn flush-hover-btn--square"
               icon="tabler:layout-columns"
               padding="xs sm"
               flat
@@ -423,6 +450,7 @@
             >
             <w-separator class="ms-4 me-2" vertical inset />
             <w-btn
+              class="flush-hover-btn flush-hover-btn--square"
               icon="tabler:arrows-vertical"
               padding="xs sm"
               flat
@@ -432,7 +460,12 @@
                 t('editor.toggleScrollSync')
               }}</w-tooltip>
             </w-btn>
-            <w-btn icon="tabler:eye-off" padding="xs sm" flat @click="state.previewShown = false">
+            <w-btn
+              class="flush-hover-btn flush-hover-btn--square"
+              icon="tabler:eye-off"
+              padding="xs sm"
+              flat
+              @click="state.previewShown = false">
               <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
@@ -2143,10 +2176,16 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary-dark);
 }
 .editor-markdown-preview-toolbar {
-  /* -> The 30px square the design draws, inside a 40px band; see `-toolbar`'s own note below */
+  /*
+    Each button is a flush square cell (`flush-hover-btn` + `--square`, `css/_base.css`, OpenProject
+    #3466) filling the band's whole content height, so its hover touches the band's top edge and the
+    hairline under it -- no gap. `align-self: stretch` lets the flex row size it; `min-height: 0`
+    (`!important`: WBtn writes `min-height` inline) stops the button's own default from taking more.
+  */
 }
 .editor-markdown-preview-toolbar .w-btn {
-  min-height: 30px !important;
+  align-self: stretch;
+  min-height: 0 !important;
 }
 .editor-markdown-preview-toolbar {
   /*
@@ -2323,31 +2362,19 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-toolbar {
   /*
-    `w-btn`'s own default min-height (2.572em, ~36px at this button's inherited 14px font-size --
-    see `WBtn.vue`'s `styles` computed) is taller than this toolbar's fixed band regardless of
-    the `padding="xs sm"` passed here, since that prop only overrides `padding`, never `minHeight`.
-    Centered by `align-items: center` above, the button box then overflows top and bottom, which is
-    invisible until a flat button's own `hover:bg-current/10` fill paints that overflow. `!important`
-    is required because `WBtn` sets `min-height` as an inline style, which otherwise beats any
-    selector here. Scoped to this toolbar's own buttons -- `WBtn.vue` keeps its default for every
-    other caller.
+    Each button is a flush square cell (`flush-hover-btn` + `--square`, `css/_base.css`, OpenProject
+    #3466): square corners in Ledger and Cobalt alike, no margin, and a hover that fills the band's
+    whole content height, touching its top edge and the hairline under it. `align-self: stretch` lets
+    the flex row size the button; `min-height: 0` (`!important`, because `WBtn` writes `min-height` as
+    an inline style that otherwise beats any selector here -- its default is taller than this band
+    and would overflow it) stops the button's own default from taking more. The band's `0 8px`
+    padding is on its short edges, so it does not open a gap on a long one. Scoped to this toolbar's
+    own buttons -- `WBtn.vue` keeps its default for every other caller.
   */
 }
 .editor-markdown-toolbar .w-btn {
-  min-height: 30px !important;
-}
-.editor-markdown-toolbar {
-  /*
-    Cobalt draws this bar as a full-width SQUARE band (ui-iteration/README.md Part 1.1,
-    OpenProject #2870) -- not the rounded pill `WBtn`'s default `rounded-control` class
-    resolves to under Cobalt everywhere else (Task #2859's `--radius-control` token). Scoped to
-    just this toolbar's own buttons, the same way the min-height override above is; plain
-    unlayered SFC CSS already beats Tailwind's `@layer utilities` regardless of specificity, so
-    no `!important` is needed here.
-  */
-}
-.body--cobalt .editor-markdown-toolbar .w-btn {
-  border-radius: 0;
+  align-self: stretch;
+  min-height: 0 !important;
 }
 .editor-markdown-toolbar {
   /* -> The chevron on a menu-opening button: the fainter of the two icon tones, as the design has it */
@@ -2403,15 +2430,18 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-sidebar {
   /*
-    The design's 34px square inside a 48px rail. `padding="sm sm"` on each button would draw a box
-    wider than the rail can hold once `WBtn`'s own min-height is added, and both of those are inline
-    styles on the element -- hence `!important`, for the same reason the markup toolbar's own
-    override above needs it.
+    Each button is a flush cell (`flush-hover-btn`, `css/_base.css`, OpenProject #3466): square
+    corners, and a hover that spans the rail's whole width -- window edge to the hairline -- with no
+    gap on either long edge. It stays 34px tall, the design's cell height. `align-self: stretch`
+    overrides the rail's `align-items: center`, which is what the caption below still uses. `padding`
+    and `min-height` are inline styles on the element from `WBtn`, hence `!important`, for the same
+    reason the markup toolbar's own override above needs it. The rail's `8px 0` padding is on its
+    short edges (above the first cell, below the caption), so it opens no gap on a long one.
   */
 }
 .editor-markdown-sidebar .w-btn {
+  align-self: stretch;
   min-height: 34px !important;
-  width: 34px;
   padding: 0 !important;
 }
 /* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a

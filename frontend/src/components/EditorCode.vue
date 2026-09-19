@@ -8,8 +8,8 @@
         <!-- -> Straight to the File Manager, the same affordance `EditorMarkdown.vue` exposes: see the
                 note on its own `insertAssets` for why there is no separate URL/clipboard source. -->
         <w-btn
+          class="flush-hover-btn flush-hover-btn--square"
           icon="tabler:photo-plus"
-          padding="sm sm"
           flat
           :aria-label="t('editor.markup.insertAssets')"
           @click="insertAssets">
@@ -301,6 +301,17 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
-  padding: 12px 0;
+  /* No top padding: the rail's button below must start exactly where the coloured band ends
+     (OpenProject #3468), so its hover is a cell of the rail rather than a tile floating in it.
+     The bottom padding is for the vertical type label. */
+  padding: 0 0 12px;
+}
+/* The rail's one button is the rail's own width, and 56px tall to stay square (the primitive's square
+   modifier sets the 1:1 ratio, which the width then resolves). `min-height` needs `!important` because WBtn writes
+   it as an inline style. The rail's ground and text colour are fixed (dark-4 / white) in every aesthetic
+   and mode, so the primitive's `currentcolor` hover fill reads the same everywhere. */
+.editor-code-sidebar > .w-btn {
+  width: 100%;
+  min-height: 56px !important;
 }
 </style>

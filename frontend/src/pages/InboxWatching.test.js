@@ -519,25 +519,31 @@ describe('InboxWatching notification preferences', () => {
 */
 describe('InboxWatching against its design file (#2621)', () => {
   /*
-    A `WAvatar` renders `.w-avatar` with its `size` as an inline style, which is what beats the
-    shared 40px flanking-avatar rule -- so the inline style IS the assertion.
+    A `WAvatar` with `identity="plate"` takes its size and shape from the aesthetic's tokens
+    (`--size-avatar-plate` 36px Ledger / 26px Cobalt, `--radius-avatar`) rather than from an inline
+    style, so the assertion is the variant class plus the ABSENCE of an inline size or `square`
+    (OpenProject #3473).
   */
   function plates(wrapper) {
     return wrapper.findAll('.w-avatar')
   }
 
-  it("draws a notification's plate as a 36px accent square, not a 40px primary one", async () => {
+  it("draws a notification's plate as an aesthetic-sized accent identity plate", async () => {
     stubApi({ 'sites/site-1/notifications': [NOTIFICATION] }, { fallback: [] })
 
     const { wrapper } = await mountInboxWatching()
 
     const plate = plates(wrapper)[0]
-    expect(plate.attributes('style')).toContain('width: 36px')
-    expect(plate.attributes('style')).toContain('height: 36px')
-    expect(plate.attributes('style')).toContain('font-size: 18px')
+    expect(plate.attributes('style')).not.toContain('width')
+    expect(plate.attributes('style')).not.toContain('height')
+    expect(plate.attributes('style')).not.toContain('font-size')
     expect(plate.attributes('style')).toContain('var(--color-accent-fill)')
-    // -> Square, per the design; `rounded` would be a corner treatment the language never draws
-    expect(plate.classes()).toContain('rounded-none')
+    expect(plate.classes()).toEqual(
+      expect.arrayContaining(['w-avatar--identity', 'w-avatar--plate'])
+    )
+    // -> Shape is the token's (square Ledger / disc Cobalt), so no fixed `rounded-*` utility
+    expect(plate.classes()).not.toContain('rounded-none')
+    expect(plate.classes()).not.toContain('rounded-full')
   })
 
   /**
@@ -561,15 +567,16 @@ describe('InboxWatching against its design file (#2621)', () => {
     }
   })
 
-  it("draws a watched page's plate as a 36px slate square", async () => {
+  it("draws a watched page's plate as an aesthetic-sized slate identity plate", async () => {
     stubApi({ 'sites/site-1/watching': [WATCHED_PAGE] }, { fallback: [] })
 
     const { wrapper } = await mountInboxWatching()
 
     const plate = plates(wrapper)[0]
-    expect(plate.attributes('style')).toContain('width: 36px')
+    expect(plate.attributes('style')).not.toContain('width')
     expect(plate.attributes('style')).toContain('var(--color-slate)')
-    expect(plate.classes()).toContain('rounded-none')
+    expect(plate.classes()).toContain('w-avatar--plate')
+    expect(plate.classes()).not.toContain('rounded-none')
   })
 
   it('draws every row action as a hairline square rather than a round tinted button', async () => {

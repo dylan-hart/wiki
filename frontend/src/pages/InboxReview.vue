@@ -32,8 +32,8 @@
             clickable
             @click="openSubmission(submission)">
             <w-item-section avatar>
-              <!-- -> The framed list's 36px plate; see `InboxWatching.vue` for why it is set here. -->
-              <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
+              <!-- -> The framed list's aesthetic-sized plate; see `InboxWatching.vue`. -->
+              <w-avatar identity="plate" color="slate" text-color="white">
                 <w-icon name="tabler:file-text" />
               </w-avatar>
             </w-item-section>
