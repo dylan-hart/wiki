@@ -30,7 +30,6 @@
       <w-btn
         icon="tabler:check"
         :label="t(`common.actions.save`)"
-        unelevated
         color="primary"
         padding="xs md"
         @click="saveAndClose" />
