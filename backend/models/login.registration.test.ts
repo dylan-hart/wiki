@@ -11,31 +11,20 @@ import {
 } from '../db/schema.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
-/**
- * `register()` is SQL orchestration -- a strategy lookup, an existence check, then coordinating the
- * `users`, `userGroups` and `userKeys` tables -- so this runs the real method against a migrated,
- * per-run-fresh database (see `test/db.ts`), the same DB-backed pattern `models/pages.test.ts` uses.
- * `mail.sendVerifyEmail` and `mail.sendRegistrationAttemptNotice` are stubbed rather than pulling in a
- * real SMTP transport, matching how `api/mail.test.ts` isolates the route it covers from
- * `models/mail.test.ts`'s own coverage of that mapping.
- */
 describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sendVerifyEmailMock: ReturnType<typeof mock.fn>
   let sendRegistrationAttemptNoticeMock: ReturnType<typeof mock.fn>
 
   const MODULE_KEY = 'local-test'
-  // -> A stand-in for a redirect-based module (SAML/OIDC/LDAP-delegation-style): `useForm: false`,
-  //    same as every non-local, non-LDAP module's `definition.yml`. Used to prove `register()` refuses
-  //    it outright regardless of its `selfRegistration` flag.
+  // -> Stands in for a redirect-based module (SAML/OIDC/LDAP-delegation-style): `useForm: false`,
+  //    as every non-local, non-LDAP module's `definition.yml` declares.
   const NON_FORM_MODULE_KEY = 'redirect-test'
 
   function req(): any {
-    // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
-    //    `afterLoginChecks`'s outcome (`nextAction`, `redirect`, ...), not on session-id churn --
-    //    that is `users.updateSession`'s own describe block's job (see the stub there for the real
-    //    reassignment behavior). This just needs to exist so `updateSession`'s `await
-    //    req.session.regenerate()` (task 2115 / WP 2105 §4) doesn't throw on a path that reaches it.
+    // -> `regenerate` is a no-op stub, not a `@fastify/session` fake: these tests assert on
+    //    `afterLoginChecks`'s outcome, not on session-id churn. It only has to exist, since
+    //    `updateSession` awaits it on any path that reaches one.
     return { session: { regenerate: async () => {} } }
   }
 
@@ -65,9 +54,9 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning({ id: authenticationTable.id })
     const strategyId = row!.id
-    // -> `register()` now also checks the strategy is attached to the site the request came in on
-    //    (`site.config.authStrategies`) -- `getSiteById()` reads the in-memory `CARDINAL.sites` cache, not
-    //    the database, so the fixture site installed by `setupTestDb()` is what needs updating here.
+    // -> `register()` also checks the strategy is attached to the site the request came in on, and
+    //    `getSiteById()` reads the in-memory `CARDINAL.sites` cache rather than the database, so the
+    //    fixture site installed by `setupTestDb()` is what has to be updated here.
     if (attachToSite) {
       const site = (CARDINAL.sites as any)[fixtures.siteId]
       site.config.authStrategies = [
@@ -79,22 +68,14 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   }
 
   /**
-   * `afterLoginChecks()` (reached only when `emailValidation` is off) looks the strategy up in
-   * `CARDINAL.auth.strategies`, not the database -- that is where a strategy's live module instance
-   * lives, and `enforceTfa` is read off it. A bare stand-in is enough: nothing under test needs it to
-   * be a real module instance, just present.
+   * `afterLoginChecks()` looks the strategy up in `CARDINAL.auth.strategies`, not the database --
+   * that is where a strategy's live module instance lives, and `enforceTfa` is read off it. A bare
+   * stand-in is enough: nothing under test needs a real module instance, only a present one.
    */
   function registerLiveStrategy(strategyId: string, config: Record<string, any> = {}): void {
     ;(CARDINAL.auth.strategies as any)[strategyId] = { config }
   }
 
-  /**
-   * `register()` reads the site's attached-strategies list off `CARDINAL.sites[siteId].config`, the same
-   * in-memory cache `getSiteById()` reads without `forceReload` -- `setupTestDb()` seeds that cache
-   * once with no `authStrategies` key, so a strategy created by `createStrategy()` starts out
-   * unattached to `fixtures.siteId` and every test that expects a strategy to actually work has to
-   * attach it here first.
-   */
   function attachStrategyToSite(strategyId: string): void {
     ;(CARDINAL.sites[fixtures.siteId].config as Record<string, any>).authStrategies = [
       { id: strategyId, order: 0, isVisible: true }
@@ -102,8 +83,7 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   }
 
   before(async () => {
-    // -> `generateToken()`/`validateToken()` call `Now.instant()`, `.add()`, `Instant.compare()` and
-    //    `Date.prototype.toTemporalInstant()` between them.
+    // -> The `generateToken()`/`validateToken()` round trip uses `Temporal` throughout.
     await ensureTemporal()
 
     fixtures = await setupTestDb()
@@ -137,9 +117,9 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
         props: {}
       }
     ] as any
-    // -> `getActiveStrategies()` reads this unconditionally (to sort the built-in local strategy
-    //    first), regardless of which test strategy is under test; the creation tests below override it
-    //    to their own strategy id, since that is the key `createUser()` stores the password blob under.
+    // -> `getActiveStrategies()` reads this unconditionally, to sort the built-in local strategy
+    //    first. The creation tests below override it with their own strategy id, since that is the
+    //    key `createUser()` stores the password blob under.
     CARDINAL.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
   })
 
@@ -279,12 +259,10 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #3372: `createStrategy` here writes straight to the table, bypassing
-   * `authentication.ts#validateStrategy`'s save-time ReDoS check -- deliberately, to stand in for a
-   * pathological pattern saved before that check existed. The assertion that matters is not just
-   * the refusal (a pattern that cannot be trusted to answer already refused everyone before this
-   * WP) but that it comes back within `test-timeout`'s bound rather than hanging the event loop for
-   * the O(2^n) an unguarded `.test()` would take against this input.
+   * `createStrategy` writes straight to the table, bypassing `authentication.ts#validateStrategy`'s
+   * save-time ReDoS check, standing in for a pathological pattern saved before that check existed.
+   * What matters is not the refusal but that it comes back within the test timeout rather than
+   * hanging the event loop on the O(2^n) an unguarded `.test()` would take against this input.
    */
   test('refuses (quickly, not by hanging) a login against a catastrophic-backtracking allowedEmailRegex saved before the safety check existed', async () => {
     const strategyId = await createStrategy({ allowedEmailRegex: '^(a+)+$' })
@@ -307,10 +285,6 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.ok(Date.now() - start < 2000, 'expected the guarded regex test to resolve quickly')
   })
 
-  /**
-   * WP #2470: `allowedEmailDomains`, distinct from `allowedEmailRegex` above -- a per-strategy
-   * domain allow-list scoped to local self-registration only.
-   */
   test('refuses an email whose domain is not on allowedEmailDomains', async () => {
     const strategyId = await createStrategy({ allowedEmailDomains: ['allowed.example'] })
     attachStrategyToSite(strategyId)
@@ -329,7 +303,6 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       /ERR_EMAIL_NOT_ALLOWED/
     )
 
-    // -> Rejected before any account was written
     assert.equal(await users.getByEmail('ada@elsewhere.example'), null)
   })
 
@@ -346,7 +319,6 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId,
         strategyId,
         name: 'Ada Lovelace',
-        // -> Mixed-case domain, still matches the lowercased, stored 'allowed.example'
         email: 'ada@Allowed.Example',
         password: 'longenough1'
       },
@@ -387,8 +359,8 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
-    // -> A distinct local-part from the allowedEmailDomains tests above, which already register
-    //    ada@allowed.example -- this and that are separate tests sharing one per-file database.
+    // -> A distinct local-part: the `allowedEmailDomains` tests above already registered
+    //    `ada@allowed.example` in this file's one shared database.
     const result = await login.register(
       {
         siteId: fixtures.siteId,
@@ -409,10 +381,8 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('matches allowedEmailRegex case-insensitively against the submitted address', async () => {
-    // -> The pattern itself is written in lowercase, matching how a real admin would enter a domain;
-    //    what proves case-insensitivity is the mixed-case address below still matching, because
-    //    register() tests the pattern against `normalizedEmail` (already lowercased), not the raw
-    //    submitted casing.
+    // -> The pattern is lowercase, as an admin would enter it; the case-insensitivity comes from
+    //    `register()` testing it against the already-lowercased `normalizedEmail`.
     const strategyId = await createStrategy({
       allowedEmailRegex: '^[^@]+@allowed\\.example$',
       emailValidation: false
@@ -463,7 +433,6 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const call = sendRegistrationAttemptNoticeMock.mock.calls[0].arguments[0] as any
     assert.equal(call.to, 'fixture@example.com')
 
-    // -> The submitted name and password were discarded -- the existing account is untouched
     const existing = await users.getByEmail('fixture@example.com')
     assert.equal(existing!.name, 'Fixture User')
   })
@@ -622,7 +591,6 @@ describe('login.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
     assert.deepEqual(second, { nextAction: 'verify' })
 
-    // -> Resent, not refused
     assert.equal(sendVerifyEmailMock.mock.calls.length, 2)
     const secondCall = sendVerifyEmailMock.mock.calls[1].arguments[0] as any
     // -> The resend goes to the original account: its name, not the second attempt's

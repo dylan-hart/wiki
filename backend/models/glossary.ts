@@ -17,20 +17,17 @@ import { localizedPagePath } from '../helpers/localeRouting.ts'
 
 export type GlossaryTerm = Omit<typeof glossaryTermsTable.$inferSelect, 'siteId'>
 
-/** One alias entry, on the wire and in every in-memory shape below -- see the identical
- *  `GlossaryAliasRow` doc on the schema column this mirrors. */
 export type GlossaryAlias = GlossaryAliasRow
 
 export interface GlossaryTermInput {
   term: string
   definition: string
   aliases?: GlossaryAlias[]
-  /** Marks the term itself (not one of its aliases) as an acronym -- see `GlossaryAliasRow`. */
+  /** Marks the term itself, not its aliases -- each alias carries its own flag. */
   isAcronym?: boolean
   pageId?: string | null
 }
 
-/** What the markdown renderer actually needs: no id, no timestamps, and the page link pre-resolved. */
 export interface CachedGlossaryTerm {
   term: string
   definition: string
@@ -40,10 +37,8 @@ export interface CachedGlossaryTerm {
 }
 
 /**
- * The actor-blind shape actually cached under `CARDINAL.cache` (OpenProject #1127) -- everything
- * `getCachedTerms` needs to resolve a `link` per actor, without a `link` baked in for any one of
- * them. `pagePath` null means the term has no canonical page at all, the same "renders as plain text"
- * case a denied actor now also gets.
+ * The actor-blind shape cached under `CARDINAL.cache`: everything `getCachedTerms` needs to resolve a
+ * `link` per actor, with no `link` baked in for any one of them.
  */
 interface CachedGlossaryEntry {
   term: string
@@ -57,13 +52,10 @@ interface CachedGlossaryEntry {
 }
 
 /**
- * The portable, external-editing-round-trip shape (OpenProject #1114): a `path`, not a `pageId`,
- * since an id is meaningless once this JSON has been edited outside the app and re-imported --
- * possibly into a different instance entirely. `formatVersion` bumps only if this shape ever changes
- * incompatibly -- as it just did for OpenProject #2575's acronym distinction (`aliases` moved from a
- * flat `string[]` to `GlossaryAlias[]`, and `isAcronym` was added). Reused as-is for each stored
- * version snapshot (OpenProject #1113) -- one representation shared by export, import, and
- * versioning, per the spec.
+ * The portable, external-editing-round-trip shape: a `path`, not a `pageId`, since an id is
+ * meaningless once this JSON has been edited outside the app and re-imported -- possibly into a
+ * different instance entirely. Bumped only when that shape changes incompatibly. One representation
+ * shared by export, import and version snapshots.
  */
 const GLOSSARY_EXPORT_FORMAT_VERSION = 2
 
@@ -72,7 +64,7 @@ export interface GlossaryExportTerm {
   definition: string
   aliases: GlossaryAlias[]
   isAcronym: boolean
-  /** The canonical page's path, resolved against the site's primary locale. Null when unset. */
+  /** Resolved against the site's primary locale. */
   path: string | null
 }
 
@@ -82,10 +74,8 @@ export interface GlossaryExport {
 }
 
 /**
- * The writable counterpart to `GlossaryExportTerm`: what `importTerms`/`saveVersion` accept, where
- * `aliases`/`isAcronym`/`path` are optional (a malformed/partial payload is a validation error at
- * runtime, not a type error at the call site) -- mirroring how `GlossaryTermInput` relates to
- * `GlossaryTerm`.
+ * The writable counterpart to `GlossaryExportTerm`: the optional fields make a partial payload a
+ * runtime validation error rather than a type error at the call site.
  */
 export interface GlossaryExportTermInput {
   term: string
@@ -95,13 +85,11 @@ export interface GlossaryExportTermInput {
   path?: string | null
 }
 
-/** Who saved/restored a glossary version -- a session user, mirroring `auditLog`'s actor shape. */
 export interface GlossaryActor {
   id: string | null
   name: string
 }
 
-/** A version's own metadata, without the (potentially large) snapshot payload. */
 export interface GlossaryVersionSummary {
   id: string
   termCount: number
@@ -114,8 +102,6 @@ export interface GlossaryVersion extends GlossaryVersionSummary {
   snapshot: GlossaryExport
 }
 
-/** The shape a validated `GlossaryExportTermInput` resolves to, ready for a bulk insert -- shared by
- *  `resolveExportTerms`, `replaceAllRowsIn` and `replaceAllRows`. */
 interface ResolvedTermRow {
   term: string
   definition: string
@@ -128,32 +114,22 @@ function cacheKey(siteId: string): string {
   return `glossary:${siteId}`
 }
 
-/** How long a raw term→page mapping survives with no invalidation heard at all -- see `invalidateCache`. */
+/**
+ * A belt underneath `invalidateCache`'s broadcast, not instead of it: event delivery is at-most-once,
+ * and the LRU these entries live in has no ttl of its own, so a missed notification diverges for
+ * minutes rather than until the key is evicted under memory pressure.
+ */
 const CACHE_TTL_MS = 5 * 60 * 1000
 
-/** The HA propagation event name for a glossary cache invalidation -- see `invalidateCache`. */
 const INVALIDATE_EVENT = 'invalidateGlossaryCache'
 
 /**
- * Site-wide glossary terms (OpenProject #870).
+ * Site-wide glossary terms. The admin CRUD screen is the source of truth for the term list — nothing
+ * here is derived from page content, unlike `models/tags.ts`.
  *
- * The admin CRUD screen is the source of truth for the term list — nothing here is derived from page
- * content, unlike `models/tags.ts`. `getCachedTerms` is the one method the rendering pipeline calls:
- * it resolves each term's canonical page (if any) to a link, per the calling actor's `read:pages`
- * access (OpenProject #1127) — a term whose page that actor may not read renders as plain, unlinked
- * text. Only the raw term→page mapping is cached under `CARDINAL.cache` (`getRawCachedTerms`), invalidated
- * by every write below the same way `models/locales.ts` refreshes its own `CARDINAL.cache` entry; the link
- * resolution itself is never cached, so it stays correct per actor without needing its own
- * invalidation whenever a group's rules change.
- *
- * `invalidateCache` broadcasts across the cluster (OpenProject #2038, mirroring
- * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`):
- * every caller below already routes through it, so a page saved on one instance drops the stale
- * term→page mapping everywhere, not just locally. `getRawCachedTerms` also caps every entry with a
- * bounded `CACHE_TTL_MS` as a defence-in-depth belt underneath the broadcast, not instead of it — a
- * missed notification (see `core/db.ts`'s at-most-once delivery notes) then diverges for minutes
- * rather than indefinitely, since the LRU it lives in (`new LRUCache({ max: 5000 })`, `index.ts`) has
- * no ttl of its own and would otherwise only evict this key under memory pressure.
+ * Only the actor-blind term→page mapping is cached (`getRawCachedTerms`); the per-actor `read:pages`
+ * link resolution `getCachedTerms` layers on top is never cached, so it stays correct as a group's
+ * rules change without needing an invalidation of its own.
  */
 class Glossary {
   async listTerms(siteId: string): Promise<GlossaryTerm[]> {
@@ -174,20 +150,12 @@ class Glossary {
   }
 
   /**
-   * `actor` is optional -- a caller with no session to attribute to (a test, a future seed/migration
-   * path) simply gets no audit entry AND no version row, rather than being forced to invent an
-   * attribution for either. The single-term REST routes (`api/glossary.ts`) always pass
-   * `actorFromRequest(req)`, so every real admin/API-key edit through those routes IS attributed, and
-   * therefore IS versioned. Audit instrumentation written from here rather than the API layer --
-   * unlike every other `auditLog.record()` call site in this codebase -- per the OpenProject #1115
-   * spec's explicit instruction to instrument these model methods directly.
+   * `actor` is optional -- a caller with no session to attribute to gets no audit entry AND no
+   * version row, rather than being forced to invent an attribution for either. The single-term REST
+   * routes always pass one, so every real admin/API-key edit is attributed and therefore versioned.
    *
-   * The insert and the version snapshot it triggers run in ONE transaction (OpenProject #1891):
-   * before this, the per-term routes wrote directly with no version recorded at all, so a later
-   * "restore previous version" would silently revert an edit made through them. Snapshotting the
-   * whole glossary here, the same way `saveVersion`/`restoreVersion` do, means a per-term write is
-   * indistinguishable from a staged-edit save as far as the version history is concerned -- both
-   * leave the version list an accurate, restorable record of what the live glossary actually held.
+   * The insert and the version snapshot it triggers share ONE transaction: a per-term write that
+   * landed without a version would make a later "restore previous version" silently revert it.
    */
   async createTerm(
     siteId: string,
@@ -241,8 +209,7 @@ class Glossary {
     return row
   }
 
-  /** Same actor-optional audit + version semantics as `createTerm` above (OpenProject #1891) --
-   *  the update and its version snapshot share one transaction, recorded only when a row actually
+  /** Same actor-optional audit + version semantics as `createTerm`, recorded only when a row actually
    *  changed. */
   async updateTerm(
     siteId: string,
@@ -277,8 +244,8 @@ class Glossary {
       changedFields.push('isAcronym')
     }
 
-    // -> A collision check needs the FULL post-update surface-form set, so when either `term` or
-    //    `aliases` changes we need whichever of the two ISN'T changing too, from the current row.
+    // -> A collision check needs the FULL post-update surface-form set, so a change to either `term`
+    //    or `aliases` has to read whichever of the two isn't changing back from the current row.
     if (input.term !== undefined || input.aliases !== undefined) {
       const current = await this.getTerm(siteId, id)
       if (!current) {
@@ -288,9 +255,9 @@ class Glossary {
       const aliases = normalizeAliases(input.aliases ?? current.aliases, nextTerm)
       values.aliases = aliases
       // -> Recorded whenever the STORED set actually changes, not only when the caller explicitly
-      //    passed `aliases` -- renaming a term to match one of its own existing aliases silently
-      //    drops that alias too (see `normalizeAliases`'s own doc), and the audit log's whole point
-      //    (OpenProject #1115) is reporting what actually changed, not just what the caller asked for.
+      //    passed `aliases`: renaming a term to match one of its own existing aliases silently drops
+      //    that alias too (`normalizeAliases`), and the audit log reports what changed, not what was
+      //    asked for.
       if (JSON.stringify(aliases) !== JSON.stringify(current.aliases)) {
         changedFields.push('aliases')
       }
@@ -335,8 +302,7 @@ class Glossary {
     return row
   }
 
-  /** Same actor-optional audit + version semantics as `createTerm` above (OpenProject #1891) --
-   *  the delete and its version snapshot share one transaction, recorded only when a row was
+  /** Same actor-optional audit + version semantics as `createTerm`, recorded only when a row was
    *  actually deleted. */
   async deleteTerm(siteId: string, id: string, actor?: GlossaryActor): Promise<boolean> {
     const existing = actor ? await this.getTerm(siteId, id) : null
@@ -368,12 +334,9 @@ class Glossary {
   }
 
   /**
-   * The full term list, portable and ready to hand to an external editor (OpenProject #1114) -- e.g.
-   * an LLM asked to iterate on definitions. See `GlossaryExportTerm`'s own comment for the shape.
-   *
-   * `db` defaults to the ambient `CARDINAL.db`, but `recordVersionIn` passes its own open transaction so a
-   * snapshot it takes reads back the rows that same transaction just wrote, not a separate connection
-   * that cannot see them yet.
+   * `db` defaults to the ambient `CARDINAL.db`, but `recordVersionIn` passes its own open transaction
+   * so a snapshot reads back the rows that same transaction just wrote, rather than a separate
+   * connection that cannot see them yet.
    */
   async exportTerms(siteId: string, db: WikiDbOrTx = CARDINAL.db): Promise<GlossaryExport> {
     const rows = await db
@@ -402,10 +365,9 @@ class Glossary {
   }
 
   /**
-   * Replaces the site's ENTIRE term list with `data.terms` (OpenProject #1114) -- not a per-term
-   * merge. Every entry is validated, and every `path` resolved to a page, before anything is written,
-   * so a bad entry anywhere in the payload leaves the existing glossary untouched rather than applying
-   * partway through.
+   * Replaces the site's ENTIRE term list with `data.terms` -- not a per-term merge. Everything is
+   * validated before anything is written, so a bad entry anywhere in the payload leaves the existing
+   * glossary untouched rather than applying partway through.
    */
   async importTerms(siteId: string, data: GlossaryExport): Promise<GlossaryTerm[]> {
     if (!data || !Array.isArray(data.terms)) {
@@ -420,11 +382,9 @@ class Glossary {
   }
 
   /**
-   * Validates a list of `GlossaryExportTerm`s -- the same shape whether it came from a JSON import
-   * (`importTerms`) or the admin staged-edit UI's Save action (`saveVersion`, OpenProject #1112/#1113:
-   * the canonical-page picker there is a live-validated path input, not a dropdown, so the admin UI's
-   * own edits are already in this shape too) -- trimming/checking each entry, resolving `path` to a
-   * `pageId`, and rejecting a within-payload surface-form collision, before anything is written.
+   * Validates a list of `GlossaryExportTerm`s -- the same shape whether it came from a JSON import or
+   * the admin staged-edit UI's Save -- resolving `path` to a `pageId` and rejecting a within-payload
+   * surface-form collision, all before anything is written.
    */
   private async resolveExportTerms(
     siteId: string,
@@ -456,15 +416,13 @@ class Glossary {
 
   /**
    * Deletes every existing term for the site and inserts `rows` instead, against `db` -- so this
-   * never applies only halfway as long as `db` is itself a transaction handle. Callers are
-   * responsible for validating `rows` first (`assertNoInternalSurfaceFormCollision` above) -- a
-   * case-insensitive collision within `rows` itself would otherwise surface as an opaque
-   * unique-constraint violation from the bulk insert instead of a clear 400.
+   * never applies only halfway as long as `db` is itself a transaction handle. Callers validate
+   * `rows` first (`assertNoInternalSurfaceFormCollision`): a case-insensitive collision within `rows`
+   * itself would otherwise surface as an opaque unique-constraint violation instead of a clear 400.
    *
-   * Does NOT invalidate the cache itself -- `db` may be mid-transaction, and invalidating before a
-   * commit could hand a reader stale-again data if the transaction then rolls back. Callers
-   * invalidate once their transaction has actually committed (`replaceAllRows`, `saveVersion`,
-   * `restoreVersion` below).
+   * Does NOT invalidate the cache itself -- `db` may be mid-transaction, and invalidating before the
+   * commit could refill it with stale-again data if that transaction then rolls back. Callers
+   * invalidate once their transaction has committed.
    */
   private async replaceAllRowsIn(
     db: WikiDbOrTx,
@@ -483,10 +441,8 @@ class Glossary {
 
   /**
    * `replaceAllRowsIn`, opening its own transaction -- for a standalone wholesale replace with
-   * nothing else that needs to share its fate (JSON import, `importTerms` below). `saveVersion`/
-   * `restoreVersion` need the replace and the version snapshot to commit or roll back together
-   * (OpenProject #1113's "atomically" requirement), so THEY open one transaction themselves and call
-   * `replaceAllRowsIn` directly instead of going through this wrapper.
+   * nothing else that needs to share its fate. `saveVersion`/`restoreVersion` open their own
+   * instead, so the replace and the version snapshot commit or roll back together.
    */
   private async replaceAllRows(siteId: string, rows: ResolvedTermRow[]): Promise<GlossaryTerm[]> {
     const inserted = await CARDINAL.db.transaction((tx) => this.replaceAllRowsIn(tx, siteId, rows))
@@ -497,15 +453,11 @@ class Glossary {
   /**
    * Resolves an export's `path` to a `pageId` against the site's primary locale, or rejects it.
    *
-   * Deliberately does NOT apply the `|| 'home'` default that `api/pages/read.ts` and `mcp/tools/getPage.ts`
-   * use at their own normalize-then-hash call sites (OpenProject #1936). Those two resolve a
-   * *request* for "whatever's at this path", where an empty path legitimately means the site root.
-   * Here `path` is a glossary term's user-typed canonical-page reference: the `!path` guard above
-   * already gives "no path at all" its own correct meaning (no canonical page for the term -- a valid
-   * state), so a path that survives that guard but normalizes to empty (a bare `/`) is not a
-   * deliberate reference to home -- it's unresolvable, exactly as `GlossaryTermDialog.vue`'s
-   * `checkPath()` already treats it client-side before save. Defaulting it here would make the backend
-   * silently accept what the UI already flags as invalid.
+   * Deliberately does NOT apply the `|| 'home'` default that other normalize-then-hash call sites
+   * use. Those resolve a *request* for "whatever's at this path", where an empty path legitimately
+   * means the site root. Here `path` is a term's user-typed canonical-page reference, and the `!path`
+   * guard below already gives "no path at all" its own meaning, so a path that survives that guard
+   * but normalizes to empty (a bare `/`) is unresolvable rather than a reference to home.
    */
   private async resolvePagePath(
     siteId: string,
@@ -528,16 +480,12 @@ class Glossary {
   }
 
   /**
-   * Applies a staged set of edits as the new, complete term list -- the admin UI's "Save" action
-   * (OpenProject #1113): not immediate-apply per create/edit/delete, but one atomic replace of the
-   * whole glossary, paired with a version snapshot of the result -- "atomically" per the spec's own
-   * wording, so the replace and the snapshot run inside ONE transaction: either both commit, or
-   * (a DB error mid-write, a crash) neither does, rather than a replace that landed with no version
-   * to show for it. `GlossaryExportTerm`-shaped (`path`, not `pageId`), the SAME shape `importTerms`
-   * takes: the admin UI's canonical-page picker is a live-validated path input, not a dropdown
-   * (OpenProject #1112), so its own staged edits are already in this shape -- resolving `path` here
-   * (rather than requiring the client to resolve it itself first) is what keeps that one round-trip
-   * instead of two.
+   * Applies a staged set of edits as the new, complete term list -- the admin UI's "Save" action:
+   * not immediate-apply per create/edit/delete, but one atomic replace of the whole glossary paired
+   * with a version snapshot of the result, inside ONE transaction, so a replace never lands with no
+   * version to show for it. `path`-shaped, not `pageId`-shaped, because the admin UI's
+   * canonical-page picker is a live-validated path input: resolving it here keeps the save to one
+   * round trip.
    */
   async saveVersion(
     siteId: string,
@@ -554,7 +502,6 @@ class Glossary {
     return result
   }
 
-  /** Every saved version's metadata, most recent first -- no `snapshot` payload; see `getVersion`. */
   async listVersions(siteId: string): Promise<GlossaryVersionSummary[]> {
     return CARDINAL.db
       .select({
@@ -569,7 +516,6 @@ class Glossary {
       .orderBy(desc(glossaryVersionsTable.createdAt))
   }
 
-  /** One saved version, snapshot included -- what a diff or a restore reads from. */
   async getVersion(siteId: string, versionId: string): Promise<GlossaryVersion | null> {
     const rows = await CARDINAL.db
       .select()
@@ -592,12 +538,10 @@ class Glossary {
 
   /**
    * Restores a saved version as the glossary's new live state -- the SAME validate-then-replace path
-   * `importTerms` uses (against the version's own stored snapshot, per OpenProject #1114's decision
-   * record), reused here directly rather than through `importTerms` itself so the replace and the new
-   * version record below can share ONE transaction -- same "atomically" reasoning as `saveVersion`.
-   * Rather than rewriting history, a restore is itself recorded as a NEW version: the version list
-   * stays append-only and monotonic, so "what did the glossary look like at time T" never changes
-   * retroactively, including for T = right after a restore.
+   * `importTerms` uses, inlined rather than called through it so the replace and the new version
+   * record share ONE transaction. Rather than rewriting history, a restore is itself recorded as a
+   * NEW version: the version list stays append-only, so "what did the glossary look like at time T"
+   * never changes retroactively.
    */
   async restoreVersion(
     siteId: string,
@@ -619,8 +563,8 @@ class Glossary {
   }
 
   /** Snapshots the glossary's CURRENT (already-written) state as a new version row, against `db` --
-   *  see `replaceAllRowsIn`'s identical reasoning: `saveVersion`/`restoreVersion` pass their own open
-   *  transaction so the snapshot this takes shares fate with the replace it is snapshotting. */
+   *  `saveVersion`/`restoreVersion` pass their own open transaction so the snapshot shares fate with
+   *  the replace it is snapshotting. */
   private async recordVersionIn(
     db: WikiDbOrTx,
     siteId: string,
@@ -647,11 +591,6 @@ class Glossary {
     }
   }
 
-  /**
-   * The raw, actor-blind term→page mapping, cached under `CARDINAL.cache` — the part that is genuinely
-   * the same for everyone (which page a term points at). `getCachedTerms` is what turns this into a
-   * `link`, fresh per actor, on every call.
-   */
   private async getRawCachedTerms(siteId: string): Promise<CachedGlossaryEntry[]> {
     const key = cacheKey(siteId)
     if (CARDINAL.cache.has(key)) {
@@ -689,11 +628,9 @@ class Glossary {
   }
 
   /**
-   * The term list the rendering pipeline matches against — sorted longest-term-first isn't done here,
-   * that is the markdown plugin's own concern (`renderers/modules/markdown-it-glossary.js`); this just
-   * hands back every term with its definition and, when `actor` may read the canonical page set for
-   * it, the link to it (OpenProject #1127). A term with no canonical page, or whose page `actor` may
-   * not read, comes back with `link: null` — rendered as plain, unlinked text either way.
+   * The term list the rendering pipeline matches against. Longest-term-first ordering is the markdown
+   * plugin's own concern (`frontend/src/renderers/modules/markdown-it-glossary.js`), not done here. A
+   * `link: null` term — no canonical page, or one `actor` may not read — renders as plain text.
    */
   async getCachedTerms(siteId: string, actor: AccessActor): Promise<CachedGlossaryTerm[]> {
     const entries = await this.getRawCachedTerms(siteId)
@@ -718,13 +655,10 @@ class Glossary {
   }
 
   /**
-   * The site's acronym lookup -- lowercase surface form → canonical display casing -- for every
-   * term/alias marked `isAcronym` (OpenProject #2575). Consulted by the frontend's path-segment
-   * humanization helper via a lowercase key, so a path segment like "uss" renders as "USS" rather
-   * than the humanizer's own default title-case guess. Actor-blind, like the raw cache it reads from
-   * (an acronym's casing carries no page-access sensitivity of its own), so this needs no per-actor
-   * resolution the way `getCachedTerms`'s `link` does, and shares that cache's TTL/invalidation
-   * rather than keeping a separate entry to invalidate in step.
+   * Lowercase surface form → canonical display casing, for every term/alias marked `isAcronym`. The
+   * frontend's path-segment humanizer looks a segment up by lowercase key, so "uss" renders as "USS"
+   * rather than its own title-case guess. Actor-blind -- an acronym's casing carries no page-access
+   * sensitivity -- so it shares the raw cache rather than keeping a separate entry to invalidate.
    */
   async getAcronymMap(siteId: string): Promise<Record<string, string>> {
     const entries = await this.getRawCachedTerms(siteId)
@@ -743,11 +677,9 @@ class Glossary {
   }
 
   /**
-   * Drops this instance's own raw term→page cache entry for a site, and nothing else -- no
-   * broadcast. Called by `invalidateCache()` for the local half of its job, and by
-   * `subscribeToEvents()`'s inbound handler answering *another* instance's broadcast, which must
-   * never call `invalidateCache()` itself or the invalidation would echo around the cluster forever
-   * (the same rule `models/groups.ts`'s `broadcastReload()` documents for `reloadCache()`).
+   * Drops this instance's own raw term→page cache entry for a site, and nothing else -- no broadcast.
+   * `subscribeToEvents()`'s inbound handler answers *another* instance's broadcast with this and must
+   * never call `invalidateCache()`, or the invalidation would echo around the cluster forever.
    */
   dropLocalCache(siteId: string): void {
     CARDINAL.cache.delete(cacheKey(siteId))
@@ -756,9 +688,8 @@ class Glossary {
   /**
    * Drops the raw term→page cache for a site, then tells every other instance in the cluster to do
    * the same. Public because a canonical page's path (or existence) can change from outside this
-   * model — `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned` call this too, since
-   * `getRawCachedTerms` caches which page a term points at and nothing else would otherwise tell it a
-   * linked page moved or was deleted (OpenProject #870).
+   * model — `models/pages.ts`'s move/delete paths call it too, since nothing else would tell the
+   * cache that a linked page moved or was deleted.
    */
   invalidateCache(siteId: string): void {
     this.dropLocalCache(siteId)
@@ -766,11 +697,8 @@ class Glossary {
   }
 
   /**
-   * Subscribe to HA propagation events.
-   *
-   * `emittery` (pinned 2.0.0) hands a specific `.on(eventName, listener)` the same `{ name, data }`
-   * wrapper `onAny` gets, not the raw payload — see `core/db.ts`'s `notifyViaDB` and
-   * `core/db.test.ts`'s "echoing this same instance" test for the same shape read the same way.
+   * `emittery` hands a specific `.on(eventName, listener)` the same `{ name, data }` wrapper `onAny`
+   * gets, not the raw payload.
    */
   subscribeToEvents(): void {
     CARDINAL.events.inbound.on(INVALIDATE_EVENT, (evt: { data?: { siteId?: string } }) => {
@@ -781,7 +709,6 @@ class Glossary {
     })
   }
 
-  /** Confirms a canonical page reference exists and belongs to the same site, or rejects it. */
   private async validatePageId(
     siteId: string,
     pageId: string | null | undefined
@@ -802,10 +729,10 @@ class Glossary {
 
   /**
    * Rejects a term/aliases combination that shares a surface form -- case-insensitively -- with any
-   * OTHER row on the site, across that row's own term AND aliases (OpenProject #1110). The DB's
+   * OTHER row on the site, across that row's own term AND aliases. The DB's
    * `glossaryTerms_composite_idx` still catches an exact `term`-vs-`term` collision atomically; this
-   * covers every other combination a plain unique index can't express (term-vs-alias, alias-vs-alias),
-   * at the application level -- see the schema comment on `aliases`.
+   * covers, at the application level, every combination a plain unique index can't express
+   * (term-vs-alias, alias-vs-alias).
    */
   private async assertNoSurfaceFormCollision(
     siteId: string,
@@ -842,9 +769,9 @@ class Glossary {
 }
 
 /**
- * Trims each alias's `value`, drops empties, dedupes case-insensitively (first occurrence's casing
- * AND `isAcronym` win), and drops any alias whose value is just the term itself under a different
- * case -- that would only ever be a no-op surface form, never a genuinely distinct one.
+ * Trims, drops empties, dedupes case-insensitively (first occurrence's casing AND `isAcronym` win),
+ * and drops any alias that is just the term itself under a different case -- a no-op surface form,
+ * never a genuinely distinct one.
  */
 function normalizeAliases(aliases: GlossaryAlias[] | undefined, term: string): GlossaryAlias[] {
   const seen = new Set<string>([term.toLowerCase()])
@@ -868,8 +795,7 @@ function normalizeAliases(aliases: GlossaryAlias[] | undefined, term: string): G
  * Rejects two entries in the SAME list that share a case-insensitive surface form (own term or any
  * alias) -- the within-payload counterpart to `Glossary#assertNoSurfaceFormCollision`, which checks
  * one entry against every OTHER row already in the database. A wholesale import/save/restore payload
- * has no existing rows to compare against yet (they are all about to be replaced together), so this
- * is what catches two entries in the same submission claiming the same surface form.
+ * has no such rows to compare against: they are all about to be replaced together.
  */
 function assertNoInternalSurfaceFormCollision(
   entries: { term: string; aliases: GlossaryAlias[] }[]

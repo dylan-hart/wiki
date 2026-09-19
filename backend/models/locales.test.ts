@@ -23,18 +23,9 @@ import {
 } from '../test/db.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
-// -> `refreshFromDisk()` compares mtimes via the native `Temporal` API (`Date#toTemporalInstant()` +
-//    `Temporal.Instant.compare()`).
+// -> `refreshFromDisk()` compares file mtimes through `Temporal`.
 await ensureTemporal()
 
-/**
- * `refreshFromDisk` (see `locales.ts`) warns at boot -- `locale  declared in the metadata file but
- * not found on disk` -- naming every language declared in `locales/metadata.js` that has no matching
- * `backend/locales/<code>.json` file on disk. This is a pure, no-`CARDINAL`, no-database check of that
- * exact invariant: every declared language resolves to a real file. It is what "a fresh boot
- * produces zero skipped-locale warnings" (task 690's stated done-condition) reduces to, without
- * needing to actually boot.
- */
 describe('locales metadata <-> vendored files', () => {
   const localesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../locales')
 
@@ -79,12 +70,6 @@ describe('locales metadata <-> vendored files', () => {
   })
 })
 
-/**
- * `computeCompleteness()` (see `locales.ts`) is the pure percentage calculation `refreshFromDisk`
- * uses for the `completeness` column: `Math.round(100 * matchingNonEmptyKeys / totalBaseKeys)`,
- * counting a base key present only when the target also has it as a non-empty string. Tested directly
- * against small fixture objects rather than through `refreshFromDisk`'s disk/DB machinery.
- */
 describe('computeCompleteness()', () => {
   test('a locale file missing half its keys yields ~50', () => {
     const base = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`key${i}`, `value${i}`]))
@@ -116,10 +101,6 @@ describe('computeCompleteness()', () => {
   })
 })
 
-/**
- * `interpolate()` — the `{name}`-style placeholder substitution `resolveString()`/
- * `resolvePluralString()` apply to whatever `lookupString()` finds (#1611/#1623).
- */
 describe('interpolate()', () => {
   test('substitutes every placeholder present in params', () => {
     assert.equal(
@@ -137,12 +118,6 @@ describe('interpolate()', () => {
   })
 })
 
-/**
- * `parseSideloadLocalePack()` (see `locales.ts`, OpenProject #820): the pure validation
- * `sideloadFromDataPath` runs each `<dataPath>/locales/<code>.json` file's parsed content through
- * before it ever touches disk timestamps or the DB. A sideload file is self-contained (no
- * `locales/metadata.js` entry backing it up), so this is what actually enforces its shape.
- */
 describe('parseSideloadLocalePack()', () => {
   test('accepts a fully-specified pack', () => {
     const result = parseSideloadLocalePack({
@@ -209,12 +184,6 @@ describe('parseSideloadLocalePack()', () => {
   })
 })
 
-/**
- * `mergeLocaleStrings()` (OpenProject #2433): the pure per-key override `sideloadFromDataPath()`'s
- * write path and `getStrings()`'s `en` read-time floor both build on — replacing the previous
- * full-row-replacement foot-gun where a one-key sideload wiped out every other known string for
- * that locale.
- */
 describe('mergeLocaleStrings()', () => {
   test('overlay wins on a shared key', () => {
     assert.deepEqual(mergeLocaleStrings({ a: 'one', b: 'two' }, { a: 'ONE' }), {
@@ -245,24 +214,15 @@ describe('mergeLocaleStrings()', () => {
 })
 
 /**
- * `refreshFromDisk()` DB-backed: confirms `completeness` is actually persisted through the real
- * insert/onConflictDoUpdate call (not just computed and dropped), and that the mtime-based skip path
- * leaves the previously-computed value in place rather than resetting it — the "intentionally left as
- * the last-computed value" option task 692 explicitly allows for a run that does no disk/DB work.
- *
- * Uses a scratch `locales/` directory (not the real vendored files) pointed to via `CARDINAL.SERVERPATH`,
- * with `metadata.js`'s real `de` entry (filename `de.json`, no region/script) as the one language
- * under test — every other real declared language simply misses its `stat()` and is skipped, exactly
- * like `locales.test.ts`'s existing coverage of that path.
+ * Points `CARDINAL.SERVERPATH` at a scratch `locales/` directory rather than the real vendored files.
+ * `de` is the language under test because `metadata.js` really declares it with no region or script,
+ * so the file is `de.json`; every other declared language misses its `stat()` and is skipped.
  */
 describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let refreshFromDisk: (typeof import('./locales.ts').locales)['refreshFromDisk']
-  // -> Held as a bound method reference (`.bind`), not further destructured: `refreshFromDisk` itself
-  //    now calls `this.invalidateStringsCache()` internally, so it needs its real receiver — unlike
-  //    the free-standing `localeCode`/`computeCompleteness`/`parseSideloadLocalePack` exports used
-  //    elsewhere in this file, `Locales`'s methods are plain prototype methods, not bound class
-  //    fields.
+  // -> Bound, not destructured: `Locales`'s methods are plain prototype methods, and
+  //    `refreshFromDisk` calls `this.invalidateStringsCache()`, so it needs its real receiver.
   let localesModel: typeof import('./locales.ts').locales
   let scratchDir: string
 
@@ -278,7 +238,6 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
       Array.from({ length: 10 }, (_, i) => [`key${i}`, `value${i}`])
     )
     await writeFile(path.join(scratchDir, 'locales/en.json'), JSON.stringify(baseStrings))
-    // -> `de` translates exactly half of the base keys.
     const deStrings = Object.fromEntries(
       Array.from({ length: 5 }, (_, i) => [`key${i}`, `wert${i}`])
     )
@@ -304,8 +263,8 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
   })
 
   test('re-running with force:false and no file changes leaves completeness as last computed', async () => {
-    // -> Back-date the file so the DB's `updatedAt` (just written above) is unambiguously newer,
-    //    exercising the "skip, DB is newer" branch rather than the "reload" branch.
+    // -> Back-date the file so the DB row is unambiguously newer, taking the "skip, DB is newer"
+    //    branch rather than the "reload" one.
     const past = new Date(Date.now() - 24 * 60 * 60 * 1000)
     await utimes(path.join(scratchDir, 'locales/de.json'), past, past)
 
@@ -331,8 +290,6 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
       Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`key${i}`, `wert${i}`]))
     )
 
-    // -> Change the disk file to a value distinguishable from what is already cached, so a stale
-    //    read (invalidation not actually happening) and a fresh one are unambiguous.
     const updatedDeStrings = Object.fromEntries(
       Array.from({ length: 5 }, (_, i) => [`key${i}`, `neu${i}`])
     )
@@ -349,26 +306,13 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
-   * OpenProject #2371: `refreshFromDisk()` decides whether to reload EACH language off `dbLocales`,
-   * one snapshot SELECT taken ONCE at the top of the whole call, then loops through every declared
-   * language sequentially. If some OTHER writer (the e2e suite's own direct-DB locale seed, in the
-   * incident this bug tracks) writes a fresher row for a code AFTER that snapshot was taken but
-   * BEFORE this function's own turn to write that code arrives, the old code had no way to notice --
-   * its decision was already baked in from the stale snapshot, and its `onConflictDoUpdate` would
-   * fire unconditionally, silently clobbering whatever the other writer had just stored.
-   *
-   * `setWhere` closes this by moving the freshness check from the app (a stale snapshot) into
-   * Postgres itself, re-evaluated against the row's CURRENT state at the exact moment the UPDATE
-   * would apply -- which is unaffected by how the two writes interleave. This test proves that
-   * guarantee directly: it reconstructs the identical `onConflictDoUpdate` shape
-   * `refreshFromDisk()` issues for `de` (real column set, real `setWhere` condition against `de.json`'s
-   * actual mtime) against a `de` row that already carries a newer `updatedAt` than that file -- i.e.
-   * exactly the state a concurrent writer would have left behind between the stale snapshot and this
-   * write's own turn -- and asserts the update is a genuine no-op.
+   * `refreshFromDisk()` decides whether to reload each language off one snapshot SELECT taken at the
+   * top of the call, so another writer can make a row fresher after that snapshot but before this
+   * write's own turn arrives. `setWhere` moves the freshness check into Postgres, re-evaluated
+   * against the row's CURRENT state, which is what makes the interleaving irrelevant.
    */
   test('setWhere guard: a row already fresher than the vendored file is never overwritten, even by an update decided as if it were stale', async () => {
-    // -> A direct write standing in for "some other process already wrote a fresher `de` row" --
-    //    the exact shape a concurrent seed script's own upsert would leave behind.
+    // -> Stands in for "some other process already wrote a fresher `de` row".
     await fixtures.db
       .insert(localesTable)
       .values({
@@ -395,15 +339,9 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
 
     const deFileStat = await stat(path.join(scratchDir, 'locales/de.json'))
 
-    // -> The exact statement shape `refreshFromDisk()`'s per-language loop issues for `de`, guarded
-    //    by the same `setWhere` condition -- reconstructed directly rather than calling
-    //    `refreshFromDisk()` itself, since genuinely reproducing the race that puts it on this path
-    //    would mean racing real async I/O timing (56 sequential `stat()` calls against a scratch
-    //    directory that only two of ever resolve) against this test's own DB write, which is
-    //    exactly the kind of timing-dependent setup that makes a test flaky rather than a reliable
-    //    regression guard. This proves the guarantee the fix relies on directly and deterministically:
-    //    Postgres itself refuses this exact update once the row is no longer stale, regardless of
-    //    what the caller believed when it decided to issue it.
+    // -> The statement shape `refreshFromDisk()`'s per-language loop issues for `de`, reconstructed
+    //    rather than called: reproducing the race for real would mean timing this test's DB write
+    //    against the loop's own `stat()` I/O, which is how a test becomes flaky.
     await fixtures.db
       .insert(localesTable)
       .values({
@@ -435,14 +373,9 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * `sideloadFromDataPath()` DB-backed (OpenProject #820): the actual disk -> DB path a dropped-in
- * `<dataPath>/locales/<code>.json` file takes, independent of `locales/metadata.js` — a sideload
- * file can name a code the built-in language table has never declared, or override one that is.
- * Each test resets the sideload directory itself so files from one test never leak, force-reloaded,
- * into the next — and, since `sideloadFromDataPath()` now MERGES onto whatever a code's `strings`
- * column already holds (OpenProject #2433) rather than replacing it outright, `beforeEach` also
- * clears the `locales` table itself, so a code reused across tests (`de`, `tlh`, ...) never merges
- * onto a row a previous test happened to leave behind.
+ * `beforeEach` resets the sideload directory so a file never leaks into the next test, and clears
+ * the `locales` table too: a sideload merges onto whatever a code's `strings` column already holds,
+ * so a code reused across tests (`de`, `tlh`, ...) would otherwise merge onto a leftover row.
  */
 describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -520,13 +453,7 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(row!.completeness, 100)
   })
 
-  /**
-   * OpenProject #2433: the whole point of the fix. Before it, `sideloadFromDataPath()` wrote the
-   * pack's `strings` as a full replacement of the row — a one-key pack silently wiped out every
-   * other already-known string for that locale. Seeds `de` with all 4 base keys already translated
-   * (a stand-in for "an earlier Localazy sync already populated this row"), then sideloads a pack
-   * naming only `key0`, and asserts the other 3 keys survive untouched.
-   */
+  // -> The seeded row stands in for "an earlier Localazy sync already populated this locale".
   test('a partial sideload merges onto the existing stored strings, leaving other keys untouched', async () => {
     await fixtures.db.insert(localesTable).values({
       code: 'de',
@@ -565,12 +492,6 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     )
   })
 
-  /**
-   * Same fix (#2433), for `en` specifically — the WP's own motivating case ("Page Not Found" text)
-   * and the scope note that `en`'s `completeness: 100` must no longer be forced regardless of actual
-   * coverage. Uses this describe's own scratch `en.json` (4 keys) as the comparison base, matching
-   * how every other test in this block already treats it.
-   */
   test('a partial "en" sideload merges too, and completeness is no longer forced to 100', async () => {
     await fixtures.db.insert(localesTable).values({
       code: 'en',
@@ -589,7 +510,6 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
       JSON.stringify({
         name: 'English',
         language: 'en',
-        // -> Only one key overridden, and deliberately not naming key1-key3 at all.
         strings: { key0: 'Page Not Found (customized)' }
       })
     )
@@ -615,8 +535,6 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     await localesModel.sideloadFromDataPath({ force: true })
     assert.deepEqual(await localesModel.getStrings('tlh'), { hello: 'nuqneH' })
 
-    // -> Overwrite the sideload file with a value distinguishable from what is already cached, so a
-    //    stale read (invalidation not actually happening) and a fresh one are unambiguous.
     await writeFile(
       path.join(sideloadDir, 'tlh.json'),
       JSON.stringify({ name: 'Klingon', language: 'tlh', strings: { hello: 'majQa' } })
@@ -644,8 +562,8 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   test('skips a pack that violates a DB column constraint, without aborting the rest of the scan', async () => {
-    // -> Passes `parseSideloadLocalePack`'s shape validation (a string) but is far past `language`'s
-    //    `varchar(8)` column limit, so the insert itself is what has to catch this.
+    // -> Passes `parseSideloadLocalePack`'s shape check (a string) but overruns `language`'s
+    //    `varchar(8)` column, so only the insert can catch it.
     await writeFile(
       path.join(sideloadDir, 'toolong.json'),
       JSON.stringify({ name: 'Too Long', language: 'a'.repeat(20), strings: { key0: 'x' } })
@@ -681,12 +599,6 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 })
 
-/**
- * `getLocales()` (OpenProject #2005): used to write one extra `locale:<code>` cache entry per
- * installed locale, alongside the `locales` list it actually serves and freshness-checks (`has
- * ('locales')`). Nothing ever read that prefix back, so it was dead writes that could drift from the
- * `locales` list with no reader to notice. Asserts the cache only ever receives the one `locales` key.
- */
 describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let localesModel: typeof import('./locales.ts').locales
@@ -714,15 +626,6 @@ describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 })
 
-/**
- * OpenProject #2042: `sideloadFromDataPath()` used to call `reloadCache()` directly on a successful
- * load, refreshing only this instance's own in-memory cache — a locale installed, updated, or
- * refreshed on instance A stayed invisible to instance B (e.g. `api/sites.ts`'s `installedCodes`
- * check) until B happened to restart. `broadcastReload()` mirrors `models/groups.ts`'s /
- * `models/sites.ts`'s fix exactly: every write path goes through it instead of `reloadCache()`
- * directly, and it emits on `CARDINAL.events.outbound` (which `core/db.ts`'s real NOTIFY-based bus,
- * unused here, is what actually carries to other instances).
- */
 describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let localesModel: typeof import('./locales.ts').locales
   let scratchDir: string
@@ -813,12 +716,6 @@ describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, ()
   })
 })
 
-/**
- * `getStrings()` (DB-backed): the `localeStrings:${code}` cache fill/read itself, isolated from any
- * one write path — `refreshFromDisk()`'s and `sideloadFromDataPath()`'s own invalidation are covered
- * next to those methods' existing describe blocks above, since both need that block's scratch-disk
- * fixture anyway. `reloadCache()` needs no disk at all, so it is covered here instead.
- */
 describe(
   'getStrings() caching and reloadCache() invalidation (DB-backed)',
   { skip: !hasTestDatabase() },
@@ -849,9 +746,8 @@ describe(
       const first = await localesModel.getStrings('ct')
       assert.deepEqual(first, { greeting: 'hello' })
 
-      // -> Mutate the row directly, bypassing every cache-invalidating path this feature adds — the
-      //    strongest proof a second call is served from cache rather than the database: if it queried
-      //    again, it would see this new value immediately.
+      // -> A direct row write bypasses every invalidation path, so a second call still answering the
+      //    old value can only be the cache.
       await fixtures.db
         .update(localesTable)
         .set({ strings: { greeting: 'bypassed-the-cache' } })
@@ -866,8 +762,8 @@ describe(
     })
 
     test('reloadCache() invalidates the cached getStrings() result', async () => {
-      // -> A distinct code (`ct2`) from the previous test's `ct`, so this test's own cache-priming read
-      //    below is unambiguously a fresh one rather than inheriting whatever `ct` left cached.
+      // -> A distinct code from the previous test's `ct`, so the priming read below is genuinely
+      //    fresh rather than inheriting whatever `ct` left cached.
       const primed = await localesModel.getStrings('ct2')
       assert.deepEqual(primed, { greeting: 'bonjour' })
 
@@ -882,12 +778,6 @@ describe(
   }
 )
 
-/**
- * `isReservedLocaleCode` (task 12 / #994): whether a path segment names an INSTALLED locale, case-
- * insensitively — installed, not merely active on a given site, per the decision doc's item 4: a
- * locale can be activated later, so a page created while it was only installed must already be
- * unreachable-proof.
- */
 describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let localesModel: typeof import('./locales.ts').locales
@@ -921,13 +811,6 @@ describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 })
 
-/**
- * `resolveString()` / `resolvePluralString()` (#1611/#1623): the server-side resolver
- * `models/mail.ts`'s templates use to address a recipient in `users.prefs.locale` rather than
- * always `en`. `mail.test.ts` exercises these against the real production `mail.*` keys via a
- * lightweight stand-in (kept out of the DB, matching that file's own pure-unit convention); this
- * suite is the one place the resolver itself is proven against a real `locales` row.
- */
 describe('resolveString / resolvePluralString (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let localesModel: typeof import('./locales.ts').locales
@@ -957,8 +840,8 @@ describe('resolveString / resolvePluralString (DB-backed)', { skip: !hasTestData
       script: '',
       isRTL: false,
       strings: {
-        // -> 'digest' deliberately absent, and 'blankKey' present but blank, to exercise both
-        //    per-key fallback paths against a locale that IS otherwise installed
+        // -> 'digest' deliberately absent and 'blankKey' present but blank: both per-key fallback
+        //    paths, against a locale that IS otherwise installed
         greeting: 'Bonjour {name}, bienvenue à {place}.',
         blankKey: ''
       }
@@ -1015,12 +898,6 @@ describe('resolveString / resolvePluralString (DB-backed)', { skip: !hasTestData
   })
 })
 
-/**
- * `getStrings()` caching (OpenProject #1915): mirrors `getLocales()`'s existing `CARDINAL.cache` shape —
- * keyed `localeStrings:<code>` — so a cold page load doesn't pay a fresh ~190 KB JSONB read on every
- * visit. `reloadCache()` is the single invalidation point (already called from
- * `sideloadFromDataPath`), so a sideloaded pack must be visible on the next `getStrings()` call.
- */
 describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let localesModel: typeof import('./locales.ts').locales
@@ -1052,10 +929,9 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('a different code gets its own cache entry', async () => {
-    // -> Deliberately two non-`en` codes: `en` legitimately merges in the bundled `en.json` floor
-    //    (see the dedicated describe block below), which would make a tight `deepEqual` here about
-    //    cache namespacing rather than about that merge. `nl` rather than `de`, since a later test
-    //    in this same describe block seeds `de` of its own.
+    // -> Two non-`en` codes: `en` merges in the bundled `en.json` floor, which a tight `deepEqual`
+    //    here would be testing instead of cache namespacing. `nl` rather than `de`, which a later
+    //    test in this block seeds for itself.
     await seedLocale(fixtures.db, { code: 'nl' })
     await seedLocale(fixtures.db, { code: 'fr' })
     await fixtures.db
@@ -1084,8 +960,6 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
     await localesModel.getStrings('de')
     assert.equal(CARDINAL.cache.has('localeStrings:de'), true)
 
-    // Simulate what sideloadFromDataPath does: write new strings straight to the DB row, then rely
-    // on reloadCache() (its own invalidation point) to make them visible.
     await fixtures.db
       .update(localesTable)
       .set({ strings: { hello: 'Hallo (updated)' } })
@@ -1104,13 +978,10 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   /**
-   * OpenProject #2433: `en`'s hard fallback floor. This describe block does not override
-   * `CARDINAL.SERVERPATH`, so `getStrings('en')` reads the REAL `backend/locales/en.json` (3,472 keys as
-   * of this writing, `common.actions.apply` = "Apply" — a stable, unlikely-to-be-renamed key used
-   * purely as a "some real bundled key survived the merge" probe, not asserted as the literal source
-   * of truth for its own value). The "no row at all" case runs BEFORE any `en` row is seeded, since
-   * `getStrings()` caches per code — seeding first would mean the second test is served from that
-   * seed's cache entry rather than genuinely re-querying with no row present.
+   * This block leaves `CARDINAL.SERVERPATH` alone, so `getStrings('en')` reads the real
+   * `backend/locales/en.json`; `common.actions.apply` is a stable key used as a "some bundled string
+   * survived the merge" probe, not as the source of truth for its own value. Order is load-bearing:
+   * the no-row case must run before any `en` row is seeded, since `getStrings()` caches per code.
    */
   test('getStrings("en") resolves from the bundled floor alone when no row exists at all', async () => {
     const strings = await localesModel.getStrings('en')
@@ -1127,9 +998,8 @@ describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () =>
       .update(localesTable)
       .set({ strings: { 'common.actions.apply': 'Commit', hello: 'Custom Hello' } })
       .where(eq(localesTable.code, 'en'))
-    // -> The previous test already cached `localeStrings:en` (from the no-row case); this write
-    //    bypasses that cache entirely, so the read below must invalidate first to prove the merge
-    //    against the row rather than replaying the stale cached floor-only value.
+    // -> The previous test left `localeStrings:en` cached from the no-row case, and this write
+    //    bypasses the cache, so the read below would otherwise replay the floor-only value.
     await localesModel.reloadCache()
 
     const strings = await localesModel.getStrings('en')

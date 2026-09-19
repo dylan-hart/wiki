@@ -4,18 +4,10 @@ import { groups } from './groups.ts'
 import { createEventsStub } from '../test/mocks.ts'
 
 /**
- * Coverage for `Groups.createGroupFromImport()` (Feature 414, Task 730): the import-capable group
- * creation path that takes already-converted `permissions`/`rules` instead of seeding the same
- * starting defaults every brand-new group gets.
- *
  * `Groups` reads the ambient `CARDINAL` global for DB access, so each test installs a minimal fake on
- * `globalThis.CARDINAL` and restores whatever was there before — same approach as
- * `models/users-import.test.ts`. `reloadCache()` is a real method on the same singleton and is left
- * to run for real against the faked `CARDINAL.db.select` chain, rather than being stubbed out, since
- * asserting it actually ran (not just that the insert happened) is part of what this test covers.
- * `events` is `test/mocks.ts`'s stub: `createGroupFromImport()`'s write path also calls
- * `broadcastReload()`, which emits `reloadGroups` on `CARDINAL.events.outbound` after reloading — a real
- * `CARDINAL.events` is never needed here since no test in this file asserts on the emitted event.
+ * `globalThis.CARDINAL` and restores whatever was there before. `reloadCache()` is deliberately left
+ * to run for real against the faked `CARDINAL.db.select` chain rather than stubbed out: asserting it
+ * actually ran, not just that the insert happened, is part of what this file covers.
  */
 
 function installFakeWiki() {

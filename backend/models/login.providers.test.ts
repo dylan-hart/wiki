@@ -9,14 +9,12 @@ import { userKeys, users as usersTable } from '../db/schema.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
+ * One schema for the whole file rather than one per describe: every `setupTestDb()` call is a
+ * `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same one.
  *
- * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
- * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * The `hasTestDatabase()` guard inside the hooks is what a per-describe `{ skip }` cannot do for a
+ * FILE-level hook: `describe(..., { skip })` skips that describe's own hooks and tests, but a root
+ * `before()` runs regardless and would throw on an unset `DATABASE_URL`.
  */
 let fixtures: TestFixtures
 
@@ -35,12 +33,11 @@ after(async () => {
 })
 
 /**
- * `findOrCreateProviderUser()` (private, exercised directly rather than through `loginWithProvider()`
- * so these don't also need a live `CARDINAL.auth.strategies` entry and a session-bearing `req` just to
- * reach `afterLoginChecks()`) is SQL orchestration in the same sense `register()`'s suite above is: a
- * user lookup, an identity check against what is already stored, and a write. `strategy` is handed in
- * directly as a plain object matching `AuthStrategy` rather than round-tripped through
- * `authenticationTable` -- nothing under test reads the strategy back from the database.
+ * `findOrCreateProviderUser()` is private and driven directly rather than through
+ * `loginWithProvider()`, so these need no live `CARDINAL.auth.strategies` entry and no
+ * session-bearing `req` to reach `afterLoginChecks()`. `strategy` is a plain object matching
+ * `AuthStrategy` rather than an `authenticationTable` row -- nothing under test reads it back from
+ * the database.
  */
 describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
   function baseStrategy(overrides: Partial<any> = {}): any {
@@ -216,12 +213,7 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
     )
   })
 
-  /**
-   * Feature #2608. The provider modules read the halves off their claims; this is the other half of
-   * that story — what `findOrCreateProviderUser()` does with them, which is the ONLY place in the
-   * provider path that writes a name. Both rules under test come from the parent's scope: populate
-   * on creation, and fill any field still empty at sign-in without touching one that is not.
-   */
+  /** `findOrCreateProviderUser()` is the only place in the provider path that writes a name. */
   describe('separated name halves from the provider profile', () => {
     async function readNames(id: string) {
       const [row] = await fixtures.db
@@ -241,8 +233,8 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
       const created = await findOrCreate(baseStrategy({ id: 'halves-create-strategy' }), {
         id: 'halves-account-1',
         email: 'halves-new@example.com',
-        // -> Deliberately NOT `first last`: the halves win, and the row must not come out marked
-        //    locally edited for having disagreed with a display name nobody authored here.
+        // -> Deliberately NOT `first last`: the halves win, and disagreeing with a display name
+        //    nobody authored here must not mark the row locally edited.
         name: 'Dr. Alice Example',
         firstName: 'Alice',
         lastName: 'Example'
@@ -432,13 +424,6 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
     })
   })
 
-  /**
-   * Feature #3208 / OpenProject #3236: the shared call site this Task owns -- `profile.picture` reaches
-   * `CARDINAL.models.users.syncAvatarFromProvider()` on every login, not just account creation. The
-   * precedence rule (manual upload always wins) and the caching itself are `syncAvatarFromProvider`'s
-   * own concern (Task #3235, covered by `models/users.profile.test.ts`); this only proves the call site
-   * wires a profile's `picture` into it, and that no `picture` means no call at all.
-   */
   describe('avatar sync from the provider profile', () => {
     async function readAvatar(id: string) {
       const [row] = await fixtures.db
@@ -529,12 +514,8 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
   })
 
   /**
-   * WP #2560: relinking a migrated fallback account via `trustEmailForLinking` clears the orphaned
-   * local-strategy auth entry `createProviderFallbackUserConverter()` (Feature #2547's other sibling
-   * Task) originally wrote for it -- but only when that entry actually carries the migration
-   * marker. `localAuthId` is seeded to the DB's real local strategy id (rather than the
-   * `describe`-level placeholder) so `patchStrategyAuth`'s write lands on the same key this test
-   * reads back.
+   * `localAuthId` is seeded to this block's own strategy id rather than the `describe`-level
+   * placeholder, so `patchStrategyAuth`'s write lands on the same key these tests read back.
    */
   describe('clearing the stale local auth entry on relink', () => {
     const localStrategyId = 'local-strategy-relink-test'
@@ -580,7 +561,6 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
       const localAuth = (row!.auth as Record<string, any>)[localStrategyId]
       assert.equal(localAuth.mustChangePwd, false)
       assert.equal('migratedFallbackProvider' in localAuth, false)
-      // -> The password itself is untouched -- only the flag/marker are cleared.
       assert.equal(localAuth.password, 'unreachable-random-hash')
     })
 
@@ -659,26 +639,20 @@ describe('login.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * `loginWithProvider()` used to hard-skip 2FA for every provider login (see WP 2101): a TOTP
- * secret enrolled under the local strategy is a
- * signal the account's owner wants a second factor regardless of which door is used to sign in, so
- * `afterLoginChecks()` now falls back to the local strategy's own secret when the strategy actually
- * used to log in (the provider) has none of its own. `findOrCreateProviderUser()` is stubbed so
- * this suite can drive an already-provisioned account directly, the same way the `resetPassword`
- * suite above builds its account with `createUser()` and mutates its `auth` blob straight in the
- * database -- provider registration/email-matching is `findOrCreateProviderUser()`'s own concern,
- * not this one's.
+ * A TOTP secret enrolled under the local strategy signals that the account's owner wants a second
+ * factor whichever door is used to sign in, so `afterLoginChecks()` falls back to that secret when
+ * the strategy actually logging in has none of its own. `findOrCreateProviderUser()` is stubbed so
+ * this suite drives an already-provisioned account: provider registration and email matching are
+ * that method's own concern, not this one's.
  */
 describe('login.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, () => {
   const localStrategyId = 'local-provider-test'
   const providerStrategyId = 'oauth-provider-test'
 
   function req(): any {
-    // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
-    //    login outcomes, not on session-id churn -- that is `users.updateSession`'s own describe
-    //    block's job (see the stub there for the real reassignment behavior). This just needs to
-    //    exist so `updateSession`'s `await req.session.regenerate()` (task 2115 / WP 2105 §4)
-    //    doesn't throw on a path that reaches it.
+    // -> `regenerate` is a no-op stub, not a `@fastify/session` fake: these tests assert on login
+    //    outcomes, not on session-id churn. It only has to exist, since `updateSession` awaits it
+    //    on any path that reaches one.
     return { session: { regenerate: async () => {} } }
   }
 
@@ -701,8 +675,7 @@ describe('login.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, ()
   }
 
   before(async () => {
-    // -> `generateToken()`/`validateToken()` call `Now.instant()`, `.add()`, `Instant.compare()` and
-    //    `Date.prototype.toTemporalInstant()` between them.
+    // -> The `generateToken()`/`validateToken()` round trip uses `Temporal` throughout.
     await ensureTemporal()
   })
 
@@ -731,8 +704,8 @@ describe('login.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, ()
     assert.ok(result.continuationToken)
     assert.equal(result.authenticated, undefined)
 
-    // -> The continuation verifies against the local strategy's own secret, not the provider's --
-    //    but still remembers the provider as the strategy actually logging in, for hooks/audit.
+    // -> The continuation verifies against the local strategy's secret, but still remembers the
+    //    provider as the strategy actually logging in, for hooks and audit.
     const [tokenRow] = await fixtures.db
       .select()
       .from(userKeys)
@@ -798,11 +771,8 @@ describe('login.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, ()
       request
     )
 
-    // -> Verified against the local strategy's secret, even though the login itself is the
-    //    provider's. Compared field-by-field rather than with the `user` object above: that
-    //    reference gets `.groups` mutated onto it by `afterLoginChecks()`'s own run inside
-    //    `loginWithProvider()`, which a freshly re-fetched row from `loginTFA()`'s own
-    //    `validateToken()` call never carries.
+    // -> Compared field by field rather than against the `user` object above: `afterLoginChecks()`
+    //    mutates `.groups` onto that reference, which the row `loginTFA()` re-fetches never carries.
     const verifyArgs = verifyTfaCode.mock.calls[0].arguments as [any, string, string]
     assert.equal(verifyArgs[0].id, userId)
     assert.equal(verifyArgs[1], localStrategyId)
