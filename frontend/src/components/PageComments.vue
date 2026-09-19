@@ -2,14 +2,17 @@
   <section class="page-comments">
     <header class="page-comments-header flex items-center gap-2">
       <h2 class="text-h6 m-0">{{ t(`common.comments.title`) }}</h2>
-      <span class="page-comments-count text-caption text-grey-6">{{
-        pageStore.commentsCount
-      }}</span>
+      <span
+        class="page-comments-count text-caption text-text-caption dark:text-text-caption-dark"
+        >{{ pageStore.commentsCount }}</span
+      >
     </header>
 
     <CommentComposer v-if="canWrite" class="page-comments-composer mb-4" @posted="onPosted" />
 
-    <div v-if="loading" class="page-comments-loading flex items-center gap-2 py-4 text-grey-6">
+    <div
+      v-if="loading"
+      class="page-comments-loading flex items-center gap-2 py-4 text-text-caption dark:text-text-caption-dark">
       <w-spinner size="20px" />
       <span>{{ t(`common.comments.loading`) }}</span>
     </div>
@@ -21,7 +24,9 @@
       `can()` also ORs in the global list and treats `manage:system` as a wildcard, which is what
       lets an administrator see the same invitation everywhere.
     -->
-    <div v-else-if="flatComments.length === 0" class="page-comments-empty py-4 text-grey-6">
+    <div
+      v-else-if="flatComments.length === 0"
+      class="page-comments-empty py-4 text-text-caption dark:text-text-caption-dark">
       {{ canWrite ? t(`common.comments.beFirst`) : t(`common.comments.none`) }}
     </div>
 
@@ -37,8 +42,10 @@
           }}</w-avatar>
           <div class="min-w-0 flex-1">
             <div class="page-comments-meta flex flex-wrap items-baseline gap-2">
-              <strong>{{ entry.comment.authorName }}</strong>
-              <span class="text-caption text-grey-6">
+              <strong class="text-text-body dark:text-text-body-dark">{{
+                entry.comment.authorName
+              }}</strong>
+              <span class="text-caption text-text-caption dark:text-text-caption-dark">
                 {{ userStore.formatDateTime(t, entry.comment.createdAt) }}
               </span>
 
@@ -72,7 +79,9 @@
                   @click="confirmDelete(entry.comment)" />
               </div>
             </div>
-            <div v-if="isModified(entry.comment)" class="text-caption text-grey-6">
+            <div
+              v-if="isModified(entry.comment)"
+              class="text-caption text-text-caption dark:text-text-caption-dark">
               {{
                 t(`common.comments.modified`, {
                   reldate: userStore.formatDateTime(t, entry.comment.updatedAt)

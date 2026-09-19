@@ -107,6 +107,16 @@ describe('CommentComposer', () => {
     expect(wrapper.text()).toContain('Posting as Jane Doe')
   })
 
+  it('themes the postingAs hint for light and dark mode (OpenProject #3454)', async () => {
+    const { wrapper } = await mountComposer({ authenticated: true, name: 'Jane Doe' })
+
+    const hint = wrapper.findAll('span').find((el) => el.text().includes('Posting as'))
+    expect(hint.classes()).toEqual(
+      expect.arrayContaining(['text-text-caption', 'dark:text-text-caption-dark'])
+    )
+    expect(wrapper.html()).not.toContain('text-grey-6')
+  })
+
   it('shows the Cancel button only for a reply composer, not the top-level one', async () => {
     const { wrapper: top } = await mountComposer({ replyTo: null })
     expect(findButton(top, 'Cancel')).toBeUndefined()

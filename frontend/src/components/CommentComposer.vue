@@ -53,7 +53,9 @@
         color="grey"
         :label="t(`common.actions.cancel`)"
         @click="emit(`cancel`)" />
-      <span v-if="userStore.authenticated" class="text-caption text-grey-6">
+      <span
+        v-if="userStore.authenticated"
+        class="text-caption text-text-caption dark:text-text-caption-dark">
         {{ t(`common.comments.postingAs`, { name: userStore.name }) }}
       </span>
     </div>
