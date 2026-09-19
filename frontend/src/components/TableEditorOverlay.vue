@@ -42,17 +42,30 @@
           what makes it read as a toolbar under the title bar rather than as a panel floating in the
           page; `px-4` then puts its contents back on the page's own inset.
         -->
-        <div class="table-editor-toolbar -mx-4 -mt-4 flex flex-wrap items-center gap-2 px-4 py-2">
-          <!-- -> `dense`, which is `WBtn`'s 28px band on a 10px inset -- the height and inset the
-                  design draws every control in this strip at -->
+        <!--
+          Flat, flush hovers (OpenProject #3469, Feature #3464): the three buttons carry the shared
+          `flush-hover-btn` (`css/_base.css`), so each one's hover is a square cell rather than a rounded
+          pill. For that cell to reach the band's own edges, the band can hold no padding of its own: the
+          `px-4`/`py-2`/`gap-2` this had are gone, the row STRETCHES its buttons to the band's full height
+          (`items-stretch`, `min-h-11` keeping it the 44px it was), and everything that is not a button
+          (the checkboxes, the hint) takes the spacing itself, centred on its own. The band's left edge is
+          the bled-out page edge, so Add row's hover starts at the panel's edge.
+        -->
+        <div class="table-editor-toolbar -mx-4 -mt-4 flex min-h-11 flex-wrap items-stretch pe-4">
+          <!-- -> `dense`, which is `WBtn`'s 28px band on a 10px inset -- the inset the design draws every
+                  control in this strip at. The height is the band's now: the button stretches to it -->
           <w-btn
+            flat
             dense
+            class="flush-hover-btn"
             icon="tabler:plus"
             color="primary"
             :label="t(`editor.tableEditor.addRow`)"
             @click="addRow" />
           <w-btn
+            flat
             dense
+            class="flush-hover-btn"
             icon="tabler:plus"
             color="primary"
             :label="t(`editor.tableEditor.addColumn`)"
@@ -71,8 +84,10 @@
             different distances from the same divider.
           -->
           <w-separator vertical />
-          <w-checkbox v-model="state.headerless" :label="t('editor.tableEditor.headerless')" />
-          <w-checkbox v-model="state.compact" :label="t('editor.tableEditor.compact')" />
+          <div class="flex items-center gap-2 self-center px-2">
+            <w-checkbox v-model="state.headerless" :label="t('editor.tableEditor.headerless')" />
+            <w-checkbox v-model="state.compact" :label="t('editor.tableEditor.compact')" />
+          </div>
           <!--
             The classes the content stylesheet gives a table, which go under it as a `markdown-it-attrs`
             line — see `css/_page-contents.css`, where each of the three is defined. Last in the strip
@@ -84,7 +99,13 @@
             `WMenu` does not close on a click inside itself, so all three can be set in one visit.
           -->
           <w-separator vertical />
-          <w-btn dense icon="tabler:palette" color="slate" :label="t(`editor.tableEditor.styling`)">
+          <w-btn
+            flat
+            dense
+            class="flush-hover-btn"
+            icon="tabler:palette"
+            color="slate"
+            :label="t(`editor.tableEditor.styling`)">
             <w-icon name="tabler:chevron-down" />
             <w-menu anchor="bottom left" self="top left" :offset="[0, 4]">
               <div class="flex flex-col gap-3 p-4">
@@ -100,7 +121,7 @@
           <w-space />
           <!-- -> A hint, not a label: the design sets it a step below the checkbox labels beside it
                   (11.5px against 12.5px) and in the chrome slate rather than a wash of the ink -->
-          <div class="text-[11.5px] text-slate dark:text-slate-light">
+          <div class="self-center ps-2 text-[11.5px] text-slate dark:text-slate-light">
             {{ t('editor.tableEditor.pasteHint') }}
           </div>
         </div>

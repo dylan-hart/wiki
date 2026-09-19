@@ -16,6 +16,7 @@ import { buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js
  * alongside the six other fork-invented surfaces it applies to.
  */
 const source = readFileSync(join(import.meta.dirname, 'TableEditorOverlay.vue'), 'utf-8')
+const baseCss = readFileSync(join(import.meta.dirname, '..', 'css', '_base.css'), 'utf-8')
 
 describe('TableEditorOverlay help link', () => {
   it('still uses siteStore elsewhere in the component', () => {
@@ -92,7 +93,7 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
     Asserted here rather than by looking for the word `dense` in the template, which would pass just
     as happily if `WBtn`'s dense metrics ever stopped being the design's.
   */
-  it('draws every toolbar control on the 28px band the design draws them at', () => {
+  it("keeps every toolbar control on WBtn's dense 10px inset the design draws them at", () => {
     const wrapper = mountOverlay()
     const buttons = wrapper.findAll('.table-editor-toolbar .w-btn')
 
@@ -101,6 +102,49 @@ describe('TableEditorOverlay design conformance (OpenProject #2628)', () => {
       expect(button.attributes('style')).toContain('min-height: 2.24em')
       expect(button.attributes('style')).toContain('padding: 0px 0.8em')
     }
+  })
+
+  /*
+    OpenProject #3469 (Feature #3464): the shared flush hover on the toolbar. The contract from the
+    epic plan is `flush-hover-btn` on the button, `flat` kept and `round` dropped, and the toolbar
+    holding no padding or gap of its own -- either would sit between a button's hover cell and the
+    band's edge, or between two neighbours' cells.
+  */
+  it('puts the shared flush-hover-btn on every toolbar button, flat and not round', () => {
+    const wrapper = mountOverlay()
+    const buttons = wrapper.findAll('.table-editor-toolbar .w-btn')
+
+    expect(buttons.length).toBe(3)
+    for (const button of buttons) {
+      expect(button.classes()).toContain('flush-hover-btn')
+      expect(button.classes()).toContain('w-btn--flat')
+      expect(button.classes()).not.toContain('w-btn--round')
+      // -> Labelled buttons: the icon-only `--square` modifier would stretch them, `--cap` would round them
+      expect(button.classes()).not.toContain('flush-hover-btn--square')
+      expect(button.classes()).not.toContain('flush-hover-btn--cap')
+    }
+  })
+
+  it('takes no padding or gap on the band itself, and stretches the buttons to its height', () => {
+    const toolbar = mountOverlay().find('.table-editor-toolbar')
+
+    expect(toolbar.classes()).toContain('items-stretch')
+    expect(toolbar.classes()).not.toContain('items-center')
+    for (const utility of ['px-4', 'py-2', 'gap-2', 'gap-1', 'gap-4']) {
+      expect(toolbar.classes()).not.toContain(utility)
+    }
+  })
+
+  it('leaves the Cancel/Update pair off the flush primitive, so it keeps its Cobalt gap', () => {
+    const wrapper = mountOverlay()
+
+    for (const button of wrapper.findAll('.card-header .w-btn-group .w-btn')) {
+      expect(button.classes()).not.toContain('flush-hover-btn')
+    }
+  })
+
+  it('adds no flush-hover rule of its own -- the primitive lives in _base.css', () => {
+    expect(source).not.toMatch(/\.flush-hover-btn/)
   })
 
   /*
@@ -313,14 +357,18 @@ describe(
       const sfcCss = [...document.querySelectorAll('style')]
         .map((style) => style.textContent)
         .join('\n')
-      const appCss = await buildAppCss()
+      // -> Measured 1600px wide: the test i18n renders raw message keys, which run long enough to wrap
+      //    the toolbar's hint onto a second line at 1100px and make the band twice its designed height
+      // -> `buildAppCss()` compiles `tailwind.css` alone; `_base.css` (home of `.flush-hover-btn`) is one
+      //    of `app.css`'s own `@import`s, so it is appended by hand, as the app loads it (OpenProject #3469)
+      const appCss = `${await buildAppCss()}\n${baseCss}`
 
       const page = await browser.newPage()
       try {
         await page.setContent(
           `<!doctype html><html><head><style>${appCss}</style><style>${sfcCss}</style></head>` +
             `<body class="${bodyClass}" style="margin:0">` +
-            `<div style="width:1100px;height:800px">${html}</div></body></html>`
+            `<div style="width:1600px;height:800px">${html}</div></body></html>`
         )
         return await page.evaluate(() => {
           const box = (selector) => {
@@ -341,6 +389,18 @@ describe(
             (row) => getComputedStyle(row.querySelector('.table-editor-cellbox')).backgroundColor
           )
           const toolbar = document.querySelector('.table-editor-toolbar')
+          const toolbarRect = toolbar.getBoundingClientRect()
+          const toolbarButtons = [...toolbar.querySelectorAll(':scope > .w-btn')].map((el) => {
+            const rect = el.getBoundingClientRect()
+            const style = getComputedStyle(el)
+            return {
+              left: Math.round(rect.left - toolbarRect.left),
+              top: Math.round(rect.top - toolbarRect.top),
+              right: Math.round(rect.right - toolbarRect.left),
+              height: Math.round(rect.height),
+              radius: style.borderTopLeftRadius
+            }
+          })
           const table = document.querySelector('.table-editor-grid table')
           const headerCell = document.querySelector('thead tr:last-child th.table-editor-cellbox')
           const cellInput = document.querySelector('.table-editor-cell')
@@ -348,6 +408,9 @@ describe(
           const focusedCellStyle = getComputedStyle(cellInput)
           return {
             addRow: box('.table-editor-toolbar .w-btn'),
+            toolbarHeight: Math.round(toolbarRect.height),
+            toolbarBorderBottom: parseFloat(getComputedStyle(toolbar).borderBottomWidth),
+            toolbarButtons,
             toolButtons,
             cell: box('.table-editor-cell'),
             separator: box('.table-editor-toolbar .w-separator'),
@@ -386,9 +449,38 @@ describe(
       await browser?.close()
     })
 
-    it("draws the toolbar controls on the design's 28px band", () => {
-      expect(metrics.addRow.height).toBe(28)
+    it("keeps the toolbar band at the design's 44px, its controls filling it", () => {
+      expect(metrics.toolbarHeight).toBe(44)
+      // -> the band's 1px bottom rule is inside its border box, so the buttons fill what is above it
+      expect(metrics.addRow.height).toBe(44 - metrics.toolbarBorderBottom)
     })
+
+    /*
+      OpenProject #3469: the flush hover cell has to reach the band's own edges and its neighbours'.
+      Measured in every aesthetic and both modes, since Cobalt's `.w-btn` radius and group gap are
+      the two things that could put a rounded corner or a dead strip back.
+    */
+    for (const [label, pick] of [
+      ['Ledger light', () => metrics],
+      ['Ledger dark', () => dark],
+      ['Cobalt light', () => cobalt],
+      ['Cobalt dark', () => cobaltDark]
+    ]) {
+      it(`draws the toolbar buttons as square cells flush to the band and each other (${label})`, () => {
+        const { toolbarButtons, toolbarHeight, toolbarBorderBottom } = pick()
+
+        expect(toolbarButtons.length).toBe(3)
+        // -> starts at the band's left edge, no padding in front of it
+        expect(toolbarButtons[0].left).toBe(0)
+        for (const button of toolbarButtons) {
+          expect(button.top).toBe(0)
+          expect(button.height).toBe(toolbarHeight - toolbarBorderBottom)
+          expect(button.radius).toBe('0px')
+        }
+        // -> Add row and Add column abut: no gap between their hover cells
+        expect(toolbarButtons[1].left).toBe(toolbarButtons[0].right)
+      })
+    }
 
     /*
       The claim this exists for: `WBtn` writes `min-height` and `padding` INLINE, so the 24x22 plate
