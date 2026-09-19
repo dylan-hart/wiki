@@ -14,6 +14,10 @@
     {
       "name": "attribute drift",
       "command": "cd frontend && npx vitest run src/components/shared/wComponentAttributeDrift.test.js"
+    },
+    {
+      "name": "backend typecheck",
+      "command": "npm --prefix backend run typecheck"
     }
   ]
 }
