@@ -264,7 +264,9 @@ test(
         })
       ])
 
-      const coveredAsset = await makeAsset(testSiteId, `covered-${Date.now()}.png`, { kind: 'image' })
+      const coveredAsset = await makeAsset(testSiteId, `covered-${Date.now()}.png`, {
+        kind: 'image'
+      })
       const uncoveredAsset = await makeAsset(testSiteId, `uncovered-${Date.now()}.png`, {
         kind: 'other'
       })
