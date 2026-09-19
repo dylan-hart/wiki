@@ -10,12 +10,7 @@ import {
 import { resolveRequestedSite } from '../site.ts'
 import { siteIdArg, toResult } from './shared.ts'
 
-/**
- * How many watchers this tool returns when the caller does not say — matches
- * `api/watching.ts#DEFAULT_WATCHER_LIMIT`. Not a shared export: each surface owns its own default for
- * the same reason that one does (see its doc comment), and there is no third caller to justify a
- * shared constant yet.
- */
+/** Duplicates `api/watching.ts#DEFAULT_WATCHER_LIMIT`: each surface owns its own default. */
 const DEFAULT_WATCHER_LIMIT = 25
 
 const listPageWatchersInputSchema = {
@@ -42,17 +37,10 @@ export interface ListPageWatchersArgs {
 }
 
 /**
- * List who is watching a page — wraps `CARDINAL.models.pageWatching.listForPage(pageId, { limit })`, the
- * same model method `GET /_api/sites/:siteId/pages/:pageId/watchers` (`api/watching.ts`) calls.
- *
- * Stays open/no-auth, mirroring that route: who watches a page is readable by anybody who may read
- * the page itself (`read:pages`), signed in or not, which is a different question from watching one —
- * see `list_watched_pages`'s own doc comment for that side. The gate replicates
- * `helpers/pageAccess.ts#requireReadablePage`'s check order by hand (there is no `FastifyReply` here
- * to delegate to): missing-or-unreadable first, refused identically either way so a caller cannot
- * distinguish "does not exist" from "exists but you may not read it"; a still-locked page refused
- * last, and only for a caller who may not bypass the password (`write:pages`/`manage:pages` on the
- * page) — there is no session here to have already satisfied an unlock, unlike the REST route.
+ * Who watches a page is readable by anybody who may read the page itself, signed in or not, as on
+ * `GET /_api/sites/:siteId/pages/:pageId/watchers` (`api/watching.ts`). The gate replays
+ * `helpers/pageAccess.ts#requireReadablePage`'s check order by hand — there is no `FastifyReply` here
+ * to delegate to — refusing missing and unreadable identically so a caller cannot tell them apart.
  */
 export async function handleListPageWatchers(
   ctx: McpAuthContext,
@@ -64,11 +52,10 @@ export async function handleListPageWatchers(
   const page = await CARDINAL.models.pages.getPage({
     siteId: site.id,
     id: args.pageId,
-    // -> Mirrors `actorFrom(req)` on the REST route: no attributable user behind the key means an
-    //    anonymous reader, restricted to published pages, same as `get_page`.
+    // -> Mirrors `actorFrom(req)` on the REST route: a key with no user behind it is an anonymous
+    //    reader, restricted to published pages.
     publicOnly: !pageActorFor(ctx),
-    // -> Whoever may write or manage the page is not stopped by its own password — the same
-    //    `mayBypassPassword` question `get_page` asks, with no session-based unlock to also honor.
+    // -> Whoever may write or manage the page is not stopped by its own password
     unlocked: (unlockRef) =>
       CARDINAL.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
       CARDINAL.models.groups.checkAccess(actor, 'manage:pages', { ...unlockRef, siteId: site.id }),

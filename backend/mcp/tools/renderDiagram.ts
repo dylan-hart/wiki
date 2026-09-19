@@ -31,27 +31,18 @@ export interface RenderDiagramArgs {
 }
 
 /**
- * Rate-limit key for a diagram render, mirroring `helpers/rateLimit.ts#limitRenders`'s own
- * `req.session?.user?.id ?? req.ip` shape: a personal access token shares its owner's budget with
- * anything they render through the web UI in the same window, while an admin-issued key (no
- * `userId`) gets its own bucket keyed by the key itself, since an MCP call has no `req.ip` to fall
- * back to.
+ * Mirrors `helpers/rateLimit.ts#limitRenders`'s `req.session?.user?.id ?? req.ip` key: a personal
+ * access token shares its owner's budget with the web UI, while an admin-issued key gets a bucket
+ * keyed by the key itself, an MCP call having no `req.ip` to fall back to.
  */
 function renderLimitKey(ctx: McpAuthContext): string {
   return `render:${ctx.userId ?? `mcp:${ctx.keyId}`}`
 }
 
 /**
- * Draw a Mermaid or PlantUML diagram to a static SVG/PNG, for an agent that wants the image rather
- * than the fenced source — mirrors `POST /_api/diagrams/render` (`api/diagrams.ts`) exactly, right
- * down to delegating to the same `CARDINAL.models.diagramRender.render()` and applying the same
- * {@link RENDER_LIMIT} the REST route's `limitRenders` preHandler enforces (see {@link renderLimitKey}
- * for how the two share it). `manage:system` is exempt, same as the REST route.
- *
- * Any `CustomError` `diagramRender.render()` throws (missing-Puppeteer, offline PlantUML, a source
- * over the size cap, an empty source, or a diagram that failed to draw) carries a message written for
- * exactly this — see the model's own throw sites — so it is rethrown as-is via `McpToolError`, the
- * same one-line mapping `createPage.ts`/`updatePage.ts` use for a model validation failure.
+ * Mirrors `POST /_api/diagrams/render` (`api/diagrams.ts`): the same
+ * `CARDINAL.models.diagramRender.render()`, the same {@link RENDER_LIMIT}, `manage:system` exempt.
+ * The model's own errors are already worded for a caller, so they are rethrown verbatim.
  */
 export async function handleRenderDiagram(
   ctx: McpAuthContext,

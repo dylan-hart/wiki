@@ -29,20 +29,13 @@ export interface GetPageArgs {
 }
 
 /**
- * Read a single page by path, restricted to what the configured key may actually read. Mirrors
- * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`): `read:pages` gates the page at all,
- * `read:source` gates the raw source on top of that, a password-protected page comes back with
- * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it, and
- * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
- * `actorFrom(req)` (`helpers/pageAccess.ts`) — an admin-issued key (no `ctx.userId`) is therefore a
- * `publicOnly` reader over MCP too, not a full-publish-state one; see `pageActorFor()`'s doc comment
- * for why that mirrors `actorFrom()` deliberately.
+ * Mirrors `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`): `read:pages` gates the
+ * page, `read:source` its raw source, and a password-protected page comes back `isLocked: true` with
+ * no body unless the key holds `write:pages`/`manage:pages` on it.
  *
-
- * `includeSource` is honored best-effort: asked for without `read:source` on the page, the call still
- * succeeds and returns everything else, with `sourceOmitted: true` explaining why — refusing the whole
- * read over a permission gap on one field it didn't strictly need would be a worse answer for an agent
- * that mostly wants the rendered content.
+ * `includeSource` is best-effort: without `read:source` the call still succeeds, with
+ * `sourceOmitted: true` — refusing the whole read over one field would be a worse answer for an
+ * agent that mostly wants the rendered content.
  */
 export async function handleGetPage(
   ctx: McpAuthContext,
@@ -57,8 +50,8 @@ export async function handleGetPage(
     hash: generatePathHash(path || 'home'),
     locale: args.locale,
     withContent: Boolean(args.includeSource),
-    // -> Mirrors `actorFrom(req)` on the REST route: no attributable user behind the key means an
-    //    anonymous reader, restricted to published pages, on both transports alike.
+    // -> Mirrors `actorFrom(req)` on the REST route: a key with no user behind it is an anonymous
+    //    reader, restricted to published pages.
     publicOnly: !pageActorFor(ctx),
     // -> Whoever may write or manage the page is not stopped by its own password
     unlocked: (unlockRef) =>
@@ -70,18 +63,13 @@ export async function handleGetPage(
   if (!page) {
     throw new McpToolError('This page does not exist.')
   }
-  // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in
-  //    `helpers/pageAccess.ts`
+  // -> Not readable is indistinguishable from not there, as in `helpers/pageAccess.ts`
   if (!CARDINAL.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
     throw new McpToolError('This page does not exist.')
   }
 
-  // -> Best-effort, never awaited: `models/pageviews.ts#record()` swallows its own failures and
-  //    no-ops entirely under the admin opt-out, so a logging failure can never break this read.
-  //    `ctx.keyId` is hashed rather than stored -- the same convention `api/pages/read.ts`'s
-  //    `recordPageview()` uses for a bearer-key REST caller, and for the same reason: two different
-  //    keys are two different visitors, the same key reused is one. This is the `mcp` counterpart to
-  //    that route's `api`/`browser` split (OpenProject #1140's "web browser vs. API/MCP access").
+  // -> Never awaited: `models/pageviews.ts#record()` swallows its own failures, so logging cannot
+  //    break this read. `ctx.keyId` is hashed, not stored: one key is one visitor.
   void CARDINAL.models.pageviews.record({
     siteId: site.id,
     pageId: page.id,
@@ -89,6 +77,8 @@ export async function handleGetPage(
     visitorRawId: ctx.keyId
   })
 
+  // FIXME: unlike `helpers/pageAccess.ts#mayReadSource`, `write:pages`/`manage:pages` do not imply
+  //    `read:source` here, so an editor's key is refused source the REST route returns. OR in both.
   const maySeeSource = CARDINAL.models.groups.checkAccess(actor, 'read:source', {
     ...page,
     siteId: site.id
@@ -106,7 +96,7 @@ export async function handleGetPage(
     publishState: page.publishState,
     isLocked: page.isLocked,
     updatedAt: page.updatedAt,
-    // -> Already withheld by `getPage()` itself when `isLocked` (see `toPage()`'s `locked` handling)
+    // -> Already blanked by `getPage()` itself when `isLocked`
     render: page.render,
     content: includeSource ? page.content : undefined,
     sourceOmitted: Boolean(args.includeSource) && !includeSource

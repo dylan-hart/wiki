@@ -53,24 +53,13 @@ export interface UploadAssetArgs {
 }
 
 /**
- * Upload an asset, gated exactly like `POST /_api/sites/:siteId/assets` (`api/assets.ts`): a
- * logged-in user only — mirrored here as a personal access token, the only MCP identity with a real
- * user behind it (see `pageActorFor()`'s doc comment in `mcp/auth.ts` for why an admin-issued key
- * cannot write) — plus `write:assets` on the destination folder, addressed exactly as
- * `helpers/pageAccess.ts#mayOnAsset` addresses it. That helper takes a `FastifyRequest` and so cannot
- * be called directly from an MCP tool; the check is inlined here the same way `create_page`/
- * `update_page` inline their own `write:pages` check rather than reusing a `req`-shaped helper.
+ * Gated like `POST /_api/sites/:siteId/assets` (`api/assets.ts`): a personal access token, the only
+ * MCP identity with a real user behind it, plus `write:assets` on the destination folder.
+ * `helpers/pageAccess.ts#mayOnAsset` takes a `FastifyRequest`, so its check is inlined here.
  *
- * `content` arrives base64-encoded because MCP tool arguments are JSON — the same direction
- * `render_diagram` already returns image bytes in, just reversed. There is no HTTP body-limit
- * middleware backing a JSON-RPC call the way `api/assets.ts`'s content-type parser caps the REST
- * route's body, so the decoded size is checked by hand against the same
- * `security.uploadMaxFileSize` setting.
- *
- * `folderId`/`parentPath` resolution mirrors the REST route's own logic exactly (folderId wins when
- * given; an unknown or cross-site folderId is refused rather than silently uploading to the root,
- * matching OpenProject #2127/#2131; `parentPath` creates any missing ancestor folder) so the same
- * call made through either surface behaves identically.
+ * `content` is base64 because MCP tool arguments are JSON. Nothing caps a JSON-RPC body the way
+ * `api/assets.ts`'s content-type parser caps the REST route's, so the decoded size is checked by hand
+ * against the same `security.uploadMaxFileSize` setting.
  */
 export async function handleUploadAsset(
   ctx: McpAuthContext,
@@ -96,8 +85,7 @@ export async function handleUploadAsset(
 
   const locale = args.locale || site.config.locales?.primary || 'en'
 
-  // -> Scoped by siteId (mirrors OpenProject #2127): a caller-supplied folderId belonging to another
-  //    site resolves to nothing here, same as an unknown id.
+  // -> Scoped by siteId: a folderId belonging to another site resolves to nothing, like an unknown id
   const folder = args.folderId
     ? await CARDINAL.models.tree.getFolderById(args.folderId, site.id)
     : null
@@ -115,16 +103,13 @@ export async function handleUploadAsset(
       path: destination ? `${destination}/${args.fileName}` : args.fileName,
       siteId: site.id,
       locale,
-      // -> An asset carries no classification of its own -- see `mayOnAsset`'s own doc comment.
+      // -> An asset carries no classification of its own, as in `helpers/pageAccess.ts#mayOnAsset`
       classification: null
     })
   ) {
     throw new McpToolError('You are not allowed to upload a file here.')
   }
 
-  // -> `folder`, not the raw `args.folderId`: an id that resolved to nothing must never reach
-  //    `upload()` as a parent (it can't, since it was already refused above, but this keeps the
-  //    invariant explicit the way `api/assets.ts` does).
   const folderId = args.folderId
     ? folder!.id
     : parentPath
@@ -153,8 +138,6 @@ export async function handleUploadAsset(
     throw new McpToolError(err.message)
   }
 
-  // -> #1118: same instance-wide-visibility reasoning as `create_page`/`update_page`'s own
-  //   instrumentation, extended to the asset write tools.
   await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),

@@ -47,14 +47,12 @@ export interface CreatePageArgs {
 }
 
 /**
- * Create a page, gated exactly like `POST /_api/sites/:siteId/pages` (`api/pages/write.ts`): a personal
- * access token only (see `pageActorFor()`'s doc comment for why an admin-issued key is refused), and
- * `write:pages` on the path being created.
+ * Gated like `POST /_api/sites/:siteId/pages` (`api/pages/write.ts`): a personal access token only
+ * (see `pageActorFor()`), and `write:pages` on the path being created.
  *
- * `render` is never sent to `models/pages.ts#createPage()` — the frontend markdown pipeline that
- * produces it does not run here (see `models/rendering.ts`'s own doc comment). `createPage()` itself
- * covers that gap (OpenProject #1716): it confirms up front that this instance can actually render the
- * page, then queues the same headless-browser render a stale stored page's re-render would get.
+ * No `render` is sent: the frontend markdown pipeline that produces it does not run here, so
+ * `models/pages.ts#createPage()` confirms this instance can render the page and queues a
+ * headless-browser render itself.
  */
 export async function handleCreatePage(
   ctx: McpAuthContext,
@@ -67,18 +65,15 @@ export async function handleCreatePage(
       'Creating a page requires a personal access token — an admin-issued key has no user to attribute the page to.'
     )
   }
-  // -> Resolved once and reused for both the permission check below and the actual write, so they can
-  //    never land on different locales — `||`, not `??`, to mirror `models/pages.ts#createPage()`'s own
-  //    `input.locale || defaultLocale(siteId)` fallback exactly: an empty-string `locale` argument is
-  //    "unset" there too, not a locale of its own.
+  // -> Resolved once for both the permission check and the write, so they cannot land on different
+  //    locales. `||`, not `??`, mirrors `models/pages.ts#createPage()`: an empty string is "unset".
   const locale = args.locale || defaultLocale(site.id)
   if (
     !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
       path: args.path,
       locale,
       siteId: site.id,
-      // -> The page does not exist yet -- there is no classification to check against, same as any
-      //    other create-permission check (see `RulePageRef`'s own doc comment).
+      // -> The page does not exist yet, so it has no classification to check against.
       classification: null
     })
   ) {
@@ -105,9 +100,6 @@ export async function handleCreatePage(
     throw new McpToolError(renderRefusalGuidance(err) ?? err.message)
   }
 
-  // -> #1118: instance-wide visibility that an agent wrote this, separate from the page's own
-  //   `pageHistory` attribution (#1119) -- see `models/auditLog.ts`'s `AUDIT_EVENTS` doc comment for
-  //   why only the write tools log here, not every read.
   await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),

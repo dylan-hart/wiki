@@ -15,16 +15,13 @@ export interface UnwatchPageArgs {
 }
 
 /**
- * Stop watching a page, gated exactly like `DELETE /_api/sites/:siteId/pages/:pageId/watch`
- * (`api/watching.ts`): logged in, and nothing else -- checked on `ctx.userId` directly, same reasoning
- * as `watch_page`. `siteId` is resolved purely for the key's own site-pin enforcement
- * (`resolveRequestedSite()`); `models/pageWatching.ts#unwatch()` itself takes no `siteId` at all.
+ * Gated like `DELETE /_api/sites/:siteId/pages/:pageId/watch` (`api/watching.ts`): logged in, and
+ * nothing else. `siteId` is resolved purely to enforce the key's own site pin --
+ * `models/pageWatching.ts#unwatch()` itself takes none.
  *
- * The page is deliberately NOT loaded first, mirroring the REST route's own comment: unwatching has
- * to keep working for a page that has since become unreadable (or been deleted -- though the row would
- * already be gone with it via the cascade), or the row would be stuck there with nothing able to
- * remove it. There is nothing to protect either way -- this only ever deletes the caller's own row.
- * Idempotent, like the model method: unwatching a page not being watched still answers success.
+ * The page is deliberately NOT loaded first: unwatching has to keep working for a page that has since
+ * become unreadable, or the row would be stuck there with nothing able to remove it. Nothing needs
+ * protecting either way -- this only ever deletes the caller's own row.
  */
 export async function handleUnwatchPage(
   ctx: McpAuthContext,

@@ -44,15 +44,13 @@ export interface WatchPageArgs {
 }
 
 /**
- * Start watching a page, gated exactly like `PUT /_api/sites/:siteId/pages/:pageId/watch`
- * (`api/watching.ts`): logged in, and `read:pages` on the page -- the same test as reading it, since
- * watching is "read this page, and tell me when it changes", nothing more. Watching is not itself a
- * page-rule permission, so this checks `ctx.userId` directly
- * rather than going through `pageActorFor()` the way `create_page`/`update_page` do -- there is no
- * page-author attribution to build here, only an account to record the watch against.
+ * Gated like `PUT /_api/sites/:siteId/pages/:pageId/watch` (`api/watching.ts`): logged in, and
+ * `read:pages` on the page -- watching is "read this page, and tell me when it changes", nothing more.
+ * Checked on `ctx.userId` directly rather than through `pageActorFor()`: there is no page-author
+ * attribution to build here, only an account to record the watch against.
  *
- * A password does not gate this, mirroring the REST route's own comment: a watcher is asking to be
- * told the page changed, not to read what it says.
+ * A password does not gate this: a watcher is asking to be told the page changed, not to read what it
+ * says.
  */
 export async function handleWatchPage(
   ctx: McpAuthContext,

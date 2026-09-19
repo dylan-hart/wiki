@@ -188,10 +188,8 @@ test('handleCreatePage: wraps a model validation failure as an McpToolError', as
 })
 
 /**
- * OpenProject #1720: `renderPuppeteerMissing`/`renderUnsupportedEditor` (thrown by `ensureCanRender()`
- * via `createPage()`'s own render-less-write guard, #1716) must reach the caller as an actionable
- * `McpToolError` -- naming the cause AND telling the agent what to do next, since it has no `render`
- * argument on this tool to retry with and no docs page to fall back on the way a REST client does.
+ * A render refusal must tell the agent what to do next: it has no `render` argument on this tool to
+ * retry with, and no docs page to fall back on the way a REST client does.
  */
 test('handleCreatePage: renderPuppeteerMissing becomes an McpToolError naming the extension and pointing at the web editor', async () => {
   const c = ctx({ access: ['write:pages'] })

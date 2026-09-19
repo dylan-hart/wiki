@@ -33,13 +33,8 @@ let wikiHandle: { restore(): void }
 let getPageCalls: any[]
 
 /**
- * @param hasPassword Whether the page carries a password — `getPage()`'s own `unlocked` callback
- *                     decides whether that locks it, mirroring the real model's `locked = hasPassword
- *                     && !isUnlocked` (see `models/pages.ts`'s `toPage()`).
- * @param access Which page-rule permissions `checkAccess()` grants on this page.
- * @param publishState The page's own publish state -- mirrors `models/pages.ts#getPage()`'s
- *                      `publicOnly` filtering, so a test can assert the tool never even reaches an
- *                      unpublished page when it derives `publicOnly: true`.
+ * The `getPage` stub mirrors `models/pages.ts`: `locked = hasPassword && !unlocked`, and `publicOnly`
+ * hides an unpublished page.
  */
 function install({
   pageExists = true,
@@ -61,8 +56,6 @@ function install({
           if (!pageExists) {
             return null
           }
-          // -> Mirrors `models/pages.ts#getPage()`'s own `publicOnly` filtering: an anonymous reader
-          //    never sees a page that isn't published, regardless of what `access` grants.
           if (publicOnly && publishState !== 'published') {
             return null
           }
@@ -83,8 +76,6 @@ function install({
           }
         }
       },
-      // -> The tool's best-effort pageview logging (OpenProject #1238) -- a no-op stub, since this
-      //    suite is about read/lock/permission behavior, not pageviews.
       pageviews: {
         record: async () => {}
       }
@@ -136,7 +127,6 @@ test('handleGetPage: includeSource without read:source is withheld, not refused'
   const page = textOf(result)
   assert.equal(page.content, undefined)
   assert.equal(page.sourceOmitted, true)
-  // -> The rest of the page is still readable — a permission gap on one field doesn't refuse the read
   assert.equal(page.title, BASE_PAGE.title)
 })
 
@@ -159,10 +149,6 @@ test('handleGetPage: write:pages bypasses the password lock', async () => {
   assert.equal(page.content, BASE_PAGE.content)
 })
 
-// -> OpenProject #2203: an admin-issued key (`ctx.userId === null`) has no attributable user behind
-//    it, exactly like a bearer-token REST caller with no session -- `actorFrom(req)` resolves `null`
-//    for it there, and `pageActorFor(ctx)` must resolve `null` for it here, so both transports derive
-//    the same `publicOnly` for the same key.
 test('handleGetPage: an admin-issued key (no userId) is publicOnly, same as an unauthenticated REST caller', async () => {
   install({ access: ['read:pages'], publishState: 'draft' })
   assert.equal(CTX.userId, null)

@@ -22,7 +22,6 @@ const SITE_DISABLED = {
   config: { title: 'Site C' }
 }
 
-/** A groupId used by the tests below to stand in for "some group a token belongs to". */
 const READER_GROUP = 'reader-group'
 
 let wikiHandle: { restore(): void }

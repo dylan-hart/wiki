@@ -117,12 +117,8 @@ function fakeSourceConnector(): SourceConnector {
           authorId: 555
         },
         {
-          // -> Orphaned: pageId 999 names no current page (a deleted 2.x page). content-staging.ts
-          //    keeps this (and the row below, same pageId) on ContentStagingContext.orphanedHistory
-          //    rather than attaching either to any StagedPage — phases/content.ts backfills the whole
-          //    group once `pages` has drained, via page-history-import.ts#backfillOrphanedPageHistory()'s
-          //    batch form, sharing one freshly synthesized pageId across the group (see the "two rows,
-          //    one synthesized pageId" assertion below).
+          // -> Orphaned: pageId 999 names no current page (a deleted 2.x page). The whole group is
+          //    backfilled once `pages` has drained, sharing one freshly synthesized pageId.
           id: 201,
           pageId: 999,
           action: 'updated',
@@ -144,8 +140,8 @@ function fakeSourceConnector(): SourceConnector {
           authorId: null
         },
         {
-          // -> Second row of the same orphaned group (same pageId 999) — proves the synthesized id is
-          //    shared across the whole group, not minted once per row.
+          // -> Second row of the same orphaned group, proving the synthesized id is shared across the
+          //    group rather than minted once per row.
           id: 202,
           pageId: 999,
           action: 'deleted',
@@ -181,11 +177,9 @@ function fakeSourceConnector(): SourceConnector {
             },
             { id: 'nav-home', kind: 'link', label: 'Home', targetType: 'home', target: '' },
             {
-              // -> mapNavigationItem() carries an 'external' target through verbatim, unvalidated —
-              //    this schemeless target would make the real setNavItems() throw
-              //    CustomError('navigationInvalidTarget') without the sanitize-before-write fix, which
-              //    would abort the whole phase (status: 'error', emptied report) after the "welcome"
-              //    page above was already successfully created.
+              // -> An 'external' target is carried through verbatim, so this schemeless one would make
+              //    the real setNavItems() throw and abort the whole phase if it were not sanitized
+              //    before the write.
               id: 'nav-bad-external',
               kind: 'link',
               label: 'Bad External',
@@ -225,7 +219,7 @@ describe(
         source: fakeSourceConnector(),
         siteId: fixtures.siteId,
         dryRun: false,
-        // -> Task 14's fields, unused here — this phase only reads userIdMap/operatorActorId.
+        // -> Required by the context type; this phase only reads userIdMap/operatorActorId.
         localStrategyId: 'unused-local-strategy',
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
@@ -243,14 +237,12 @@ describe(
       assert.equal(result.report!.wouldSkipExisting, 1) // -> "blocked-page"
       assert.deepEqual(result.report!.conflicts, [])
 
-      // -> ctx.pageIdMap is a live reference, populated as a side effect of this run (Task 16 reads
-      //    it for the assets/comments phase).
+      // -> ctx.pageIdMap is a live reference, populated as a side effect of this run.
       assert.ok(ctx.pageIdMap)
       const newPageId = ctx.pageIdMap!.get(1)
       assert.ok(newPageId, 'the "welcome" page earned a real destination id')
       assert.equal(ctx.pageIdMap!.get(2), undefined, 'the blocked page was never created')
 
-      // -> pages row, with the mapped author.
       const [page] = await fixtures.db
         .select()
         .from(pagesTable)
@@ -261,7 +253,6 @@ describe(
       assert.equal(page!.locale, 'en')
       assert.equal(page!.authorId, fixtures.userId)
 
-      // -> tree row, correctly placed at the site root.
       const [treeEntry] = await fixtures.db
         .select()
         .from(treeTable)
@@ -275,7 +266,7 @@ describe(
       assert.ok(treeEntry, 'a matching tree entry exists')
       assert.equal(treeEntry!.folderPath, '')
 
-      // -> pageHistory: 2 backfilled rows (Task 740) + 1 from createPage()'s own record() call.
+      // -> 2 backfilled history rows + 1 from createPage()'s own record() call.
       const historyRows = await fixtures.db
         .select()
         .from(pageHistoryTable)
@@ -284,8 +275,7 @@ describe(
       const titles = historyRows.map((row) => row.title).sort()
       assert.deepEqual(titles, ['Welcome', 'Welcome (first draft)', 'Welcome (revised)'])
 
-      // -> the "blocked-page" source page was never created, and left the pre-seeded tree entry
-      //    untouched (no second page/tree row at that location).
+      // -> The pre-seeded entry is left untouched: no second tree row at that location.
       const blockedTreeEntries = await fixtures.db
         .select()
         .from(treeTable)
@@ -299,10 +289,9 @@ describe(
       assert.equal(blockedTreeEntries.length, 1)
       assert.equal(blockedTreeEntries[0]!.title, 'Already here')
 
-      // -> the site's navigation menu was written, with the "page"-type item resolved onto the real
-      //    new page id's path (locale prefix stripped), the "home"-type item resolved to '/', and the
-      //    invalid schemeless "external" target blanked rather than aborting the whole phase (review
-      //    fix — see the module doc comment's "Navigation targets are sanitized" section).
+      // -> A "page" item resolves onto the new page's path with the locale prefix stripped, "home"
+      //    to '/', and the invalid schemeless "external" target is blanked rather than aborting the
+      //    whole phase.
       const [navRow] = await fixtures.db
         .select()
         .from(navigationTable)
@@ -314,9 +303,8 @@ describe(
         { id: 'nav-bad-external', type: 'link', label: 'Bad External', target: '' }
       ])
 
-      // -> orphaned pageHistory (review fix): both rows of the pageId-999 orphan group were written,
-      //    sharing one freshly synthesized pageId that is real (a real pageHistory FK-shaped uuid) and
-      //    distinct from the "welcome" page's own id.
+      // -> Both rows of the pageId-999 orphan group are written, sharing one synthesized pageId that
+      //    is distinct from the "welcome" page's own id.
       const orphanRows = await fixtures.db
         .select()
         .from(pageHistoryTable)

@@ -21,10 +21,8 @@ export interface ListNavigationArgs {
 }
 
 /**
- * List one folder of a site's page tree — the pages the configured key may open and the folders worth
- * descending into — mirroring `GET /_api/sites/:siteId/tree/browse` (`api/tree.ts`) exactly: the same
- * `tree.browse()` call, the same per-item `read:pages` filter layered on top of it. Requires the site's
- * `browse` feature to be on, same as the HTTP route.
+ * Mirrors `GET /_api/sites/:siteId/tree/browse` (`api/tree.ts`): the same `tree.browse()` call, the
+ * same per-item `read:pages` filter layered on top, the same `browse` feature gate.
  */
 export async function handleListNavigation(
   ctx: McpAuthContext,
@@ -40,8 +38,8 @@ export async function handleListNavigation(
     siteId: site.id,
     path: args.path,
     locale,
-    // -> `tree.browse()`'s own filter is publish-state only (see `pageIsVisible()`); the real
-    //    per-page grant is the `checkAccess()` filter below, same division of labor as the HTTP route
+    // -> `tree.browse()`'s own filter is publish-state only; the per-page grant is the
+    //    `checkAccess()` filter below, as on the HTTP route
     publicOnly: false
   })
   if (!level) {
@@ -56,9 +54,8 @@ export async function handleListNavigation(
         path: item.path,
         siteId: site.id,
         locale,
-        // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at this
-        //    path; a folder-only entry carries none, same "no CLASSIFICATION rule matches" null it
-        //    always had.
+        // -> `tree.browse()` joins `pages.classification` in where a page sits at this path; a
+        //    folder-only entry carries none, so no CLASSIFICATION rule matches it
         classification: item.classification
       })
     )

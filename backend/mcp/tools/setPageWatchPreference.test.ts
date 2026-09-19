@@ -77,9 +77,7 @@ test('handleSetPageWatchPreference: forwards only the fields the caller actually
     userId: 'user-1',
     notifyMode: 'immediate'
   })
-  // -> The exact regression this guards: naively spreading a fully-typed args object would include
-  //    `notifyOnEdited`/`notifyOnMoved`/`notifyOnDeleted` as explicit `undefined` keys here, which
-  //    `setPreference()` counts via `Object.keys()` as three more real changes.
+  // -> An explicit `undefined` key still counts as a change in `setPreference()`'s `Object.keys()`
   assert.deepEqual(Object.keys(setPreferenceCalls[0]).sort(), ['notifyMode', 'pageId', 'userId'])
 })
 

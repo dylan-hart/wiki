@@ -18,7 +18,7 @@ test('createReverifyingContext: getCtx returns the initial context before any ti
     INITIAL_CTX,
     () => {},
     async () => INITIAL_CTX,
-    // -> Interval irrelevant here; nothing calls reverify() in this test.
+    // -> Long enough that the timer never ticks during a test.
     1_000_000
   )
   assert.deepEqual(getCtx(), INITIAL_CTX)
@@ -56,10 +56,8 @@ test('createReverifyingContext: a revoked key stops a subsequent tool call and t
   await reverify()
   assert.equal(onRevokedCalls.length, 1)
   assert.match(onRevokedCalls[0].message, /revoked/)
-  // -> The last-known-good context is not silently kept around and re-served after the key fails —
-  //    the caller (mcp/stdio.ts) shuts the process down through `onRevoked` instead of continuing to
-  //    dispatch tool calls, so what getCtx() returns after this point does not matter for a real
-  //    caller, but must not itself throw.
+  // -> The real caller shuts down through `onRevoked`, so what getCtx() returns no longer matters;
+  //    it only must not throw.
   assert.doesNotThrow(() => getCtx())
 })
 
@@ -81,8 +79,7 @@ test('createReverifyingContext: onRevoked fires only once even if reverify() is 
   await reverify()
   await reverify()
   assert.equal(onRevokedCalls, 1)
-  // -> stop() runs before onRevoked is awaited, so a second manual reverify() after the first failure
-  //    is a no-op rather than calling the (possibly already-shutting-down) verify function again.
+  // -> stop() runs before onRevoked is awaited, so the second reverify() is a no-op.
   assert.equal(verifyCalls, 1)
 })
 

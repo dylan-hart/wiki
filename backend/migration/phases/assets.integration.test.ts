@@ -15,9 +15,9 @@ import {
   stubSourceConnector
 } from '../../test/migrationFixtures.ts'
 
-/** A minimal `SourceConnector` for seeding one real page through `contentPhase` — reusing Task 13's own
- * write path (`CARDINAL.models.pages.createPage()`) rather than hand-building a raw `pages`/`tree` row,
- * per this task's own "reuse Task 13's integration test's page import as a fixture" instruction. */
+/** A minimal `SourceConnector` for seeding one real page through `contentPhase`, so the fixture goes
+ * through the real `createPage()` write path rather than a hand-built `pages`/`tree` row that would
+ * have to track that model's schema on its own. */
 function fakeContentConnector(): SourceConnector {
   return stubSourceConnector({
     pages: () =>
@@ -82,10 +82,6 @@ describe(
 
     before(async () => {
       fixtures = await setupTestDb()
-      // -> Seeds a real page through contentPhase's own write path (Task 13) — the same "reuse Task
-      //    13's integration test's page import as a fixture" this task's own brief suggests, rather
-      //    than hand-building a raw pages/tree row that has to independently track that model's real
-      //    schema.
       const contentCtx: MigrationContext = {
         db: fixtures.db,
         source: fakeContentConnector(),
@@ -121,8 +117,8 @@ describe(
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
         userIdMap: new Map([[555, fixtures.userId]]),
-        // -> Reuses the live map the content-phase fixture setup above already populated, so this is
-        //    the live reference a real migrate.ts run would hand from one phase to the next.
+        // -> The live map the content-phase setup above populated, as a real run would hand it from
+        //    one phase to the next.
         pageIdMap: seededPageIdMap
       }
 
@@ -137,8 +133,6 @@ describe(
       assert.equal(result.report!.conflicts.length, 1)
       assert.match(result.report!.conflicts[0]!.detail, /pageId 999 was never imported/)
 
-      // -> The asset landed at the correct nested tree placement, with an auto-created ancestor
-      //    folder.
       const [assetTreeEntry] = await fixtures.db
         .select()
         .from(treeTable)
@@ -166,7 +160,6 @@ describe(
         )
       assert.ok(folderEntry, 'the ancestor folder was auto-created')
 
-      // -> The comment on the already-imported page landed with the correctly resolved authorId.
       const commentRows = await fixtures.db
         .select()
         .from(commentsTable)
@@ -186,8 +179,8 @@ describe(
         comments: () =>
           iter<SourceRecord>([
             {
-              // -> Old id 20's reply names old id 21, which has not been imported yet at this point
-              //    in the stream -- the exact forward-reference case the second pass exists for.
+              // -> Names old id 21, which is imported later in this same stream: the
+              //    forward-reference case the second pass exists for.
               id: 20,
               pageId: 1,
               authorId: 555,

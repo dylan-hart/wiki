@@ -29,17 +29,13 @@ export interface RenameAssetArgs {
 }
 
 /**
- * Rename an asset, gated exactly like `PATCH /_api/sites/:siteId/assets/:assetId`
- * (`api/assets.ts`): `manage:assets` on the folder the asset sits in — checked against the folder the
- * asset is in TODAY, mirroring how `helpers/pageAccess.ts#mayOnAsset` judges the REST route (asset
- * permissions come from a group's page RULES, addressed by path, not from `config.permissions` — see
- * that helper's own doc comment). `mayOnAsset` itself takes a Fastify `req` rather than an
- * `McpAuthContext`, so the check is re-expressed here via `checkAccess()` directly, the same
- * REST-vs-MCP divergence `update_page` already has from `helpers/pageAccess.ts#requireReadablePage`.
+ * Gated like `PATCH /_api/sites/:siteId/assets/:assetId` (`api/assets.ts`): `manage:assets` on the
+ * folder the asset sits in today, judged as a page rule addressed by path.
+ * `helpers/pageAccess.ts#mayOnAsset` takes a Fastify `req` rather than an `McpAuthContext`, so its
+ * check is re-expressed here over `checkAccess()` directly.
  *
- * No personal-access-token restriction, unlike `create_page`/`update_page`: an asset carries no
- * author to attribute a rename to — `models/assets.ts#renameAsset()` takes no actor argument at all —
- * so an admin-issued key works here exactly as it does for the REST route.
+ * No personal-access-token restriction, unlike `create_page`/`update_page`: an asset carries no author
+ * to attribute a rename to, so an admin-issued key works here as it does on the REST route.
  */
 export async function handleRenameAsset(
   ctx: McpAuthContext,
@@ -59,8 +55,7 @@ export async function handleRenameAsset(
       path,
       siteId: site.id,
       locale: existing.locale,
-      // -> An asset carries no classification of its own — same treatment as `mayOnAsset()`'s own
-      //    REST check.
+      // -> An asset carries no classification of its own, as in `helpers/pageAccess.ts#mayOnAsset`
       classification: null
     })
   ) {
@@ -77,8 +72,7 @@ export async function handleRenameAsset(
     throw new McpToolError('This asset does not exist.')
   }
 
-  // -> #1118-style instrumentation, mirroring `update_page`'s own: instance-wide visibility that an
-  //    agent renamed this file, separate from any per-asset history (assets keep none today).
+  // -> The only trace a rename leaves: assets keep no per-asset history of their own
   await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),

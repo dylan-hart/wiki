@@ -12,14 +12,11 @@ import { ensureTemporal } from '../../test/temporal.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
 /**
- * `mapStorageRow(s)` (task 767) tests.
- *
- * The resolver under test is the *real* `CARDINAL.models.storage` singleton, not a hand-rolled fake —
- * same reasoning as the `authentication` mapper's test (task 765): this suite boots the minimal
- * slice of `CARDINAL` that `getDefinition`/`buildConfig`/`validateConfig` actually touch
- * (`CARDINAL.SERVERPATH`, `CARDINAL.logger`), populated by the real `refreshFromDisk()` reading the real
- * `backend/modules/storage/*\/definition.yml` files straight off disk. None of the three methods
- * this mapper calls touches `CARDINAL.db`, so this needs no database.
+ * The resolver under test is the *real* `CARDINAL.models.storage` singleton rather than a fake: the
+ * suite boots only the slice of `CARDINAL` that `getDefinition`/`buildConfig`/`validateConfig` touch
+ * and lets the real `refreshFromDisk()` read the on-disk `definition.yml` files, so the mapper is
+ * exercised against the definitions it will actually meet. None of those three touches `CARDINAL.db`,
+ * so this needs no database.
  */
 
 let wikiHandle: { restore(): void }
@@ -301,7 +298,6 @@ describe('mapStorageRows: per-site replay, no cross-call state', () => {
     assert.equal(updatesB.length, 2)
     assert.ok(updatesA.every((u) => u.siteId === SITE_A))
     assert.ok(updatesB.every((u) => u.siteId === SITE_B))
-    // -> Identical config on both sides: nothing about site A's replay affected site B's
     assert.deepEqual(
       updatesA.map((u) => u.values.config),
       updatesB.map((u) => u.values.config)

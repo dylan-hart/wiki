@@ -4,13 +4,6 @@ import { Writable } from 'node:stream'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { sendWebResponse, toWebRequest } from './webBridge.ts'
 
-/**
- * `toWebRequest`/`sendWebResponse` are the two halves of the Fastify↔Web-Standard conversion
- * `mcp/http.ts` needs around `WebStandardStreamableHTTPServerTransport` (see `webBridge.ts`'s own doc
- * comment for why this exists rather than `@modelcontextprotocol/node`'s Node-native transport).
- * Exercised directly here, with no real Fastify app or transport involved — `mcp/http.test.ts`
- * already covers the end-to-end wiring through `app.inject()`.
- */
 describe('mcp/webBridge', () => {
   describe('toWebRequest', () => {
     function requestStub(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
@@ -41,9 +34,8 @@ describe('mcp/webBridge', () => {
     })
 
     test('folds a repeated header into one comma-joined value, the same way Headers.append does', () => {
-      // -> `x-multi`, not a well-known header name: Node's own `IncomingHttpHeaders` types most
-      //    headers (`accept` included) as `string` and reserves `string | string[]` for the ones it
-      //    knows can repeat (`set-cookie`) plus arbitrary/unknown names via its index signature.
+      // -> An arbitrary name, not a well-known one: `IncomingHttpHeaders` types most headers as plain
+      //    `string`, and only its index signature admits `string[]`.
       const req = toWebRequest(requestStub({ headers: { 'x-multi': ['one', 'two'] } }))
       assert.equal(req.headers.get('x-multi'), 'one, two')
     })
@@ -64,7 +56,7 @@ describe('mcp/webBridge', () => {
   })
 
   describe('sendWebResponse', () => {
-    /** A minimal Fastify-reply-shaped stand-in: `raw` is a real Writable, so `pipeline()` behaves exactly as it would against a genuine `http.ServerResponse`. */
+    /** `raw` is a real Writable, so `pipeline()` behaves as against a genuine `ServerResponse`. */
     function replyStub() {
       const chunks: Buffer[] = []
       let head: { status: number; headers: Record<string, string> } | undefined
@@ -89,9 +81,8 @@ describe('mcp/webBridge', () => {
     }
 
     test('writes the status and headers, and ends immediately for a bodyless response', async () => {
-      // -> Not destructured: `head`/`body` are getters over state `writeHead`/the writable mutate
-      //    DURING `sendWebResponse`, so they must be read off the stub afterwards, not captured at
-      //    construction time.
+      // -> Not destructured: `head`/`body` are getters over state `sendWebResponse` mutates, so they
+      //    have to be read off the stub afterwards rather than captured up front.
       const stub = replyStub()
       await sendWebResponse(
         stub.reply,

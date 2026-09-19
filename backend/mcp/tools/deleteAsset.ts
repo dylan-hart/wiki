@@ -21,14 +21,10 @@ export interface DeleteAssetArgs {
 }
 
 /**
- * Delete an asset, gated exactly like `DELETE /_api/sites/:siteId/assets/:assetId`
- * (`api/assets.ts`): `manage:assets` on the folder the file sits in. Checked against the asset as it
- * stands, so a rule scoped to one branch is honored the same way it is for the REST route.
- *
- * Unlike `create_page`/`update_page`, this does not require a personal access token
- * (`pageActorFor()`): the REST route itself has no "must be logged in" guard ahead of its permission
- * check — `manage:assets` is a page-rule permission an admin-issued key's groups can hold just as
- * well as a personal token's — so only `actorFor()` is needed here.
+ * Gated like `DELETE /_api/sites/:siteId/assets/:assetId` (`api/assets.ts`): `manage:assets` on the
+ * folder the file sits in. Unlike `create_page`/`update_page` no personal access token is required:
+ * the REST route has no logged-in guard either, and an admin-issued key's groups can hold
+ * `manage:assets` too.
  */
 export async function handleDeleteAsset(
   ctx: McpAuthContext,
@@ -41,32 +37,28 @@ export async function handleDeleteAsset(
     throw new McpToolError('This asset does not exist.')
   }
 
-  // -> Mirrors `helpers/pageAccess.ts#mayOnAsset()`'s path construction: that helper takes a
-  //    `FastifyRequest` to resolve its actor from, which an MCP tool call has no equivalent of, so
-  //    the same `folderPath`/`fileName` -> path shape is rebuilt here against `actorFor(ctx)` instead.
+  // -> Mirrors `helpers/pageAccess.ts#mayOnAsset()`, which needs a `FastifyRequest` an MCP tool call
+  //    does not have.
   if (
     !CARDINAL.models.groups.checkAccess(actorFor(ctx), 'manage:assets', {
       path: doomed.folderPath ? `${doomed.folderPath}/${doomed.fileName}` : doomed.fileName,
       siteId: site.id,
       locale: doomed.locale,
-      // -> An asset carries no classification of its own -- same as `mayOnAsset()`.
+      // -> An asset carries no classification of its own.
       classification: null
     })
   ) {
     throw new McpToolError('You are not allowed to delete this file.')
   }
 
-  // -> Can still be false here: the asset existed at the `getAsset()` lookup above but was removed
-  //    concurrently before this call landed. The REST route treats that the same as never having
-  //    found it -- a 404, not a silently-successful delete -- so this does too.
+  // -> False when the asset was removed concurrently since the `getAsset()` lookup; the REST route
+  //    answers 404 for that too, not a silently-successful delete.
   if (
     !(await CARDINAL.models.assets.deleteAsset(site.id, args.assetId, { authorId: ctx.userId }))
   ) {
     throw new McpToolError('This asset does not exist.')
   }
 
-  // -> #1118: same reasoning as `updatePage.ts`'s own instrumentation -- instance-wide visibility
-  //   that an agent deleted this, distinct from any per-page attribution.
   await CARDINAL.models.auditLog.record({
     event: 'mcp.writeToolCalled',
     actor: auditActorFor(ctx),

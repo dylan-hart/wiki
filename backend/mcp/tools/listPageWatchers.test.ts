@@ -33,10 +33,7 @@ let wikiHandle: { restore(): void }
 let getPageCalls: any[]
 let listForPageCalls: any[]
 
-/**
- * Mirrors `getPage.test.ts`'s own `install()`: `getPage`'s `unlocked` callback decides whether a
- * password locks the page, and `access` decides what `checkAccess()` grants.
- */
+/** `hasPassword` locks the page only when `getPage`'s `unlocked` callback leaves it locked. */
 function install({ pageExists = true, hasPassword = false, access = [] as string[] } = {}) {
   getPageCalls = []
   listForPageCalls = []
@@ -110,8 +107,7 @@ test('handleListPageWatchers: a locked page is readable for a caller who may byp
 test('handleListPageWatchers: no login required at all — an anonymous caller (no userId) still reads it', async () => {
   install({ access: ['read:pages'] })
   const result = await handleListPageWatchers(CTX, { pageId: PAGE_ID })
-  // -> `getPage()` was asked with `publicOnly: true` since this ctx carries no userId, mirroring
-  //    `get_page`'s own anonymous-caller derivation.
+  // -> No userId on the ctx, so the read is the anonymous one: published pages only
   assert.equal(getPageCalls[0].publicOnly, true)
   assert.deepEqual(textOf(result), JSON.parse(JSON.stringify(WATCHERS_RESULT)))
 })

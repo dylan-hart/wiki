@@ -12,11 +12,9 @@ export interface ListedSite {
 }
 
 /**
- * Whether `ctx` may know this site exists at all. Mirrors the REST equivalent (`GET /_api/sites`,
- * `permissions: ['access:admin']` in `api/sites.ts`) plus a page-rule fallback so a personal access
- * token that can actually read the site's pages — but holds no global permission — still discovers
- * it, the same way `read:pages` decides visibility everywhere else in `mcp/`. `manage:sites` is
- * accepted alongside `access:admin` since it also implies full site visibility through `/_api/`.
+ * Mirrors `GET /_api/sites`'s `access:admin` gate, plus a page-rule fallback so a key that can
+ * actually read the site's pages but holds no global permission still discovers it. `manage:sites`
+ * counts too: it already implies full site visibility through `/_api/`.
  */
 function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
   if (ctx.permissions.includes('access:admin') || ctx.permissions.includes('manage:sites')) {
@@ -30,14 +28,6 @@ function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
   })
 }
 
-/**
- * Every enabled site the configured key may reach — the whole instance for an unscoped key with
- * `access:admin`/`manage:sites`, just the sites its groups can actually read pages on otherwise, and
- * never more than the one site a site-pinned key is limited to. What `search_pages`/`get_page`/
- * `list_navigation`'s `siteId` argument expects, the same discovery role `list_projects` plays in
- * `openproject-mcp` — and, like that REST route, no longer a way for any valid token to enumerate
- * every site's hostname and title regardless of what it may actually reach.
- */
 export function handleListSites(ctx: McpAuthContext): CallToolResult {
   const sites = Object.values(CARDINAL.sites as Record<string, McpSite>).filter(
     (site) => site.isEnabled && (!ctx.siteId || site.id === ctx.siteId) && maySeeSite(ctx, site)
