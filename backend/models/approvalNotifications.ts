@@ -4,23 +4,15 @@ import { escapeHtml } from './mail.ts'
 import type { ApprovalPageMatch } from './approvalRules.ts'
 
 /**
- * Approval notifications model
- *
- * The mail an edit suggestion generates: reviewers told there is something waiting, and an author
- * told what became of what they sent. Split out of `models/approvals.ts` (MOD-F13) so the submission
- * lifecycle is not read through the mail it happens to send — nothing here decides anything, it only
- * reports a decision already made.
+ * The mail an edit suggestion generates, kept apart from `models/approvals.ts` so the submission
+ * lifecycle is not read through it: nothing here decides anything, it only reports a decision
+ * already made.
  */
 class ApprovalNotifications {
   /**
-   * Every user who should be told a suggestion is waiting on this page: the members of every enabled
-   * rule's `reviewerGroups` that matches it, deduplicated across both overlapping rules and overlapping
-   * group membership.
-   *
-   * Deliberately not widened by `reviewsAll` (`manage:system` or `review:pages`): neither of those is a
-   * group membership a recipient list could be built from -- whoever holds that access sees the page's
-   * queue whenever they look, whether or not they were named in a rule and told about this particular
-   * entry.
+   * Deliberately not widened by `reviewsAll` (`manage:system` or `review:pages`): neither is a group
+   * membership a recipient list could be built from, and whoever holds that access sees the page's
+   * queue whenever they look.
    */
   async resolveReviewers(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
     const groupIds = await CARDINAL.models.approvalRules.reviewerGroupIdsForPage(siteId, page)
@@ -36,19 +28,13 @@ class ApprovalNotifications {
   }
 
   /**
-   * Tell this page's reviewers that a suggestion is waiting on them.
+   * For a genuinely NEW submission only, never for a resubmission that lands on
+   * `onConflictDoUpdate`: that row is already in reviewers' queues and shows the latest content
+   * whenever it is opened, so re-notifying would repeat a fact the first notice established, once
+   * per save an author makes while iterating.
    *
-   * Called once from `saveSubmission`, for a genuinely NEW submission only -- never for a
-   * resubmission that lands on the `onConflictDoUpdate` path, i.e. an author replacing their own
-   * still-open suggestion. That row was already in reviewers' queues; revising its content does not
-   * put it there a second time, and whoever opens it sees the latest content regardless of when it was
-   * last edited. The alternative -- re-notifying on every save -- would mean a reviewer hearing about
-   * the same pending item once per keystroke-save an author makes while iterating, for no new fact
-   * ("something is waiting on you") a first notification did not already establish. So: notify on
-   * insert, stay silent on update.
-   *
-   * Never throws: the submission is already safely stored by the time this runs, and a reviewer not
-   * being told about it is a real loss but must never turn a successful submit into a failed request.
+   * Never throws: the submission is already stored, and an untold reviewer must not turn a
+   * successful submit into a failed request.
    */
   async notifyReviewersOfSubmission(
     siteId: string,
@@ -70,14 +56,10 @@ class ApprovalNotifications {
   }
 
   /**
-   * Tell every resolved reviewer a suggestion is waiting on them, by mail.
-   *
-   * A plain send per reviewer with an email address, not routed through the `notifyPageWatchers` job:
-   * reviewing is not a preference a page-watch row could express (a reviewer's own review-queue
-   * membership comes from the approval rules, not from watching the page -- see `resolveReviewers`),
-   * so there is no watcher preference or in-app inbox entry to reuse here the way a submission
-   * author's own decision notice does. Each recipient's send is isolated in its own `try`/`catch`: one
-   * reviewer's bounce or missing email must not stop the rest of the queue from being told.
+   * A plain send per reviewer rather than the `notifyPageWatchers` job: review-queue membership comes
+   * from the approval rules, not from watching the page, so there is no watcher preference or inbox
+   * entry to reuse. Each send is isolated in its own `try`/`catch` so one reviewer's bounce or
+   * missing address does not stop the rest of the queue being told.
    */
   private async sendSubmissionNotification(
     siteId: string,
@@ -132,23 +114,17 @@ class ApprovalNotifications {
   }
 
   /**
-   * Tell a submission's author their suggestion was approved or declined.
+   * A guest has no account to watch anything with, so theirs goes straight through `models/mail.ts`
+   * to the `guestEmail` on record. A logged-in author's rides the `notifyPageWatchers` job but is
+   * addressed directly rather than resolved through `pageWatching.listWatchers()`: a watch
+   * preference must not be able to opt an author out of the outcome of their own suggestion.
    *
-   * A guest has no account to watch anything with, so their notification always goes straight through
-   * `models/mail.ts` to the `guestEmail` on record. A logged in author is told the same way any other
-   * page-watch change would reach them -- queued through the existing `notifyPageWatchers` job -- but
-   * addressed directly at just this one person rather than resolved via `pageWatching.listWatchers()`:
-   * being told the outcome of your own suggestion is not something the author's watch preference
-   * should be able to opt them out of the way an ordinary edit notification can be.
+   * @param skipIfWatching Approve-only: the finalizing approve writes the page, so `updatePage()`
+   *   already queues its generic "page updated" notice to every watcher, the author included. A
+   *   decline writes nothing and so always passes `false`.
    *
-   * @param skipIfWatching Approve-only: `updatePage()` already queues its own generic "page updated by
-   *   <reviewer>" notice to every watcher when the finalizing approve writes the page, the author
-   *   included if they watch it -- this is what stops that from becoming a second, more specific
-   *   notice on top. `rejectSubmission` never writes the page, so nothing else tells the author
-   *   anything, and always passes this as `false`.
-   *
-   * Never throws: a notification failure must not turn an already-successful approve/decline into a
-   * failed request, the same contract `notifyReviewersOfSubmission` keeps for the reviewer side.
+   * Never throws: a notification failure must not turn a successful approve/decline into a failed
+   * request.
    */
   async notifySubmissionAuthor(
     siteId: string,

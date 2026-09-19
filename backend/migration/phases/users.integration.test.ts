@@ -18,13 +18,11 @@ const FAKE_ADMIN_GROUP_ID = 'integration-admin-group-uuid'
 const FAKE_GUEST_GROUP_ID = 'integration-guest-group-uuid'
 const OPERATOR_ACTOR_ID = 'integration-operator-uuid'
 
-/** A local-provider user's source bcrypt hash — real-shaped, not a valid hash of anything in
- * particular, but enough to prove it round-trips through the whole write path verbatim. */
+/** Real-shaped, not a valid hash of anything: only its verbatim round trip is asserted. */
 const ALICE_PASSWORD_HASH = '$2a$12$abcdefghijklmnopqrstuvKq8N3f6z2ZQvR8x9Yy7T1uW0eD4rL6C'
 
-/** A minimal `SourceConnector`: real `groups()`/`users()` generators (with embedded group
- * membership, matching `PostgresSourceConnector.users()`'s real shape — Task 8), everything else a
- * `NotYetImplementedError` stub since this phase never reads them. */
+/** Only `groups()`/`users()` are real, with the embedded group membership
+ * `PostgresSourceConnector.users()` yields. */
 function fakeSourceConnector(): SourceConnector {
   return stubSourceConnector({
     groups: () =>
@@ -137,7 +135,7 @@ describe(
         .where(eq(userGroupsTable.userId, bob!.id))
       assert.equal(bobMemberships.length, 0)
 
-      // Side effect Task 13's content phase reads from: the source-id -> destination-uuid map.
+      // Side effect the content phase reads: the source-id -> destination-uuid map.
       assert.equal(ctx.userIdMap?.get(10), alice!.id)
       assert.equal(ctx.userIdMap?.get(11), bob!.id)
     })

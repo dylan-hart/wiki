@@ -15,14 +15,11 @@ import type { GroupRule } from './groups.ts'
 import { mail } from './mail.ts'
 
 /**
- * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
- * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
- * fixture. Anything a describe needs on top of that stays in its own `before()`.
+ * One schema for the whole file: every `setupTestDb()` call is a `CREATE SCHEMA`, the full migration
+ * set and a seed, and both describes want the same fixture.
  *
- * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
- * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
- * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
- * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
+ * The guard inside the hook is what a per-describe `{ skip }` cannot do: a root `before()` runs even
+ * when every describe is skipped, so without it an unset `DATABASE_URL` throws out of the hook.
  */
 let fixtures: TestFixtures
 
@@ -40,15 +37,6 @@ after(async () => {
   await teardownTestDb()
 })
 
-/**
- * `saveSubmission`'s reviewer-notification trigger: who gets told, and when.
- *
- * Reviewer resolution is exercised through `resolveReviewers` directly (SQL orchestration across
- * `userGroups`/`users`, same reasoning as the rest of this file), and the trigger point itself --
- * notify on a new submission, stay silent on a resubmission that lands on `onConflictDoUpdate` -- is
- * exercised by spying on `sendSubmissionNotification`, the stubbed delivery call, so these tests do
- * not depend on Feature 375's transport ever landing.
- */
 describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let pagesModel: typeof import('./pages.ts').pages
   let approvalsModel: typeof import('./approvals.ts').approvals
@@ -98,10 +86,9 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
   }
 
   /**
-   * Inserted directly rather than through `groups.assignUserToGroup`: that method also enforces the
-   * guests-group membership rule, which reads `CARDINAL.data.systemIds.guestsGroupId` -- a full-boot value
-   * this fixture's minimal `CARDINAL` deliberately does not set (see `test/db.ts`). Membership itself is
-   * nothing more than a row in `userGroups`.
+   * Inserted directly rather than through `groups.assignUserToGroup`, which also enforces the
+   * guests-group rule and so reads a `systemIds.guestsGroupId` the test fixture's minimal `CARDINAL`
+   * does not set. Membership itself is only a `userGroups` row.
    */
   async function assignToGroup(groupId: string, userId: string) {
     await fixtures.db.insert(userGroupsTable).values({ groupId, userId })
@@ -210,8 +197,6 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     assert.equal(firstCallSubmissionId, first.id)
     assert.deepEqual(firstCallReviewerIds, [reviewerAId])
 
-    // -> Same author, same page: this lands on `onConflictDoUpdate`, replacing the still-open
-    //    suggestion rather than creating a new one -- and must not notify a second time.
     const resubmitted = await approvalsModel.saveSubmission({
       siteId: fixtures.siteId,
       page: pageRef(page),
@@ -276,13 +261,8 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     send.mock.restore()
   })
 
-  /**
-   * OpenProject #3288: the reviewer notice must resolve its subject/text/html through
-   * `mail.approvalReviewNotice.*` (`CARDINAL.models.locales.resolveString`) in the reviewer's own
-   * `prefs.locale`, the same as every other mail trigger -- not hardcoded English template literals.
-   * Exercises the real (unmocked) `sendSubmissionNotification`, stubbing only the outbound
-   * `mail.send` call, so this fails if the send path goes back to inlining the strings.
-   */
+  // Drives the real `sendSubmissionNotification` and stubs only the outbound `mail.send`, so
+  // inlining the strings back into the send path fails here.
   test('the reviewer notice resolves its subject/text/html via locale keys, in the reviewer’s own locale', async () => {
     const group = await groupsModel.createGroup('Localized Notice Reviewers')
     await assignToGroup(group, reviewerAId)
@@ -325,8 +305,6 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     const [sent] = send.mock.calls[0]!.arguments as [any]
     assert.equal(sent.kind, 'approval')
 
-    // -> Every resolveString call for this trigger must ask for the reviewer's OWN locale ('fr'),
-    //    never a hardcoded 'en' or an omitted locale.
     const noticeCalls = resolveString.mock.calls.filter((call) =>
       String(call.arguments[1]).startsWith('mail.approvalReviewNotice.')
     )
@@ -341,8 +319,8 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
       'mail.approvalReviewNotice.text'
     ])
 
-    // -> No 'fr' translation is installed, so lookupString falls back to `en` -- the sent content
-    //    must be the en.json-templated strings, not the old hardcoded literals.
+    // -> No 'fr' translation is installed, so the lookup falls back to `en`: these are the
+    //    en.json-templated strings, asserted to prove the templates are what got sent.
     assert.equal(sent.subject, `New edit suggestion waiting for review: ${page.path}`)
     assert.match(sent.text, /^A new edit suggestion is waiting for your review on "/)
     assert.match(sent.html, /^<p>A new edit suggestion is waiting for your review on <strong>/)
@@ -353,12 +331,10 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
 })
 
 /**
- * OpenProject #2134: the submission author is told the outcome on approve and decline, through the
- * same `notifyPageWatchers` job path a logged-in author's watch preference would otherwise route an
- * ordinary page-edit notice through, addressed directly at them (`skipIfWatching` is what stops
- * approve from ALSO sending the generic "page updated" notice `updatePage()` queues for a watcher). A
- * guest author has no account to address that job at, so their notification goes straight through
- * `models/mail.ts` to the stored `guestEmail` instead.
+ * The author's outcome notice rides the same `notifyPageWatchers` job path as an ordinary page-edit
+ * notice, addressed directly at them; `skipIfWatching` is what stops an approve from ALSO sending
+ * the generic "page updated" notice `updatePage()` queues for a watcher. A guest author has no
+ * account for a job to address, so theirs goes straight through `models/mail.ts`.
  */
 describe(
   'approvals submission author notification (DB-backed)',
@@ -388,12 +364,10 @@ describe(
         .returning({ id: usersTable.id })
       authorId = author!.id
 
-      // -> `models/pageWatching.ts#listWatchers` re-checks `read:pages` for each watcher's CURRENT
-      //    group membership before queuing anything (OpenProject #2173) -- a submission author with
-      //    no group at all would silently be filtered out of `updatePage()`'s own watcher notice,
-      //    which is exactly what the "does not double-notify" test below needs to see queued.
-      //    `fixtures.groupId` starts with empty `rules` (`test/db.ts`), so both the membership row
-      //    and the rule granting it have to be set up here.
+      // -> `pageWatching.listWatchers` re-checks `read:pages` against a watcher's current groups
+      //    before queuing, so an author in no group is filtered out of `updatePage()`'s own watcher
+      //    notice -- which the double-notify test needs to see queued. The fixture group starts with
+      //    empty `rules`, so both the membership row and the granting rule are set up here.
       await fixtures.db
         .insert(userGroupsTable)
         .values({ groupId: fixtures.groupId, userId: authorId })
@@ -440,7 +414,6 @@ describe(
     const originalSendPageWatchNotification = mail.sendPageWatchNotification.bind(mail)
 
     beforeEach(() => {
-      // -> A stub installed by one test must not leak into the next.
       mail.sendPageWatchNotification = originalSendPageWatchNotification
       ;(
         CARDINAL.scheduler.addJob as unknown as { mock: { resetCalls: () => void } }
@@ -458,7 +431,6 @@ describe(
       }
     }
 
-    /** Every `notifyPageWatchers` job queued since the last reset, decoded from the stub scheduler. */
     function queuedNotifyJobs(): { task: string; payload: any }[] {
       const addJob = CARDINAL.scheduler.addJob as unknown as {
         mock: { calls: { arguments: [{ task: string; payload: any }] }[] }
@@ -536,8 +508,6 @@ describe(
         actor
       })
 
-      // -> `updatePage()`'s own generic notice still queues (action: 'updated') -- only the
-      //    submission-specific one must be skipped
       const suggestJobs = queuedNotifyJobs().filter(
         (job) => job.payload.action === 'suggestApproved'
       )

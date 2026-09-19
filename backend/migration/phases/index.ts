@@ -5,10 +5,8 @@ import { usersPhase } from './users.ts'
 import type { MigrationPhase, MigrationPhaseId } from '../context.ts'
 
 /**
- * Every migration phase, in the dependency order Feature 421 task 742 specifies: settings/auth/
- * storage config (420) before users/groups (414), before content (416), before assets/comments-
- * staging (418). `runMigration` (`../orchestrator.ts`) walks this array in order; `--only` filters it
- * down to a subset without changing the order those it keeps run in.
+ * Array order is the run order: `runMigration` walks it as-is and `--only` filters it to a subset
+ * without reordering what it keeps.
  */
 export const MIGRATION_PHASES: MigrationPhase[] = [
   settingsPhase,

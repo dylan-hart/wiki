@@ -2,7 +2,6 @@ import path from 'node:path'
 import { readModuleDefinitions } from '../helpers/moduleRegistry.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 
-/** An analytics module, as declared by its `definition.yml`. */
 export interface AnalyticsModule {
   key: string
   title: string
@@ -14,40 +13,29 @@ export interface AnalyticsModule {
 }
 
 /**
- * Analytics model
- *
- * Unlike authentication strategies or storage targets, an analytics provider has no configuration of
- * its own to keep track of instance-wide: a site either has it enabled or does not, and that lives
- * directly in the site's own `config.analytics.providers` — see `models/sites.ts`. This model only
- * discovers what providers `modules/analytics` declares on disk, the same way
- * `models/authentication.ts` discovers auth modules.
+ * Discovery only, with no db table behind it: unlike an auth strategy or a storage target, an
+ * analytics provider holds no instance-wide config — a site's own `config.analytics.providers`
+ * carries the enabled/config state.
  */
 class Analytics {
-  /**
-   * The analytics modules found on disk, alphabetically by title.
-   */
   getModules(): AnalyticsModule[] {
     return [...((CARDINAL.data.analytics ?? []) as AnalyticsModule[])].sort((a, b) =>
       a.title.localeCompare(b.title)
     )
   }
 
-  /**
-   * A single module definition, or null when nothing on disk declares that key
-   */
   getModule(key: string): AnalyticsModule | null {
     return this.getModules().find((m) => m.key === key) ?? null
   }
 
   async refreshFromDisk(): Promise<void> {
-    // -> Emptied before the scan, not merely reassigned on success: `base.yml` declares no
-    //    `analytics` key, so a failed scan would otherwise leave the field `undefined` for every
-    //    reader of it -- see the same note in `models/authentication.ts`, whose consumers call
-    //    `.find(...)` on it unguarded.
+    // -> Emptied before the scan, not reassigned on success: `base.yml` declares no `analytics`
+    //    key, so a failed scan would otherwise leave the field `undefined` for readers that index
+    //    into it unguarded.
     CARDINAL.data.analytics = []
     try {
-      // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
-      //    not actually ship a provider for must not reach a site's analytics settings.
+      // -> `skipUnavailable`: a definition on disk this build ships no provider for must not reach
+      //    a site's analytics settings.
       CARDINAL.data.analytics = await readModuleDefinitions<AnalyticsModule>(
         path.join(CARDINAL.SERVERPATH, 'modules/analytics'),
         {

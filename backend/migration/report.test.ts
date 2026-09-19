@@ -23,9 +23,7 @@ describe('KNOWN_3_0_AUTH_MODULES', () => {
 })
 
 describe('classifyUserAuthProvider', () => {
-  // -> Confirmed no-destination four (docs/migration/2.5x-settings-auth-storage-field-mapping.md's
-  //    "Confirmed no-destination 2.x auth providers" section): 2.x ships these, 3.0 has no matching
-  //    module directory for any of them.
+  // -> Confirmed no-destination providers: 2.x ships them, 3.0 has no module directory for any.
   for (const providerKey of ['azure', 'dropbox', 'firebase']) {
     test(`flags "${providerKey}" as unmappable (unsupported-auth-provider)`, () => {
       const result = classifyUserAuthProvider({ providerKey, email: 'alice@example.com' })
@@ -45,10 +43,8 @@ describe('classifyUserAuthProvider', () => {
     })
   }
 
-  // -> Every real 3.0 module — including the thirteen that gained a module directory since this set
-  //    was last hardcoded (ldap/saml/cas/auth0/okta/facebook among them) — must NOT be flagged: they
-  //    are mappable, even though their config prop-name mapping may still be unverified (that's the
-  //    mapper's job, not this classifier's).
+  // -> A real 3.0 module is mappable and must not be flagged, even when its config prop-name
+  //    mapping is still unverified — that is the mapper's job, not this classifier's.
   for (const providerKey of KNOWN_3_0_AUTH_MODULES) {
     test(`does not flag a supported provider ("${providerKey}")`, () => {
       assert.equal(classifyUserAuthProvider({ providerKey }), null)

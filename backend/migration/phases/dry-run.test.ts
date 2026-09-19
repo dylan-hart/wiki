@@ -3,13 +3,6 @@ import { describe, mock, test } from 'node:test'
 
 import { placeholderRow, writeUnlessDryRun } from './dry-run.ts'
 
-/**
- * The dry-run split had no direct coverage of its own — every assertion about it went through a
- * phase's integration suite, which is a slow and indirect way to state the one property that
- * matters: in dry-run mode the `write` callback is never invoked at all, so a `dryRun: true` run
- * cannot touch the destination even by accident.
- */
-
 describe('writeUnlessDryRun', () => {
   test('a dry run answers the placeholder and never calls write', async () => {
     const write = mock.fn(async () => ({ id: 'real-id' }))
