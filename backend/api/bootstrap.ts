@@ -4,15 +4,8 @@ import { guardSiteEnabled } from '../helpers/siteResolution.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Bootstrap API Route
- *
- * The three things the app has to know before it can draw anything: which site it is on, which system
- * flags are set, and who is asking. Each has an endpoint of its own — the admin area reads the flags,
- * the login flow asks who is logged in once that has changed — but a full load needs all three at
- * once, and asking for them one at a time is three round trips before the first pixel.
- *
- * None of them touches the database: the site configurations and the flags are in memory, and the
- * session carries the user. So what this saves is the round trips, which is the whole cost.
+ * What the app has to know before it can draw anything — site, system flags, session — in one
+ * request rather than three round trips to each one's own endpoint.
  */
 async function routes(app: FastifyInstance) {
   app.get<{ Querystring: { hostname?: string } }>(
@@ -64,9 +57,8 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('There is no wiki site at this hostname.')
       }
-      // -> This is what App.vue's loadBootstrap boots the whole SPA against: the highest-value place
-      //    to stop a disabled site's content from ever reaching a browser, since every other entry
-      //    point is reached through a page the shell itself decides whether to render.
+      // -> Resolved by hostname, not a `:siteId`, so `siteEnabledPreHandler` never sees this site —
+      //    and the whole SPA boots against this response.
       if (guardSiteEnabled(site, reply)) {
         return reply
       }

@@ -1,56 +1,27 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-/**
- * Group-wide permissions that carry picker access on their own.
- *
- * `write:pages`/`manage:pages` are deliberately NOT here: those are page-rule permissions, granted
- * per-path by a group's `rules`, not by its group-wide `permissions` column — see
- * `mayUseIconPicker()` below for how an ordinary author is actually recognized.
- */
 const PICKER_GLOBAL_PERMISSIONS = ['manage:sites', 'manage:system']
 
-/** The page rules that make somebody an author, i.e. able to put an icon into a page directly. */
 const PICKER_AUTHOR_ROLES = ['write:pages', 'manage:pages']
 
 /**
- * Whether this caller has any business looking icons up or having them stored.
- *
- * Anyone who can put an icon somewhere — a page, a navigation item, a page relation — needs to be able
- * to search for one and have it stored, which is what makes it servable from this instance afterwards.
- * That "somewhere" is deliberately not narrowed to one page or site here: the picker itself is not
- * page-scoped (it has no path to check a rule against), so this asks the coarser question
- * `mayHoldPermissionSomewhere()` answers — "is this actor generally the kind of person who holds
- * write:pages/manage:pages ANYWHERE" — the same way `api/blocks.ts`'s `mayListBlocks()` does for the
- * block picker.
- *
- * `config.permissions` cannot express this on its own: it reads the group-wide permission list only,
- * and `write:pages`/`manage:pages` are granted by a group's page rules instead — declaring them there
- * silently refused every author, since nobody's group-wide list legitimately carries either.
+ * Anyone who can put an icon somewhere needs to search for one and have it stored. The picker has
+ * no path to check a rule against, so this asks the coarser `mayHoldPermissionSomewhere()`
+ * question. An in-handler check because `config.permissions` reads the group-wide list only, and
+ * `write:pages`/`manage:pages` are granted by page rules: declared there, they refuse every author.
  */
 function mayUseIconPicker(req: FastifyRequest): boolean {
   const actor = CARDINAL.models.groups.actorForRequest(req)
   if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  // -> `null`, not a site id: icon sets are instance-wide, and this
-  //    route carries no `siteId` to narrow by -- genuinely the same site-blind case
-  //    `mayHoldPermissionSomewhere()`'s own doc comment carves out, not an oversight (OpenProject
-  //    #2146/#2162).
+  // -> `null`: icon sets are instance-wide, so there is no site to narrow by.
   return CARDINAL.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES, null)
 }
 
-/**
- * Icons API Routes
- *
- * Administration of the icon sets, plus the search and materialize calls the icon picker makes. The
- * icons themselves are served outside `/_api`, under `/_icons` — see `controllers/icons.ts`.
- */
+/** The icons themselves are served outside `/_api`, under `/_icons`: see `controllers/icons.ts`. */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST ADDED ICON SETS
-   */
-  // No route-level permissions: this is picker access, granted by a page rule
-  // (write:pages/manage:pages) as much as by a group-wide one — see mayUseIconPicker() above.
+  // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.get(
     '/sets',
     {
@@ -78,9 +49,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * ADD ICON SET
-   */
   app.post<{ Body: { prefix: string } }>(
     '/sets',
     {
@@ -132,16 +100,12 @@ async function routes(app: FastifyInstance) {
           set
         }
       } catch (err: any) {
-        // -> No log line: this is an admin-only route whose reply already carries the whole reason,
-        //    and the caller is the person who typed the prefix that was rejected.
+        // -> No log line: admin-only, and the reply already carries the whole reason.
         return reply.badRequest(err.message)
       }
     }
   )
 
-  /**
-   * ENABLE / DISABLE ICON SET
-   */
   app.put<{ Params: { prefix: string }; Body: { isEnabled: boolean } }>(
     '/sets/:prefix',
     {
@@ -204,9 +168,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE ICON SET
-   */
   app.delete<{ Params: { prefix: string } }>(
     '/sets/:prefix',
     {
@@ -264,9 +225,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST ICON SETS AVAILABLE UPSTREAM
-   */
   app.get(
     '/available-sets',
     {
@@ -302,9 +260,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REFRESH ICON SET METADATA
-   */
   app.post(
     '/sets/refresh',
     {
@@ -355,9 +310,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SIDELOAD ICON SETS
-   */
   app.post(
     '/sideload',
     {
@@ -408,9 +360,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SEARCH ICONS
-   */
   // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.get<{ Querystring: { query: string; prefixes?: string; limit?: number } }>(
     '/search',
@@ -479,9 +428,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST THE ICONS OF ONE SET
-   */
   // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.get<{ Params: { prefix: string } }>(
     '/sets/:prefix/icons',
@@ -531,15 +477,12 @@ async function routes(app: FastifyInstance) {
       try {
         return { prefix, icons: await CARDINAL.models.icons.listSetIcons(prefix) }
       } catch (err: any) {
-        // -> No log line, same as the add-set route above: admin-only, and the reply says why.
+        // -> No log line: the reply already carries the whole reason.
         return reply.badRequest(err.message)
       }
     }
   )
 
-  /**
-   * MATERIALIZE ICONS
-   */
   // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.post<{ Body: { icons: string[] } }>(
     '/materialize',
@@ -607,9 +550,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * ICON CACHE STATE
-   */
   app.get(
     '/cache',
     {
@@ -657,9 +597,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * PURGE ICON CACHE
-   */
   app.delete(
     '/cache',
     {

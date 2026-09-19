@@ -11,15 +11,6 @@ import { installTestWiki } from '../test/mocks.ts'
 let wikiHandle: { restore(): void }
 
 describe('response headers (byte-serving behavior)', () => {
-  /**
-   * Exercises `/_files/*` at the HTTP layer via `app.inject()`, with every `CARDINAL.models.*` call it
-   * makes stubbed. `readContent()`'s own target-aware branching (disk cache vs. buffered read vs.
-   * redirect) is covered at the model level in `models/assets.test.ts`; what this proves is the layer
-   * this task actually touched here — that the route sets its response headers exactly the same way
-   * whichever kind of result `readContent()` hands back (a stream, a buffer, or a redirect), since
-   * those headers are set once, before the `readContent()` call, and must not depend on which path
-   * served the bytes.
-   */
   const asset = {
     id: 'asset-1',
     fileName: 'archive.zip',
@@ -33,13 +24,7 @@ describe('response headers (byte-serving behavior)', () => {
   let readContentResult: any
   let resolvedAsset: any
 
-  /**
-   * `security.forceAssetDownload: true` matches `base.yml`'s real default -- every actual instance
-   * merges that in, so a test that wants to exercise realistic behavior needs it here too, since this
-   * stub bypasses the base.yml merge entirely (task/OpenProject #859: the route used to force download
-   * on EVERY asset whenever this was on, images included, contradicting its own admin-facing
-   * description ("non-image files"); the fix scopes it to non-`INLINE_EXTS` extensions only).
-   */
+  /** `forceAssetDownload: true` is `base.yml`'s default, which this stub does not merge in. */
   async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     wikiHandle = installTestWiki({
       config: { security },
@@ -65,8 +50,6 @@ describe('response headers (byte-serving behavior)', () => {
   }
 
   before(async () => {
-    // -> app.inject() needs no real socket, but building the app still requires CARDINAL to exist for the
-    //    plugin registration path (fastify-sensible etc. don't touch it, but set a baseline anyway).
     wikiHandle = installTestWiki({ config: {} })
   })
 
@@ -138,12 +121,8 @@ describe('response headers (byte-serving behavior)', () => {
   })
 
   /**
-   * OpenProject #1360/#2152/#2157 (2026-08-24 security audit §1, §3): an `.svg` asset can never take
-   * the attachment branch (it is always in `INLINE_EXTS`), so the durable fix is this response
-   * carrying the same sandboxing `SVG_CSP` the admin-uploaded site logo/favicon path
-   * (`controllers/site.ts`) already sends — sourced from one shared constant (`helpers/security.ts`)
-   * so the two cannot drift, and regardless of `forceAssetDownload`, since an attachment hint is not
-   * honoured on every direct navigation.
+   * An `.svg` is always in `INLINE_EXTS`, so it never takes the attachment branch: the sandboxing CSP
+   * is its only protection, whatever `forceAssetDownload` says.
    */
   test('attaches SVG_CSP for an image/svg+xml asset, with and without forceAssetDownload (OpenProject #2157)', async () => {
     resolvedAsset = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
@@ -180,13 +159,6 @@ describe('response headers (byte-serving behavior)', () => {
 })
 
 describe('isEnabled guard (task 699)', () => {
-  /**
-   * Regression test for task 699: `/_files/*` serves uploaded file bytes resolved by hostname
-   * independently of the page/shell hook in `index.ts`, so a disabled site's files stayed reachable by
-   * direct URL forever. Asserts the same contract as `api/bootstrap.test.ts` — a disabled site answers
-   * 403, distinguishable from the pre-existing 404 for a hostname that matches no site.
-   */
-
   const ENABLED_SITE_ID = 'enabled-site-id'
   const DISABLED_SITE_ID = 'disabled-site-id'
 
@@ -265,13 +237,7 @@ describe('isEnabled guard (task 699)', () => {
     assert.equal(resolveAssetPathCalls, 1)
   })
 
-  /**
-   * Regression test for task 676: the `checkAccess` call here resolves its site from
-   * `getSiteByHostname` rather than from a route param — a different source than every other call
-   * site in this task, but the same fix — so a page rule scoped to one site (task 671) is enforced
-   * when a file is served through `/_files/*` too. Sharing this describe's app/CARDINAL setup rather than
-   * standing up its own, since both cover the same hostname-resolved file routes.
-   */
+  /** Without the site id, a page rule scoped to one site would not be enforced on `/_files/*`. */
   test('passes the hostname-resolved siteId through to checkAccess', async () => {
     const originalResolveAssetPath = (globalThis as any).CARDINAL.models.assetServing
       .resolveAssetPath
@@ -309,13 +275,6 @@ describe('isEnabled guard (task 699)', () => {
 })
 
 describe('enforceApiKeySite (OpenProject #2201)', () => {
-  /**
-   * `/_files/*` resolves its site from `req.hostname`, not a `:siteId` route param, so a params-only
-   * site-pin hook can never see this route -- it has to call `enforceApiKeySite()` for itself, right
-   * after resolving the site. This is the WP's own worked example: a key pinned to site A must be
-   * refused when the URL's hostname serves site B, before the asset path is ever resolved.
-   */
-
   const SITE_A = { id: 'site-a', hostname: 'sitea.example.com' }
   const SITE_B = { id: 'site-b', hostname: 'siteb.example.com' }
 

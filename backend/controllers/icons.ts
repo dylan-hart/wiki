@@ -2,7 +2,6 @@ import { generateHash } from '../helpers/common.ts'
 import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
-/** Ceiling on how many icons one batch request may ask for. */
 const MAX_ICONS_PER_REQUEST = 128
 
 /** An icon never changes under a given name, so the answer can be cached as hard as HTTP allows. */
@@ -15,14 +14,9 @@ const BATCH_CACHE = 'public, max-age=604800'
 const INCOMPLETE_CACHE = 'public, max-age=60'
 
 /**
- * Answer with a body only when the client does not already have it.
- *
- * Icons are immutable and served for a year, so this only matters for the client that arrives without
- * a warm HTTP cache but with a stale one — cheap enough to be worth the few lines. The validator/304
- * half is `helpers/httpCache.ts`'s, shared with the five `controllers/` that serve stored bytes; what
- * stays here is hashing the body to get an ETag in the first place, which those five do not need
- * (each already has a hash, id or mtime to build one from). `nosniff: false`, since neither of these
- * two responses ever carried that header: both bodies are built here, not uploaded.
+ * Hashes the body for an ETag, since nothing here has an id or mtime to build one from.
+ * `nosniff: false`: the batch JSON is built here, not uploaded, and the SVG route sets the header
+ * itself.
  */
 function sendCacheable(
   req: FastifyRequest,
@@ -38,21 +32,15 @@ function sendCacheable(
 }
 
 /**
- * _icons Routes
+ * Implements the part of the Iconify API protocol the frontend uses, so that `iconify-icon` can be
+ * pointed at this wiki instead of a third-party host, and nothing about which icons a reader looks at
+ * leaves the instance.
  *
- * Implements the part of the Iconify API protocol the frontend uses, so that `iconify-icon` and any
- * other Iconify client can be pointed at this wiki instead of a third-party host: content references
- * `tabler:user-edit`, the browser asks this route for it, and nothing about which icons a reader looks
- * at leaves the instance.
- *
- * Public on purpose — icons are page furniture, and a reader who can see a page can see its icons.
- * The routes only serve what the wiki holds or can fill in for an enabled set, and filling is bounded
- * by the model's upstream budget.
+ * Public on purpose — icons are page furniture. The routes only serve what the wiki holds or can fill
+ * in for an enabled set, and filling is bounded by the model's upstream budget.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * BATCH ICON DATA — what `iconify-icon` requests, one call per set per page
-   */
+  /** What `iconify-icon` requests, one call per set per page */
   app.get<{ Params: { prefix: string }; Querystring: { icons?: string } }>(
     '/:prefix.json',
     async (req, reply) => {
@@ -85,9 +73,7 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SINGLE ICON AS SVG — for `<img>` and CSS, where a URL is all that fits
-   */
+  /** For `<img>` and CSS, where a URL is all that fits */
   app.get<{ Params: { prefix: string; name: string } }>(
     '/:prefix/:name.svg',
     async (req, reply) => {

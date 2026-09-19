@@ -6,25 +6,7 @@ import commentsRoutes from './comments.ts'
 import { createSilentLogger } from '../test/mocks.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Two independently-built route test suites merged at merge-review time (see `comments.ts`'s own
- * header for the merge story). The first covers the comment-provider endpoints (Task 617, Feature
- * 394); the second covers the page-scoped CRUD endpoints (Feature 391) plus the self-authorship
- * policy (task 608). The site-wide moderation listing's OWN route tests live in
- * `comments.admin.test.ts` — Feature 391's competing design for that same route was discarded during
- * the merge (see `comments.ts`), so its site-wide-specific tests (`mayManageCommentsAnywhere`,
- * `listForSite`) were dropped along with it rather than adapted.
- */
 describe('comment provider routes', () => {
-  /**
-   * Route-level test for `GET/PUT /sites/:siteId/comments/providers` (Task 617, Feature 394).
-   *
-   * `CARDINAL.models.sites` and `CARDINAL.models.commentProviders` are stubbed rather than pulling in the real
-   * db/schema/drizzle graph — `models/commentProviders.test.ts` is what covers the model's own logic
-   * (discovery, sync, the single-active-provider invariant) against a real database. This file only
-   * proves the route wiring: the shared site preHandler, status codes, and how the model's return values and
-   * thrown errors map onto the HTTP response.
-   */
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const sites: Record<string, any> = {
     [SITE_ID]: { id: SITE_ID, hostname: 'test.localhost', isEnabled: true }
@@ -69,8 +51,8 @@ describe('comment provider routes', () => {
   let app: FastifyInstance
 
   before(async () => {
-    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
+    // -> The unknown-site 404 is `siteEnabledPreHandler`'s, not the route's, so a plugin-only app
+    //    has to register it.
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(commentsRoutes)
@@ -145,9 +127,6 @@ describe('comment provider routes', () => {
     assert.match(res.json().message, /must be a string/)
   })
 
-  // -> OpenProject #1962: a module `models/commentProviders.ts#setActiveProvider` refuses as
-  //    non-selectable (no server-side implementation, no `codeTemplate`) must not become storable
-  //    just because it made it past this route's own site-existence check.
   test('PUT .../comments/providers turns a non-selectable-module error into a 400', async () => {
     const res = await app.inject({
       method: 'PUT',
@@ -160,23 +139,6 @@ describe('comment provider routes', () => {
 })
 
 describe('page-scoped comment routes', () => {
-  /**
-   * Unit tests for the comments route wiring (task 607): the list/create/edit/delete endpoints,
-   * their permission gating, and the `replyTo` validation edge case.
-   *
-   * `CARDINAL.models.comments` is stubbed with an in-memory fake rather than a real model.
-   * `CARDINAL.models.users.getById` is also stubbed — `resolveAuthorName` (see `comments.ts`) and the
-   * POST route's own authorEmail lookup both call it to resolve an authenticated author's display
-   * name/address, since `create`/`update`/`get` return the flat stored row, not a joined one (only
-   * `listForPage`'s own join resolves `authorName` directly).
-   * `CARDINAL.models.pages.getPage` and `CARDINAL.models.groups.{actorForRequest,checkAccess}` are stubbed too,
-   * standing in for `helpers/pageRules.ts` rule resolution so this stays a self-contained test of THIS
-   * file's wiring rather than a re-test of page-rule resolution, which has its own test coverage.
-   *
-   * Auth/permissions are simulated per request via `x-test-user-id` / `x-test-permissions` headers
-   * (comma-separated), read by a test-only `onRequest` hook that fills in `req.session` the way the
-   * real session plugin would — there is no real session plugin in this bare fastify instance.
-   */
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
   const LOCKED_PAGE_ID = '33333333-3333-3333-3333-333333333333'
@@ -215,8 +177,6 @@ describe('page-scoped comment routes', () => {
       isLocked: true,
       allowComments: true
     },
-    // -> OpenProject #935: `allowComments: false` on the page itself, distinct from the site-wide
-    //    `features.comments` flag below -- either one alone must refuse POST.
     [NO_COMMENTS_PAGE_ID]: {
       id: NO_COMMENTS_PAGE_ID,
       path: 'en/no-comments-page',
@@ -329,13 +289,9 @@ describe('page-scoped comment routes', () => {
 
   const created: any[] = []
 
-  // -> `limitGuestComments` (OpenProject #2256): allowed by default so every pre-existing POST test
-  //    keeps passing; a dedicated test below overrides this to exercise the 429 path.
   let rateLimitVerdict = { allowed: true, hits: 1, retryAfter: 0 }
-  // -> WP #3377's `enforceCommentCooldown` consumes a DIFFERENTLY-prefixed key
-  //    (`comment-cooldown:...`) than `limitGuestComments`'s `comment-guest:<ip>` -- keeping this
-  //    verdict separate lets a cooldown test control ONLY the cooldown outcome without also tripping
-  //    (or silencing) the pre-existing guest-IP limiter above, and vice versa.
+  // -> Separate verdicts, told apart by key prefix in `consumeRateLimit`, so a test can refuse the
+  //    cooldown without tripping the guest-IP limiter, and vice versa.
   let cooldownVerdict = { allowed: true, hits: 1, retryAfter: 0 }
   const rateLimitConsumeCalls: { key: string; policy: any }[] = []
 
@@ -344,14 +300,7 @@ describe('page-scoped comment routes', () => {
     return key.startsWith('comment-cooldown:') ? cooldownVerdict : rateLimitVerdict
   }
 
-  /**
-   * Backing store for `CARDINAL.models.comments.activeProviderModule` (WP #3377) -- `null` by
-   * default, so every pre-existing POST test in this file (none of which cares about the native
-   * provider's spam/cooldown enforcement) keeps behaving exactly as before: no active provider means
-   * the whole spam/cooldown block in the route is skipped. A test below sets this to a fake
-   * `{ provider, module }` pair naming whatever `config.akismet`/`config.minDelay` it needs, and a
-   * fake `checkSpam` recording its own calls.
-   */
+  /** `null` (no active provider) makes the route skip its spam check and cooldown entirely. */
   let activeProviderResult: {
     provider: { config: Record<string, any> }
     module: { checkSpam: (...args: any[]) => Promise<{ isSpam: boolean; reason?: string }> }
@@ -415,11 +364,9 @@ describe('page-scoped comment routes', () => {
   }
 
   /**
-   * Since OpenProject #1923, `create`/`update`/`delete` above stand in for `models/comments.ts`'s real
-   * methods — which now emit `comment:new`/`comment:edit`/`comment:delete` themselves (previously the
-   * route's own job). These two helpers mirror that model's private `resolveAuthorName`/`emitEvent` so
-   * the fakes keep matching real behavior, and the `emittedEvents` assertions below keep meaning what
-   * they always meant: the full request cycle results in the right webhook payload.
+   * The real `models/comments.ts` methods emit `comment:new`/`comment:edit`/`comment:delete`
+   * themselves, so the fakes above do too. These two helpers mirror that model's private
+   * `resolveAuthorName`/`emitEvent` — keep them in sync.
    */
   async function resolveAuthorNameForTest(comment: {
     authorId: string | null
@@ -468,9 +415,8 @@ describe('page-scoped comment routes', () => {
     app = await buildTestApp({
       routes: commentsRoutes,
       ajv: true,
-      // -> This suite's own two headers rather than the harness's `'header'` convention: it needs an
-      //    `authenticated: false` session PRESENT (not absent) for the guest cases, and a `user.id`
-      //    on the authenticated ones.
+      // -> Its own two headers rather than the harness's `'header'` convention: the guest cases
+      //    need an `authenticated: false` session PRESENT (not absent), the others a `user.id`.
       session: (req: any) => {
         const userId = req.headers['x-test-user-id'] as string | undefined
         const permissions = ((req.headers['x-test-permissions'] as string | undefined) ?? '')
@@ -481,10 +427,8 @@ describe('page-scoped comment routes', () => {
           : { authenticated: false, permissions }
       },
       wiki: {
-        // -> OpenProject #935: the site-level `features.comments` flag POST now checks, defaulted on
-        //    so every pre-existing test in this describe keeps passing unchanged.
         sites: { [SITE_ID]: { id: SITE_ID, config: { features: { comments: true } } } },
-        // -> `limitGuestComments` (OpenProject #2256) logs a debug line when it refuses a request.
+        // -> `limitGuestComments` logs when it refuses a request.
         logger: createSilentLogger(),
         models: {
           pages: { getPage },
@@ -533,7 +477,7 @@ describe('page-scoped comment routes', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
-      headers: { 'x-test-permissions': 'read:comments' } // -> no read:pages
+      headers: { 'x-test-permissions': 'read:comments' }
     })
     assert.equal(res.statusCode, 404)
   })
@@ -706,10 +650,6 @@ describe('page-scoped comment routes', () => {
     assert.equal(res.statusCode, 403)
   })
 
-  /**
-   * OpenProject #935: a page saved with `allowComments: false`, or a site with `features.comments`
-   * off, still accepted POST -- neither flag was checked anywhere but the client-side form.
-   */
   test('POST create: 403 when the page itself has allowComments: false', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -774,7 +714,6 @@ describe('page-scoped comment routes', () => {
     assert.equal(created.length, 1)
     assert.equal(created[0].authorId, 'user-1')
 
-    // -> Task 610: creating a comment queues a `comment:new` webhook event.
     assert.equal(emittedEvents.length, 1)
     assert.equal(emittedEvents[0].event, 'comment:new')
     assert.equal(emittedEvents[0].data.id, body.id)
@@ -812,12 +751,6 @@ describe('page-scoped comment routes', () => {
     assert.equal(created.length, 1)
   })
 
-  /**
-   * WP #3377: the native comment provider's Akismet key and post-delay, wired up for the first time.
-   * `activeProviderResult`/`cooldownVerdict` stay `null`/allowed by default (see their declarations
-   * above), so this whole block only engages when a test below opts in — every test above this one
-   * ran with the native provider effectively absent, exactly as it did before this WP.
-   */
   describe('POST create: native provider spam check and post-delay cooldown (WP #3377)', () => {
     test('400s when the configured Akismet key flags the content as spam', async () => {
       activeProviderResult = {
@@ -858,11 +791,8 @@ describe('page-scoped comment routes', () => {
       assert.equal(checkSpamCalls.length, 0)
     })
 
-    // -> `checkSpam` never throws in the real module (an unreachable/misconfigured Akismet already
-    //    fails open to `{ isSpam: false, reason: '...' }` internally, with its own warn log -- see
-    //    `modules/comments/default/comments.ts`, and that module's own test file covers it directly).
-    //    What the route has to get right is trusting that `isSpam: false` verdict, `reason` and all,
-    //    rather than treating a present `reason` as itself a refusal.
+    // -> The real `checkSpam` never throws: an unreachable or misconfigured Akismet fails open to
+    //    `{ isSpam: false, reason }`. The route must not treat a present `reason` as a refusal.
     test('fails open: a checkSpam verdict of isSpam:false with a reason still lets the comment through', async () => {
       activeProviderResult = {
         provider: { config: { akismet: 'fake-key', minDelay: 0 } },
@@ -928,8 +858,7 @@ describe('page-scoped comment routes', () => {
         provider: { config: { akismet: '', minDelay: 30 } },
         module: { checkSpam: async () => ({ isSpam: false }) }
       }
-      // -> Would refuse if the cooldown were actually consulted -- the point of this test is that it
-      //    never is, for a moderator.
+      // -> Would refuse if the cooldown were consulted at all.
       cooldownVerdict = { allowed: false, hits: 99, retryAfter: 999 }
       const res = await app.inject({
         method: 'POST',
@@ -967,13 +896,8 @@ describe('page-scoped comment routes', () => {
   })
 
   /**
-   * PATCH/DELETE (task 608): the self-authorship policy.
-   *
-   * This fork diverges from 2.5.x's `server/models/comments.js`, which requires `manage:comments` for
-   * every edit/delete with no exception. Here, a comment's own author may edit/delete it without
-   * `manage:comments` — see the policy comment at the permission check in `comments.ts`. Both routes
-   * are expected to apply the identical rule, so most of the cases below are run against both methods
-   * via the `method` table.
+   * PATCH and DELETE must apply the identical self-authorship rule (a comment's own author may act
+   * without `manage:comments`), so the shared cases run against both.
    */
   for (const method of ['PATCH', 'DELETE'] as const) {
     const send = (url: string, headers: Record<string, string>) =>
@@ -993,10 +917,10 @@ describe('page-scoped comment routes', () => {
     })
 
     test(`${method}: 404 (not 403) when the caller may not read the page at all`, async () => {
-      const res = await send(
-        `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
-        { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:comments' } // -> no read:pages
-      )
+      const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`, {
+        'x-test-user-id': 'author-1',
+        'x-test-permissions': 'read:comments'
+      })
       assert.equal(res.statusCode, 404)
     })
 
@@ -1060,8 +984,7 @@ describe('page-scoped comment routes', () => {
     })
 
     test(`${method}: 403 for a guest-authored comment, even for the requester who posted it anonymously`, async () => {
-      // -> A guest comment has authorId === null: there is no account to match `actor.id` against, so
-      //    self-authorship can never apply here regardless of who is asking or what they claim.
+      // -> A guest comment's `authorId` is null, so self-authorship has nothing to match against.
       const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${GUEST_COMMENT_ID}`, {
         'x-test-user-id': 'anyone',
         'x-test-permissions': 'read:pages,read:comments'
@@ -1100,7 +1023,6 @@ describe('page-scoped comment routes', () => {
     assert.equal(body.authorEmail, null)
     assert.deepEqual(updatedIds, [EXISTING_COMMENT_ID])
 
-    // -> Task 610: editing a comment queues a `comment:edit` webhook event.
     assert.equal(emittedEvents.length, 1)
     assert.equal(emittedEvents[0].event, 'comment:edit')
     assert.equal(emittedEvents[0].data.id, EXISTING_COMMENT_ID)
@@ -1110,9 +1032,6 @@ describe('page-scoped comment routes', () => {
     assert.equal(emittedEvents[0].data.content, 'Updated content')
   })
 
-  // -> WP 1691: PATCH's body schema is `CommentUpdateInput#`, not the POST-shaped `CommentInput#` --
-  //    a `replyTo` (or `guestName`/`guestEmail`) field in the body must 400 rather than be silently
-  //    ignored, since the handler only ever reads `content` off it.
   test('PATCH: 400 when the body includes replyTo instead of silently ignoring it', async () => {
     const res = await app.inject({
       method: 'PATCH',
@@ -1144,7 +1063,6 @@ describe('page-scoped comment routes', () => {
     assert.equal(res.statusCode, 204)
     assert.deepEqual(deletedIds, [EXISTING_COMMENT_ID])
 
-    // -> Task 610: deleting a comment queues a `comment:delete` webhook event.
     assert.equal(emittedEvents.length, 1)
     assert.equal(emittedEvents[0].event, 'comment:delete')
     assert.equal(emittedEvents[0].data.id, EXISTING_COMMENT_ID)

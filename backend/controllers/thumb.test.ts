@@ -8,14 +8,6 @@ import { installTestWiki } from '../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
 
-/**
- * OpenProject #2178: `/_thumb/:fileName` used to answer any valid-UUID asset id with no
- * `read:assets` check and no site resolution at all -- reachable unauthenticated, from any
- * hostname. These lock down the fix: site resolution by hostname (mirroring `/_files/*`), a
- * `read:assets` check before bytes are ever sent, a `private` `Cache-Control` (since the reply now
- * depends on who asked), and 404 (not 403, except for a disabled site) on every refusal so the
- * endpoint still cannot be probed for existence.
- */
 describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)', () => {
   const VALID_UUID = '11111111-1111-4111-8111-111111111111'
 
@@ -111,16 +103,14 @@ describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)',
       headers: { host: 'b.example.com' }
     })
     assert.equal(res.statusCode, 404)
-    // -> Refused on the site mismatch, before checkAccess is ever consulted
     assert.equal(checkAccessCalls.length, 0)
   })
 
   test('a request for a disabled site is refused with 403 before checkAccess is asked', async () => {
     checkAccessResult = true
     checkAccessCalls = []
-    // -> `thumbnail.siteId` is fixed to SITE_A_ID above, so point the request at a disabled site
-    //    whose hostname resolves but whose asset lookup will mismatch -- guardSiteEnabled runs
-    //    before that mismatch is ever checked, so it is what actually answers this request.
+    // -> The site-mismatch 404 runs before `guardSiteEnabled`, so the thumbnail has to belong to
+    //    the disabled site for the request to reach the guard.
     const original = (globalThis as any).CARDINAL.models.assets.getThumbnail
     ;(globalThis as any).CARDINAL.models.assets.getThumbnail = async (id: string) =>
       id === VALID_UUID ? { ...thumbnail, siteId: 'disabled-site' } : null

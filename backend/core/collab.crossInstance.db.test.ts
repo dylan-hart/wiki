@@ -1,21 +1,13 @@
 /**
- * Two real `core/collab.ts` instances — two worker threads, each with its own `CARDINAL` global, its own
- * room maps and its own postgres LISTEN/NOTIFY client — racing against one real database. The one
- * part of this module a single-process clone (`test/collabHarness.ts#makeInstance`) genuinely cannot
- * stand in for.
- *
- * Split out of `core/collab.test.ts` (TEST-F14); see that file's header for the whole map. The
- * worker body each thread runs is `test/collabWorker.ts`.
+ * Two real `core/collab.ts` instances — two worker threads, each with its own `CARDINAL` global and
+ * its own postgres LISTEN/NOTIFY client — against one real database: what a single-process clone
+ * (`test/collabHarness.ts#makeInstance`) cannot stand in for.
  */
 import assert from 'node:assert/strict'
 import { Worker } from 'node:worker_threads'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { PEER_STATE_TIMEOUT, RELAY_REASSEMBLY_TIMEOUT } from './collab.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-
-// ----------------------------------------
-// Multi-instance: two real `collab.ts`, two real CARDINAL globals, one real database
-// ----------------------------------------
 
 interface WorkerHandle {
   worker: Worker
@@ -77,12 +69,8 @@ function startInstance(
 }
 
 /**
- * Bounded poll replacing a fixed `setTimeout` drain: re-runs `poll()` until `isDone()` accepts its
- * result or `timeoutMs` elapses, sleeping `intervalMs` between attempts. The success path returns as
- * soon as the awaited state actually settles rather than waiting out a worst-case guess every time,
- * and the failure path still returns the last-observed value (not throw) so the caller's own assert
- * produces the real mismatch rather than a generic timeout error — matching the shape
- * `e2e/tests/scheduler.spec.js`'s `expect(...).toPass({ timeout })` uses for the same reason.
+ * On timeout returns the last-observed value rather than throwing, so the caller's own assert
+ * reports the real mismatch instead of a generic timeout.
  */
 async function pollUntil<T>(
   poll: () => Promise<T>,
@@ -104,8 +92,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   let connectionString: string
   let a: WorkerHandle
   let b: WorkerHandle
-  // -> The real, DB-backed `CARDINAL` `setupTestDb()` installs, captured once so `beforeEach` below can
-  //    re-assert it before every test in THIS describe.
   let dbWiki: any
 
   before(async () => {
@@ -118,13 +104,8 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     ])
   })
 
-  // -> The file-level `beforeEach` above (registered for every test in this whole file, not just one
-  //    describe) overwrites `globalThis.CARDINAL` with its own minimal stub -- no `sites`, no `db` --
-  //    right before every test runs, including these. Node's test runner cascades hooks
-  //    outer-to-inner, so this describe-scoped `beforeEach` runs after that one and puts the real,
-  //    DB-backed `CARDINAL` back before each test body here actually executes; without it, a call this
-  //    describe's tests make in the main process (e.g. `pages.createPage`) sees a `CARDINAL.sites` with
-  //    no entry for `fixtures.siteId` at all.
+  // TODO: drop this hook and `dbWiki` -- nothing in this file replaces the `CARDINAL` that
+  //    `setupTestDb()` installs.
   beforeEach(() => {
     ;(globalThis as any).CARDINAL = dbWiki
   })
@@ -147,9 +128,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
     )
 
-    // -> Fired together, not awaited one at a time: this is what forces both instances to ask the
-    //    cluster for the same page's room before either one has it, which is the exact race
-    //    `ensureRoom`/`initRoom`'s doc comments describe.
     const [resA, resB] = await Promise.all([
       a.call('ensureRoom', { pageId: page.id }),
       b.call('ensureRoom', { pageId: page.id })
@@ -157,8 +135,7 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
 
     assert.equal(resA.text, 'Original content.')
     assert.equal(resB.text, 'Original content.')
-    // -> Not just equal text: byte-identical Yjs state, proving neither instance's ops got concatenated
-    //    with the other's — the failure mode a non-deterministic seed would produce.
+    // -> Byte-identical Yjs state, not just equal text: differing seeds concatenate on merge
     assert.equal(resA.state, resB.state)
   })
 
@@ -175,37 +152,28 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
     )
 
-    // -> B opens the room first and picks up an edit nobody told A about yet — standing in for a user
-    //    already mid-edit on B when A's editor opens the same page.
     await b.call('ensureRoom', { pageId: page.id })
     await b.call('localEdit', { pageId: page.id, text: ' Extra from B.' })
 
-    // -> Give B's live `update` broadcast time to reach A and be dropped: A has no room for this page
-    //    yet, so `receiveRelay`'s `update` case is a no-op. Without this wait, A calling `ensureRoom` a
-    //    few milliseconds later can accidentally register its room while that broadcast is still in
-    //    flight and pick the edit up that way — a real but incidental path that would mask the one this
-    //    test exists to exercise: the peerState handshake itself catching a late-arriving peer.
+    // -> Let B's live `update` broadcast reach A and be dropped (A has no room yet). Otherwise A
+    //    can register its room while the broadcast is in flight and pick the edit up that way,
+    //    masking the late peerState handshake this test exercises.
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    // -> Realistic network latency: B's reply to A's `hello` is delayed past PEER_STATE_TIMEOUT, so A's
-    //    peerState() times out and falls back to buildSeed before B's answer ever lands.
     await b.call('delayStateReplies', { ms: PEER_STATE_TIMEOUT + 200 })
 
     const resA = await a.call('ensureRoom', { pageId: page.id })
-    // -> Falls back to the stored page — the edit B made is not in it, because the handshake timed out.
+    // -> The handshake timed out, so A fell back to the stored page, without B's edit
     assert.equal(resA.text, 'Stored text.')
 
-    // -> B's delayed answer is still on its way; once it lands, A must end up with B's edit too rather
-    //    than permanently missing it because nobody was still waiting for the reply.
+    // -> B's delayed reply is still in flight
     await new Promise((resolve) => setTimeout(resolve, 400))
     const caughtUp = await a.call('roomText', { pageId: page.id })
     assert.equal(caughtUp.text, 'Stored text. Extra from B.')
   })
 
   test('a partial relay message from an instance that goes quiet mid-relay still expires, not leaks', async () => {
-    // -> `reassemble()` accounts for chunks purely by envelope key — no room needs to exist for this
-    //    page id, which is the point: B "goes down" mid multi-chunk relay, publishing only 2 of the 3
-    //    chunks a real update would have split into, and A must not hold the remainder forever.
+    // -> `reassemble()` tracks chunks by envelope key alone, so this page id needs no room
     const pageId = 'relay-only-no-room'
     await b.call('publishIncomplete', {
       pageId,
@@ -215,21 +183,14 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       messageId: 'msg-crash'
     })
 
-    // -> Poll for the NOTIFY to land instead of a fixed wait, then confirm A actually captured the
-    //    partial chunks.
     const midway = await pollUntil(
       () => a.call('partialsSize'),
       (result) => result.size === 1
     )
     assert.equal(midway.size, 1, 'the two delivered chunks are held, waiting for the third')
 
-    // -> `reassemble()`'s cleanup timer (`core/collab.ts`) starts the instant A's *first* chunk of
-    //    this burst arrives -- strictly before the `pollUntil` above noticed it, over a real
-    //    cross-worker-thread postgres NOTIFY round trip. Sleeping for exactly one
-    //    RELAY_REASSEMBLY_TIMEOUT window from here and checking once (OpenProject #2992) leaves zero
-    //    margin against that gap, so it is racy under CI load rather than testing anything about the
-    //    cleanup itself; poll for the drop instead, with a ceiling generous enough that only a genuine
-    //    leak -- not scheduling jitter -- can still fail it.
+    // -> Polled, not one RELAY_REASSEMBLY_TIMEOUT sleep and a single check: that leaves no margin
+    //    for scheduling jitter under CI load. Only a genuine leak outlasts this ceiling.
     const after = await pollUntil(
       () => a.call('partialsSize'),
       (result) => result.size === 0,
@@ -239,11 +200,7 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   })
 
   test('concurrent bursty edits from several sessions across two instances converge with no dropped chunks or leaked partials', async () => {
-    // -> A scaled-down, CI-fast version of task 478's throwaway load test
-    //    (`scripts/collab-load-test.ts`, run manually at multi-megabyte scale): the same claim — several
-    //    simulated sessions, spread across real separate instances, firing concurrent bursty edits
-    //    (some large enough on their own to need several `RELAY_CHUNK_SIZE` chunks) — at a size this
-    //    suite can afford to run on every change.
+    // -> A scaled-down `scripts/collab-load-test.ts`, sized to run on every change
     const { pages } = await import('../models/pages.ts')
     const page = await pages.createPage(
       fixtures.siteId,
@@ -269,9 +226,8 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       await instance.call('openSession', { pageId: page.id, sessionId: id })
     }
 
-    // -> Three rounds, every session editing at once each round; every third session's edit is well
-    //    over RELAY_CHUNK_SIZE base64 characters on its own, forcing genuine multi-chunk relay traffic
-    //    to interleave with the smaller ones rather than testing chunking and concurrency separately.
+    // -> Every third session's edit exceeds RELAY_CHUNK_SIZE, so multi-chunk relays interleave with
+    //    the small ones rather than chunking and concurrency being tested separately.
     for (let round = 0; round < 3; round++) {
       await Promise.all(
         sessions.map(({ instance, id }, index) => {
@@ -282,9 +238,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       )
     }
 
-    // -> Poll for convergence instead of a fixed drain: the success path returns as soon as the relay
-    //    has actually settled, and a genuine drop or misorder still fails after a generous deadline
-    //    rather than masquerading as a timing shortfall.
     const texts = await pollUntil(
       async () => {
         const collected = new Set<string>()
@@ -319,10 +272,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   })
 
   test('a session that disconnects mid-edit, keeps typing offline, and reconnects merges cleanly (task 482)', async () => {
-    // -> The literal scenario the doc comment at the top of this file promises and task 482 exists to
-    //    verify end to end: two browser tabs on the same page (here, two sessions on the same instance
-    //    -- the room stays open throughout because B never leaves), one goes offline, keeps being typed
-    //    into locally, and comes back. No text may be duplicated or dropped in either direction.
     const { pages } = await import('../models/pages.ts')
     const page = await pages.createPage(
       fixtures.siteId,
@@ -339,28 +288,21 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     await a.call('openSession', { pageId: page.id, sessionId: 'sess-a' })
     await a.call('openSession', { pageId: page.id, sessionId: 'sess-b' })
 
-    // -> Both editing normally, before anyone goes offline.
     await a.call('sessionEdit', { sessionId: 'sess-a', text: 'A1 ' })
     await a.call('sessionEdit', { sessionId: 'sess-b', text: 'B1 ' })
-    // -> Poll for both edits to reach the room instead of a fixed wait.
     await pollUntil(
       () => a.call('roomText', { pageId: page.id }),
       (result) => result.text.includes('A1') && result.text.includes('B1')
     )
 
-    // -> A's tab loses connectivity. The room is not torn down: B is still in it.
     await a.call('disconnectSession', { sessionId: 'sess-a' })
     const stillOpen = await a.call('roomText', { pageId: page.id })
     assert.equal(stillOpen.exists, true, 'the room must survive one of two sessions dropping')
 
-    // -> A keeps typing locally -- past what `SYNC_TIMEOUT` would have given up waiting for -- and B
-    //    keeps typing too, unaware A is gone.
     await a.call('sessionEdit', { sessionId: 'sess-a', text: 'OFFLINE-FROM-A ' })
     await a.call('sessionEdit', { sessionId: 'sess-b', text: 'B2-WHILE-A-OFFLINE ' })
 
-    // -> Poll for B's edit to reach the room instead of a fixed wait, then confirm the disconnect was
-    //    real, not a no-op: the room got B's edit but never saw A's, and A's own replica never heard
-    //    about B's either.
+    // -> Proves the disconnect was real, not a no-op
     const whileOffline = await pollUntil(
       () => a.call('roomText', { pageId: page.id }),
       (result) => result.text.includes('B2-WHILE-A-OFFLINE')
@@ -379,8 +321,6 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       "A's own replica must not see B's edit while genuinely disconnected"
     )
 
-    // -> Connectivity restored. The reconnect must both push A's offline edits out and pull down what
-    //    the room gained while A was away. Poll for convergence instead of a fixed wait.
     await a.call('reconnectSession', { pageId: page.id, sessionId: 'sess-a' })
 
     const { finalA, finalB, finalRoom } = await pollUntil(

@@ -1,22 +1,3 @@
-/**
- * `core/collab.ts`'s peer handshake and relay, exercised against a genuinely departing peer rather
- * than the happy path only (task 705, feature 411) — the module's own top-of-file comment lays out
- * why the handshake and its determinism matter:
- *
- *  (a) a room opened on one instance seeds a second instance's room via the hello/state handshake,
- *      rather than a second, duplicating call to the stored page;
- *  (b) a peer that never answers (indistinguishable, from the asker's side, from one that died before
- *      it could) resolves via `PEER_STATE_TIMEOUT`, not a hang;
- *  (c) a chunked update whose sender disappears mid-burst leaves the receiver's `partials` entry to be
- *      cleaned up by `RELAY_REASSEMBLY_TIMEOUT`, and never applies a partial update to the doc;
- *  (d) a `pageSaved()` notice relayed to an instance with no open room for that page — including one
- *      that currently has no room because it is mid-restart — is a safe no-op, not a phantom room.
- *
- * Plus the pieces those paths are built from: `buildSeed`, the relay chunk size and `reassemble()`.
- * Pure — the two "instances" are `test/collabHarness.ts#makeInstance` clones, no database and no
- * second `node backend` process. Split out of `core/collab.test.ts` (TEST-F14); see that file's
- * header for the whole map.
- */
 import assert from 'node:assert/strict'
 import { describe, mock, test } from 'node:test'
 import * as Y from 'yjs'
@@ -38,28 +19,24 @@ describe('(a) peer handshake: a room seeds from a live peer, not a duplicated st
 
     const page = { id: 'page-1', siteId: 'site-1' }
 
-    // A opens first, with nobody else around yet: it falls back to the stored page.
     a.peerPresence = { known: false, checkedAt: Date.now() }
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'A'
     const roomA = await harness.openRoom(a, page)
     assert.equal(harness.getPage().mock.calls.length, 1)
     assert.equal(roomA.doc.getText('content').toString(), STORED_PAGE.content)
 
-    // Someone edits it live on A - now A's real content differs from what the stored page holds.
     roomA.doc.transact(() => {
       roomA.doc.getText('content').insert(0, 'LIVE EDIT ON A: ')
     })
     const expectedContent = roomA.doc.getText('content').toString()
     assert.notEqual(expectedContent, STORED_PAGE.content)
 
-    // B now opens the same page, knowing A is around.
     b.peerPresence = { known: true, checkedAt: Date.now() }
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
     const roomB = await harness.openRoom(b, page)
 
     assert.equal(roomB.doc.getText('content').toString(), expectedContent)
-    // Seeded from the peer, not a second call to the stored page - a second such call is exactly the
-    // duplication the module's own top-of-file comment says the handshake exists to avoid.
+    // Still A's single call: B seeded from the peer, not the stored page.
     assert.equal(harness.getPage().mock.calls.length, 1)
   })
 })
@@ -69,8 +46,7 @@ describe('(b) peer handshake timeout when the peer instance is gone before it an
     t.mock.timers.enable({ apis: ['setTimeout'] })
 
     const b = makeInstance('B')
-    // The 'hello' goes out into the void: from B's side, a peer that had the room but was killed
-    // before it could reply looks identical to nobody answering at all.
+    // The 'hello' goes nowhere: a peer killed before replying looks the same as nobody answering.
     b.publish = () => {}
     b.peerPresence = { known: true, checkedAt: Date.now() }
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'B'
@@ -80,8 +56,8 @@ describe('(b) peer handshake timeout when the peer instance is gone before it an
       return room
     })
 
-    // Let the microtask chain (hasPeers() resolving, then peerState() registering its setTimeout) run
-    // before advancing the fake clock - nothing here depends on wall-clock time, only on ordering.
+    // Let the microtask chain (hasPeers() resolving, then peerState() registering its setTimeout)
+    // run before advancing the fake clock.
     for (let i = 0; i < 20; i++) {
       await Promise.resolve()
     }
@@ -98,9 +74,8 @@ describe('(b) peer handshake timeout when the peer instance is gone before it an
 
 describe('(c) chunked relay reassembly when the sender is gone mid-burst', () => {
   /**
-   * Two instances that each fall back to the stored page independently land on byte-identical Yjs
-   * state (the determinism `buildSeed` exists for) - which is what lets a later diff between them be
-   * compared exactly, rather than merged as two different replicas.
+   * Both instances fall back to the stored page independently; `buildSeed`'s determinism makes
+   * their Yjs state byte-identical, which is what lets the sender's diff apply on the receiver.
    */
   async function setupSenderAndReceiver(pageId: string) {
     const sender = makeInstance('SENDER')
@@ -142,7 +117,6 @@ describe('(c) chunked relay reassembly when the sender is gone mid-burst', () =>
     const before = receiverRoom.doc.getText('content').toString()
 
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'RECEIVER'
-    // The sender is killed right after the first chunk - the rest of the burst never arrives.
     receiver.receiveRelay(sentChunks[0])
     assert.equal(receiver.partials.size, 1)
     assert.equal(receiverRoom.doc.getText('content').toString(), before)
@@ -285,8 +259,6 @@ describe('buildSeed', () => {
   })
 
   test('two instances cold-starting the same page converge to one copy of the text, not two', () => {
-    // -> This is the guarantee the whole client-id-0 trick exists for: two instances that both give up
-    //    waiting for a peer and seed independently must merge as if only one of them had seeded at all.
     const seedA = buildSeed(page)
     const seedB = buildSeed(page)
 
@@ -299,17 +271,15 @@ describe('buildSeed', () => {
 
     assert.equal(merged.getText('content').toString(), page.content)
     assert.equal(merged.getText('content').toString(), single.getText('content').toString())
-    // -> Byte-identical states merge to a document of the identical size, not a doubled one.
     assert.deepEqual(Y.encodeStateAsUpdate(merged), Y.encodeStateAsUpdate(single))
   })
 })
 
 describe('RELAY_CHUNK_SIZE', () => {
   test('the worst-case relay envelope stays under the 8000-byte NOTIFY cap (task 478)', () => {
-    // -> Every optional field populated, each at its real worst-case length: `i`/`to` are a 10-char
-    //    random hex id (see `CARDINAL.INSTANCE_ID` in `index.ts`), `r` a full 36-char page uuid, `t` the longest
-    //    of the five message types, and `m`/`c`/`n` generously long numbers — this is what `relay()`
-    //    actually sends for a chunk of a large `update`/`state` message, not a hypothetical worse case.
+    // -> Every optional field populated at its real worst-case length: `i`/`to` a 10-char hex
+    //    `CARDINAL.INSTANCE_ID`, `r` a 36-char page uuid, `m`/`c`/`n` generously long numbers.
+    // TODO: `t` should be 'wysiwyg-claimed', the longest `RelayEnvelope['t']`, not 'awareness'.
     const worstCase = {
       i: 'V1StGXR8_Z',
       r: '550e8400-e29b-41d4-a716-446655440000',
@@ -330,9 +300,8 @@ describe('RELAY_CHUNK_SIZE', () => {
 
 describe('reassemble()', () => {
   function fresh(): typeof collab {
-    // -> A shallow copy with its own `partials` map, so each test's chunk bookkeeping can't leak into
-    //    another's — `reassemble` only ever touches `this.partials`, so this is a real isolated instance
-    //    of just the piece under test, not a fake of it.
+    // -> Its own `partials` map, so tests cannot leak chunks into each other; `reassemble` touches
+    //    nothing else on `this`.
     return { ...collab, partials: new Map() }
   }
 
@@ -380,8 +349,7 @@ describe('reassemble()', () => {
       p
     })
     assert.equal(c.reassemble(envelope(0, 'aa')), null)
-    // -> Resent chunk 0: must not count down `remaining` a second time, or a real chunk 1 arriving
-    //    later would leave `remaining` stuck above zero and the message never assembles.
+    // -> Resent chunk 0: counting it twice would zero `remaining` and assemble without chunk 1
     assert.equal(c.reassemble(envelope(0, 'aa')), null)
     assert.equal(c.reassemble(envelope(1, 'bb')), 'aabb')
   })
@@ -424,7 +392,6 @@ describe('reassemble()', () => {
   test('an incomplete message expires after RELAY_REASSEMBLY_TIMEOUT rather than leaking', (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] })
     const c = fresh()
-    // -> Stands in for an instance that goes down mid-relay: one chunk of two ever arrives.
     assert.equal(
       c.reassemble({ i: 'peer', r: 'page1', t: 'update', m: 'msg1', c: 0, n: 2, p: 'aa' }),
       null

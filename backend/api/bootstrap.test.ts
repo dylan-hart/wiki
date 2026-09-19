@@ -5,13 +5,6 @@ import bootstrapRoutes from './bootstrap.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('pdfExportAvailable exposure (task 500)', () => {
-  /**
-   * Task 500: `GET /_api/bootstrap` reuses `sites.ts`'s `buildSitePayload`, so the `pdfExportAvailable`
-   * flag it surfaces on `sites/:siteIdorHostname` (see `sites.test.ts`) also reaches the app on first
-   * load — the other payload the task calls out, since `App.vue` reads the site from here rather than
-   * making a second call to `sites/:siteIdorHostname` on every boot.
-   */
-
   const SITE_ID = 'bootstrap-site-id'
   const site = {
     id: SITE_ID,
@@ -37,8 +30,6 @@ describe('pdfExportAvailable exposure (task 500)', () => {
           flags: {
             getFlags: () => ({ experimental: false, authDebug: false, sqlLog: false })
           },
-          // -> `buildSitePayload` reads availability off `renderQueue`, not `rendering` (the
-          //    two were split apart in `models/rendering.ts`'s own refactor).
           renderQueue: {
             isAvailable: async () => renderingAvailable
           },
@@ -91,12 +82,6 @@ describe('pdfExportAvailable exposure (task 500)', () => {
     assert.equal(res.json().site.pdfExportAvailable, false)
   })
 
-  /**
-   * Task #2527: bootstrap reuses `buildSitePayload`, so the site's default `navigationId`
-   * (`CARDINAL.models.navigation.ensureSiteNav`) reaches every reader's browser on first load, not only a
-   * content page's own fetch response -- what lets a non-content route (the knowledge graph, tags
-   * browse) resolve a real nav id instead of leaving it `null`.
-   */
   test('bootstrap surfaces navigationId on site', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -107,15 +92,6 @@ describe('pdfExportAvailable exposure (task 500)', () => {
   })
 })
 
-/**
- * OpenProject #2526/#2527: a non-content `MainLayout` route (the knowledge graph, tags browse) never
- * calls `pageStore.pageLoad()`, the only thing that ever sets a page-inherited `navigationId` -- so
- * without a site-wide default surfaced somewhere a reader's browser reaches on every load, its
- * sidebar had no id to load a menu for on a cold load or refresh, and rendered expanded with zero
- * items. `GET /_api/bootstrap` is that reach: `App.vue`'s `loadBootstrap` is what every page of the
- * SPA boots against, so surfacing the resolved default here is what lets `NavSidebar.vue`'s watcher
- * fall back to a real id with no extra request.
- */
 describe('navigationId exposure (OpenProject #2526/#2527)', () => {
   const SITE_ID = 'bootstrap-nav-site-id'
   const site = {
@@ -179,18 +155,6 @@ describe('navigationId exposure (OpenProject #2526/#2527)', () => {
 })
 
 describe('isEnabled guard (task 699)', () => {
-  /**
-   * Regression test for task 699: `GET /_api/bootstrap` is the highest-value isEnabled check in the
-   * feature, because `App.vue`'s `loadBootstrap` is the one call every page of the SPA boots against —
-   * unlike the page/shell hook in `index.ts` (task 695), which only ever sees a page navigation, this
-   * endpoint resolves its own site independently and previously handed back a disabled site's full
-   * config to anybody who asked.
-   *
-   * Contract asserted here (documented in `helpers/siteResolution.ts`'s `guardSiteEnabled`): no site behind the
-   * hostname is a 404 (unchanged, pre-existing behavior), a site that resolved but has
-   * `isEnabled === false` is a distinguishable 403.
-   */
-
   const ENABLED_SITE_ID = 'enabled-site-id'
   const DISABLED_SITE_ID = 'disabled-site-id'
 

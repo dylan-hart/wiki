@@ -8,12 +8,6 @@ import { installTestWiki } from '../test/mocks.ts'
 
 let wikiHandle: { restore(): void }
 
-/**
- * `GET /_pages/:pageId/script.js` (OpenProject #3405) -- the JS half of per-page scripts, mirroring
- * `controllers/thumb.ts`'s own coverage style: site resolution by hostname, a permission check before
- * any bytes go out, and 404/403 rather than leaking whether a page exists to someone who may not read
- * it.
- */
 describe('/_pages/:pageId/script.js (OpenProject #3405)', () => {
   const VALID_UUID = '11111111-1111-4111-8111-111111111111'
 
@@ -219,8 +213,6 @@ describe('/_pages/:pageId/script.js (OpenProject #3405)', () => {
   })
 
   test('a locked page (still readable) returns 200 with an empty body -- toPage() already blanked both fields', async () => {
-    // -> `models/pages.ts#toPage()` blanks `scriptJsLoad`/`scriptJsUnload` to `''` for a locked page
-    //    before this route ever sees it -- mirrored here as `getPage()` would actually hand back.
     page = { ...basePage, isLocked: true, scriptJsLoad: '', scriptJsUnload: '' }
     const res = await app.inject({
       method: 'GET',

@@ -4,16 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import checklistRoutes from './checklists.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Route-level tests for `api/checklists.ts` (OpenProject #869): permission gating and status-code
- * wiring. `CARDINAL.models.checklists` is stubbed with an in-memory fake — `models/checklists.test.ts`
- * covers the model's own SQL logic against a real database. `CARDINAL.models.pages.getPage` and
- * `CARDINAL.models.groups.{actorForRequest,checkAccess}` are stubbed too, standing in for page-rule
- * resolution, matching `api/comments.test.ts`'s own approach for the same kind of route.
- *
- * Auth is simulated per request via `x-test-user-id` / `x-test-permissions` headers, read by a
- * test-only `onRequest` hook — there is no real session plugin in this bare fastify instance.
- */
 describe('checklist routes', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
@@ -113,9 +103,8 @@ describe('checklist routes', () => {
     app = await buildTestApp({
       routes: checklistRoutes,
       ajv: true,
-      // -> This suite's own two headers, rather than the harness's `'header'` convention: it needs
-      //    an `authenticated: false` session present (not absent) for the guest cases, and a
-      //    `user.id` on the authenticated ones.
+      // -> Its own two headers rather than the harness's `'header'` convention: the guest cases
+      //    need an `authenticated: false` session present (not absent), the others a `user.id`.
       session: (req: any) => {
         const userId = req.headers['x-test-user-id'] as string | undefined
         const permissions = ((req.headers['x-test-permissions'] as string | undefined) ?? '')

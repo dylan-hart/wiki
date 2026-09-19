@@ -4,16 +4,6 @@ import { buildRobotsTxt, buildSitemapXml, buildSitemapIndexXml, paginateSitemap 
 import type { SitemapPage } from './seo.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
-/**
- * Pure content-generation logic only — no `CARDINAL` global, no database, no Fastify instance. Everything
- * that decides what a request gets (site resolution, the `sitemap` gate, `listPagesForSitemap`'s
- * guest-rule filtering) is exercised where it actually lives: `models/pages.test.ts` for the query,
- * and there is no server-boot harness in this repo to run the route registration itself against.
- *
- * `buildSitemapXml` reads `Date.prototype.toTemporalInstant().toZonedDateTimeISO('UTC')
- * .toPlainDate().toString()` to produce a UTC `YYYY-MM-DD` — `ensureTemporal()` polyfills that chain
- * for real on this sandbox's Node, which lacks it natively.
- */
 before(() => ensureTemporal())
 
 describe('buildRobotsTxt', () => {
@@ -118,7 +108,6 @@ describe('buildSitemapXml', () => {
       (xml.match(/hreflang="fr" href="https:\/\/wiki\.example\.com\/fr\/guides\/x"/g) ?? []).length,
       2
     )
-    // a page with no translations carries no alternate links
     assert.doesNotMatch(xml, /<xhtml:link[^>]*href="[^"]*\/solo"/)
     assert.match(xml, /xmlns:xhtml="http:\/\/www\.w3\.org\/1999\/xhtml"/)
   })
@@ -167,8 +156,6 @@ describe('paginateSitemap', () => {
     assert.ok('xml' in noPage && 'xml' in withPage)
     assert.match((noPage as { xml: string }).xml, /<urlset/)
     assert.doesNotMatch((noPage as { xml: string }).xml, /<sitemapindex/)
-    // -> An out-of-range page for a site that never needed pagination isn't a 404: the query string
-    //    just didn't matter
     const outOfRangePage = paginateSitemap('https://wiki.example.com', pages, null, 99)
     assert.ok('xml' in outOfRangePage)
     assert.equal((outOfRangePage as { xml: string }).xml, (noPage as { xml: string }).xml)
@@ -182,7 +169,6 @@ describe('paginateSitemap', () => {
     const indexXml = (index as { xml: string }).xml
     assert.match(indexXml, /<sitemapindex/)
     const childUrls = [...indexXml.matchAll(/<loc>(.*?)<\/loc>/g)].map((m) => m[1])
-    // -> 51,234 pages split 50,000-at-a-time is two children: one full, one partial
     assert.equal(childUrls.length, 2)
     assert.equal(childUrls[0], 'https://wiki.example.com/sitemap.xml?page=1')
     assert.equal(childUrls[1], 'https://wiki.example.com/sitemap.xml?page=2')
@@ -208,12 +194,9 @@ describe('paginateSitemap', () => {
         sawLastPage = true
       }
     })
-    // -> Every real page path shows up exactly once across the whole paginated set, none dropped by
-    //    the split
     assert.equal(seenLocs.size, total)
     assert.ok(sawFirstPage && sawLastPage)
 
-    // -> A page number outside [1, chunk count] is a 404, unlike the under-cap case above
     assert.deepEqual(paginateSitemap('https://wiki.example.com', pages, null, 0), {
       notFound: true
     })

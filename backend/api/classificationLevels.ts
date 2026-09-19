@@ -1,20 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Classification Levels API Routes (OpenProject #1079)
- *
- * Listing is public-access: the level list is picker metadata (a page's classification, a group
- * rule's `classifications`), not itself sensitive, and is needed by anyone with a reason to see a
- * page's or a rule's classification — which is not a fixed permission set. CRUD is `manage:system`
- * only, the same gate `api/icons.ts` uses for its own admin-only set management, since there is no
- * existing global permission that fits ("an admin-configurable list an ordinary editor never touches")
- * and inventing a new one is not warranted for a single small admin screen — the
- * global-permission list is closed.
+ * Listing is public: the levels are picker metadata, not sensitive, and whoever needs to see a
+ * page's or a rule's classification is not a fixed permission set. CRUD is `manage:system` only —
+ * no global permission fits, and that list is closed.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST LEVELS
-   */
   app.get(
     '/',
     {
@@ -39,9 +30,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CREATE LEVEL
-   */
   app.post<{ Body: { name: string } }>(
     '/',
     {
@@ -67,9 +55,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE LEVEL
-   */
   app.patch<{ Params: { id: string }; Body: { name?: string } }>(
     '/:id',
     {
@@ -103,9 +88,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * REORDER LEVELS
-   */
   app.post<{ Body: { ids: string[] } }>(
     '/reorder',
     {
@@ -145,9 +127,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE LEVEL
-   */
   app.delete<{ Params: { id: string } }>(
     '/:id',
     {

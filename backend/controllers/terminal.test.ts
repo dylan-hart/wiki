@@ -10,33 +10,16 @@ import type { LogFrame } from '../core/logger.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * OpenProject #2648: the admin terminal used to identify the reader by e-mail address
- * (`req.session.user?.email ?? req.session.user?.id ?? 'unknown'`), which put that address on stdout,
- * into the backlog, and therefore in front of every admin who opens a terminal afterwards. The route
- * now names the user id and nothing else, matching how the rest of the codebase identifies an actor.
- *
- * OpenProject #2679: what goes down the socket is a `LogFrame` as JSON, not a rendered line, so this
- * suite reads the wire as data — first frame the `{ instance }` handshake, everything after it a
- * frame with `level` and `scope` of its own.
- *
- * The suite drives the REAL controller over a real `@fastify/websocket` upgrade (`app.injectWS`),
- * rather than calling the handler with a fake socket: the disconnect line is written from the
- * socket's own `close` listener, and only an actual close frame reaches it. The origin gate is
- * deliberately absent here — `test/websocketOrigin.test.ts` owns that, and registering a
- * `verifyClient` under `injectWS` needs a synthetic `socket` on every request for no gain to what
- * this file asserts.
+ * Drives the real controller over a real `@fastify/websocket` upgrade (`app.injectWS`) rather than
+ * calling the handler with a fake socket: the disconnect line is written from the socket's own
+ * `close` listener, and only an actual close frame reaches it. The origin gate is deliberately absent
+ * here — `test/websocketOrigin.test.ts` owns that.
  */
 
 const USER_ID = 'f0a4a3d6-2c1f-4f66-8a52-9e33ba0f1c77'
 const USER_EMAIL = 'dana.admin@example.com'
 const INSTANCE_ID = 'inst-terminal-test'
 
-/**
- * Everything the route reads off the logger, plus the frames it wrote, for assertions.
- *
- * The frames are built the way `core/logger.ts` builds them, which is what makes `backlog()` here a
- * stand-in for the real one rather than a differently-shaped fake.
- */
 function createRecordingLogger() {
   const frames: LogFrame[] = []
   return {
@@ -67,10 +50,6 @@ interface Harness {
   restore(): void
 }
 
-/**
- * @param session The session every request is seeded with — `undefined` leaves it anonymous, which is
- *   how the refusal branches are reached.
- */
 async function buildHarness(session?: Record<string, any>): Promise<Harness> {
   const { frames, logger } = createRecordingLogger()
   const wikiHandle = installTestWiki({ logger, INSTANCE_ID })
@@ -78,9 +57,8 @@ async function buildHarness(session?: Record<string, any>): Promise<Harness> {
   const app = fastify()
   await app.register(fastifyWebsocket)
   /*
-    Seeds `req.session` the way `@fastify/session` would on a real request. Registered before the
-    routes so the hook is in place for the upgrade request itself — a `websocket: true` route runs the
-    same onRequest chain as any other.
+    Registered before the routes so the hook is in place for the upgrade request itself — a
+    `websocket: true` route runs the same onRequest chain as any other.
   */
   app.addHook('onRequest', async (req) => {
     ;(req as any).session = session
@@ -97,7 +75,6 @@ async function buildHarness(session?: Record<string, any>): Promise<Harness> {
   }
 }
 
-/** Resolve once a frame matching `predicate` has been logged, or reject when it never arrives. */
 async function waitForFrame(
   frames: LogFrame[],
   predicate: (frame: LogFrame) => boolean,
@@ -114,12 +91,9 @@ async function waitForFrame(
 }
 
 /**
- * Every frame the socket delivers, in order, recorded from the moment the client exists.
- *
- * `injectWS`'s `onInit` hook is what makes that possible: the route writes its handshake and replays
- * its backlog synchronously inside the connection handler, so a listener attached after `injectWS`
- * has resolved misses both — `ws` is an `EventEmitter`, and an event with no listener is simply
- * gone. `onInit` runs before the socket is even opened.
+ * Records through `injectWS`'s `onInit`, which runs before the socket is opened: the route writes its
+ * handshake and replays its backlog synchronously inside the connection handler, so a listener
+ * attached after `injectWS` has resolved misses both.
  */
 function recordFrames() {
   const received: string[] = []
@@ -128,7 +102,6 @@ function recordFrames() {
     onInit: (ws: any) => {
       ws.on('message', (data: unknown) => received.push(String(data)))
     },
-    /** Resolve once at least `n` frames have arrived, or reject rather than hang. */
     async atLeast(n: number): Promise<string[]> {
       for (let attempt = 0; attempt < 200; attempt++) {
         if (received.length >= n) {
@@ -181,8 +154,8 @@ describe('GET /_terminal/logs — who is reading the logs (OpenProject #2648)', 
     assert.deepEqual(detached.fields, { user: USER_ID })
 
     /*
-      The whole point of the fix: nothing this route writes may carry the address, since every record
-      here lands in the backlog that is replayed to the NEXT admin terminal to connect.
+      Nothing this route writes may carry the address: every record here lands in the backlog that is
+      replayed to the next admin terminal to connect.
     */
     for (const frame of harness.frames) {
       const serialized = JSON.stringify(frame)
@@ -213,7 +186,6 @@ describe('GET /_terminal/logs — who is reading the logs (OpenProject #2648)', 
       */
       const [handshake, first] = await frames.atLeast(2)
 
-      // -> Unchanged shape, and still the only frame that is not a log record
       assert.deepEqual(JSON.parse(handshake!), { instance: INSTANCE_ID })
 
       const frame = JSON.parse(first!) as LogFrame

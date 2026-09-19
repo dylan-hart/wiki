@@ -10,20 +10,9 @@ import { EMITTED_EVENTS, HOOK_EVENTS } from '../models/hooks.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * Regression test for task 640: `GET /_api/hooks/events`'s Swagger `description` is a hand-written
- * string that has to be kept in sync with {@link EMITTED_EVENTS} by hand — nothing enforces that at
- * the type level, which is exactly how it went stale before (it used to claim only `user:*` events
- * were emitted, well after `page:*` and `asset:*` had emit points too).
- *
- * This suite pins two things so the same class of bug is caught the next time `EMITTED_EVENTS`
- * changes without a matching edit to the description:
- *
- * 1. The description does not contain any of the specific stale claims the string has carried before
- *    (naming only `user:*` as emitted, or saying comments "are not implemented yet").
- * 2. The response's `isEmitted` flags actually agree with {@link EMITTED_EVENTS} for every event.
- *
- * `CARDINAL` is not stubbed because `GET /events` reads only the two plain exports above — no model,
- * cache or db access.
+ * `GET /events`'s Swagger `description` is hand-written and nothing ties it to `EMITTED_EVENTS`, so
+ * these pin the `isEmitted` flags and refuse the stale claims the string has carried. No `wiki`:
+ * the route reads only those two plain exports.
  */
 
 test('GET /events response reflects EMITTED_EVENTS for every catalogued event', async () => {
@@ -43,7 +32,6 @@ test('GET /events response reflects EMITTED_EVENTS for every catalogued event', 
         `isEmitted for ${entry.key} should match EMITTED_EVENTS`
       )
     }
-    // Comment events specifically: this is the fact the description was stale about.
     const commentEntries = body.filter((e) => e.key.startsWith('comment:'))
     assert.ok(commentEntries.length > 0)
     for (const entry of commentEntries) {
@@ -59,34 +47,22 @@ test('GET /events Swagger description does not repeat known-stale claims', async
   try {
     const spec = app.swagger() as any
     const description = spec.paths['/events'].get.description as string
-    // The description this task fixed: it used to say only `user:*` events were emitted and that
-    // pages/assets/comments were not implemented yet. Both claims are false now.
     assert.doesNotMatch(description, /only the `user:\*` events/i)
     assert.doesNotMatch(description, /pages, assets and comments are not implemented/i)
-    // Comments are the one remaining gap the description is allowed to call out today (Feature 399
-    // task 1 will close it) — but it must not claim comments are unimplemented, since they are wired
-    // via `models/comments.ts`'s `create`/`update`/`delete`.
     assert.doesNotMatch(description, /comments? (is|are) not (yet )?implemented/i)
   } finally {
     await closeTestApp(app)
   }
 })
 
-/** A site that "exists" for the `siteId` validation in `invalidReason()`, and one that never does. */
 const SITE_1_ID = randomUUID()
 const UNKNOWN_SITE_ID = randomUUID()
 const EXISTING_HOOK_ID = randomUUID()
 
 /**
- * `POST /_api/hooks/test` sends a synthetic delivery to whatever `url`/`authHeader`/`acceptUntrusted`
- * is in the body — no `hookId` — so `WebhookEditDialog.vue` can validate an endpoint before the
- * webhook is ever saved, and `AdminWebhooks.vue`'s per-row button can re-validate a saved one by
- * passing its stored fields through the same shape. It must never write to the hooks table: a test
- * delivery is not a real delivery.
- *
- * Exercised against a real local HTTP server rather than a mocked `postJson()`, since the whole point
- * of the route is what actually happens over the wire (status code passthrough, auth header, a
- * connection failure reported as `ok: false` rather than thrown).
+ * `POST /test` runs against a real local HTTP server rather than a mocked `postJson()`: the route
+ * exists for what happens over the wire (status passthrough, the auth header, a connection failure
+ * reported as `ok: false` rather than thrown).
  */
 
 let app: FastifyInstance
@@ -231,7 +207,7 @@ test('a connection failure is reported as ok:false with statusCode 0 rather than
   const res = await app.inject({
     method: 'POST',
     url: '/test',
-    // -> Nothing listens on this port; the request must fail to connect
+    // -> Nothing listens on this port
     payload: { url: 'http://127.0.0.1:1/' }
   })
   assert.equal(res.statusCode, 200)
@@ -241,13 +217,6 @@ test('a connection failure is reported as ok:false with statusCode 0 rather than
   assert.ok(json.message)
 })
 
-/**
- * `POST /hooks` and `PUT /hooks/:hookId` thread the new `siteId` field through to
- * `CARDINAL.models.hooks.createHook()`/`updateHook()`, and reject one that names a site the instance
- * doesn't have -- against a fake `CARDINAL.models.hooks` rather than a real one, since what these tests
- * cover is the route's own validation and field-forwarding, not the model (which has its own
- * DB-backed coverage in `models/hooks.test.ts`).
- */
 test('create defaults siteId to null when omitted', async () => {
   const res = await app.inject({
     method: 'POST',
@@ -311,11 +280,6 @@ test('update rejects a siteId that names no known site', async () => {
   assert.equal(updateHookCalls.length, 0)
 })
 
-/**
- * Task 1940: `invalidReason()`'s `body.url` check must reject everything
- * `WebhookEditDialog.vue`'s `hookUrlValidation` rejects, and vice versa, so a webhook accepted by
- * one side is never refused by the other.
- */
 test('create rejects a URL containing disallowed characters, matching the admin form', async () => {
   const res = await app.inject({
     method: 'POST',

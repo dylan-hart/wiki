@@ -1,10 +1,3 @@
-/**
- * `core/collab.ts`'s admission control: what `capture()` buffers before a connection is authorized,
- * what `refuse()` does once a cap trips, and the per-user/per-address connection ceilings. Pure — no
- * database.
- *
- * Split out of `core/collab.test.ts` (TEST-F14); see that file's header for the whole map.
- */
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { describe, mock, test } from 'node:test'
@@ -19,18 +12,7 @@ import { FakeSocket, installCollabHarness, makeInstance } from '../test/collabHa
 
 installCollabHarness()
 
-/**
- * `capture()`'s pending-frame cap (task 2196, from the 2026-08-24 security audit,
- * `docs/audit-2026-08-24/security/09-dos-resource.md` §3): before a socket has a room to hand its
- * frames to, every message it sends is copied into `session.pending`. That listener is live the
- * instant the socket opens — well before authentication or the site's feature flag is checked — so an
- * unauthenticated caller that just keeps writing must not be able to grow that array without bound.
- * `capture` is exercised directly here, against a minimal stand-in for a `ws` `WebSocket` (an
- * `EventEmitter` plus a mocked `terminate()`), rather than through the real socket lifecycle in
- * `controllers/collab.ts` — nothing under test here needs an actual network connection.
- */
 describe('collab.capture: pending-frame cap', () => {
-  /** The minimal shape `capture()` actually uses: `.on()` (via EventEmitter) and `.terminate()`. */
   function makeConn() {
     const conn = new EventEmitter() as EventEmitter & { terminate: ReturnType<typeof mock.fn> }
     conn.terminate = mock.fn()
@@ -113,13 +95,6 @@ describe('collab.capture: pending-frame cap', () => {
   })
 })
 
-/**
- * (e) OpenProject #2196: `capture()`'s pre-auth `session.pending` buffer is bounded by both entry
- * count and total bytes, terminating (not merely closing) a connection that exceeds either — and
- * `refuse()`, the helper `controllers/collab.ts`'s five refusal points now call instead of
- * `conn.close()` directly, sends the close frame a cooperating client needs but no longer leaves a
- * non-cooperating one sitting in `CLOSING` for `ws`'s full 30s default.
- */
 describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
   test('buffers ordinary frames normally, well under the cap', () => {
     const socket = new FakeSocket()
@@ -142,7 +117,6 @@ describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
     assert.equal(session.pending.length, MAX_PENDING_FRAMES, 'every frame up to the cap is kept')
     assert.equal(socket.terminated, false)
 
-    // -> One frame past the cap terminates the connection rather than growing the buffer further
     socket.emit('message', Buffer.from('one too many'))
     assert.equal(socket.terminated, true)
     assert.equal(
@@ -211,7 +185,6 @@ describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
     const socket = new FakeSocket()
 
     collab.refuse(socket as any, 4404, 'This page does not exist')
-    // -> The cooperating client's own close frame arrives well inside the grace period
     socket.readyState = socket.CLOSED
 
     t.mock.timers.tick(REFUSAL_GRACE_PERIOD)
@@ -219,15 +192,6 @@ describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
   })
 })
 
-/**
- * (f) Task 2200: a per-user and per-address ceiling on concurrent collaboration sockets, checked and
- * reserved by `join()` before `ensureRoom()` ever runs — so a refusal never allocates, or reuses, a
- * room — and released by `onClose()`, so a legitimate reconnect loop can't exhaust its own ceiling.
- *
- * `fakeConn()` is a minimal `ws`-shaped stand-in good enough for `join()`/`onClose()`'s surface
- * (`readyState`, `OPEN`, `on`, `close`) — no real socket needed since nothing here exercises the sync
- * protocol itself, only the reservation bookkeeping around it.
- */
 describe('(f) connection cap: per-user and per-address ceilings', () => {
   interface FakeConn {
     readyState: number
@@ -254,7 +218,6 @@ describe('(f) connection cap: per-user and per-address ceilings', () => {
     return conn
   }
 
-  /** Tears down every room this test opened, exactly as `closeRoomIfEmpty` would once empty. */
   function destroyRoom(inst: any, pageId: string): void {
     const room = inst.rooms.get(pageId)
     if (room) {
@@ -266,8 +229,8 @@ describe('(f) connection cap: per-user and per-address ceilings', () => {
 
   test('a connection past the per-user ceiling is refused, and it allocates no room', async () => {
     const inst = makeInstance('cap-user')
-    // -> No peer to wait on: without this, every room's initRoom() would burn a real
-    //    PEER_STATE_TIMEOUT querying for a nonexistent peer, the same seeding test (a) above does.
+    // -> Pre-seeds `hasPeers()` with "no peers": otherwise every room's `initRoom()` waits out a
+    //    real PEER_STATE_TIMEOUT for a peer that does not exist.
     inst.peerPresence = { known: false, checkedAt: Date.now() }
     ;(globalThis as any).CARDINAL.INSTANCE_ID = 'cap-user'
     const userId = 'capped-user'
@@ -308,8 +271,6 @@ describe('(f) connection cap: per-user and per-address ceilings', () => {
         'the refusal must leave the existing room count unchanged'
       )
 
-      // -> Releasing one of the ceiling's own slots (a real close event, same path `terminate()` takes)
-      //    must free up room for a fresh connection from the same user.
       const first = opened[0]
       inst.onClose(first.session.room, first.conn)
       const retryConn = fakeConn()

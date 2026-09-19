@@ -15,18 +15,9 @@ import type { PageActor } from '../models/pages.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * DB-backed route test for `GET/DELETE /sites/:siteId/comments` (Task 625, Feature 394).
- *
- * The whole point of this task is that `manage:comments` is decided PER PAGE, individually, against
- * the real rule-matching in `helpers/pageRules.ts` — a test that stubs `CARDINAL.models.groups.checkAccess`
- * would only prove the route calls a function, not that the scoping actually works. This suite runs
- * the real routes, the real `groups`/`pages`/`comments` models and a real, migrated database (see
- * `test/db.ts`) — `models/comments.test.ts` covers `listForAdmin`'s own filters and pagination in
- * isolation; this file covers the permission boundary around it.
- *
- * There is no real session plugin here (`@fastify/session` needs a cookie round trip this suite has
- * no reason to exercise) — `req.session` is set directly by an `onRequest` hook from a
- * per-test-mutable `testSession` variable, which is all `CARDINAL.models.groups.actorForRequest` reads.
+ * `manage:comments` is decided per page against the real rule matching in `helpers/pageRules.ts`,
+ * so this runs the real models on a real database: a stubbed `checkAccess` would only prove the
+ * route calls a function, not that the scoping works.
  */
 describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -44,8 +35,8 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     ;({ comments: commentsModel } = await import('../models/comments.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
+    // -> The unknown-site 404 is `siteEnabledPreHandler`'s, not the route's, so a plugin-only app
+    //    has to register it.
     const guardedRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('preHandler', siteEnabledPreHandler)
       await instance.register(commentsRoutes)
@@ -112,7 +103,6 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       .values({ siteId: fixtures.siteId, pageId: teamB.id, content: 'On team B' })
       .returning()
 
-    // -> Grants `manage:comments` on `scope-team-a` only — NOT `scope-team-b`.
     await setGroupRules([rule({ path: 'scope-team-a' })])
     testSession = {
       authenticated: true,
@@ -128,7 +118,6 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     assert.ok(ids.includes(commentA!.id))
     assert.ok(!ids.includes(commentB!.id))
 
-    // -> DELETE on the accessible page succeeds...
     const deleteA = await app.inject({
       method: 'DELETE',
       url: `/sites/${fixtures.siteId}/comments/${commentA!.id}`
@@ -136,7 +125,6 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     assert.equal(deleteA.statusCode, 204)
     assert.equal(await commentsModel.getWithPage(commentA!.id), null)
 
-    // -> ...but the same actor cannot delete the one on the page their rule does not cover.
     const deleteB = await app.inject({
       method: 'DELETE',
       url: `/sites/${fixtures.siteId}/comments/${commentB!.id}`
@@ -156,7 +144,6 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       .values({ siteId: fixtures.siteId, pageId: page.id, content: 'Visible to admins' })
       .returning()
 
-    // -> No rule grants anything at all.
     await setGroupRules([])
     testSession = {
       authenticated: true,
@@ -191,8 +178,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       .values({ siteId: fixtures.siteId, pageId: teamB.id, content: 'On team B' })
       .returning()
 
-    // -> No rule grants anything at all — proves the rows below come from the `manage:system`
-    // short-circuit, not from a rule matching every page.
+    // -> No rules, so the rows below can only come from the `manage:system` short-circuit.
     await setGroupRules([])
     testSession = {
       authenticated: true,
@@ -201,9 +187,8 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       permissions: ['manage:system']
     }
 
-    // `pageRefsForSite` is the only source of the page-id list `listForAdmin`'s `IN (...)` would be
-    // built from. A `manage:system` actor should never even call it — that's what "emits no `IN`
-    // list" means at this layer: there is no page-id array to bind into one in the first place.
+    // `pageRefsForSite` is the only source of the page-id list `listForAdmin`'s `IN (...)` is built
+    // from, so never calling it means there is no list to bind.
     const pageRefsSpy = mock.method(commentsModel, 'pageRefsForSite')
     try {
       const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/comments` })
@@ -255,12 +240,8 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
   })
 
   /**
-   * OpenProject #935: the page-scoped DELETE already emitted `comment:delete` (queuing a webhook
-   * delivery); this site-wide moderation DELETE did not, so a subscriber mirroring comments missed
-   * every deletion done from the admin moderation screen. Asserted through a REAL subscribed hook
-   * row and the real `CARDINAL.scheduler.addJob` `mock.fn()` (`test/mocks.ts`'s `createSchedulerStub()`)
-   * rather than a stub of `emit()` itself, so this proves the full `models/hooks.ts` queuing path
-   * actually ran, not just that some function was called.
+   * Asserted through a real subscribed hook row and `CARDINAL.scheduler.addJob`'s `mock.fn()`
+   * rather than a stub of `emit()`, so the whole `models/hooks.ts` queuing path has to run.
    */
   test('DELETE via the site-wide moderation route queues a comment:delete webhook delivery', async () => {
     const page = await pagesModel.createPage(

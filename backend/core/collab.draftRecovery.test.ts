@@ -1,15 +1,3 @@
-/**
- * `core/collab.ts`'s recovery-draft attribution (OpenProject #2455): `onClose` reads a departing
- * connection's awareness state for a display name and remembers it on the room
- * (`CollabRoom.lastAuthorName`), so that the draft `flushDraftPersist` writes next — whether that
- * happens right away, because the room is now empty (`closeRoomIfEmpty`), or later, from a still-open
- * room's own debounce — carries best-effort attribution of who was last known to be editing. The
- * persistence mechanism itself (debounce, the clear-on-save, `initRoom()` never reading it back to
- * seed a room) is `core/collab.draftPersist.test.ts`'s job (OpenProject #2454); this file only covers
- * the attribution this WP added on top of it.
- *
- * Split out of `core/collab.test.ts` (TEST-F14 precedent); see that file's header for the sibling map.
- */
 import assert from 'node:assert/strict'
 import { beforeEach, describe, test } from 'node:test'
 import * as awarenessProtocol from 'y-protocols/awareness'
@@ -23,11 +11,8 @@ beforeEach(() => {
   collab.peerPresence = { known: false, checkedAt: Date.now() }
 })
 
-/** A remote client's awareness state, merged into a room's the way a real `join()` would once the
- * client's own sync/awareness messages arrive — see `core/collab.test.ts#participantInfo`'s own
- * `mergeIn` for the same technique. Registering it with `conn` as the update's origin is what lets
- * `ensureRoom()`'s own `awareness.on('update', ...)` handler attribute the client id to that
- * connection's `CollabConn.clients`, exactly as it would for a real socket's own awareness frame. */
+/** `conn` as the update's origin is what makes `ensureRoom()`'s awareness handler record the client
+ * id on that connection's `clients`, as a real socket's own awareness frame would. */
 function attachIdentifiedClient(
   room: any,
   conn: FakeSocket,
@@ -89,7 +74,6 @@ describe('onClose: attributing the next persisted draft to whoever just left', (
     const identity = { userId: 'u1', address: '127.0.0.1' }
     collab.reserveSlot(identity)
     room.conns.set(conn, { clients: new Set(), alive: true, identity })
-    // -> An anonymous awareness state, same shape `collab.test.ts`'s own "no user field" case uses.
     const doc = new Y.Doc()
     const awareness = new awarenessProtocol.Awareness(doc)
     awareness.setLocalStateField('typing', true)
@@ -99,8 +83,7 @@ describe('onClose: attributing the next persisted draft to whoever just left', (
       conn
     )
 
-    // -> A second, still-open connection keeps the room alive past this close, so `lastAuthorName`
-    //    can be inspected without the room having already torn itself down.
+    // -> A second, still-open connection keeps the room from tearing itself down on this close
     const stillOpen = new FakeSocket() as any
     room.conns.set(stillOpen, {
       clients: new Set(),
