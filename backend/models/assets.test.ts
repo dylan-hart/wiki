@@ -5,17 +5,14 @@ import { assetServing } from './assetServing.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * The write half of the assets model, with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather than a
- * real Postgres instance: what an upload does to an SVG, what `dispositionFor()` answers for a given
- * extension and setting, and that every write awaits its `hooks.emit` / `storage.dispatch` pair
- * rather than detaching it. The serving half — `governingTarget`, `directUrlFor`, `readContent` and
- * the two caches behind them — is `models/assetServing.test.ts`.
+ * The write half of the assets model, with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather
+ * than a real Postgres instance. The serving half is `models/assetServing.test.ts`.
  */
 let wiki: { restore(): void }
 
 before(() => {
-  // -> The real `assetServing` singleton: every write path below tells it to forget the asset it
-  //    just changed, which is the only thing the CRUD half calls into the serving cache for.
+  // -> The real `assetServing` singleton: forgetting an asset it just changed is the only thing a
+  //    write path calls into the serving cache for.
   wiki = installTestWiki({ models: { assetServing } })
 })
 
@@ -30,18 +27,6 @@ const testAsset = {
   fileSize: 1000
 }
 
-/**
- * OpenProject #1360/#2152/#2164 (2026-08-24 security audit §3): `controllers/files.ts`'s `/_files/*`
- * route and `api/assets.ts`'s `/content` route used to compute this independently, with inverted
- * predicates — this is the one function both now call, so the same asset/setting combination answers
- * identically on both routes by construction rather than by two implementations staying in sync.
- *
- * `dispositionFor()` is the single predicate `controllers/files.ts` and `api/assets.ts`'s `/content`
- * route both call, replacing two expressions that used to disagree (OpenProject #2164). What matters
- * here is that it answers the SAME way for the same inputs regardless of which route asks — this is
- * a pure function of `fileExt` plus `CARDINAL.config.security.forceAssetDownload`, no I/O, so both
- * "routes" are just calling it directly with the same arguments.
- */
 function withSecurityConfig<T>(security: Record<string, unknown>, fn: () => T): T {
   const original = (globalThis as any).CARDINAL
   ;(globalThis as any).CARDINAL = { ...original, config: { security } }
@@ -74,14 +59,9 @@ test('dispositionFor: a non-inline extension downloads only when forceAssetDownl
   )
 })
 
-// ---------------------------------------------------------------------------------------------
-// upload() — the security.uploadScanSVG gate
-// ---------------------------------------------------------------------------------------------
-
 /**
- * Stubs everything `upload()` touches on a fresh-name (no conflict) path: no existing tree entry,
- * `addAsset` echoing back a synthesized row, and no-op hooks/dispatch/extensions. `CARDINAL.db.insert`
- * captures what was actually handed to it, which is what these tests assert against.
+ * Stubs the fresh-name (no conflict) `upload()` path; `CARDINAL.db.insert` captures the row handed
+ * to it, which is what these tests assert against.
  */
 function stubUploadPath(uploadScanSVG: boolean) {
   let inserted: any
@@ -154,10 +134,6 @@ test('upload stores an SVG untouched when security.uploadScanSVG is off', async 
   assert.deepEqual(stored, svg)
 })
 
-// ---------------------------------------------------------------------------------------------
-// upload() — createdAt/updatedAt override (OpenProject #3204)
-// ---------------------------------------------------------------------------------------------
-
 test('upload with a createdAt/updatedAt override stores them on the assets row and returns them', async () => {
   const { getInserted } = stubUploadPath(false)
 
@@ -198,16 +174,9 @@ test('upload with no createdAt/updatedAt override leaves the assets row insert w
   assert.equal(Object.prototype.hasOwnProperty.call(inserted, 'updatedAt'), false)
 })
 
-// ---------------------------------------------------------------------------------------------
-// upload() / renameAsset() / deleteAsset() — hooks.emit and storage.dispatch are awaited, not
-// detached (OpenProject #1697)
-// ---------------------------------------------------------------------------------------------
-
 /**
- * A `CARDINAL.db`-shaped stub sufficient for the tests below: every `select(...)` chain terminates at
- * `.limit()` with a fixed asset row (what `getAsset()` reads), and every `update()`/`delete()`/
- * `insert()` chain resolves to itself — none of the four methods under test reads back an
- * update/delete/insert result, only whether the row-mutating call was awaited in sequence.
+ * Every `update()`/`delete()`/`insert()` chain resolving to itself is enough: none of the methods
+ * under test reads back a write result, only whether the call was awaited in sequence.
  */
 function makeAssetsDbStub(assetRow: unknown) {
   const chain: any = {
@@ -227,10 +196,8 @@ function makeAssetsDbStub(assetRow: unknown) {
 }
 
 /**
- * A `hooks.emit`/`storage.dispatch`-shaped mock that only resolves after a real tick
- * (`setImmediate`), and records into `order` when it does. If the method under test only fired the
- * call without awaiting it, the method's own promise would resolve — and the assertion below would
- * run — before this mock's `order` push ever happens.
+ * Resolves only after a real tick, then records. A method that fired the call without awaiting it
+ * would resolve — and be asserted on — before the `order` push ever happens.
  */
 function delayedDispatchMock(order: string[], label: string) {
   return mock.fn(async () => {
@@ -239,8 +206,8 @@ function delayedDispatchMock(order: string[], label: string) {
   })
 }
 
-/** Minimal filesystem-adjacent `CARDINAL` bits `dropCachedContent()` needs — a cache dir that never
- *  exists, so its `fs.readdir` throws ENOENT and is silently caught, same as a fresh instance. */
+/** A cache dir that never exists, so `dropCachedContent()`'s `fs.readdir` throws ENOENT and is
+ *  silently caught, same as on a fresh instance. */
 const cacheFsStubs = {
   ROOTPATH: '/tmp',
   config: { dataPath: 'wiki-assets-test-no-such-cache-dir' }
@@ -348,9 +315,9 @@ test('renameAsset awaits both asset:rename hooks.emit and storage.dispatch befor
 
 test('moveAsset awaits both asset:move hooks.emit and storage.dispatch before resolving, and busts both cached paths', async (t) => {
   const order: string[] = []
-  // -> Spies on the real singleton's prototype method rather than replacing the object -- the
-  //    latter drops every other prototype method (`dropCachedContent` included), which corrupted
-  //    shared test state for whichever test ran next. `t.mock` restores this automatically.
+  // -> Spies on the real singleton's prototype method rather than replacing the object: replacing
+  //    it drops every other prototype method (`dropCachedContent` included) for whichever test runs
+  //    next. `t.mock` restores this automatically.
   const forgetPathSpy = t.mock.method(assetServing, 'forgetPath')
   global.CARDINAL = {
     ...global.CARDINAL,
@@ -372,7 +339,6 @@ test('moveAsset awaits both asset:move hooks.emit and storage.dispatch before re
   assert.deepEqual(order.sort(), ['hooks', 'storage'])
   assert.equal((global.CARDINAL as any).models.hooks.emit.mock.callCount(), 1)
   assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
-  // -> Both ends of the move: the folder it left ('') and the folder it arrived in ('new-folder')
   assert.deepEqual(
     forgetPathSpy.mock.calls.map((call) => call.arguments[1]),
     ['', 'new-folder']
@@ -429,15 +395,10 @@ test('deleteAsset awaits both asset:delete hooks.emit and storage.dispatch befor
   assert.equal((global.CARDINAL as any).models.storage.dispatch.mock.callCount(), 1)
 })
 
-// ---------------------------------------------------------------------------------------------
-// The content lifecycle log lines (OpenProject #2674)
-// ---------------------------------------------------------------------------------------------
-
 /**
- * A logger whose `info` calls are collected rather than written.
- *
- * Asserted on the SCOPE and the FIELDS a call passed, never on a rendered string — the renderer is
- * `core/logger.ts`'s business, and a suite matching formatted text breaks the moment a column widens.
+ * Collects `info` calls so the tests can assert on the scope and fields a call passed, never on a
+ * rendered string — the renderer is `core/logger.ts`'s business, and matching formatted text breaks
+ * the moment a column widens.
  */
 function collectingLogger() {
   const lines: { scope: string; message: string; fields: Record<string, any> }[] = []

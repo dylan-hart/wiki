@@ -7,49 +7,36 @@ import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.
 import { announce } from './hooks.ts'
 import type { DeletedEntry } from './tree.ts'
 
-/** How large the file manager renders a preview. Generated once, at upload time. */
 const THUMBNAIL_SIZE = { width: 320, height: 200 }
 
-/**
- * Extensions a browser may render inline. Everything else is sent as a download.
- *
- * Read by both routes that hand out an asset's bytes — the API's `/content` and the public
- * `/_files/` path — which have to agree on what a browser is allowed to open in place.
- */
+/** Extensions a browser may render inline. Everything else is sent as a download. */
 export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'])
 
 /**
  * Whether a served asset should be sent as `Content-Disposition: attachment` rather than inline.
- *
  * The single predicate both byte-serving routes call (`controllers/files.ts` and `api/assets.ts`'s
- * `/content`), replacing two expressions that used to disagree — and, on this exact question, were
- * inverted (OpenProject #1360/#2152/#2164, 2026-08-24 security audit §3): an `INLINE_EXTS` member is
- * never forced to download, whatever `forceAssetDownload` says — that flag only ever adds attachment
- * framing to what would otherwise be sent as a plain download already. Adopting the API route's old,
- * stricter `forceAssetDownload || !INLINE_EXTS.has(fileExt)` everywhere instead would break every
- * inline image in every page's content the moment an operator turned the setting on, which is why
- * `controllers/files.ts` was written the other way to begin with. This is intentionally *not* the
- * durable defence for the SVG/HTML case (an asset can still take the inline branch): that is
- * `helpers/security.ts#needsSvgCsp` and its per-response Content-Security-Policy, applied
- * unconditionally regardless of what this function returns. This predicate is disposition-only, and
- * its role here is defence in depth for every other extension.
+ * `/content`), so the same asset answers identically on either.
+ *
+ * An `INLINE_EXTS` member is never forced to download, whatever `forceAssetDownload` says: the
+ * stricter `forceAssetDownload || !INLINE_EXTS.has(fileExt)` would break every inline image in every
+ * page's content the moment an operator turned the setting on. Disposition only — the durable
+ * defence for the SVG/HTML case is `helpers/security.ts#needsSvgCsp`'s per-response CSP, applied
+ * whichever branch this takes.
  */
 export function dispositionFor(fileExt: string): boolean {
   return !INLINE_EXTS.has(fileExt) && Boolean(CARDINAL.config.security?.forceAssetDownload)
 }
 
-/** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
+/** Mirrors the `assetKind` schema enum — keep the two in step. */
 export type AssetKind = 'document' | 'image' | 'other'
 
 /**
  * What an upload does about a file already sitting at the name it wants, per the site's
  * `uploads.conflictBehavior` setting.
  *
- * - `overwrite` replaces the file where it is: same ID, same path, so every page pointing at it now
- *   shows the new contents. This is the default, and the one that makes re-uploading a corrected file
- *   do what the uploader meant.
- * - `reject` refuses the upload and says what is in the way, for a wiki where a file's contents are
- *   expected to be stable once published.
+ * - `overwrite` (the default) replaces the file where it is: same ID, same path, so every page
+ *   pointing at it shows the new contents.
+ * - `reject` refuses the upload and says what is in the way.
  * - `new` keeps both, the arrival taking the next free `name-1.ext`.
  *
  * Whichever is chosen, only an *asset* can be replaced: a page or a folder already holding the name
@@ -60,32 +47,23 @@ export type UploadConflictBehavior = 'overwrite' | 'reject' | 'new'
 const UPLOAD_CONFLICT_BEHAVIORS = new Set<UploadConflictBehavior>(['overwrite', 'reject', 'new'])
 
 /**
- * Who a delete is attributed to in the content lifecycle log (OpenProject #2674).
- *
- * An optional field on an options object rather than a new positional argument, deliberately: an
- * unswept caller (a future storage module, a maintenance script) is then a line reading `user=system`
- * rather than a compile error, and the deletion itself never depended on knowing who asked for it.
- * `authorId` is the actor's own id — the same value `upload()` already takes and stores on the row —
- * never an e-mail address.
+ * Who a delete is attributed to in the content lifecycle log. Optional deliberately: a caller with
+ * no actor behind it (a storage sync, a maintenance script) logs `user=system` rather than failing
+ * to compile, and the deletion never depended on knowing who asked for it. An actor id, never an
+ * e-mail address.
  */
 export interface AssetDeleteOptions {
   authorId?: string | null
 }
 
-/**
- * The `user=` field every `assets` lifecycle line carries. `system` stands in for a write with no
- * actor behind it (a storage sync, a folder sweep reached from somewhere that never had one).
- */
 function actorFields(authorId?: string | null): { user: string } {
   return { user: authorId || 'system' }
 }
 
-/** Where a file sits, as one readable value: `folder/path/file.png`, or just `file.png` at the root. */
 function assetPath(folderPath: string, fileName: string): string {
   return folderPath ? `${folderPath}/${fileName}` : fileName
 }
 
-/** Extensions that count as a document rather than "other". */
 const DOCUMENT_EXTS = new Set([
   'csv',
   'doc',
@@ -104,7 +82,6 @@ const DOCUMENT_EXTS = new Set([
   'xlsx'
 ])
 
-/** An asset's metadata, as exposed by the API. */
 export interface Asset {
   id: string
   fileName: string
@@ -120,16 +97,15 @@ export interface Asset {
   updatedAt: Date
   /**
    * Which locale's tree the asset sits in. Carried on every asset because a path lookup has to say
-   * which one it landed on: the URL in a page carries no locale, and the permission rules may be
-   * written against one.
+   * which one it landed on: the URL in a page carries no locale, and page rules may be written
+   * against one.
    */
   locale: string
 }
 
 /**
- * The twelve columns an {@link Asset} is read from, joined across `assets` and its `tree` row (the
- * two share an id). Both reads that answer with a whole `Asset` — by id and by path — select exactly
- * these, so they cannot drift apart the day a field is added to one.
+ * Joined across `assets` and its `tree` row (the two share an id). Both reads that answer with a
+ * whole {@link Asset} select exactly these, so they cannot drift apart when a field is added.
  */
 const assetSelection = {
   id: assetsTable.id,
@@ -143,15 +119,10 @@ const assetSelection = {
   folderPath: treeTable.folderPath,
   title: treeTable.title,
   locale: treeTable.locale,
-  // -> Only whether there is one: the preview itself can be megabytes, and no caller of this wants it
-  //    inlined
+  // -> Only whether there is one: the preview itself can be megabytes, and no caller wants it inlined
   hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`
 }
 
-/**
- * The three fix-ups an {@link assetSelection} row needs to be an {@link Asset}: a nullable `fileSize`
- * read as 0, the ltree `folderPath` decoded back to slashes, and `hasPreview` as a real boolean.
- */
 function toAsset(row: Record<string, any>): Asset {
   return {
     ...row,
@@ -162,8 +133,8 @@ function toAsset(row: Record<string, any>): Asset {
 }
 
 /**
- * What `/_thumb/` needs to decide whether the requester may see an asset's preview, plus the bytes
- * themselves: which site it belongs to, and the path/locale a page-rule check is written against.
+ * The preview bytes plus what `/_thumb/` needs to decide who may see them: the site, and the
+ * path/locale a page-rule check is written against.
  */
 export interface AssetThumbnail {
   siteId: string
@@ -174,13 +145,10 @@ export interface AssetThumbnail {
 }
 
 /**
- * Reduce whatever a client called the file to something safe to store, address and serve.
+ * Reduce whatever a client called the file to something safe to store, address and serve. Any
+ * directory part is dropped — the folder comes from the request, never from the name.
  *
- * Any directory part is dropped — the folder comes from the request, never from the name — and what
- * is left is lowercased down to the characters that survive a URL untouched, which is the same bar
- * folder path names are held to.
- *
- * Applied to every upload, with nothing to turn it off: a stored name is a URL, and a path is looked
+ * Applied to every upload, with nothing to turn it off: a stored name is a URL and a path is looked
  * up lowercased, so a name that skipped this would be one the site could not serve back.
  */
 function sanitizeFileName(input: string): string {
@@ -195,16 +163,10 @@ function sanitizeFileName(input: string): string {
   return cleaned.slice(0, 255)
 }
 
-/**
- * The extension, lowercase and without its dot. Empty when the name has none.
- */
 function extensionOf(fileName: string): string {
   return path.extname(fileName).replace(/^\./, '').toLowerCase()
 }
 
-/**
- * Classifies an asset as `image`, `document` or `other` from its resolved MIME type and extension.
- */
 function kindOf(mimeType: string, fileExt: string): AssetKind {
   if (mimeType.startsWith('image/')) {
     return 'image'
@@ -220,24 +182,19 @@ function kindOf(mimeType: string, fileExt: string): AssetKind {
 }
 
 /**
- * Assets model
- *
  * An asset is a file a user uploaded: its bytes live in the `assets` table, while its name and place
  * in the site live in the matching `tree` row, which shares its ID. Both are written together — an
  * asset with no tree row would be unreachable, and a tree row with no asset would be a broken link.
  *
  * The database is always the one durable copy, whatever else is also configured (a blob target such
- * as `s3` mirrors bytes via `dispatchStorage` rather than being read from directly for a normal
- * request) — but not the one that answers a request for a file. That path, and the two derived
- * caches in front of it, is `models/assetServing.ts`; the write paths here call into it only to say
- * an asset they just changed must be forgotten.
+ * as `s3` mirrors bytes via `dispatchStorage` rather than being read from directly) — but it is not
+ * what answers a request for a file. That path and its caches are `models/assetServing.ts`; the
+ * write paths here call into it only to say an asset they changed must be forgotten.
  */
 class Assets {
   /**
-   * What this site does about an upload landing on a name that is taken.
-   *
-   * Read per upload rather than held anywhere, so that changing it in the admin area applies to the
-   * next file rather than to the next restart. Anything unrecognized is treated as the default.
+   * Read per upload rather than held anywhere, so changing it in the admin area applies to the next
+   * file rather than to the next restart. Anything unrecognized is treated as the default.
    */
   conflictBehaviorFor(siteId: string): UploadConflictBehavior {
     const configured = CARDINAL.sites[siteId]?.config?.uploads?.conflictBehavior
@@ -247,13 +204,11 @@ class Assets {
   /**
    * Store an uploaded file.
    *
-   * A file already at this name is settled per the site's conflict behavior — see
-   * `UploadConflictBehavior`. An overwrite returns the existing asset's ID, so a caller that means to
+   * A file already at this name is settled per the site's {@link UploadConflictBehavior}. An
+   * overwrite returns the existing asset's ID, and the name is sanitized, so a caller that means to
    * link to what it just uploaded must read the returned name and ID rather than assume its own.
    *
-   * @param folderId UUID of the folder to upload into. The site root when absent.
-   * @param fileName What to call it. Sanitized, so what comes back may differ from what went in.
-   * @param data The file itself.
+   * @param folderId The site root when absent.
    */
   async upload({
     siteId,
@@ -274,12 +229,9 @@ class Assets {
     data: Buffer
     authorId: string
     /**
-     * Backdates the new asset's `createdAt` column instead of stamping the moment `upload()` runs.
-     * There is no UI for this and an ordinary upload never sets it, so a live upload keeps the
-     * column's `now()` default; only the migration importer
-     * (`backend/migration/importers/asset-import.ts`) supplies it, to carry a 2.x asset's real
-     * creation date across rather than replacing it with import time — same reasoning as
-     * `models/pages.ts#createPage()`'s `createdAt`/`updatedAt` (OpenProject #3204).
+     * Backdates the new asset's `createdAt` instead of stamping the moment `upload()` runs. Only
+     * the migration importer supplies it, carrying a 2.x asset's real creation date across; an
+     * ordinary upload leaves it unset and keeps the column's `now()` default.
      */
     createdAt?: string
     /** Same reasoning as {@link createdAt}, for `updatedAt`. */
@@ -290,12 +242,10 @@ class Assets {
       throw new CustomError('assetInvalidFileName', 'This file name cannot be used.')
     }
     const fileExt = extensionOf(safeName)
-    // -> The extension decides the type, not the request: the declared one is whatever the client felt
-    //    like sending, and this value is what gets served back to a browser later
+    // -> The extension decides the type, not the request: the declared one is whatever the client
+    //    felt like sending, and this value is what gets served back to a browser later
     const resolvedMime = mime.getType(safeName) ?? mimeType ?? 'application/octet-stream'
     const kind = kindOf(resolvedMime, fileExt)
-    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
-    //    exactly as uploaded, same as before this existed.
     const fileData =
       resolvedMime === svgMimeType && CARDINAL.config.security?.uploadScanSVG
         ? sanitizeSvg(data)
@@ -306,8 +256,6 @@ class Assets {
         ? await makeImageThumbnail(fileData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
 
-    // -> What is already at this name, if anything, and what the site says to do about it. Asked
-    //    before any row is touched, since two of the three answers write nothing new at all.
     const behavior = this.conflictBehaviorFor(siteId)
     const occupant =
       behavior === 'new'
@@ -320,8 +268,7 @@ class Assets {
           })
     if (occupant) {
       if (occupant.type !== 'asset') {
-        // -> Neither replacing nor renaming is what an administrator asked for here: a page or a
-        //    folder owns this name, and only its owner can give it up
+        // -> A page or a folder owns this name, and only its owner can give it up
         throw new CustomError(
           'assetNameTakenByEntry',
           `A ${occupant.type} with this name already exists here.`,
@@ -335,11 +282,9 @@ class Assets {
           409
         )
       }
-      // -> `createdAt`/`updatedAt` are deliberately not threaded into `replace()` — an occupant
-      //    already existing here means this isn't the asset's first write, so overwriting its
-      //    `createdAt` would misrepresent an edit as a creation. The migration importer creates each
-      //    2.x asset exactly once at a name nothing in the destination tree has claimed yet, so this
-      //    branch is not the one it runs through for the override to matter.
+      // -> `createdAt`/`updatedAt` are deliberately not threaded into `replace()`: an occupant here
+      //    means this is not the asset's first write, so overwriting `createdAt` would misrepresent
+      //    an edit as a creation.
       return this.replace({
         id: occupant.id,
         siteId,
@@ -356,9 +301,8 @@ class Assets {
       })
     }
 
-    // -> The tree row goes in first: it owns the name, and it is what settles a collision with
-    //    something already in the folder before any bytes are written. What comes back is the name
-    //    that was actually free, which is not always the one asked for.
+    // -> The tree row goes in first: it owns the name, so it settles a collision before any bytes
+    //    are written, and what comes back is the name that was free, not always the one asked for.
     const entry = await CARDINAL.models.tree.addAsset({
       parentId: folderId,
       fileName: safeName,
@@ -412,9 +356,8 @@ class Assets {
       }
     )
 
-    // -> The content lifecycle line (OpenProject #2674), from the model rather than from
-    //    `api/assets.ts`, so the file manager, the MCP `uploadAsset` tool, the 2.5.x import and a
-    //    git/disk storage import all produce the identical line.
+    // -> Logged from the model rather than the route, so every upload path (file manager, MCP,
+    //    importer, storage sync) produces the identical line.
     CARDINAL.logger.info('assets', 'uploaded', {
       site: siteId,
       asset: entry.id,
@@ -434,10 +377,8 @@ class Assets {
       folderPath,
       title: entry.title,
       hasPreview: Boolean(preview),
-      // -> The tree row (`entry`) never receives the override — only the `assets` row itself does,
-      //    matching what every real read (the `Assets` projection above) selects `createdAt`/
-      //    `updatedAt` from. Returning the override value here rather than `entry.createdAt` keeps
-      //    this response consistent with what a follow-up read of the same asset would show.
+      // -> Only the `assets` row receives the override, and `assetSelection` reads these two from
+      //    there, so echoing it back rather than `entry.createdAt` is what a follow-up read shows.
       createdAt: createdAt ? new Date(createdAt) : entry.createdAt,
       updatedAt: updatedAt ? new Date(updatedAt) : entry.updatedAt,
       locale
@@ -449,12 +390,9 @@ class Assets {
    * `overwrite` conflict behavior.
    *
    * The asset keeps its ID, its name and its place in the tree, so every page and every link already
-   * pointing at the file goes on working and now resolves to the new bytes. What changes is what the
-   * file *is* — its contents, size, type and thumbnail — plus who put them there.
-   *
-   * The name it keeps is the stored one, which is why the extension and type are the incoming file's:
-   * the two only differ when a browser sent `Photo.PNG` for what is stored as `photo.png`, and the
-   * sanitized name is what both agree on.
+   * pointing at the file goes on working and resolves to the new bytes. The name it keeps is the
+   * stored one, while the extension and type are the incoming file's — the two only differ when a
+   * browser sent `Photo.PNG` for what is stored as `photo.png`.
    */
   private async replace({
     id,
@@ -502,10 +440,9 @@ class Assets {
       .set({ meta: { fileSize: data.length, fileExt, mimeType }, updatedAt: sql`now()` })
       .where(eq(treeTable.id, id))
 
-    // -> The path resolves to the same asset as before, but to different metadata: the ETag is the
-    //    modification time, so a reader holding the old file has to be told to fetch it again. The
-    //    cached bytes are keyed by that same time and are unreachable from here on, but are dropped
-    //    rather than left for the sweep, since the file they hold is gone for good.
+    // -> The path still resolves to this asset, but the ETag is the modification time, so a reader
+    //    holding the old file has to be told to fetch again. The cached bytes are keyed by that
+    //    same time and so already unreachable, but are dropped rather than left for the sweep.
     CARDINAL.models.assetServing.forgetPath(siteId, folderPath, fileName)
     await CARDINAL.models.assetServing.dropCachedContent([id])
 
@@ -519,9 +456,8 @@ class Assets {
       }
     )
 
-    // -> Still an upload from the operator's point of view (OpenProject #2674) -- somebody sent a file
-    //    and the site now serves those bytes at that path. `overwrite` is what distinguishes it from
-    //    a file arriving at a name nothing held.
+    // -> Still an upload from the operator's point of view: somebody sent a file and the site serves
+    //    those bytes at that path. `overwrite` is what distinguishes it from a name nothing held.
     CARDINAL.logger.info('assets', 'uploaded', {
       site: siteId,
       asset: id,
@@ -533,8 +469,8 @@ class Assets {
     })
 
     const updated = await this.getAsset(siteId, id)
-    // -> Only if the row vanished between the update and the read, which means someone deleted the
-    //    file mid-upload. Answering with what was written beats failing a request that did land.
+    // -> Only if the row vanished between the update and the read — deleted mid-upload. Answering
+    //    with what was written beats failing a request that did land.
     return (
       updated ?? {
         id,
@@ -553,9 +489,7 @@ class Assets {
     )
   }
 
-  /**
-   * An asset's metadata, without its bytes. Null if there is no such asset on this site.
-   */
+  /** An asset's metadata, without its bytes. */
   async getAsset(siteId: string, id: string): Promise<Asset | null> {
     const results = await CARDINAL.db
       .select(assetSelection)
@@ -569,11 +503,9 @@ class Assets {
   }
 
   /**
-   * Every asset of a site, metadata only — no bytes, no pagination.
-   *
-   * For a full walk of a site's assets (a file-backed storage target reconciling its repo against the
-   * DB, chiefly). A caller that needs an asset's bytes fetches them per asset via `getContent()`, the
-   * same way `modules/storage/git/content.ts`'s write-path handlers already do.
+   * Every asset of a site, metadata only — no bytes, no pagination — for a full walk, such as a
+   * file-backed storage target reconciling its repo against the DB. A caller that needs the bytes
+   * fetches them per asset via `getContent()`.
    */
   async listAllForSite(
     siteId: string
@@ -600,11 +532,11 @@ class Assets {
 
   /**
    * An asset's metadata, addressed the way a page's content addresses it: by its path within the
-   * site. Null if there is nothing there.
+   * site.
    *
-   * The path lives on the tree row rather than on the asset — the two share an ID — so the lookup
-   * splits it into the folder and the file the way the tree stores them, the folder as an ltree.
-   * Both are lowercased, because that is what an upload stored them as.
+   * The path lives on the tree row rather than on the asset, so the lookup splits it the way the
+   * tree stores it, the folder as an ltree. Both halves are lowercased, because that is what an
+   * upload stored them as.
    *
    * A path can exist once per locale and the URL carries none, so the site's primary locale wins
    * where more than one has a file there. That is also the only one the file manager uploads into.
@@ -637,10 +569,10 @@ class Assets {
   }
 
   /**
-   * An asset's bytes, along with what to serve them as. Null if there is no such asset.
+   * An asset's bytes, along with what to serve them as.
    *
-   * Not scoped to a site, unlike the rest: the ID is a UUID nobody can guess, and the routes that use
-   * this are the public ones, which have no site of their own to check against.
+   * Not scoped to a site, unlike the rest: the ID is a UUID nobody can guess, and the routes that
+   * use this are the public ones, which have no site of their own to check against.
    */
   async getContent(
     id: string
@@ -660,12 +592,11 @@ class Assets {
 
   /**
    * Every asset of a site, bytes included — for a caller that has to write out everything it holds,
-   * which today is only a blob storage target's `exportAll` (see `modules/storage/s3/storage.ts`).
+   * such as a storage target's `exportAll`.
    *
    * Paged by primary key rather than pulled in one query: a site's assets can run into the gigabytes
-   * once bytes are included, so this keeps memory bounded to one batch rather than materializing the
-   * whole site at once. `id`'s own btree index is what keeps `id > cursor` cheap to keep paging
-   * against, unlike an `OFFSET` that re-scans everything before it on every page.
+   * once bytes are included, so this keeps memory bounded to one batch. `id`'s btree index keeps
+   * `id > cursor` cheap, unlike an `OFFSET` that re-scans everything before it on every page.
    */
   async *streamAll(
     siteId: string,
@@ -721,11 +652,9 @@ class Assets {
   }
 
   /**
-   * An asset's thumbnail, together with what `/_thumb/` needs to decide who may see it — its site,
-   * path and locale, the same shape `getAssetByPath()` hands `/_files/` — or null when there is no
-   * such asset, or it has no thumbnail: the normal state for anything that is not an image, for
-   * images uploaded while Sharp was unavailable, or for one a storage target's `purge()` has nulled
-   * out.
+   * An asset's thumbnail, with what `/_thumb/` needs to decide who may see it. Null when there is
+   * no such asset or it has no thumbnail — the normal state for anything that is not an image, for
+   * images uploaded while Sharp was unavailable, and for one a storage target's `purge()` nulled.
    */
   async getThumbnail(id: string): Promise<AssetThumbnail | null> {
     const results = await CARDINAL.db
@@ -753,11 +682,6 @@ class Assets {
     }
   }
 
-  /**
-   * Rename an asset, in both of the rows that describe it.
-   *
-   * @returns The updated metadata, or null if there is no such asset on this site
-   */
   async renameAsset(siteId: string, id: string, fileName: string): Promise<Asset | null> {
     const asset = await this.getAsset(siteId, id)
     if (!asset) {
@@ -790,8 +714,8 @@ class Assets {
       .set({ meta: { fileSize: asset.fileSize, fileExt, mimeType: resolvedMime } })
       .where(eq(treeTable.id, id))
 
-    // -> Both ends of the move: the name it left, and the name it took, which something else may have
-    //    been resolved at before it was freed up
+    // -> Both ends of the rename: the name it left, and the name it took, which something else may
+    //    have been resolved at before it was freed up
     CARDINAL.models.assetServing.forgetPath(siteId, asset.folderPath, asset.fileName)
     CARDINAL.models.assetServing.forgetPath(siteId, asset.folderPath, safeName)
     await CARDINAL.models.assetServing.dropCachedContent([id])
@@ -819,12 +743,7 @@ class Assets {
    * into the folder it already sits in is a no-op: nothing is touched, and no `asset:move` fires, so
    * a caller cannot be told a move happened when nothing changed.
    *
-   * Storage dispatch relocates the asset on every write-path target: a blob target (`s3`/`azure`/
-   * `gcs`) copies its object to the new key and removes the old one, and the `git` target does the
-   * equivalent `git mv` (OpenProject #3384) — see `models/storage.ts`'s `STORAGE_HANDLERS['asset:move']`.
-   * `previousFolderPath` below is what a handler keys that copy/rename on.
-   *
-   * @returns The updated metadata, or null if there is no such asset on this site
+   * `previousFolderPath` on the announcement is what a storage handler keys its own copy/rename on.
    */
   async moveAsset({
     siteId,
@@ -875,8 +794,7 @@ class Assets {
   /**
    * Delete an asset and the tree entry that points at it.
    *
-   * @param authorId Who asked for it, for the lifecycle log line alone — see `AssetDeleteOptions`.
-   * @returns Whether an asset was deleted
+   * @param authorId For the lifecycle log line alone — see {@link AssetDeleteOptions}.
    */
   async deleteAsset(
     siteId: string,
@@ -918,7 +836,7 @@ class Assets {
   /**
    * Delete the assets left behind by a folder deletion, which removed their tree entries already.
    *
-   * @param authorId Who asked for it, for the lifecycle log lines alone — see `AssetDeleteOptions`.
+   * @param authorId For the lifecycle log lines alone — see {@link AssetDeleteOptions}.
    */
   async deleteOrphaned(
     siteId: string,
@@ -929,9 +847,9 @@ class Assets {
       return
     }
     const ids = entries.map((entry) => entry.id)
-    // -> `kind`/`fileSize` are returned rather than dropped with the rows: dispatching a delete needs
-    //    them to classify the content type against a target's `contentTypes.activeTypes`, and this is
-    //    the last point at which the database still has them
+    // -> `kind`/`fileSize` come back rather than going with the rows: dispatching a delete needs
+    //    them to classify against a target's `contentTypes.activeTypes`, and this is the last point
+    //    at which the database still has them
     const deleted = await CARDINAL.db
       .delete(assetsTable)
       .where(inArray(assetsTable.id, ids))
@@ -942,11 +860,10 @@ class Assets {
     CARDINAL.models.assetServing.forgetAllPaths()
     await CARDINAL.models.assetServing.dropCachedContent(ids)
 
-    // -> Same reasoning as `deleteAsset`: one batched call rather than one per asset.
     await CARDINAL.models.contentSync.forgetContentBatch('asset', ids)
 
-    // -> One per file, as deleting them one at a time would have sent: a subscriber mirroring the
-    //    wiki has to hear about each file, not about the folder it happened to sit in
+    // -> One announcement per file, as deleting them one at a time would have sent: a subscriber
+    //    mirroring the wiki has to hear about each file, not about the folder it sat in
     for (const entry of entries) {
       const row = deletedById.get(entry.id)
       await announce(
@@ -960,9 +877,7 @@ class Assets {
         },
         { dispatchExtra: { kind: row?.kind, fileSize: row?.fileSize } }
       )
-      // -> One per file, for the same reason the `announce` above is per file (OpenProject #2674):
-      //    each of these really is a file leaving the wiki. `cascade` says it was the folder over it
-      //    that was deleted, not the file itself.
+      // -> `cascade` says it was the folder over it that was deleted, not the file itself
       CARDINAL.logger.info('assets', 'deleted', {
         site: siteId,
         asset: entry.id,

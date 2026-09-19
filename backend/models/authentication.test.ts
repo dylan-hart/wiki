@@ -7,16 +7,13 @@ import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
- * `refreshStrategiesFromDisk()` reads real `definition.yml` files under `modules/authentication/` —
- * no database involved — so this is a pure unit test against the actual files shipped in this repo,
- * not a mock of them. It exists to catch exactly the gap an integration pass is for: a redirect-based
- * module (SAML, CAS) that never declares the `refs` block telling an administrator what URL to
- * register with the provider, mirroring the `refs.callbackUrl` convention every other redirect-based
- * module (Google, GitHub, OIDC) already follows. A form-based module (LDAP) has no callback URL at
- * all, so it correctly declares no `refs`.
+ * `refreshStrategiesFromDisk()` reads the real `definition.yml` files under
+ * `modules/authentication/` — no database, no mocks — so these assert against the files this repo
+ * ships. A redirect-based module must declare the `refs` block that tells an administrator what URL
+ * to register with the provider; a form-based one has no callback URL, so it declares none.
  */
 
-// -> A minimal CARDINAL global: `refreshStrategiesFromDisk()` only touches SERVERPATH, logger and data.
+// -> `refreshStrategiesFromDisk()` only touches SERVERPATH, logger and data.
 ;(globalThis as any).CARDINAL = {
   SERVERPATH: path.join(import.meta.dirname, '..'),
   logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
@@ -49,12 +46,11 @@ describe('authentication module definitions: refs guidance', () => {
 })
 
 /**
- * OpenProject #2548: `provisionable` is what the admin UI gates the `trustEmailForLinking` toggle on
- * for a `useForm` module (`AdminAuth.vue`). LDAP's `authenticate()` always throws
- * `ProvisionableLoginError` on a successful bind (`modules/authentication/ldap/authentication.ts`),
- * dispatching through the same find-or-create-by-email path a redirect-based provider uses — so it
- * must declare the flag. Local's `authenticate()` resolves directly against its own stored password
- * hash and never produces a provisionable external profile, so it must not.
+ * `provisionable` is what the admin UI gates the `trustEmailForLinking` toggle on for a `useForm`
+ * module. LDAP's `authenticate()` throws `ProvisionableLoginError` on a successful bind, dispatching
+ * through the same find-or-create-by-email path a redirect-based provider uses, so it must declare
+ * the flag; local resolves against its own stored password hash and never produces an external
+ * profile, so it must not.
  */
 describe('authentication module definitions: provisionable', () => {
   test('LDAP declares provisionable: true', async () => {
@@ -73,21 +69,18 @@ describe('authentication module definitions: provisionable', () => {
 })
 
 /**
- * A failed scan must still leave `CARDINAL.data.authentication` an array.
- *
- * `base.yml` declares no `authentication` key, so this field only ever exists because
- * `refreshStrategiesFromDisk()` put it there — and `models/users.ts`'s login and registration paths
- * (`CARDINAL.data.authentication.find(...)`) and `api/auth/strategies.ts`'s strategy listing all read it
- * unguarded. Left `undefined` by a scan that threw, the very next login answers a `TypeError` 500
- * instead of "no such strategy", which is the failure mode this locks down.
+ * `base.yml` declares no `authentication` key, so `CARDINAL.data.authentication` exists only because
+ * `refreshStrategiesFromDisk()` put it there — and the login, registration and strategy-listing
+ * paths all read it unguarded. Left `undefined` by a scan that threw, the next login answers a
+ * `TypeError` 500 instead of "no such strategy".
  */
 describe('authentication.refreshStrategiesFromDisk: a scan that fails', () => {
   let previousServerPath: string
 
   before(() => {
     previousServerPath = (globalThis as any).CARDINAL.SERVERPATH
-    // -> A directory that does not exist: `readdir` rejects, so the scan fails before it can read a
-    //    single definition — the same shape as an unreadable or missing `modules/authentication`.
+    // -> A directory that does not exist, so `readdir` rejects and the scan fails before reading a
+    //    single definition — the same shape as an unreadable `modules/authentication`.
     ;(globalThis as any).CARDINAL.SERVERPATH = path.join(
       import.meta.dirname,
       '..',
@@ -109,10 +102,9 @@ describe('authentication.refreshStrategiesFromDisk: a scan that fails', () => {
 })
 
 /**
- * `validateStrategy`'s `mappableGroups` check mirrors `autoEnrollGroups`'s own validation
- * (guests refused, unknown group id refused) — this is the allow-list column added for the group
- * mapping constraint. `CARDINAL.db` is stubbed to a fixed group list rather than run against a real
- * database: what is under test here is the validation branching, not the query itself.
+ * `validateStrategy`'s `mappableGroups` check mirrors `autoEnrollGroups`'s own validation (guests
+ * refused, unknown group id refused). `CARDINAL.db` is stubbed to a fixed group list: what is under
+ * test is the validation branching, not the query.
  */
 describe('authentication.validateStrategy: mappableGroups', () => {
   const guestsGroupId = 'group-guests'
@@ -174,10 +166,9 @@ describe('authentication.validateStrategy: mappableGroups', () => {
 })
 
 /**
- * OpenProject #3372: `allowedEmailRegex` is compiled and run fresh on every login attempt against
- * the strategy (`models/login.ts#assertAllowedProviderEmail`), so a pattern that is syntax-valid but
- * vulnerable to catastrophic backtracking must be refused here at save time, same as an unparseable
- * one already is. Pure unit suite -- no database, no `CARDINAL` global.
+ * `allowedEmailRegex` is compiled and run fresh on every login attempt against the strategy
+ * (`models/login.ts#assertAllowedProviderEmail`), so a pattern that is syntax-valid but vulnerable
+ * to catastrophic backtracking has to be refused at save time, as an unparseable one is.
  */
 describe('authentication.validateStrategy: allowedEmailRegex safety', () => {
   test('accepts an empty allowedEmailRegex', async () => {
@@ -222,10 +213,8 @@ describe('authentication.validateStrategy: allowedEmailRegex safety', () => {
 })
 
 /**
- * OpenProject #2469: `allowedEmailDomains` is a per-strategy list of domains, a friendlier
- * alternative to `allowedEmailRegex` for the common case. `validateStrategy`'s format check touches
- * no database and no `CARDINAL` global, so this is a pure unit suite -- the same "no I/O" reasoning as
- * the mappableGroups describe above, minus even its `CARDINAL.db` stub.
+ * `allowedEmailDomains` is a per-strategy list of domains, the friendlier alternative to
+ * `allowedEmailRegex`. Its format check touches no database and no `CARDINAL` global.
  */
 describe('authentication.validateStrategy: allowedEmailDomains', () => {
   test('accepts an empty allowedEmailDomains list', async () => {
@@ -276,13 +265,12 @@ describe(
   { skip: !hasTestDatabase() },
   () => {
     before(async () => {
-      // -> This suite needs nothing from the returned fixtures (no site/user/group involved) -- only
-      //    the DB connection and migrated schema `setupTestDb()` sets up as a side effect.
+      // -> Nothing from the returned fixtures is needed here, only the DB connection and migrated
+      //    schema `setupTestDb()` sets up as a side effect.
       await setupTestDb()
       // -> `updateStrategy`/`getActiveStrategies`'s sort calls `isBuiltInLocal`, which reads
-      //    `CARDINAL.data.systemIds.localAuthId` -- `setupTestDb()`'s own minimal CARDINAL has no
-      //    `systemIds` at all, since no other DB-backed suite needs one. A value that matches no
-      //    strategy this suite creates is all `isBuiltInLocal` needs to answer false for all of them.
+      //    `CARDINAL.data.systemIds.localAuthId`, and `setupTestDb()`'s minimal CARDINAL has no
+      //    `systemIds`. A value matching no strategy created here answers false for all of them.
       ;(CARDINAL.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
       await authentication.refreshStrategiesFromDisk()
     })
@@ -297,15 +285,14 @@ describe(
         config: { clientId: 'my-client-id', clientSecret: 'super-secret-value' }
       })
 
-      // -> Default (unmasked): `updateStrategy()`'s own merge reads through this method, and needs
-      //    the real value to preserve an untouched secret correctly.
+      // -> Unmasked by default: `updateStrategy()`'s own merge reads through this method and needs
+      //    the real value to preserve an untouched secret.
       let strategy = await authentication.getStrategyById(id)
       assert.equal(strategy?.config.clientSecret, 'super-secret-value')
 
-      // -> `{ mask: true }`: what the admin GET routes (api/auth/strategies.ts) actually return.
+      // -> `{ mask: true }`: what the admin GET routes return.
       strategy = await authentication.getStrategyById(id, { mask: true })
       assert.equal(strategy?.config.clientSecret, '********')
-      // -> A non-sensitive prop on the same strategy is untouched by masking.
       assert.equal(strategy?.config.clientId, 'my-client-id')
 
       const maskedList = await authentication.getActiveStrategies({ mask: true })
@@ -318,8 +305,7 @@ describe(
         config: { clientId: 'original-id', clientSecret: 'original-secret' }
       })
 
-      // -> Simulates an admin form resubmitting the masked value it was shown, having only changed
-      //    an unrelated field (clientId) -- the clientSecret field itself was never touched.
+      // -> An admin form resubmitting the masked value it was shown, having changed only `clientId`
       await authentication.updateStrategy(id, {
         config: { clientId: 'updated-id', clientSecret: '********' }
       })
@@ -332,11 +318,10 @@ describe(
 )
 
 /**
- * OpenProject #2440: the admin group-assignment UI had no warning that a manually-added membership
- * in a group also on a strategy's `mappableGroups` allow-list can be silently reverted on that user's
- * next login. `getGroupSyncWarnings()` is the read behind that warning -- these assert it names
- * exactly the groups `models/login.ts#syncProviderGroups()` would actually revoke, not merely every
- * mappable group.
+ * A manually-added membership in a group on a strategy's `mappableGroups` allow-list can be
+ * silently reverted on that user's next login; `getGroupSyncWarnings()` is the read behind the
+ * admin warning about it. These assert it names exactly the groups
+ * `models/login.ts#syncProviderGroups()` would actually revoke, not every mappable group.
  */
 describe(
   'authentication.getGroupSyncWarnings (DB-backed, real oauth2 definition read from disk)',
@@ -371,9 +356,9 @@ describe(
         .returning({ id: groupsTable.id })
       const adminGroupId = adminRow!.id
 
-      // -> Enabled, mapGroups on, and its allow-list mixes one genuinely-revocable group with three
-      //    that must never be flagged: the guests group, a group it also `autoEnrollGroups` (granted
-      //    directly by an admin, never taken away by the sync), and a `manage:system` group.
+      // -> Enabled, mapGroups on, and its allow-list mixes one genuinely-revocable group with two
+      //    that must never be flagged: a group it also `autoEnrollGroups` (granted directly by an
+      //    admin, never taken away by the sync), and a `manage:system` group.
       const activeId = await authentication.createStrategy({
         module: 'oauth2',
         displayName: 'Corp OAuth2',
@@ -390,8 +375,8 @@ describe(
         mappableGroups: [editorsGroupId],
         config: { mapGroups: true }
       })
-      // -> Enabled, but mapGroups is off -- an allow-list configured ahead of turning mapping on
-      //    grants/revokes nothing yet, and must not be warned about either.
+      // -> Enabled, but mapGroups off: an allow-list configured ahead of turning mapping on grants
+      //    and revokes nothing yet, so it must not be warned about either.
       await authentication.createStrategy({
         module: 'oauth2',
         displayName: 'Not Mapping Yet',
@@ -414,9 +399,9 @@ describe(
 )
 
 /**
- * OpenProject #2469: `createStrategy`/`updateStrategy` normalize `allowedEmailDomains` (trim,
- * lower-case, dedupe) before it reaches the row -- DB-backed because the point under test is what a
- * real round trip through the column actually stores, not merely what a stub was called with.
+ * `createStrategy`/`updateStrategy` normalize `allowedEmailDomains` (trim, lower-case, dedupe)
+ * before it reaches the row -- DB-backed because the point under test is what a real round trip
+ * through the column stores, not what a stub was called with.
  */
 describe(
   'authentication: allowedEmailDomains normalization (DB-backed)',
@@ -478,11 +463,9 @@ describe(
 )
 
 /**
- * OpenProject #2556: a newly created strategy is invisible on every site until an admin visits that
- * site's Login settings and turns it on -- because an absent per-site entry falls back to
- * `isVisible: false` (`api/auth/site.ts`). `createStrategy()` now upserts `isVisible: true` into every
- * existing site's `config.authStrategies` at creation time, mirroring how a fresh site already seeds
- * `local` as visible (`models/sites.ts#createSite`).
+ * An absent per-site entry falls back to `isVisible: false` (`api/auth/site.ts`), so without this
+ * seeding a newly created strategy would be invisible on every site until an admin visited each
+ * site's Login settings — mirroring how a fresh site already seeds `local` as visible.
  */
 describe(
   'authentication.createStrategy: seeds isVisible: true on every existing site (DB-backed)',
@@ -521,8 +504,6 @@ describe(
         order: number
         isVisible: boolean
       }>
-      // -> The seed's own local strategy entry (from the earlier createSite default, or the previous
-      //    test's strategy) must still be present and untouched alongside the new one.
       assert.ok(
         firstEntries.some((s) => s.id !== id),
         'a pre-existing entry should survive untouched'
@@ -544,10 +525,9 @@ describe(
 )
 
 /**
- * OpenProject #2557: `AdminAuth.vue` warns when an enabled strategy is not shown on any site's login
- * screen. `getVisibleSiteCounts()` is the read behind that warning -- DB-backed because the point
- * under test is a real tally across more than one site's stored `config.authStrategies`, not merely
- * what a stub was called with.
+ * `getVisibleSiteCounts()` is the read behind the admin warning that an enabled strategy is shown
+ * on no site's login screen -- DB-backed because the point under test is a real tally across more
+ * than one site's stored `config.authStrategies`, not what a stub was called with.
  */
 describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: Awaited<ReturnType<typeof setupTestDb>>
@@ -564,9 +544,8 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
 
   test('a strategy no site references at all is absent from the map', async () => {
     const id = await authentication.createStrategy({ module: 'local' })
-    // -> createStrategy itself seeds a visible entry for the new strategy into every existing site
-    //    (OpenProject #2556), so the fixture site already references `id` at this point -- wipe that
-    //    seed to exercise the genuinely-unreferenced-anywhere case this test is actually about.
+    // -> createStrategy seeds a visible entry into every existing site, so the fixture site already
+    //    references `id`; wipe it to reach the genuinely-unreferenced case this is about.
     await CARDINAL.models.sites.updateSite(fixtures.siteId, { config: { authStrategies: [] } })
     const counts = await authentication.getVisibleSiteCounts()
     assert.equal(counts[id], undefined)
@@ -577,8 +556,8 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
     const invisibleEverywhereId = await authentication.createStrategy({ module: 'local' })
     const visibleOnOneOfTwoId = await authentication.createStrategy({ module: 'local' })
 
-    // -> The fixture's own seeded site: visible for two of the three, and carries an isVisible:
-    //    false entry for the third -- the exact fallback shape `api/auth/site.ts` reads.
+    // -> An explicit `isVisible: false` entry, the shape `api/auth/site.ts` reads, rather than an
+    //    absent one
     await CARDINAL.models.sites.updateSite(fixtures.siteId, {
       config: {
         authStrategies: [
@@ -589,8 +568,6 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
       }
     })
 
-    // -> A second site: visible for the first strategy again (count should reach 2), invisible for
-    //    the third (count should stay 1), and never references the second at all.
     const [secondSite] = await fixtures.db
       .insert(sitesTable)
       .values({
@@ -611,17 +588,16 @@ describe('authentication.getVisibleSiteCounts (DB-backed)', { skip: !hasTestData
     assert.equal(counts[invisibleEverywhereId], undefined)
     assert.equal(counts[visibleOnOneOfTwoId], 1)
 
-    // -> Cleanup so this test's second site does not bleed into the next test's own counts within
-    //    the same suite (one shared schema across the whole describe, not one per test).
+    // -> One shared schema across the whole describe, so this site would otherwise bleed into the
+    //    next test's counts.
     await fixtures.db.delete(sitesTable).where(eq(sitesTable.id, secondSite!.id))
   })
 })
 
 /**
- * The one place a module turns "what the provider said" into the two `ProviderProfile` keys
- * (Feature #2608). All five modules that issue separated names spread this, so a change here is a
- * change to every one of them at once — which is exactly why the two decisions it encodes get their
- * own coverage rather than being re-asserted five times over.
+ * The one place a module turns "what the provider said" into the two `ProviderProfile` keys. Every
+ * module issuing separated names spreads it, so its decisions are covered once here rather than
+ * re-asserted in each of them.
  */
 describe('providerNameHalves', () => {
   test('carries both halves through when the provider issued both', () => {

@@ -6,19 +6,15 @@ import { installTestWiki } from '../test/mocks.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
- * Exercises `readContent()`'s target-awareness — `governingTarget`, `directUrlFor`, and the
- * `assetDelivery.streaming` branch itself — with `CARDINAL.db` / `CARDINAL.models.storage` stubbed rather
- * than a real Postgres instance. What this has to get right is which path gets taken (disk cache vs.
- * buffered read vs. redirect) for a given target configuration, not SQL, so a stub answering exactly
- * the calls each path makes is enough to drive it — and, crucially, lets a test assert a path was
- * *not* taken (e.g. the disk cache never touched with streaming off) by having the stub throw if
- * called.
+ * `CARDINAL.db` / `CARDINAL.models.storage` are stubbed rather than backed by a real Postgres: what has
+ * to be right here is which path a given target configuration takes (disk cache vs. buffered read vs.
+ * redirect), not SQL. A stub that throws when called is also how a test asserts a path was *not*
+ * taken — e.g. the disk cache never touched with streaming off.
  */
 let wiki: { restore(): void }
 
 before(() => {
-  // -> The real `assets` singleton: the serving cache falls through to it for the metadata
-  //    (`getAssetByPath`) and the bytes (`getContent`) a cache miss has to go and fetch.
+  // -> The real `assets` singleton: a cache miss falls through to it for the metadata and the bytes.
   // -> `logger.warn` is a spy rather than the default silent no-op: `directUrlFor`'s
   //    failure-fallback test below asserts on what it logged.
   wiki = installTestWiki({ models: { assets }, logger: { warn: mock.fn() } })
@@ -35,7 +31,6 @@ const testAsset = {
   fileSize: 1000
 }
 
-/** A db-module target, as `getSiteTargets` would shape one, with `assetDelivery` overridable. */
 function makeDbTarget(
   assetDelivery: Partial<StorageTarget['assetDelivery']> = {},
   overrides: Partial<StorageTarget> = {}
@@ -74,7 +69,6 @@ function makeDbTarget(
   }
 }
 
-/** Stubs the pieces of `CARDINAL.models.storage` that `readContent()`'s target-aware path calls. */
 function stubStorage({
   targets = [],
   ensureModule = async () => null
@@ -94,7 +88,6 @@ function stubStorage({
   } as unknown as CardinalGlobal
 }
 
-/** Stubs `CARDINAL.db`'s `getContent()` chain to answer with (or without) a row. */
 function stubDb(row: { data: Buffer; mimeType: string; fileName: string } | undefined) {
   global.CARDINAL = {
     ...global.CARDINAL,
@@ -110,16 +103,11 @@ function stubDb(row: { data: Buffer; mimeType: string; fileName: string } | unde
   } as unknown as CardinalGlobal
 }
 
-/** Fails the test if called — for asserting a path was never taken. */
 function unreachable(label: string) {
   return async () => {
     throw new Error(`should not have been called: ${label}`)
   }
 }
-
-// ---------------------------------------------------------------------------------------------
-// governingTarget()
-// ---------------------------------------------------------------------------------------------
 
 test('governingTarget picks the enabled db-module target among several', async () => {
   const dbTarget = makeDbTarget()
@@ -215,12 +203,6 @@ test('governingTarget ignores content-type matching entirely when called with no
   assert.equal(found?.id, 'target-db')
 })
 
-// ---------------------------------------------------------------------------------------------
-// governingTargetFrom() — the synchronous split `governingTarget()` delegates to, and what
-// `modules/storage/db/storage.ts#purge()` (OpenProject #3375) calls directly per-asset against a
-// target list it fetched once, rather than once per asset.
-// ---------------------------------------------------------------------------------------------
-
 test('governingTargetFrom is a pure function of the targets it is handed — no CARDINAL.models.storage call', () => {
   const dbTarget = makeDbTarget()
   const s3Target = makeDbTarget(
@@ -242,10 +224,6 @@ test('governingTargetFrom is a pure function of the targets it is handed — no 
   )
   assert.equal(assetServing.governingTargetFrom([]), null)
 })
-
-// ---------------------------------------------------------------------------------------------
-// directUrlFor()
-// ---------------------------------------------------------------------------------------------
 
 test('directUrlFor returns null without consulting the module when directAccess is off', async () => {
   const target = makeDbTarget({ directAccess: false, isDirectAccessSupported: true })
@@ -286,11 +264,9 @@ test('directUrlFor returns the module URL when everything lines up', async () =>
 })
 
 /**
- * OpenProject #3376: a blob target's `getDirectUrl` throws before this ever reaches
- * `driver.sign()` — activation itself (`blobBase.ts#getClient`) throws on a bad credential or an
- * unreachable bucket, on the first asset request after every process start. Left unguarded, that
- * throw would reach `readContent` and turn every asset on every page into a 500; caught here, it
- * falls back to null so `readContent` streams the bytes from the database instead.
+ * The realistic throw is activation (`blobBase.ts#getClient`) on a bad credential or an unreachable
+ * bucket, on the first asset request after a process start — long before `driver.sign()`. Unguarded
+ * it would reach `readContent` and turn every asset on every page into a 500.
  */
 test('directUrlFor falls back to null and logs a warning when the module throws', async () => {
   const target = makeDbTarget({ directAccess: true, isDirectAccessSupported: true })
@@ -318,14 +294,10 @@ test('directUrlFor falls back to null and logs a warning when the module throws'
   assert.equal((fields as any).asset, 'asset-1')
 })
 
-// ---------------------------------------------------------------------------------------------
-// readContent() — streaming on/off and the directAccess hook, wired together
-// ---------------------------------------------------------------------------------------------
-
 test('readContent, streaming on (the default), reads the disk cache first and never touches the db when it hits', async () => {
   const target = makeDbTarget({ streaming: true })
   stubStorage({ targets: [target] })
-  stubDb(undefined) // -> getContent() would fail the test if this test path reaches it
+  stubDb(undefined)
   const originalReadCache = assetServing.readContentCache
   const originalGetContent = CARDINAL.models.assets.getContent
   let cacheHit = false
