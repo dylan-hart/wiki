@@ -31,29 +31,27 @@
           @click="openNotification(notification)">
           <w-item-section avatar>
             <!--
-              The design's 36px accent plate. Three things it is not, and each was a real
-              disagreement with `Cardinal Wiki - Inbox 3x.dc.html`:
+              The accent plate, sized and shaped by the aesthetic (OpenProject #3473): a 36px square in
+              Ledger, a 26px disc in Cobalt. `identity="plate"` is what says so -- it takes both from
+              tokens (`--size-avatar-plate`, `--radius-avatar`), so no `size`, `font-size` or `square`
+              is passed here: an inline size would beat the token, and `square` would pin Cobalt to a
+              square. It is still not 40px (`WItemSection`'s flanking-avatar rule excludes plates).
 
-              - not 40px. `WItemSection` sizes a flanking avatar at 40px for every list in the app;
-                the framed lists in this overlay are drawn at 36. `size` is `WAvatar`'s documented
-                way to say so per call site, and is the only one that works -- that 40px rule is a
-                scoped `:deep()` selector, which only an inline style can beat.
+              Two more things it is not, each a real disagreement with `Cardinal Wiki - Inbox 3x.dc.html`:
+
               - not `primary`. The plate carries a glyph, not a label, so it takes the bright fill
                 `#e4676b` rather than the darkened `#c14a52` a white LABEL would need (see the
                 "one deliberate divergence" section of `docs/cardinal-reskin-second-pass.md`).
-              - not `rounded`. Every plate in the language is a square, and saying so is better than
-                relying on the zeroed `--radius-*` scale to flatten a corner nobody meant to draw.
+              - not `rounded`. A corner radius nobody meant to draw.
 
               `dark.isActive` swaps the plate to `accent-dark` under dark mode: `--color-accent-fill`
               carries no dark-mode override of its own (OpenProject #2807), so left alone this drew
               the light-mode bright fill on a dark ground too.
             -->
             <w-avatar
-              size="36px"
-              font-size="18px"
+              identity="plate"
               :color="dark.isActive ? `accent-dark` : `accent-fill`"
-              text-color="white"
-              square>
+              text-color="white">
               <w-icon name="tabler:bell" />
             </w-avatar>
           </w-item-section>
@@ -108,8 +106,8 @@
               The page's own icon, which is what it is recognised by everywhere else. It is a reference
               a USER picked, so it resolves through `/_icons` rather than the bundled set — see WIcon.
             -->
-            <!-- -> The same 36px plate as a notification's, in the chrome tone; see there for why. -->
-            <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
+            <!-- -> The same aesthetic-sized plate as a notification's, in the chrome tone; see there. -->
+            <w-avatar identity="plate" color="slate" text-color="white">
               <w-icon :name="page.icon || DEFAULT_PAGE_ICON" />
             </w-avatar>
           </w-item-section>

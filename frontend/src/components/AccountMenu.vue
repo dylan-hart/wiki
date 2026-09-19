@@ -85,9 +85,10 @@ const initials = computed(() => initialsFor(userStore.name))
 }
 
 /*
-  The initials block: a solid slate square in tracked Barlow Condensed, as the design draws it. 30px
-  inside the button's own 64px band, so it reads as a mark set IN the bar rather than as another
-  full-height segment of it.
+  The initials block, as the design draws it. 30px inside the button's own 64px band, so it reads as
+  a mark set IN the bar rather than as another full-height segment of it. Only its box is set here:
+  the fill, shape (Ledger square / Cobalt disc), type and Ledger dark-mode override are shared with
+  a comment's `identity="initials"` avatar, in `css/tailwind.css`.
 */
 .account-initials {
   display: flex;
@@ -95,24 +96,6 @@ const initials = computed(() => initialsFor(userStore.name))
   justify-content: center;
   width: 30px;
   height: 30px;
-  /*
-    Ledger's mark is a slate SQUARE -- the language draws no rounded avatars -- and Cobalt's is an
-    accent disc, which is the one place the two aesthetics disagree about a shape rather than a
-    colour. Both are tokens: `--color-account-avatar-bg` is `--color-slate` in Ledger and the
-    white-text accent tone in Cobalt, and `--radius-avatar` is `0` and `50%`.
-  */
-  background-color: var(--color-account-avatar-bg);
-  border-radius: var(--radius-avatar);
-  color: #fff;
-  font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
-
-.body--dark:not(.body--cobalt) .account-initials {
-  background-color: var(--color-slate-light);
-  color: var(--color-ink-dark);
 }
 
 .body--dark:not(.body--cobalt) .account-avbtn {
