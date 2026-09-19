@@ -1648,6 +1648,21 @@
         mask-size: contain;
       }
 
+      /*
+        The corner marks' leading edge (OpenProject #3462). The base rule's `inset: -5px` is measured
+        from the PADDING box, which the 4px accent bar pushes 3px further in than a plain quote's 1px
+        hairline does -- so the leading marks sat flush against the bar's outer edge while the
+        trailing ones stood clear of the frame, and the box read as lopsided. `-9px` is the base -5px,
+        less the bar's extra 3px, less the `::after`'s own 1px transparent border (which the gradient
+        is painted inside of): the leading strokes end up 3px clear of the bar, as `.table-wrap::after`
+        stands clear of its frame. Logical, so it follows the bar to the right under RTL; the marks
+        themselves are painted relative to this box, so they follow its edges either way. The
+        coloured border itself does not move.
+      */
+      &::after {
+        inset-inline-start: -9px;
+      }
+
       /* -> The icon takes the severity's colour; the prose stays at full contrast to read well */
       > :last-child {
         margin-bottom: 0;
