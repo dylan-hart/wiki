@@ -8,6 +8,13 @@
   <!--
     Page Properties keeps the rail's full square; every other button is 48px. The primary action for
     the page reads as the largest target, and the rest sit quieter beneath it.
+
+    Every button here carries `flush-hover-btn` (`css/_base.css`, OpenProject #3465/#3471): a square
+    hover cell running edge to edge of the rail, no rounded disc. It states no size -- the `h-12`
+    height and the column's own width (`items-stretch`) do, which is 48px in Cobalt's reading rail
+    and 56px in the editor's. Page Properties alone adds `flush-hover-btn--cap` while READING, so it
+    keeps its own rounded corners as the cap on the column (Cobalt's plate radius, below); while the
+    editor is open it drops the cap too, since that rail's hovers are all flat and square.
   -->
   <div
     class="page-actions flex flex-col items-stretch order-last"
@@ -19,7 +26,8 @@
         action and the square it occupies is what the rest of the buttons are arranged under.
       -->
       <w-btn
-        class="aspect-square"
+        class="aspect-square flush-hover-btn"
+        :class="{ 'flush-hover-btn--cap': !editorStore.isActive }"
         flat
         icon="tabler:tag"
         :color="editorStore.isActive ? `white` : `accent-fill`"
@@ -32,7 +40,7 @@
       </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         v-if="editorStore.isActive && !isRedirect"
         flat
         color="white"
@@ -155,7 +163,7 @@
         the button follows it rather than page read access. The API asks the same question.
       -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         v-if="userStore.can(`read:history`)"
         flat
         icon="tabler:history"
@@ -173,7 +181,7 @@
         also disables the button so a second click can't stack a second render underneath the first.
       -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         flat
         icon="tabler:file-export"
         :loading="exportingPdf"
@@ -218,7 +226,7 @@
            documents above.
       -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         v-if="userStore.can(`read:source`)"
         flat
         icon="tabler:copy"
@@ -233,7 +241,7 @@
     <template v-if="!isRedirect && !(editorStore.isActive && editorStore.mode === `create`)">
       <w-separator class="my-2" inset />
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         flat
         icon="tabler:dots"
         :color="editorStore.isActive ? `white` : `slate-soft`"
@@ -883,7 +891,7 @@ function commitRenamePendingAsset(item) {
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) {
-  flex: 0 0 40px;
+  flex: 0 0 48px;
   align-self: flex-start;
   margin: 28px 24px 28px 0;
   border-inline-start: 0;
@@ -906,8 +914,8 @@ body.body--cobalt .page-actions:not(.is-editor) {
   */
   box-shadow: inset 0 0 0 1px var(--color-hairline);
   /*
-    The rail's own primary action (Page Properties), lifted into a 40px rounded accent-fill plate --
-    the mockup's own "40px rounded primary action plate" -- rather than Ledger's square first cell.
+    The rail's own primary action (Page Properties), lifted into a 48px rounded accent-fill plate --
+    the mockup drew 40px; OpenProject #3471 widened the column and the plate with it -- rather than Ledger's square first cell.
 
     OpenProject #3040: the top corners take the CARD's own `--radius-card` (8px), not the plate's
     usual `--radius-control` (6px), and `margin-top` is 0 rather than an 8px inset -- this plate is
@@ -923,8 +931,8 @@ body.body--cobalt .page-actions:not(.is-editor) {
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   margin: 0 auto 4px;
   border-radius: var(--radius-card) var(--radius-card) var(--radius-control) var(--radius-control);
   border-block-end: 0;
