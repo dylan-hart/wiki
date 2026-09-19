@@ -19,10 +19,7 @@ import {
   varchar
 } from 'drizzle-orm/pg-core'
 
-// == CUSTOM TYPES =====================
-
-// -> Typed as a string: an ltree path comes back from the driver as its dotted text form, and every
-//    caller treats it as one
+// -> The driver returns an ltree path as its dotted text form
 const ltree = customType<{ data: string }>({
   dataType() {
     return 'ltree'
@@ -34,56 +31,34 @@ const tsvector = customType({
   }
 })
 
-// == TABLES ===========================
-
-// API KEYS ----------------------------
 export const apiKeys = pgTable(
   'apiKeys',
   {
     id: uuid().primaryKey().defaultRandom(),
     name: varchar({ length: 255 }).notNull(),
     // -> Only the tail of the token, to tell keys apart in the admin list. The token itself is a
-    //    signed JWT shown once at creation and never stored: it is a bearer credential, and
-    //    verification needs the public key plus this row's state, not the token.
+    //    signed JWT shown once at creation and never stored: verification needs the public key plus
+    //    this row's state, not the token.
     keyShort: varchar({ length: 8 }).notNull(),
     // -> IDs of the groups whose permissions the key carries. Resolved on every request, so editing a
     //    group immediately affects the keys pointing at it.
     groups: uuid().array().notNull().default([]),
-    // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing at all
-    //    (the key carries the full union of its groups' permissions). Never widens:
-    //    `resolvePermissions()` intersects this against what the groups actually grant, so editing a
-    //    group can only take permissions away from a scoped key, never hand it one its scope doesn't
-    //    list.
+    // -> Permission allow-list narrowing the key, or null for the full union of its groups'
+    //    permissions. Never widens: `resolvePermissions()` intersects it with what the groups grant.
     scope: jsonb().$type<string[] | null>().default(null),
-    // -> Deliberately nullable, unlike every other siteId column in this schema: null means the key
-    //    is instance-wide (every site), which is today's only behavior and stays the default. A
-    //    non-null value pins the key to one site, enforced two ways (OpenProject #2189): a global
-    //    `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinHook`, registered in `index.ts`) refuses
-    //    every `/sites/:siteId/...` REST call whose param disagrees with the pin, and the permission
-    //    engine itself refuses it too — `models/groups.ts`'s `AccessActor.siteId`, carried onto every
-    //    actor built from a pinned key, is checked by `checkAccess()`/`checkSiteAccess()` before any
-    //    rule is even resolved. A hostname- or body-resolved site (no `:siteId` path param for the
-    //    hook to see) calls `enforceApiKeySite()` directly instead — see that helper's doc comment.
+    // -> Null means instance-wide. A non-null value pins the key to one site, enforced at the route
+    //    layer by `helpers/apiKeySite.ts` and inside the permission engine by `AccessActor.siteId`
+    //    (`models/groups.ts`).
     siteId: uuid().references(() => sites.id),
-    // -> A per-level allow-set (OpenProject #1205, replacing the earlier #1055 single-value
-    //    "ceiling"): null means unrestricted (today's only behavior, and the default, and stays
-    //    unrestricted against any level added later), an array of level ids means this key/token may
-    //    never be granted a page permission on a page whose classification is not IN this set --
-    //    checked in `groups.checkAccess()` alongside `scope` above, before any rule is even
-    //    consulted. `jsonb` rather than a uuid column with an FK, same shape as `scope` above -- a
-    //    free allow-set has no single value left for a column-level FK to reference.
-    //    `models/classificationLevels.ts#delete()`'s "in use" guard checks this column with a jsonb
-    //    containment query instead, for the same reason it still checks `pages`.
+    // -> Allow-set of classification level ids, or null for unrestricted (levels added later
+    //    included): the key is never granted a page permission on a page classified outside the set,
+    //    checked in `groups.checkAccess()` before any rule. jsonb like `scope`, so no FK:
+    //    `models/classificationLevels.ts#delete()`'s "in use" guard checks it with a containment query.
     allowedClassifications: jsonb().$type<string[] | null>().default(null),
-    // -> Non-null makes this a personal access token: created by and acting as this user, rather than
-    //    an admin-issued key carrying `groups` above. A personal token's permissions are never read
-    //    from `groups` (left `[]` for these rows) or snapshotted at creation — `models/apiKeys.ts`'s
-    //    `verify()` resolves them live from the user's CURRENT group membership on every request, the
-    //    same "no waiting for a re-login" guarantee a session already gets (see `groups.reloadCache`'s
-    //    own comment). `onDelete: 'cascade'`, unlike every other `authorId`-shaped column in this
-    //    schema that goes `set null`: a personal token has no meaning once its owner is gone -- it is a
-    //    credential for acting AS that account, not a record of something that already happened, so
-    //    there is no audit trail reason to keep the row around orphaned.
+    // -> Non-null makes this a personal access token acting as this user: `groups` is left `[]` and
+    //    `models/apiKeys.ts`'s `verify()` resolves permissions live from the user's current group
+    //    membership. Cascades, unlike the `set null` of `authorId`-shaped columns: a credential for
+    //    acting as an account is not a record of something that happened, so it goes with its owner.
     userId: uuid().references(() => users.id, { onDelete: 'cascade' }),
     expiration: timestamp({ withTimezone: true }).notNull().defaultNow(),
     isRevoked: boolean().notNull().default(false),
@@ -96,97 +71,69 @@ export const apiKeys = pgTable(
   ]
 )
 
-// AUDIT LOG ----------------------------
 /**
- * One row per instance-wide, permission-affecting event: user/group/permission changes, API key
- * issuance and revocation, site settings edits, storage-target changes, and login history.
+ * Instance-wide, permission-affecting events. Page content edits are deliberately absent:
+ * `pageHistory` already records them per page, with the diff/restore machinery this table lacks.
  *
- * Deliberately narrower than page history (`pageHistory` below) -- page content edits are already
- * covered there, per page, and repeating them here would be a second copy of the same events with
- * none of the diffing/restore machinery that makes the page-scoped table useful. This table answers
- * "what happened on this wiki" instead of "what happened to this page".
- *
- * Append-only: nothing ever updates a row, and the only deletions are the retention job
- * (`tasks/simple/clean-audit-log.ts`) trimming rows older than the configured window.
+ * Append-only: the only deletions are the retention job (`tasks/simple/clean-audit-log.ts`).
  */
 export const auditLog = pgTable(
   'auditLog',
   {
     id: uuid().primaryKey().defaultRandom(),
     /**
-     * `<subject>.<verb>`, e.g. `user.created`, `group.permissionsChanged`, `apiKey.issued`,
-     * `login.success`. A varchar rather than an enum, same reasoning as `pageHistory.action`: a new
-     * event kind should not need a migration. `models/auditLog.ts`'s `AUDIT_EVENTS` is the closed
-     * list callers are expected to use.
+     * `<subject>.<verb>`, e.g. `user.created`. A varchar rather than an enum so a new event kind
+     * needs no migration; `models/auditLog.ts`'s `AUDIT_EVENTS` is the closed list.
      */
     event: varchar({ length: 64 }).notNull(),
     // -> Null once the account is gone, or for an event with no human actor (a scheduled job).
-    //    `set null` rather than `restrict`/`cascade`: a log entry survives its actor exactly the way
-    //    `pageHistory.authorId` does, for the same reason -- deleting a user must not be blocked by,
-    //    or take down, the record of what they once did.
+    //    `set null` so deleting a user is neither blocked by, nor takes down, the record of what
+    //    they did.
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
-    // -> Snapshotted at write time, same reasoning as `pageHistory` keeping `locale`/`path`/`title`
-    //    as columns rather than joining live: a renamed or deleted account must not rewrite history
-    //    that already happened under the old name.
+    // -> Snapshotted at write time: a renamed or deleted account must not rewrite history.
     actorName: varchar({ length: 255 }).notNull().default(''),
     actorIp: varchar({ length: 64 }).notNull().default(''),
-    // -> What kind of thing the event happened to -- `user`, `group`, `apiKey`, `site`,
-    //    `storageTarget` -- and its id/label at the time. Not a foreign key: several of those
-    //    target tables (`groups`, `apiKeys`, ...) have no stable reason to keep a row alive just
-    //    because it once appeared in a log, and a deleted group's history is exactly the case this
-    //    table exists to keep.
+    // -> What the event happened to, and its id/label at the time. Not a foreign key: a deleted
+    //    target's history is exactly what this table keeps.
     targetType: varchar({ length: 32 }).notNull().default(''),
     targetId: varchar({ length: 255 }).notNull().default(''),
     targetLabel: varchar({ length: 255 }).notNull().default(''),
-    // -> What changed, shaped per event -- e.g. `{ changedFields: [...] }` for an update, `{ groups:
-    //    [...] }` for a key issuance. Free-form the same way `pageHistory.meta` is, for the same
-    //    reason: a field added to the thing being logged should not need this table's shape to change.
+    // -> What changed, shaped per event, e.g. `{ changedFields: [...] }`
     detail: jsonb().notNull().default({}),
-    // -> Null for an event with no site context (user/group/apiKey management). Site settings and
-    //    storage-target changes are per-site, and a login happens against the site it was attempted
-    //    on, so those rows carry it.
+    // -> Null for an event with no site context (user/group/apiKey management)
     siteId: uuid().references(() => sites.id, { onDelete: 'set null' }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // -> The admin list's default view: newest first, across the whole instance
+    // -> The admin list's default view, newest first
     index('auditLog_createdAt_idx').on(table.createdAt),
-    // -> Filtering by actor or by event, the other two filters the admin list offers
+    // -> The admin list's filters
     index('auditLog_actorId_idx').on(table.actorId, table.createdAt),
     index('auditLog_event_idx').on(table.event, table.createdAt),
     index('auditLog_siteId_idx').on(table.siteId, table.createdAt)
   ]
 )
 
-// APPROVAL RULES ----------------------
 /**
- * Which pages accept edit suggestions, who may submit them, and who reviews them.
- *
- * Per site, and matched the way group page rules are: a mode plus a pattern. A page no rule matches
- * accepts no suggestions at all, so this table being empty means the feature is off.
+ * Which pages accept edit suggestions, who may submit them, and who reviews them. A page no rule
+ * matches accepts none, so an empty table means the feature is off.
  */
 export const approvalRules = pgTable(
   'approvalRules',
   {
     id: uuid().primaryKey().defaultRandom(),
     name: varchar({ length: 255 }).notNull().default(''),
-    // -> A rule can be turned off without losing what it says, which is how an administrator suspends
-    //    suggestions on a section without having to write the rule again afterwards.
     isEnabled: boolean().notNull().default(true),
-    // -> One of START / EXACT / END / REGEX / TAG / TAGALL, the same set group page rules use. A
-    //    varchar rather than an enum so that adding a mode does not need a migration; the API schema
-    //    is what rejects an unknown one.
+    // -> A varchar rather than an enum so that adding a mode does not need a migration; the API
+    //    schema is what rejects an unknown one.
     match: varchar({ length: 16 }).$type<ApprovalMatchMode>().notNull().default('START'),
     path: varchar({ length: 2048 }).notNull().default(''),
-    // -> Group IDs. Resolved on use rather than joined, so deleting a group takes effect at once, the
-    //    way `apiKeys.groups` works.
+    // -> Group IDs, resolved on use rather than joined, so deleting a group takes effect at once
     submitterGroups: uuid().array().notNull().default([]),
     reviewerGroups: uuid().array().notNull().default([]),
-    // -> How many distinct reviewers have to approve a submission this rule covers before it is
-    //    finalized (written to the page). 1 keeps today's single-approver sign-off as the default; a
-    //    rule wanting multiple sign-offs raises it. Enforced in `approveSubmission`, which counts
-    //    distinct approvers recorded in `pageEditSubmissionApprovals` against the highest threshold of
-    //    every enabled rule currently matching the page -- see the doc comment there.
+    // -> Distinct reviewers who must approve before a submission is written to the page.
+    //    `approveSubmission` counts them in `pageEditSubmissionApprovals` against the highest
+    //    threshold among the enabled rules matching the page.
     minApprovals: integer().notNull().default(1),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -197,7 +144,6 @@ export const approvalRules = pgTable(
   (table) => [index('approvalRules_siteId_idx').on(table.siteId)]
 )
 
-// ASSETS ------------------------------
 export const assetKindEnum = pgEnum('assetKind', ['document', 'image', 'other'])
 export const assets = pgTable(
   'assets',
@@ -224,50 +170,41 @@ export const assets = pgTable(
   (table) => [index('assets_siteId_idx').on(table.siteId)]
 )
 
-// AUTHENTICATION ----------------------
 export const authentication = pgTable('authentication', {
   id: uuid().primaryKey().defaultRandom(),
   module: varchar({ length: 255 }).notNull(),
   isEnabled: boolean().notNull().default(false),
   displayName: varchar({ length: 255 }).notNull().default(''),
   config: jsonb().notNull().default({}),
-  // -> Split from a single `registration` column: a form-based module's own self-registration form
-  //    and a redirect-based provider's auto-provisioning of new accounts are gated separately, since
-  //    an administrator may want one without the other (WP #2130).
+  // -> Gated separately: a form-based module's self-registration form and a redirect-based
+  //    provider's auto-provisioning of new accounts are independent choices.
   selfRegistration: boolean().notNull().default(false),
   autoProvision: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
-  // -> A friendlier alternative to `allowedEmailRegex` for the common case: an admin lists domains
-  //    directly instead of hand-writing a regex. Stored normalized (trimmed, lower-cased, deduped) by
-  //    `models/authentication.ts`. Independent of `allowedEmailRegex` -- both may be set on the same
-  //    strategy. Scoped to local self-registration only (OpenProject #2470), unlike
-  //    `allowedEmailRegex` above which also gates provider auto-provisioning -- see
+  // -> Domain-list alternative to `allowedEmailRegex`, stored normalized by
+  //    `models/authentication.ts`; both may be set. Gates local self-registration only, unlike the
+  //    regex, which also gates provider auto-provisioning -- see
   //    `models/login.ts#assertAllowedRegistrationDomain()`.
   allowedEmailDomains: text()
     .array()
     .notNull()
     .default(sql`ARRAY[]::text[]`),
   autoEnrollGroups: uuid().array().default([]),
-  // -> Off by default: an existing account is only ever claimed by a provider login once this
-  //    strategy is explicitly told to trust the address it reports. See
-  //    `models/users.ts#findOrCreateProviderUser()`.
+  // -> A provider login claims an existing account only once this strategy is told to trust the
+  //    address it reports. See `models/login.ts#findOrCreateProviderUser()`.
   trustEmailForLinking: boolean().notNull().default(false),
-  // -> Admin-chosen subset of groups a provider login is allowed to grant/revoke via `mapGroups`.
-  //    Empty by default, meaning a login changes no group memberships. See
-  //    `models/users.ts#syncProviderGroups()`.
+  // -> The groups a provider login may grant/revoke via `mapGroups`; empty means a login changes no
+  //    memberships. See `models/login.ts#syncProviderGroups()`.
   mappableGroups: uuid().array().default([])
 })
 
-// CONTENT SYNC STATE -------------------
 export const syncContentTypeEnum = pgEnum('syncContentType', ['page', 'asset'])
 export const syncDirectionEnum = pgEnum('syncDirection', ['push', 'pull'])
 /**
- * One row per (content item, storage target): where a sync run last left that pairing.
- *
- * A page or asset can have several enabled targets at once, so this cannot be a jsonb column on
- * `pages`/`assets` keyed by target -- that would need hand-rolled merge logic on every write to avoid
- * clobbering the other targets' entries. `contentId` is deliberately not a foreign key: it points at
- * `pages.id` or `assets.id` depending on `contentType`, and no single column can reference two tables.
+ * Where a sync run last left each (content item, storage target) pairing. A table rather than a
+ * jsonb column keyed by target, which would need merge logic on every write to avoid clobbering the
+ * other targets' entries. `contentId` is not a foreign key: it points at `pages.id` or `assets.id`
+ * depending on `contentType`.
  */
 export const contentSyncState = pgTable(
   'contentSyncState',
@@ -278,25 +215,21 @@ export const contentSyncState = pgTable(
     targetId: uuid()
       .notNull()
       .references(() => storage.id, { onDelete: 'cascade' }),
-    // -> Direction of the most recent *successful* sync. Null until one has ever succeeded.
+    // -> Of the most recent successful sync. Null until one has succeeded.
     lastDirection: syncDirectionEnum(),
-    // -> Opaque to this table: a git commit hash, an S3 object key/etag, whatever the target module
-    //    that owns `targetId` needs to recognize what it last wrote. jsonb so a module can store a
-    //    structured ref (e.g. `{ commit, branch }`) without a schema change.
+    // -> Opaque here: whatever the target module needs to recognize what it last wrote (a git commit
+    //    hash, an S3 etag, a structured `{ commit, branch }`).
     targetRef: jsonb(),
-    // -> Completion time of the most recent successful sync. Null until one has ever succeeded; read
-    //    back with `.toTemporalInstant()`, per this repo's Temporal convention.
     lastSyncedAt: timestamp({ withTimezone: true }),
-    // -> Message from the most recent attempt, cleared to null the moment an attempt succeeds. A
-    //    non-null value here alongside a non-null `lastSyncedAt` means the item synced successfully at
-    //    some point but the *latest* attempt since then failed.
+    // -> From the most recent attempt, cleared when one succeeds: non-null beside a non-null
+    //    `lastSyncedAt` means the item synced once but the latest attempt failed.
     lastError: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // -> Enforces one row per content item per target, and covers "every state for this target" --
-    //    the out-of-date query's access pattern -- being the leading column.
+    // -> One row per content item per target. `targetId` leads, so this also covers the out-of-date
+    //    query's "every state for this target".
     uniqueIndex('contentSyncState_target_content_idx').on(
       table.targetId,
       table.contentType,
@@ -307,7 +240,6 @@ export const contentSyncState = pgTable(
   ]
 )
 
-// BLOCKS ------------------------------
 export const blocks = pgTable(
   'blocks',
   {
@@ -319,34 +251,27 @@ export const blocks = pgTable(
     isEnabled: boolean().notNull().default(false),
     isCustom: boolean().notNull().default(false),
     config: jsonb().notNull().default({}),
-    // -> The rest of this row is what makes a CUSTOM block self-describing — a built-in one has no
-    //    use for any of it, since its props/template come from the compiled manifest and it always
-    //    renders as `block-{block}`. Left at their defaults for a built-in row.
-    // -> The component's authorable attributes, in the same shape `BlockDefinition.props` uses for a
-    //    built-in — read instead of the manifest by `models/blocks.ts#getSiteBlocks()` when isCustom.
+    // -> `props` and `template` describe a CUSTOM block only: a built-in's come from the compiled
+    //    manifest, and its row leaves both at their defaults.
+    // -> Same shape as `BlockDefinition.props`
     props: jsonb().notNull().default([]),
-    // -> Body the editor writes between the opening and closing lines, for a custom block whose
-    //    content is other blocks. Empty for one that takes none.
+    // -> Body the editor writes between the opening and closing lines, for a block whose content is
+    //    other blocks
     template: text().notNull().default(''),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
   },
-  // -> Covers lookups by site as well, being the leading column
   (table) => [uniqueIndex('blocks_composite_idx').on(table.siteId, table.block)]
 )
 
-// COMMENT PROVIDERS --------------------
-// -> Which comment provider is active for a site, and what it is configured with. Mirrors the shape
-//    of `storage` below: one row per module per site, `config` holding the values for the props that
-//    module's `definition.yml` (under `modules/comments/`) declares. Unlike storage, only ever one
-//    row per site has `isEnabled` true — comments have a single active provider, not several
-//    simultaneous targets — enforced by `models/commentProviders.ts`, not by a db constraint.
+// -> One row per module per site, like `storage`. Unlike storage, at most one row per site is
+//    enabled — enforced by `models/commentProviders.ts`, not by a db constraint.
 export const commentProviders = pgTable(
   'commentProviders',
   {
     id: uuid().primaryKey().defaultRandom(),
-    // -> Directory name under `modules/comments`, one row per module per site
+    // -> Directory name under `modules/comments`
     module: varchar({ length: 255 }).notNull(),
     isEnabled: boolean().notNull().default(false),
     // -> Values for the props the module declares in its `definition.yml`
@@ -355,16 +280,13 @@ export const commentProviders = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  // -> Covers lookups by site as well, being the leading column
   (table) => [uniqueIndex('commentProviders_composite_idx').on(table.siteId, table.module)]
 )
 
-// -> The compiled component code for a custom block, one-to-one with its `blocks` row. Split out
-//    rather than a column on `blocks` itself: `getSiteBlocks()` lists every block on a site on every
-//    call the editor's picker makes, and that listing has no use for the bytes — only the new serving
-//    route (fetching a single block's code by id) does. `onDelete: 'cascade'` is a safety net, not the
-//    only mechanism — `deleteCustomBlock()` removes this row itself so the deletion does not depend on
-//    it.
+// -> A custom block's compiled component code, one-to-one with its `blocks` row. Split out rather
+//    than a column on `blocks`: `getSiteBlocks()` lists every block on a site for the editor's
+//    picker and has no use for the bytes. The cascade is a safety net: `deleteCustomBlock()`
+//    removes this row itself.
 export const blockCode = pgTable('blockCode', {
   blockId: uuid()
     .primaryKey()
@@ -373,20 +295,15 @@ export const blockCode = pgTable('blockCode', {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
-// BLOCK CREDENTIALS --------------------
 /**
- * A secret held server-side only, for a block whose props (embedded in a page's own markdown, plainly
- * readable by anyone holding `read:source`) must never carry the credential itself — `block-live-data`
- * (OpenProject #868) is the first, and so far only, consumer. A block prop stores this row's `id`
- * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s
- * `getCredentialForResolve()`) and it is never serialized back into an API response — see that
- * model's header comment.
- * `allowedOrigins` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
- * block's configured URL against before ever attaching the secret — see that file's header comment.
- * Each entry is a full origin (scheme + host + optional port) plus an optional path prefix, e.g.
- * `https://api.example.com/v1` — not a bare hostname, and never `http:` in practice since a
- * credentialed resolve refuses any request whose own scheme isn't `https:` regardless of what an
- * entry names.
+ * A secret held server-side only, for a block whose props (embedded in a page's markdown, readable
+ * by anyone holding `read:source`) must never carry the credential itself. A block prop stores this
+ * row's `id` alone; `secret` is resolved server-side (`models/blockCredentials.ts`'s
+ * `getCredentialForResolve()`) and never serialized into an API response.
+ *
+ * `allowedOrigins` is the deny-by-default list `models/liveData.ts#resolve()` checks a block's URL
+ * against before attaching the secret. Each entry is a full origin plus an optional path prefix,
+ * e.g. `https://api.example.com/v1` — not a bare hostname.
  */
 export const blockCredentials = pgTable(
   'blockCredentials',
@@ -407,22 +324,16 @@ export const blockCredentials = pgTable(
   (table) => [index('blockCredentials_siteId_idx').on(table.siteId)]
 )
 
-// CLASSIFICATION LEVELS -----------------
 /**
- * The admin-configurable sensitivity levels a page may carry (OpenProject #1079), same pattern as
- * `groups`: seeded with three defaults (`public` / `internal` / `restricted`, at the fixed
- * `systemIds` below) that an administrator may rename, reorder, add to, or remove -- no pluggable
- * external classification provider, plain Cardinal.js data.
- *
- * Instance-wide, not per-site, mirroring `groups` itself.
+ * The sensitivity levels a page may carry: seeded defaults an administrator may rename, reorder,
+ * add to or remove. Instance-wide, not per-site, like `groups`.
  */
 export const classificationLevels = pgTable(
   'classificationLevels',
   {
     id: uuid().primaryKey().defaultRandom(),
     name: varchar({ length: 255 }).notNull(),
-    // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
-    //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
+    // -> Lower is more open. Both the floor-invariant ordering and the display order.
     sortOrder: integer().notNull().default(0),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
@@ -430,7 +341,6 @@ export const classificationLevels = pgTable(
   (table) => [uniqueIndex('classificationLevels_sortOrder_idx').on(table.sortOrder)]
 )
 
-// GROUPS ------------------------------
 export const groups = pgTable('groups', {
   id: uuid().primaryKey().defaultRandom(),
   name: varchar({ length: 255 }).notNull(),
@@ -444,10 +354,8 @@ export const groups = pgTable('groups', {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
-// GLOSSARY TERMS -----------------------
-/** One alias entry as stored in `glossaryTerms.aliases` (OpenProject #2575) -- `value` is the
- *  alternate surface form, cased as the admin typed it; `isAcronym` distinguishes an acronym alias
- *  (whose stored casing, e.g. "USS", is its canonical DISPLAY casing) from an ordinary one. */
+/** `value` is cased as the admin typed it; for an acronym alias that casing (e.g. "USS") is its
+ *  canonical DISPLAY casing. */
 export interface GlossaryAliasRow {
   value: string
   isAcronym: boolean
@@ -459,44 +367,33 @@ export const glossaryTerms = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     term: varchar({ length: 255 }).notNull(),
     definition: text().notNull(),
-    // -> Alternate surface forms (acronyms, alternate names) that resolve to this same term's
-    //    `definition`/`pageId`. Each carries its own `isAcronym` flag (OpenProject #2575) --
-    //    distinguishing an acronym alias, whose casing is a canonical DISPLAY casing consulted by the
-    //    path-segment humanizer, from an ordinary one, which carries no such override. Uniqueness
-    //    across this column combined with `term`, and across rows, is enforced at the application
-    //    level in `models/glossary.ts` -- a plain index cannot express "unique across a jsonb array
-    //    column + a scalar column, combined, across every row".
+    // -> Alternate surface forms resolving to this term's `definition`/`pageId`. Uniqueness across
+    //    this column combined with `term`, across rows, is enforced in `models/glossary.ts` -- no
+    //    index can express it.
     aliases: jsonb().$type<GlossaryAliasRow[]>().notNull().default([]),
-    // -> Marks the TERM ITSELF (as opposed to one of its aliases above) as an acronym -- e.g. a term
-    //    whose canonical name already IS the acronym ("USS"), with no separate alias needed. Same
-    //    canonical-display-casing meaning as an alias's own `isAcronym` (OpenProject #2575).
+    // -> Marks the TERM ITSELF as an acronym (e.g. "USS"), with the same display-casing meaning as an
+    //    alias's own `isAcronym`.
     isAcronym: boolean().notNull().default(false),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    // -> The term's canonical page, optional. `set null` rather than `cascade`: deleting the linked
-    //    page should unlink the term, not delete the definition itself.
+    // -> `set null` rather than `cascade`: deleting the linked page unlinks the term, it does not
+    //    delete the definition.
     pageId: uuid().references(() => pages.id, { onDelete: 'set null' })
   },
   (table) => [
-    // -> One definition covers every casing variant of a term (OpenProject #870), so two rows that
-    //    differ only by case are a duplicate, not two distinct terms. This only guards `term` itself --
-    //    alias collisions (with another row's term OR aliases) are checked in `models/glossary.ts`.
-    //    Covers lookups by site alone as well, being the leading column.
+    // -> One definition covers every casing variant of a term, so rows differing only by case are
+    //    duplicates. Guards `term` only -- alias collisions are checked in `models/glossary.ts`.
     uniqueIndex('glossaryTerms_composite_idx').on(table.siteId, sql`lower(${table.term})`)
   ]
 )
 
-// GLOSSARY VERSIONS --------------------
 /**
- * One row per saved snapshot of a site's ENTIRE glossary term list (OpenProject #1113) -- not a
- * per-term history mirroring `pageHistory`. Written whenever the admin staged-edit workflow saves,
- * an import replaces the glossary, or a version is restored, each of which goes through
- * `models/glossary.ts`'s `saveVersion()`. Append-only: nothing ever updates a row; nothing currently
- * prunes them either, unlike `auditLog`'s retention job -- a glossary's version count is small and
- * human-triggered, not one row per API call.
+ * One row per saved snapshot of a site's ENTIRE glossary term list -- not a per-term history like
+ * `pageHistory`. Written by `models/glossary.ts`'s `saveVersion()`. Append-only and never pruned:
+ * versions are few and human-triggered.
  */
 export const glossaryVersions = pgTable(
   'glossaryVersions',
@@ -505,25 +402,18 @@ export const glossaryVersions = pgTable(
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    // -> The GlossaryExport shape (`models/glossary.ts`) -- the SAME JSON representation
-    //    export/import use (OpenProject #1114), so a version can be exported or restored through the
-    //    exact same wholesale-replace path as an import.
+    // -> The `GlossaryExport` shape (`models/glossary.ts`), the same JSON export/import use, so a
+    //    version restores through the same wholesale-replace path as an import.
     snapshot: jsonb().notNull(),
     termCount: integer().notNull(),
-    // -> Same reasoning as `auditLog.actorId`/`actorName`: `set null` so a log entry survives its
-    //    actor, `actorName` snapshotted at write time so a renamed/deleted account doesn't rewrite
-    //    history that already happened under the old name.
+    // -> `set null` beside a snapshotted `actorName`, for the reasons `auditLog` gives
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
     actorName: varchar({ length: 255 }).notNull().default(''),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
-  (table) => [
-    // -> Covers lookups by site alone as well, being the leading column
-    index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)
-  ]
+  (table) => [index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)]
 )
 
-// HOOKS -------------------------------
 export const hookStateEnum = pgEnum('hookState', ['pending', 'success', 'error'])
 export const hooks = pgTable(
   'hooks',
@@ -539,35 +429,29 @@ export const hooks = pgTable(
     includeMetadata: boolean().notNull().default(true),
     includeContent: boolean().notNull().default(false),
     acceptUntrusted: boolean().notNull().default(false),
-    // -> Sent verbatim as the Authorization header, so it holds whatever secret the remote expects
+    // -> Sent verbatim as the Authorization header
     authHeader: text(),
-    // -> Outcome of the most recent delivery, which is what the admin list shows
+    // -> Outcome of the most recent delivery
     state: hookStateEnum().notNull().default('pending'),
     lastErrorMessage: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    // -> Null means "fires for every site" -- today's behavior, and what every hook created before
-    //    this column existed keeps meaning with no backfill. `set null` on delete rather than
-    //    restricting it or cascading: a webhook scoped to a site that goes away reverts to firing
-    //    instance-wide instead of taking the row down with the site or blocking the site's deletion —
-    //    unlike `blocks`/`storage`/`siteAssets`/content, which `sites.deleteSite()` cleans up
-    //    explicitly (or, for content, deliberately blocks the delete on), a hook is not site-owned
-    //    content and has no reason to disappear or block anything just because its scope did.
+    // -> Null means "fires for every site". `set null` on delete: a hook is not site-owned content,
+    //    so one scoped to a site that goes away reverts to firing instance-wide rather than going
+    //    with the site or blocking its deletion.
     siteId: uuid().references(() => sites.id, { onDelete: 'set null' })
   },
   (table) => [index('hooks_siteId_idx').on(table.siteId)]
 )
 
-// ICONS -------------------------------
-// -> An Iconify icon set the wiki draws icons from, e.g. `mdi`. Adding one makes its icons
-//    searchable; individual icons are only stored once something references them.
+// -> An Iconify icon set, e.g. `mdi`. Adding one makes its icons searchable; an individual icon is
+//    stored only once something references it.
 export const iconSets = pgTable('iconSets', {
   // -> The Iconify prefix, which is what content references: `<prefix>:<name>`
   prefix: varchar({ length: 64 }).primaryKey(),
   name: varchar({ length: 255 }).notNull(),
   isEnabled: boolean().notNull().default(true),
-  // -> Iconify collection metadata (author, license, total, palette, samples, ...) as published by
-  //    the upstream API, refreshed on demand rather than being authored here
+  // -> Iconify collection metadata as published by the upstream API, refreshed on demand
   info: jsonb().notNull().default({}),
   refreshedAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
@@ -598,7 +482,6 @@ export const icons = pgTable(
   (table) => [primaryKey({ columns: [table.prefix, table.name] })]
 )
 
-// JOB HISTORY -------------------------
 export const jobHistoryStateEnum = pgEnum('jobHistoryState', [
   'active',
   'completed',
@@ -621,36 +504,26 @@ export const jobHistory = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull(),
     startedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp({ withTimezone: true }),
-    // -> Whatever a task chose to hand back, e.g. `exportContent`'s `{ filePath, fileSize }` — set via
-    //    `models/jobs.ts#setResult`, which is how a follow-up route (the export download) finds what a
-    //    background job produced without the two coupling to anything more specific than a job id.
+    // -> Whatever a task chose to hand back, e.g. `exportContent`'s `{ filePath, fileSize }`, set via
+    //    `models/jobs.ts#setResult` — how a follow-up route finds what a background job produced.
     result: jsonb()
   },
   (table) => [
-    // -> `models/hooks.ts#getDeliveryHistory()` filters this generic table by
-    //    `task = 'dispatchWebhook'` and the `hookId` embedded in `payload`, which has no usable index
-    //    today: a plain btree on `payload` covers containment queries, not a `->>'hookId'` text
-    //    extraction, and indexing every row's payload would size the index to the whole table for a
-    //    lookup only one task ever makes. A partial expression index scoped to that one task keeps it
-    //    small and keeps `jobHistory` itself generic — no `hookId` column on a table every other task
-    //    also writes to.
+    // -> `models/hooks.ts#getDeliveryHistory()` filters by `task = 'dispatchWebhook'` and the `hookId`
+    //    inside `payload`. A partial expression index scoped to that one task stays small and keeps
+    //    `jobHistory` generic — no `hookId` column on a table every other task also writes to.
     index('jobHistory_dispatchWebhook_hookId_idx')
       .on(sql`(payload ->> 'hookId')`)
       .where(sql`${table.task} = 'dispatchWebhook'`),
     // -> Backs `core/scheduler.ts#reapStaleJobs`'s `WHERE state = 'active' AND startedAt < cutoff`.
-    //    Partial and scoped to `startedAt` alone rather than a `(state, startedAt)` composite: the
-    //    other two `state` filters (the admin Scheduler listing's `state IN (...)`, and
-    //    `models/jobs.ts#cleanHistory`'s `state != 'active'`) don't share this predicate --
-    //    `cleanHistory`'s is a negation a btree leading on `state` wouldn't use selectively anyway --
-    //    and `active` rows are transient, so this index stays near-empty no matter how large the
-    //    (bounded, `historyExpiration`-pruned) table itself grows.
+    //    Partial on `startedAt` rather than a `(state, startedAt)` composite: no other `state` filter
+    //    shares this predicate, and `active` rows are transient, so the index stays near-empty.
     index('jobHistory_active_idx')
       .on(table.startedAt)
       .where(sql`${table.state} = 'active'`)
   ]
 )
 
-// JOB SCHEDULE ------------------------
 export const jobSchedule = pgTable(
   'jobSchedule',
   {
@@ -663,21 +536,18 @@ export const jobSchedule = pgTable(
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // Defence in depth behind the boot-time advisory lock (see
-    // `core/scheduler.ts`'s cron-seeding path): a duplicate `task` value must be rejected at the
-    // db, not merely absorbed silently if the lock is ever bypassed or a seed runs twice.
+    // Defence in depth behind `core/config.ts#ensureSeeded`'s advisory lock: a duplicate `task` is
+    // rejected by the db rather than silently absorbed if the seed ever runs twice.
     uniqueIndex('jobSchedule_task_idx').on(table.task)
   ]
 )
 
-// JOB LOCK ----------------------------
 export const jobLock = pgTable('jobLock', {
   key: varchar({ length: 255 }).primaryKey(),
   lastCheckedBy: varchar({ length: 255 }),
   lastCheckedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
-// JOBS --------------------------------
 export const jobs = pgTable(
   'jobs',
   {
@@ -694,15 +564,12 @@ export const jobs = pgTable(
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // -> Supports `core/scheduler.ts#processJob`'s claim subquery, which orders by
-    //    `waitUntil ASC NULLS FIRST, createdAt ASC` under `FOR UPDATE SKIP LOCKED` (matching
-    //    `models/jobs.ts#getUpcoming()`) rather than by `id` -- this table previously carried no
-    //    index beyond the primary key, which otherwise sorts a sequential scan on every poll.
+    // -> Backs `core/scheduler.ts#processJob`'s claim subquery, which orders by
+    //    `waitUntil ASC NULLS FIRST, createdAt ASC` on every poll.
     index('jobs_waitUntil_createdAt_idx').on(table.waitUntil, table.createdAt)
   ]
 )
 
-// LOCALES -----------------------------
 export const locales = pgTable(
   'locales',
   {
@@ -721,11 +588,8 @@ export const locales = pgTable(
   (table) => [index('locales_language_idx').on(table.language)]
 )
 
-// NAVIGATION --------------------------
-// -> Where a menu's items come from: hand-authored (`static`, the only mode there has ever been),
-//    walked live off the tree (`auto`), or the tree walk with hand-authored items layered on top
-//    (`mixed`). Landed ahead of the walk itself -- every existing row defaults to `static`, so this
-//    column changes nothing about how a menu resolves until something later actually reads it.
+// -> Where a menu's items come from: hand-authored (`static`), walked live off the tree (`auto`), or
+//    the tree walk with hand-authored items layered on top (`mixed`).
 export const treeNavigationSourceEnum = pgEnum('treeNavigationSource', ['static', 'auto', 'mixed'])
 export const navigation = pgTable(
   'navigation',
@@ -733,23 +597,17 @@ export const navigation = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     items: jsonb().notNull().default([]),
     mode: treeNavigationSourceEnum('mode').notNull().default('auto'),
-    // -> Set only for the site-wide default menu, where it is what makes (siteId, locale) that row's
-    //    identity -- see the unique index below. Null for a row belonging to a tree entry override,
-    //    which is addressed by that entry's own id instead and has no locale of its own to record: a
-    //    unique index treats every null as distinct, so any number of overrides can share a site and
-    //    locale without colliding on this constraint.
+    // -> Set only for the site-wide default menu, where (siteId, locale) is the row's identity. Null
+    //    for a tree entry override's row, which is addressed by id: a unique index treats every null
+    //    as distinct, so any number of overrides share a site without colliding.
     locale: varchar({ length: 255 }),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [
-    // -> Covers lookups by site as well, being the leading column
-    uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)
-  ]
+  (table) => [uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)]
 )
 
-// PAGES ------------------------------
 export const pagePublishStateEnum = pgEnum('pagePublishState', ['draft', 'published', 'scheduled'])
 export const pages = pgTable(
   'pages',
@@ -757,7 +615,7 @@ export const pages = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     // -> A BCP-47 code, matched only ever for equality. Not `ltree`: a hyphenated code is a single
     //    label to it, so `'pt-BR'::ltree <@ 'pt'` is false and the type buys no locale-family
-    //    matching -- see the note on `pageHistory.locale`.
+    //    matching.
     locale: varchar({ length: 255 }).notNull(),
     path: varchar({ length: 255 }).notNull(),
     hash: varchar({ length: 255 }).notNull(),
@@ -770,10 +628,9 @@ export const pages = pgTable(
     publishEndDate: timestamp({ withTimezone: true }),
     config: jsonb().notNull().default({}),
     relations: jsonb().notNull().default([]),
-    // -> Internal-link target page paths found in the rendered content, resolved at save time by
-    //    `models/rendering.ts#extractInternalLinks` (OpenProject #881). Unlike `relations` (authored,
-    //    explicit) this is derived and gets fully overwritten on every save/re-render — never
-    //    hand-edited, and never merged with a prior value.
+    // -> Internal-link target paths found in the rendered content by
+    //    `models/rendering.ts#extractInternalLinks`. Derived, unlike the authored `relations`: fully
+    //    overwritten on every save/re-render, never merged.
     links: jsonb().notNull().default([]),
     content: text(),
     render: text(),
@@ -788,15 +645,10 @@ export const pages = pgTable(
     contentType: varchar({ length: 255 }).notNull(),
     isBrowsable: boolean().notNull().default(true),
     isSearchable: boolean().notNull().default(true),
-    // -> A `bcrypt` verifier, never the cleartext (OpenProject #2232) -- `models/pages.ts` hashes it
-    //    on write and checks a guess against it with `bcrypt.compare` on read; nothing reads this
-    //    column back as a value to hand to a caller.
+    // -> A `bcrypt` verifier, never the cleartext, and never handed back to a caller
     password: varchar({ length: 255 }),
-    // -> `{ jsLoad, jsUnload, css }` — per-page script/style injection (OpenProject #3389/#3402),
-    //    flattened to/from `scriptJsLoad`/`scriptJsUnload`/`scriptCss` in `models/pages.ts` the same
-    //    way `config` above flattens to its own named fields. Authoring is gated by `write:scripts`/
-    //    `write:styles` at the route layer (`api/pages/write.ts`) -- this column stores whatever was
-    //    written, with no execution or injection of its own (that is a dependent Task's job).
+    // -> `{ jsLoad, jsUnload, css }`, flattened to/from `scriptJsLoad`/`scriptJsUnload`/`scriptCss` in
+    //    `models/pages.ts`. Authoring is gated by `write:scripts`/`write:styles` at the route layer.
     scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -813,17 +665,9 @@ export const pages = pgTable(
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    // -> Every page always has a classification -- there is no unclassified state (OpenProject
-    //    #1079). `models/pages.ts#createPage` always resolves and supplies one explicitly (the
-    //    floor-invariant value against the parent, or the most-open level) on every real insert, so
-    //    this column carries no default -- the one-time backfill that justified defaulting to the
-    //    fixed `classificationPublicId` system row (`base.yml`) has already run, and a bare column
-    //    default would otherwise keep naming that row even after an administrator deletes it (nothing
-    //    in `models/classificationLevels.ts#delete` checks whether a column default points at the
-    //    level being removed), silently pointing new rows at a level that no longer exists instead of
-    //    failing loudly on whatever inserted without supplying one.
-    //    No `onDelete` clause, so the FK's default RESTRICT is what stops an administrator deleting a
-    //    level still in use -- see `models/classificationLevels.ts#delete`.
+    // -> No column default: `models/pages.ts#createPage` always supplies one, and a default would
+    //    name a level row an administrator may delete. No `onDelete` either: the FK's default
+    //    RESTRICT is what stops a level still in use being deleted.
     classification: uuid()
       .notNull()
       .references(() => classificationLevels.id)
@@ -835,47 +679,26 @@ export const pages = pgTable(
     index('pages_classification_idx').on(table.classification),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
-    // -> Backs `search.suggestTitle()`'s `similarity(title, …)` "did you mean" fallback, which runs
-    //    only when full-text search found nothing — `pg_trgm` is already a required extension (see
-    //    `core/db.ts`), this is the first index that actually uses it.
+    // -> Backs `search.suggestTitle()`'s `similarity(title, …)` "did you mean" fallback
     index('pages_title_trgm_idx').using('gin', table.title.op('gin_trgm_ops')),
-    // -> The invariant every probe in models/pages.ts assumes ("path unique within (site, locale)"),
-    //    finally held by the database itself. On path, not hash: the hash is cyrb53 (53-bit,
-    //    non-cryptographic), so two distinct paths may legitimately collide. Covers lookups by site
-    //    alone as well, being the leading column -- no separate `pages_siteId_idx` needed.
+    // -> "Path unique within (site, locale)", the invariant every probe in models/pages.ts assumes.
+    //    On path, not hash: the hash is cyrb53 (53-bit, non-cryptographic), so two distinct paths
+    //    may legitimately collide.
     uniqueIndex('pages_siteId_locale_path_idx').on(table.siteId, table.locale, table.path),
     // -> Backs getPage's hottest read (siteId + hash + locale equality). Plain, not unique — see above.
-    //    Also covers lookups by site alone, being the leading column.
     index('pages_siteId_locale_hash_idx').on(table.siteId, table.locale, table.hash)
   ]
 )
 
-// COMMENTS -----------------------------
-/**
- * One row per comment (or reply) posted on a page.
- *
- * NOTE ON PROVENANCE: this table's shape is deliberately identical to the one independently designed
- * on the sibling `feature/comments-data-model` branch (Feature 389), inspected read-only per this
- * run's cross-branch rules — not merged, cherry-picked, or copied via git. That branch, and the
- * page-scoped comment CRUD REST API built on top of it (`feature/comments-rest-api`, Feature 391),
- * are not yet merged into this branch, but Task 625 (the admin moderation listing/deletion endpoint
- * below, in `api/comments.ts`) has nothing to list or delete without a `comments` table to query.
- * Matching the independently-designed shape field-for-field is meant to make reconciliation (likely a
- * migration squash, keeping whichever table-creation migration lands first) as painless as possible
- * when those branches merge — see the note left in `models/comments.ts` and `api/comments.ts` for
- * what this task deliberately did NOT build (page-scoped list/create/update, self-authorship policy,
- * webhook emission — all Feature 391's own job).
- */
 export const comments = pgTable(
   'comments',
   {
     id: uuid().primaryKey().defaultRandom(),
     content: text().notNull(),
-    // -> Rendered HTML, cached alongside the source. Left null here — nothing on this branch
-    //    populates or reads it; that is Feature 390's default-provider job.
+    // -> Rendered HTML cached beside the source. Null when the site's provider renders nothing
+    //    server-side (an embed-only one).
     render: text(),
-    // -> A guest has no account to attribute the comment to, so it says who sent it. Null for a
-    //    logged in author, whose name is on `authorId` instead. Mirrors `pageEditSubmissions`.
+    // -> Who sent it, for a guest with no account. Null for a logged in author.
     guestName: varchar({ length: 255 }),
     guestEmail: varchar({ length: 255 }),
     // -> Long enough for an IPv6 address in its longest textual form.
@@ -888,44 +711,30 @@ export const comments = pgTable(
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    // -> Null once the account is gone, rather than holding the account hostage. Mirrors
-    //    `pageHistory.authorId`.
     authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
-    // -> Self-referencing: the parent comment this is a reply to, or null for a top-level comment.
-    //    Cascades so deleting a parent takes its replies with it rather than orphaning them.
     replyTo: uuid().references((): AnyPgColumn => comments.id, { onDelete: 'cascade' })
   },
   (table) => [
     // -> The page-view list query: every comment on a page, oldest first.
     index('comments_pageId_idx').on(table.pageId, table.createdAt),
-    // -> The admin moderation query (Task 625): every comment on a site, newest first, filtered to
-    //    an accessible-pages set built separately — see `api/comments.ts`.
+    // -> The admin moderation query: every comment on a site, newest first.
     index('comments_siteId_idx').on(table.siteId, table.createdAt),
     index('comments_authorId_idx').on(table.authorId),
     index('comments_replyTo_idx').on(table.replyTo)
   ]
 )
 
-// CHECKLIST RUN LOG --------------------
 /**
- * One row per run ("execution") of a `block-checklist`. An item is checked off inside one execution;
- * once every item named at start time is checked, that execution completes automatically and the
- * next check on the same block starts a fresh one — the operational equivalent of a runbook resetting
- * for the next shift, with no separate scheduler needed to make that happen.
+ * One row per run ("execution") of a `block-checklist`. Once every item named at start time is
+ * checked, the execution completes and the next check on the same block starts a fresh one. A run
+ * log — that someone performed the procedure — not editorial history.
  *
- * This is a run log, not editorial history: distinct from `pageHistory` (content revisions) and from
- * `pageEditSubmissions`/`pageEditSubmissionApprovals` (the Approvals publish workflow) above — it
- * records that someone actually performed the procedure, not that a page's content changed.
+ * `blockKey` is the block's `runKey` prop (`blocks/block-checklist/component.js`), not a position in
+ * the content, so a checklist keeps one run log across page edits and a page may carry several.
  *
- * `blockKey` is the block's own `runKey` prop (see `blocks/block-checklist/component.js`), not a
- * position in the page's content — it is what lets the same checklist keep one run log across
- * ordinary page edits, and what lets a page carry more than one independent checklist.
- *
- * At most one INCOMPLETE execution may exist per `(pageId, blockKey)` at a time — enforced by
- * `checklistExecutions_active_idx`, a unique index scoped to `completedAt IS NULL` rows. This is the
- * database-level guarantee `models/checklists.ts`'s `checkItem` relies on to start a new execution
- * safely under concurrent requests: the losing insert of a race falls back to reading the row the
- * winner created, rather than either creating two active runs or needing an application-level lock.
+ * `checklistExecutions_active_idx` allows at most one INCOMPLETE execution per `(pageId, blockKey)`:
+ * `models/checklists.ts`'s `checkItem` relies on it to start an execution safely under concurrent
+ * requests — the losing insert of a race reads the row the winner created.
  */
 export const checklistExecutions = pgTable(
   'checklistExecutions',
@@ -938,13 +747,10 @@ export const checklistExecutions = pgTable(
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
     blockKey: varchar({ length: 255 }).notNull(),
-    // -> Snapshotted at start from the block's own item count, not recomputed later — an author
-    //    editing the checklist mid-run does not retroactively change what "every item" meant for a
-    //    run already in progress.
+    // -> Snapshotted at start: an author editing the checklist mid-run does not change what "every
+    //    item" meant for a run already in progress.
     itemCount: integer().notNull(),
     startedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    // -> Null once the account is gone, rather than holding the account hostage. Mirrors
-    //    `comments.authorId`.
     startedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
     completedAt: timestamp({ withTimezone: true }),
     completedBy: uuid().references(() => users.id, { onDelete: 'set null' })
@@ -963,11 +769,9 @@ export const checklistExecutions = pgTable(
 )
 
 /**
- * One row per item checked off within one execution — the actual "who checked which item when" the
- * feature exists to record. Never updated or deleted: checking an already-checked item again is a
- * no-op (`checklistItemChecks_execution_item_idx` is what `checkItem`'s `onConflictDoNothing` targets),
- * and there is deliberately no "uncheck" — undoing an entry is exactly what a run log should not do.
- * Redoing a checklist means starting a new execution instead.
+ * Who checked which item when. Never updated or deleted: re-checking an item is a no-op
+ * (`checkItem`'s `onConflictDoNothing` targets `checklistItemChecks_execution_item_idx`), and there
+ * is deliberately no "uncheck" — redoing a checklist means starting a new execution.
  */
 export const checklistItemChecks = pgTable(
   'checklistItemChecks',
@@ -976,9 +780,8 @@ export const checklistItemChecks = pgTable(
     executionId: uuid()
       .notNull()
       .references(() => checklistExecutions.id, { onDelete: 'cascade' }),
-    // -> The item's position in the block's rendered list at check time (`item-0`, `item-1`, ...) --
-    //    see `blocks/block-checklist/component.js`. Not the item's text, which can be edited without
-    //    the item having changed in any way that should re-open a run.
+    // -> The item's position in the block's rendered list at check time (`item-0`, `item-1`, ...),
+    //    not its text, which can be edited without re-opening a run.
     itemKey: varchar({ length: 255 }).notNull(),
     checkedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
     checkedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
@@ -989,19 +792,12 @@ export const checklistItemChecks = pgTable(
   ]
 )
 
-// PAGE HISTORY ------------------------
 /**
- * One row per change to a page: what it looked like afterwards, who made it, and what kind of change
- * it was.
+ * One row per change to a page. Every row is a complete version rather than a delta, which keeps
+ * comparing two versions, restoring one and recovering a deleted page straightforward: the `deleted`
+ * row carries the page as it stood, which is all a recovery needs.
  *
- * Every row is a complete version rather than a delta, which is what makes the three things this
- * exists for straightforward: comparing any two versions, putting a page back to one of them, and
- * recovering a page that was deleted. The deletion itself is recorded the same way, carrying the page
- * as it stood when it went — that row is the whole of what a recovery needs.
- *
- * The render is deliberately not kept. It is derived from the content by a pipeline that lives in the
- * frontend, and storing a second copy of every page's HTML for every version is a great deal of space
- * for something a restore can regenerate.
+ * The render is deliberately not kept: a restore can regenerate it from the content.
  */
 export const pageHistory = pgTable(
   'pageHistory',
@@ -1011,15 +807,13 @@ export const pageHistory = pgTable(
     //    has to outlive the row it points at
     pageId: uuid().notNull(),
     /**
-     * `created`, `updated`, `moved` or `deleted`. A varchar rather than an enum so that naming another
-     * kind of change later does not need a migration.
+     * A varchar rather than an enum so that another kind of change needs no migration;
+     * `models/pageHistory.ts`'s `pageHistoryActions` is the closed list.
      */
     action: varchar({ length: 16 }).notNull().default('updated'),
     /**
-     * What actually made this change: the standard editor, or an MCP tool call (`create_page`/
-     * `update_page`, OpenProject #1119). A varchar rather than an enum, same reasoning as `action`
-     * above -- a new source should not need a migration. `models/pageHistory.ts`'s `pageHistoryVia`
-     * is the closed list callers are expected to use today.
+     * What made this change: the editor, or an MCP tool call. A varchar for the same reason as
+     * `action`; `models/pageHistory.ts`'s `pageHistoryVia` is the closed list.
      */
     via: varchar({ length: 16 }).notNull().default('editor'),
     /** Which fields this change touched, so a history list can summarise it without diffing. */
@@ -1029,12 +823,8 @@ export const pageHistory = pgTable(
       .default(sql`ARRAY[]::text[]`),
     /*
       Columns rather than part of `meta` below: a history list shows these for every row, a page that
-      has moved needs the path it had at the time rather than the one it has now, and looking a history
-      up by where the page was — the only way in once the page itself is gone — means matching on the
-      locale and the path together.
-
-      A locale code is BCP-47 with hyphens (`pt-BR`), and every comparison anywhere is an equality
-      one. `locales.code`, which these values come from, is a varchar too.
+      has moved needs the path it had at the time, and looking a history up by where the page was —
+      the only way in once the page itself is gone — means matching on the locale and the path.
     */
     locale: varchar({ length: 255 }).notNull(),
     path: varchar({ length: 255 }).notNull(),
@@ -1046,15 +836,11 @@ export const pageHistory = pgTable(
      * added to a page does not have to be added here too.
      */
     meta: jsonb().notNull().default({}),
-    /**
-     * Why the change was made, in the author's words, as the editor's reason-for-change prompt
-     * collected it. Null when the site does not ask for one, or asks and is not answered.
-     */
+    /** Null when the site does not prompt for a reason, or the prompt went unanswered. */
     reason: varchar({ length: 255 }),
     versionDate: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    // -> Null once the account is gone, rather than holding the account hostage: a history row is a
-    //    record of what happened to the page, and requiring its author to exist for ever would mean
-    //    that editing a page once made an account undeletable — even after the page itself was gone.
+    // -> `set null` rather than holding the account hostage: a history row records what happened to
+    //    the page, and editing one page should not make an account undeletable for ever.
     authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
     siteId: uuid()
       .notNull()
@@ -1062,34 +848,25 @@ export const pageHistory = pgTable(
   },
   (table) => [
     index('pageHistory_pageId_idx').on(table.pageId, table.versionDate),
-    // -> "What happened to the page at this path, in this locale", which is how a deleted page is
-    //    found again: there is no page row left to look its ID up from. Leading with `siteId` means
-    //    this also serves the plain per-site queries.
+    // -> "What happened to the page at this path, in this locale" — how a deleted page is found
+    //    again, there being no page row left to look its id up from. `siteId` leads, so this also
+    //    serves the plain per-site queries.
     index('pageHistory_siteId_idx').on(table.siteId, table.locale, table.path, table.versionDate),
     index('pageHistory_authorId_idx').on(table.authorId)
   ]
 )
 
-/**
- * Where a suggestion stands: `open` while it awaits review, `approved`/`declined` once a reviewer has
- * resolved it. Resolved rows are retained (see `pageEditSubmissions` below) rather than deleted, so
- * this is what every "still pending" query filters on.
- */
 export const submissionStatusEnum = pgEnum('submissionStatus', ['open', 'approved', 'declined'])
 
-// PAGE EDIT SUBMISSIONS ---------------
 /**
  * An edit suggested by somebody who may read a page but not change it, waiting to be reviewed.
  *
- * Both the resulting source and a patch are kept, because they answer different questions. The patch
- * is what a reviewer merges — it is computed against the page as it stood at submission time, so two
- * people suggesting edits to different parts of a page can both be accepted. The source is what the
- * author resumes from and what a review screen shows, and it cannot be reconstructed from the patch
- * alone once the page has moved on.
+ * Both the source and a patch are kept because they answer different questions. The patch is what a
+ * reviewer merges — computed against the page as it stood at submission time, so two people editing
+ * different parts of a page can both be accepted. The source is what the author resumes from, and it
+ * cannot be reconstructed from the patch alone once the page has moved on.
  *
- * A resolved submission (`approved` or `declined`) is retained rather than deleted, so its author can
- * be shown what happened and why: `resolvedReason` carries the reviewer's optional decline note (or is
- * null for an approval, or while still `open`), and `resolvedBy` is who resolved it.
+ * A resolved submission is retained rather than deleted, so its author can be shown what happened.
  */
 export const pageEditSubmissions = pgTable(
   'pageEditSubmissions',
@@ -1100,14 +877,11 @@ export const pageEditSubmissions = pgTable(
     patch: text().notNull(),
     /** SHA-256 of that base content, so a reviewer can tell the page has changed underneath. */
     baseHash: varchar({ length: 64 }).notNull(),
-    // -> A guest has no account to attribute the suggestion to, so it says who sent it. Null for a
-    //    logged in author, whose name is on `authorId` instead.
+    // -> Who sent it, for a guest with no account. Null for a logged in author.
     guestName: varchar({ length: 255 }),
     guestEmail: varchar({ length: 255 }),
     status: submissionStatusEnum().notNull().default('open'),
-    /** The reviewer's note on why an `approved`/`declined` submission was resolved that way. */
     resolvedReason: text(),
-    /** Who approved or declined this submission. Null while `open`. */
     resolvedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -1117,10 +891,9 @@ export const pageEditSubmissions = pgTable(
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    // -> A pending suggestion has no meaning once its author is gone -- there is nobody left to
-    //    review it against, and no audit trail reason to keep it around orphaned. Matches
-    //    `apiKeys.userId`'s reasoning, not `pageHistory.authorId`'s `set null`: a suggestion isn't a
-    //    record of something that already happened the way a merged history entry is.
+    // -> Cascades, unlike `pageHistory.authorId`'s `set null`: a pending suggestion is not a record
+    //    of something that already happened, so it goes with the author there is nobody left to
+    //    review it against.
     authorId: uuid().references(() => users.id, { onDelete: 'cascade' })
   },
   (table) => [
@@ -1128,23 +901,19 @@ export const pageEditSubmissions = pgTable(
     index('pageEditSubmissions_siteId_idx').on(table.siteId),
     index('pageEditSubmissions_authorId_idx').on(table.authorId),
     // -> One OPEN suggestion per person per page: coming back to the button continues that one rather
-    //    than starting a second. Guests are excluded because they are all the same nobody. Scoped to
-    //    `status = 'open'` rather than every row for the pair, so a resolved submission -- retained now
-    //    rather than deleted -- does not block the same author from suggesting again later.
+    //    than starting a second. Guests are excluded because they are all the same nobody, and the
+    //    `open` predicate is what lets a retained resolved submission not block the same author from
+    //    suggesting again later.
     uniqueIndex('pageEditSubmissions_page_author_idx')
       .on(table.pageId, table.authorId)
       .where(sql`"authorId" IS NOT NULL AND "status" = 'open'`)
   ]
 )
 
-// PAGE EDIT SUBMISSION APPROVALS -------
 /**
- * One reviewer's sign-off on a submission, towards its rule's `minApprovals` threshold.
- *
- * A row per (submission, reviewer): a reviewer approving twice does not count twice, which is what the
- * unique index enforces and `approveSubmission`'s `onConflictDoNothing` relies on to stay idempotent.
- * Deleted by cascade the moment the submission itself is -- finalized (accepted) or rejected -- so this
- * never outlives the thing it was counting towards.
+ * One reviewer's sign-off on a submission, towards its rule's `minApprovals` threshold. A reviewer
+ * approving twice does not count twice: the unique index is what `approveSubmission`'s
+ * `onConflictDoNothing` relies on to stay idempotent.
  */
 export const pageEditSubmissionApprovals = pgTable(
   'pageEditSubmissionApprovals',
@@ -1167,26 +936,15 @@ export const pageEditSubmissionApprovals = pgTable(
   ]
 )
 
-// PAGE WATCHING -----------------------
 /**
- * A page somebody asked to be told about, one row per person per page.
+ * A page somebody asked to be told about, one row per person per page. Unwatching deletes the row
+ * rather than flipping a flag, so the table reads directly as "everyone to notify about this page".
+ * `siteId` is carried rather than reached through the page: every query here is scoped to one site.
  *
- * A row IS the watch: there is no `isEnabled` to turn off, because unwatching a page is not a state a
- * page keeps — it is the absence of interest, and the row goes. Which is also why the whole table can
- * be read as "everyone to notify about this page" when notifications are built on top of it.
- *
- * `siteId` is carried alongside `pageId` rather than reached through the page, since every query here
- * is scoped to one site: the watch list belongs to an inbox, and an inbox belongs to a site.
- *
- * The four `notify*` columns are the delivery preference for THIS watch, and every one of them is
- * nullable with no default: null means "this watcher never set it," not "off." That distinction
- * matters because the effective default lives in code (`models/pageWatching.ts#DEFAULT_PREFERENCE`),
- * documented once in `api/watching.ts`'s schema, rather than duplicated as a column default here —
- * a column default can only be revisited with a migration, a code default can be revisited by
- * changing an instance's mind about which delivery mode is safe before mail is even configured.
- * Per-watch rather than a single per-user row: nothing about wanting an immediate ping on the page
- * one's job depends on says anything about wanting the same for a page glanced at once, so the
- * preference travels with the watch, not the person.
+ * The four `notify*` columns are the delivery preference for THIS watch — per-watch, not per-user —
+ * and are nullable with no default: null means the watcher never set it, not "off". The effective
+ * default lives in code (`models/pageWatching.ts#DEFAULT_PREFERENCE`) so an instance can change its
+ * mind about which delivery mode is safe without a migration.
  */
 export const pageWatching = pgTable(
   'pageWatching',
@@ -1212,102 +970,50 @@ export const pageWatching = pgTable(
     // -> Covers the site scoping too, being the leading column: this is the inbox's own query
     index('pageWatching_user_site_idx').on(table.userId, table.siteId),
     // -> Watching a page twice is watching it once, so the second attempt is a no-op rather than a row.
-    //    `pageId` leading also makes this the index for every by-page question — `listWatchers`'s
-    //    notification lookup and `listForPage`'s rail listing/count both filter on it alone. No
-    //    `(pageId, createdAt)` index was added for the latter's `ORDER BY createdAt`: the sort runs
-    //    over one page's watchers, a set bounded by how many people pressed the bell on a single page,
-    //    which a top-N sort handles without touching disk. Revisit if a page ever accumulates watchers
-    //    in the thousands.
+    //    `pageId` leading also serves every by-page lookup; there is deliberately no
+    //    `(pageId, createdAt)` index for the rail's `ORDER BY createdAt`, one page's watcher set being
+    //    small enough for a top-N sort. Revisit if a page accumulates watchers in the thousands.
     uniqueIndex('pageWatching_page_user_idx').on(table.pageId, table.userId)
   ]
 )
 
-// PAGE WATCH EVENTS -------------------
 /**
- * A notification owed to one watcher about one change, waiting to be delivered.
+ * A notification owed to one watcher about one change, waiting to be delivered. A row is the unit of
+ * "pending" rather than a boolean column, so an instance that never delivers a batch accumulates rows
+ * instead of losing track of which watcher was owed what.
  *
- * Written by the background job `notifyPageWatchers` queues after a page save, move or delete (see
- * `models/pages.ts#notifyWatchers`) — never inline in the request, so a page with many watchers costs
- * the save nothing beyond the one job it queues. `deliveredAt` is null until whatever eventually sends
- * the notification (mail, in the first instance) marks it done; a row is the unit of "pending" rather
- * than a boolean column, so a wiki that never delivers a batch simply accumulates rows instead of
- * losing track of which watcher was owed what.
+ * `pageId` is `set null` on delete, and the choice is forced in both directions: the FK's default
+ * RESTRICT would make `DELETE FROM pages` fail outright for any page with notification history, and
+ * `cascade` would destroy the deletion notification before anything delivered it. Because a hard FK
+ * requires the referenced `pages.id` to exist at INSERT time whatever `onDelete` says,
+ * `models/pages.ts#notifyWatchers` records a `deleted` event's rows synchronously, before
+ * `deletePage`/`deleteOrphaned` touch the `pages` row — moving that INSERT into the async job it
+ * queues would silently break every deletion notification.
  *
- * `pageId` IS a foreign key (OpenProject #3203; `siteId`/`userId`/`actorId` already had one) — `set
- * null` on delete, the same choice and the same reasoning as `glossaryTerms.pageId`: the row has to be
- * able to outlive the page it's about, and unlinking rather than deleting or blocking is what makes
- * that possible without also losing the notification.
+ * `actorId`, `changedFields`, `pageTitle`, `pagePath` and `notifyMode` are captured at write time
+ * rather than looked up at delivery: the page, its `pageHistory` row and its `pageWatching` row can
+ * all be gone by then, and `pageTitle`/`pagePath` have nowhere else to be re-read from at all.
  *
- * OpenProject #1689 first asked for this FK and it was turned down: at the time, `models/pages.ts`
- * queued `notifyPageWatchers` as an async scheduler job *before* deleting the `pages` row, but that
- * job's `recordMany()` INSERT — the only writer of this table — ran later, after the row was already
- * gone. A hard FK requires the referenced `pages.id` to exist at INSERT time no matter what `onDelete`
- * says, so every deletion notification for a watched page would have failed to record. #3203 is what
- * fixed that for real: `models/pages.ts#notifyWatchers` now records a `deleted` event's rows itself,
- * synchronously, before `deletePage`/`deleteOrphaned` ever touch the `pages` row — the async job just
- * receives the already-recorded rows for its immediate-send loop, rather than calling `recordMany()`
- * a second time (see that task's own doc comment).
- *
- * That still leaves the moment the `pages` row is actually deleted, instants later, with the row this
- * very write just inserted (and any of the page's older, still-undelivered/unread rows) pointing at
- * it — which is exactly why `onDelete` can be neither the default (`DELETE FROM pages` would then
- * fail outright, for any page with any notification history at all) nor `cascade` (the deletion
- * notification would vanish before the async job or the in-app inbox ever got to it, defeating the
- * whole point of recording it synchronously). `set null` is what lets the row keep existing with
- * `pageId` unlinked: nothing about `filterReadable`/`listForUser`'s read-time access re-check below
- * changes, since both already fall back to this row's own captured `pagePath`/`pageLocale` the moment
- * a live page isn't found — the same fallback a null `pageId` now takes too, not merely a page id with
- * no matching row.
- *
- * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
- * looked up when a notification is finally sent, for the same reason `pageId` is nullable rather than
- * required: the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can
- * already be gone by the time delivery happens, whether that's this task's immediate send or the
- * digest job's later one — and unlike `actorId`/`changedFields`, `pageTitle`/`pagePath` have nowhere
- * else to be re-read from at all once that happens, since a deleted page's row is gone, not merely
- * unlinked through a nulled foreign key. `actorId` is nullable and `set null` on account deletion, matching
- * `pageHistory.authorId` — a notification about who changed a page should not be the reason that
- * account can never be deleted.
- *
- * `notifyMode` is likewise captured here rather than re-read from `pageWatching` at delivery time:
- * that table is exactly what a delete's cascade removes (see above), so the digest job has no row
- * left to ask "was this one digest or immediate?" by the time it runs — the answer `listWatchers`
- * already resolved when this row was written is the only copy that survives.
- *
- * `readAt` (task 535) is deliberately a second, independent nullable timestamp rather than a repurposed
- * `deliveredAt`: they answer different questions that can disagree in either direction. `deliveredAt`
- * means "mail went out for this row" — set by `notify-page-watchers.ts` / `send-watch-digests.ts` and
- * read by the digest job to decide what still needs sending — and is set on a row nobody has looked at
- * in the app yet. `readAt` means "this user has seen it in the in-app inbox," which can happen before
- * any mail goes out at all (an `immediate` send that is still in flight, or a `digest` row that will
- * not mail for up to a day) or might never happen even after mail sends successfully. Collapsing the two
- * would make the in-app inbox mark something delivered without ever sending it (`send-watch-digests.ts`
- * would then skip a real email for a row a reader only glanced at) or leave the inbox unable to
- * distinguish "not sent yet" from "sent but not read" — both of which are genuinely different states a
- * future admin view might one day want to tell apart.
+ * `readAt` and `deliveredAt` are independent because they disagree in both directions: mail goes out
+ * for rows nobody has opened, and the in-app inbox can mark one read while an `immediate` send is
+ * still in flight or a `digest` row is up to a day from mailing.
  */
 export const pageWatchEvents = pgTable(
   'pageWatchEvents',
   {
     id: uuid().primaryKey().defaultRandom(),
-    /** `created` never appears here — see `notifyWatchers`: nobody can watch a page before it exists. */
+    /** `created` never appears here: nobody can watch a page before it exists. */
     action: varchar({ length: 16 }).notNull(),
-    /** Which fields the change touched, for the same reason `pageHistory.changedFields` records it. */
     changedFields: text()
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     deliveredAt: timestamp({ withTimezone: true }),
-    /** When the recipient saw this in the in-app inbox — null until then. See this table's own comment. */
     readAt: timestamp({ withTimezone: true }),
-    // -> Nullable, `set null` on delete — see this table's own doc comment above for why.
     pageId: uuid().references(() => pages.id, { onDelete: 'set null' }),
-    /** The page's title as of this change — see this table's own doc comment for why it's captured here. */
     pageTitle: text().notNull(),
-    /** The page's path as of this change, for the same reason `pageTitle` is captured here. */
     pagePath: text().notNull(),
-    /** The page's locale as of this change, for the same reason `pagePath` is captured here. */
     pageLocale: text().notNull().default('en'),
     siteId: uuid()
       .notNull()
@@ -1316,7 +1022,7 @@ export const pageWatchEvents = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
-    /** `immediate` | `digest`, resolved and captured at write time — see this table's doc comment. */
+    /** `immediate` | `digest`. */
     notifyMode: varchar({ length: 16 }).notNull()
   },
   (table) => [
@@ -1326,73 +1032,57 @@ export const pageWatchEvents = pgTable(
       .on(table.userId, table.notifyMode, table.createdAt)
       .where(sql`"deliveredAt" IS NULL`),
     index('pageWatchEvents_pageId_idx').on(table.pageId),
-    // -> "This user's unread in-app notifications, newest first" -- the in-app inbox's own query
-    //    (`pageWatchEvents.listForUser`), scoped to a site the same way `pageWatching_user_site_idx` is.
+    // -> The in-app inbox's own query (`pageWatchEvents.listForUser`): this user's unread
+    //    notifications on one site, newest first.
     index('pageWatchEvents_unread_idx')
       .on(table.userId, table.siteId, table.createdAt)
       .where(sql`"readAt" IS NULL`)
   ]
 )
 
-// PAGEVIEWS ----------------------------
 /**
- * One row per page view -- a log, not a counter -- so that a reader (OpenProject #1140, the knowledge
- * graph sizing nodes by visit volume) can count DISTINCT visitors over any trailing window it likes
- * (30 days / 6 months / 2 years) rather than being stuck with whatever a running total already
- * collapsed away. `models/pageviews.ts#record()` is the only writer, called best-effort from both
- * places a page is actually read -- `GET /sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`) and the
- * MCP `get_page` tool (`mcp/tools/getPage.ts`) -- so `clientType` genuinely distinguishes the two,
- * rather than being a column only one call site ever set.
+ * One row per page view -- a log, not a counter -- so DISTINCT visitors can be counted over any
+ * trailing window rather than whatever a running total already collapsed away.
  *
  * `clientType` is a varchar rather than a real pg enum, same reasoning as `pageHistory.via`: a fourth
  * kind of caller should not need a migration. `models/pageviews.ts`'s `pageviewClientTypes` is the
- * closed list callers are expected to use today -- `browser` (session/cookie-identified), `api` (a
- * bearer API key), `mcp` (an MCP tool call, which is the same bearer-key mechanism under the hood but
- * counted apart per #1140's explicit "web browser vs. API/MCP access" breakdown).
+ * closed list -- `browser` (session/cookie-identified), `api` (a bearer API key), `mcp` (the same
+ * bearer-key mechanism, counted apart).
  *
- * `visitorHash` is a pseudonymised HMAC, never the raw session id or API key id it was computed from --
- * unique-visitor counting needs to tell two visitors apart, not know who either one is. A browser view
- * hashes the session's own id (so two views in the same session/cookie are one visitor); an `api`/`mcp`
- * view hashes the calling key's id (so two calls on the same key are one visitor, and a different key
- * is a different one, regardless of which human or agent is actually holding it). Keyed with
- * `CARDINAL.config.pageviews.hashKey` (`models/pageviews.ts#hashVisitor()`) rather than a bare digest --
- * both preimages (`sessions.id`, an API key's UUID) live unsecret in this same database, so without
- * that key the column would be trivially reversible by anyone with read access, not merely pseudonymous.
+ * `visitorHash` tells two visitors apart without identifying either: a browser view hashes the
+ * session's own id, an `api`/`mcp` view the calling key's id. Keyed with
+ * `CARDINAL.config.pageviews.hashKey` (`models/pageviews.ts#hashVisitor()`) rather than a bare digest
+ * -- both preimages live unsecret in this same database, so an unkeyed hash would be trivially
+ * reversible by anyone with read access rather than merely pseudonymous.
  *
- * `pageId` is a foreign key here too, but `cascade` rather than `pageWatchEvents.pageId`'s `set null`
- * (OpenProject #3203) or `pageHistory.pageId`'s absence of one altogether: both of those exist to
- * outlive the page they describe (recovering or notifying about one that's gone), but a view count for
- * a page that no longer exists has nothing left to size in the graph -- so it cascades away with the
- * page, the same way `pageWatching.pageId` and `pageRenderQueue.pageId` do.
+ * `pageId` cascades, unlike `pageWatchEvents.pageId`'s `set null` or `pageHistory.pageId`'s absence of
+ * an FK altogether: those exist to outlive the page they describe, but a view count for a page that
+ * no longer exists has nothing left to measure.
  */
 export const pageviews = pgTable(
   'pageviews',
   {
     id: uuid().primaryKey().defaultRandom(),
-    // -> Cascades, unlike most `siteId` columns in this schema: a pageview is a log entry about a
-    //    visit, not content the site-delete route means to guard -- see `models/sites.ts#deleteSite`'s
-    //    up-front content check, which counts pages and assets but deliberately not this table.
+    // -> Cascades, unlike most `siteId` columns in this schema: a pageview is a log entry, not content
+    //    `models/sites.ts#deleteSite`'s up-front content check means to guard.
     siteId: uuid()
       .notNull()
       .references(() => sites.id, { onDelete: 'cascade' }),
     pageId: uuid()
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
-    /** `browser` | `api` | `mcp` -- see this table's own doc comment. */
+    /** `browser` | `api` | `mcp`. */
     clientType: varchar({ length: 16 }).notNull(),
-    /** A keyed HMAC-SHA256 hex digest, never the raw session id or API key id it was computed from --
-     *  see this table's own doc comment for why a keyed hash, not a bare one, is what makes it
-     *  actually pseudonymous. */
+    /** A keyed HMAC-SHA256 hex digest, never the raw session id or API key id it came from. */
     visitorHash: text().notNull(),
     viewedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // -> `countsForGraph()` (`models/pageviews.ts`, this table's only reader besides the purge below)
-    //    is the one query this table exists for (#1140's graph sizing), and its actual predicate is
-    //    `WHERE siteId = ? GROUP BY pageId, clientType` with six conditional aggregates over
+    // -> Shaped for `countsForGraph()` (`models/pageviews.ts`), whose predicate is
+    //    `WHERE siteId = ? GROUP BY pageId, clientType` with conditional aggregates over
     //    `viewedAt`/`visitorHash` -- not a `pageId` lookup, which nothing here does. Leading with
-    //    `siteId` and carrying every column the aggregates touch is what lets the planner satisfy the
-    //    whole query from the index instead of scanning the table.
+    //    `siteId` and carrying every column the aggregates touch lets the planner satisfy the whole
+    //    query from the index instead of scanning the table.
     index('pageviews_siteId_pageId_clientType_viewedAt_visitorHash_idx').on(
       table.siteId,
       table.pageId,
@@ -1400,35 +1090,32 @@ export const pageviews = pgTable(
       table.viewedAt,
       table.visitorHash
     ),
-    // -> How the retention purge (`tasks/simple/purge-pageviews.ts`) finds rows older than 2 years,
-    //    mirroring `rateLimits_updatedAt_idx`'s same purge-by-timestamp shape.
+    // -> How the retention purge (`tasks/simple/purge-pageviews.ts`) finds rows old enough to drop.
     index('pageviews_viewedAt_idx').on(table.viewedAt)
   ]
 )
 
-// PAGE RENDER QUEUE -------------------
 /**
  * A page waiting for the server to render it, one row per page.
  *
  * The markdown pipeline lives in the frontend, so rendering a page here means driving a headless
- * browser — too heavy to hold a request open for, and ruinous to do several times at once. A row is a
- * request for a render, and the `renderPages` task drains the table one page at a time through a
- * single browser (`models/renderQueue.ts`).
+ * browser — too heavy to hold a request open for, and ruinous to do several times at once. The
+ * `renderPages` task drains the table one page at a time through a single browser
+ * (`models/renderQueue.ts`).
  *
- * A row IS the request, so asking twice for the same page updates the row instead of adding a second:
- * what gets rendered is the content as it stands when the browser reaches it, and rendering it twice
- * would produce the same HTML. `createdAt` keeps its place in the queue across those repeats.
- *
- * The two permissions travel with the row because a render is sanitized against what the person who
- * asked for it may embed, and by the time the job runs there is no session left to ask.
+ * A row IS the request, so asking twice for the same page updates the row instead of adding a second;
+ * what gets rendered is the content as it stands when the browser reaches it, and `createdAt` keeps
+ * its place in the queue across repeats. The two permissions travel with the row because a render is
+ * sanitized against what the person who asked for it may embed, and by the time the job runs there is
+ * no session left to ask.
  */
 export const pageRenderQueue = pgTable(
   'pageRenderQueue',
   {
     id: uuid().primaryKey().defaultRandom(),
-    /** `write:scripts` — whether this render may keep `<script>` and inline handlers. */
+    /** `write:scripts` as the requester held it: whether `<script>` and inline handlers survive. */
     allowScripts: boolean().notNull().default(false),
-    /** `write:styles` — whether this render may keep `<style>` and inline `style` attributes. */
+    /** `write:styles` as the requester held it: whether `<style>` and `style` attributes survive. */
     allowStyles: boolean().notNull().default(false),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -1442,36 +1129,24 @@ export const pageRenderQueue = pgTable(
     // -> Only ever logged, and a deleted account is no reason to drop a render somebody is waiting for
     requestedById: uuid().references(() => users.id, { onDelete: 'set null' })
   },
-  // -> How the drain picks what to render next
   (table) => [index('pageRenderQueue_createdAt_idx').on(table.createdAt)]
 )
 
-// PAGE DRAFTS --------------------------
 /**
- * One row per page currently holding unsaved collaborative-editing content, the durable half of
- * OpenProject #2454's autosave: `core/collab.ts` debounce-persists a room's live Yjs document state
- * here as edits happen, and prefers this over the plain stored `pages` content the next time a room
- * for the page has to be built from scratch (no peer instance already holding it) — which is what
- * lets a crash or tab-close mid-edit recover the in-progress text on reopening rather than losing it,
- * without a separate periodic-save mechanism of its own. `viewer.draft` on `GET .../pages/:pageIdOrHash`
- * and the `GET`/`DELETE .../pages/:pageId/draft` routes are what let the editor actually offer that
- * recovery to a reader (OpenProject #2455) — the same row, read two different ways: `models/pageDrafts.ts#summary()`
- * for the lightweight "there is one, from roughly when, possibly by whom" signal, and `#getContent()`
- * to decode the full thing once the reader has chosen to restore it.
+ * One row per page currently holding unsaved collaborative-editing content. `core/collab.ts`
+ * debounce-persists a room's live Yjs state here as edits happen and prefers it over the stored
+ * `pages` content whenever a room has to be built from scratch, which is what recovers a crash or
+ * tab-close mid-edit without a separate periodic-save mechanism.
  *
- * `state` is a raw Yjs update (`Y.encodeStateAsUpdate(doc)`), not the plain markdown — restoring it
- * has to reconstruct the whole shared document (text, header fields, and cursor-independent CRDT
- * metadata), not just a string. `authorId`/`authorName` are best-effort attribution of whoever was
- * last known to be editing when the draft was recorded — null once the account is gone (or was never
- * resolved to one at all, e.g. a guest), rather than holding the account hostage. Mirrors
- * `comments.authorId`.
+ * `state` is a raw Yjs update (`Y.encodeStateAsUpdate(doc)`), not the plain markdown: restoring has to
+ * reconstruct the whole shared document, not just a string. `authorId`/`authorName` are best-effort
+ * attribution of whoever was last known to be editing — null once the account is gone, or for a guest
+ * never resolved to one.
  *
- * The row is deleted, not merely made stale, once the content it describes is genuinely committed —
- * see `core/collab.ts#pageSaved()`, the same hook that already tells every collaborator's editor a
- * save has landed. A row surviving past that point would offer to restore content a save has already
- * superseded. What is left to accumulate is a page abandoned mid-edit and never reopened, which
- * `purgePageDrafts` (`models/pageDrafts.ts#purgeStale()`) sweeps on a retention window, the same
- * shape as `rateLimits`/`sessions`'s own housekeeping below.
+ * The row is deleted, not merely made stale, once the content is committed
+ * (`core/collab.ts#pageSaved()`); one surviving past that point would offer to restore content a save
+ * has already superseded. A page abandoned mid-edit and never reopened is swept by
+ * `models/pageDrafts.ts#purgeStale()`.
  */
 export const pageDrafts = pgTable(
   'pageDrafts',
@@ -1491,24 +1166,22 @@ export const pageDrafts = pgTable(
   (table) => [index('pageDrafts_updatedAt_idx').on(table.updatedAt)]
 )
 
-// RATE LIMITS -------------------------
 /**
  * One counter per rate-limited client, and the ban it has earned itself.
  *
- * In the database rather than in each instance's memory because a limit every instance enforces on
- * its own is a limit multiplied by however many are running — and because a ban has to hold when the
- * next attempt lands on another one. Every read and write of a row happens in a single upserting
- * statement (`models/rateLimits.ts`), which is what makes concurrent attempts count exactly once.
+ * In the database rather than each instance's memory: a limit every instance enforces on its own is a
+ * limit multiplied by however many are running, and a ban has to hold when the next attempt lands on
+ * another one. Every read and write of a row happens in a single upserting statement
+ * (`models/rateLimits.ts`), which is what makes concurrent attempts count exactly once.
  *
- * Rows are self-correcting: an expired window or ban is reset by the next attempt on that key. They
- * are only ever deleted to reclaim space — see the `purgeRateLimits` task.
+ * Rows are self-correcting — an expired window or ban is reset by the next attempt on that key — and
+ * are only ever deleted to reclaim space.
  */
 export const rateLimits = pgTable(
   'rateLimits',
   {
     /** What is being limited and who by, e.g. `auth:203.0.113.4`. */
     key: varchar({ length: 255 }).primaryKey(),
-    /** Attempts made inside the current window. */
     hits: integer().notNull().default(0),
     windowStartedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     /** When the ban lifts. Null for a client that has not earned one. */
@@ -1519,13 +1192,11 @@ export const rateLimits = pgTable(
   (table) => [index('rateLimits_updatedAt_idx').on(table.updatedAt)]
 )
 
-// SETTINGS ----------------------------
 export const settings = pgTable('settings', {
   key: varchar({ length: 255 }).notNull().primaryKey(),
   value: jsonb().notNull().default({})
 })
 
-// SESSIONS ----------------------------
 export const sessions = pgTable(
   'sessions',
   {
@@ -1538,7 +1209,6 @@ export const sessions = pgTable(
   (table) => [index('sessions_userId_idx').on(table.userId)]
 )
 
-// SITES -------------------------------
 export const sites = pgTable('sites', {
   id: uuid().primaryKey().defaultRandom(),
   hostname: varchar({ length: 255 }).notNull().unique(),
@@ -1548,22 +1218,17 @@ export const sites = pgTable('sites', {
 })
 
 /**
- * A `sites` row as read back through Drizzle -- what `CARDINAL.sites[id]` holds (OpenProject #3144;
- * `types/global.d.ts`'s `CardinalGlobal.sites` is `Record<string, SiteRow>`). `config` is left
- * `Record<string, any>` rather than `$type<>`-pinned to a concrete shape: unlike `glossaryTerms.aliases`
- * above, this column's shape is a large, evolving admin-settings tree (locales, features, assets,
- * search engine config, pathDisplayCase, ...) assembled the same way `CARDINAL.config` is -- see that
- * member's own comment in `types/global.d.ts` -- so pinning it here would need re-deriving that whole
- * tree as a type, which is out of this task's scope. The win this type captures is still real: `id`,
- * `hostname`, `isEnabled` and `createdAt` are no longer silently `any`.
+ * A `sites` row as read back through Drizzle -- what `CARDINAL.sites[id]` holds. `config` is left
+ * `Record<string, any>` rather than `$type<>`-pinned: it is a large, evolving admin-settings tree
+ * assembled the same way `CARDINAL.config` is, so pinning it here would mean re-deriving that whole
+ * tree as a type.
  */
 export type SiteRow = Omit<typeof sites.$inferSelect, 'config'> & { config: Record<string, any> }
 
-// -> The images an administrator uploads for a site — its logo, favicon and login background — one row
-//    per kind. Held in the database rather than under `dataPath`, which is a cache: an instance that
-//    comes back with an empty data directory must still look like itself. Whether a kind has been
-//    uploaded at all is mirrored in the site's `config.assets`, so serving a site that has uploaded
-//    nothing costs no query here.
+// -> The images an administrator uploads for a site (logo, favicon, login background), one row per
+//    kind. In the database rather than under `dataPath`, which is a cache: an instance that comes back
+//    with an empty data directory must still look like itself. Whether a kind exists at all is
+//    mirrored in the site's `config.assets`, so serving a site that uploaded nothing costs no query.
 export const siteAssets = pgTable(
   'siteAssets',
   {
@@ -1579,7 +1244,6 @@ export const siteAssets = pgTable(
   (table) => [primaryKey({ columns: [table.siteId, table.kind] })]
 )
 
-// STORAGE -----------------------------
 export const storage = pgTable(
   'storage',
   {
@@ -1597,17 +1261,12 @@ export const storage = pgTable(
     syncMode: varchar({ length: 32 }).notNull().default('push'),
     // -> ISO-8601 duration overriding the module's declared `schedule`, or null to trust it
     scheduleOverride: varchar({ length: 32 }),
-    // -> When `storageSyncTick` last queued a scheduled sync for this target, or null if it never
-    //    has. Read back against the module's (or the override's) schedule to decide whether it's due
-    //    again -- see `models/storage.ts`'s `tickScheduledSyncs()`. Irrelevant to a push-only target,
-    //    which is never ticked at all.
+    // -> Read back against the module's (or the override's) schedule to decide whether a sync is due
+    //    again -- see `models/storage.ts#tickScheduledSyncs()`. Never set for a push-only target.
     lastTickAt: timestamp({ withTimezone: true }),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
-    // -> Currently unused: the setup-wizard states this once held (`{ setup: 'notconfigured' |
-    //    'pendinginstall' | 'configured' }`) were removed with the feature they tracked. Kept as a
-    //    column rather than dropped because doing so needs a migration, not because anything still
-    //    reads or writes it.
+    // TODO: drop -- dead column, nothing reads or writes it. Held a removed setup wizard's state.
     state: jsonb().notNull().default({}),
     siteId: uuid()
       .notNull()
@@ -1617,7 +1276,6 @@ export const storage = pgTable(
   (table) => [uniqueIndex('storage_composite_idx').on(table.siteId, table.module)]
 )
 
-// TAGS --------------------------------
 export const tags = pgTable(
   'tags',
   {
@@ -1627,8 +1285,7 @@ export const tags = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     // -> Cascades, unlike most `siteId` columns in this schema: a tag row is derived data about which
-    //    tags have ever been used, not content the site-delete route means to guard -- see
-    //    `models/sites.ts#deleteSite`'s up-front content check, which deliberately excludes this table.
+    //    tags have been used, not content `models/sites.ts#deleteSite`'s content check means to guard.
     siteId: uuid()
       .notNull()
       .references(() => sites.id, { onDelete: 'cascade' })
@@ -1639,7 +1296,6 @@ export const tags = pgTable(
   ]
 )
 
-// TREE --------------------------------
 export const treeTypeEnum = pgEnum('treeType', ['folder', 'page', 'asset'])
 export const treeNavigationModeEnum = pgEnum('treeNavigationMode', [
   'inherit',
@@ -1678,14 +1334,10 @@ export const tree = pgTable(
     index('tree_folderpath_idx').on(table.folderPath),
     index('tree_folderpath_gist_idx').using('gist', table.folderPath),
     // -> `models/navigation.ts#ancestorNavId` filters on `("folderPath" || "fileName") @>
-    //    <path>::ltree` — the concatenation, not the bare column, so the two indexes above never
-    //    match it. EXPLAIN (ANALYZE, BUFFERS) against a 280k-row tree with ~1,700
-    //    override/hide entries measured a ~10x execution-time drop (1.71ms -> 0.18ms) and a
-    //    ~230x buffer-read drop (1602 -> 7): without this index, postgres index-scans
-    //    `tree_navigationMode_idx` and evaluates the ltree containment test as a row-by-row
-    //    filter over every override/hide candidate; with it, a Bitmap AND against this index
-    //    and `tree_navigationMode_idx` finds the match directly. See work package #1823 for the
-    //    full before/after EXPLAIN output.
+    //    <path>::ltree` — the concatenation, not the bare column, so neither index above ever matches
+    //    it. Without this one postgres index-scans `tree_navigationMode_idx` and evaluates the ltree
+    //    containment test row by row over every override/hide candidate; with it, a Bitmap AND of the
+    //    two finds the match directly.
     index('tree_folderpath_filename_gist_idx').using('gist', sql`("folderPath" || "fileName")`),
     index('tree_fileName_idx').on(table.fileName),
     index('tree_type_idx').on(table.type),
@@ -1696,10 +1348,9 @@ export const tree = pgTable(
     index('tree_navigationId_idx').on(table.navigationId),
     index('tree_tags_idx').using('gin', table.tags),
     index('tree_siteId_idx').on(table.siteId),
-    // -> One page row per name per (site, locale, folder), and one non-page row: the app rule is that
-    //    a page may share a name with a folder but nothing else shares (see the probes in
-    //    models/tree.ts). The page<->asset cross-partition exclusion cannot be a unique index and
-    //    stays enforced by those probes.
+    // -> One page row per name per (site, locale, folder), and one non-page row: a page may share a
+    //    name with a folder, but nothing else shares. The page<->asset cross-partition exclusion
+    //    cannot be a unique index and stays enforced by `models/tree.ts`'s own probes.
     uniqueIndex('tree_composite_page_idx')
       .on(table.siteId, table.locale, table.folderPath, table.fileName)
       .where(sql`"tree" = 'page'`),
@@ -1709,15 +1360,11 @@ export const tree = pgTable(
   ]
 )
 
-// TFA KNOWN DEVICES -------------------
-// -> OpenProject #3302: what `models/login.ts#loginTFA()` reads/writes to tell a returning
-//    device/location from a new one, so it knows when to fire the new-device-login notice. There is
-//    no geoIP lookup anywhere in this codebase (see `docs/decisions/2026-09-15-tfa-new-device-login-
-//    fingerprint.md`), so "device" and "location" are not tracked separately: `fingerprint` is a
-//    hash of the client IP plus its User-Agent string, and a change in either one is a new
-//    fingerprint. `ip`/`userAgent` are kept alongside it in the clear (not just the hash) purely so
-//    a future admin-facing "known devices" view has something human-readable to show — nothing reads
-//    them back today.
+// -> What `models/login.ts#loginTFA()` reads and writes to tell a returning device from a new one, so
+//    it knows when to fire the new-device-login notice. There is no geoIP lookup anywhere in this
+//    codebase, so "device" and "location" are not tracked separately: `fingerprint` hashes the client
+//    IP plus its User-Agent, and a change in either is a new device. `ip`/`userAgent` are kept in the
+//    clear only so a future admin-facing "known devices" view has something readable to show.
 export const tfaKnownDevices = pgTable(
   'tfaKnownDevices',
   {
@@ -1725,8 +1372,8 @@ export const tfaKnownDevices = pgTable(
     userId: uuid()
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // -> sha1 hex of `${ip}|${userAgent}` -- see `models/login.ts#tfaDeviceFingerprint`, the one
-    //    place that computes it. Looked up by (userId, fingerprint) equality only, never parsed.
+    // -> sha1 hex of `${ip}|${userAgent}`, computed only in `models/login.ts#tfaDeviceFingerprint`.
+    //    Looked up by (userId, fingerprint) equality, never parsed.
     fingerprint: varchar({ length: 64 }).notNull(),
     ip: varchar({ length: 255 }),
     userAgent: text(),
@@ -1738,7 +1385,6 @@ export const tfaKnownDevices = pgTable(
   ]
 )
 
-// USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
   id: uuid()
     .primaryKey()
@@ -1749,7 +1395,6 @@ export const userAvatars = pgTable('userAvatars', {
   hash: varchar({ length: 255 }).notNull()
 })
 
-// USER KEYS ---------------------------
 export const userKeys = pgTable(
   'userKeys',
   {
@@ -1765,47 +1410,40 @@ export const userKeys = pgTable(
   },
   (table) => [
     index('userKeys_userId_idx').on(table.userId),
-    // -> Unique as documentation of intent: `countTfaFailure()`, `validateToken()` and
-    //    `destroyToken()` (models/users.ts) all look a row up by bare `token` equality and treat it
-    //    as an identity. Was previously unindexed, forcing a sequential scan on every 2FA attempt,
-    //    password reset and email verification.
+    // -> Unique as documentation of intent: `models/userCredentials.ts` looks a row up by bare `token`
+    //    equality and treats it as an identity.
     uniqueIndex('userKeys_token_idx').on(table.token)
   ]
 )
 
-// USERS -------------------------------
 export const users = pgTable(
   'users',
   {
     id: uuid().primaryKey().defaultRandom(),
     email: varchar({ length: 255 }).notNull().unique(),
-    // -> The display name. DERIVED from `firstName`/`lastName` on write -- see
-    //    `models/users.ts#deriveDisplayName`, the one place that composes it -- unless
+    // -> DERIVED from `firstName`/`lastName` on write by `models/users.ts#deriveDisplayName`, unless
     //    `nameLocallyEdited` says a human authored it outright.
     name: varchar({ length: 255 }).notNull(),
-    // -> The two authored halves of a person's name (Feature #2608). Separated rather than parsed out
-    //    of `name` at render time because sorting an admin user list by surname, and addressing a user
-    //    by first name in notification copy, both want the split stored. An empty string means "not
-    //    set", which is what a provider sign-in fills: it populates a half that is still empty and
-    //    never overwrites one that is not.
+    // -> Separated rather than parsed out of `name` at render time because sorting a user list by
+    //    surname, and addressing someone by first name in notification copy, both want the split
+    //    stored. An empty string means "not set": a provider sign-in fills a half that is still empty
+    //    and never overwrites one that is not.
     firstName: varchar({ length: 255 }).notNull().default(''),
     lastName: varchar({ length: 255 }).notNull().default(''),
-    // -> The stored "a human on this instance authored this account's name" marker. Two consequences,
-    //    both owned by `models/users.ts`: `name` stops being derived from the two halves above, and a
-    //    provider re-login leaves all three fields alone. Stored rather than inferred by comparing a
-    //    provider's claim against the current value -- see Feature #2608's resolved scope.
+    // -> "A human on this instance authored this account's name". Two consequences, both owned by
+    //    `models/users.ts`: `name` stops being derived from the two halves above, and a provider
+    //    re-login leaves all three fields alone. Stored rather than inferred by comparing a provider's
+    //    claim against the current value.
     nameLocallyEdited: boolean().notNull().default(false),
     auth: jsonb().notNull().default({}),
     meta: jsonb().notNull().default({}),
     passkeys: jsonb().notNull().default({}),
     prefs: jsonb().notNull().default({}),
     hasAvatar: boolean().notNull().default(false),
-    // -> The provider-reported avatar URL cached by `models/users.ts#syncAvatarFromProvider`, the
-    //    one shared write path every provider integration (OAuth/OIDC, LDAP, SAML) syncs an avatar
-    //    through. Applied ONLY while `hasAvatar` is false -- a manually-uploaded avatar always wins
-    //    and is never silently overwritten by a provider sync. Deliberately independent of
-    //    `hasAvatar`/`userAvatars` (the manual-upload blob): nothing in this column's write path
-    //    touches either, so `hasAvatar` keeps meaning exactly "this user uploaded one themselves".
+    // -> The provider-reported avatar URL cached by `models/users.ts#syncAvatarFromProvider`, the one
+    //    write path every provider integration syncs an avatar through. Applied ONLY while
+    //    `hasAvatar` is false, and nothing in that path touches `hasAvatar`/`userAvatars` -- so a
+    //    manual upload always wins, and `hasAvatar` keeps meaning "this user uploaded one themselves".
     avatarProviderUrl: text(),
     isActive: boolean().notNull().default(false),
     isSystem: boolean().notNull().default(false),
@@ -1817,9 +1455,6 @@ export const users = pgTable(
   (table) => [index('users_lastLoginAt_idx').on(table.lastLoginAt)]
 )
 
-// == RELATION TABLES ==================
-
-// USER GROUPS -------------------------
 export const userGroups = pgTable(
   'userGroups',
   {
@@ -1833,11 +1468,8 @@ export const userGroups = pgTable(
   (table) => [
     // -> Covers lookups by userId alone as well, being the leading column of the PK itself
     primaryKey({ columns: [table.userId, table.groupId] }),
-    // -> `userId` alone is already covered by the primary key's own index, being its leading column,
-    //    and a plain `(userId, groupId)` composite would be byte-for-byte identical to the PK's index
-    //    -- both dropped as redundant. `groupId` is kept: it's the PK's non-leading column, and the
-    //    PK's index cannot serve a lookup on it alone. Genuinely needed by
-    //    `sessions.clearSessionsForGroup`'s `WHERE groupId = ?`.
+    // -> `groupId` is the PK's non-leading column, so the PK's own index cannot serve a lookup on it
+    //    alone -- which `sessions.clearSessionsForGroup`'s `WHERE groupId = ?` needs.
     index('userGroups_groupId_idx').on(table.groupId)
   ]
 )
