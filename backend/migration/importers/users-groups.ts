@@ -14,64 +14,32 @@ import { coerceSourceBoolean } from '../source-coercion.ts'
 import { KNOWN_3_0_AUTH_MODULES } from '../report.ts'
 
 /**
- * Users/Groups importer engine.
+ * Users/Groups importer engine for the 2.5.x → 3.0 migration: one per-record importer factory per
+ * entity (`groups`, `users`, `userGroups`) for `phases/users.ts` to drive. Not the CLI — nothing
+ * here opens a database or parses argv — and it takes no `CARDINAL` dependency of its own: the CLI
+ * resolves the ids it needs (local strategy, system groups) and passes them in, which is what keeps
+ * the converters unit-testable.
  *
- * Entry point for the part of the 2.5.x → 3.0 migration that writes `groups`, `users` and
- * `userGroups`. Deliberately outside both the request/response path (nothing here is a Fastify
- * route) and `checkForLegacyInstall()` (`core/db.ts`) — that function detects a legacy install
- * during normal boot, whereas this only ever runs when an administrator explicitly launches a
- * migration, which is `tasks/migrate.ts`. This module is that CLI's engine, not the CLI itself:
- * it exposes one per-record importer factory per entity for the phase wiring to drive once it has
- * built a `SourceConnector` and a `UsersGroupsWriter`; nothing here boots a database connection or
- * parses argv.
+ * The write order — groups, users, then `userGroups` — is load-bearing: `userGroups` resolves both
+ * of its ids through the `Map<number, string>` source-id -> target-UUID maps the first two build
+ * (2.5.x has integer PKs, 3.0 `uuid().defaultRandom()`).
  *
- * The three entities are written in a fixed order — groups, then users, then userGroups — which
- * `phases/users.ts` enforces, because `userGroups` resolves both of its ids through the
- * `Map<number, string>` source-id -> target-UUID maps the first two build: 2.5.x uses integer PKs
- * (`increments()`) and 3.0 uses `uuid().defaultRandom()`, and 2.x's own `userGroups.id` has no
- * destination at all (it is a composite-PK relation table in 3.0). See
- * `docs/migration/2.5x-to-3.0-mapping.md`'s `userGroups` section.
- *
- * The per-record 2.x row -> 3.0 insertable row conversion is supplied by the caller rather than owned
- * by the importers; `phases/users.ts` wires the real ones (`createGroupConverter()`,
- * `createLocalUserConverter()` and `createProviderFallbackUserConverter()` below, composed by
- * `composeUserConverters()`). The `userGroups` translation needs no converter at all: once both ids
- * resolve there is no field left to convert.
- *
- * A source record flagged `isSystem` — 2.5.x's Administrators/Guests groups and Administrator/Guest
- * users — is skipped before `convert()` is even called, whichever converter is plugged in: every 3.0
- * install already seeds its own equivalents once (`Groups.init()`/`Users.init()`), so importing the
- * source's would be a duplicate. Skipping them must not also drop the membership they implied, which
- * is what `createUserGroupImporter()`'s `systemGroupIds` remap is for.
- *
- * Re-run safety was deliberately dropped (design spec 2026-09-01): this engine only ever runs once
- * against a single fresh, empty destination, so there is no "already imported" case for
- * insertGroup()/insertUser() to detect — an insert failure (e.g. a genuine users.email collision from
- * malformed source data) is still caught and reported as 'conflicted', which is ordinary error
- * handling, not idempotency.
+ * There is no re-run safety by design: this runs once against a fresh, empty destination, so an
+ * insert failure is a genuine conflict to report rather than an "already imported" case to detect.
  */
 
-// ---------------------------------------------------------------------------
-// Result shape — the contract the CLI and its dry-run report read.
-// ---------------------------------------------------------------------------
-
-/** Outcome of attempting to write one source record. */
 export type RecordStatus = 'created' | 'skipped' | 'conflicted' | 'flagged'
 
-/** Per-record detail, always present regardless of outcome so a dry-run report can list every row. */
 export interface RecordResult {
-  /** The record's 2.x integer id (or, for a `userGroups` row lacking one of its own, a synthetic
-   * `${userId}:${groupId}` label — see `2.5x-to-3.0-mapping.md`'s note that the join table's own
-   * surrogate id has no destination). */
+  /** The record's 2.x integer id, or a synthetic `${userId}:${groupId}` label for a `userGroups`
+   * row, whose own surrogate id has no destination in 3.0. */
   sourceId: number | string
-  /** The row's new UUID, when one was actually written (or would be, in a dry run). */
   targetId?: string
   status: RecordStatus
-  /** Human-readable reason, required for every non-`created` status. */
+  /** Required for every non-`created` status. */
   message?: string
 }
 
-/** Aggregate counts plus the per-record detail list for one entity (`groups`, `users`, or `userGroups`). */
 export interface EntityImportSummary {
   created: number
   skipped: number
@@ -80,45 +48,35 @@ export interface EntityImportSummary {
   records: RecordResult[]
 }
 
-/** One entry per source user whose account was created through the unsupported/reconfigured-provider
- * local-strategy fallback (`createProviderFallbackUserConverter`) — the data the CLI's
- * dry-run report renders so an administrator can see exactly which accounts need a password reset
- * before they're usable, without cross-referencing the per-record detail for each entity. */
+/** One entry per account created through the provider fallback: what the dry-run report lists so an
+ * administrator can see which accounts need a password reset before they are usable. */
 export interface ProviderFallbackFlag {
   email: string
   sourceProvider: string
   reason: string
 }
 
-/** True when a source record is flagged `isSystem` in 2.x -- a fixed row (the Administrators/Guests
- * groups, the Administrator/Guest users) that already exists in any 3.0 install, seeded once by
- * `Groups.init()`/`Users.init()`. Checked in orchestration, before any converter runs, so a system
- * row is never created regardless of which `GroupConverter`/`UserConverter` is plugged in. */
+/** A 2.x `isSystem` row (the Administrators/Guests groups, the Administrator/Guest users) already
+ * exists in any 3.0 install, seeded by `Groups.init()`/`Users.init()`. Checked before any converter
+ * runs, so no plugged-in converter can create a duplicate. */
 function isSystemSourceRecord(sourceRecord: SourceRecord): boolean {
   return readSourceBoolean(sourceRecord, 'isSystem') === true
 }
 
-/** 2.5.x's fixed source id for the Administrators group -- see `docs/migration/2.5x-source-schema.md`
- * Used only to recognize a `userGroups` row whose `groupId` pointed at the source's system
- * Administrators group, since that group's row itself is skipped and so never gets an entry in the
- * group id map. */
+/** 2.5.x's fixed source id for the Administrators group. Recognizing it matters because that
+ * group's own row is skipped on import, so it never gets an entry in the group id map. */
 const SOURCE_SYSTEM_GROUP_ADMIN_ID = 1
 
 /** 2.5.x's fixed source id for the Guests group -- same rationale as `SOURCE_SYSTEM_GROUP_ADMIN_ID`. */
 const SOURCE_SYSTEM_GROUP_GUEST_ID = 2
 
-/** This install's real target ids for the system Administrators/Guests groups, supplied by the caller
- * so `createUserGroupImporter()` can remap a membership that pointed at the *source's* now-skipped
- * system group onto the equivalent that already exists here.
+/** This install's real system-group ids, supplied by the caller so `createUserGroupImporter()` can
+ * remap a membership that pointed at the *source's* skipped system group.
  *
- * Where these live at runtime is worth flagging, because the obvious guess is wrong:
- * `CARDINAL.data.systemIds` holds only `localAuthId`/`guestsGroupId`/`usersGroupId` (per `base.yml`) —
- * `core/config.ts`'s `initDbValues()` generates the admin/guest ids as plain local variables and
- * hands them to each model's `init()` without ever writing them back. The admin *group* id is
- * persisted by `Settings.init()` as `settings.auth.rootAdminGroupId` and reloaded onto
- * `CARDINAL.config.auth.rootAdminGroupId`; the guest group id is `CARDINAL.data.systemIds.guestsGroupId`.
- * This module still takes no `CARDINAL` dependency of its own (same testability goal as
- * `localStrategyId`) — the CLI resolves both before building the importers. */
+ * The obvious lookup is wrong: `CARDINAL.data.systemIds` has no admin group id — `initDbValues()`
+ * generates it as a local variable, and `Settings.init()` persists it as
+ * `settings.auth.rootAdminGroupId` (reloaded onto `CARDINAL.config.auth.rootAdminGroupId`). Only the
+ * guest id is `CARDINAL.data.systemIds.guestsGroupId`. */
 export interface SystemGroupIds {
   admin: string
   guest: string
@@ -139,28 +97,18 @@ function record(summary: EntityImportSummary, result: RecordResult): void {
   summary.records.push(result)
 }
 
-// ---------------------------------------------------------------------------
-// Per-record conversion — the caller supplies the converters; see the module doc.
-// ---------------------------------------------------------------------------
-
-/** What `groupsTable`/`usersTable` actually accept on insert — the shape a converter produces. */
 export type NewGroupRow = typeof groupsTable.$inferInsert
 export type NewUserRow = typeof usersTable.$inferInsert
 
-/** A conversion either produces an insertable row, or explains why it doesn't. `providerFallback` is
- * only ever set by `createProviderFallbackUserConverter()`: a created row that also needs
- * to land on `UserImporter.providerFallbacks`, since the account genuinely gets created
- * and is *also* flagged for admin attention — not one or the other. */
+/** `providerFallback` rides along with a `created` row: such an account is genuinely created and
+ * *also* flagged for admin attention, not one or the other. */
 export type ConversionOutcome<TRow> =
   | {
       status: 'created'
       row: TRow
       providerFallback?: ProviderFallbackFlag
-      /** Optional note for an otherwise-successful conversion — e.g. `createGroupConverter()` uses
-       * this to report permissions/rules that were dropped during conversion rather than silently
-       * discarding them, and both `UserConverter`s use it (via `convertTfa()`) when a 2.x account's
-       * 2FA could not be carried over. Never required: most converters that reach `created` have
-       * nothing to add. */
+      /** Note on an otherwise-successful conversion — dropped permissions or rules, or 2FA that
+       * could not be carried over — so the loss is visible in the dry-run report. */
       message?: string
     }
   | { status: 'skipped' | 'conflicted' | 'flagged'; message: string }
@@ -173,19 +121,11 @@ export type UserConverter = (
   source: SourceRecord
 ) => ConversionOutcome<NewUserRow> | Promise<ConversionOutcome<NewUserRow>>
 
-// ---------------------------------------------------------------------------
-// Group conversion — pageRules -> rules reshaping and the permissions global-vs-page-rule-only
-// split. See `docs/migration/2.5x-to-3.0-mapping.md`'s `groups` section.
-// ---------------------------------------------------------------------------
-
-/** The closed global-permission list this repo maintains — the only strings 3.0's
- * `groups.permissions` column may hold. Everything else a 2.x source group's flat `permissions` array
- * might contain (`read:pages`, `write:pages`, …) only ever gated whether that group's page rules took
- * effect at all in 2.x — 3.0 has no equivalent global gate; the rules alone govern page access — so
- * those entries are dropped rather than carried into `groups.permissions`. `manage:glossary` has no
- * 2.x source concept to map from (the glossary feature is 3.0-only), so it is never a legacy source
- * value and is intentionally absent here — this set filters what a 2.x export could actually contain,
- * not the full current vocabulary. */
+/** The global permissions a 2.x export could actually contain — not 3.0's full vocabulary, since
+ * this only filters legacy input. 2.x's other entries (`read:pages`, `write:pages`, …) merely gated
+ * whether a group's page rules took effect at all; 3.0 has no such global gate, the rules alone
+ * govern page access, so they are dropped. `manage:glossary` is absent because the glossary is
+ * 3.0-only: no 2.x source can name it. */
 const GLOBAL_PERMISSIONS = new Set([
   'manage:users',
   'manage:groups',
@@ -196,32 +136,27 @@ const GLOBAL_PERMISSIONS = new Set([
   'access:admin'
 ])
 
-/** The five `match` values 2.x's `PageRule.match` enum actually has (`server/graph/schemas/group.graphql`
- * @ `requarks/wiki`). 3.0's sixth value, `TAGALL`, has no 2.x source to map from, so a rule claiming it
- * (or anything else) is treated as malformed rather than guessed at. */
+/** The five `match` values 2.x's `PageRule.match` enum has (`server/graph/schemas/group.graphql`
+ * @ `requarks/wiki`). 3.0's sixth, `TAGALL`, has no 2.x source, so a rule claiming it (or anything
+ * else) is treated as malformed rather than guessed at. */
 const VALID_2X_RULE_MATCH = new Set(['START', 'END', 'REGEX', 'TAG', 'EXACT'])
 
-/** Reads a boolean column off a source record — see `coerceSourceBoolean` for the cross-engine
- * representations this accepts (the export-bundle path can carry integer 0/1 as well as a real
- * boolean). */
+/** See `coerceSourceBoolean`: the export-bundle path can carry integer 0/1 as well as a real
+ * boolean. */
 function readSourceBoolean(source: SourceRecord, column: string): boolean | undefined {
   return coerceSourceBoolean(source[column])
 }
 
-/** Narrows an arbitrary value to a string array, dropping any non-string element rather than
- * throwing — a defensively-read 2.x jsonb column may contain anything. */
+/** Non-string elements are dropped rather than thrown on: a 2.x jsonb column may hold anything. */
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : []
 }
 
-/** A synthesized label for an imported rule, since 2.x rules carry no `name` of their own — e.g.
- * `Imported Rule 2: START blog/` when the rule addresses a path, or plain `Imported Rule 2` for a
- * rule with an empty path (2.x's convention for "the whole site"). A `TAG` rule (OpenProject #3408)
- * shows its `tags` instead of `path` — `path` is left empty for a converted TAG rule (see
- * `convertPageRule`), so falling through to the generic label would silently drop the one thing
- * that made the rule specific. */
+/** 2.x rules carry no `name` of their own. An empty path is 2.x's convention for "the whole site",
+ * hence the generic label. A `TAG` rule labels itself with its `tags`, since `convertPageRule`
+ * empties `path` for one and the generic label would drop the one thing that made it specific. */
 function synthesizeRuleName(
   rule: { match: string; path: string; tags?: string[] },
   index: number
@@ -233,26 +168,18 @@ function synthesizeRuleName(
 }
 
 /**
- * Converts one 2.x `pageRules[]` element into 3.0's `GroupRule` shape, or `undefined` if the source
- * element is too malformed to convert (missing `deny`, or a `match` outside 2.x's own five-value
- * enum) — the caller drops such an element and counts it rather than failing the whole group.
+ * One 2.x `pageRules[]` element -> 3.0's `GroupRule`, or `undefined` when the element is too
+ * malformed to convert; the caller drops and counts those rather than failing the whole group.
  *
- * - `deny: true` -> `mode: 'DENY'`; `deny: false` -> `mode: 'ALLOW'`. `mode: 'FORCEALLOW'` is never
- *   produced — 2.x has no concept a force-allow rule could come from.
- * - `id` is always freshly generated: a 2.x rule id has no cross-table reference depending on it.
- * - `sites` is always `[]`: 2.x predates multi-site, so an imported rule applies on every site, which
- *   is the only site there was.
- * - `name` is synthesized (`synthesizeRuleName`), since 2.x rules carry none.
- * - A `TAG` rule's 2.x `path` held a comma-separated tag list (2.x had no first-class tags field
- *   either). OpenProject #3408 gives 3.0 a real `tags: string[]` on `GroupRule`, so a `TAG` rule
- *   splits `path` into it here — normalized through the same `normalizeRuleTags` `updateGroup`
- *   applies at write time — and `path` is left `''`, not carried forward, since nothing in 3.0 reads
- *   `path` for a `TAG` rule any more (no legacy comma-list fallback).
- * - `write:tags` (OpenProject #3393) has no 2.x source concept either — 2.x had no tags-as-a-rule-field
- *   at all, so nothing in a 2.x export ever granted or withheld it. A rule that grants `write:pages`
- *   grants `write:tags` alongside it here, so an imported group's editors keep the retagging ability
- *   they always implicitly had in 2.x (where tags carried no access implication of their own) rather
- *   than landing on 3.0 silently unable to retag anything they can otherwise edit.
+ * - `FORCEALLOW` is never produced: 2.x has no concept a force-allow rule could come from.
+ * - `id` is freshly generated — nothing cross-table references a 2.x rule id.
+ * - `sites` is always `[]`: 2.x predates multi-site, so an imported rule applies everywhere.
+ * - A `TAG` rule's 2.x `path` held a comma-separated tag list (2.x had no tags field), so it splits
+ *   into `tags` here — normalized as `updateGroup` does at write time — and `path` is left empty,
+ *   since nothing in 3.0 reads `path` for a `TAG` rule.
+ * - `write:tags` has no 2.x source concept: 2.x tags carried no access implication of their own, so
+ *   a rule granting `write:pages` grants it alongside, or an imported group's editors land unable to
+ *   retag anything they can otherwise edit.
  */
 function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   if (typeof raw !== 'object' || raw === null) {
@@ -287,20 +214,8 @@ function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   }
 }
 
-/**
- * Builds the `GroupConverter`.
- *
- * A source group flagged `isSystem` is skipped outright: 3.0 seeds its own Administrators/Users/
- * Guests once, in `Groups.init()`, with fixed system ids nothing else may collide with — a 2.x
- * source's own system groups have no destination to import into.
- *
- * Otherwise, the source group's `permissions` array is split against `GLOBAL_PERMISSIONS`: entries in
- * the closed list are carried onto `groups.permissions`; everything else (2.x page-permission strings
- * that only ever gated page-rule effectiveness, with no 3.0 equivalent) is dropped. The source group's
- * `pageRules` array is converted element-by-element by `convertPageRule()`; a malformed element is
- * dropped rather than failing the whole group. When anything was dropped, the outcome's `message`
- * says what and how many — an otherwise-successful `created` conversion, not a failure.
- */
+/** Builds the `GroupConverter`. A dropped permission or malformed rule is reported on the outcome's
+ * `message` and the conversion still counts as `created` — one bad rule never fails a whole group. */
 export function createGroupConverter(): GroupConverter {
   return (source) => {
     if (readSourceBoolean(source, 'isSystem') === true) {
@@ -349,29 +264,17 @@ export function createGroupConverter(): GroupConverter {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Provider fallback — every providerKey other than `local`; see `needsProviderFallback()` below.
-// ---------------------------------------------------------------------------
-
-/** 2.x `providerKey` values that correspond to a 3.0 authentication module that actually exists
- * today — `../report.ts`'s `KNOWN_3_0_AUTH_MODULES` (`backend/modules/authentication/*`,
- * cross-checked live against disk by that module's test), reused here rather than duplicated so the
- * two lists can't drift apart again. Membership here is necessary but not sufficient for a real
- * provider-linked import: see `needsProviderFallback()`. */
+/** The 2.x `providerKey` values naming a 3.0 authentication module that exists, aliased from
+ * `../report.ts` rather than restated so the two cannot drift. It only picks the fallback *reason* —
+ * every non-`local` provider falls back regardless (`needsProviderFallback()`). */
 const IMPLEMENTED_PROVIDER_MODULES = KNOWN_3_0_AUTH_MODULES
 
 /**
- * Whether a source user's `providerKey` must be routed through the unsupported/reconfigured-provider
- * local-strategy fallback, rather than a real provider-linked (or local-password-carryover) import.
- *
- * - `local` never falls back here — a local password carries over through `Users.importLocalUser()`
- *   a different path entirely, not this one.
- * - Every other `providerKey` falls back. This covers both halves of the task deliberately: a 2.x
- *   provider with no 3.0 module at all (LDAP, SAML, CAS, Auth0, Okta, ... — Epic #333's territory)
- *   has nowhere else to go, and a 2.x `github`/`google`/`oidc` account has nowhere *safe* to go
- *   either — 3.0 keys `auth` by strategy-instance UUID, and a fresh 3.0 install's same-module
- *   strategy (if configured at all) will not share the source's client id/secret, so the linked
- *   external account id cannot be assumed to resolve to anything on this install.
+ * Every `providerKey` but `local` routes through the local-strategy fallback, a provider 3.0
+ * implements included: 3.0 keys `auth` by strategy-instance UUID, and a fresh install's same-module
+ * strategy (if configured at all) will not share the source's client id/secret, so the linked
+ * external account cannot be assumed to resolve here. A `local` password carries over on its own
+ * path instead.
  */
 export function needsProviderFallback(providerKey: string): boolean {
   return providerKey !== 'local'
@@ -383,19 +286,16 @@ function providerFallbackReason(providerKey: string): string {
     : `source provider '${providerKey}' has no 3.0-native implementation (see backend/modules/authentication/ and docs/migration/2.5x-settings-auth-storage-field-mapping.md's Part 2 provider inventory for the confirmed no-destination providers)`
 }
 
-/** Reads a string column, treating an empty string the same as absent so a blank source field is
- * reported rather than silently accepted. */
+/** An empty string counts as absent, so a blank source field is reported rather than silently
+ * accepted. */
 function readSourceString(source: SourceRecord, column: string): string | undefined {
   const raw = source[column]
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined
 }
 
-/** Reads a timestamp column off a source record. A live `PostgresSourceConnector` hands back a real
- * `Date` (node-postgres's own decoding of a `timestamp` column); a bundle/JSON-backed connector may
- * instead hand back an ISO string. Either is accepted; anything else (missing column, `null`,
- * malformed string) degrades to `undefined` — the same "let the target column default rather than
- * fail the whole record" tolerance `page-import.ts`'s `normalizeStagedDate` gives a malformed staged
- * date — so one bad timestamp on one source row never blocks that user's import. */
+/** A live `PostgresSourceConnector` hands back a real `Date`; a bundle/JSON-backed one an ISO
+ * string. Anything else degrades to `undefined` so the target column defaults, rather than one bad
+ * timestamp blocking a whole record. */
 export function readSourceDate(source: SourceRecord, column: string): Date | undefined {
   const raw = source[column]
   if (raw instanceof Date) {
@@ -408,40 +308,28 @@ export function readSourceDate(source: SourceRecord, column: string): Date | und
   return undefined
 }
 
-/** The RFC 4648 base32 alphabet a TOTP secret is encoded in — mirrors the acceptance criteria of
- * `helpers/totp.ts#base32Decode` (case-insensitive, tolerant of whitespace/dashes and `=` padding) so
- * a secret this function accepts is one that decoder will actually accept too. Duplicated rather than
- * imported: this importer has no other dependency on `helpers/totp.ts`, and the two secrets 2.x/3.0
- * share a format over (base32, RFC 6238) are a public standard, not an internal contract between the
- * two files. Not a general-purpose base32 validator — only used by `convertTfa()` below to decide
- * whether a 2.x secret is safe to carry over verbatim. */
+/** Accepts what `helpers/totp.ts#base32Decode` accepts (case-insensitive, tolerant of whitespace,
+ * dashes and `=` padding), so a secret this passes is one that decoder will take. Duplicated rather
+ * than imported: the shared format is a public standard (RFC 4648 base32), not a contract between
+ * these two files. Not a general-purpose validator. */
 function isCarryableTotpSecret(secret: string): boolean {
   const normalized = secret.toUpperCase().replaceAll(/[\s-]/g, '').replaceAll('=', '')
   return normalized.length > 0 && /^[A-Z2-7]+$/.test(normalized)
 }
 
-/** What both `UserConverter`s write into a strategy's `tfaIsActive`/`tfaSecret`, given the 2.x
- * source's own columns.
+/**
+ * What both `UserConverter`s write into a strategy's `tfaIsActive`/`tfaSecret`.
  *
- * 2.5.x's TOTP implementation (`node-2fa@1.1.2`, itself built on `notp` + `thirty-two` — confirmed
- * against `docs/audits/security-reviews/2026-08-17-passkey-rpid-totp-drift.md`, which already
- * compared the two against this codebase's `helpers/totp.ts` for the drift-window review) is the same
- * RFC 6238 construction this install verifies against: HMAC-SHA1, a 30-second step, 6 digits, over a
- * base32 secret. A 2.x secret is therefore byte-compatible and copied verbatim — no re-encoding, no
- * shim — rather than the DROPPED handling `docs/migration/2.5x-to-3.0-mapping.md` used to document.
+ * 2.5.x's TOTP (`node-2fa@1.1.2`, over `notp` + `thirty-two`) is the same RFC 6238 construction this
+ * install verifies against — HMAC-SHA1, a 30-second step, 6 digits, base32 secret — so a 2.x secret
+ * is byte-compatible and copied verbatim, no re-encoding. 2.x has no recovery-code equivalent at
+ * all, so a migrated account with 2FA carried over starts with none;
+ * `UserCredentials#adminInvalidateTfa` is the way out if one locks itself out.
  *
- * 2.x has no recovery-code equivalent at all (no column, no table — see
- * `docs/migration/2.5x-source-schema.md`'s `users` section), so a migrated account with 2FA carried
- * over starts with none; `docs/migration/migration-runbook.md` calls this out, and an administrator
- * can always fall back to `UserCredentials#adminInvalidateTfa` if such an account gets locked out.
- *
- * Two cases fall back to the prior DROPPED behavior (`tfaIsActive: false, tfaSecret: ''`) instead of
- * carrying anything over, and both come back with a `note` for the caller to attach to the record's
- * `created` outcome so the drop is visible in the dry-run report rather than silent: 2.x's own
- * `tfaIsActive` is not `true` (nothing to carry, not an error), or it is `true` but the stored
- * `tfaSecret` is missing/empty or does not decode as base32 (a genuinely malformed source row — rare,
- * but importing an unusable secret as "active" would lock the account out with no recovery path,
- * which is worse than the accepted gap this is replacing).
+ * 2FA is dropped to `false`/`''` when the source's `tfaIsActive` is not `true` (nothing to carry),
+ * and when it is `true` but the secret is missing or does not decode as base32 — that second case
+ * returns a `note` for the record's dry-run entry, since importing an unusable secret as active
+ * would lock the account out with no recovery path.
  */
 function convertTfa(source: SourceRecord): {
   tfaIsActive: boolean
@@ -465,38 +353,28 @@ function convertTfa(source: SourceRecord): {
 }
 
 export interface ProviderFallbackConverterOptions {
-  /** Target UUID of this install's local authentication strategy. The engine deliberately has no
-   * `CARDINAL` dependency (see the module doc's testability goal), so the caller — the CLI —
-   * supplies this from `CARDINAL.data.systemIds.localAuthId` at runtime. */
+  /** Target UUID of this install's local authentication strategy; the CLI supplies it from
+   * `CARDINAL.data.systemIds.localAuthId`. */
   localStrategyId: string
 }
 
 /**
- * Builds the `UserConverter` for the unsupported/reconfigured-provider fallback path.
+ * The `UserConverter` for every non-`local` provider. The account is created against this install's
+ * local strategy with the "provider-authenticated, no usable local password" shape
+ * `loginWithProvider()` gives a brand-new provider account, except `mustChangePwd` is forced `true`:
+ * unlike that signup, this account has no working sign-in path here until an administrator resets
+ * it. Each created account also carries a `ProviderFallbackFlag` for the dry-run report.
  *
- * For a source user whose `providerKey` needs `needsProviderFallback()`, this creates the account
- * through the local strategy with the same "provider-authenticated, no usable local password" shape
- * `loginWithProvider()` already establishes for a brand-new provider account (`models/login.ts`,
- * `password: randomToken(24)`) — except `mustChangePwd` is forced `true`, since (unlike a fresh
- * provider-authenticated signup) this account has no working sign-in path on this install at all
- * until an administrator resets it. Every account this converter actually creates also gets one
- * `ProviderFallbackFlag` entry (source email, source provider, reason) on the outcome, which
- * `createUserImporter()` collects onto `UserImporter.providerFallbacks`.
+ * The local-strategy auth entry records the source `providerKey` verbatim as
+ * `migratedFallbackProvider`, for admin visibility only — never to auto-resolve a strategy, since
+ * 3.0 keys `auth` by strategy-instance UUID (see `needsProviderFallback()`). It tells a reviewer
+ * which provider the user needs relinking to, and lets a cleanup path tell an orphaned migration
+ * fallback from an ordinary local account that happens to carry `mustChangePwd`.
+ * `createLocalUserConverter()` never writes it: a real `local` source user has no foreign
+ * `providerKey` to record.
  *
- * The local-strategy auth entry this converter writes also carries `migratedFallbackProvider`: the
- * original 2.x `providerKey` verbatim (`'google'`, `'ldap'`, a legacy CAS key, …), stored purely for
- * admin visibility — it is NOT used to auto-resolve a strategy (3.0 keys `auth` by strategy-instance
- * UUID, and a fresh install's same-module strategy, if configured at all, cannot be assumed to share
- * the source's client id/secret; see the module doc comment above `needsProviderFallback()`). It
- * exists so an admin reviewing a fallback account later knows which provider the user needs
- * relinking to, and so a cleanup path can tell "this local auth entry is an orphaned migration
- * fallback" apart from a genuine local account that happens to have `mustChangePwd: true` for some
- * other reason. `createLocalUserConverter()` below never writes this field — a real `local`-provider
- * source user has no foreign `providerKey` to record.
- *
- * A `local` source user is NOT this converter's job — it returns `flagged` (not `skipped`: the record
- * is real and needs handling, just not by this converter) rather than being silently passed through,
- * so a caller relying solely on this converter still sees every record accounted for.
+ * A `local` source user comes back `flagged`, not `skipped` — the record is real and needs handling,
+ * just not here — so a caller using only this converter still sees every record accounted for.
  */
 export function createProviderFallbackUserConverter(
   options: ProviderFallbackConverterOptions
@@ -522,9 +400,8 @@ export function createProviderFallbackUserConverter(
       return { status: 'skipped', message: 'source user record has no email address' }
     }
     const name = readSourceString(source, 'name') ?? email
-    // -> 2.x's tfaIsActive/tfaSecret live on the user row itself, independent of providerKey, so a
-    //    fallback-routed account (created against this install's local strategy) carries its 2.x 2FA
-    //    state over exactly like createLocalUserConverter() below — see convertTfa()'s doc comment.
+    // -> 2.x's tfa columns live on the user row itself, independent of providerKey, so a
+    //    fallback-routed account carries its 2FA state over exactly like a local-provider one.
     const tfa = convertTfa(source)
 
     const row: NewUserRow = {
@@ -532,43 +409,35 @@ export function createProviderFallbackUserConverter(
       name,
       auth: {
         [options.localStrategyId]: {
-          // -> Same "provider-authenticated, no usable local password" shape loginWithProvider()
-          //    establishes for a brand-new provider account, except mustChangePwd is forced true: this
-          //    account cannot sign in through its source provider on this install (see
-          //    needsProviderFallback above), so it must go through a password reset before use.
           password: await bcrypt.hash(randomToken(24), BCRYPT_ROUNDS),
           mustChangePwd: true,
           restrictLogin: false,
           tfaIsActive: tfa.tfaIsActive,
           tfaRequired: false,
           tfaSecret: tfa.tfaSecret,
-          // -> 2.x has no recovery-code equivalent (see convertTfa()'s doc comment); left unset the
-          //    same way the pre-carry-over hardcoded entry always did.
-          // -> Admin-visibility metadata only, not a resolvable strategy reference — see this
-          //    function's doc comment above.
+          // -> No recovery codes: 2.x has no equivalent to carry over.
           migratedFallbackProvider: providerKey
         }
       },
       isSystem: false,
-      // -> Read off the source, never assumed — an account an administrator deliberately
-      //    deactivated on the source install must not be silently recreated as active. No 2.x
-      //    source row is missing this column (it's a real, non-nullable 2.x `users.isActive`), so
-      //    `false` here only ever covers a malformed/absent test fixture, not a real import.
+      // -> Never assumed: an account deliberately deactivated on the source must not come back
+      //    active. 2.x's `users.isActive` is non-nullable, so the `?? false` only covers a
+      //    malformed row.
       isActive: readSourceBoolean(source, 'isActive') ?? false,
       isVerified: readSourceBoolean(source, 'isVerified') ?? true,
       meta: {
         location: readSourceString(source, 'location') ?? '',
         jobTitle: readSourceString(source, 'jobTitle') ?? '',
-        // -> No 2.x source column: `pronouns` is a 3.0-only field.
+        // -> 3.0-only field, no 2.x source column.
         pronouns: ''
       },
       prefs: {
         timezone: readSourceString(source, 'timezone') ?? 'America/New_York',
         dateFormat: readSourceString(source, 'dateFormat') ?? 'YYYY-MM-DD',
-        // -> No 2.x source column: `timeFormat` has no `2.5x-to-3.0-mapping.md` entry.
+        // -> No 2.x source column.
         timeFormat: '12h',
         appearance: readSourceString(source, 'appearance') ?? 'site',
-        // -> No 2.x source column: `cvd` is a 3.0-only field.
+        // -> 3.0-only field, no 2.x source column.
         cvd: 'none'
       },
       createdAt: readSourceDate(source, 'createdAt'),
@@ -589,33 +458,18 @@ export function createProviderFallbackUserConverter(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Local-provider user conversion, and the router that picks between it and the
-// provider fallback above.
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the `UserConverter` for 2.x's `local` provider — a plain row-builder rather than
- * `Users.importLocalUser()`, because that method performs its own `getByEmail`/insert internally and
- * returns `{status, id}`, a shape that does not fit the
- * `UserConverter -> NewUserRow -> writer.insertUser(row)` pattern `createUserImporter()` drives. `createProviderFallbackUserConverter` below already established the
- * precedent that user-row creation in this engine is a raw-insert builder, not a model-method call
- * (unlike group creation, which does go through `Groups.createGroupFromImport()`) — this follows the
- * same shape, with the source's real bcrypt hash copied verbatim instead of a random unusable one.
- *
- * Boolean columns (`mustChangePwd`/`isActive`/`isVerified`) go through `coerceSourceBoolean()` rather
- * than a bare `=== true` check, matching this module's own `readSourceBoolean` convention: the
- * export-bundle connector represents 2.x's boolean columns as JSON `0`/`1` on engines whose knex/
- * Objection layer does that (MySQL/MariaDB/SQLite — see `source-coercion.ts`'s header, OpenProject
- * #1845/#1850), and a bare `=== true` would silently treat every such row as `false`. Timestamp
- * columns go through this module's own `readSourceDate()` — the same "real `Date` or an
- * ISO string, else `undefined`" tolerance `createProviderFallbackUserConverter` uses, shared rather
- * than duplicated.
- */
 export interface LocalUserConverterOptions {
   localStrategyId: string
 }
 
+/**
+ * The `UserConverter` for 2.x's `local` provider: a row builder rather than a call to
+ * `Users.importLocalUser()`, whose own `getByEmail`/insert and `{status, id}` return do not fit the
+ * `convert -> writer.insertUser(row)` pattern the importers drive. The source's bcrypt hash is
+ * copied verbatim. Boolean columns go through `coerceSourceBoolean()`, not a bare `=== true`: the
+ * export-bundle connector represents 2.x booleans as JSON `0`/`1` on MySQL/MariaDB/SQLite, and every
+ * such row would otherwise read as `false`.
+ */
 export function createLocalUserConverter(options: LocalUserConverterOptions): UserConverter {
   return (source: SourceRecord) => {
     const email =
@@ -650,13 +504,9 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
       },
       isSystem: false,
       isActive: coerceSourceBoolean(source.isActive) ?? false,
-      // -> Defaults to `false`, not `true` (unlike `createProviderFallbackUserConverter`'s own
-      //    `isVerified` default): for a `local`-provider account this column genuinely tracks whether
-      //    2.x's own email-verification flow was completed, so a missing/malformed value is treated
-      //    conservatively as "not verified" rather than assumed. The fallback converter's `true`
-      //    default reflects a different case entirely -- an account whose provider (github/ldap/...)
-      //    already authenticated the email externally, so 2.x's local-only verification concept does
-      //    not really apply to it.
+      // -> `false`, not the fallback converter's `true`: for a local account this column tracks
+      //    2.x's own email-verification flow, so a missing value is conservatively "not verified".
+      //    A provider-authenticated account had its email verified externally, hence that default.
       isVerified: coerceSourceBoolean(source.isVerified) ?? false,
       meta: {
         location: typeof source.location === 'string' ? source.location : '',
@@ -679,9 +529,6 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
   }
 }
 
-/** Routes a source user record to the real `local`-provider converter or the provider-fallback
- * converter, by `providerKey` — the `UserConverter` `phases/users.ts` plugs into
- * `createUserImporter()`. */
 export function composeUserConverters(
   local: UserConverter,
   fallback: UserConverter
@@ -690,34 +537,20 @@ export function composeUserConverters(
     source.providerKey === 'local' ? local(source) : fallback(source)
 }
 
-// ---------------------------------------------------------------------------
-// Write port — lets orchestration be unit-tested without a live database, and lets the CLI
-// swap in a dry-run writer that never touches Postgres at all.
-// ---------------------------------------------------------------------------
-
 export interface UsersGroupsWriter {
   insertGroup(row: NewGroupRow): Promise<{ id: string }>
   insertUser(row: NewUserRow): Promise<{ id: string }>
   insertUserGroup(userId: string, groupId: string): Promise<void>
-  /** Assigns a user to one of THIS install's real system groups (Administrators/Guests) -- used only
-   * by the remap path in `createUserGroupImporter()`, never for an ordinary imported group. Distinct
-   * from `insertUserGroup()` because the real writer must go through `Groups.assignUserToGroup()`
-   * rather than a raw insert: that model method runs `guestMembershipViolation()` and de-duplicates via
-   * `onConflictDoNothing()`, both of which matter for a system group in a way they don't for a fresh,
-   * just-created ordinary group. */
+  /** Only for `createUserGroupImporter()`'s remap onto one of THIS install's system groups, never
+   * for an ordinary imported group. Distinct from `insertUserGroup()` because the real writer must
+   * go through `Groups.assignUserToGroup()`: it runs `guestMembershipViolation()` and de-duplicates,
+   * both of which matter for a system group and not for a fresh, just-created one. */
   assignUserToSystemGroup(userId: string, groupId: string): Promise<void>
 }
 
-/** Real writer, backed by Drizzle. Any insert failure (e.g. `users.email`'s unique constraint) is
- * surfaced to the caller as a thrown error — `importOne()` catches it per-record and
- * downgrades that record to `conflicted` rather than aborting the whole import.
- *
- * `insertGroup()` is the one exception to "backed by Drizzle": a group is written through
- * `CARDINAL.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)` —
- * that model method carries `createGroup()`'s own insert-then-`reloadCache()` shape, which a bare
- * insert here would silently skip (a newly-imported group's rules would not take effect until the
- * next process restart). `insertUser()`/`insertUserGroup()` stay raw inserts; routing those through
- * their own models is deliberately out of scope. */
+/** Real writer. `insertGroup()` is the one non-Drizzle path: a group goes through
+ * `CARDINAL.models.groups.createGroupFromImport()` for its insert-then-`reloadCache()`, which a raw
+ * insert would skip — an imported group's rules would not take effect until the next restart. */
 export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
   return {
     async insertGroup(row) {
@@ -741,8 +574,8 @@ export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
   }
 }
 
-/** Dry-run writer: mints a placeholder UUID for every record instead of writing anything, so the
- * `userGroups` phase can still resolve cross-references and report what it *would* write. */
+/** Mints a placeholder UUID per record instead of writing anything, so the `userGroups` phase can
+ * still resolve cross-references and report what it *would* write. */
 export function createDryRunWriter(): UsersGroupsWriter {
   return {
     async insertGroup() {
@@ -752,29 +585,18 @@ export function createDryRunWriter(): UsersGroupsWriter {
       return { id: crypto.randomUUID() }
     },
     async insertUserGroup() {
-      // Nothing to return — a dry run never needs the join row's identity for anything downstream.
+      // Nothing is written in a dry run.
     },
     async assignUserToSystemGroup() {
-      // Same rationale as insertUserGroup() above -- nothing is actually written in a dry run.
+      // Nothing is written in a dry run.
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// userGroups derivation — `PostgresSourceConnector.users()` denormalizes group
-// membership onto each user row as `groups: [{id, name}]` rather than exposing a separate
-// `userGroups()` generator (`SourceConnector` has none — see `connector.ts`'s own `users()` doc).
-// `deriveUserGroupsFromEmbeddedGroups()` re-expands that embedded shape into the flat
-// `{userId, groupId}` records `createUserGroupImporter()` consumes, so `phases/users.ts`'s
-// `userGroups` entity can read the same `users()` iterable a second time (a fresh call — each
-// connector call re-issues its own query) and drive the join-table importer without either
-// connector kind ever needing its own `userGroups()` method.
-// ---------------------------------------------------------------------------
-
-/** Re-expands each user row's embedded `groups: [{id, name}]` array
- * (`PostgresSourceConnector.users()`) into one `{userId, groupId}` record per membership, in source
- * order. A user with no
- * memberships (`groups: []`) yields nothing for that user. */
+/** `SourceConnector` has no `userGroups()` generator: membership is denormalized onto each user row
+ * as `groups: [{id, name}]`, so the `userGroups` phase reads `users()` a second time (a fresh call
+ * re-issues the query) and re-expands it here into one flat `{userId, groupId}` record per
+ * membership, in source order. */
 export async function* deriveUserGroupsFromEmbeddedGroups(
   users: AsyncIterable<SourceRecord>
 ): AsyncGenerator<SourceRecord> {
@@ -789,24 +611,20 @@ export async function* deriveUserGroupsFromEmbeddedGroups(
   }
 }
 
-/** Reads a 2.x integer id off a source record, under the given column name. Returns `undefined`
- * (rather than throwing) for a missing/non-numeric value so a malformed record can be reported as
- * `skipped` instead of aborting the whole entity's import. */
+/** `undefined` rather than a throw for a missing/non-numeric value, so a malformed record is
+ * reported as `skipped` instead of aborting the whole entity's import. */
 function readSourceId(source: SourceRecord, column: string): number | undefined {
   const raw = source[column]
   const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN
   return Number.isInteger(n) ? n : undefined
 }
 
-/** Live, per-record import of one id-mapped entity (`groups` or `users`), so a phase entity can drive
- * one source record at a time instead of being handed a whole iterable up front. `summary`/`idMap`
- * are live references into the same closure-scoped bindings every `importOne()` call mutates — not
- * snapshots — so a caller reading them after several calls sees every record processed so far. */
+/** Per-record import of one id-mapped entity (`groups` or `users`). `summary`/`idMap` are live
+ * references mutated by every `importOne()` call, not snapshots. */
 export interface RecordImporter {
-  /** Imports one source record, returning the exact `RecordStatus` it recorded onto `summary` for
-   * this record: a caller driving `importOne()` directly (`phases/users.ts`) needs this to route its
-   * own `WriteRecorder` call correctly, and `importOne()` never throws for a bad/conflicting record,
-   * so the return value — not a caught exception — is the only signal. */
+  /** Returns the `RecordStatus` recorded onto `summary` for this record. `importOne()` never throws
+   * for a bad or conflicting record, so the return value — not a caught exception — is the only
+   * signal a caller routing its own `WriteRecorder` call has. */
   importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
   readonly idMap: Map<number, string>
@@ -814,10 +632,8 @@ export interface RecordImporter {
 
 export type GroupImporter = RecordImporter
 
-/** `RecordImporter` plus the accumulated provider-fallback flags, which only `users` produces.
- * `providerFallbacks` is the same kind of live reference as `summary`/`idMap`:
- * `createProviderFallbackUserConverter()`-produced accounts accumulate onto it across every
- * `importOne()` call. */
+/** `providerFallbacks` is the same kind of live reference as `summary`/`idMap`, accumulating across
+ * every `importOne()` call. Only `users` produces them. */
 export interface UserImporter extends RecordImporter {
   readonly providerFallbacks: ProviderFallbackFlag[]
 }
@@ -828,13 +644,11 @@ interface RecordImporterOptions<TRow> {
   /** Recorded verbatim for a source row flagged `isSystem` — the one thing groups and users say
    * differently, since each names its own already-seeded 3.0 equivalent. */
   systemSkipMessage: string
-  /** When given, every created record's `providerFallback` (if any) is appended here. */
   providerFallbacks?: ProviderFallbackFlag[]
 }
 
-/** Builds an importer for one id-mapped entity. Never throws for one bad or conflicting record; each
- * becomes a `RecordResult` on `summary` instead, so one record's bad data cannot abort the whole
- * run. */
+/** Never throws for one bad or conflicting record; each becomes a `RecordResult` on `summary`
+ * instead, so one record's bad data cannot abort the whole run. */
 function createRecordImporter<TRow>(options: RecordImporterOptions<TRow>): RecordImporter {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
@@ -905,28 +719,21 @@ export function createUserImporter(
   return { ...importer, providerFallbacks }
 }
 
-/** Live, per-record `userGroups` join-row import — same shape and rationale as `RecordImporter`
- * above, minus the id map: once both ids resolve there is nothing left to convert, so this one takes
- * no converter. */
+/** Same shape as `RecordImporter`, minus the id map: once both ids resolve there is nothing left to
+ * convert, so this one takes no converter. */
 export interface UserGroupImporter {
-  /** See `RecordImporter#importOne`'s doc — same contract: returns the `RecordStatus` it just
-   * recorded onto `summary`. */
   importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
 }
 
-/** Builds a `UserGroupImporter`. Takes `userIdMap`/`groupIdMap` directly rather than building them
- * itself — the caller (`phases/users.ts`) passes the SAME `Map` instances
- * `createGroupImporter()`/`createUserImporter()` populate, so a membership resolved here always
- * reflects every group/user imported so far, including ones imported after this importer was
- * constructed.
+/** Takes the SAME `Map` instances `createGroupImporter()`/`createUserImporter()` populate, not
+ * copies, so a membership resolved here reflects every group/user imported so far — including ones
+ * imported after this importer was constructed.
  *
- * A `groupId` that doesn't resolve in `groupIdMap` is not automatically "the group was
- * never created" -- it may be the source's own system Administrators (`SOURCE_SYSTEM_GROUP_ADMIN_ID`)
- * or Guests (`SOURCE_SYSTEM_GROUP_GUEST_ID`) group, which `createGroupImporter()` deliberately skips
- * rather than creates. When `systemGroupIds` is supplied, that specific case is remapped onto this
- * install's real target group via `writer.assignUserToSystemGroup()` instead of being dropped. An
- * ordinary group id that resolves normally through `groupIdMap` never reaches this fallback at all. */
+ * An unresolved `groupId` does not necessarily mean "the group was never created": it may be the
+ * source's own system Administrators/Guests group, which `createGroupImporter()` deliberately skips.
+ * With `systemGroupIds` supplied, that case alone is remapped onto this install's real group rather
+ * than dropped. */
 export function createUserGroupImporter(
   userIdMap: Map<number, string>,
   groupIdMap: Map<number, string>,

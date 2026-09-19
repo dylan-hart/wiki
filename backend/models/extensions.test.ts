@@ -9,17 +9,9 @@ import { buildInstallArgs, installRequest } from './extensions.ts'
 import type { ExtensionDefinition } from './extensions.ts'
 
 /**
- * Task 661: `getExtensions()` used to only ever answer `isInstalled`/`isCompatible` — a module that
- * failed to load earlier in this process (e.g. Sharp choking mid page-render) stayed silently
- * "installed" in the list until an admin happened to click reinstall and saw the one-shot
- * `restartRequired` toast. `needsRestart` surfaces `hasLoadFailed()` on every list load instead, so the
- * warning is visible the moment the admin opens the page. `incompatibleReason` does the equivalent for
- * the "not compatible" case: instead of a bare refusal, it says which architecture/platform the
- * extension needs versus what `os.arch()`/`process.platform` actually report here.
- *
- * `CARDINAL.SERVERPATH` is pointed at an empty temp dir so `moduleExists()` (used by `isInstalled()`) has
- * somewhere real to `fs.access` against — every specifier below is fictional, so it always resolves to
- * "not installed", which these tests don't otherwise care about.
+ * `CARDINAL.SERVERPATH` is pointed at an empty temp dir so `moduleExists()` has somewhere real to
+ * `fs.access` against — every specifier below is fictional, so it always resolves to "not
+ * installed", which these tests don't otherwise care about.
  */
 
 let dir: string
@@ -64,7 +56,7 @@ test('getExtensions() reports needsRestart: false when nothing has failed to loa
 test('getExtensions() reports needsRestart: true once this process has failed to load the module — independent of any install attempt', async () => {
   const definition = moduleDefinition()
   extensionsModel.definitions = [definition]
-  // -> Simulates a page render (or anything else) hitting the failed import, not a reinstall attempt
+  // -> Stands in for a page render hitting the failed import, not a reinstall attempt
   extensionsModel.noteLoadFailure(definition.detect.value)
 
   const [state] = await extensionsModel.getExtensions()
@@ -97,10 +89,9 @@ test('getExtensions() names the required platform and what this server reports w
 })
 
 /**
- * Task 664: guards the `architectures`/`platforms` restrictions actually written into the Sharp and
- * Puppeteer definitions against what those packages publish, so a version bump that silently drops one
- * of these lines fails a test instead of quietly letting an incompatible host through. See the
- * verification comments in each `definition.yml` for the registry/vendor source and date.
+ * Guards the `architectures`/`platforms` restrictions written into the Sharp and Puppeteer
+ * definitions against what those packages publish, so a version bump that silently drops one of
+ * these lines fails a test instead of quietly letting an incompatible host through.
  */
 describe('sharp and puppeteer definition.yml architecture/platform constraints (Task 664)', () => {
   const loadDefinition = async (key: string): Promise<ExtensionDefinition> => {
@@ -135,14 +126,9 @@ describe('sharp and puppeteer definition.yml architecture/platform constraints (
 })
 
 /**
- * Task 665 caught `pandoc/definition.yml` describing Pandoc as "Required to import content from
- * other wikis and formats such as MediaWiki, AsciiDoc, Textile or DocBook" while no importer existed
- * anywhere under `backend/api` or `frontend/src` -- present tense claiming functionality that wasn't
- * there yet. Feature 402 (tasks 667/668) has since built that importer for real
- * (`models/import.ts`'s `convertToMarkdown()`, backed by a real `pandoc` subprocess -- see
- * `models/import.ts`). This now guards the opposite drift: the description must name the concrete
- * integration point it actually has, not regress to vague "coming eventually" language now that the
- * feature is real.
+ * The description must name the concrete integration point Pandoc actually has here -- the
+ * `convertToMarkdown()` subprocess and the formats it converts -- rather than promising an importer
+ * in vague "coming eventually" language.
  */
 describe('pandoc definition.yml description accuracy (Task 665, superseded by Feature 402)', () => {
   test('names the real integration point and the formats it backs, not a future promise', async () => {
@@ -152,24 +138,12 @@ describe('pandoc definition.yml description accuracy (Task 665, superseded by Fe
     )
     const definition = load(raw) as ExtensionDefinition
 
-    // -> Traceable to the code path that actually calls pandoc, not just an epic that might one day.
     assert.match(definition.description, /models\/import\.ts/i)
     assert.match(definition.description, /convertToMarkdown/i)
     assert.match(definition.description, /mediawiki/i)
   })
 })
 
-/**
- * WP 2290: `package.json`'s `allowScripts` key is only ever read by `@lavamoat/allow-scripts`, which
- * is not installed anywhere in this repo (`grep -rn lavamoat` across all four workspaces,
- * `.github/` and `dev/` returns nothing) — so the key denied nothing and permitted nothing, while the
- * `install()` doc comment above claimed it still gated which scripts ran. Rather than wire up a tool
- * this codebase doesn't otherwise use, the key was deleted and the comment rewritten to say plainly
- * that `--no-ignore-scripts` runs every install script unmediated. This guards both halves: the key
- * cannot silently come back (e.g. from a copy-pasted `package.json` snippet), and `@lavamoat/allow-
- * scripts` cannot land as a dependency without a human also updating this test and the comment it
- * documents.
- */
 describe('package.json has no decorative allowScripts key (WP 2290)', () => {
   test('no allowScripts key while @lavamoat/allow-scripts is not a dependency', async () => {
     const raw = await readFile(path.join(import.meta.dirname, '..', 'package.json'), 'utf8')
@@ -191,27 +165,15 @@ describe('package.json has no decorative allowScripts key (WP 2290)', () => {
   })
 })
 
-/**
- * OpenProject #2291: locks the exact npm argv `install()` builds against the policy its own doc
- * comment states, so a flag added or removed on one side without the other is caught here rather than
- * discovered later as either a broken install or a stale, misleading comment (the exact drift WP 2290
- * already had to clean up once). `buildInstallArgs()`/`installRequest()` are asserted directly, as
- * pure functions, rather than through `install()` itself with `execFile` mocked — Node's `node:test`
- * cannot stub a core module's export (`node:child_process`'s `execFile` is non-configurable) without
- * the `--experimental-test-module-mocks` flag, which this project's `test` script does not set; see
- * `models/import.ts`'s `buildPandocArgs`/`pandocCwd` (OpenProject #2191) for the established pattern
- * this follows for the same class of problem.
- */
 describe('install() argv locked to its documented flag policy (OpenProject #2291)', () => {
-  // -> Sharp's shape: a declared optional dependency (`backend/package.json`), so no `installVersion`
-  //    in its definition — the manifest is the only place its version is pinned.
+  // -> Sharp's shape: a declared optional dependency, so the manifest is the only version pin and
+  //    the definition carries no `installVersion`.
   const declaredNoVersion = moduleDefinition({
     key: 'sharp',
     detect: { type: 'module', value: 'sharp' }
   })
 
-  // -> Puppeteer's shape: not declared in any manifest, so `installVersion` in its definition.yml is
-  //    the only place its version is pinned — read by both the admin-area install and the Dockerfile.
+  // -> Puppeteer's shape: declared in no manifest, so `installVersion` is its only version pin.
   const undeclaredPinned = moduleDefinition({
     key: 'puppeteer',
     detect: { type: 'module', value: 'puppeteer' },
@@ -253,11 +215,9 @@ describe('install() argv locked to its documented flag policy (OpenProject #2291
   })
 
   /**
-   * A change to the flag list is exactly what this drift guard exists to catch — this asserts every
-   * flag in the actual policy comment above `install()` (excluding `install`/the request itself and
-   * the two npm-noise suppressors `--no-audit`/`--no-fund`, which are not policy-relevant and are not
-   * individually justified in the comment) is present in `buildInstallArgs()`'s output, so a flag
-   * documented but silently dropped from the code fails here too, not just the reverse.
+   * Both directions: a flag the policy comment justifies but the code dropped fails here too, not
+   * just the reverse. `--no-audit`/`--no-fund` are excluded as npm-noise suppressors the comment
+   * deliberately does not justify one by one.
    */
   test('every flag the install() doc comment justifies is actually present in the built argv', async () => {
     const source = await readFile(path.join(import.meta.dirname, 'extensions.ts'), 'utf8')

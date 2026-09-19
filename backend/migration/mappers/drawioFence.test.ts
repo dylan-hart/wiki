@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { convertDrawioFences } from './drawioFence.ts'
 
-/** Escapes a string for embedding as an XML/HTML attribute value, the way draw.io does when it
- * writes its own diagram XML into an exported SVG's `content` attribute. */
+/** Attribute-value escaping, matching what draw.io does writing its diagram XML into an exported
+ * SVG's `content` attribute. */
 function escAttr(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -12,9 +12,8 @@ function escAttr(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
-/** Builds a base64 `\`\`\`diagram` fence body: a draw.io SVG export whose root `content` attribute
- * carries `innerXml`, escaped once — matching what a real draw.io export produces (the `<diagram>`
- * element's own text is separately entity-escaped by the caller, same as draw.io itself does). */
+/** A base64 `\`\`\`diagram` fence body: a draw.io SVG export carrying `innerXml`, escaped once, in
+ * its root `content` attribute, as a real export does. */
 function drawioFenceBody(innerXml: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" content="${escAttr(innerXml)}">shape</svg>`
   return Buffer.from(svg, 'utf8').toString('base64')

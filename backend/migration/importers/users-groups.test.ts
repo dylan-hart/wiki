@@ -28,10 +28,6 @@ import { installTestWiki } from '../../test/mocks.ts'
 const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
 const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
 
-/** Wraps a plain array as the `AsyncIterable<SourceRecord>` the engine consumes, matching how a
- * real `SourceConnector` generator would be read. */
-/** A writer that records every call it receives, in order, on top of a real (non-DB) uuid-minting
- * implementation — lets a test assert both write order and write content without a database. */
 function recordingWriter(): UsersGroupsWriter & { calls: string[] } {
   const base = createDryRunWriter()
   const calls: string[] = []
@@ -56,9 +52,6 @@ function recordingWriter(): UsersGroupsWriter & { calls: string[] } {
   }
 }
 
-/** Minimal-but-real converters, standing in for the field-mapping task this task defers to —
- * enough to exercise the actual write path and id-mapping, without claiming to be the real
- * 2.x → 3.0 field mapping (auth/meta/prefs folding, rule conversion, etc). */
 const passthroughConvertGroup = (source: { name?: unknown }) =>
   ({ status: 'created', row: { name: String(source.name) } as NewGroupRow }) as const
 
@@ -68,7 +61,6 @@ const passthroughConvertUser = (source: { email?: unknown; name?: unknown }) =>
     row: { email: String(source.email), name: String(source.name) } as NewUserRow
   }) as const
 
-/** A converter that writes nothing, standing in for a caller that supplied no real one. */
 const flagEverythingGroupConverter: GroupConverter = () => ({
   status: 'flagged',
   message: 'no group converter supplied'
@@ -86,10 +78,8 @@ interface UsersGroupsRun {
   providerFallbacks: ProviderFallbackFlag[]
 }
 
-/** Drives the three per-record importers in the order `phases/users.ts` drives them — groups, then
- * users, then `userGroups`, each fully drained before the next starts, since a membership can only
- * resolve once both id maps are built — and folds the run's three summaries together, so a test can
- * assert against a whole run rather than call-by-call. */
+/** Drives the three importers in the order `phases/users.ts` does — each fully drained before the
+ * next starts, since a membership resolves only once both id maps are built. */
 async function runUsersGroupsImport(input: {
   source: {
     groups: AsyncIterable<SourceRecord>
@@ -175,8 +165,6 @@ describe('the three importers driven in write order', () => {
     const [membershipRecord] = result.userGroups.records
 
     assert.equal(membershipRecord.status, 'created')
-    // The membership row was written against the *target* uuids minted for the group/user above,
-    // not the source integer ids — proving the id maps were actually threaded through.
     assert.ok(groupRecord.targetId)
     assert.ok(userRecord.targetId)
   })
@@ -186,7 +174,7 @@ describe('the three importers driven in write order', () => {
 
     const result = await runUsersGroupsImport({
       source: {
-        groups: iter([]), // group 1 never gets created
+        groups: iter([]),
         users: iter([{ id: 10, email: 'a@example.com', name: 'A' }]),
         userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
       },
@@ -215,7 +203,6 @@ describe('the three importers driven in write order', () => {
     assert.equal(result.groups.flagged, 1)
     assert.equal(result.users.flagged, 1)
     assert.equal(writer.calls.length, 0)
-    // With neither id map populated, the membership row has nothing to resolve against.
     assert.equal(result.userGroups.skipped, 1)
   })
 
@@ -263,20 +250,14 @@ describe('the three importers driven in write order', () => {
   })
 })
 
-/**
- * Coverage for `needsProviderFallback()` and `createProviderFallbackUserConverter()` (Task 729):
- * unsupported and reconfigured-provider fallback handling.
- */
 describe('needsProviderFallback', () => {
   test('local never falls back', () => {
     assert.equal(needsProviderFallback('local'), false)
   })
 
   test('every non-local provider falls back, whether or not 3.0 has the module', () => {
-    // -> ldap/saml/auth0 are all real 3.0 modules today (Epic #333's territory since this test was
-    //    written), but `needsProviderFallback` never special-cases which providers are implemented.
-    //    `providerFallbackReason` is what branches on implementedness, tested separately via
-    //    `createProviderFallbackUserConverter`.
+    // -> `needsProviderFallback` never special-cases which providers 3.0 implements;
+    //    `providerFallbackReason` is what branches on that.
     assert.equal(needsProviderFallback('ldap'), true)
     assert.equal(needsProviderFallback('saml'), true)
     assert.equal(needsProviderFallback('auth0'), true)
@@ -300,7 +281,7 @@ describe('createProviderFallbackUserConverter', () => {
     })
 
     assert.equal(outcome.status, 'created')
-    if (outcome.status !== 'created') return // -> type narrowing for the assertions below
+    if (outcome.status !== 'created') return
     assert.equal(outcome.row.email, 'firebase.user@example.com')
     const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
     assert.equal(authEntry.mustChangePwd, true)
@@ -341,7 +322,7 @@ describe('createProviderFallbackUserConverter', () => {
     })
 
     assert.equal(outcome.status, 'created')
-    if (outcome.status !== 'created') return // -> type narrowing for the assertions below
+    if (outcome.status !== 'created') return
     assert.ok(outcome.providerFallback)
     assert.equal(outcome.providerFallback!.sourceProvider, 'ldap')
     assert.match(outcome.providerFallback!.reason, /is implemented in 3\.0/)
@@ -413,8 +394,8 @@ describe('createProviderFallbackUserConverter', () => {
 
     assert.equal(outcome.status, 'created')
     if (outcome.status !== 'created') return
-    // -> Never silently reopened: a departed employee's deliberately-deactivated 2.x account stays
-    //    inactive on import, not one password reset away from a working login.
+    // -> A deliberately-deactivated 2.x account stays inactive on import, not one password reset
+    //    away from a working login.
     assert.equal(outcome.row.isActive, false)
     assert.equal(outcome.row.isVerified, false)
     assert.deepEqual(outcome.row.meta, {
@@ -517,10 +498,8 @@ describe('createProviderFallbackUserConverter', () => {
     )
   })
 
-  // Task 3218: 2.x TOTP secret carry-over. tfaIsActive/tfaSecret live on the 2.x user row itself,
-  // independent of providerKey, so a fallback-routed account carries them over the same as a
-  // local-provider one — see the sibling coverage under `createLocalUserConverter` below for the
-  // exhaustive carry-over/drop cases; this block only proves the fallback converter wires it too.
+  // tfaIsActive/tfaSecret live on the 2.x user row itself, independent of providerKey, so a
+  // fallback-routed account carries them over the same as a local-provider one.
   test('carries a valid 2.x TOTP secret over onto the fallback-routed local-strategy entry', async () => {
     const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
@@ -557,15 +536,11 @@ describe('createProviderFallbackUserConverter', () => {
     assert.equal(authEntry.tfaIsActive, false)
     assert.equal(authEntry.tfaSecret, '')
     assert.match(outcome.message ?? '', /2FA/)
-    // -> providerFallback reporting still happens alongside the dropped-2FA note — the two are not
-    //    mutually exclusive.
+    // -> The dropped-2FA note and providerFallback reporting are not mutually exclusive.
     assert.equal(outcome.providerFallback?.email, 'broken-tfa@example.com')
   })
 })
 
-/**
- * Coverage for `createGroupConverter()` (Task 730): group and page-rule schema conversion.
- */
 describe('createGroupConverter', () => {
   const convert = createGroupConverter()
 
@@ -617,7 +592,7 @@ describe('createGroupConverter', () => {
     assert.deepEqual(rules[0].roles, ['read:pages'])
     assert.deepEqual(rules[0].sites, [])
     assert.equal(rules[0].name, 'Imported Rule 1: START private')
-    assert.notEqual(rules[0].id, '1') // -> fresh id, not the 2.x source id carried forward
+    assert.notEqual(rules[0].id, '1')
 
     assert.equal(rules[1].mode, 'ALLOW')
     assert.deepEqual(rules[1].locales, ['en'])
@@ -629,9 +604,8 @@ describe('createGroupConverter', () => {
   })
 
   test("converts an export-bundle source's integer-valued deny (0/1) the same as a real boolean (OpenProject #1850)", async () => {
-    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
-    //    integers (0/1) — convertPageRule() must widen deny's coercion the same as isSystem's, or
-    //    every imported page rule is dropped as malformed.
+    // -> The export bundle connector represents MySQL/MariaDB/SQLite booleans as JSON integers
+    //    (0/1); without widening deny's coercion every imported page rule drops as malformed.
     const outcome = await convert({
       id: 1,
       name: 'Editors',
@@ -658,9 +632,9 @@ describe('createGroupConverter', () => {
       isSystem: false,
       permissions: [],
       pageRules: [
-        { id: '1', match: 'START', path: '', roles: [], locales: [] }, // -> no `deny`
+        { id: '1', match: 'START', path: '', roles: [], locales: [] },
         { id: '2', deny: false, match: 'TAGALL', path: '', roles: [], locales: [] }, // -> no 2.x source
-        { id: '3', deny: true, match: 'END', path: 'blog', roles: [], locales: [] } // -> valid
+        { id: '3', deny: true, match: 'END', path: 'blog', roles: [], locales: [] }
       ]
     })
 
@@ -692,8 +666,8 @@ describe('createGroupConverter', () => {
     if (outcome.status !== 'created') return
     const rules = outcome.row.rules as any[]
     assert.equal(rules.length, 1)
-    // -> Trimmed, lowercased and de-duplicated the same way `updateGroup` normalizes tags at write
-    //    time (`normalizeRuleTags`), not carried forward verbatim.
+    // -> Normalized the same way `updateGroup` does at write time (`normalizeRuleTags`), not
+    //    carried forward verbatim.
     assert.deepEqual(rules[0].tags, ['europe', 'capital'])
     assert.equal(rules[0].path, '')
     assert.equal(rules[0].name, 'Imported Rule 1: TAG europe, capital')
@@ -716,8 +690,7 @@ describe('createGroupConverter', () => {
         },
         // -> No write:pages here -- write:tags must not be added where write:pages was not granted.
         { id: '2', deny: false, match: 'START', path: 'blog', roles: ['read:pages'], locales: [] },
-        // -> Already carries write:tags explicitly (shouldn't happen from a real 2.x export, but a
-        //    malformed/hand-edited one might) -- must not be duplicated.
+        // -> Already explicit (a hand-edited export) -- must not be duplicated.
         {
           id: '3',
           deny: false,
@@ -803,10 +776,6 @@ describe('createGroupConverter', () => {
   })
 })
 
-/**
- * Coverage for `createDrizzleWriter()`'s group-write path (Task 730): groups are written through
- * `CARDINAL.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)`.
- */
 describe('createDrizzleWriter insertGroup', () => {
   let restoreWiki: (() => void) | undefined
 
@@ -829,8 +798,6 @@ describe('createDrizzleWriter insertGroup', () => {
     })
     restoreWiki = () => handle.restore()
 
-    // `db` is never touched by insertGroup on this task's writer, so a stub that throws on any use
-    // proves the raw-insert path is genuinely gone rather than merely unused by this particular row.
     const explodingDb = {
       insert() {
         throw new Error('insertGroup must not call db.insert directly — see Task 730')
@@ -850,9 +817,6 @@ describe('createDrizzleWriter insertGroup', () => {
   })
 })
 
-/**
- * Coverage for Task 731: system-row exclusion and admin/guest membership remapping.
- */
 describe('system-row exclusion (Task 731)', () => {
   test('a source group flagged isSystem is skipped without ever calling convertGroup', async () => {
     let convertCalls = 0
@@ -876,14 +840,14 @@ describe('system-row exclusion (Task 731)', () => {
 
     assert.equal(result.groups.skipped, 1)
     assert.equal(result.groups.created, 1)
-    assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
+    assert.equal(convertCalls, 1)
     assert.match(result.groups.records[0].message ?? '', /system group/)
   })
 
   test("an export-bundle source's integer-valued isSystem (1) is still skipped (OpenProject #1850)", async () => {
-    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
-    //    integers (0/1), not real booleans — readSourceBoolean() must widen to accept that
-    //    representation, or a source's system Administrators/Guests rows import as duplicates.
+    // -> The export bundle connector represents MySQL/MariaDB/SQLite booleans as JSON integers
+    //    (0/1); without widening readSourceBoolean() a source's system Administrators/Guests rows
+    //    import as duplicates.
     let convertCalls = 0
     const convertGroup = (source: { name?: unknown }) => {
       convertCalls++
@@ -905,7 +869,7 @@ describe('system-row exclusion (Task 731)', () => {
 
     assert.equal(result.groups.skipped, 1)
     assert.equal(result.groups.created, 1)
-    assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
+    assert.equal(convertCalls, 1)
     assert.match(result.groups.records[0].message ?? '', /system group/)
   })
 
@@ -935,7 +899,7 @@ describe('system-row exclusion (Task 731)', () => {
 
     assert.equal(result.users.skipped, 2)
     assert.equal(result.users.created, 1)
-    assert.equal(convertCalls, 1) // -> neither system row reached convertUser at all
+    assert.equal(convertCalls, 1)
     for (const rec of result.users.records) {
       if (rec.status === 'skipped') {
         assert.match(rec.message ?? '', /system user/)
@@ -951,9 +915,8 @@ describe('system-row exclusion (Task 731)', () => {
 
       const result = await runUsersGroupsImport({
         source: {
-          // The source Administrators (id 1) and Guests (id 2) groups themselves are never even
-          // part of this feed — a real SourceConnector wouldn't yield them once isSystem rows are
-          // excluded upstream, and the engine must not depend on seeing them to do the remap.
+          // The source's own Administrators (1) / Guests (2) rows are never in this feed: a real
+          // connector excludes isSystem rows upstream, so the remap must not depend on seeing them.
           groups: iter([]),
           users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }]),
           userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
@@ -968,8 +931,6 @@ describe('system-row exclusion (Task 731)', () => {
       assert.equal(result.userGroups.records[0].targetId, TARGET_ADMIN_GROUP_ID)
       assert.match(result.userGroups.records[0].message ?? '', /remapped/)
 
-      // The remap must go through assignUserToSystemGroup (-> Groups.assignUserToGroup on the real
-      // writer), never a raw insertUserGroup call, for this membership.
       assert.ok(writer.calls.some((call) => call.startsWith('assignUserToSystemGroup:')))
       assert.ok(!writer.calls.some((call) => call.startsWith('insertUserGroup:')))
     }
@@ -1004,7 +965,6 @@ describe('system-row exclusion (Task 731)', () => {
       },
       writer,
       convertUser: passthroughConvertUser
-      // -> no systemGroupIds
     })
 
     assert.equal(result.userGroups.skipped, 1)
@@ -1016,7 +976,6 @@ describe('system-row exclusion (Task 731)', () => {
 
     const result = await runUsersGroupsImport({
       source: {
-        // Group id 1 here is a genuine, non-system, created group — not the source's Administrators.
         groups: iter([{ id: 1, name: 'Editors', isSystem: false }]),
         users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }]),
         userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
@@ -1062,12 +1021,6 @@ describe('system-row exclusion (Task 731)', () => {
   })
 })
 
-/**
- * Coverage for the Task 12 extraction: `createGroupImporter()`/`createUserImporter()`/
- * `createUserGroupImporter()` expose a per-record `importOne()` that Task 14's phase wiring drives
- * one source record at a time, instead of only ever being handed a whole iterable up front (as
- * `phases/users.ts` drives them).
- */
 describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', () => {
   test('createGroupImporter accumulates idMap across multiple importOne() calls', async () => {
     const writer = createDryRunWriter()
@@ -1091,10 +1044,9 @@ describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', (
 
     const importer = createUserGroupImporter(userIdMap, groupIdMap, writer)
 
-    // Mutate the maps AFTER construction, before importOne() -- proves the importer holds a live
-    // reference to the same Map instances rather than a snapshot taken at construction time, which
-    // is exactly what Task 14's phase wiring depends on (groups/users importers mutate these same
-    // maps as their own phases run, interleaved with this importer's own construction).
+    // Mutated after construction: proves the importer holds live references rather than a snapshot,
+    // which is what the phase wiring depends on — the group/user importers fill these same maps as
+    // their own phases run, interleaved with this importer's construction.
     userIdMap.set(10, 'target-user-uuid')
     groupIdMap.set(1, 'target-group-uuid')
 
@@ -1105,14 +1057,6 @@ describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', (
   })
 })
 
-/**
- * Coverage for the Task 14 review fix: `createGroupImporter`/`createUserImporter`/
- * `createUserGroupImporter`'s `importOne()` now RETURNS the exact `RecordStatus` it recorded onto
- * `summary`, rather than discarding it (`Promise<void>` -> `Promise<RecordStatus>`) — this is what
- * lets a caller driving `importOne()` directly (`phases/users.ts`) route its own `WriteRecorder` call
- * to match the real per-record outcome, instead of unconditionally treating every processed record as
- * a create.
- */
 describe('importOne() return value (Task 14 review fix)', () => {
   test("createGroupImporter's importOne() returns 'created' for a real conversion", async () => {
     const importer = createGroupImporter(passthroughConvertGroup, createDryRunWriter())
@@ -1167,11 +1111,6 @@ describe('importOne() return value (Task 14 review fix)', () => {
   })
 })
 
-/**
- * Coverage for `deriveUserGroupsFromEmbeddedGroups()` (Task 14) — re-expands
- * `PostgresSourceConnector.users()`'s embedded `groups: [{id, name}]` shape (Task 8) into the flat
- * `{userId, groupId}` records `createUserGroupImporter()` consumes.
- */
 describe('deriveUserGroupsFromEmbeddedGroups', () => {
   test('yields one pair per embedded group, in source order', async () => {
     const users = (async function* (): AsyncGenerator<SourceRecord> {
@@ -1322,12 +1261,9 @@ describe('createLocalUserConverter', () => {
     assert.deepEqual(outcome.row.createdAt, new Date('2020-01-02T03:04:05.000Z'))
   })
 
-  // Task 3218 ("Investigate and resolve 2.x TOTP secret handling in migration importer"): 2.5.x's
-  // TOTP implementation (node-2fa@1.1.2, itself built on notp + thirty-two) is the same RFC 6238
-  // construction backend/helpers/totp.ts verifies against — HMAC-SHA1, a 30-second step, 6 digits,
-  // over a base32 secret — confirmed in docs/audits/security-reviews/2026-08-17-passkey-rpid-totp-drift.md.
-  // A 2.x tfaSecret is therefore carried over verbatim rather than the prior hardcoded DROPPED
-  // `false`/`''` — see docs/migration/2.5x-to-3.0-mapping.md's `tfaIsActive`/`tfaSecret` rows.
+  // 2.5.x's TOTP (node-2fa@1.1.2, over notp + thirty-two) is the same RFC 6238 construction
+  // helpers/totp.ts verifies — HMAC-SHA1, 30-second step, 6 digits, base32 secret — so a 2.x
+  // tfaSecret carries over verbatim rather than being dropped.
   describe('2.x TOTP secret carry-over', () => {
     test('carries a valid 2.x TOTP secret over when tfaIsActive is true', async () => {
       const outcome = await convert({

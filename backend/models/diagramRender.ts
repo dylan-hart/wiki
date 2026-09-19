@@ -9,52 +9,36 @@ import {
 import { withTimeout } from '../helpers/timeout.ts'
 import { blockSettleScript } from './pdfExport.ts'
 
-/** How long a Mermaid render's page setup gets before giving up, in milliseconds. */
 const RENDER_SETUP_TIMEOUT = 15000
 
-/**
- * How many rounds `blockSettleScript` polls Lit's `updateComplete` before giving up — see the
- * identical constant on `pdfExport.ts`. This mounts exactly one block rather than a whole page, so it
- * needs no separate coarser timeout of its own; `RENDER_SETTLE_TIMEOUT` below is that guard.
- */
+/** Rounds `blockSettleScript` spends polling Lit's `updateComplete` before giving up. */
 const RENDER_SETTLE_MAX_ROUNDS = 20
 
-/** How long the settle wait gets once the block is mounted, in milliseconds. */
 const RENDER_SETTLE_TIMEOUT = 15000
 
-/** Mermaid themes `block-diagram` actually draws with — `auto` is the block's own reader-following
- *  choice and means nothing without a reader to follow, so a caller here gets `default` instead. */
+/** Themes `block-diagram` actually draws with — `auto` is its reader-following choice and means
+ *  nothing without a reader to follow, so a caller here gets `default` instead. */
 const MERMAID_THEMES = ['default', 'dark', 'neutral', 'forest']
 
-/** A source past this length is refused before a browser is ever opened — see `renderMermaid`. */
 const MAX_MERMAID_SOURCE_LENGTH = 20000
 
-/** The PlantUML server a site draws against unless its `block-plantuml` config names one of its own. */
 const DEFAULT_PLANTUML_SERVER = 'https://www.plantuml.com/plantuml'
 
 /**
- * How long the PlantUML fetch gets before it is treated as unreachable — the same guard, and the
- * same value, `models/liveData.ts#FETCH_TIMEOUT_MS` uses for exactly the same reason: an outbound
- * request this instance did not choose the destination for (today, the fixed default server; once
- * OpenProject #2223 lands, a site-configured one) must not be able to tie up a `limitRenders` slot
- * indefinitely.
+ * An outbound request whose destination this instance did not choose must not be able to tie up a
+ * `limitRenders` slot indefinitely.
  */
 const PLANTUML_FETCH_TIMEOUT_MS = 10000
 
 /**
- * PlantUML's own alphabet for the text it carries in a URL — the same one `block-plantuml`'s own
- * GET-URL encoder used before OpenProject task 3229 replaced it with the `models/diagramProxy.ts`
- * POST proxy (a separate transport from this session-authenticated, unscoped route — see that
- * model's class comment for why). Base64 by shape but not by order, so the standard encoders cannot
- * be used.
+ * PlantUML's own alphabet for the text it carries in a URL: base64 by shape but not by order, so the
+ * standard encoders cannot be used.
  */
 const PLANTUML_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_'
 
 /**
- * The same 8,000-character ceiling `block-plantuml`'s own GET-URL encoder used to enforce
- * client-side, before OpenProject task 3229 replaced that transport (for the block, not for this
- * route) with the POST proxy. Mirrored here so a diagram too large to draw fails with an explanation
- * instead of a confusing upstream error from whatever sits in front of the PlantUML server.
+ * The ceiling a GET to the PlantUML server allows. Enforced here so a diagram too large to draw
+ * fails with an explanation instead of a confusing error from whatever sits in front of that server.
  */
 const MAX_PLANTUML_URL_LENGTH = 8000
 
@@ -63,7 +47,7 @@ export type DiagramFormat = 'svg' | 'png'
 
 export interface DiagramRenderRequest {
   type: DiagramType
-  /** The diagram's fenced source, exactly as an author would write it inside ```mermaid/```plantuml. */
+  /** The fenced body, exactly as an author writes it inside ```mermaid/```plantuml. */
   source: string
   /** Mermaid only. One of `MERMAID_THEMES`; anything else (including `auto`) falls back to `default`. */
   theme?: string
@@ -76,33 +60,24 @@ export interface DiagramRenderResult {
 }
 
 /**
- * Runs inside the headless browser via `page.evaluate(importBlockScript, scriptUrl)`.
- *
- * Loads the block's own compiled bundle — the exact code a reader's browser runs, served from this
- * instance the same way `/_blocks/<tag>.js` always is — which is what defines the custom element
- * `mountBlockElementScript` below then creates. Kept as its own step, rather than folded into that one,
- * because a dynamic `import()` of a network specifier is meaningless outside a real browser page: there
- * is nothing to unit-test here that stubbing `globalThis` could stand in for, the same way this
- * module's tests never exercise a real `page.goto` either — see `diagramRender.test.ts`.
+ * Runs inside the headless browser via `page.evaluate`. Loads the block's own compiled bundle — the
+ * exact code a reader's browser runs — which is what defines the custom element
+ * `mountBlockElementScript` then creates.
  */
 export async function importBlockScript(scriptUrl: string): Promise<void> {
   await import(scriptUrl)
 }
 
 /**
- * Runs inside the headless browser via `page.evaluate(mountBlockElementScript, tag, attrs, source)`,
- * once `importBlockScript` has defined the custom element.
+ * Runs inside the headless browser via `page.evaluate`, once `importBlockScript` has defined the
+ * custom element.
  *
- * Mounts one instance of the block on an otherwise empty page, with `source` as its fenced body. That
- * is exactly how `block-diagram`'s `firstUpdated()` reads its source back:
- * `this.querySelector('pre').textContent`, so a `<pre>` child is what this writes rather than the
- * element's own `textContent`, matching how markdown itself hands the block its fence and keeping this
- * indistinguishable from a real page to the component's own code.
+ * `block-diagram`'s `firstUpdated()` reads its source back as `this.querySelector('pre').textContent`,
+ * so the source goes into a `<pre>` child rather than the element's own `textContent`.
  *
- * A plain, named, parameterized function rather than a closure, for the same reason
- * `pdfExport.ts#blockSettleScript` is one: Puppeteer serializes this to a string and re-evaluates it in
- * the page's own realm, so nothing here may close over this module, and every DOM global is read off
- * `globalThis` since the backend's `tsconfig.json` has no `dom` lib.
+ * Puppeteer serializes this to a string and re-evaluates it in the page's own realm, so nothing here
+ * may close over this module, and every DOM global is read off `globalThis` since the backend's
+ * `tsconfig.json` has no `dom` lib.
  */
 export function mountBlockElementScript(
   tag: string,
@@ -121,13 +96,12 @@ export function mountBlockElementScript(
 }
 
 /**
- * Runs inside the headless browser via `page.evaluate(extractDiagramScript, tag)`, once
- * `blockSettleScript` says the block mounted by `mountBlockElementScript` has settled.
+ * Runs inside the headless browser via `page.evaluate`, once `blockSettleScript` says the mounted
+ * block has settled.
  *
- * Reads back exactly what a reader would see: the SVG the block drew, through its shadow root since
- * every block is a `LitElement` and renders into one — or, when it could not be drawn, the text of its
- * own `.error` panel, so a caller here fails with the same message a reader would rather than a generic
- * one this module invents on its behalf.
+ * Reads through the shadow root, since every block is a `LitElement` and renders into one, and falls
+ * back to the block's own `.error` panel text so a caller fails with the message a reader would have
+ * seen rather than a generic one this module invents.
  */
 export async function extractDiagramScript(
   tag: string
@@ -147,39 +121,27 @@ export async function extractDiagramScript(
 }
 
 /**
- * Diagram pre-render model
+ * Server-side rendering of a single Mermaid or PlantUML diagram to a static SVG or PNG, for a
+ * context that cannot or should not run the block's own client-side JS to draw one itself.
  *
- * Server-side rendering of a single Mermaid or PlantUML diagram to a static SVG or PNG, for a context
- * that cannot or should not run the block's own client-side JS to draw one itself — a faster PDF
- * export that pre-renders a page's diagrams instead of waiting on the live page view to draw them one
- * at a time, or serving a diagram to a client that never loads the block runtime at all. Deferred from
- * Feature 402 as OpenProject task 785.
+ * MERMAID drives Puppeteer: `block-diagram` draws with the `mermaid` library, which needs a real DOM
+ * to lay out and paint into. Rather than reimplementing that pipeline against a bare `mermaid`
+ * import — a second copy of the dependency, liable to drift from what `block-diagram` ships — this
+ * mounts the block's own compiled bundle on a page of its own and waits for it with the same
+ * `blockSettleScript` `pdfExport.ts` rides for a whole page.
  *
- * MERMAID drives Puppeteer, sharing `helpers/puppeteer.ts` with `models/pdfExport.ts` and
- * `models/renderQueue.ts` for the browser itself: `block-diagram` draws with the `mermaid` library,
- * which needs a real DOM to lay out and paint into, so there is no way to produce its SVG without one.
- * Rather than reimplementing that pipeline against a bare `mermaid` import (a second copy of the
- * dependency, liable to drift from what `block-diagram` actually ships), this mounts the block's own
- * compiled bundle — the same one `/_blocks/block-diagram.js` serves to every reader — on a page of its
- * own and waits for it with the same `blockSettleScript` `pdfExport.ts` rides for a whole page,
- * because it is exactly the same wait: whether one block or many, "has every block's `updateComplete`
- * gone false" is the same question with the same answer.
- *
- * PLANTUML needs none of that. `block-plantuml` never draws locally — it deflates the source into a
- * PlantUML server's GET URL and lets the reader's browser fetch an `<img>` from it, so the "diagram
- * rendering JS" a client skips by asking this model instead is not a browser-side rendering *engine*
- * at all, only the deflate-and-request the block would otherwise do on its own. This mirrors that
+ * PLANTUML needs none of that: `block-plantuml` never draws locally, it deflates the source into a
+ * PlantUML server's GET URL and lets the reader's browser fetch an `<img>`. This mirrors that
  * transport with Node's built-in `zlib.deflateRawSync` (raw DEFLATE, byte-for-byte what `pako`'s
- * `deflateRaw` produces) and fetches the bytes directly rather than opening a browser to load an
- * `<img>` — the Puppeteer extension is therefore never required for a PlantUML request.
+ * `deflateRaw` produces) and fetches the bytes directly, so the Puppeteer extension is never
+ * required for a PlantUML request.
  */
 class DiagramRender {
-  /** Whether this instance can render a Mermaid diagram — PlantUML needs no browser, so it asks nothing here. */
+  /** Mermaid only — PlantUML needs no browser, so it asks nothing here. */
   async isAvailable(): Promise<boolean> {
     return isPuppeteerAvailable()
   }
 
-  /** Refuse a Mermaid request when this instance cannot draw one. PlantUML never reaches this. */
   private async ensureCanRenderMermaid(): Promise<void> {
     await assertPuppeteerAvailable(
       'diagramRenderPuppeteerMissing',
@@ -188,12 +150,8 @@ class DiagramRender {
   }
 
   /**
-   * Render one diagram to a static image, dispatching on `request.type`.
-   *
-   * @param siteId The site to render against — only PlantUML reads it, to look up that site's
-   * `block-plantuml` config (`resolvePlantumlServer()`), since which server it renders against is
-   * admin-configured per site rather than caller-supplied (OpenProject task 2223). Left undefined
-   * falls back to the public default the same as a site with nothing configured.
+   * @param siteId Only PlantUML reads it, to look up that site's admin-configured `block-plantuml`
+   * server. Left undefined falls back to the public default, the same as a site with none.
    */
   async render(request: DiagramRenderRequest, siteId?: string): Promise<DiagramRenderResult> {
     const format: DiagramFormat = request.format === 'png' ? 'png' : 'svg'
@@ -213,10 +171,6 @@ class DiagramRender {
     )
   }
 
-  /**
-   * Draw a Mermaid diagram by mounting `block-diagram` itself on a blank Puppeteer page. See the class
-   * comment for why this is the whole block rather than a bare `mermaid` import.
-   */
   private async renderMermaid(
     source: string,
     theme: string | undefined,
@@ -235,9 +189,8 @@ class DiagramRender {
     const browser = await this.launchBrowser()
     try {
       const page = await browser.newPage()
-      // -> `page.setContent`/`page.evaluate` have no timeout of their own, and what runs past them is
-      //    somebody else's code — so each step of the Mermaid path is raced against one, the same
-      //    `504` guard every headless-browser path in this codebase uses
+      // -> `page.setContent`/`page.evaluate` have no timeout of their own, and what runs past them
+      //    is somebody else's code, so each step is raced against one
       await withTimeout(
         page.setContent('<!doctype html><html><body></body></html>'),
         RENDER_SETUP_TIMEOUT,
@@ -298,10 +251,6 @@ class DiagramRender {
     }
   }
 
-  /**
-   * Fetch a PlantUML diagram's bytes directly from the server that would otherwise have drawn it into
-   * a reader's `<img>` — see the class comment for why no browser is involved.
-   */
   private async renderPlantuml(
     source: string,
     siteId: string | undefined,
@@ -327,11 +276,8 @@ class DiagramRender {
 
     let response: Response
     try {
-      // -> `redirect: 'error'` and a bounded timeout, the same hardening
-      //    `models/liveData.ts#resolve` applies to its own caller-influenced fetch — a redirecting
-      //    or hanging PlantUML server must not be able to bounce this request elsewhere, or hold a
-      //    `limitRenders` slot open indefinitely. See `LiveData#resolve`'s comment for the full
-      //    reasoning; it applies here unchanged.
+      // -> `redirect: 'error'` and a bounded timeout: a redirecting or hanging PlantUML server must
+      //    not be able to bounce this request elsewhere, or hold a `limitRenders` slot open
       response = await fetch(url, {
         redirect: 'error',
         signal: AbortSignal.timeout(PLANTUML_FETCH_TIMEOUT_MS)
@@ -343,8 +289,8 @@ class DiagramRender {
         502
       )
     }
-    // -> Best-effort, the same as `block-plantuml`'s own `_explain()`: a server behind a proxy that
-    //    strips this header still answers, just without the specific reason
+    // -> Best-effort: a server behind a proxy that strips this header still answers, just without
+    //    the specific reason
     const reason = response.headers.get('x-plantuml-diagram-error')
     if (reason) {
       throw new CustomError(
@@ -365,11 +311,9 @@ class DiagramRender {
   }
 
   /**
-   * The PlantUML server this site is configured to render against — its `block-plantuml` row's
-   * site-level `server` config value (`models/blocks.ts`'s `assertValidConfig` validates it at write
-   * time, so it is trusted as-is here), or `DEFAULT_PLANTUML_SERVER` when the site has none, has no
-   * such block row at all, or `siteId` itself is unknown (never happens for a real request — the route
-   * always resolves one via the request's hostname — but is not worth a throw here either).
+   * The site's `block-plantuml` `server` config value, or `DEFAULT_PLANTUML_SERVER` when it has
+   * none. `models/blocks.ts`'s `assertValidConfig` validates the value at write time, so it is
+   * trusted as-is here.
    */
   private async resolvePlantumlServer(siteId: string | undefined): Promise<string> {
     if (!siteId) {
@@ -388,7 +332,6 @@ class DiagramRender {
     return `${base}/${format}/${this.encodeForUrl(source)}`
   }
 
-  /** A diagram source as it goes into a PlantUML URL — see `PLANTUML_ALPHABET`'s comment. */
   private encodeForUrl(source: string): string {
     const bytes = deflateRawSync(Buffer.from(source, 'utf8'), { level: 9 })
     let encoded = ''
@@ -404,12 +347,11 @@ class DiagramRender {
     return encoded
   }
 
-  /** Broken out so a test can mock it — the same shape `pdfExport.ts#launchBrowser` uses. */
+  /** Broken out so a test can mock it. */
   private async launchBrowser(): Promise<any> {
     return launchPuppeteerBrowser('diagramRenderPuppeteerMissing')
   }
 
-  /** Close a browser, and keep any trouble doing so to itself — see `pdfExport.ts#discardBrowser`. */
   private async discardBrowser(browser: any): Promise<void> {
     await closeQuietly(browser, 'diagram render browser')
   }

@@ -6,10 +6,9 @@ const DRAWIO_FENCE = /```diagram\r?\n([\s\S]*?)\r?\n```/g
 
 export interface DrawioFenceResult {
   content: string
-  /** How many fences were successfully converted to a 3.0 ```drawio block. */
   converted: number
-  /** One entry per fence left unconverted (its original ```diagram fence, unusable in 3.0 either way),
-   * naming which page and why, so an operator can find and fix it by hand. */
+  /** One entry per fence left unconverted, naming which page and why, so an operator can find and
+   * fix it by hand. */
   warnings: string[]
 }
 
@@ -17,30 +16,22 @@ export interface DrawioFenceResult {
  * Converts every 2.x draw.io fenced diagram in `content` into the shape 3.0's `block-drawio` custom
  * block expects.
  *
- * 2.x's own draw.io editor plugin fences a diagram as ` ```diagram ` followed by a base64-encoded SVG
- * export — draw.io's own "embed as SVG, with the model XML tucked into the root `<svg>` element's
- * `content` attribute" format, the same shape "Extras > Edit Diagram" writes when a `.drawio`/`.svg`
- * file round-trips through it. 3.0 ships no `diagram` fence handler at all (that plugin doesn't exist
- * here); it has `block-drawio` instead, fenced as ` ```drawio ` around the `<mxGraphModel>`/`<mxfile>`
- * XML directly — a close cousin (both are draw.io's own file shapes) but not interchangeable syntax,
- * so importing 2.x content unchanged left every diagram showing as a fenced code block of unreadable
- * base64 text instead of drawing anything.
+ * 2.x's draw.io plugin fences a diagram as ` ```diagram ` around a base64-encoded SVG export —
+ * draw.io's own "embed as SVG, model XML tucked into the root `<svg>`'s `content` attribute" format.
+ * 3.0 has no `diagram` fence handler at all; `block-drawio` takes ` ```drawio ` around the
+ * `<mxGraphModel>`/`<mxfile>` XML directly. Close cousins, not interchangeable syntax, so unchanged
+ * 2.x content renders as a code block of unreadable base64.
  *
- * The transform is a straight re-encode, not a re-render: decode the fence body as base64 to recover
- * the SVG, read its root `content` attribute (cheerio auto-decodes the HTML entities draw.io escaped
- * it with, same as a browser parsing the same markup would), and re-fence that raw XML as ` ```drawio `,
- * wrapped in the `::block-drawio` container `block-drawio` needs to actually activate (`blockFence.ts`
- * — a fence with no container around it is inert, whatever its language name; this was missed on the
- * first pass at this transform, silently producing an unrendered `\`\`\`drawio` code block instead of
- * a diagram, for the exact same reason the un-transformed `\`\`\`diagram` fence never rendered either).
- * `block-drawio`'s own parser (`blocks/block-drawio/mxgraph.js`) already accepts either an `<mxfile>`
- * or a bare `<mxGraphModel>` root, deflated-and-base64'd `<diagram>` bodies included — exactly the
- * shape a draw.io SVG export's `content` attribute already holds, so nothing further needs decoding
- * here.
+ * The transform is a re-encode, not a re-render: decode the body, read the SVG's `content` attribute
+ * (cheerio un-escapes the entities draw.io wrote, as a browser would) and re-fence that raw XML,
+ * wrapped in the `::block-drawio` container the block needs to activate at all (`blockFence.ts`).
+ * `block-drawio`'s parser already accepts an `<mxfile>` or bare `<mxGraphModel>` root, deflated
+ * `<diagram>` bodies included — the shape a draw.io export's `content` attribute holds — so nothing
+ * further needs decoding here.
  *
- * A fence that fails to decode, or whose SVG has no `content` attribute (hand-edited, or truly not a
- * draw.io export), is left as its original ` ```diagram ` fence rather than dropped or corrupted — it
- * draws nothing either way, exactly as before this transform existed, with a warning explaining why.
+ * A fence that fails to decode, or whose SVG has no `content` attribute, is left as its original
+ * ` ```diagram ` fence rather than dropped or corrupted — it draws nothing either way — with a
+ * warning explaining why.
  */
 export function convertDrawioFences(content: string, identifier: string): DrawioFenceResult {
   let converted = 0
@@ -61,9 +52,9 @@ export function convertDrawioFences(content: string, identifier: string): Drawio
   return { content: next, converted, warnings }
 }
 
-/** The SVG's root `content` attribute, or `null` when the body isn't a draw.io SVG export at all —
- * garbage input, a genuinely different fenced code block someone happened to name `diagram`, or a
- * `content` attribute value that isn't drawio XML. */
+/** The SVG's root `content` attribute, or `null` when the body is not a draw.io SVG export —
+ * garbage input, a different fenced block someone named `diagram`, or a `content` value that is not
+ * drawio XML. */
 function extractDrawioXml(base64Body: string): string | null {
   let svg: string
   try {

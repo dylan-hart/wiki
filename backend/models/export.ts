@@ -15,17 +15,13 @@ import {
   tree as treeTable
 } from '../db/schema.ts'
 
-/** How long a finished export sits on disk before `purgeExpired` sweeps it, in seconds. */
 const EXPORT_TTL_SECONDS = 24 * 60 * 60
 
 /**
- * The archive format `exportSite` writes and `importModel.importSite` reads back — the shape of
- * `manifest.json` plus what each of the other entries means, not the running `wikiVersion`. Bumped
- * only when that shape changes; an import whose manifest names a different version is refused
- * outright rather than restored best-effort (see `models/import.ts`).
- *
- * Bumped to 2 for `pageHistory.json` and `navigation.json` joining the archive, and for `groups.json`
- * no longer carrying `isSystem` rows — see `exportSite`'s doc comment.
+ * The archive format `exportSite` writes and `importSite` reads back — the shape of `manifest.json`
+ * plus what each of the other entries means, not the running `wikiVersion`. Bumped only when that
+ * shape changes; an import whose manifest names a different version is refused outright rather than
+ * restored best-effort.
  */
 export const EXPORT_FORMAT_VERSION = 2
 
@@ -35,9 +31,8 @@ export interface ExportResult {
 }
 
 /**
- * Drop columns that are either regenerated from the rest of a row (`ts`) or only ever meaningful to
- * the instance that computed them (`searchContent`), rather than to what an import would need to
- * recreate the row.
+ * `ts` is regenerated from the rest of a row and `searchContent` is only ever meaningful to the
+ * instance that computed it, so neither is anything an import needs to recreate the row.
  */
 function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
   const { ts: _ts, searchContent: _searchContent, ...rest } = row as any
@@ -45,41 +40,22 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
 }
 
 /**
- * Content export model
- *
  * Serializes one site's pages, tree, page history, navigation, assets (bytea included) and the
- * (instance-wide) groups into a single gzipped tar archive under `<dataPath>/exports/`, for the
- * "Export content" system utility.
+ * instance-wide groups into a single gzipped tar archive under `<dataPath>/exports/`.
  *
- * `groups.json` omits every `isSystem` row (Administrators/Users/Guests) — an equivalent is already
- * seeded by the target instance's own `Groups.init()`, and restoring one by id would either overwrite
- * a different instance's real Users/Guests groups wholesale (`groupUserId`/`groupGuestId` are fixed
- * constants, not per-instance) or land as a confusing, non-privileged duplicate Administrators row (its
- * id is per-instance random, so it can never collide with — or replace — the real one). The 2.5.x
- * importer made the identical call, at `migration/importers/users-groups.ts`.
+ * Every entry is staged into a temp directory first: `node-tar` only ever reads entries from real
+ * files on disk (it lstats each path itself), so there is no way to hand it a JSON string or an
+ * asset `Buffer` directly. That directory sits outside `<dataPath>/exports/` so a leftover from a
+ * crashed run is never mistaken by `purgeExpired()` for one of its own `.tar.gz` files.
  *
- * Every entry is first written into a per-export staging directory under the OS temp dir, then `tar`'s
- * file-based `create()` archives the whole directory in one pass — the same approach
- * `modules/storage/disk/storage.ts`'s `buildArchive()` uses for its own backups. `node-tar`'s streaming
- * `Pack` only ever reads entries from real files on disk (it lstats each path itself), so there is no
- * way to hand it a JSON string or an asset `Buffer` directly without staging it first; the staging
- * directory is removed once the tarball is written, win or lose, and kept outside `<dataPath>/exports/`
- * so a leftover from a crashed run is never mistaken by `purgeExpired()` for one of its own `.tar.gz`
- * files. Queued as a background job (`tasks/simple/export-content.ts`) rather than run inline, since a
- * large site's worth of asset bytes is not something a request thread should be blocked on.
+ * Queued as a background job rather than run inline, since a large site's worth of asset bytes is
+ * not something a request thread should be blocked on.
  */
 class ExportModel {
-  /** `<dataPath>/exports` — created on first use, same as the icon and asset caches. */
   get exportsPath(): string {
     return path.resolve(CARDINAL.ROOTPATH, CARDINAL.config.dataPath, 'exports')
   }
 
-  /**
-   * Build the tarball for one site.
-   *
-   * @returns The path it was written to and its final size, which the caller (`exportContent`'s task)
-   *   records on the job's history row via `CARDINAL.models.jobs.setResult`.
-   */
   async exportSite(siteId: string): Promise<ExportResult> {
     const siteRows = await CARDINAL.db
       .select()
@@ -98,16 +74,11 @@ class ExportModel {
         CARDINAL.db.select().from(assetsTable).where(eq(assetsTable.siteId, siteId)),
         CARDINAL.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
         CARDINAL.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
-        // -> Groups are global, not site-scoped — a site's
-        //    access model cannot be reconstructed from its own rows alone. `isSystem` rows
-        //    (Administrators/Users/Guests, seeded by `models/groups.ts#init`) are excluded:
-        //    `importSite` upserts groups by id, and the three behave differently on a *different*
-        //    target instance -- Users/Guests sit at fixed cross-instance ids
-        //    (`CARDINAL.data.systemIds`, `base.yml`), so restoring them overwrites that instance's own
-        //    Users/Guests wholesale, while Administrators is per-instance random and would land as
-        //    a non-privileged duplicate instead. The 2.5.x importer made the same call already
-        //    (`migration/importers/users-groups.ts` -- "an equivalent is already seeded by this
-        //    install's own `Groups.init()`").
+        // -> Groups are global, not site-scoped: a site's access model cannot be reconstructed from
+        //    its own rows alone. `isSystem` rows are excluded because `importSite` upserts by id and
+        //    the target instance seeds its own -- Users/Guests sit at fixed cross-instance ids, so
+        //    restoring them would overwrite that instance's wholesale, while Administrators is
+        //    per-instance random and would land as a non-privileged duplicate.
         CARDINAL.db.select().from(groupsTable).where(eq(groupsTable.isSystem, false))
       ])
 
@@ -151,10 +122,8 @@ class ExportModel {
       )
       await fs.writeFile(path.join(stagingDir, 'groups.json'), JSON.stringify(groupRows, null, 2))
 
-      // -> Metadata and bytes travel separately: a JSON manifest of every asset's columns other than
-      //    `data`/`preview`, plus one archive entry per asset per bytea column actually populated —
-      //    writing a Buffer straight into a base64 JSON string would inflate it by a third for no
-      //    reason the tar format doesn't already avoid.
+      // -> Metadata and bytes travel separately: base64ing a Buffer into the JSON manifest would
+      //    inflate it by a third for no reason the tar format doesn't already avoid.
       const assetsDir = path.join(stagingDir, 'assets')
       await fs.mkdir(assetsDir, { recursive: true })
       const assetManifest: Record<string, any>[] = []
@@ -183,20 +152,11 @@ class ExportModel {
     return { filePath, fileSize: size }
   }
 
-  /**
-   * Delete one export file. Best-effort and idempotent — called once a download has finished
-   * streaming, and safe to call again on a file `purgeExpired` already swept.
-   */
+  /** Best-effort and idempotent: `purgeExpired` may already have swept the file. */
   async deleteExport(filePath: string): Promise<void> {
     await fs.unlink(filePath).catch(() => {})
   }
 
-  /**
-   * Sweep `<dataPath>/exports/` of anything older than the TTL — the export nobody came back to
-   * download. Safe to call when the directory does not exist yet (nothing has ever been exported).
-   *
-   * @returns How many files were removed
-   */
   async purgeExpired(): Promise<number> {
     return purgeFilesOlderThan(this.exportsPath, EXPORT_TTL_SECONDS)
   }
