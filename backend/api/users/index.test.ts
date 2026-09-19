@@ -5,31 +5,17 @@ import usersRoutes from './index.ts'
 import { createSilentLogger } from '../../test/mocks.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Regression test for the `GET /whoami` response schema gap: with no `response` block, the generated
- * OpenAPI document has no concrete schema for the 200 response. `whoAmI()` (the handler, exported from
- * `./admin.ts`) returns `{ authenticated: false }` for a guest, and the session's profile fields plus
- * `permissions` for a logged in user, so both shapes are exercised here via `app.inject`'s `session`.
- */
-
 let app: FastifyInstance
 
 /**
- * Mutable fixtures for `GET /profile/groups` (task 1274): each test sets these ahead of its own
- * `app.inject`, then restores them in a `finally` -- `test()` calls in this file run sequentially, so
- * shared module state is safe as long as every test cleans up after itself rather than assuming the
- * next one will reset it.
+ * Mutable fixtures: a test sets them ahead of its own `app.inject` and restores them in a
+ * `finally`. The `test()` calls here run sequentially, so shared module state is safe only as long
+ * as every test cleans up after itself.
  */
 let siteFeatures: Record<string, any> | null = null
 let userGroupsFixture: Array<{ id: string; name: string }> = []
 let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
-/**
- * Fixtures for the OpenProject #1603 group-validation tests: `knownGroupsFixture` is what
- * `CARDINAL.models.groups.hasUnknownGroupIds()` answers against, and the two call-log arrays let a test
- * assert that an unknown group id short-circuits before either write path (`createUser` /
- * `setUserGroups`) runs.
- */
 const KNOWN_GROUP_ID = '55555555-5555-5555-5555-555555555555'
 const UNKNOWN_GROUP_ID = '66666666-6666-6666-6666-666666666666'
 const EXISTING_USER_ID = '77777777-7777-7777-7777-777777777777'
@@ -37,20 +23,10 @@ let knownGroupsFixture: Array<{ id: string }> = [{ id: KNOWN_GROUP_ID }]
 let createUserCalls: Array<Record<string, any>> = []
 let setUserGroupsCalls: string[][] = []
 
-/**
- * Mutable fixtures for `DELETE /:userId` (task 2283): each test sets these ahead of its own
- * `app.inject`, then restores them in a `finally` -- same convention as the `/profile/groups`
- * fixtures above.
- */
 let deleteUserFixture: { id: string; email: string; isSystem: boolean } | null = null
 let deleteUserError: Error | null = null
 const deleteUserWarnCalls: any[] = []
 
-/**
- * `GET /whoami`'s prefs-freshness fix (OpenProject #3045): the profile `getProfile()` answers with,
- * keyed by the id the test session carries. `null` for an id with no entry, matching what a deleted
- * account looks like to `whoAmI()`.
- */
 let profileFixtures: Record<string, Record<string, any> | null> = {}
 
 before(async () => {
@@ -58,7 +34,6 @@ before(async () => {
     config: {
       auth: { rootAdminGroupId: '88888888-8888-8888-8888-888888888888' }
     },
-    // -> Not the silent default: one test asserts on what the DELETE route logged.
     logger: {
       ...createSilentLogger(),
       warn: (err: any) => {
@@ -74,9 +49,6 @@ before(async () => {
           createUserCalls.push(input)
           return 'new-user-id'
         },
-        // -> Serves both the group-validation tests (which look up `EXISTING_USER_ID` and expect a
-        //    generic existing user back) and the `DELETE /:userId` tests (which set
-        //    `deleteUserFixture` ahead of the call and expect that exact object back).
         getById: async (id: string) =>
           deleteUserFixture ?? { id, email: 'existing@example.com', isSystem: false },
         getUserGroupIds: async () => [],
@@ -85,9 +57,6 @@ before(async () => {
           setUserGroupsCalls.push(groupIds)
         },
         setUserAuthFlags: async () => {},
-        // -> `PUT /:userId` calls this instead of `updateUser`/`setUserGroups`/`setUserAuthFlags`
-        //    individually (OpenProject #1609's atomicity work) -- mirror that here so `groups` still
-        //    lands in `setUserGroupsCalls` the way these tests assert on.
         applyUserUpdate: async (
           _id: string,
           { groups }: { patch?: Record<string, any>; groups?: string[]; authFlags?: unknown }
@@ -105,8 +74,6 @@ before(async () => {
       groups: {
         hasUnknownGroupIds: async (ids: string[]) =>
           ids.some((id) => !knownGroupsFixture.some((g) => g.id === id)),
-        // -> Happy path for every test that doesn't care about the system-user guard: the caller
-        //    already holds `manage:system`, so `systemUserGuard` returns immediately.
         holdsSystemPermission: () => true,
         userHoldsSystemPermission: async () => false,
         systemGroupIds: async () => [],
@@ -129,8 +96,6 @@ before(async () => {
     }
   }
 
-  // -> Fastify session support isn't registered in this minimal harness; `req.session` is seeded
-  //    from `x-test-session` instead, which is all `whoAmI()` reads.
   app = await buildTestApp({ routes: usersRoutes, swagger: true, session: 'header', wiki })
 })
 
@@ -140,9 +105,7 @@ test('GET /whoami documents a concrete 200 response schema', () => {
   const doc: any = app.swagger()
   const responseSchema =
     doc.paths['/whoami'].get.responses['200'].content['application/json'].schema
-  // -> Merged into one schema (rather than a bare `allOf`) once `$ref`s are resolved against
-  //    `components.schemas`, so this holds regardless of whether the route composes the shape via
-  //    `allOf`, `$ref`, or an inline object.
+  // -> Walks `$ref` and `allOf`, so this holds however the route composes the shape.
   const properties = new Set<string>()
   const collect = (schema: any) => {
     if (schema.$ref) {
@@ -190,8 +153,7 @@ test('GET /whoami serializes the logged in shape, permissions included', async (
     },
     permissions: ['read:pages', 'write:pages']
   }
-  // -> Fresh DB read agrees with the session snapshot here, so this test alone would pass even
-  //    without the fix -- the dedicated staleness test below is what actually exercises it.
+  // -> The row agrees with the session snapshot here; the staleness test below tells them apart.
   profileFixtures = {
     [userId]: {
       timezone: session.user.timezone,
@@ -224,14 +186,6 @@ test('GET /whoami serializes the logged in shape, permissions included', async (
   }
 })
 
-/**
- * OpenProject #3045: `req.session.user` is the login-time snapshot, so a preference saved from a
- * different session (a different browser or device) never reaches this one's `req.session.user`
- * until it logs in again -- only `whoAmI()` sourcing `appearance`/`aesthetic`/the rest of the prefs
- * fresh from the `users` table on every call fixes that. Session and DB are deliberately given
- * DIFFERENT values below so the response can only match the DB fixture by actually reading it, not by
- * coincidentally agreeing with the session the way the test above does.
- */
 test('GET /whoami sources prefs fresh from the database rather than the session snapshot', async () => {
   const userId = '22222222-2222-2222-2222-222222222222'
   const session = {
@@ -274,12 +228,11 @@ test('GET /whoami sources prefs fresh from the database rather than the session 
     })
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    // -> Untouched: these never lived in `prefs`, and stay off the session snapshot as before.
+    // -> Not profile preferences: these are still served from the session.
     assert.equal(body.id, userId)
     assert.equal(body.email, session.user.email)
     assert.equal(body.name, session.user.name)
     assert.equal(body.hasAvatar, session.user.hasAvatar)
-    // -> The DB fixture's values, not the stale session ones.
     assert.equal(body.timezone, 'Europe/Berlin')
     assert.equal(body.dateFormat, 'DD/MM/YYYY')
     assert.equal(body.timeFormat, '24h')
@@ -293,10 +246,6 @@ test('GET /whoami sources prefs fresh from the database rather than the session 
   }
 })
 
-/**
- * The account behind the session no longer exists (deleted mid-request) -- `getProfile()` answers
- * `null`, and `whoAmI()` falls back to the session's own snapshot rather than throwing.
- */
 test('GET /whoami falls back to the session snapshot when the account row is gone', async () => {
   const userId = '33333333-3333-3333-3333-333333333333'
   const session = {
@@ -329,10 +278,8 @@ test('GET /whoami falls back to the session snapshot when the account row is gon
 })
 
 /**
- * `GET /profile/groups` (task 1274): the response is gated on the caller's site having
- * `features.showOtherGroups` enabled -- off, the shape is exactly the pre-existing plain array; on, it
- * also names the groups the caller is NOT a member of. The route resolves the site from the request's
- * hostname the same way `isProfileEditable` does, so every case below sends a `host` header.
+ * `GET /profile/groups` resolves the site from the request's hostname, so every case below sends a
+ * `host` header.
  */
 
 const GROUPS_SESSION = JSON.stringify({
@@ -407,10 +354,8 @@ test('GET /profile/groups: setting on, member of every group -> empty non-member
 })
 
 /**
- * OpenProject #1603: `POST /users` and `PUT /users/:userId` must reject a group id that names no
- * real group, rather than handing it to `setUserGroups` (`models/users.ts`) and having it silently
- * dropped -- see that model method's own leniency comment for why the model layer stays lenient
- * while these two route handlers do not.
+ * `setUserGroups` silently drops a group id that names no real group, so these two routes have to
+ * refuse one themselves.
  */
 
 test('POST /: rejects an unknown group id, without creating the user', async () => {
@@ -468,13 +413,6 @@ test('PUT /:userId: a fully-known group list is accepted', async () => {
   assert.equal(res.statusCode, 200)
   assert.deepEqual(setUserGroupsCalls, [[KNOWN_GROUP_ID]])
 })
-
-/**
- * `DELETE /:userId` (task 2283): a `23503` foreign key violation on delete should name the actual
- * blocking relation, read off the Postgres constraint name, rather than a hard-coded "pages or
- * assets" guess -- and the reassign advice should only be offered where reassigning is the real
- * remedy.
- */
 
 const DELETE_ADMIN_SESSION = JSON.stringify({
   authenticated: true,

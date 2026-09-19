@@ -4,15 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * `POST /:userId/reassignContent` is the route this task exists to add: `models/users.test.ts`
- * covers `reassignContent()`'s own SQL orchestration and validation against a real database, so what
- * is left to verify here is the route's own wiring — user lookup, the `systemUserGuard` reuse it
- * shares with every other mutation on a `userId`, and turning a thrown `ERR_*` into a 400 the way
- * `rethrowAsBadRequest` does everywhere else in this file. `CARDINAL.models.users` and `CARDINAL.models.groups`
- * are stubbed so the request never touches the database.
- */
-
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const TARGET_ID = '22222222-2222-4222-8222-222222222222'
 

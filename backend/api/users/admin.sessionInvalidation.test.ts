@@ -13,15 +13,8 @@ import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
- * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login, otherwise
- * live for up to the 30-day cookie age. `clearSessionsFromUser`/`clearSessionsForGroup`
- * (`models/sessions.ts`, covered on their own in `models/sessions.test.ts`) are now wired into the
- * three routes that change what a session's snapshot should say — this file proves the WIRING: that
- * each route actually calls through at the right moment, with the right target, and does NOT call
- * through when nothing session-relevant changed. Real routes, a real DB, real `groups`/`users`/
- * `sessions` models -- there is no permission-checking `preHandler` hook in this bare app (that lives
- * in `index.ts`, exercised by nothing here), so a simulated admin session is set directly for every
- * request, the same way `api/comments.admin.test.ts` does.
+ * `session.groups`/`session.permissions` are snapshots taken at login, so a route that changes what
+ * they should say has to clear the affected sessions -- and only those.
  */
 describe(
   'session invalidation wiring on deactivation / group-membership / group-permission routes (task #936, DB-backed)',
@@ -48,30 +41,21 @@ describe(
         .returning({ id: usersTable.id })
       secondUserId = secondUser!.id
 
-      // -> `groups.ts` reads `CARDINAL.config.auth.rootAdminGroupId` (root-admin-group protection) --
-      //    `setupTestDb()`'s minimal CARDINAL leaves `config` empty, so this must be set for the routes
-      //    under test to even boot past that read. Pointed at a group nothing here uses, so it never
-      //    actually engages that guard.
+      // -> `setupTestDb()` leaves `config` empty and the group routes read `auth.rootAdminGroupId`
+      //    unguarded. Both ids name a group nothing here uses, so neither guard ever engages.
       CARDINAL.config.auth = { rootAdminGroupId: '00000000-0000-0000-0000-000000000000' }
-      // -> `updateGroup()`'s `clampGuestPatch()` reads `CARDINAL.data.systemIds.guestsGroupId` on every
-      //    call, not just for the guests group -- same reasoning as `rootAdminGroupId` above.
       CARDINAL.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
 
       app = await buildTestApp({
-        // -> Prefixed the same way `api/index.ts` registers them for real: both plugins declare
-        //    same-shaped root params (`PUT /:groupId` / `PUT /:userId`), which collide as literally
-        //    the same route to Fastify's router when mounted bare at '/' side by side.
+        // -> Prefixed as `api/index.ts` mounts them: `PUT /:groupId` and `PUT /:userId` are the
+        //    same route to Fastify's router when both plugins sit bare at '/'.
         routes: [
           { plugin: groupsRoutes, prefix: '/groups' },
           { plugin: usersRoutes, prefix: '/users' }
         ],
         ajv: true,
-        // -> Simulates an authenticated manage:system admin on every request -- the routes under
-        //    test read `req.session` directly (`actorFromRequest`, `holdsSystemPermission`,
-        //    `groups.actorForRequest`), and manage:system is what bypasses every internal guard
-        //    these routes also carry (root-admin protection, system-permission toggle guard, ...),
-        //    keeping this suite focused on the session-invalidation wiring rather than re-proving
-        //    those guards. No `wiki`: `setupTestDb()` already installed the real one.
+        // -> `manage:system` bypasses the other guards these routes carry (root-admin protection,
+        //    the system-permission toggle guard), keeping the suite on the invalidation wiring.
         session: {
           authenticated: true,
           user: { id: fixtures.userId },
@@ -88,9 +72,8 @@ describe(
 
     beforeEach(async () => {
       await fixtures.db.delete(sessionsTable)
-      // -> `setupTestDb()` seeds `fixtures.groupId` but assigns nobody to it -- each test starts
-      //    from no memberships at all (several tests exercise assign/unassign themselves, so a
-      //    membership left over from a PRECEDING test would otherwise conflict with those).
+      // -> Several tests assign/unassign themselves, and a membership left by a preceding test
+      //    would conflict with those.
       await fixtures.db.delete(userGroupsTable)
     })
 
@@ -102,8 +85,6 @@ describe(
         { id: 'member-session', userId: fixtures.userId, data: {} },
         { id: 'unrelated-session', userId: secondUserId, data: {} }
       ])
-      // -> fixtures.userId is now a member of fixtures.groupId; secondUserId is not, so its session
-      //    must survive.
       const res = await app.inject({
         method: 'PUT',
         url: `/groups/${fixtures.groupId}`,
@@ -136,8 +117,7 @@ describe(
     })
 
     test('DELETE /:groupId clears sessions for every member (OpenProject #1719)', async () => {
-      // -> A fresh group of its own, not `fixtures.groupId`: this test deletes it, and every other
-      //    test in this file still expects `fixtures.groupId` to exist afterwards.
+      // -> A group of its own: every other test here still needs `fixtures.groupId` to exist.
       const [deletedGroup] = await fixtures.db
         .insert(groupsTable)
         .values({ name: 'Group To Delete', permissions: ['manage:navigation'], rules: [] })

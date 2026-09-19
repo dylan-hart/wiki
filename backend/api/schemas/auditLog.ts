@@ -6,9 +6,6 @@ import {
 } from '../../models/auditLog.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * AUDIT LOG ENTRY - One instance-wide, permission-affecting event
-   */
   app.addSchema({
     $id: 'AuditLogEntry',
     type: 'object',
@@ -67,9 +64,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * AUDIT LOG SETTINGS - The retention window
-   */
   app.addSchema({
     $id: 'AuditLogSettings',
     type: 'object',

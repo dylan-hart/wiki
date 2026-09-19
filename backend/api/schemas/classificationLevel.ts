@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * CLASSIFICATION LEVEL - One admin-configurable sensitivity level (OpenProject #1079)
-   */
   app.addSchema({
     $id: 'ClassificationLevel',
     type: 'object',
@@ -23,9 +20,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'ClassificationLevelInput',
     type: 'object',
     properties: {
-      // -> No `sortOrder` (OpenProject #1651): `create()` always appends after the current max, and
-      //    `update()` has no way to set it at all -- `reorder()` is the only route that reassigns
-      //    `sortOrder`, so there is no per-level input a caller could collide another level with.
+      // -> No `sortOrder`: `create()` appends after the current max and only `reorder()` reassigns
+      //    it, so no per-level input can collide with another level.
       name: { type: 'string', minLength: 1, maxLength: 255 }
     }
   })

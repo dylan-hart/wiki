@@ -5,18 +5,8 @@ import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
- * `POST /` and `PUT /:userId` carrying the two authored name halves (Feature #2608, Task #2642).
- *
- * What this file is actually guarding is the SEPARATION: these routes carry `firstName`/`lastName`
- * to the model and decide nothing about them. `models/users.ts` owns the derive-unless-authored
- * rule -- `resolveNameFields` on the insert side, `updateUser` on the update side -- so the only
- * claims worth making here are that the fields survive the schema, reach the model verbatim, and
- * that the route's own emptiness refusal still fires when neither a name nor a first name would
- * produce a usable display name.
- *
- * `CARDINAL.models.*` is stubbed rather than DB-backed for the same reason
- * `admin.createWelcomeEmail.test.ts` stubs it: nothing here is SQL orchestration, it is payload
- * plumbing, and the derivation itself already has its own coverage in `models/users.names.test.ts`.
+ * What this guards is the separation: these routes carry `firstName`/`lastName` to the model and
+ * decide nothing about them -- `models/users.ts` owns the derive-unless-authored rule.
  */
 
 const LOCAL_AUTH_ID = '00000000-0000-4000-8000-000000000001'
@@ -42,8 +32,6 @@ before(async () => {
           createUserCalls.push(args)
           return NEW_USER_ID
         },
-        // -> `applyUserUpdate(id, { patch, groups, authFlags })` -- one options object, not a
-        //    bare patch; the route wraps the whole write sequence in it (OpenProject #1609).
         applyUserUpdate: async (id: string, args: any) => {
           updateUserCalls.push({ id, patch: args.patch })
           return true
@@ -53,7 +41,6 @@ before(async () => {
       auditLog: { record: async () => {} },
       groups: {
         hasUnknownGroupIds: async (ids: string[]) => ids.length > 0,
-        // -> `systemUserGuard` asks both of these before any update is allowed through.
         holdsSystemPermission: () => false,
         userHoldsSystemPermission: async () => false
       },
@@ -89,8 +76,8 @@ describe('POST /users: the two authored name halves', () => {
     assert.equal(createUserCalls.length, 1)
     assert.equal(createUserCalls[0].firstName, 'Ada')
     assert.equal(createUserCalls[0].lastName, 'Lovelace')
-    // -> Undefined, not the derived string: leaving it out is what lets `resolveNameFields` derive
-    //    and leave the account tracking later half edits, rather than being born authored.
+    // -> Undefined, not the derived string: a name passed here would make the account born
+    //    authored, and it would stop tracking later edits to its halves.
     assert.equal(createUserCalls[0].name, undefined)
   })
 
@@ -162,8 +149,8 @@ describe('PUT /users/:userId: the two authored name halves', () => {
       firstName: 'Ada',
       lastName: 'Lovelace'
     })
-    // -> The route must NOT decide authorship. `updateUser` reads the stored row to answer that;
-    //    a `nameLocallyEdited` set here would pre-empt it (Feature #2608's one-owner rule).
+    // -> The route must not decide authorship: `updateUser` reads the stored row to answer that,
+    //    and a `nameLocallyEdited` set here would pre-empt it.
     assert.equal('nameLocallyEdited' in updateUserCalls[0].patch, false)
   })
 

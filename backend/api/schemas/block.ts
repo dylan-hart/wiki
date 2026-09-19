@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * BLOCK
-   */
   app.addSchema({
     $id: 'Block',
     type: 'object',
@@ -33,8 +30,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'boolean',
         description: 'False for blocks registered from the compiled block manifest.'
       },
-      // Deliberately loose: keyed by whatever attributes the block's own component declares (see
-      // `props` below) — a different shape per block type, including custom blocks with no manifest.
+      // Deliberately loose: keyed by the block's own `configFields`, a different shape per block.
       config: {
         type: 'object',
         additionalProperties: true,
@@ -125,11 +121,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * BLOCK BATCH UPLOAD ITEM - One file's result within a batch custom-block upload, same fields a
-   * single upload's response carries plus which file it was — the array has no other way to say
-   * that back.
-   */
   app.addSchema({
     $id: 'BlockBatchUploadItem',
     type: 'object',

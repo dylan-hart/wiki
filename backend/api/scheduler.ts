@@ -1,13 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { JOB_STATES, type JobState } from '../models/jobs.ts'
 
-/**
- * Scheduler API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST SCHEDULED TASKS
-   */
   app.get(
     '/schedule',
     {
@@ -35,9 +29,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RUN A SCHEDULED TASK NOW
-   */
   app.post<{ Params: { scheduleId: string } }>(
     '/schedule/:scheduleId/run',
     {
@@ -103,9 +94,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST UPCOMING JOBS
-   */
   app.get(
     '/upcoming',
     {
@@ -133,9 +121,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CANCEL UPCOMING JOB
-   */
   app.delete<{ Params: { jobId: string } }>(
     '/upcoming/:jobId',
     {
@@ -176,9 +161,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST JOB HISTORY
-   */
   // -> `limit` is non-optional: the querystring schema declares a `default` for it, and fastify's
   //    AJV runs with `useDefaults`, so a missing param is filled in before the handler sees it.
   app.get<{ Querystring: { states?: JobState[]; limit: number } }>(
@@ -240,9 +222,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RETRY JOB
-   */
   app.post<{ Params: { jobId: string } }>(
     '/jobs/:jobId/retry',
     {

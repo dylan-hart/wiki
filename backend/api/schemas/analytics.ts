@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * ANALYTICS MODULE - An analytics provider as found on disk
-   */
   app.addSchema({
     $id: 'AnalyticsModule',
     type: 'object',

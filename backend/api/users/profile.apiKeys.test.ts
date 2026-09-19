@@ -5,16 +5,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * OpenProject #788: the self-service `/users/profile/api-keys*` routes — list/create/revoke a
- * personal access token, scoped to the session's own user id. Mirrors the harness
- * `api/users.test.ts` already uses for `/whoami` (a minimal fastify app, `req.session` simulated via
- * an `onRequest` hook reading a test-only header), with `CARDINAL.models.apiKeys` mocked rather than
- * hitting a real database — the DB-backed live-resolution behavior itself is covered in
- * `models/apiKeys.test.ts`; what belongs here is the routing: who may call these, and that ownership
- * is enforced rather than trusted from the URL alone.
- */
-
 let app: FastifyInstance
 let listKeysForUserMock: ReturnType<typeof mock.fn>
 let createKeyMock: ReturnType<typeof mock.fn>
@@ -161,8 +151,7 @@ test('POST /profile/api-keys/:keyId/revoke answers 404 for a token owned by some
     headers: sessionHeader(OWNER_ID)
   })
   assert.equal(res.statusCode, 404)
-  // -> Ownership is refused before ever touching the revoke call — ownership is checked, not
-  //    outsourced to a DB WHERE clause silently updating zero rows
+  // -> Ownership is checked up front, not left to a WHERE clause silently updating zero rows
   assert.equal(revokeKeyForUserMock.mock.calls.length, 0)
 })
 

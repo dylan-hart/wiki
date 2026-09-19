@@ -2,9 +2,6 @@ import type { FastifyInstance } from 'fastify'
 import { HOOK_EVENTS } from '../../models/hooks.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * PASSKEY - One registered authenticator, without any of its key material
-   */
   app.addSchema({
     $id: 'Passkey',
     type: 'object',
@@ -30,9 +27,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * USER CORE - Essential fields only
-   */
   app.addSchema({
     $id: 'UserCore',
     type: 'object',
@@ -90,10 +84,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description: 'RFC 3339 Date Time'
       },
       lastLoginAt: {
-        // -> Users who have never logged in have no value here, and a plain `string` would make the
-        //    serializer coerce null to an empty string. `nullable` is used rather than
-        //    `type: ['string', 'null']` because the emitted spec declares OpenAPI 3.0, where a type
-        //    array is not valid.
+        // -> A plain `string` would make the serializer coerce null to an empty string. `nullable`
+        //    rather than `type: ['string', 'null']`: the emitted spec declares OpenAPI 3.0, where a
+        //    type array is not valid.
         type: 'string',
         nullable: true,
         format: 'date-time',
@@ -102,9 +95,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * USER DEFAULTS - Instance-wide defaults applied to new users
-   */
   app.addSchema({
     $id: 'UserDefaults',
     type: 'object',
@@ -127,11 +117,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * USER PROFILE - The logged in user's own view of itself
-   *
-   * The `meta` / `prefs` blobs are flattened into plain fields here. Values are deliberately typed as
-   * strings rather than enums: this is the serialized response, and a preference stored before an
-   * option existed must still be readable.
+   * Values are strings rather than enums: this is the serialized response, and a preference stored
+   * before an option existed must still be readable.
    */
   app.addSchema({
     $id: 'UserProfile',
@@ -227,8 +214,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * USER PROFILE UPDATE - The fields a user may change on its own profile
-   *
    * The email is absent on purpose: it identifies the account and is the local strategy's username.
    */
   app.addSchema({
@@ -330,15 +315,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * USER NOTIFICATION SUBSCRIPTIONS - one boolean per event type the logged in user may opt into
-   * receiving an email for (Feature #2425)
-   *
-   * Both this and its `...Update` sibling below generate their `properties` from `HOOK_EVENTS`
-   * (`models/hooks.ts`) rather than listing the 18 keys by hand, so a future event added there needs
-   * no schema edit here to become selectable. This is a distinct concept from the unrelated
-   * `Notification` schema (`schemas/notification.ts`, the in-app page-watch inbox backed by
-   * `pageWatchEvents`) -- this one is a per-user, per-event-TYPE toggle read by `#2481`'s email
-   * dispatch, not a per-page watch.
+   * Unrelated to the `Notification` schema (`schemas/notification.ts`, the in-app page-watch
+   * inbox): this is a per-user, per-event-type email toggle, not a per-page watch.
    */
   app.addSchema({
     $id: 'UserNotificationSubscriptions',
@@ -349,9 +327,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     additionalProperties: false
   })
 
-  /**
-   * USER NOTIFICATION SUBSCRIPTIONS UPDATE - any subset of event types to change
-   */
   app.addSchema({
     $id: 'UserNotificationSubscriptionsUpdate',
     type: 'object',
@@ -360,9 +335,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     additionalProperties: false
   })
 
-  /**
-   * USER - All fields
-   */
   app.addSchema({
     $id: 'User',
     allOf: [
@@ -372,10 +344,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       {
         type: 'object',
         properties: {
-          // Deliberately loose: `models/users.ts` treats `meta`/`prefs` as free-form blobs (its own
-          // comment says so at `updateProfile()`) — `meta` holds ad-hoc profile fields plus internal
-          // bookkeeping like a login-attempt counter, `prefs` is keyed per editor under
-          // `prefs.editors[editor]` so each editor owns an arbitrary blob of its own.
+          // Deliberately loose: `models/users.ts` treats `meta`/`prefs` as free-form blobs.
           meta: {
             type: 'object',
             additionalProperties: true
@@ -404,8 +373,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
                 strategyIcon: {
                   type: 'string'
                 },
-                // Deliberately loose: same reason as `AuthStrategy.config` in schemas/authentication.ts
-                // — values for whichever props the linked module declares.
+                // Deliberately loose: values for whichever props the linked module declares.
                 config: {
                   type: 'object',
                   additionalProperties: true

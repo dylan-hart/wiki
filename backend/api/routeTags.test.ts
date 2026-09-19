@@ -7,21 +7,12 @@ import {
 } from '../test/routeRecorder.ts'
 
 /**
- * Guards `hideUntagged: true` in the swagger config (`index.ts`): a route registered without a
- * `tags` array in its schema doesn't error at boot — it just disappears from `/_api`'s Swagger UI
- * with no build-time signal. This walks every route file under `api/` (excluding this directory's
- * own `*.test.ts` files and `index.ts`, which only re-exports the others) and replays each file's
- * registration function against a recording stub instead of a real Fastify instance: booting the
- * genuine app needs the AJV customization `createHttpApp()` installs (`core/http/ajvFormats.ts`'s 5
- * hand-registered formats) purely to build validators, none of which this check cares about, and
- * `index.ts` itself cannot be imported in a test at all (it runs the full boot sequence, database
- * included, via top-level await). Recording the exact `(path, options)` pair each
- * `app.get/post/put/patch/delete` call makes is what a real Fastify instance would also see —
- * this only skips building working validators/serializers around it, which is enough to see
- * whether `options.schema.tags` was ever supplied.
- *
- * New route files need no edit here: the directory is scanned at test time, so a file added
- * without ever wiring this check up still gets covered by it.
+ * Guards `hideUntagged: true` (`core/http/openapi.ts`): a route registered without `tags` doesn't
+ * error at boot, it just disappears from `/_api`'s Swagger UI. Each route file's registration is
+ * replayed against a recording stub rather than a real Fastify instance: the real app needs
+ * `createHttpApp()`'s AJV formats purely to build validators this check doesn't care about, and
+ * `index.ts` cannot be imported in a test at all (it runs the full boot sequence via top-level
+ * await).
  */
 
 stubWikiForRegistration()
@@ -30,8 +21,7 @@ const apiDir = import.meta.dirname
 const routeFiles = listApiRouteFiles(apiDir)
 
 test('every route file under api/ was actually found', () => {
-  // Sanity check on the scan itself: a typo'd extension filter that silently matched nothing would
-  // make every test below vacuously pass.
+  // A scan that silently matched nothing would make the test below pass vacuously.
   assert.ok(
     routeFiles.length >= 20,
     `expected at least 20 route files, found ${routeFiles.length}: ${routeFiles.join(', ')}`

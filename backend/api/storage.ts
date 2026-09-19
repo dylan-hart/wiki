@@ -4,11 +4,8 @@ import { SYNC_SHAPED_ACTIONS } from '../models/storage.ts'
 import type { StorageTargetInput } from '../models/storage.ts'
 
 /**
- * The reply's `message` for a synchronous action that just ran, built from whatever its handler
- * returned rather than a single fixed string — so `purge`'s `{ purged, skipped }` (OpenProject #3375)
- * reaches the admin, and any future handler's return value does too, with no per-action knowledge
- * needed here. A handler that resolves to nothing (every handler before #3375) keeps the original
- * message.
+ * Built from whatever the action's handler returned, so a handler's counts (`purge`'s
+ * `{ purged, skipped }`) reach the admin with no per-action knowledge needed here.
  */
 function actionResultMessage(result: unknown): string {
   if (typeof result === 'string' && result.length > 0) {
@@ -22,13 +19,7 @@ function actionResultMessage(result: unknown): string {
   return 'Action completed successfully.'
 }
 
-/**
- * Storage API Routes
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * LIST SITE STORAGE TARGETS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/storage/targets',
     {
@@ -58,9 +49,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET STORAGE TARGET SYNC STATUS
-   */
   app.get<{ Params: { siteId: string; targetId: string } }>(
     '/sites/:siteId/storage/targets/:targetId/sync-status',
     {
@@ -105,9 +93,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE SITE STORAGE TARGETS
-   */
   app.put<{ Params: { siteId: string }; Body: { targets: StorageTargetInput[] } }>(
     '/sites/:siteId/storage/targets',
     {
@@ -197,9 +182,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * EXECUTE STORAGE TARGET ACTION
-   */
   app.post<{
     Params: { siteId: string; targetId: string; action: string }
     Body: { confirmMassDelete?: boolean }
@@ -269,14 +251,12 @@ async function routes(app: FastifyInstance) {
       }
 
       // -> A sync-shaped action may do a real network round-trip (a git push/pull, an S3 listing),
-      //    which the request thread must not wait on -- queued the same way `dispatchStorage` events
-      //    and `storageSyncTick` are, and delivered by the same task. Anything else (e.g. `purge`) is
+      //    which the request must not wait on, so it is queued. Anything else (e.g. `purge`) is
       //    expected to be fast and stays synchronous.
       if ((SYNC_SHAPED_ACTIONS as readonly string[]).includes(req.params.action)) {
-        // -> `confirmMassDelete` only means anything to the git module's `sync` handler (OpenProject
-        //    #2429's mass-delete safety guard) — carried through unconditionally for every
-        //    sync-shaped action anyway, the same way `data` already is, since a handler that doesn't
-        //    read a key it doesn't recognize is simply ignoring it, not misbehaving.
+        // -> `confirmMassDelete` only means anything to the git module's `sync` handler; it is
+        //    carried for every sync-shaped action anyway, since a handler ignores a key it never
+        //    reads.
         const added = await CARDINAL.scheduler.addJob({
           task: 'dispatchStorage',
           payload: {

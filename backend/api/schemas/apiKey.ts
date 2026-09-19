@@ -3,18 +3,13 @@ import { KEY_EXPIRATIONS } from '../../models/apiKeys.ts'
 import { ALL_PERMISSIONS } from '../../helpers/permissions.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * API KEY SCOPE PERMISSION - The closed vocabulary a scope entry may name
-   */
   app.addSchema({
     $id: 'ApiKeyScopePermission',
     type: 'string',
     enum: ALL_PERMISSIONS
   })
 
-  /**
-   * API KEY - Metadata only; the token itself exists once, in the create response
-   */
+  /** Metadata only: the token itself exists once, in the create response. */
   app.addSchema({
     $id: 'ApiKey',
     type: 'object',
@@ -91,9 +86,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * API KEY EXPIRATION - The lifetimes a new key can be given
-   */
   app.addSchema({
     $id: 'ApiKeyExpiration',
     type: 'string',

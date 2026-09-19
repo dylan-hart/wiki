@@ -4,15 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * `POST /` (create user)'s `sendWelcomeEmail` handling (OpenProject #961): the route used to refuse
- * the flag unconditionally, with a comment claiming no mail transport existed — `models/mail.ts` has
- * been a full SMTP transport since well before this fix, used by registration and password reset.
- * `CARDINAL.models.users`/`auditLog`/`mail` are stubbed so the request never touches the database or a
- * real SMTP connection; `CARDINAL.data.systemIds.localAuthId` is exercised for real since the route reads
- * it directly.
- */
-
 const LOCAL_AUTH_ID = '00000000-0000-4000-8000-000000000001'
 const NEW_USER_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -31,8 +22,6 @@ before(async () => {
         getByEmail: async () => null,
         createUser: async () => NEW_USER_ID
       },
-      // -> Token minting moved off `users` when `models/userCredentials.ts` was split out; the route
-      //    reads it here now.
       userCredentials: {
         generateToken: async (args: any) => {
           generateTokenCalls.push(args)

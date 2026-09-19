@@ -1,10 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * API ERROR - The shape every `/_api` failure is sent as, per `setErrorHandler` in `index.ts`.
-   * Shared by every route's 4xx/5xx `response` entries rather than declared inline per route.
-   */
+  /** The shape `helpers/errorHandler.ts#apiErrorHandler` sends every `/_api` failure as. */
   app.addSchema({
     $id: 'ApiError',
     type: 'object',

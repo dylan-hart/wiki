@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * COMMENT PROVIDER - A comments module as configured for a site
-   */
   app.addSchema({
     $id: 'CommentProvider',
     type: 'object',
@@ -76,9 +73,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * COMMENT PROVIDER INPUT - Which provider becomes active, and its config values
-   */
   app.addSchema({
     $id: 'CommentProviderInput',
     type: 'object',

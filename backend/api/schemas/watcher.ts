@@ -2,11 +2,8 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
-   * WATCHER - one person watching a page, as the page metadata rail plates them.
-   *
-   * Separate from `WatchedPage` (`api/schemas/page.ts`), which is the mirror image of this: that one
-   * is a page seen from a watcher, this one is a watcher seen from a page. Neither shares a field
-   * with the other beyond the fact that a `pageWatching` row is behind both.
+   * The mirror image of `WatchedPage` (`api/schemas/page.ts`): a watcher seen from a page, where
+   * that one is a page seen from a watcher.
    */
   app.addSchema({
     $id: 'Watcher',
@@ -31,12 +28,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE WATCHERS - the leading watchers of one page, and how many there are altogether.
-   *
-   * `total` counts every watcher, not the returned slice, which is what makes a `+N` remainder
-   * possible without asking for the whole list.
-   */
   app.addSchema({
     $id: 'PageWatchers',
     type: 'object',

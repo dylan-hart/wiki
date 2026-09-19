@@ -2,9 +2,6 @@ import { approvalMatchModes } from '../../models/approvalRules.ts'
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * APPROVAL RULE - Which pages accept edit suggestions, from whom, and who reviews them
-   */
   app.addSchema({
     $id: 'ApprovalRule',
     type: 'object',
@@ -68,9 +65,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE EDIT SUBMISSION - An edit somebody suggested, as its reviewer sees it
-   */
   app.addSchema({
     $id: 'PageEditSubmission',
     type: 'object',
@@ -137,9 +131,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE EDIT SUBMISSION DETAIL - The same, with both sides of the diff
-   */
   app.addSchema({
     $id: 'PageEditSubmissionDetail',
     allOf: [
@@ -164,9 +155,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     ]
   })
 
-  /**
-   * APPROVAL RULE INPUT - The fields a rule is written with
-   */
   app.addSchema({
     $id: 'ApprovalRuleInput',
     type: 'object',

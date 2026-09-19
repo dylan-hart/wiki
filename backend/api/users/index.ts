@@ -4,17 +4,10 @@ import adminRoutes from './admin.ts'
 import profileRoutes from './profile.ts'
 
 /**
- * Users API Routes
- *
- * Two audiences that shared nothing but a file (API-F5): `admin.ts` is what somebody with
- * `read:users`/`manage:users` does to OTHER people's accounts, `profile.ts` is what any logged in
- * user does to their own. Both are registered here with no prefix of their own, so the mounted route
- * table under `/users` is exactly what the single `api/users.ts` produced.
- *
- * The split is what lets `profile.ts` carry one `requireSessionUser` preHandler for its whole
- * surface instead of the same four-line session check at the top of all 21 of its handlers —
- * `register()` is a real encapsulation boundary, so that hook never reaches an `admin.ts` route.
- * The avatar content-type parser moves with it, for the same reason.
+ * `admin.ts` is what somebody with `read:users`/`manage:users` does to other people's accounts,
+ * `profile.ts` what any logged in user does to their own. Both are registered unprefixed, since each
+ * declares whole paths. `register()` is a real encapsulation boundary, which is what keeps
+ * `profile.ts`'s `requireSessionUser` preHandler off every `admin.ts` route.
  */
 async function routes(app: FastifyInstance) {
   await app.register(adminRoutes)

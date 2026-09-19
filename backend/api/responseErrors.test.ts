@@ -8,20 +8,10 @@ import {
 } from '../test/routeRecorder.ts'
 
 /**
- * Task 602 (full response-schema accuracy pass across `backend/api/*.ts`) regression coverage.
- *
- * The systematic gap this closes: `index.ts`'s global `preHandler` hook answers 401 (`reply.unauthorized()`,
- * no permissions at all) or 403 (`reply.forbidden()`, holds some permissions but not the route's) for
- * ANY route that declares a non-empty `config.permissions` — before the handler ever runs. That makes
- * 401 and 403 genuinely reachable on every such route, regardless of what the handler itself does, so
- * an accurate `response` block has to declare both, referencing the shared `ApiError` schema
- * (`api/schemas/error.ts`) that `setErrorHandler` actually shapes those replies into.
- *
- * Uses the same recording-stub technique as `routeTags.test.ts` — replaying each file's registration
- * function against a fake `app` that only records `(method, path, options)` — rather than booting a
- * real Fastify instance, for the same reasons documented there.
- *
- * New route files need no edit here: the directory is scanned at test time.
+ * `permissionPreHandler` (`core/http/authHooks.ts`) answers 401 or 403 for any route declaring a
+ * non-empty `config.permissions`, before the handler runs -- so both are reachable on every such
+ * route whatever its handler does, and its `response` block must declare them as `ApiError`.
+ * Routes are recorded, not booted, for the reasons `routeTags.test.ts` gives.
  */
 
 stubWikiForRegistration()

@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
 
-/** One page's row in the Page Views admin table (OpenProject #2791). */
 export interface PageviewTableRow {
   pageId: string
   path: string
@@ -15,26 +14,12 @@ export interface PageviewTableRow {
 }
 
 /**
- * Per-page pageview counts for `AdminPageviews.vue`'s sortable table (OpenProject #2791) -- distinct
- * from `GET /sites/:siteId/graph`, which serves the same underlying
- * `CARDINAL.models.pageviews.countsForGraph()` shape but for node-sizing, not a page-by-page admin
- * breakdown. Every browsable page on the site is listed (via `CARDINAL.models.pages.listAllForGraph()`,
- * unfiltered by publish state -- the caller already holds `manage:system`), zeroed for one with no
- * pageview rows at all, so the table's row count matches the site's page count rather than only the
- * pages that happen to have traffic.
- *
- * Uses the `last2yr` window's `total` (raw, not distinct-visitor) figures -- the same "all-time
- * within retention" convention `Graph.vue`'s node sizing already follows, per
- * `models/pageviews.ts#countsForGraph`'s own doc comment.
- *
- * No sort/filter querystring: sorting happens client-side against this one fetched payload, the
- * same `<w-table>` `sortable` convention `AdminScheduler.vue`/`AdminUsers.vue` already use, since
- * this page has no existing paginated list endpoint to extend.
+ * Lists every browsable page, unfiltered by publish state (the caller holds `manage:system`) and
+ * zeroed when it has no views, so the table's row count matches the site's page count. Figures are
+ * the `last2yr` window's raw totals, not distinct visitors: 2 years is the retention, so that is
+ * all-time. No sort or filter querystring: the admin table sorts client-side.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET PER-PAGE PAGEVIEW COUNTS
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/pageviews',
     {

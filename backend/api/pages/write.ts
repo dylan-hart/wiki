@@ -6,13 +6,8 @@ import { limitRenders } from '../../helpers/rateLimit.ts'
 import { actorFrom, mayOnPage } from '../../helpers/pageAccess.ts'
 import { recordClassificationChange } from './classification.ts'
 
-/**
- * Whether a page's tag set is actually changing, as a SET -- order and duplicates never count as a
- * change, and neither does resubmitting the same tags unchanged (the same "changed AND different"
- * shape the classification/scripts/styles guardrails above already use). Shared by the PATCH route's
- * retag check and the bulk `retag` action below, both of which need to know this before deciding
- * whether a second, destination-shaped permission check is even in play (OpenProject #3410).
- */
+// FIXME: not a true set comparison. Against `['a', 'b']`, a duplicate-padded `['a', 'a']` reads
+// as unchanged, so `b` is dropped without the retag checks. Compare against `new Set(next)`.
 function tagSetChanged(current: string[], next: string[]): boolean {
   if (current.length !== next.length) {
     return true
@@ -22,14 +17,8 @@ function tagSetChanged(current: string[], next: string[]): boolean {
 }
 
 /**
- * `ensureCanRender()` (`models/renderQueue.ts`) throws these two named errors -- via `createPage()`/
- * `updatePage()` (OpenProject #1716) -- when a render-less write can't be safely accepted: an editor
- * this server has no renderer for, or a markdown page with no Puppeteer extension to render it. Maps
- * each to a `@fastify/sensible` error carrying `ensureCanRender()`'s own message (which names the
- * editor or the missing extension), reusing the exact wording the existing recovery route
- * (`POST …/pages/:pageId/render`, below) already 503s with rather than inventing a second one
- * (OpenProject #1720). Returns the sent reply once handled, or `null` for any other error so the
- * caller rethrows it for the generic `setErrorHandler` in `index.ts` to shape.
+ * `ensureCanRender()` (`models/renderQueue.ts`) throws these two named errors when a write carries
+ * content with no render and the server cannot produce one. `null` means the caller rethrows.
  */
 function replyForRenderRefusal(err: any, reply: FastifyReply): FastifyReply | null {
   if (!(err instanceof CustomError)) {
@@ -44,22 +33,11 @@ function replyForRenderRefusal(err: any, reply: FastifyReply): FastifyReply | nu
   return null
 }
 
-/**
- * Write-side page routes: creating, editing, moving, re-rendering, deleting a page, and the bulk
- * action that does several of those to a selection at once.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * CREATE PAGE
-   */
   app.post<{ Params: { siteId: string }; Body: PageInput }>(
     '/sites/:siteId/pages',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       schema: {
         summary: 'Create a page',
         description:
@@ -98,18 +76,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
-      //    `apiKeySitePinHook` in `index.ts` for every `/sites/:siteId/...` route, this one
-      //    included; see `helpers/apiKeySite.ts`.
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
       }
-      // -> Against where the page is going: there is no page ROW to ask about yet, so `classification`
-      //    stays unset (see `RulePageRef`'s own doc comment on a not-yet-existing page failing
-      //    closed). `tags` is different -- the tags this write is ABOUT to save are already known,
-      //    from the request body, so a TAG/TAGALL rule is judged on the page as it is about to become
-      //    rather than treated as untaggable. `locale` is known up front from the request body too.
+      // -> No page row exists yet, so `classification` stays unset and matches no CLASSIFICATION
+      //    rule. `tags` come from the body, so a TAG/TAGALL rule is judged on the page as it is
+      //    about to become.
       const createPageRef = {
         path: req.body.path,
         locale: req.body.locale ?? defaultLocale(req.params.siteId),
@@ -118,14 +91,8 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'write:pages', req.params.siteId, createPageRef)) {
         return reply.forbidden('You are not allowed to create a page here.')
       }
-      /*
-        OpenProject #2467: creating a page with an immediately-published state needs `publish:pages`
-        ON THIS PAGE, on top of `write:pages` -- the writer/publisher split (#2421) means being able
-        to write a page does not by itself mean being able to publish it live. `publishState` defaults
-        to `'published'` when omitted (`models/pages.ts#createPage()`), so an omitted value counts as
-        immediate publish too; only an explicit `'draft'` or `'scheduled'` skips this check, following
-        the same shape as the `manage:classification` declassification guardrail below.
-      */
+      // -> `createPage()` defaults an omitted `publishState` to `'published'`, so omitting it needs
+      //    `publish:pages` too; `write:pages` never implies it.
       if (
         (req.body.publishState ?? 'published') === 'published' &&
         !mayOnPage(req, 'publish:pages', req.params.siteId, createPageRef)
@@ -134,13 +101,6 @@ async function routes(app: FastifyInstance) {
           'Publishing a page immediately requires the publish:pages permission here.'
         )
       }
-      /*
-        OpenProject #3389/#3402: `scriptJsLoad`/`scriptJsUnload`/`scriptCss` need `write:scripts`/
-        `write:styles` ON THIS PAGE respectively, on top of `write:pages` -- same standalone-grant
-        shape as `publish:pages` above. Refused with 403 here, before `createPage()` runs, rather than
-        silently dropped the way the pre-a3a6c7994 version of this feature did (the bug this Task was
-        written not to repeat).
-      */
       if (
         (req.body.scriptJsLoad !== undefined || req.body.scriptJsUnload !== undefined) &&
         !mayOnPage(req, 'write:scripts', req.params.siteId, createPageRef)
@@ -175,27 +135,16 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE PAGE
-   */
   app.patch<{
     Params: { siteId: string; pageId: string }
     Body: Partial<PageInput> & {
-      /**
-       * The page's `updatedAt` as the editor last saw it. Checked against the stored value below —
-       * see the optimistic-concurrency comment further down — rather than being passed into
-       * `updatePage()`, since it describes the save's precondition rather than a field of the page.
-       */
+      /** The page's `updatedAt` as the editor last saw it: the save's precondition, not a field. */
       expectedUpdatedAt?: string
     }
   }>(
     '/sites/:siteId/pages/:pageId',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       schema: {
         summary: 'Update a page',
         description:
@@ -277,17 +226,9 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This page does not exist.')
       }
       /*
-        Publish/write role separation (OpenProject #2421/#2466): `publishState` is carved out of the
-        ordinary write gate below rather than folded into it, in BOTH directions --
-          - a `publish:pages` holder may change `publishState` even with no `write:pages` at all, but
-            ONLY when nothing else in the body needs `write:pages` (`bodyTouchesOnlyPublishState`
-            below), so this substitutes for the write gate rather than bypassing it for a mixed
-            request that also touches other fields;
-          - a plain `write:pages` holder may not change `publishState` at all -- unlike every other
-            content field, holding `write:pages` says nothing about publish/unpublish authority.
-        `mayOnPage(req, 'publish:pages', ...)` is checked only where it can actually change the
-        outcome (same short-circuiting style as the declassification guardrail just below), so a
-        request that never touches `publishState` never evaluates it at all.
+        `publishState` is carved out of the write gate in both directions: a `publish:pages` holder
+        with no `write:pages` may change it, but only when the body touches nothing else; and
+        `write:pages` alone never may.
       */
       const hasWrite = mayOnPage(req, 'write:pages', req.params.siteId, target)
       if (!hasWrite) {
@@ -311,11 +252,9 @@ async function routes(app: FastifyInstance) {
         )
       }
       /*
-        Declassification guardrail (OpenProject #1080): lowering a page's classification (making it
-        MORE open) is not covered by `write:pages`/`manage:pages` alone -- it needs `manage:classification`
-        ON THIS PAGE too, so an editor who can write the page cannot silently declassify it by editing
-        metadata. Raising it needs nothing beyond the ordinary write permission already checked above;
-        the floor-invariant/level-exists validation itself happens in `updatePage()`.
+        Lowering a classification (making the page MORE open) needs `manage:classification` on top
+        of the write permission, so an editor cannot declassify a page by editing its metadata.
+        Raising it needs nothing more; `updatePage()` validates the floor and that the level exists.
       */
       if (
         req.body.classification !== undefined &&
@@ -330,16 +269,8 @@ async function routes(app: FastifyInstance) {
           'Lowering this page’s classification requires the manage:classification permission on it.'
         )
       }
-      /*
-        OpenProject #3389/#3402: same standalone-grant shape as `publish:pages`/`manage:classification`
-        above -- `scriptJsLoad`/`scriptJsUnload` need `write:scripts` ON THIS PAGE, `scriptCss` needs
-        `write:styles`, on top of (not implied by) `write:pages`. Checked only when the field is both
-        present AND actually changing the stored value, same "changed AND different" shape the
-        classification guardrail just above uses -- resubmitting a page's current scripts unchanged,
-        which every ordinary save does, never requires either permission. Refused with 403 before
-        `updatePage()` runs, never silently dropped (the pre-a3a6c7994 bug this Task exists not to
-        repeat).
-      */
+      // -> Only an actual change needs the permission: every ordinary save resubmits the page's
+      //    current scripts and styles unchanged.
       if (
         ((req.body.scriptJsLoad !== undefined && req.body.scriptJsLoad !== target.scriptJsLoad) ||
           (req.body.scriptJsUnload !== undefined &&
@@ -360,17 +291,9 @@ async function routes(app: FastifyInstance) {
         )
       }
       /*
-        Retag check (OpenProject #3410): `hasWrite` above already required `write:pages` against the
-        page AS IT STANDS (its current tags), the same as every other field. A tag change also needs
-        `write:pages` against the page AS IT LEAVES it -- otherwise an editor denied `write:pages` on
-        pages tagged `confidential` could add that tag to a page they may otherwise edit (walking a
-        page INTO a branch a tag-scoped rule protects) or remove it from a page only that tag's DENY
-        rule covers (walking it back OUT from under that protection), neither of which the pre-change
-        check alone catches. Same shape the move route's destination-ref check uses: a second ref,
-        same path/locale/classification, carrying only the tags as they would end up. Only evaluated
-        when the tags are actually changing, same "changed AND different" shape as the classification/
-        scripts/styles guardrails above -- resubmitting a page's current tags unchanged never requires
-        re-proving `write:pages` a second time.
+        `hasWrite` judged the page with its current tags. A tag change also needs `write:pages` on
+        the page as it leaves, or an editor could tag a page into a branch a tag-scoped rule
+        protects, or untag it out from under that rule's DENY.
       */
       if (req.body.tags !== undefined && tagSetChanged(target.tags, req.body.tags)) {
         const postChangeRef = {
@@ -383,15 +306,9 @@ async function routes(app: FastifyInstance) {
           return reply.forbidden('You are not allowed to change this page’s tags to that set.')
         }
         /*
-          `write:tags` guardrail (OpenProject #3393): independent of the ranking question above but
-          forced by it -- the moment a tag rule can outrank a path rule, whoever can edit tags can
-          widen or narrow access through tags alone, which `write:pages` on its own only half-covers
-          (it proves the editor's general write standing, not that they specifically may retag).
-          Checked on BOTH sides, same as the `write:pages` retag check just above: against the page
-          AS IT STANDS (its current tags) and AS IT WOULD LEAVE (the requested tags) -- an editor
-          holding `write:tags` on the destination shape alone could still lack it on the source page
-          itself. Only evaluated when the set actually changes, so resaving a tagged page unchanged
-          never requires `write:tags` at all.
+          A tag rule can outrank a path rule, so whoever edits tags can widen or narrow access
+          through them alone. `write:pages` proves write standing, not authority to retag:
+          `write:tags` is needed on both the current and the resulting tag set.
         */
         if (
           !mayOnPage(req, 'write:tags', req.params.siteId, target) ||
@@ -401,24 +318,10 @@ async function routes(app: FastifyInstance) {
         }
       }
       /*
-        Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
-        A collab-connected editor's next save naturally carries the post-save timestamp its own
-        collaborators' saves already advanced it to (`applySave()` in `composables/collab.js`), so this
-        never false-positives against them — it only catches a save that began before somebody else's
-        landed. Millisecond precision, since that is what the API hands back and what a client round-
-        trips; comparing `Temporal.Instant` values directly with `<` throws, so this compares
-        `epochMilliseconds` instead.
-      */
-      /*
-        Escape-hatch guarantee (OpenProject #838, upstream requarks/wiki #2256): a 409 here is a
-        REFUSAL, not a dead end. The response below always carries the row's current `updatedAt`,
-        which is everything a caller needs to make its next request succeed — resubmit the same body
-        with that value as `expectedUpdatedAt` and this check passes, because by then it once again
-        matches what is stored. There is no state this route can put a page into where a save is
-        permanently unsavable; a caller can always either adopt what's on the server or force its own
-        content through as the new version. `PageSaveConflictDialog.vue` /
-        `EditorMarkdown.vue#resolveSaveConflict` is the frontend consumer of that guarantee ("Save
-        Anyway" issues exactly this resubmission); `pages.test.ts` proves the round trip end to end.
+        Optimistic concurrency: refuses a save that began before somebody else's landed. Compared at
+        millisecond precision, which is what the API hands back and a client round-trips. The 409
+        carries the current `updatedAt`, so resubmitting with it as `expectedUpdatedAt` always gets
+        through -- a conflict is never a dead end (upstream requarks/wiki #2256).
       */
       if (
         req.body.expectedUpdatedAt &&
@@ -457,9 +360,9 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This page does not exist.')
       }
       /*
-        Anyone else editing this page right now is looking at the text that was just stored, so their
-        editor should stop calling it unsaved. Told through the collaboration room rather than answered
-        here, since they are on their own requests — and, quite possibly, on another instance.
+        Anyone else editing this page is looking at the text just stored, so their editor should
+        stop calling it unsaved. They are on their own requests, possibly on another instance, hence
+        the collaboration room.
       */
       CARDINAL.collab.pageSaved(page.id, {
         versionDate: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' }),
@@ -474,13 +377,9 @@ async function routes(app: FastifyInstance) {
         page.classification
       )
       /*
-        Retroactive parent classification raise (OpenProject #1080): raising THIS page's own
-        classification does not cascade to its descendants -- some may now sit below the new floor.
-        Rather than silently leaving them there, or silently bumping them, this surfaces the list for
-        an admin to resolve explicitly (`ClassificationResolutionDialog.vue`), via
-        `POST …/classification-conflicts/resolve`. Only computed when the classification actually got
-        stricter -- a lower/unchanged classification can only ever WIDEN what the old floor already
-        permitted, so there is nothing new to surface.
+        Raising a page's classification does not cascade, so descendants may now sit below the new
+        floor. They are returned for an admin to resolve explicitly rather than silently bumped;
+        only a stricter classification can produce any.
       */
       const classificationConflicts =
         req.body.classification !== undefined &&
@@ -505,20 +404,13 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * MOVE / RENAME PAGE
-   */
   app.put<{
     Params: { siteId: string; pageId: string }
     Body: { path: string; title?: string; locale?: string; includeTranslations?: boolean }
   }>(
     '/sites/:siteId/pages/:pageId/path',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       schema: {
         summary: 'Move a page to another path',
         description:
@@ -586,16 +478,10 @@ async function routes(app: FastifyInstance) {
       if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to move this page.')
       }
-      // -> Where it is going is its own question: rules are matched on path AND locale, so being
-      //    allowed to manage a page where it sits now says nothing about the destination. Checked
-      //    against `write:pages`, not `manage:pages` -- the group editor's own hint for `manage:pages`
-      //    promises "other locations the user has WRITE ACCESS to", and `write:pages` is exactly the
-      //    permission `POST .../deleted/:versionId/recover` already checks against its own target
-      //    path for the same reason: landing a page somewhere is a write there, whatever put it in
-      //    motion (OpenProject #937). The ref carries the page's tags because they travel with it, so
-      //    a rule that grants by tag applies at the destination exactly as it does at the source; the
-      //    path is normalized the way `movePage` will store it, so that a leading slash in the body
-      //    cannot make a rule miss.
+      // -> The destination is its own question: rules match on path AND locale, and landing a page
+      //    somewhere is a write there, hence `write:pages` rather than `manage:pages`. Tags travel
+      //    with the page; the path is normalized as `movePage` stores it, so a leading slash in the
+      //    body cannot make a rule miss.
       const destPath = normalizePagePath(req.body.path)
       const destLocale = req.body.locale ?? target.locale
       if (destPath !== target.path || destLocale !== target.locale) {
@@ -604,13 +490,8 @@ async function routes(app: FastifyInstance) {
           return reply.forbidden('You are not allowed to move this page there.')
         }
       }
-      // -> `includeTranslations` cascades to every other locale's page sharing this page's CURRENT
-      //    path -- checked here, before the model is asked to do anything, because a batch move is
-      //    "everyone involved may go" or nothing: a rule that lets this caller manage `en` but not
-      //    `fr` must not let them drag the `fr` translation along for the ride just because they may
-      //    manage the primary page. Each twin still needs `manage:pages` to be moved away from its OWN
-      //    path, same as the primary; the shared destination needs `write:pages`, same reasoning as
-      //    above.
+      // -> All-or-nothing, checked before the model moves anything: being allowed to manage the
+      //    `en` page must not drag along an `fr` translation the caller may not manage.
       if (req.body.includeTranslations && destPath !== target.path) {
         const translations = await CARDINAL.models.pages.getTranslations(
           req.params.siteId,
@@ -643,12 +524,9 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      // -> Only ever fires from the floor-invariant auto-bump (OpenProject #1080): an ordinary move
-      //    (or a title/locale-only one) never touches classification, so `from === to` there and
-      //    `recordClassificationChange` is a no-op. Covers the primary page only -- `movePage()`
-      //    returns just that one, not an `includeTranslations` twin also auto-bumped in the same
-      //    call, so a twin's own bump goes unlogged here. Narrow, documented gap rather than
-      //    threading the whole batch back out through the model for this alone.
+      // -> Only a move under a stricter parent changes a classification (the floor auto-bump).
+      //    Known gap: `movePage()` returns the primary page alone, so an `includeTranslations`
+      //    twin's own bump goes unlogged.
       await recordClassificationChange(
         req,
         req.params.siteId,
@@ -664,20 +542,13 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CONVERT EDITOR (OpenProject #3399)
-   */
   app.put<{
     Params: { siteId: string; pageId: string }
     Body: { editor: string }
   }>(
     '/sites/:siteId/pages/:pageId/editor',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       schema: {
         summary: 'Convert a page between its markdown and wysiwyg editors',
         description:
@@ -724,8 +595,6 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      // -> Changes which editor the page's content is attributed to, same permission as any other
-      //    edit to the page.
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
       }
@@ -746,18 +615,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * RE-RENDER PAGE
-   */
   app.post<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/render',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
-      // -> Bounds how fast one client can fill the queue; see `helpers/rateLimit.ts`
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       preHandler: limitRenders,
       schema: {
         summary: 'Queue a page to be rendered again from its source',
@@ -792,7 +653,6 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      // -> Rewrites what the page shows, so it is an edit and takes the same permission as one
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
       }
@@ -811,23 +671,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * BULK ACTION (OpenProject #1882)
-   *
-   * The row-selection/bulk-actions half of the admin page inventory: delete, re-render or retag a
-   * set of pages in one request. Each id is checked and acted on independently — a page the caller
-   * may not act on is reported as `skipped` rather than failing the whole batch, which is the
-   * opposite of `POST …/classification-conflicts/resolve` just above (that route `forbidden()`s the
-   * entire request on the first denied page). Both are correct for what each one is: the
-   * classification-conflicts flow is a single all-or-nothing bump an admin already knows they may
-   * make on every listed descendant, while a bulk action here starts from an arbitrary, admin-picked
-   * selection that may well mix pages the actor can and cannot act on — the whole point of reporting
-   * per-page outcomes instead of refusing outright.
-   *
-   * Retag is add/remove-RELATIVE per page, not a blanket overwrite: a mixed selection can carry
-   * different existing tag sets, so "add x, remove y" is applied against each page's own tags rather
-   * than a client-supplied full list clobbering whatever else a page already carried.
-   */
   app.post<{
     Params: { siteId: string }
     Body: {
@@ -840,8 +683,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/bulk',
     {
       // -> No route-level `permissions`: page-rule permissions, checked per page below.
-      // -> Only the `render` action drives Puppeteer; the same throttle the single-page render route
-      //    uses, since a bulk request can still queue many browser renders from one call.
+      // -> Only `render` drives Puppeteer, so only it takes the render route's throttle.
       preHandler: async (req, reply) => {
         if ((req.body as { action?: string } | undefined)?.action === 'render') {
           await limitRenders(req, reply)
@@ -926,13 +768,7 @@ async function routes(app: FastifyInstance) {
       if (action === 'retag' && addTags.length < 1 && removeTags.length < 1) {
         return reply.badRequest('Provide at least one tag to add or remove.')
       }
-      // -> De-duplicated, same reasoning as the classification-conflicts-resolve route just above: a
-      //    repeated id would otherwise be looked up, permission-checked and acted on once per
-      //    occurrence instead of once per page.
       const pageIds = [...new Set(req.body.pageIds)]
-      // -> ONE batched select instead of a per-id `getPage` loop -- the same `getPagesByIds` the
-      //    classification-conflicts-resolve route already uses, projecting only what `mayOnPage`
-      //    (and, for `retag`, the page's own current tags) actually needs.
       const pageMap = await CARDINAL.models.pages.getPagesByIds(req.params.siteId, pageIds)
       const permission = action === 'delete' ? 'delete:pages' : 'write:pages'
       const results: {
@@ -980,11 +816,8 @@ async function routes(app: FastifyInstance) {
             const nextTags = [
               ...new Set([...target.tags.filter((t) => !removeSet.has(t)), ...addTags])
             ]
-            // -> Same retag check the PATCH route makes (OpenProject #3410): `permission` above
-            //    ('write:pages') was already checked against this page AS IT STANDS, but a bulk
-            //    retag can still walk a page into or out of a tag-scoped rule's reach. Refused
-            //    per page as `skipped`, not `error` -- this is a permission outcome like any other
-            //    page in the batch the caller may not act on, not a failure while acting.
+            // -> The PATCH route's retag checks, per page. A refusal is `skipped`, not `error`: a
+            //    permission outcome, not a failure while acting.
             if (tagSetChanged(target.tags, nextTags)) {
               const postChangeRef = {
                 path: target.path,
@@ -1001,10 +834,6 @@ async function routes(app: FastifyInstance) {
                 })
                 continue
               }
-              // -> `write:tags` guardrail (OpenProject #3393), same both-sides shape as the
-              //    `write:pages` check just above and the PATCH route's own version: checked
-              //    against the page as it stands AND as it would leave, only when its tag set is
-              //    actually changing.
               if (
                 !mayOnPage(req, 'write:tags', req.params.siteId, target) ||
                 !mayOnPage(req, 'write:tags', req.params.siteId, postChangeRef)
@@ -1042,17 +871,10 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DELETE PAGE
-   */
   app.delete<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId',
     {
-      /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead — which is
-        also what lets a rule open one branch to somebody the group as a whole cannot write to.
-      */
+      // -> No route-level `permissions`: page-rule permissions, checked in the handler.
       schema: {
         summary: 'Delete a page',
         tags: ['Pages'],

@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * ASSET - An uploaded file, without its contents
-   */
   app.addSchema({
     $id: 'Asset',
     type: 'object',
@@ -52,10 +49,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * ASSET BATCH UPLOAD ITEM - One file's result within a batch upload, same fields a single upload's
-   * response carries plus which file it was — the array has no other way to say that back.
-   */
   app.addSchema({
     $id: 'AssetBatchUploadItem',
     type: 'object',

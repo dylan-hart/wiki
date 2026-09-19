@@ -1,16 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * DIAGRAM RENDER REQUEST
-   */
   app.addSchema({
     $id: 'DiagramRenderRequest',
     type: 'object',
     required: ['type', 'source'],
-    // -> No per-request `server` override: which PlantUML server this renders against is read from
-    //    the site's own `block-plantuml` config (OpenProject task 2223), never from the caller, so
-    //    Fastify's default `removeAdditional` strips a `server` field rather than forwarding it.
+    // -> No `server` field: which PlantUML server this renders against comes from the site's own
+    //    `block-plantuml` config, never from the caller. Fastify's default `removeAdditional`
+    //    strips one rather than forwarding it.
     additionalProperties: false,
     properties: {
       type: {
@@ -36,22 +33,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * DIAGRAM PROXY RENDER REQUEST
-   *
-   * `POST /_api/sites/:siteId/diagrams/render` (`api/diagramProxy.ts`) — the shared Kroki/PlantUML
-   * POST proxy, distinct from `DiagramRenderRequest` above: that one names a diagram TYPE
-   * (mermaid/plantuml) for the session-authenticated, unscoped `/diagrams/render` route; this one
-   * names an ENGINE (kroki/plantuml) for a site-scoped, anonymous-reachable route, and Kroki also
-   * needs `diagramType` — which of Kroki's own diagram languages `source` is written in, since Kroki
-   * is a front end to many tools rather than one of its own.
+   * For the site-scoped, anonymous-reachable proxy route (`api/diagramProxy.ts`): it names an
+   * ENGINE (kroki/plantuml), where `DiagramRenderRequest` names a diagram TYPE for the
+   * session-authenticated `/diagrams/render`. No `server` field here either, for the same reason.
    */
   app.addSchema({
     $id: 'DiagramProxyRenderRequest',
     type: 'object',
     required: ['engine', 'source'],
-    // -> No `server` field, same reasoning as `DiagramRenderRequest` above: which server this
-    //    renders against is read from the site's own block config (`models/diagramProxy.ts`), never
-    //    from the caller.
     additionalProperties: false,
     properties: {
       engine: {
