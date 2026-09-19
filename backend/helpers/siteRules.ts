@@ -3,41 +3,9 @@ import type { FastifyRequest } from 'fastify'
 import type { GroupRule } from '../models/groups.ts'
 
 /**
- * How a site-admin rule is matched against a site, and which rule wins when several match.
- *
- * ---------------------------------------------------------------------------------------------
- * THE RULES OF SITE-ADMIN PERMISSIONS
- * ---------------------------------------------------------------------------------------------
- *
- * A group grants site-admin permissions through the same rule rows page permissions use
- * (`GroupRule.roles` is one shared vocabulary space, per the delegated-per-site-administration
- * decision), just read a different way: instead of
- * `path`/`match`/`locales`, a site-admin rule is addressed by `sites` alone. An empty `sites` array
- * means every site; a populated one means only those site ids.
- *
- * **Nothing is granted by default.** A permission nobody wrote a rule for is denied: no rules at all
- * is the same as one DENY rule covering every site. This mirrors `helpers/pageRules.ts` exactly.
- *
- * There is no path to be more specific about, so when more than one rule names the permission and
- * addresses the site being asked about, MODE alone decides — the same `MODE_PRIORITY` order
- * `resolvePageRule` uses to break its own final tie:
- *
- *   ALLOW  <  DENY  <  FORCEALLOW
- *
- * An ALLOW grants the permission. A DENY overrides any ALLOW from elsewhere (e.g. a second group the
- * actor belongs to). A FORCEALLOW overrides any DENY. Ties between rules of the identical mode go to
- * whichever appears first in the pooled array, so the outcome does not depend on which group happened
- * to be listed first.
- *
- * `manage:system` is not evaluated here: it bypasses this entirely, and does so before any rule is
- * read. See `models/groups.ts`'s `checkSiteAccess`.
- */
-
-/**
- * The closed vocabulary of site-scoped administration permissions — one per delegable settings
- * surface. Parallel to `PAGE_PERMISSIONS` in `helpers/permissions.ts`, but namespaced `site:*` so the strings
- * cannot collide with the global `manage:*` tier or with `PAGE_PERMISSIONS`'s `verb:pages` shape.
- * Nothing outside this list may be invented ad hoc.
+ * A closed vocabulary, one per delegable settings surface. Namespaced `site:*` so the strings
+ * cannot collide with the global `manage:*` tier or with `PAGE_PERMISSIONS` in
+ * `helpers/permissions.ts`, whose rule rows (`GroupRule.roles`) they share.
  */
 export const SITE_PERMISSIONS = [
   'site:general',
@@ -50,25 +18,26 @@ export const SITE_PERMISSIONS = [
   'site:editors'
 ]
 
-/**
- * Whether a rule addresses this site at all, ignoring what it then says about it.
- *
- * Exported for `models/groups.ts`'s `mayHoldPermissionSomewhere()`, which pools rules the same
- * fail-closed way `resolveSiteRule` below does, just without a single permission-mode winner to
- * pick — it only needs to know whether a rule is in play for the site being asked about.
- */
+/** An empty `sites` array means every site. */
 export function ruleMatchesSite(rule: GroupRule, siteId: string): boolean {
   return !rule.sites || rule.sites.length === 0 || rule.sites.includes(siteId)
 }
 
 /**
- * The rule that decides a site-admin permission for a site, out of everything the caller's groups
- * say.
+ * The rule that decides a site-admin permission for a site, or null when nothing addresses it —
+ * which means denied: nothing is granted by default, as in `helpers/pageRules.ts`.
+ *
+ * A site-admin rule is addressed by `sites` alone, so there is no path to be more specific about
+ * and MODE alone decides, in the same `MODE_PRIORITY` order `resolvePageRule` breaks its final tie
+ * with:
+ *
+ *   ALLOW  <  DENY  <  FORCEALLOW
+ *
+ * A DENY overrides an ALLOW from any other group the actor belongs to; a FORCEALLOW overrides any
+ * DENY. `manage:system` is not evaluated here: `models/groups.ts#checkSiteAccess` bypasses this
+ * before any rule is read.
  *
  * @param rules Every rule from every group the caller belongs to, pooled
- * @param permission A single site-admin permission, e.g. `site:theme`
- * @param siteId The site being administered
- * @returns The deciding rule, or null when nothing addresses this — which means denied
  */
 export function resolveSiteRule(
   rules: GroupRule[],
@@ -83,8 +52,7 @@ export function resolveSiteRule(
       continue
     }
     const rank = MODE_PRIORITY.indexOf(rule.mode)
-    // -> Strictly greater, so the first rule of an otherwise identical pair wins and the outcome
-    //    does not depend on the order they happen to arrive in
+    // -> Strictly greater: of two same-mode rules the first wins, which cannot change the decision
     if (rank > winnerRank) {
       winner = rule
       winnerRank = rank
@@ -95,20 +63,10 @@ export function resolveSiteRule(
 }
 
 /**
- * Shorthand for `CARDINAL.models.groups.checkSiteAdminAccess` — see that method for the whole rationale
- * (why the global half is site-blind, and why the site half is `checkSiteAccess()` unchanged).
- *
- * Purely a shorter name at the twenty-two route call sites: spelled out in full, the check is 107
- * columns inside an `if (!…)`, so oxfmt breaks every one of them across five lines and buries a
- * one-line permission gate in the middle of a handler. No logic of its own — it resolves
- * `CARDINAL.models.groups` at CALL time, never captured at module load, so a route test that stubs the
- * model still decides the answer.
- *
- * The one `CARDINAL` touch in this otherwise CARDINAL-free file, and deliberately the only one: the
- * resolution algorithm above stays a pure function of its arguments, testable with no global at all
- * (`helpers/siteRules.test.ts`). This sits here rather than in `helpers/common.ts` because
- * `SITE_PERMISSIONS` — the vocabulary its `sitePermission` argument is drawn from — is declared in
- * this file.
+ * Call-site shorthand for `CARDINAL.models.groups.checkSiteAdminAccess`, with no logic of its own:
+ * spelled out in full the check wraps, burying a one-line permission gate. Resolves
+ * `CARDINAL.models.groups` at CALL time, never captured at module load, so a route test that stubs
+ * the model still decides the answer.
  */
 export function maySiteAdmin(
   req: FastifyRequest,

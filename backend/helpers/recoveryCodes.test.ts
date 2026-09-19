@@ -18,7 +18,6 @@ describe('helpers/recoveryCodes', () => {
   })
 
   test('generateRecoveryCode never emits the visually-ambiguous letters I, L, O, U', () => {
-    // -> Run enough times that a codec bug letting one of these through would show up reliably.
     for (let i = 0; i < 200; i++) {
       const code = generateRecoveryCode()
       assert.ok(!/[ILOU]/.test(code), `unexpected ambiguous character in ${code}`)

@@ -1,47 +1,25 @@
 /**
- * The one rule every redirect/navigation sink in this codebase applies to a stored or caller-supplied
- * destination, so a scheme like `javascript:` never reaches a browser `href`/`Location` header.
+ * The one rule every redirect/navigation sink applies to a stored or caller-supplied destination,
+ * so a scheme like `javascript:` never reaches a browser `href`/`Location` header. Mirrored by
+ * `frontend/src/helpers/pageRedirect.js#isFollowableRedirectTarget` — keep the two in sync.
  *
- * Mirrors the rule `frontend/src/helpers/pageRedirect.js#isFollowable` already applies to a page
- * redirection's own target: a rooted path that does not begin `//` (or `/\`, which every browser
- * normalizes to `//` before resolving it, turning it into the same protocol-relative address) is
- * always safe, and beyond that only a complete, parseable URL whose scheme is on the allowed list —
- * `http:`/`https:` unless a caller widens it — is accepted. Everything else, `javascript:`, `data:`,
- * a bare unparseable string, is refused.
- *
- * Deliberately **parses** the candidate with `URL` rather than pattern-matching the scheme prefix:
- * `/^[a-z][a-z0-9+.-]*:\/\//i` — the check this replaces at `frontend/src/App.vue`'s old logout
- * handler — is satisfied by `javascript://%0aalert(1)`, because the `//` reads as a JS line comment
- * and the decoded newline ends it before `alert(1)` runs. `URL` resolves the real scheme regardless
- * of what a comment inside the rest of the string looks like.
+ * Parses the candidate with `URL` rather than pattern-matching a `scheme://` prefix: such a regex
+ * accepts `javascript://%0aalert(1)`, where `//` opens a JS line comment and the decoded newline
+ * ends it before `alert(1)` runs.
  */
 
 export interface RedirectTargetOptions {
   /**
-   * Whether a complete absolute URL is accepted at all, in addition to a same-origin rooted path.
-   * Defaults to `true`. Set to `false` to restrict a sink to this wiki's own origin — this is the
-   * on/off switch `security.disallowOpenRedirect` drives for the login/logout/authorize redirect
-   * sinks (see `backend/models/security.ts`); a caller that always means to allow leaving the site —
-   * a navigation item's target, a page relation — leaves this at its default.
+   * `false` restricts a sink to this wiki's own origin; `security.disallowOpenRedirect` drives it
+   * for the login/logout/authorize sinks (see `absoluteRedirectsAllowed`).
    */
   allowAbsolute?: boolean
-  /**
-   * Schemes (as `URL#protocol` renders them, trailing colon included) an absolute URL may use.
-   * Defaults to `http:`/`https:` only. A navigation item target additionally allows `mailto:`/`tel:`,
-   * which are legitimate destinations for a menu link and carry no script-execution risk.
-   */
+  /** As `URL#protocol` renders them, trailing colon included. Defaults to `http:`/`https:`. */
   allowedProtocols?: readonly string[]
 }
 
 const DEFAULT_ALLOWED_PROTOCOLS = ['http:', 'https:'] as const
 
-/**
- * Whether `value` is safe to hand to a browser as a redirect target or a link `href`.
- *
- * @param value The candidate target — typically author- or attacker-supplied, so this never trusts
- *   its shape going in.
- * @param options See `RedirectTargetOptions`.
- */
 export function isFollowableRedirectTarget(
   value: unknown,
   { allowAbsolute = true, allowedProtocols = DEFAULT_ALLOWED_PROTOCOLS }: RedirectTargetOptions = {}
@@ -53,9 +31,8 @@ export function isFollowableRedirectTarget(
   if (trimmed.length < 1) {
     return false
   }
-  // -> A rooted path is always same-origin and never carries a scheme of its own -- except when it
-  //    starts `//` (protocol-relative, resolved by a browser as an absolute address on whatever host
-  //    follows) or `/\` (which a browser normalizes to `//` before resolving it the same way).
+  // -> A rooted path is same-origin unless it starts `//` (protocol-relative) or `/\`, which
+  //    browsers normalize to `//`.
   if (trimmed.startsWith('/') && !trimmed.startsWith('//') && !trimmed.startsWith('/\\')) {
     return true
   }
@@ -72,14 +49,9 @@ export function isFollowableRedirectTarget(
 }
 
 /**
- * Whether `CARDINAL.config.security.disallowOpenRedirect` permits an absolute (off-site) redirect target
- * right now — the shared on/off switch for the login/logout/authorize sinks. Off by inversion: the
- * setting is phrased as "disallow", `isFollowableRedirectTarget`'s option as "allow" — an absolute
- * target is refused only while the setting is explicitly `true` ("on"), matching the schema's own
- * wording (`api/schemas/security.ts`: "When on (the default)..."). A real boot always resolves this
- * to a concrete boolean (`base.yml` defaults it `true`, same as "on"), so the un-set case below only
- * ever arises where `CARDINAL.config` hasn't gone through that merge — a minimal test stub, for instance —
- * and is treated the same as "not on" rather than defensively as "on".
+ * The shared switch for the login/logout/authorize sinks, inverted: the setting says "disallow",
+ * `allowAbsolute` says "allow". An unset value reads as "allowed", but only a stub `CARDINAL.config`
+ * leaves it unset: `base.yml` defaults it to `true`.
  */
 export function absoluteRedirectsAllowed(): boolean {
   return CARDINAL.config.security?.disallowOpenRedirect !== true

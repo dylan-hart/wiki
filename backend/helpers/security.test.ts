@@ -25,19 +25,11 @@ import {
 
 import { installTestWiki } from '../test/mocks.ts'
 
-// -> corsOrigin()'s REGEX branch logs through the CARDINAL global on an invalid pattern; stub just
-//    enough of it, the same way rateLimit.test.ts does for its own CARDINAL-touching helpers.
-//    `config.security` is here for `sessionCookieName()` -- most describes never touch it, but it has
-//    to exist so a bare read doesn't throw.
+// -> `corsOrigin()`'s REGEX branch logs through the CARDINAL global on an invalid pattern, and
+//    `sessionCookieName()` reads `config.security`; both have to exist even though most describes
+//    below never touch them.
 installTestWiki({ logger: { warn: mock.fn() }, config: { security: {} } })
 
-/**
- * Unit tests for WP #2158/#2161 (part of #2154): `parseCspDirectives` used to accept any token as a
- * directive name, so a typo'd or invented one was stored -- and enforced -- as silently less policy
- * than the operator intended. It now throws, naming the offending token, and this is also where the
- * shipped `backend/base.yml` default is asserted to actually parse, since that string is otherwise
- * just YAML nobody exercises.
- */
 describe('parseCspDirectives', () => {
   test('the shipped default (empty string) parses to no directives', () => {
     assert.deepEqual(parseCspDirectives(''), {})
@@ -82,9 +74,6 @@ describe('parseCspDirectives', () => {
 
     const parsed = parseCspDirectives(shipped)
 
-    // -> The "at minimum" baseline the WP calls for, plus what Monaco, the blocks loader and KaTeX
-    //    actually need -- see the comment above `cspDirectives` in base.yml for the full reasoning
-    //    per directive.
     for (const expected of [
       'default-src',
       'object-src',
@@ -105,10 +94,9 @@ describe('parseCspDirectives', () => {
 })
 
 /**
- * Regression coverage for the app shell's own two inline `<script>` blocks (the Temporal-polyfill
- * feature-detect check and `temporalPolyfillChunkPlugin`'s substituted chunk-url assignment) tripping
- * a `script-src 'self'` policy with no `'unsafe-inline'` -- the shipped default -- and breaking the
- * app shell outright the moment `enforceCsp` is turned on (caught by `e2e/tests/csp.spec.js`).
+ * The app shell carries two inline `<script>` blocks, which `script-src 'self'` with no
+ * `'unsafe-inline'` -- the shipped default -- breaks outright once `enforceCsp` is on. Hashing them
+ * into the policy is what keeps the shell loading.
  */
 describe('inlineScriptHashSources', () => {
   test('hashes an inline script with no src, matching a manual SHA-256/base64 computation', () => {
@@ -150,8 +138,7 @@ describe('inlineScriptHashSources', () => {
     try {
       html = readFileSync(appShellPath, 'utf8')
     } catch {
-      // -> No `npm run build` has produced `assets/index.html` in this environment -- the general
-      //    cases above already cover the hashing logic itself.
+      // -> No `npm run build` in this environment; the cases above cover the hashing itself.
       return
     }
     assert.ok(inlineScriptHashSources(html).length >= 2)
@@ -216,20 +203,16 @@ describe('corsOrigin', () => {
       corsMode: 'REGEX',
       corsConfig: '^https://.*\\.example$'
     }) as RegExp
-    // -> Not double-wrapped: a leading `^`/trailing `$` the operator already wrote is stripped
-    //    before re-anchoring, so the effective pattern is unchanged rather than `^^...$$`. The
-    //    body is still wrapped in a non-capturing group (see the alternation test below), so the
-    //    resulting source reflects that wrap even though the matched behavior is identical.
+    // -> An operator's own `^`/`$` is stripped before re-anchoring, so the source reads `^(?:…)$`
+    //    rather than `^^…$$`. The non-capturing wrap is what the alternation case below needs.
     assert.equal(result.source, new RegExp('^(?:https://.*\\.example)$').source)
     assert.equal(result.test('https://wiki.example'), true)
     assert.equal(result.test('https://wiki.example.attacker.test'), false)
   })
 
   test('REGEX fully anchors a pattern with top-level alternation', () => {
-    // -> `^A|B$` only anchors the left edge of the first alternative and the right edge of the
-    //    last one — `B` alone is left unanchored and still substring-matchable anywhere in the
-    //    Origin header. Wrapping the whole pattern in a non-capturing group before anchoring
-    //    (`^(?:A|B)$`) fixes that: both alternatives are now fully anchored.
+    // -> `^A|B$` anchors only the first alternative's left edge and the last one's right edge,
+    //    leaving each substring-matchable inside an Origin header; `^(?:A|B)$` anchors both.
     const result = corsOrigin({
       corsMode: 'REGEX',
       corsConfig: 'https://a\\.example|https://b\\.example'
@@ -237,11 +220,8 @@ describe('corsOrigin', () => {
     assert.ok(result instanceof RegExp)
     assert.equal(result.test('https://a.example'), true)
     assert.equal(result.test('https://b.example'), true)
-    // -> Previously matched via the unanchored right-hand alternative's bare substring test.
     assert.equal(result.test('https://evil.test/?x=https://b.example'), false)
     assert.equal(result.test('https://b.example.attacker.test'), false)
-    // -> Previously matched via the unanchored left-hand alternative's bare substring test too,
-    //    since only ITS left edge was anchored, not its right edge.
     assert.equal(result.test('https://a.example.attacker.test'), false)
   })
 
@@ -251,9 +231,6 @@ describe('corsOrigin', () => {
 })
 
 describe('corsOptions', () => {
-  // -> `/_api` routes span the full CRUD surface (55+ routes across backend/api/*.ts use PUT,
-  //    PATCH or DELETE), so the CORS registration these options feed must clear preflight for all
-  //    three, plus the Authorization/Content-Type headers a cross-origin API client sends.
   test('methods cover the full CRUD surface the API routes use', () => {
     const options = corsOptions({ corsMode: 'OFF' })
     for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
@@ -274,10 +251,6 @@ describe('corsOptions', () => {
 })
 
 describe('needsSvgCsp', () => {
-  // -> OpenProject #2157: the two routes that serve stored/uploaded bytes back to a requester by
-  //    extension (`controllers/files.ts`, `api/assets.ts`'s `/content`) both decide whether to
-  //    attach `SVG_CSP` through this one predicate, so it is what's actually under test — not any
-  //    one route's wiring of it.
   test('recognizes svg', () => {
     assert.equal(needsSvgCsp('svg'), true)
   })
@@ -298,11 +271,8 @@ describe('needsSvgCsp', () => {
 })
 
 describe('corsOptions preflight (integration)', () => {
-  // -> The unit tests above assert on the `options` object `corsOptions()` returns; this spins up a
-  //    real `@fastify/cors`-registered Fastify instance (same pattern as `api/sites.test.ts`) and
-  //    drives it through `.inject()`, so it exercises the thing a browser actually does before a
-  //    cross-origin `PUT`/`DELETE` — a preflight `OPTIONS` carrying `Access-Control-Request-Method` —
-  //    rather than just the config object index.ts hands the plugin.
+  // -> Drives a real `@fastify/cors` registration through the preflight `OPTIONS` a browser sends
+  //    before a cross-origin `PUT`/`DELETE`, rather than the options object asserted on above.
   async function buildApp() {
     const app = fastify()
     await app.register(
@@ -351,15 +321,11 @@ describe('SESSION_COOKIE_NAME', () => {
 })
 
 /**
- * Regression coverage for the boot-order/cookie bug (OpenProject bug report, 2026-08-31): task 2109
- * pinned the session cookie `Secure`/`__Host-` unconditionally on the assumption that a plain
- * `http://localhost` dev instance still worked, since browsers treat loopback as a trustworthy origin.
- * That assumption was wrong -- `@fastify/session`'s own `onSend` hook refuses to ever emit a
- * `Secure`-flagged cookie unless it saw the connection itself as TLS (`request.protocol === 'https'`),
- * which a bare, proxy-less HTTP server never is, loopback or not -- so login silently never set a
- * cookie at all. `security.cookieSecure: false` is the fix; `sessionCookieName()` is what switches the
- * name to match it (a `__Host-`-prefixed cookie without `Secure` is rejected outright by the browser,
- * so the name has to drop the prefix too, not just the attribute).
+ * `@fastify/session`'s `onSend` refuses to emit a `Secure`-flagged cookie unless it saw the
+ * connection itself as TLS (`request.protocol === 'https'`), which a proxy-less HTTP server never
+ * is, loopback or not -- so a `Secure` pin means login silently sets no cookie at all. A
+ * `__Host-`-prefixed cookie without `Secure` is in turn rejected by the browser, which is why
+ * `security.cookieSecure: false` has to switch the name and not only the attribute.
  */
 describe('sessionCookieName', () => {
   test('defaults to the hardened __Host- name when security.cookieSecure is unset', () => {
@@ -379,11 +345,8 @@ describe('sessionCookieName', () => {
 })
 
 /**
- * Proves the actual mechanism, not just the config toggle: a real `@fastify/session` instance,
- * registered exactly the way `index.ts` registers it (same cookie options, same `secure` wiring),
- * driven with a real plain-HTTP request via `.inject()`. `secure: true` (the default, matching
- * `security.cookieSecure` unset) reproduces the reported bug -- no `Set-Cookie` at all. `secure: false`
- * (matching `security.cookieSecure: false`) is what actually fixes it.
+ * Proves the mechanism rather than the config toggle: a real `@fastify/session` registered with the
+ * cookie options and `secure` wiring `index.ts` uses, driven over plain HTTP.
  */
 describe('session cookie emission over plain HTTP (integration)', () => {
   async function buildApp(secure: boolean) {
@@ -564,10 +527,6 @@ describe('shouldBlockCrossOriginApiRequest', () => {
   })
 })
 
-/**
- * OpenProject #3275: the per-request `frame-ancestors` directive built from a resolved site's
- * `embedAllowedOrigins` allowlist.
- */
 describe('frameAncestorsDirective', () => {
   test('an empty allowlist (the default) produces no directive', () => {
     assert.equal(frameAncestorsDirective([]), null)

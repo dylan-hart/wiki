@@ -4,9 +4,6 @@ import { describe, test } from 'node:test'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from './redirectTarget.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-// -> absoluteRedirectsAllowed() reads CARDINAL.config.security.disallowOpenRedirect through the ambient
-//    global; stub just enough of it, the same way security.test.ts does for corsOrigin()'s own
-//    CARDINAL-touching branch.
 installTestWiki({ config: { security: { disallowOpenRedirect: true } } })
 
 describe('isFollowableRedirectTarget', () => {
@@ -72,7 +69,7 @@ describe('isFollowableRedirectTarget', () => {
     const options = { allowedProtocols: ['http:', 'https:', 'mailto:', 'tel:'] }
     assert.equal(isFollowableRedirectTarget('mailto:person@example.com', options), true)
     assert.equal(isFollowableRedirectTarget('tel:+15555550100', options), true)
-    // -> Still refused: widening the allowlist never re-admits a scheme not named on it
+    // -> Widening the allowlist never re-admits a scheme not named on it
     assert.equal(isFollowableRedirectTarget('javascript:alert(1)', options), false)
   })
 })
@@ -83,8 +80,6 @@ describe('absoluteRedirectsAllowed', () => {
     assert.equal(absoluteRedirectsAllowed(), false)
     ;(globalThis as any).CARDINAL.config.security.disallowOpenRedirect = false
     assert.equal(absoluteRedirectsAllowed(), true)
-    // -> Restored so this module's global stub is left as every other test in this file expects it,
-    //    regardless of test execution order within the file.
     ;(globalThis as any).CARDINAL.config.security.disallowOpenRedirect = true
   })
 })

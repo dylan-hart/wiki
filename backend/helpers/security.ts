@@ -1,49 +1,26 @@
 import { createHash } from 'node:crypto'
 
-/**
- * Helpers turning the security settings an operator edits in the admin area into the shapes the
- * HTTP plugins expect.
- */
-
-/** CORS modes offered by the admin area, in the order they appear there. */
 export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]
 
 /**
- * The session cookie's name, carrying the `__Host-` prefix (task 2109 / WP 2105 §2, §4): a browser
- * only honours that prefix when the cookie's actual NAME starts with it (`Secure`, `Path=/`, no
- * `Domain` are also required, and are set unconditionally alongside it in `index.ts`'s
- * `fastifySession` registration) — a value-only prefix would leave the name `wikiSession`, which a
- * sibling hostname on the same registrable domain could still plant a cookie under, defeating the
- * whole point. `@fastify/session`'s `cookiePrefix` option does not get this for free either, despite
- * the name — it only prefixes the session id *value* round-tripped through the store (an
- * express-session compatibility shim), never the `Set-Cookie` name itself; naming it via
- * `cookieName` is what actually produces a `__Host-` cookie. This is the name in effect when
- * `security.cookieSecure` is `true` (the default) — see `sessionCookieName()` below for the name a
- * live request actually uses, which is what every real consumer (the `fastifySession` registration,
- * logout's `clearCookie`, the same-origin `/_api/` guard, and the two places that forward the raw
- * cookie value to the PDF export's headless browser) calls instead of this constant directly.
+ * A browser honours the `__Host-` prefix only on the cookie's NAME (and only with `Secure`,
+ * `Path=/` and no `Domain`). `@fastify/session`'s `cookiePrefix` prefixes the session id VALUE,
+ * never the `Set-Cookie` name, so the prefix has to come through `cookieName`. Anything naming the
+ * cookie on a live request calls `sessionCookieName()`, not this constant.
  */
 export const SESSION_COOKIE_NAME = '__Host-wikiSession'
 
 /**
- * The name used instead of `SESSION_COOKIE_NAME` when `security.cookieSecure` is `false` — no
- * `__Host-` prefix, since that prefix requires the `Secure` attribute this mode deliberately drops
- * (a browser silently refuses to store a `__Host-`-named cookie missing it). See `sessionCookieName()`
- * below.
+ * No `__Host-` prefix when `security.cookieSecure` is `false`: the prefix requires `Secure`, and a
+ * browser silently refuses to store a `__Host-` cookie that lacks it.
  */
 export const SESSION_COOKIE_NAME_INSECURE = 'wikiSession'
 
 /**
- * The session cookie name actually in effect, given `security.cookieSecure` (`base.yml`'s doc comment
- * on that key has the full story: task 2109 pinned `Secure`/`__Host-` unconditionally, wrongly
- * assuming a plain `http://localhost` dev instance still worked — `@fastify/session` refuses to ever
- * emit a `Secure`-flagged cookie over a connection it didn't itself see as TLS, loopback or not).
- * Every place that names the cookie on a *live request* — `index.ts`'s `fastifySession` registration,
- * logout's `clearCookie`, and the two places that forward the raw cookie value to the PDF export's
- * headless browser — calls this instead of the bare constant, so the choice can only ever drift in
- * one place. `shouldBlockCrossOriginApiRequest` below takes it as a parameter instead of calling this
- * directly, to stay a pure function with no `CARDINAL` dependency.
+ * `base.yml`'s comment on `security.cookieSecure` has why the insecure mode exists.
+ * `shouldBlockCrossOriginApiRequest` takes the name as a parameter instead of calling this, to stay
+ * pure with no `CARDINAL` dependency.
  */
 export function sessionCookieName(): string {
   return CARDINAL.config.security?.cookieSecure === false
@@ -52,26 +29,13 @@ export function sessionCookieName(): string {
 }
 
 /**
- * Whether an `Origin` header names the same host a request was addressed to. Used by the
- * cookie-authenticated same-origin check on state-changing `/_api/` requests below — needs "does
- * this request's stated origin agree with where it landed," and fails closed on anything that
- * doesn't parse or doesn't say so. The WebSocket handshake's own origin gate uses a related but
- * distinct check instead — see `helpers/common.ts#isSameOriginWebSocketHandshake` — since it also
- * accepts a handshake between two sites this same instance serves, not only an exact host match.
+ * A missing or unparseable `Origin` fails closed: a browser-driven state-changing request always
+ * sends one. The WebSocket handshake uses `helpers/common.ts#isSameOriginWebSocketHandshake`
+ * instead, which also accepts another site this instance serves.
  *
- * Host only (hostname *and* port, via `URL#host`), not the full origin: deliberately not
- * scheme-sensitive, matching `models/passkeys.ts#resolveOrigin`'s own hostname-based comparison —
- * anchoring this to `req.protocol` would inherit the exact reverse-proxy blind spot
- * `models/security.ts#observeRequest` exists to catch (this instance's own view of its scheme is
- * wrong precisely when a trusted proxy terminates TLS and `trustProxy` is off), rather than closing
- * it. A genuine cross-site attacker cannot make their page's `Origin` say the wiki's own host no
- * matter what scheme either side used, so the host comparison alone is what's actually load-bearing
- * here.
- *
- * @param origin The `Origin` header, if the client sent one — missing or unparseable both fail
- *               closed (`false`), since a browser-driven state-changing request always sends one.
- * @param host The host the request was addressed to (`req.host`, or the raw `Host` header for a
- *             WebSocket upgrade that never reaches Fastify's own request object).
+ * Compares `URL#host` (hostname and port), deliberately not the scheme: this instance's view of its
+ * own scheme is wrong when a proxy terminates TLS and `trustProxy` is off, and a cross-site
+ * attacker cannot make their page's `Origin` name the wiki's host whatever the scheme.
  */
 export function isSameOriginHeader(origin: string | undefined, host: string | undefined): boolean {
   if (!origin || !host) {
@@ -84,7 +48,6 @@ export function isSameOriginHeader(origin: string | undefined, host: string | un
   }
 }
 
-/** The slice of a Fastify `FastifyRequest` the same-origin `/_api/` check below actually reads. */
 export interface SameOriginApiCheckRequest {
   url: string
   method: string
@@ -95,24 +58,14 @@ export interface SameOriginApiCheckRequest {
 }
 
 /**
- * Whether a request under `/_api/` should be refused for failing the same-origin check (task 2118 /
- * WP 2105 §3) -- `index.ts`'s `onRequest` hook is a thin wrapper over this, so the real behavior a
- * route sees is exactly what this function decides and can be exercised here with no Fastify
- * instance, database, or route registration needed at all.
+ * `SameSite=Lax` does not cover a same-site, different-origin attacker: a page on a sibling
+ * hostname is "same-site" for cookie purposes, and `Lax` still attaches the cookie to a top-level
+ * form navigation. A state-changing request riding on the session cookie alone therefore has to
+ * positively confirm it originated here, and fails closed otherwise.
  *
- * `SameSite=Lax` (`index.ts`'s `fastifySession` registration) does not cover a same-site-but-
- * different-origin attacker -- a page on a sibling hostname is "same-site" to this wiki for cookie
- * purposes but not the wiki's own origin, and `Lax` still attaches the cookie to a top-level form
- * navigation either way. A state-changing request riding on the session cookie alone -- no verified
- * bearer token -- has to positively confirm it originated here.
- *
- * Returns `false` (allow) for: a non-`/_api/` request, `GET`/`HEAD` (never state-changing), a
- * bearer-authenticated request (`req.apiKey` set -- not browser-driven, carries no ambient
- * credential a foreign page could ride on), and a request carrying no session cookie at all
- * (nothing here to protect). Otherwise fails closed: allowed only when `Sec-Fetch-Site:
- * same-origin` is present (checked first -- sent by every modern browser and more precise than
- * `Origin`, since it survives an `Origin`-suppressing redirect chain) or `Origin` agrees with the
- * request's own host.
+ * A bearer-authenticated request is exempt (no ambient credential a foreign page could ride on),
+ * as is one with no session cookie. `Sec-Fetch-Site` is checked before `Origin` because it
+ * survives an `Origin`-suppressing redirect chain.
  */
 export function shouldBlockCrossOriginApiRequest(
   req: SameOriginApiCheckRequest,
@@ -136,44 +89,23 @@ export function shouldBlockCrossOriginApiRequest(
 }
 
 /**
- * Locks down a response that is otherwise an active document — an SVG (which can carry `<script>`
- * and event-handler attributes) or an HTML/XHTML file — so that opening it directly (typed into the
- * address bar, or reached through `<object>`/`<iframe>`/a same-origin top-level navigation) cannot
- * run anything in this origin. `X-Content-Type-Options: nosniff` does not help here: the declared
- * type is honestly `image/svg+xml` or `text/html`, which a browser treats as a document either way.
- * A browser never executes script markup found through an `<img src>` either way, so this is not
- * what stops such a payload from running embedded in the app's own UI; nothing needs to, because
- * `<img>` already can't run it. (Verified manually against an uploaded SVG carrying a `<script>`
- * payload in both Chrome and Firefox: rendered via `<img src>` it never runs, matching the reasoning
- * above regardless of this header; opened directly in a new tab, this header's `sandbox` neutralizes
- * it in both browsers.)
- *
- * Originally local to `controllers/site.ts` (which attaches it to admin-uploaded logo/favicon SVGs)
- * and moved here so `controllers/files.ts` and `api/assets.ts`'s `/content` route reference the
- * exact same constant rather than a copy that could drift (OpenProject #2157).
+ * For a response that is an active document (SVG, HTML/XHTML), so that opening it directly — the
+ * address bar, `<object>`/`<iframe>`, a same-origin top-level navigation — cannot run anything in
+ * this origin. `nosniff` does not help: the declared type is honestly a document type. `<img src>`
+ * never executes script markup, so embedding in the app's own UI is not what this guards.
  */
 export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
-/**
- * Extensions whose declared MIME type is a document a browser will parse and can execute
- * script/markup within, rather than passive image or binary data — SVG and HTML/XHTML. Every route
- * that serves stored asset bytes by extension (`controllers/files.ts`, `api/assets.ts`'s `/content`)
- * checks this before deciding whether to attach `SVG_CSP`.
- */
 const ACTIVE_DOCUMENT_EXTS = new Set(['svg', 'html', 'htm', 'xhtml'])
 
-/** Whether a served asset needs `SVG_CSP` attached, based on its stored extension. */
 export function needsSvgCsp(fileExt: string): boolean {
   return ACTIVE_DOCUMENT_EXTS.has(fileExt.toLowerCase())
 }
 
 /**
- * Directive names recognised by the CSP3 spec (fetch, document, navigation, reporting and
- * trusted-types directives — https://www.w3.org/TR/CSP3/#csp-directives) plus the two long-deprecated
- * ones (`block-all-mixed-content`, `plugin-types`) some still-supported browsers accept. Anything
- * outside this set is almost certainly a typo, which is exactly the case `parseCspDirectives` is
- * built to catch: a misspelled `srcipt-src` previously stored (and enforced) silently as nothing,
- * rather than refusing the save.
+ * The CSP3 directive names (https://www.w3.org/TR/CSP3/#csp-directives) plus two deprecated ones
+ * (`block-all-mixed-content`, `plugin-types`) some supported browsers still accept. A name outside
+ * this set is almost certainly a typo (`srcipt-src`), which would otherwise be enforced as nothing.
  */
 export const CSP_DIRECTIVE_NAMES = new Set([
   'base-uri',
@@ -209,15 +141,11 @@ export const CSP_DIRECTIVE_NAMES = new Set([
 ])
 
 /**
- * Turn a Content-Security-Policy string into helmet's directives object.
+ * A Content-Security-Policy string as helmet's directives object. A valueless directive
+ * (`upgrade-insecure-requests`) maps to an empty list, which is how helmet expresses it too.
  *
- * `default-src 'self'; img-src * data:` becomes
- * `{ 'default-src': ["'self'"], 'img-src': ['*', 'data:'] }`. A directive with no value, such as
- * `upgrade-insecure-requests`, maps to an empty list, which is how helmet expresses it too.
- *
- * @throws {Error} naming the offending token when a chunk's directive name is not one of
- * `CSP_DIRECTIVE_NAMES` — `models/security.ts#validate` is what turns this into a rejected save
- * rather than a silently-narrower policy.
+ * @throws {Error} on a directive name outside `CSP_DIRECTIVE_NAMES`, which
+ * `models/security.ts#validate` turns into a rejected save.
  */
 export function parseCspDirectives(value: string): Record<string, string[]> {
   const directives: Record<string, string[]> = {}
@@ -237,21 +165,13 @@ export function parseCspDirectives(value: string): Record<string, string[]> {
 }
 
 /**
- * CSP `script-src` hash sources (`'sha256-<base64>'`, one per match) for every inline `<script>`
- * block in `html` that carries no `src` attribute.
+ * CSP `script-src` hash sources (`'sha256-<base64>'`) for every inline `<script>` in `html` with no
+ * `src`. The app shell ships inline scripts the shipped `script-src 'self'` policy would refuse; a
+ * hash is exact per CSP3 — the raw UTF-8 text between the tags — and, the app shell being a build
+ * artifact, needs no per-request nonce machinery.
  *
- * The app shell always ships two of these — `frontend/index.html`'s own Temporal-polyfill
- * feature-detect check, and `temporalPolyfillChunkPlugin`'s substituted chunk-url assignment
- * (`frontend/src/build/temporalPolyfillChunk.js`) — and a `script-src 'self'` policy with no
- * `'unsafe-inline'` (`base.yml`'s own shipped `cspDirectives` default) refuses both outright:
- * `enforceCsp: true` broke the app shell itself, caught by `e2e/tests/csp.spec.js`. A hash source
- * is exact per the CSP3 spec — the raw UTF-8 text content between the tags, unmodified — and needs
- * no per-request machinery, since the app shell is a build artifact: `index.ts` computes this once,
- * from the same built `assets/index.html` `helpers/appShell.ts` serves, which is why a change here
- * needs the same restart every other setting in the CSP registration already does.
- *
- * Deliberately a plain regex over the raw HTML rather than a full parser: this only ever runs
- * against `index.ts`'s own known-shape build output, not arbitrary/untrusted markup.
+ * A plain regex rather than a parser: this only ever runs against the project's own build output,
+ * never untrusted markup.
  */
 export function inlineScriptHashSources(html: string): string[] {
   const hashes: string[] = []
@@ -268,21 +188,13 @@ export function inlineScriptHashSources(html: string): string[] {
 }
 
 /**
- * The `origin` option for `@fastify/cors`, from the configured mode.
+ * The `origin` option for `@fastify/cors`. `false` means no CORS headers at all (same-origin only):
+ * both the `OFF` mode and what anything unrecognised degrades to, so a misconfiguration is never
+ * more permissive than the operator asked for.
  *
- * `false` means no CORS headers at all, i.e. same-origin only, which is both the `OFF` mode and what
- * anything unrecognised degrades to — a misconfiguration should not end up more permissive than the
- * operator asked for.
- */
-/**
- * `REFLECT` echoes back whatever `Origin` header the request sent, which is safe to combine with
- * an open method/header list ONLY because `@fastify/cors` is registered without `credentials:
- * true` — cookies and `Authorization` aren't retained by the browser across origins either way, so
- * reflecting the origin doesn't hand a third-party site an authenticated session. If a future
- * change adds `credentials: true` to that registration (e.g. to support cookie-based cross-origin
- * auth), `REFLECT` must be reconsidered first: reflect-plus-credentials lets ANY origin read an
- * authenticated response, which is the textbook CORS misconfiguration. Restrict to `HOSTNAMES` or
- * `REGEX` before shipping that combination.
+ * `REFLECT` is safe with an open method/header list ONLY because `@fastify/cors` is registered
+ * without `credentials: true`. Reflect-plus-credentials lets ANY origin read an authenticated
+ * response, so `REFLECT` has to go before `credentials: true` is ever added.
  */
 export function corsOrigin(security: {
   corsMode?: string
@@ -298,24 +210,16 @@ export function corsOrigin(security: {
           .map((entry) => entry.trim())
           .filter(Boolean)
           // -> `@fastify/cors` compares this list against the complete `Origin` header
-          //    (`https://wiki.example.com`) with `===`, so a bare hostname an operator enters here
-          //    can never match — normalise it into a full `https://` origin. An entry that already
-          //    names a scheme (`://` present) is left as written.
+          //    (`https://wiki.example.com`) with `===`, so a bare hostname can never match.
           .map((entry) => (entry.includes('://') ? entry : `https://${entry}`))
       )
     case 'REGEX':
       try {
         // -> `@fastify/cors` runs `.test()` against the complete `Origin` header, so an
-        //    unanchored pattern also matches as a substring anywhere in it (e.g.
-        //    `https://wiki.example.com.attacker.test` or `https://evil.test/?x=wiki.example.com`
-        //    both satisfy a bare `wiki\.example\.com`). Anchor it on the operator's behalf,
-        //    stripping any `^`/`$` they already added so a pattern they anchored themselves is
-        //    left as written rather than double-wrapped. The remaining body is wrapped in a
-        //    non-capturing group before anchoring — `^A|B$` only anchors the left edge of the
-        //    first alternative and the right edge of the last one, leaving every other
-        //    top-level `|` alternative (and the last one's left edge) unanchored and still
-        //    substring-matchable; `^(?:A|B)$` anchors the whole expression regardless of
-        //    top-level alternation.
+        //    unanchored pattern matches as a substring (`https://wiki.example.com.attacker.test`
+        //    satisfies a bare `wiki\.example\.com`). Anchor it on the operator's behalf, and
+        //    group the body first: `^A|B$` anchors only the outer edges of the first and last
+        //    alternatives, `^(?:A|B)$` the whole expression.
         let pattern = security.corsConfig ?? ''
         if (pattern.startsWith('^')) {
           pattern = pattern.slice(1)
@@ -338,15 +242,8 @@ export function corsOrigin(security: {
 }
 
 /**
- * The `frame-ancestors` directive value for a site's iframe-embed allowlist (OpenProject #3275), or
- * `null` when the site's allowlist is empty — the "no embedding, current behavior unchanged" default
- * from Feature #3267's spec. `'self'` is always included alongside the configured origins: the
- * allowlist is additive (who ELSE may embed this site), not a replacement for the wiki embedding its
- * own pages in its own UI.
- *
- * Deliberately not run through `parseCspDirectives`/`CSP_DIRECTIVE_NAMES` — this builds one directive
- * from a known-shape string array, not a whole admin-authored policy string, so there is nothing here
- * for that parser to validate.
+ * `null` for an empty embed allowlist (no embedding). `'self'` is always included: the allowlist
+ * says who ELSE may embed the site, and does not replace the wiki framing its own pages.
  */
 export function frameAncestorsDirective(origins: string[]): string | null {
   if (!origins.length) {
@@ -356,14 +253,8 @@ export function frameAncestorsDirective(origins: string[]): string | null {
 }
 
 /**
- * Adds one CSP directive onto an existing `Content-Security-Policy` header value, without disturbing
- * whatever directives are already there — `core/http/security.ts`'s boot-time helmet registration
- * covers every other directive; this only ever appends `frame-ancestors`
- * (`frameAncestorsDirective` above) on top of it. `existingCsp` mirrors what Fastify's
- * `reply.getHeader()` can hand back: a plain string, an array (multiple `setHeader` calls coalesced),
- * or `undefined`/nothing at all when CSP enforcement (`security.enforceCsp`) is off instance-wide —
- * in which case the new directive becomes the entire header value, same as CSP would look if an
- * operator had configured only `frame-ancestors` and nothing else.
+ * `existingCsp` is whatever `reply.getHeader()` hands back: a string, an array, or nothing when
+ * `security.enforceCsp` is off, in which case the directive becomes the whole header value.
  */
 export function appendCspDirective(
   existingCsp: string | string[] | number | undefined,
@@ -374,15 +265,10 @@ export function appendCspDirective(
 }
 
 /**
- * The full option object passed to `@fastify/cors`. This registration is global — it also covers
- * `/_render`, `/_thumb`, `/_assets` and friends, which legitimately want to be embeddable
- * cross-origin — rather than split so `/_api` gets its own policy. `/_api` alone drives the method
- * list here: 55+ routes across `backend/api/*.ts` use `PUT`, `PATCH` or `DELETE`, and a
- * cross-origin API client sends `Authorization` (Bearer token) and `Content-Type` (JSON body),
- * both of which must be in `allowedHeaders` or the browser's preflight `OPTIONS` request fails
- * before the real request is ever sent. Kept as one plain object (rather than inlined at the
- * `app.register` call) so `methods`/`allowedHeaders` can be covered by a unit test — the plugin
- * registration itself is wiring, not logic, and isn't worth spinning up a Fastify instance to test.
+ * The `@fastify/cors` registration is global, so it also covers `/_render`, `/_thumb`, `/_assets`
+ * and friends, which want to be embeddable cross-origin. `/_api` alone drives the method list, and
+ * a cross-origin API client sends `Authorization` and `Content-Type`: both must be in
+ * `allowedHeaders` or the browser's preflight fails before the real request is sent.
  */
 export function corsOptions(security: { corsMode?: string; corsConfig?: string }): {
   origin: boolean | string[] | RegExp

@@ -1,16 +1,10 @@
 /**
- * Splits a page's already-rendered plain-text content into overlapping word-based
- * passages, for downstream embedding (WP #3095/#3097/#3098). Pure text-in/chunks-out:
- * no `CARDINAL` global, no database, no embedding model.
- *
- * The returned shape (`{ index, text }`, in order) maps 1:1 onto the
- * `pageEmbeddingChunks` table's `chunkIndex`/`chunkText` columns with no bespoke glue.
+ * Overlapping word-based passages of a page's rendered plain text, for embedding. `{ index, text }`
+ * maps 1:1 onto the `pageEmbeddingChunks` table's `chunkIndex`/`chunkText` columns.
  */
 
-/** Target size of one chunk, in words. Tune here only — never inline the number. */
 export const CHUNK_SIZE_WORDS = 250
 
-/** Overlap between consecutive chunks, in words. Tune here only — never inline the number. */
 export const CHUNK_OVERLAP_WORDS = 50
 
 if (CHUNK_OVERLAP_WORDS >= CHUNK_SIZE_WORDS) {
@@ -22,12 +16,6 @@ export type TextChunk = {
   text: string
 }
 
-/**
- * Splits `text` into overlapping passages of `CHUNK_SIZE_WORDS` words, advancing
- * `CHUNK_SIZE_WORDS - CHUNK_OVERLAP_WORDS` words per step so consecutive chunks share
- * `CHUNK_OVERLAP_WORDS` words of overlap. Empty or whitespace-only content yields no
- * chunks; content no longer than one chunk yields a single chunk containing it all.
- */
 export function chunkText(text: string): TextChunk[] {
   const words = text.trim().split(/\s+/).filter(Boolean)
   if (words.length === 0) {

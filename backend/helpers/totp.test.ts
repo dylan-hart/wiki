@@ -2,18 +2,15 @@ import { describe, test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from './totp.ts'
 
-// -> RFC 6238 Appendix B's SHA-1 test vector: 20-byte ASCII secret "12345678901234567890",
-//    base32-encoded with no padding. At Time=59s (counter T=1) the reference 8-digit HOTP-SHA1 value
-//    is 94287082; codeAt's 6-digit truncation is `binary % 10**6`, and since 10**6 divides 10**8 that
-//    is exactly the last 6 digits of the 8-digit reference value, 287082. Independently confirmed
-//    against a second implementation of the same HMAC-SHA1/dynamic-truncation algorithm before use
-//    here, not merely re-derived from totp.ts itself.
+// -> RFC 6238 Appendix B's SHA-1 vector: the 20-byte ASCII secret "12345678901234567890" in base32.
+//    Its published values are 8 digits; `codeAt`'s `binary % 10**6` truncation makes the expected
+//    6-digit code their last six (94287082 -> 287082 at counter 1), since 10**6 divides 10**8.
 const rfcSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
 const codeAtCounter = {
-  0: '755224', // Time=0..29 (T0)
-  1: '287082', // Time=30..59 (T1) -- the RFC 6238 vector, Time=59
-  2: '359152', // Time=60..89 (T2)
-  3: '969429' // Time=90..119 (T3)
+  0: '755224',
+  1: '287082',
+  2: '359152',
+  3: '969429'
 }
 
 function withFakeTime(epochMs: number, run: () => void) {
@@ -59,8 +56,8 @@ describe('buildTotpUri', () => {
 })
 
 describe('verifyTotpCode', () => {
-  // -> At Time=59_000ms, `counter = floor(59000 / 1000 / 30) = 1` -- codeAtCounter's keys are
-  //    literally that counter value, so the assertions below double as "which window matched".
+  // -> At 59_000ms, `counter = floor(59000 / 1000 / 30) = 1`, and `codeAtCounter`'s keys are that
+  //    counter value, so each assertion below also names the window that matched.
   test('accepts the code for the current 30s window, returning its counter', () => {
     withFakeTime(59_000, () => {
       assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[1]), 1)
@@ -92,9 +89,9 @@ describe('verifyTotpCode', () => {
   })
 
   test('rejects malformed input without decoding the secret', () => {
-    assert.equal(verifyTotpCode(rfcSecret, '12345'), -1) // too short
-    assert.equal(verifyTotpCode(rfcSecret, '1234567'), -1) // too long
-    assert.equal(verifyTotpCode(rfcSecret, 'abcdef'), -1) // not digits
+    assert.equal(verifyTotpCode(rfcSecret, '12345'), -1)
+    assert.equal(verifyTotpCode(rfcSecret, '1234567'), -1)
+    assert.equal(verifyTotpCode(rfcSecret, 'abcdef'), -1)
   })
 
   test('rejects an empty secret', () => {
@@ -106,24 +103,21 @@ describe('verifyTotpCode', () => {
   })
 
   test('still compares every drift candidate even once a match is found, and identifies which one', () => {
-    // -> `Buffer` is a plain configurable global (unlike `node:crypto`'s named exports, which are
-    //    immutable ESM-namespace bindings a mock cannot redefine), so spying on `Buffer.from` is what
-    //    stands in for counting `timingSafeEqual` comparisons here: `codeAt` produces its candidate
-    //    string as a plain JS string, and each one is wrapped in `Buffer.from(..., 'utf8')`
-    //    immediately before the comparison it feeds -- one call per drift candidate, deterministically.
+    // -> `node:crypto`'s named exports are immutable ESM-namespace bindings a mock cannot redefine,
+    //    so comparisons are counted through the configurable `Buffer` global instead: every
+    //    candidate is wrapped in `Buffer.from(..., 'utf8')` immediately before the comparison it
+    //    feeds, one call per drift candidate.
     const bufferFromSpy = mock.method(Buffer, 'from')
     try {
       withFakeTime(59_000, () => {
-        // -> Matches only the +30s candidate (drift +1), which is generated and compared last -- if
-        //    the loop returned on first hit instead of comparing every candidate, this would exit
-        //    after the counter-0 and counter-1 misses rather than reaching the counter-2 match.
+        // -> The +30s candidate is compared last, so a loop returning on the first hit would stop
+        //    at the two earlier misses and never reach it.
         const beforeCallCount = bufferFromSpy.mock.callCount()
         const result = verifyTotpCode(rfcSecret, codeAtCounter[2])
         const candidateCallCount = bufferFromSpy.mock.callCount() - beforeCallCount
 
         assert.equal(result, 2)
-        // -> One `Buffer.from` to decode the base32 secret, one for the caller's own submitted code
-        //    (`expected`), and one per drift candidate (-1, 0, +1) that reaches the comparison line.
+        // -> Five: the base32 secret, the submitted code, and one per drift candidate (-1, 0, +1).
         assert.equal(candidateCallCount, 5)
       })
     } finally {

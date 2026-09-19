@@ -3,13 +3,6 @@ import assert from 'node:assert/strict'
 import { runReplicationPostImport } from './replicationPostImport.ts'
 import type { ReplicationPostImportDeps } from './replicationPostImport.ts'
 
-/**
- * Pure unit coverage for the shared post-import side effect both callers of
- * `models/replicationImport.ts#importSnapshot()` run once a restore has actually succeeded --
- * `tasks/simple/replication-import.ts` (manual upload) and `models/replication.ts#pull()`
- * (scheduled cron-driven pull). No `CARDINAL` global, no database.
- */
-
 const restoredSites = [{ id: 'site-1' }, { id: 'site-2' }]
 
 function makeDeps(overrides: Partial<ReplicationPostImportDeps> = {}) {
