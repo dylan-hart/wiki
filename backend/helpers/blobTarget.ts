@@ -1,20 +1,13 @@
 import type { AssetKind } from '../models/assets.ts'
 
 /**
- * Shared logic for the cloud blob storage targets (S3, Azure Blob Storage, GCS).
+ * The object key, "is this large" and "does it belong here" rules every storage target shares, so
+ * they cannot drift apart per SDK.
  *
- * Each module lives in its own `modules/storage/<key>/storage.ts` and pulls in its own SDK, but the
- * three questions every one of them has to answer — where does this asset live in the bucket, is this
- * file "large", and does it belong in this target at all — are identical regardless of which SDK is
- * doing the writing. This file answers all three so the modules stay in step with each other instead
- * of each growing its own copy.
- *
- * Deliberately dependency-free of any cloud SDK: it imports only a type from `models/assets.ts`
- * (erased at runtime, so it costs nothing), so importing this file never pulls in `@aws-sdk/*`,
- * `@azure/*` or `@google-cloud/*` for a module that doesn't need them.
+ * Deliberately free of any cloud SDK import — only an erased type from `models/assets.ts` — so
+ * importing this never pulls in `@aws-sdk/*`, `@azure/*` or `@google-cloud/*`.
  */
 
-/** Byte multiplier for each unit `largeThreshold` may be written with. See `parseLargeThreshold`. */
 const SIZE_UNIT_BYTES = {
   b: 1,
   kb: 1024,
@@ -26,20 +19,9 @@ const SIZE_UNIT_BYTES = {
 type SizeUnit = keyof typeof SIZE_UNIT_BYTES
 
 /**
- * Parse a `largeThreshold` config string (e.g. `5MB`, `512KB`, `2.5MB`) into a byte count.
- *
- * The single parser every caller of `largeThreshold` shares (OpenProject #927) — `models/storage.ts`'s
- * `Storage.targetCoversEvent()` (the write-path dispatch gate, size-aware since OpenProject #924) and
- * this file's own `categoryOf`/`belongsInTarget` (the blob targets' `exportAll` gate) both go through
- * this, rather than each keeping its own regex that can silently drift out of step with the other —
- * which is exactly what happened before: this function used to reject a decimal value the admin API
- * had already validated and saved (`^\d+(\.\d+)?\s?(B|KB|…)$`, `models/storage.ts`'s
- * `validateTarget()`), silently falling back to `Infinity` and never classifying anything as large for
- * a target with a threshold like `2.5MB`. The accepted format now matches that validation regex
- * exactly, including the optional decimal and the optional single space before the unit.
- *
- * @param fallback Returned for anything unparseable, so one bad setting cannot silently reclassify
- *   every asset as large (or none of them)
+ * The one parser every `largeThreshold` reader shares. Its accepted format has to stay identical to
+ * `models/storage.ts#validateTarget()`'s validation regex — decimal amount and optional space
+ * included — or the admin API saves thresholds this silently falls back on.
  */
 export function parseLargeThreshold(value: unknown, fallback: number): number {
   const match = /^(\d+(?:\.\d+)?)\s?(b|kb|mb|gb|tb)$/i.exec(String(value ?? '').trim())
@@ -51,27 +33,26 @@ export function parseLargeThreshold(value: unknown, fallback: number): number {
   return bytes > 0 ? bytes : fallback
 }
 
-/** What identifies an asset's place for the purposes of building its object key. */
 export interface BlobTargetAssetLocation {
   siteId: string
-  /** Slash-separated, no leading or trailing slash, empty at the site root — see `Asset.folderPath`. */
+  /** Slash-separated, no leading or trailing slash, empty at the site root. */
   folderPath: string
   fileName: string
 }
 
 /**
- * The object key/path a blob target should store an asset under.
- *
- * Every target scopes its bucket/container by site (`<siteId>/...`), so two sites can never collide
- * on the same key even when they happen to name a file and folder identically. Computed the same way
- * for every target so an asset moved from one blob target to another lands at the same key.
+ * The `<siteId>/` prefix is what stops two sites colliding on an identical folder and file name.
+ * Every target computes the key this way, so an asset moved between targets keeps it.
  */
 export function objectKeyFor({ siteId, folderPath, fileName }: BlobTargetAssetLocation): string {
   const segments = [siteId, ...folderPath.split('/').filter(Boolean), fileName]
   return segments.join('/')
 }
 
-/** The `contentTypes` categories an asset can be filed under. Mirrors `CONTENT_TYPES` in `models/storage.ts`, minus `pages` — a blob target filters assets, not page content. */
+/**
+ * `CONTENT_TYPES` in `models/storage.ts` minus `pages`: a storage target filters assets here, not
+ * page content.
+ */
 export type AssetContentCategory = 'images' | 'documents' | 'others' | 'large'
 
 const KIND_TO_CATEGORY: Record<AssetKind, AssetContentCategory> = {
@@ -80,24 +61,19 @@ const KIND_TO_CATEGORY: Record<AssetKind, AssetContentCategory> = {
   other: 'others'
 }
 
-/** The `contentTypes` half of a configured `StorageTarget`, i.e. what `belongsInTarget` filters against. */
 export interface BlobTargetContentTypesConfig {
   activeTypes: string[]
   largeThreshold: string
 }
 
-/** The two facts about an asset that deciding its category needs — nothing else. */
 export interface BlobTargetAssetInfo {
   kind: AssetKind
   fileSize: number
 }
 
 /**
- * The content category an asset falls into, for target-membership purposes.
- *
- * An asset at or above the threshold is filed as `large` regardless of its kind — the point of that
- * bucket is routing outsized files as a group irrespective of what they are — so size takes priority
- * over the kind-based mapping.
+ * Size takes priority over kind: the `large` bucket exists to route outsized files as a group,
+ * whatever they are.
  */
 export function categoryOf(
   asset: BlobTargetAssetInfo,
@@ -110,11 +86,8 @@ export function categoryOf(
 }
 
 /**
- * Whether an asset belongs in a target, per its `contentTypes` config.
- *
- * Every module's `exportAll` filters through this before writing, so "images only", "everything
- * except large files", etc. as configured in the admin area is honored identically across S3, Azure
- * and GCS rather than each target re-implementing the same category math.
+ * Every storage module gates on this rather than re-deriving the category math, so an admin's
+ * `contentTypes` choice behaves identically whichever target holds the asset.
  */
 export function belongsInTarget(
   asset: BlobTargetAssetInfo,

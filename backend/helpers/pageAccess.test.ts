@@ -13,13 +13,6 @@ import { resolvePageRule, rulesAllow } from './pageRules.ts'
 import type { GroupRule } from '../models/groups.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-/**
- * OpenProject #788: `actorFrom()` used to return `null` for every API-key-authenticated request —
- * there was no user behind a key to attribute a page to. A personal access token (`req.apiKey.userId`
- * set) changes that: it acts as its owner, so this covers the three shapes `actorFrom()` now has to
- * tell apart — a personal token, an admin-issued key (still `null`, unchanged), and a session — plus
- * that the personal-token branch is checked first when a request somehow carries both.
- */
 describe('actorFrom', () => {
   let wikiHandle: { restore(): void }
 
@@ -27,8 +20,7 @@ describe('actorFrom', () => {
     wikiHandle = installTestWiki({
       models: {
         groups: {
-          // -> Only reached on the session branch; a personal token supplies its own `groupIds` and
-          //    never calls this.
+          // -> Only reached on the session branch; a personal token supplies its own `groupIds`.
           groupIdsForRequest: (req: any) => req.session?.groups ?? []
         }
       }
@@ -146,18 +138,8 @@ describe('actorFrom', () => {
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
 
 /**
- * Regression test for task 547: `mayBypassPassword()` used to scan
- * `req.session?.permissions` / `req.apiKey?.permissions` for `write:pages` / `manage:pages` /
- * `manage:system` — the group-WIDE permission list — which meant a page-rule grant (the only way
- * `write:pages` is actually handed out) never bypassed a page's
- * password, and a requester with those strings in their global list bypassed it on every page
- * regardless of whether any rule actually reached that path.
- *
- * `mayBypassPassword()` now takes the page and asks `mayOnPage()` — the same per-page check every
- * other page-scoped decision goes through — so this stubs `CARDINAL.models.groups.checkAccess` to behave
- * like a real page rule: it grants `write:pages` only to a specific group, only under a specific path
- * prefix, and ignores the session's global permission list entirely (mirroring a session with NO
- * global permissions at all, since a page rule needs none).
+ * Guards against `mayBypassPassword()` reading the session's group-WIDE permission list instead of
+ * asking `mayOnPage()` per page: a page rule is the only way `write:pages` is actually handed out.
  */
 describe('mayBypassPassword / unlockedFor', () => {
   let wikiHandle: { restore(): void }
@@ -171,8 +153,7 @@ describe('mayBypassPassword / unlockedFor', () => {
             permissions: req.session?.permissions ?? []
           }),
           // -> Stands in for a real page rule: `write:pages` is granted to `rule-group` only under
-          //    `docs/allowed`, and to nobody else -- session-wide permissions play no part, matching how
-          //    a page rule actually works.
+          //    `docs/allowed` -- session-wide permissions play no part.
           checkAccess: (
             actor: { groupIds: string[]; permissions: string[] },
             permission: string,
@@ -222,8 +203,6 @@ describe('mayBypassPassword / unlockedFor', () => {
   })
 
   test('mayBypassPassword: holding write:pages in the session-wide list alone, with no matching page rule, does not bypass', () => {
-    // -> Not in `rule-group`, so `checkAccess` grants nothing here -- this is exactly the bug: the old
-    //    implementation would have said `true` because the string was in `session.permissions`.
     const req = reqWithSession({ groups: ['some-other-group'], permissions: ['write:pages'] })
     assert.equal(
       mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started', locale: 'en' }),
@@ -261,14 +240,9 @@ describe('mayBypassPassword / unlockedFor', () => {
   })
 
   /**
-   * OpenProject #839: `mayBypassPassword()` against nested paths with DENY-mode rules in the mix,
-   * routed through the real `resolvePageRule()` — not the simplified inline stub above — so this
-   * exercises the actual specificity ordering, not a hand-rolled approximation of it. This is the
-   * concrete tie between #787 (mayBypassPassword must ask per-path rules) and #839 (those per-path
-   * answers must stay correct, and never permanently withhold bypass, however deep a DENY chain gets):
-   * a page editor's password-bypass rights must track the same deepest-rule-wins resolution as every
-   * other page permission, including through a subtree that a DENY rule closes and a deeper FORCEALLOW
-   * reopens.
+   * Routed through the real rule resolution rather than the simplified stub above: password-bypass
+   * rights must track the same deepest-rule-wins ordering as every other page permission, including
+   * through a subtree that a DENY rule closes and a deeper FORCEALLOW reopens.
    */
   describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePageRule)', () => {
     const rule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
@@ -283,9 +257,6 @@ describe('mayBypassPassword / unlockedFor', () => {
       ...overrides
     })
 
-    // -> An editors group may write under 'docs' generally, is expressly denied the deeper
-    //    'docs/archive' subtree (e.g. read-only historical pages), but has a FORCEALLOW on one
-    //    password-protected page inside that archived subtree that still needs upkeep.
     const rules: GroupRule[] = [
       rule({ id: 'docs-allow', path: 'docs', mode: 'ALLOW' }),
       rule({ id: 'archive-deny', path: 'docs/archive', mode: 'DENY' }),
@@ -371,14 +342,6 @@ describe('mayBypassPassword / unlockedFor', () => {
   })
 })
 
-/**
- * OpenProject #3391/#3411: `mayReadSource()` folds `write:pages` and `manage:pages` into the
- * `read:source` check -- an editor who cannot read the source they are about to overwrite cannot
- * open the editor at all. Same stub-`checkAccess` pattern as the `mayBypassPassword` block above:
- * a page rule grants exactly the permission named, scoped to `rule-group` under `docs/allowed`, so
- * this proves the OR is real (each of the three permissions alone is sufficient) and that none of
- * the three still refuses.
- */
 describe('mayReadSource', () => {
   let wikiHandle: { restore(): void }
 
@@ -413,9 +376,9 @@ describe('mayReadSource', () => {
     wikiHandle.restore()
   })
 
-  // -> `checkAccess` above reads the GRANTED permission off `actor.permissions` (not off a
-  //    group-wide list check) purely as this test's own stand-in for "which permission this rule
-  //    grants" -- `mayReadSource` itself still asks `mayOnPage` per page, never a group-wide list.
+  // -> `checkAccess` above reads the GRANTED permission off `actor.permissions` purely as this
+  //    test's stand-in for "which permission this rule grants" -- `mayReadSource` itself still asks
+  //    `mayOnPage` per page, never a group-wide list.
   function reqGranting(permission: string | null): FastifyRequest {
     return {
       session: {
@@ -467,13 +430,8 @@ describe('mayReadSource', () => {
 })
 
 /**
- * Regression tests for task 673: `mayOnPage` and `pagePermissionsFor` take an explicit `siteId`
- * and thread it into the `RulePageRef` given to `checkAccess`, so a page rule scoped to one site
- * (task 671) is actually enforced from these two call sites rather than silently matching every
- * site's rules. Exercised directly rather than through a route, since both are plain functions
- * exported for exactly this reason. (Their route-level counterparts — the PAGE USER PERMISSIONS and
- * RESOLVE ALIAS routes threading the route's own `siteId` into these — stay with the routes, in
- * `api/pages.test.ts`.)
+ * Without the `siteId` on the `RulePageRef` given to `checkAccess`, a page rule scoped to one site
+ * silently matches every site's pages.
  */
 describe('mayOnPage / pagePermissionsFor — siteId threading', () => {
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'

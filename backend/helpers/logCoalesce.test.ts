@@ -7,21 +7,12 @@ import {
   type CoalesceSummary
 } from './logCoalesce.ts'
 
-/**
- * `helpers/logCoalesce.ts` is a pure helper — no `CARDINAL`, no database, no logger — so this suite runs
- * as plain unit tests against the module's own state, with `node:test`'s mock timers standing in for
- * the window rather than a real `setTimeout` a test would have to sleep through.
- *
- * The module-level pending map is shared across cases the way `helpers/rateLimit.ts`'s
- * `activeBanMemo` is, so every case clears it afterwards.
- */
 describe('coalesce', () => {
   afterEach(() => {
     resetCoalesce()
     mock.timers.reset()
   })
 
-  /** The three-argument call every case below makes, with a recorder for the summary. */
   function makeEmitter() {
     const summaries: CoalesceSummary[] = []
     return {
@@ -63,8 +54,7 @@ describe('coalesce', () => {
     assert.equal(summaries.length, 1)
     assert.deepEqual(summaries[0], {
       key: 'k',
-      // -> The whole window, the three individually-logged attempts included: "twenty attempts from
-      //    this address" is the number an operator acts on.
+      // -> The whole window, the individually-logged attempts included.
       total: 20,
       suppressed: 20 - DEFAULT_COALESCE_THRESHOLD,
       windowMs: 300_000
@@ -98,7 +88,6 @@ describe('coalesce', () => {
     assert.equal(summaries.length, 1)
     assert.equal(summaries[0].total, 5)
 
-    // -> A new burst after the window closed starts over: three through, then folding again.
     assert.deepEqual(
       Array.from({ length: 4 }, () => coalesce('k', 1000, emit)),
       [true, true, true, false]
@@ -128,7 +117,6 @@ describe('coalesce', () => {
     for (let i = 0; i < 10; i += 1) {
       coalesce('a', 1000, emit)
     }
-    // -> `b`'s own first three still go through, untouched by `a` having exhausted its threshold.
     assert.deepEqual(
       Array.from({ length: 4 }, () => coalesce('b', 1000, emit)),
       [true, true, true, false]
@@ -197,7 +185,6 @@ describe('coalesce', () => {
         throw new Error('the log itself is what failed')
       })
     }
-    // -> A throw here would be an `uncaughtException` inside a timer callback if it escaped.
     assert.doesNotThrow(() => mock.timers.tick(1000))
 
     assert.deepEqual(

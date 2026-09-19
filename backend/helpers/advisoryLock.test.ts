@@ -12,20 +12,8 @@ let wikiHandle: { restore(): void }
 import { installTestWiki } from '../test/mocks.ts'
 
 /**
- * Exercises `withAdvisoryLock` against a real Postgres instance — the whole point of this helper is
- * genuine cross-connection locking semantics (`pg_try_advisory_lock`/`pg_advisory_unlock`), which a
- * mock `Pool` would only re-describe rather than verify. See `dispatch-storage.test.ts` for the
- * dependency-injected `withLock` unit tests that cover the caller's own control flow instead.
- *
- * Skipped unless `DATABASE_URL` points at a real database — see `contentSync.test.ts` for the same
- * convention. Migrations are not required: this only ever calls
- * `pg_try_advisory_lock`/`pg_advisory_unlock`, which need no schema.
- *
- * `withAdvisoryLock` builds its own dedicated pool lazily from `CARDINAL.dbManager.config` (see that
- * file's header doc for why — never `CARDINAL.db.$client`, the request-serving pool), so the global stub
- * here only needs to supply that shape, plus `INSTANCE_ID` for the pool's `application_name`.
- * `_resetLockPoolForTests()` drops the cached pool in `after()` so the test process can exit; nothing
- * under `backend/` builds a second `Pool` directly against `DATABASE_URL` here.
+ * Runs against a real Postgres: the point is genuine cross-connection locking semantics, which a
+ * mock `Pool` would only re-describe.
  */
 const DATABASE_URL = process.env.DATABASE_URL
 const skip = DATABASE_URL
@@ -58,7 +46,7 @@ test('serializes two concurrent holders of the same key', { skip }, async () => 
     await delay(150)
     order.push('first-end')
   })
-  // -> Give `first` a head start so it is the one holding the lock when `second` tries to acquire it.
+  // -> A head start, so `first` is the one holding the lock when `second` tries to acquire it.
   await delay(20)
   const second = withAdvisoryLock(key, async () => {
     order.push('second-start')
@@ -66,8 +54,6 @@ test('serializes two concurrent holders of the same key', { skip }, async () => 
   })
 
   await Promise.all([first, second])
-  // -> `second-start` never lands between `first-start` and `first-end` — it backs off and retries
-  //    until `first` has fully released the lock, rather than interleaving with it.
   assert.deepEqual(order, ['first-start', 'first-end', 'second-start', 'second-end'])
 })
 
@@ -83,7 +69,6 @@ test('two different keys do not serialize against each other', { skip }, async (
   })
   await delay(20)
   const b = withAdvisoryLock(keyB, async () => {
-    // -> If `b` were blocked behind `a`'s key, this would never run before `a-end`.
     order.push('b-start')
     order.push('b-end')
   })
@@ -108,8 +93,7 @@ test(
       /boom/
     )
 
-    // -> Races the second acquisition against a short timeout: if the first call's failure left the
-    //    lock held, this hangs past the timeout and the test fails instead of passing vacuously.
+    // -> Raced against a timeout so a lock left held fails the test instead of stalling it.
     const acquired = await Promise.race([
       withAdvisoryLock(key, async () => 'acquired'),
       delay(1000).then(() => 'timed-out')
@@ -132,9 +116,7 @@ test(
     })
     await delay(10)
 
-    // -> Small backoff parameters so the retry loop actually runs several non-blocking attempts
-    //    (rather than one lucky poll) before the holder releases at ~120ms, without the test itself
-    //    waiting out production-sized delays.
+    // -> Small backoff, so several polls (not one lucky one) land before the holder releases.
     const contender = withAdvisoryLock(
       key,
       async () => {
@@ -154,8 +136,7 @@ test(
   async () => {
     const key = `advisory-lock-test-backoff-giveup-${Date.now()}`
 
-    // -> Holds the lock well past the contender's whole retry budget, so the contender is guaranteed
-    //    to exhaust its attempts and reject instead of hanging or eventually succeeding.
+    // -> Held well past the contender's whole retry budget.
     const holder = withAdvisoryLock(key, async () => {
       await delay(500)
     })
@@ -170,8 +151,6 @@ test(
       }),
       AdvisoryLockAcquisitionError
     )
-    // -> Bounds how long giving up took: proof this actually backed off and quit rather than hanging
-    //    until something external (a test timeout) killed it.
     assert.ok(
       Date.now() - startedAt < 400,
       'gave up far slower than its own backoff schedule allows'
@@ -182,11 +161,8 @@ test(
 )
 
 /**
- * Unlike the suite above, this needs no real Postgres: the whole point is to control which of the
- * two queries rejects, which a real connection gives no way to steer deliberately. `getLockPool()`
- * builds its dedicated pool from `CARDINAL.dbManager.config` (never `CARDINAL.db.$client`, the
- * request-serving pool — see this file's own header doc for why), so this mocks `Pool.prototype.connect`
- * itself rather than reaching into a client shape `withAdvisoryLock` never touches.
+ * No real Postgres: a live connection gives no way to make the unlock query alone reject.
+ * `getLockPool()` constructs its own `Pool`, so the seam is `Pool.prototype.connect`.
  */
 describe('when the unlock query itself rejects', () => {
   test('propagates the error thrown by fn unchanged, and discards rather than returns the client', async () => {
@@ -194,8 +170,6 @@ describe('when the unlock query itself rejects', () => {
       if (sql.includes('_unlock(')) {
         throw new Error('connection terminated unexpectedly')
       }
-      // -> `try_advisory_lock` must report success on the first poll, or `withAdvisoryLock` would
-      //    loop retrying the acquisition instead of ever reaching `fn`.
       return { rows: [{ locked: true }] }
     })
     const release = mock.fn()
@@ -221,12 +195,8 @@ describe('when the unlock query itself rejects', () => {
       wikiHandle.restore()
     }
 
-    // -> `fn`'s own error survives unchanged — not replaced by the unlock query's rejection.
-    // -> The client is discarded (`release(true)`), not returned to the pool with an uncertain lock
-    //    state.
     assert.equal(release.mock.calls.length, 1)
     assert.equal(release.mock.calls[0].arguments[0], true)
-    // -> The unlock failure is logged rather than silently dropped.
     assert.equal(warn.mock.calls.length, 1)
   })
 })

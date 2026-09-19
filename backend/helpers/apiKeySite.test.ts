@@ -9,27 +9,13 @@ import assetsRoutes from '../api/assets.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * `enforceApiKeySite` writes the 403 itself via `reply.forbidden()`, so — like `limitApiKey` in
- * `rateLimit.test.ts` — it is exercised against a real fastify instance with `@fastify/sensible`
- * registered rather than a hand-rolled reply stub.
+ * `enforceApiKeySite` writes the 403 itself via `reply.forbidden()`, so it runs against a real
+ * fastify instance with `@fastify/sensible` registered rather than a reply stub.
  */
 
 const SITE_A = '11111111-1111-4111-8111-111111111111'
 const SITE_B = '22222222-2222-4222-8222-222222222222'
 
-/**
- * OpenProject #2339: `index.ts`'s Bearer-verification hook only ever populated `req.apiKey` for
- * `/_api/` requests, which made `enforceApiKeySite()`'s calls in `controllers/files.ts` and
- * `controllers/site.ts` (and the equivalent `actorForRequest()`-mediated check in
- * `controllers/thumb.ts`) permanent no-ops -- a valid, site-pinned Bearer token sent to any of those
- * three routes was silently ignored rather than verified. `isBearerAuthenticatedPath` is the pure
- * function of the URL that decides whether the hook should even look for a token; this proves it
- * covers exactly the intended surface and nothing more.
- *
- * `controllers/pageScripts.ts`'s `/_pages/` (OpenProject #3405) joined the same list later, on the
- * same `actorForRequest()`-mediated reasoning as `/_thumb/` -- not a fresh instance of the #2339 bug,
- * since the prefix was added in the same change that introduced the route.
- */
 describe('isBearerAuthenticatedPath', () => {
   test('matches /_api/ requests', () => {
     assert.equal(isBearerAuthenticatedPath('/_api/sites/current'), true)
@@ -129,38 +115,23 @@ describe('enforceApiKeySite — the comparison itself', () => {
   })
 })
 
-/**
- * Task 2194: `apiKeySitePinHook` is what `index.ts` registers as a single global `preHandler`, ahead of
- * every route, rather than each route remembering to call `enforceApiKeySite` itself -- the gap that
- * left 117 of 119 site-addressed routes unguarded before this task. This proves the "no route-specific
- * wiring needed" property directly: two routes are registered against a plain fastify instance the same
- * way index.ts registers real ones, and a third is registered with a `:siteId` in a spot no test (and no
- * hand-maintained allow-list) named ahead of time, standing in for "a route added after this test was
- * written" -- if the hook depended on recognizing specific paths, this one would slip through the way
- * the 117 originally did. A route with no `:siteId` param is included too, to prove the hook only ever
- * acts where there is a site to compare against.
- */
 describe('apiKeySitePinHook — global coverage, no per-route wiring required', () => {
   let app: FastifyInstance
   const capturedSiteRoutes: { method: string; url: string }[] = []
 
   before(async () => {
-    // -> `exposeHeadRoutes` off: Fastify's default auto-generates a HEAD sibling for every GET, which
-    //    would otherwise double-register (and double-capture) each probe route below under the same
-    //    URL, muddying what this test is actually counting.
+    // -> Off, or the HEAD sibling Fastify generates for every GET would be captured as a second
+    //    route under the same URL.
     app = fastify({ exposeHeadRoutes: false })
     await app.register(fastifySensible)
 
-    // -> Mirrors `analytics.test.ts`'s technique for reading back what was registered: Fastify exposes
-    //    no public API to enumerate routes after the fact, so this is captured as each one is added.
+    // -> Fastify has no public API to enumerate routes afterwards, so each is captured as added.
     app.addHook('onRoute', (routeOptions) => {
       if (routeOptions.url.includes(':siteId')) {
         capturedSiteRoutes.push({ method: String(routeOptions.method), url: routeOptions.url })
       }
     })
 
-    // -> The one thing every real caller needs: `req.apiKey` populated the same shape
-    //    `models/apiKeys.ts#verify()` produces, from a test-only header.
     app.addHook('onRequest', async (req) => {
       const rawKey = req.headers['x-test-api-key']
       if (typeof rawKey === 'string') {
@@ -168,19 +139,16 @@ describe('apiKeySitePinHook — global coverage, no per-route wiring required', 
       }
     })
 
-    // -> Registered exactly as `index.ts` does: unconditionally, before any route exists.
     app.addHook('preHandler', apiKeySitePinHook)
 
     app.get<{ Params: { siteId: string } }>('/_api/sites/:siteId/ordinary', async () => ({
       ok: true
     }))
-    // -> Stands in for a route nobody wired an explicit site-pin check into -- proving the hook covers
-    //    it anyway, which is the whole point of making this global rather than per-route.
+    // -> Stands in for a route added later, which nobody wired a site-pin check into.
     app.get<{ Params: { siteId: string; extra: string } }>(
       '/_api/sites/:siteId/newly-added/:extra',
       async () => ({ ok: true })
     )
-    // -> No `:siteId` at all: the hook must leave this alone regardless of the key's pin.
     app.get('/probe/health', async () => ({ ok: true }))
 
     await app.ready()
@@ -236,18 +204,9 @@ describe('apiKeySitePinHook — global coverage, no per-route wiring required', 
 })
 
 /**
- * The same hook wired in front of real routes: `PATCH /sites/:siteId/pages/:pageId`,
- * `DELETE /sites/:siteId/pages/:pageId` and `POST /sites/:siteId/assets` (task 2194's own examples),
- * with real route registration, real schemas, real `@fastify/sensible` `reply.forbidden()` -- proving
- * the global hook actually reaches production routes ahead of any model call, now that neither route
- * calls `enforceApiKeySite` itself any more.
- *
- * `CARDINAL.models.pages.getPage` / `CARDINAL.models.pages.deletePage` are stubbed to return `null`, so a
- * request that clears the site-pin gate falls through to the ordinary "page does not exist" 404 --
- * proof the gate was passed without needing a full `Page#`-shaped stand-in. The asset upload route's
- * next stop is its own `limitUploads` rate-limit preHandler (OpenProject #3234, stubbed to always
- * allow below) and then `actorFrom`'s session check, which is what actually stops it, well before
- * any other model call, since uploads require a logged-in session rather than an API key's own user.
+ * `getPage` is stubbed to return `null`, so a request that clears the site-pin gate lands on the
+ * ordinary 404 -- proof it passed, with no full `Page#` stand-in needed. An asset upload past the
+ * gate answers 401 instead: the route requires a session, which an API key is not.
  */
 describe('apiKeySitePinHook — real page and asset routes', () => {
   let app: FastifyInstance
@@ -280,9 +239,7 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
             checkAccess: () => true,
             groupIdsForRequest: () => []
           },
-          // -> The asset upload route's `limitUploads` preHandler (OpenProject #3234) reaches this on
-          //    every request; this suite is about the site-pin hook, not the rate limiter, so it
-          //    always allows.
+          // -> The upload route's `limitUploads` preHandler consumes this on every request.
           rateLimits: {
             consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
           }
@@ -298,7 +255,7 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
     deletePageCalls = []
   })
 
-  /** An API key with a `userId` acts as its own actor (`actorFrom` in `helpers/pageAccess.ts`) -- no session needed. */
+  /** A key with a `userId` is its own actor (`actorFrom`), so the page routes need no session. */
   function apiKeyHeader(siteId: string | null) {
     return {
       'x-test-api-key': JSON.stringify({
@@ -333,7 +290,7 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
       headers: apiKeyHeader(SITE_A),
       payload: {}
     })
-    assert.equal(res.statusCode, 404) // -> past the gate, into the ordinary "page not found" path
+    assert.equal(res.statusCode, 404)
     assert.equal(getPageCalls.length, 1)
   })
 
@@ -365,7 +322,7 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
       url: `/_api/sites/${SITE_A}/pages/${PAGE_ID}`,
       headers: apiKeyHeader(SITE_A)
     })
-    assert.equal(res.statusCode, 404) // -> getPage stub returns null, so this is "page not found"
+    assert.equal(res.statusCode, 404)
     assert.equal(getPageCalls.length, 1)
   })
 
@@ -396,7 +353,6 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
       headers: { ...apiKeyHeader(SITE_A), 'content-type': 'image/png' },
       payload: Buffer.from([1, 2, 3])
     })
-    // -> Past the site-pin gate: an API key carries no session, and uploading requires one.
     assert.equal(res.statusCode, 401)
   })
 
@@ -412,25 +368,9 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
 })
 
 /**
- * Route-wiring proof for `apiKeySitePinHook`, on two representative routes:
- * `GET /_api/sites/:siteId/pages/:pageIdOrHash` and `POST /_api/sites/:siteId/pages`. OpenProject
- * #2194 moved enforcement off these two routes' own per-route `enforceApiKeySite()` calls (deleted)
- * onto the global hook `index.ts` registers alongside the permissions hook — this file registers that
- * same hook directly (not `index.ts` itself, which boots a real database connection) under the same
- * `/_api` prefix it checks, so the routes are exercised exactly as they are wired in production. This
- * describe's own `app` registers only `pagesRoutes` (no `assetsRoutes`), which is why it lives
- * alongside, rather than merged into, "real page and asset routes" above — a different route set
- * needs its own `before()`/`after()`. `req.apiKey` is attached by a fixture `onRequest` hook that
- * reads it off an `x-test-api-key` test header, the same shape `models/apiKeys.ts#verify()` produces
- * at runtime — nothing about the routes themselves is test-specific.
- *
- * `CARDINAL.models.pages.getPage` is stubbed to return `null` so a request that clears the site-scope gate
- * falls through to the ordinary "page does not exist" 404 — which needs no `Page#` response payload —
- * rather than requiring a full page object satisfying that schema just to prove the gate was passed.
- *
- * This describe's own `apiKeyHeader()` deliberately omits `userId` (unlike the one above): the last
- * test below depends on that, refusing an unscoped, session-less CREATE by the ordinary
- * unauthenticated check rather than the site-pin gate.
+ * `getPage` returns `null` here too, so clearing the gate reads as a 404. This `apiKeyHeader()` omits
+ * `userId`, unlike the one above: the last test relies on an unscoped, session-less create being
+ * refused by the ordinary unauthenticated check rather than by the site-pin gate.
  */
 describe('pages API — apiKeySitePinHook site-scoping', () => {
   const PAGE_HASH = 'ab'.repeat(16)
@@ -442,13 +382,9 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
 
   before(async () => {
     app = await buildTestApp({
-      // -> `/_api` prefix, matching `api/index.ts`'s real registration -- the hook only checks
-      //    `/_api/sites/...` (see its own doc comment), so mounting bare would silently exercise
-      //    nothing.
+      // -> The hook only checks `/_api/sites/...`, so mounting bare would silently exercise nothing.
       routes: pagesRoutes,
       prefix: '/_api',
-      // -> The REAL hook, at the same stage the real boot registers it (`preHandler`, beside the
-      //    permissions hook).
       apiKeySitePin: true,
       session: 'header',
       wiki: {
@@ -500,7 +436,7 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
       url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(SITE_A)
     })
-    assert.equal(res.statusCode, 404) // -> past the gate, into the ordinary "page not found" path
+    assert.equal(res.statusCode, 404)
     assert.equal(getPageCalls.length, 1)
   })
 
@@ -550,19 +486,14 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
       headers: apiKeyHeader(null),
       payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
     })
-    // -> Past the site-scope gate (unscoped key): refused next by `actorFrom` (no session).
     assert.equal(res.statusCode, 401)
     assert.equal(createPageCalls.length, 0)
   })
 })
 
 /**
- * `apiKeySitePinHook` (OpenProject #2194): the global `preHandler` covering every `/_api/sites/:siteId/
- * ...` route in one place, registered once in `index.ts` rather than a call added to each route. Built
- * against a small representative slice of that surface — a GET, a PATCH, a DELETE and an upload-shaped
- * POST, all under the real `/_api/sites/:siteId/...` prefix — rather than the full 175-route table,
- * which `helpers/apiKeySite.coverage.test.ts` covers structurally instead (every real registered route
- * carrying a `:siteId` param really does sit under this prefix, so this hook really does reach it).
+ * A representative slice of the surface; `apiKeySite.coverage.test.ts` checks the whole registered
+ * route table structurally.
  */
 describe('apiKeySitePinHook', () => {
   let hookApp: FastifyInstance
@@ -595,10 +526,8 @@ describe('apiKeySitePinHook', () => {
     hookApp.post<{ Params: { siteId: string } }>('/_api/sites/:siteId/assets', async () => ({
       ok: true
     }))
-    // -> Same param NAME, deliberately OUTSIDE `/_api/sites/` -- `controllers/site.ts`'s real route
-    //    shape, whose `:siteId` can be the literal sentinel `'current'` rather than a real site id.
-    //    The hook must leave it alone; `controllers/site.ts` calls `enforceApiKeySite()` itself once
-    //    it has resolved a real site (OpenProject #2201).
+    // -> Same param name, deliberately outside `/_api/sites/`: `controllers/site.ts`'s route shape,
+    //    whose `:siteId` can be the sentinel `'current'` rather than a real site id.
     hookApp.get<{ Params: { siteId: string; resource: string } }>(
       '/_site/:siteId/:resource',
       async () => ({ ok: true })
@@ -646,9 +575,7 @@ describe('apiKeySitePinHook', () => {
       url: '/_site/current/logo',
       headers: { 'x-scoped-site': SITE_A }
     })
-    // -> Would be 403 if the hook matched on param name alone rather than the URL prefix: 'current'
-    //    is never equal to SITE_A. Passing through to the (stubbed, always-200) handler proves the
-    //    hook left this route alone, as designed.
+    // -> A hook matching on the param name would answer 403: 'current' never equals SITE_A.
     assert.equal(res.statusCode, 200)
   })
 })

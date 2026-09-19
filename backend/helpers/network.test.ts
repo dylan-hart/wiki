@@ -47,11 +47,8 @@ describe('isPrivateAddress', () => {
     assert.equal(isPrivateAddress('2606:4700:10::6814:179a'), false)
   })
 
-  // -> The WHATWG URL parser (what actually produces `url.hostname`) always normalises an IPv4-mapped
-  //    IPv6 literal into hex-group form and collapses `::` -- it can never emit the dotted-quad shape
-  //    (`::ffff:169.254.169.254`) a previous version of this test asserted, so these hex-group forms
-  //    are what a real caller (`models/liveData.ts`'s `assertNotPrivateAddress`, fed straight from
-  //    `url.hostname`) actually has to check against (OpenProject #2236).
+  // -> The WHATWG URL parser always normalises an IPv4-mapped literal into hex groups and never emits
+  //    the dotted-quad shape, so these are what a caller fed from `url.hostname` has to check.
   test('flags an IPv4-mapped IPv6 address in the hex-group form URL.hostname actually emits', () => {
     assert.equal(isPrivateAddress('::ffff:a9fe:a9fe'), true) // ::ffff:169.254.169.254
     assert.equal(isPrivateAddress('::ffff:7f00:1'), true) // ::ffff:127.0.0.1
@@ -65,10 +62,8 @@ describe('isPrivateAddress', () => {
     assert.equal(isPrivateAddress(hostname), true)
   })
 
-  // -> The legacy IPv4-compatible embedding (RFC 4291, no 0xffff marker group) is a second,
-  //    distinct embedded-IPv4 form from the IPv4-mapped one above -- `net.isIP` accepts it and the
-  //    WHATWG URL parser normalises it into hex-group form the same way, so `::169.254.169.254`
-  //    becomes `::a9fe:a9fe`, not `::ffff:a9fe:a9fe` (OpenProject #2345).
+  // -> The legacy IPv4-compatible embedding (RFC 4291, no 0xffff marker group) is a distinct form:
+  //    the URL parser normalises `::169.254.169.254` to `::a9fe:a9fe`, not `::ffff:a9fe:a9fe`.
   test('flags a legacy IPv4-compatible IPv6 address in the hex-group form URL.hostname actually emits', () => {
     assert.equal(isPrivateAddress('::a9fe:a9fe'), true) // ::169.254.169.254
     assert.equal(isPrivateAddress('::7f00:1'), true) // ::127.0.0.1
@@ -248,9 +243,8 @@ describe('isValidOriginPattern', () => {
     assert.equal(isValidOriginPattern('https://api.*.example.com'), false)
   })
 
-  // -> No userinfo has any business in a stored allowlist entry, and `new URL()` itself would
-  //    silently accept and discard it -- checked explicitly rather than left to the regex, which
-  //    already rejects most such strings only incidentally (OpenProject #2198).
+  // -> Checked explicitly rather than left to the regex, which rejects most such strings only
+  //    incidentally.
   test('rejects userinfo in the origin', () => {
     assert.equal(isValidOriginPattern('https://user:pass@api.example.com/v1'), false)
   })

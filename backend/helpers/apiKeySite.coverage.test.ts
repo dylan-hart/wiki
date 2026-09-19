@@ -8,48 +8,28 @@ import { installTestWiki } from '../test/mocks.ts'
 let wikiHandle: { restore(): void }
 
 /**
- * Structural coverage check for OpenProject #2189/#2194: `apiKeySitePinHook`
- * (`helpers/apiKeySite.ts`) is registered once, globally, in `index.ts` and refuses a mismatched
- * site pin for any request whose URL starts with `/_api/sites/` — see that file's own doc comment
- * for why the prefix, rather than the `:siteId` param name alone, is what decides coverage
- * (`controllers/site.ts`'s `/:siteId/:resource` shares the param name but not the prefix, and its
- * `:siteId` can be the literal sentinel `'current'` rather than a real site id).
- *
- * That means "does the hook cover every site-scoped route" is a question about the REAL, registered
- * route table, not about the hook's own logic (`apiKeySite.test.ts` already covers that in
- * isolation against a handful of representative routes). This test registers the actual
- * `api/index.ts` plugin tree — the same one `index.ts` mounts at `/_api` — into a bare fastify
- * instance, collects every route Fastify actually built via `onRoute`, and asserts that every one
- * carrying a `:siteId` param sits under the exact prefix the hook checks. A future route that adds
- * a `:siteId` param under some OTHER prefix (a typo'd registration, a new controller mounted
- * outside `/_api/sites`) fails this test rather than silently shipping unprotected — the "so a
- * newly added route cannot silently regress the control" the work package's own description asks
- * for.
- *
- * No database and no real `CARDINAL` global beyond what plugin REGISTRATION touches (route/schema
- * declarations only — see the stub below): nothing here ever calls `app.inject()`, so no route
- * handler ever actually runs.
+ * `apiKeySitePinHook` decides coverage by URL prefix, so whether it covers every site-scoped route
+ * is a question about the real route table: this registers the actual `api/index.ts` plugin tree
+ * and asserts every route with a `:siteId` param sits under that prefix. Nothing calls
+ * `app.inject()`, so no handler runs and the `CARDINAL` stub only has to survive registration.
  */
 
 const SITE_SCOPED_API_PREFIX = '/_api/sites/'
 
-/** Matches a `:siteId` path segment exactly — not `:siteIdorHostname` or similar look-alikes. */
+/** A whole `:siteId` segment, not a longer param name that merely starts with it. */
 const SITE_ID_PARAM = /(^|\/):siteId(\/|$)/
 
 let app: FastifyInstance
 let routes: { method: string; url: string }[]
 
 before(async () => {
-  // -> Only what `api/index.ts`'s plugin tree touches at REGISTRATION time (not per-request) --
-  //    `api/assets.ts` reads `CARDINAL.config.security?.uploadMaxFileSize` once, up front, to size its
-  //    raw-body content-type parser.
+  // -> Registration itself reads `CARDINAL.config.security`: `api/assets.ts` sizes its body parser
+  //    from it up front.
   wikiHandle = installTestWiki({ config: { security: {} } })
 
   app = fastify({
-    // -> Mirrors `createHttpApp()`'s own fastify() options for the same reason it needs them:
-    //    several schemas (e.g. a site's theme color, or an `id` param) use one of the 5
-    //    hand-registered ajv formats (`core/http/ajvFormats.ts`), and route registration fails
-    //    outright building a schema that references an unknown format.
+    // -> As in `createHttpApp()`: route schemas reference the hand-registered ajv formats, and
+    //    registration fails outright on an unknown one.
     ajv: { onCreate: registerAjvFormats }
   })
 
@@ -68,11 +48,7 @@ after(async () => {
 })
 
 test('the real registered API route table has at least the known site-scoped surface', () => {
-  // -> A floor, not an exact count: the real number moves as routes are added, and pinning it
-  //    exactly would make this test require an edit for every unrelated new endpoint. What matters
-  //    for THIS test is that route registration actually ran (a regression collapsing it to near-zero
-  //    would otherwise pass the loop below vacuously) and that the known site-scoped families are
-  //    present.
+  // -> A floor, not a count: it proves registration ran, so the next test cannot pass vacuously.
   const siteScoped = routes.filter((r) => SITE_ID_PARAM.test(r.url))
   assert.ok(
     siteScoped.length > 100,
@@ -93,9 +69,7 @@ test('every registered route carrying a :siteId param sits under the prefix apiK
 })
 
 test('a route addressed by hostname or sentinel, not a real :siteId, is correctly excluded', () => {
-  // -> `controllers/site.ts` is not registered here at all (it mounts at `/_site`, a separate
-  //    controller outside `api/index.ts`'s tree) -- this just documents, for a future reader of this
-  //    file, that its `:siteId` param sharing the same name is exactly why the prefix check above
-  //    (not a param-name check) is what `apiKeySitePinHook` uses.
+  // -> `controllers/site.ts` is not registered here. Its same-named `:siteId` param is why the hook
+  //    matches on the prefix rather than on the param name.
   assert.ok(!'/_site/:siteId/:resource'.startsWith(SITE_SCOPED_API_PREFIX))
 })

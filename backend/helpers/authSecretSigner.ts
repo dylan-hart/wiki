@@ -1,21 +1,11 @@
 import fastifyCookie from '@fastify/cookie'
 
 /**
- * A `@fastify/cookie` / `@fastify/session` signer that reads `CARDINAL.config.auth.secret` fresh on
- * every call, instead of the secret being captured by value once at plugin registration.
- *
- * Both plugins accept `secret` as either a raw value (string/array) — hashed into a `Signer`
- * instance ONCE, at registration — or an object shaped like `{ sign, unsign }`, used as-is and
- * called on every request. Handing them this object is what makes `models/sessions.ts#rotateSecret()`
- * take effect on a still-running instance immediately: `sign()`/`unsign()` below read
- * `CARDINAL.config.auth.secret` at call time, so the moment `CARDINAL.config` is replaced — either by
- * `rotateSecret()` on this instance, or by `core/config.ts#loadFromDb()` reassigning it in response to
- * the `reloadConfig` event `rotateSecret()`'s `saveToDb()` fans out to every other instance — the very
- * next request signs and verifies against the new secret, with no restart. Mirrors the same
- * read-fresh-on-every-call pattern `models/apiKeys.ts#verify()` already uses for `auth.certs.public`.
- *
- * Delegates the actual HMAC work to `@fastify/cookie`'s own exported `sign`/`unsign` functions
- * (`fastifyCookie.sign(value, secret)`), rather than re-implementing cookie signing here.
+ * `@fastify/cookie` and `@fastify/session` hash a raw `secret` into a `Signer` once at registration,
+ * but call a `{ sign, unsign }` object per request. Reading `CARDINAL.config.auth.secret` at call
+ * time is therefore what lets a secret rotation — `models/sessions.ts#rotateSecret()` here, or
+ * `core/config.ts#loadFromDb()` replacing `CARDINAL.config` on the other instances — take effect on
+ * the next request rather than the next restart.
  */
 export const authSecretSigner = {
   sign(value: string): string {

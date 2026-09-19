@@ -1,40 +1,20 @@
 import { Pool, type PoolConfig } from 'pg'
 import { setTimeout as delay } from 'node:timers/promises'
 
-/**
- * A held advisory lock, returned by `acquireAdvisoryLock` for a caller that needs to keep it across
- * more than one function call rather than release it the moment one particular block finishes —
- * `core/db.ts#syncSchemas` is the first such caller, taking the lock itself but handing the handle
- * back up so a wider boot sequence can go on holding it past `syncSchemas()` before finally calling
- * `release()`.
- */
 export interface AdvisoryLockHandle {
-  /** Unlock and return the underlying client to `pool`. Idempotent to call more than once is NOT
-   *  guaranteed — call exactly once, from whichever scope ends up owning the handle last. */
+  /** Not idempotent: call exactly once, from whichever scope ends up owning the handle. */
   release(): Promise<void>
 }
 
 /**
- * Check a client out of `pool` and take a session-scoped Postgres advisory lock keyed by `key` on it,
- * blocking until any other holder of the same key — in this process or another — releases it first.
- * Returns a handle whose `release()` unlocks and returns the client to `pool`.
+ * Unlike `withAdvisoryLock`, the caller decides when to let go, so a lock taken around one boot step
+ * can stay held across later ones.
  *
- * Unlike `withAdvisoryLock` below, this does not scope the lock to one callback: the caller decides
- * when to let go, which is what lets a lock taken around one step of a sequence (e.g. `syncSchemas()`'s
- * DDL and `migrate()`) be handed off and kept held across later steps a wider caller controls.
+ * A session-scoped lock must be released on the connection that took it, and `pool.query()` checks
+ * one out per call, so a client is held for the lock's whole lifetime.
  *
- * The lock and its release must run on the exact same physical connection — a `Pool` query checks a
- * connection out and back in per call, so a lock taken through `pool.query()` could be released from a
- * different one and never actually let go. This checks a client out of the pool for the lock's whole
- * lifetime, the same constraint `test/db.ts`'s `createExtensionsSerialized` documents and follows.
- *
- * Blocking (`pg_advisory_lock`) rather than the non-blocking retry/backoff `withAdvisoryLock` below
- * uses: this is a boot-time primitive with only two callers, both inside `index.ts#preBoot()` and
- * both before `initHTTPServer()` starts accepting requests — `core/db.ts#syncSchemas`, taken on a
- * caller-supplied pool before `CARDINAL.db`/`CARDINAL.dbManager.config` necessarily exist yet, and
- * `core/config.ts#ensureSeeded`, taken immediately after against `CARDINAL.db.$client` itself. Neither
- * call risks starving a request-serving pool connection the way `withAdvisoryLock`'s doc comment
- * describes.
+ * Blocks in `pg_advisory_lock` rather than polling as `withAdvisoryLock` does: this is a boot-time
+ * primitive, used before the server accepts requests, so a waiting connection starves nobody.
  */
 export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<AdvisoryLockHandle> {
   const client = await pool.connect()
@@ -50,55 +30,6 @@ export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<Advi
   }
 }
 
-/**
- * Run `fn` while holding a session-scoped Postgres advisory lock keyed by `key`, waiting for any other
- * holder of the same key — in this process or another — to release it first.
- *
- * `dispatchStorage` runs as an in-process task (`tasks/simple/dispatch-storage.ts`), but the scheduler
- * still claims and runs several jobs *concurrently* within one process (`processJob`'s
- * `Promise.allSettled`, `core/scheduler.ts`), and a wiki normally runs more than one instance besides —
- * so several jobs targeting the *same* storage target can genuinely interleave, whether that is two
- * `await`s in one process trading off or two processes running at once, with no shared JS memory (or,
- * across instances, no shared process at all) to serialize them with an in-process mutex. For a
- * file-backed module such as `modules/storage/git`, two such jobs both call `ensureRepo()` and then run
- * their own git commands against the same on-disk working copy — a write-path `updated` dispatch racing
- * a scheduled `sync`'s pull/push, say. Two `git` processes touching the same working directory
- * concurrently is exactly the kind of race that leaves a stale `.git/index.lock` neither process cleans
- * up, wedging every future sync until an administrator deletes it by hand: the "unresolvable conflict"
- * class of bug OpenProject #823 (item 7) asks this module be checked against. Locking here, once, at
- * the single choke point every dispatch — content handler or whole-target action — already passes
- * through (`tasks/simple/dispatch-storage.ts`) closes that race for every storage module, not git
- * specifically, at negligible cost: none of these handlers are on a request's critical path, and a
- * second job for the same target simply waits its turn instead of racing.
- *
- * **Never checks a client out of `CARDINAL.db.$client`, the pool that serves requests.** `fn()` is a
- * storage module handler — a `git push`, an S3 `PUT`, an SFTP transfer, i.e. arbitrarily long network
- * I/O — held for the whole time the lock is held (the lock and its release must run on the exact same
- * physical connection, same constraint `test/db.ts`'s `createExtensionsSerialized` documents and
- * follows). With the request pool's default `max = 10`, one holder plus nine contended callers checked
- * out of that same pool would consume every connection an HTTP request needs, and previously did so by
- * blocking inside `pg_advisory_lock` with no way to give the connection back early (OpenProject #2246).
- * `getLockPool()` below hands out connections from a second, small, dedicated pool instead — cloned
- * from the same connection parameters (`CARDINAL.dbManager.config`) but capped at `LOCK_POOL_MAX`, so a
- * storm of contended lock attempts can starve only itself, never a request in flight.
- *
- * **Never blocks inside `pg_advisory_lock`.** A contended acquisition instead polls
- * `pg_try_advisory_lock` (non-blocking — returns `false` immediately rather than waiting) on a capped
- * exponential backoff with jitter, and gives up with `AdvisoryLockAcquisitionError` after `maxAttempts`
- * rather than waiting forever. That both bounds how long one lock pool connection can be tied up
- * failing to acquire, and turns a wedged holder (one that took the lock and then hung) into a failed
- * job the scheduler retries with its own backoff — same as any other `dispatchStorage` failure — rather
- * than a silent, indefinite hang. `options` defaults to production-sized values; tests override them to
- * exercise the give-up path without waiting out the real schedule.
- *
- * `hashtext()` collapses `key` to the single bigint `pg_advisory_lock`/`pg_try_advisory_lock` take — a
- * 32-bit hash, so a collision between two different keys is possible in principle. The consequence of
- * one is two unrelated targets occasionally serializing against each other rather than running
- * concurrently, never a correctness problem, so it is not worth a second int32
- * (`pg_advisory_lock(int, int)`) to avoid.
- */
-
-/** Thrown when `withAdvisoryLock` gives up contending for the lock after `maxAttempts` tries. */
 export class AdvisoryLockAcquisitionError extends Error {
   constructor(key: string, attempts: number) {
     super(`Gave up acquiring advisory lock "${key}" after ${attempts} attempt(s)`)
@@ -107,11 +38,10 @@ export class AdvisoryLockAcquisitionError extends Error {
 }
 
 export interface AdvisoryLockOptions {
-  /** Total `pg_try_advisory_lock` attempts before giving up. Default: 10. */
   maxAttempts?: number
-  /** Delay before the second attempt; doubles each attempt after, capped by `maxDelayMs`. Default: 100. */
+  /** Delay before the second attempt; doubles each attempt after, capped by `maxDelayMs`. */
   baseDelayMs?: number
-  /** Ceiling on the backoff delay between attempts, before jitter. Default: 3000. */
+  /** Caps the backoff before jitter is added. */
   maxDelayMs?: number
 }
 
@@ -122,26 +52,18 @@ const LOCK_POOL_DEFAULTS: Required<AdvisoryLockOptions> = {
 }
 
 /**
- * A handful of concurrent lock holders/contenders is the expected ceiling for this pool — nothing else
- * ever draws from it — so it stays small deliberately, unlike the request-serving pool's `max`.
+ * The lock pool is dedicated and small, never `CARDINAL.db.$client`: a connection is held for the
+ * whole of `fn`, which can be arbitrarily long network I/O, and every contender holds one while it
+ * polls. Drawn from the request pool, a burst of them could take every connection HTTP requests
+ * need; capped here, it can starve only itself.
  */
 const LOCK_POOL_MAX = 4
 
 let lockPool: Pool | null = null
 
 /**
- * Lazily build the dedicated advisory-lock pool from the same connection parameters the main pool was
- * built from (`CARDINAL.dbManager.config`, populated once `dbManager.init()` has run — always true by the
- * time any job dispatches a lock, since nothing during boot itself calls `withAdvisoryLock`).
- *
- * Every real boot path (`index.ts`, `mcp/bootstrap.ts`, `migration/bootstrap.ts`,
- * `scripts/audit-site-scoped-rules.ts`) sets `CARDINAL.dbManager` to the real `core/db.ts` module and
- * always calls `dbManager.init()` before `CARDINAL.db` is usable, so `CARDINAL.dbManager.config` is always
- * present by the time production code gets here. A lightweight test harness can legitimately build
- * `CARDINAL.db` directly (a plain `drizzle({ client: pool, ... })`) without ever running `dbManager.init()`
- * — for that shape only, fall back to reusing `CARDINAL.db.$client` itself rather than throwing on
- * `CARDINAL.dbManager` (or its `.config`) being absent. This is not a legacy shim: production always takes
- * the primary branch, since `CARDINAL.dbManager` is unconditionally populated during boot.
+ * The `CARDINAL.db.$client` fallback is for a test harness that builds `CARDINAL.db` without running
+ * `dbManager.init()`; every real boot path populates `CARDINAL.dbManager.config` first.
  */
 function getLockPool(): Pool {
   if (!lockPool) {
@@ -157,21 +79,15 @@ function getLockPool(): Pool {
 }
 
 /**
- * Test-only: drop the cached pool so a suite can rebuild it against its own `DATABASE_URL`/config, and
- * close it in `after()` so the process can exit.
- *
- * Tolerates a pool that has already been ended by whoever constructed it — the fallback branch of
- * `getLockPool()` above can hand back a pool object a test owns and closes directly (e.g.
- * `CARDINAL.db.$client`), so by the time a later test resets the cache, `.end()` on it may already have
- * run. This only needs to guarantee the module-level cache itself is cleared, not that it is the one
- * to close the connection.
+ * Test-only. Tolerates a pool its owner has already ended: `getLockPool()`'s fallback branch caches a
+ * pool the test itself constructed and closes.
  */
 export async function _resetLockPoolForTests(): Promise<void> {
   if (lockPool) {
     try {
       await lockPool.end()
     } catch {
-      // -> Already ended elsewhere -- see doc comment above.
+      // -> Already ended by its owner.
     }
     lockPool = null
   }
@@ -182,6 +98,18 @@ function jitteredDelay(attempt: number, baseDelayMs: number, maxDelayMs: number)
   return backoff + Math.random() * backoff * 0.25
 }
 
+/**
+ * Serializes holders of `key` across processes as well as within one, which an in-process mutex
+ * cannot.
+ *
+ * Polls `pg_try_advisory_lock` on a capped, jittered backoff and gives up with
+ * `AdvisoryLockAcquisitionError`, rather than blocking in `pg_advisory_lock`: that bounds how long a
+ * lock-pool connection is tied up, and turns a wedged holder into a failure the caller can retry
+ * instead of a silent hang.
+ *
+ * `hashtext()` is 32-bit, so two keys can collide. They then merely serialize against each other,
+ * which is not worth `pg_advisory_lock(int, int)` to avoid.
+ */
 export async function withAdvisoryLock<T>(
   key: string,
   fn: () => Promise<T>,
@@ -190,8 +118,6 @@ export async function withAdvisoryLock<T>(
   const { maxAttempts, baseDelayMs, maxDelayMs } = { ...LOCK_POOL_DEFAULTS, ...options }
   const pool = getLockPool()
   const client = await pool.connect()
-  // -> Set when the unlock query itself fails, so the outer `finally` knows the connection's lock
-  //    state is uncertain and must discard it rather than return it to the pool.
   let unlockFailed = false
   try {
     let attempt = 0
@@ -215,9 +141,8 @@ export async function withAdvisoryLock<T>(
       try {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
       } catch (err: any) {
-        // -> Never rethrow here: an abrupt completion from a `finally` replaces whatever `fn` was
-        //    propagating, and `fn`'s own error (most likely the same dead connection) is the one the
-        //    caller needs — see `dispatch-storage.ts`, which rethrows to drive `jobHistory` state.
+        // -> Never rethrow: an abrupt completion from a `finally` would replace the error `fn` is
+        //    propagating, which is the one the caller needs.
         unlockFailed = true
         CARDINAL.logger.warn('db', 'releasing an advisory lock failed, discarding the connection', {
           key,
@@ -226,10 +151,9 @@ export async function withAdvisoryLock<T>(
       }
     }
   } finally {
-    // -> `true` destroys the connection instead of returning it to the pool. When the unlock failed
-    //    the session may still be alive and still hold the lock (`pg_advisory_lock` is re-entrant per
-    //    session), so a returned connection would hand a later borrower the lock for free while every
-    //    other session blocks on it forever.
+    // -> `true` destroys the connection. After a failed unlock the session may still hold the lock
+    //    (advisory locks are re-entrant per session), so a pooled connection would hand a later
+    //    borrower the lock for free while every other session is refused it.
     client.release(unlockFailed)
   }
 }

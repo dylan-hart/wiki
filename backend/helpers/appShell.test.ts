@@ -66,7 +66,6 @@ describe('getTemplatedAppShell', () => {
     resetAppShellCache()
   })
 
-  /** Builds injectable fs stand-ins plus call counters, so a test can assert re-read/re-resolve counts. */
   function makeReader(initialHtml: string, initialMtimeMs: number) {
     let html = initialHtml
     let mtimeMs = initialMtimeMs
@@ -113,7 +112,7 @@ describe('getTemplatedAppShell', () => {
     assert.equal(first, '<html lang="fr" dir="ltr">')
     assert.equal(reader.readFile.calls.calls, 1)
     assert.equal(resolveCalls, 1)
-    // stat is still consulted each call to detect a rebuilt shell, just not the read/template work.
+    // stat still runs on every call, to detect a rebuilt shell.
     assert.equal(reader.stat.calls.calls, 2)
   })
 
@@ -145,7 +144,6 @@ describe('getTemplatedAppShell', () => {
     })
     assert.equal(first, '<html lang="fr" dir="ltr">')
 
-    // Simulate `npm run build` rewriting the shell.
     reader.set('<html lang="en" data-build="2">', 2000)
     const second = await getTemplatedAppShell('/shell.html', 'fr', resolveIsRTL, {
       readFile: reader.readFile.fn,

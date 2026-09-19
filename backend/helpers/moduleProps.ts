@@ -1,12 +1,6 @@
 import { isNil, isPlainObject } from 'es-toolkit/predicate'
 import { startCase } from 'es-toolkit/string'
 
-/**
- * Get default value of type
- *
- * @param type primitive type name
- * @returns Default value
- */
 function getTypeDefaultValue(type: string): string | number | boolean | undefined {
   switch (type.toLowerCase()) {
     case 'string':
@@ -19,8 +13,8 @@ function getTypeDefaultValue(type: string): string | number | boolean | undefine
 }
 
 /**
- * A single prop, as declared in a module `definition.yml`. Either the bare primitive type name
- * (e.g. `String`) or an object describing the prop in full.
+ * As declared in a module `definition.yml`: either the bare primitive type name (e.g. `String`) or
+ * an object describing the prop in full.
  */
 export type ModulePropDeclaration = ModulePropDefinition | string
 
@@ -43,7 +37,6 @@ export interface ModulePropDefinition {
   if?: unknown[]
 }
 
-/** A prop after normalization, with every field resolved to a concrete value. */
 export interface ModuleProp {
   default: unknown
   type: string
@@ -55,9 +48,7 @@ export interface ModuleProp {
   sensitive: boolean
   /** Shown but not editable — the module declares something this server cannot currently change. */
   readOnly: boolean
-  /** See `ModulePropDefinition.required`. */
   required: boolean
-  /** See `ModulePropDefinition.pattern`. Empty string when the module declares none. */
   pattern: string
   icon: string
   order: number
@@ -92,24 +83,14 @@ export function parseModuleProps(
   return result
 }
 
-/**
- * Placeholder returned in place of a module-config prop declared `sensitive: true`, once it holds a
- * real value -- mirrors `PASSWORD_MASK` in `api/mail.ts`, which predates `ModuleProp` and stores the
- * SMTP password as a single flat config rather than a per-module prop list.
- */
 export const SENSITIVE_CONFIG_MASK = '********'
 
 /**
- * Replace every `sensitive` prop's stored value with `SENSITIVE_CONFIG_MASK`, for a config about to
- * leave the server -- an admin API response, a log line, anything a caller might see. A prop with
- * nothing stored (`''`, `null`, `undefined`) is left alone: there is no secret to hide, and masking
- * it would make the admin form show a password field as "already set" when it isn't.
+ * For a config about to leave the server. A prop with nothing stored is left alone: masking it would
+ * make the admin form show a password field as "already set" when it isn't.
  *
- * Deliberately not applied inside a model's own merge (`buildConfig`/`buildEngineConfig`), nor to a
- * config handed to a module's own implementation to actually connect with -- storage's
- * `dispatch()`/`executeAction()`/`runDailyBackups()` and search's `selectEngine()`/
- * `initActiveEngines()` all need the real value to function. Call sites choose this explicitly (an
- * admin list/detail route serializing straight to JSON), never as a read method's default.
+ * Never a read method's default -- a module's own implementation needs the real value to connect
+ * with, so a call site serializing a config outward chooses this explicitly.
  */
 export function maskSensitiveConfig(
   props: Record<string, ModuleProp>,
@@ -125,11 +106,9 @@ export function maskSensitiveConfig(
 }
 
 /**
- * Drop a `sensitive` prop's value from `incoming` when it is exactly `SENSITIVE_CONFIG_MASK` -- an
- * admin form redisplaying a masked value it was never asked to change echoes it straight back on the
- * next save. Called on the way in, before a merge such as `buildConfig`'s own `incoming[key] ===
- * undefined ? current : incoming[key]` falls back to whatever is already stored, so a save that
- * leaves a password field untouched can never overwrite the real secret with the mask string itself.
+ * An admin form redisplaying a masked value echoes the mask straight back on the next save. Dropping
+ * it before the merge, which falls back to what is stored for an absent key, means an untouched
+ * password field can never overwrite the real secret with the mask string itself.
  */
 export function unmaskSensitiveConfig(
   props: Record<string, ModuleProp>,
