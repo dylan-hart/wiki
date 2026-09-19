@@ -2,15 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { actorFromRequest } from '../../models/auditLog.ts'
 import { actorFrom, mayOnPage } from '../../helpers/pageAccess.ts'
 
-/**
- * Records a `page.classificationChanged` audit log entry (OpenProject #1081) -- called from every
- * site a page's classification actually changes: the PATCH route (an explicit set, raise or lower),
- * the move route (an auto-bump onto a stricter parent), and the classification-conflicts resolve
- * route (a bulk bump). A no-op when `from === to`, so a caller does not have to re-check that itself.
- *
- * Exported for `./write.ts`, which owns the PATCH and move routes — the two sites outside this file
- * that change a classification.
- */
+/** Every write that changes a page's classification records it here. A no-op when `from === to`. */
 export async function recordClassificationChange(
   req: FastifyRequest,
   siteId: string,
@@ -32,12 +24,6 @@ export async function recordClassificationChange(
   })
 }
 
-/**
- * Batched form of `recordClassificationChange`, for a caller that already knows every (from, to)
- * pair up front and wants one INSERT instead of N — the classification-conflicts resolve route
- * (OpenProject #1902), bumping many pages in one request. `from === to` entries are dropped rather
- * than written, the same no-op `recordClassificationChange` documents.
- */
 async function recordClassificationChanges(
   req: FastifyRequest,
   siteId: string,
@@ -58,26 +44,12 @@ async function recordClassificationChanges(
   await CARDINAL.models.auditLog.recordMany(entries)
 }
 
-/**
- * Page classification: resolving the descendants a classification raise left below the new floor,
- * and the instance-wide report of what currently sits at each level.
- */
 async function routes(app: FastifyInstance) {
   /**
-   * RESOLVE CLASSIFICATION CONFLICTS
-   *
-   * The other half of the retroactive-parent-raise flow above: bumps the named descendants to a
-   * classification an admin chose (typically the new parent floor `classificationConflicts` reported,
-   * but not required to be — see the dialog's own doc comment for why leaving that open is deliberate).
-   *
-   * The dialog only ever asks for a raise, but this endpoint takes an arbitrary target level from the
-   * request body and only gates it on `write:pages` — a caller is not the dialog, so both guarantees
-   * `updatePage`'s own PATCH route enforces have to be checked here too, per page, rather than assumed:
-   * the floor invariant against EACH target's own immediate parent (a bulk write does not get to skip
-   * the check a single one would have to pass), and the declassification guardrail
-   * (`manage:classification`) whenever the chosen level is actually more open than a given target's
-   * current one. `bulkSetClassification` itself still does neither -- this is what makes that safe to
-   * call afterwards.
+   * The dialog driving this only ever asks for a raise, but the endpoint takes an arbitrary level
+   * from any `write:pages` caller. So both guarantees the PATCH route enforces are checked here per
+   * page: the floor against each target's immediate parent, and `manage:classification` for a
+   * lowering. `bulkSetClassification` checks neither itself.
    */
   app.post<{
     Params: { siteId: string }
@@ -123,25 +95,14 @@ async function routes(app: FastifyInstance) {
       if (!CARDINAL.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
-      // -> De-duplicate before processing: a repeated id would otherwise be fetched, permission-checked
-      //    and audit-logged once per occurrence instead of once per page.
+      // -> De-duplicated: a repeated id would otherwise be audit-logged once per occurrence.
       const pageIds = [...new Set(req.body.pageIds)]
-      // -> ONE batched select instead of a per-id `getPage` loop (OpenProject #1902): `getPage`'s
-      //    full two-LEFT-JOIN select pulls `content`, `render`, `searchContent` and the tsvector,
-      //    none of which `mayOnPage`/`meetsFloor` below need -- `getPagesByIds` projects only the
-      //    five columns that do.
       const pageMap = await CARDINAL.models.pages.getPagesByIds(req.params.siteId, pageIds)
       const missingId = pageIds.find((pageId) => !pageMap.has(pageId))
       if (missingId) {
         return reply.notFound('One of these pages does not exist.')
       }
-      // -> Preserves `pageIds`' own (de-duplicated) order exactly the way the original per-id loop
-      //    iterated -- the per-page checks below still run one target at a time, in this same order,
-      //    and bail on the same first violation. Only the READS moved: what each check evaluates is
-      //    unchanged.
       const orderedTargets = pageIds.map((pageId) => pageMap.get(pageId)!)
-      // -> ONE batched parent-classification lookup instead of one `parentClassification` call per
-      //    target, over the distinct (locale, parent path) pairs among them.
       const floorByTarget = await CARDINAL.models.pageClassification.parentClassifications(
         req.params.siteId,
         orderedTargets.map((target) => ({ locale: target.locale, path: target.path }))
@@ -151,9 +112,6 @@ async function routes(app: FastifyInstance) {
         if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
           return reply.forbidden('You are not allowed to edit one of these pages.')
         }
-        // -> Same declassification guardrail as the PATCH route: bringing a page UP needs nothing
-        //    extra, but this endpoint is not restricted to raises the way the dialog that drives it
-        //    is -- a caller asking for an actual lowering still needs manage:classification on it.
         if (
           CARDINAL.models.classificationLevels.isLowerThan(
             req.body.classification,
@@ -165,9 +123,6 @@ async function routes(app: FastifyInstance) {
             'Lowering this page’s classification requires the manage:classification permission on it.'
           )
         }
-        // -> Same floor invariant every other classification write enforces: this bulk write does
-        //    not get to leave a page below its own immediate parent's floor just because it arrived
-        //    through the resolve flow rather than a single PATCH.
         const floorId = floorByTarget.get(`${target.locale}\0${target.path}`) ?? null
         if (
           floorId &&
@@ -184,7 +139,6 @@ async function routes(app: FastifyInstance) {
         pageIds,
         req.body.classification
       )
-      // -> ONE multi-row audit INSERT instead of one `record()` call per target.
       await recordClassificationChanges(
         req,
         req.params.siteId,
@@ -199,13 +153,8 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * CLASSIFICATION REPORT (OpenProject #1081)
-   *
-   * "Everything currently classified as X", instance-wide by default -- the coverage half of the
-   * epic's auditability goal, alongside the `page.classificationChanged` events now feeding OpenProject
-   * #989's audit log. `manage:system` only: this deliberately bypasses every page rule (it exists to
-   * show an administrator what the rules are protecting, not to be gated by them), the same reasoning
-   * `api/auditLog.ts` uses for its own listing.
+   * `manage:system` only: the report bypasses every page rule on purpose. It shows an administrator
+   * what the rules protect, so it cannot be gated by them.
    */
   app.get<{ Querystring: { siteId?: string } }>(
     '/pages/classification-report',
@@ -245,9 +194,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * CLASSIFICATION REPORT — DRILL DOWN (OpenProject #1081)
-   */
   app.get<{
     Params: { levelId: string }
     Querystring: { siteId?: string; limit?: number; offset?: number }

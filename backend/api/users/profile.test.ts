@@ -4,22 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * `profile.ts`'s `requireSessionUser` preHandler (API-F5).
- *
- * Every `/profile*` route used to open with its own copy of the same four lines --
- * `const userId = sessionUserId(req)`, then `if (!userId) return reply.unauthorized()` -- 21 of
- * them. Replacing 21 in-handler checks with one hook is only safe if three things stay true, and
- * this file is what keeps them true:
- *
- * 1. every one of those routes still answers 401 for a session-less request, with the identical
- *    body (`reply.unauthorized()` carries no message, so it is `http-errors`' own "Unauthorized");
- * 2. the hook runs where the in-handler checks did, i.e. AFTER schema validation -- a request that
- *    is both anonymous AND malformed still answers 400 first, exactly as it did before;
- * 3. the hook does not leak out of the sub-plugin onto an `admin.ts` route, which is
- *    `config.permissions`-gated rather than session-gated and must keep answering 403 to a caller
- *    holding a session but not the permission.
- */
 describe('profile sub-plugin: requireSessionUser', () => {
   let app: FastifyInstance
 
@@ -36,11 +20,7 @@ describe('profile sub-plugin: requireSessionUser', () => {
 
   after(() => closeTestApp(app))
 
-  /**
-   * One per shape of profile route: a plain GET, a nested GET, a parameterised GET, a DELETE with a
-   * path param, and a PUT with a body. If the hook were registered anywhere but on this sub-plugin's
-   * own scope, at least one of these would answer something other than 401.
-   */
+  /** One per shape of profile route, not an exhaustive list. */
   const anonymous: Array<[string, string]> = [
     ['GET', '/users/profile'],
     ['GET', '/users/profile/groups'],
@@ -82,15 +62,13 @@ describe('profile sub-plugin: requireSessionUser', () => {
       url: '/users/defaults',
       headers: { 'x-test-permissions': 'read:pages' }
     })
-    // -> 403, not 401: the caller HAS a session, it just does not hold `read:users`/`manage:users`.
-    //    A `requireSessionUser` that had escaped onto `admin.ts` could not produce this.
+    // -> 403, not 401: a `requireSessionUser` leaked onto `admin.ts` would answer 401 here.
     assert.equal(res.statusCode, 403)
   })
 
   test('an anonymous request to an admin route is still 401, from its own permission gate', async () => {
     // -> Not a scoping proof on its own: the route-permission hook answers a session-less request
-    //    with the same `reply.unauthorized()` body `requireSessionUser` would. The 403 above is what
-    //    tells the two apart. This is here so the anonymous case is asserted for both audiences.
+    //    with the same body `requireSessionUser` would. The 403 above is what tells the two apart.
     const res = await app.inject({ method: 'GET', url: '/users/defaults' })
     assert.equal(res.statusCode, 401)
   })

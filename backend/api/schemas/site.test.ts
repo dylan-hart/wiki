@@ -6,15 +6,8 @@ import { buildSitePayload } from '../sites.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
 /**
- * Regression coverage for task 489: `editors.code` has to be registered on the shared `Site` schema
- * exactly the way `asciidoc`/`markdown`/`wysiwyg` are (`isActive`/`config`) — otherwise a PUT to
- * `sites/:siteId` carrying `editors: { code: { isActive: true } }` (what `AdminEditors.vue`'s `save()`
- * sends) is silently stripped by Fastify's schema-based serialization/validation rather than reaching
- * the model, and the code editor could never actually be turned on for a site.
- *
- * Reads the schema back out of Fastify (`app.getSchema`) rather than re-implementing its own copy of
- * `site.ts`'s object literal, so this fails the moment the real registration drifts from what is
- * asserted here.
+ * An editor missing from the `Site` schema's `editors` is silently dropped by Fastify's schema-based
+ * serialization, so the admin UI could never see it turned on for a site.
  */
 test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg', async () => {
   const app = fastify()
@@ -35,29 +28,15 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
 })
 
 /**
- * Task 2235: `buildSitePayload()` (api/sites.ts) used to spread `...site.config` ahead of the row and
- * computed fields, so any key that ever landed in a site's config blob reached the response the
- * moment this schema also declared it — nothing stated or tested that the two had to be kept in sync.
- * `search` is the load-bearing case: it's where active search-engine credentials live
- * (`CARDINAL.sites[siteId]?.config?.search?.engines?.[key]`, e.g. Algolia's `apiKey` and Azure AI Search's
- * `adminApiKey` — see `models/search.ts:402`/`:535`), seeded under the same top-level `search` key
- * as `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults), and it stayed out of
- * a reader's browser only because the `Site` schema above declares no top-level `search` property.
- * `buildSitePayload` is the body of two `publicAccess: true` routes (`GET /sites/:siteIdorHostname`
- * and `GET /_api/bootstrap`), so a caller passing a `search`-bearing config here — reproducing exactly
- * what `models/sites.ts` seeds — must never see it echoed back, regardless of what a future schema
- * edit declares.
- *
- * Asserts the full key set, not just `search`'s absence: an allow-list drifting silently out of step
- * with the `Site` schema (a key spread back in, or named here but never declared on `Site`) is exactly
- * the failure mode this test exists to catch.
+ * A site's `config.search` holds the active search engine's credentials (Algolia's `apiKey`, Azure
+ * AI Search's `adminApiKey`), and `buildSitePayload` is the body of `publicAccess: true` routes, so
+ * it must never be echoed back whatever the `Site` schema declares. Asserts the full key set, not
+ * just `search`'s absence, so the allow-list cannot drift silently out of step with the schema.
  */
 test('buildSitePayload returns exactly the allow-listed keys and never `search`', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: 'https://test.docs.example/docs', replication: { isEnabled: true } },
     models: {
-      // -> Availability moved off `rendering` when `models/rendering.ts` was split; the payload
-      //    builder reads it here now.
       renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] },
       navigation: { ensureSiteNav: async () => 'nav-id' },
@@ -94,8 +73,6 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
         editors: { markdown: { isActive: true, config: {} } },
         theme: { dark: false },
         analytics: { providers: {} },
-        // -> Deliberately present in the input, exactly as `models/sites.ts` seeds it, to prove it does
-        //    not survive to the output. This is the exclusion the file-header comment above is about.
         search: {
           engine: 'algolia',
           config: {
@@ -158,12 +135,6 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
   wikiHandle.restore()
 })
 
-/**
- * Feature #3286 / OpenProject #3303: `commentsProvider` is populated only when the site's active
- * provider is a `codeTemplate` one, and its `origin` comes from the `req` passed in -- never a
- * config-stored value -- exactly the formula `models/commentProviders.ts`'s canonical-URL boundary
- * doc comment requires.
- */
 test('buildSitePayload populates commentsProvider from the active codeTemplate provider and the request origin', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },
@@ -197,11 +168,6 @@ test('buildSitePayload populates commentsProvider from the active codeTemplate p
   wikiHandle.restore()
 })
 
-/**
- * The native `default` provider (or any other non-`codeTemplate` provider) is never surfaced through
- * `commentsProvider` -- that field exists purely to drive `PageCommentsEmbed.vue`, which has nothing
- * to do when the active provider renders through the ordinary `PageComments.vue` native flow instead.
- */
 test('buildSitePayload reports commentsProvider: null when the active provider is not a codeTemplate one', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },
@@ -230,12 +196,6 @@ test('buildSitePayload reports commentsProvider: null when the active provider i
   wikiHandle.restore()
 })
 
-/**
- * Task 2851: `isReplicationEnabled` is a strict boolean derived off `CARDINAL.config.replication?.isEnabled
- * === true`, not a bare truthy passthrough -- a missing `replication` config block (an older/minimal
- * config shape) must answer `false`, not `undefined`, since the field is declared `type: 'boolean'` on
- * the `Site` schema.
- */
 test('buildSitePayload reports isReplicationEnabled: false when replication config is absent', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },
@@ -260,16 +220,8 @@ test('buildSitePayload reports isReplicationEnabled: false when replication conf
 })
 
 /**
- * Task #3103: `features.semanticSearch` on the site-info response is true only when BOTH the
- * instance-wide boot-time capability flag (`CARDINAL.capabilities.semanticSearch`, Task #3095) and this
- * site's own `search.config.semanticEnabled` admin setting (Task #3104) are true -- all four
- * combinations, per the work package's own acceptance criteria.
- *
- * `semanticEnabled` is nested inside `search.config` here to match exactly where `api/search.ts`'s
- * PATCH handler actually saves it (`{ config: { search: { config: { semanticEnabled } } } }`) and
- * where `models/search.ts#getConfig()` reads it back from -- OpenProject #3137: `semanticSearchAvailable()`
- * used to read one level shallower (`search.semanticEnabled`) and so never matched the real saved
- * shape, always reporting `false` regardless of either input.
+ * `semanticEnabled` sits under `search.config` because that is where `api/search.ts`'s PATCH handler
+ * saves it and `models/search.ts#getConfig()` reads it back.
  */
 const semanticSearchCombinations: Array<{
   capability: boolean | undefined
@@ -306,8 +258,7 @@ for (const { capability, siteSetting, expected } of semanticSearchCombinations) 
     })
 
     assert.equal(payload.features.semanticSearch, expected)
-    // -> `browse` (an ordinary, directly-stored features.* key) must survive the merge unchanged --
-    //    computing `semanticSearch` must not replace the rest of `features`.
+    // -> Computing `semanticSearch` must not replace the rest of `features`.
     assert.equal(payload.features.browse, true)
     assert.ok(!('search' in payload), '`search` must never reach the public site payload')
 
@@ -315,11 +266,6 @@ for (const { capability, siteSetting, expected } of semanticSearchCombinations) 
   })
 }
 
-/**
- * The capability flag is absent entirely on a `CARDINAL` that hasn't gone through the Task #3095 boot
- * step (the default test stub, and any real instance that hasn't been rebuilt with that change yet)
- * -- must read as unavailable, not throw.
- */
 test('buildSitePayload reports features.semanticSearch: false when CARDINAL.capabilities is entirely absent', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },
@@ -343,12 +289,7 @@ test('buildSitePayload reports features.semanticSearch: false when CARDINAL.capa
   wikiHandle.restore()
 })
 
-/**
- * OpenProject #3137: reproduces the exact stale shape the read side used before the fix --
- * `semanticEnabled` sitting directly under `search` rather than under `search.config` -- to prove
- * `buildSitePayload` no longer reads it from there. A real saved site never has this shape (see the
- * nested-shape tests above), but this pins the read path against silently reverting.
- */
+/** A real saved site never has this shape; this pins the read path against reverting to it. */
 test('buildSitePayload reports features.semanticSearch: false when the setting is only present at the old, un-nested search.semanticEnabled shape', async () => {
   const wikiHandle = installTestWiki({
     config: { docsBase: '' },

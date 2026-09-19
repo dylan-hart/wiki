@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * REPLICATION CONFIG
-   */
   app.addSchema({
     $id: 'ReplicationConfig',
     type: 'object',

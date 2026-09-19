@@ -4,18 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * `PUT /users/profile` carrying `graph` (OpenProject #2854): the knowledge graph view's five
- * persisted controls, saved and read back as one whole object.
- *
- * Mirrors `profile.aesthetic.test.ts`'s shape for the field this WP adds: the real
- * `UserProfileUpdate` schema (registered through `buildTestApp`'s default `schemas: 'all'`)
- * enum-validates every sub-key -- an out-of-enum value, or an unknown key, never reaches the model at
- * all (`additionalProperties: false`) -- and a successful save both hands the patch to
- * `models/users.ts#updateProfile` unchanged and copies the saved value onto `req.session.user`, the
- * same "session carries a copy of the preferences" contract `aesthetic`/`appearance` already have.
- */
-
 const USER_ID = '55555555-5555-4555-8555-555555555555'
 
 const VALID_GRAPH = {
@@ -115,12 +103,8 @@ describe('PUT /users/profile: graph', () => {
   })
 
   test('silently drops an unknown sub-key, matching every other route in this codebase', async () => {
-    // -> This instance's ajv is configured with the Fastify default `removeAdditional: true` (see
-    //    `profile.notifications.test.ts`'s own version of this test): `additionalProperties: false`
-    //    is what tells ajv there IS such a thing as an unknown property here, but the configured
-    //    removal mode strips the property from the body rather than rejecting the request -- so an
-    //    unknown key never reaches the model, but a request carrying only one alongside it is not a
-    //    400.
+    // -> ajv runs with Fastify's default `removeAdditional: true`, so `additionalProperties: false`
+    //    strips the unknown key from the body rather than answering 400.
     const res = await asUser({ graph: { notARealControl: true, groupBy: 'tag' } })
 
     assert.equal(res.statusCode, 200)
@@ -136,11 +120,8 @@ describe('PUT /users/profile: graph', () => {
 })
 
 /**
- * `req.session.user.graph` -- what `/whoami` (and therefore a page load with no save in between)
- * actually serves -- separately from the response body above. `session: 'header'` re-parses a fresh
- * object from a header on every request, so it cannot show a mutation; a session **function**
- * returning the same mutable object across requests can (`test/fastify.ts`'s documented third seeding
- * form).
+ * `session: 'header'` re-parses a fresh object on every request, so it cannot show a mutation; a
+ * session function returning the same mutable object across requests can.
  */
 describe('PUT /users/profile: graph on the session', () => {
   test('copies the saved value onto req.session.user, the same as aesthetic/appearance', async () => {

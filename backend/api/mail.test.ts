@@ -5,14 +5,6 @@ import mailRoutes from './mail.ts'
 import { createSilentLogger } from '../test/mocks.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * `POST /_api/mail/test` — the manual verification path for the whole mail transport feature.
- * `CARDINAL.models.mail.sendTestEmail` is stubbed rather than pulling in the real nodemailer transporter
- * (that mapping, and the template content itself, are covered directly in `models/mail.test.ts`),
- * keeping this a self-contained test of the route's request/response wiring: which errors from the
- * model become which HTTP statuses.
- */
-
 let app: FastifyInstance
 let sendTestEmailMock: ReturnType<typeof mock.fn>
 
@@ -167,8 +159,7 @@ test('answers 502 with a specific message when the SMTP TLS certificate fails va
 
   assert.equal(res.statusCode, 502)
   assert.match(res.json().message, /certificate/i)
-  // -> Distinct wording from the plain "connect" connection-failure message below, and points the
-  //    admin at the "Verify SSL Certificate" toggle that exists to work around exactly this.
+  // -> The message must name the toggle that works around this failure.
   assert.match(res.json().message, /Verify SSL Certificate/)
 })
 
@@ -188,12 +179,6 @@ test('answers 422 with a specific message when the recipient is rejected by the 
   assert.equal(res.statusCode, 422)
   assert.match(res.json().message, /recipient|rejected/i)
 })
-
-/**
- * `GET /_api/mail/config` / `PUT /_api/mail/config` — the `dkimPrivateKey` masking round trip,
- * matching the existing `pass` contract: a stored key comes back as the mask, and echoing the mask
- * back on PUT must not overwrite the stored value.
- */
 
 test('masks a stored dkimPrivateKey on GET, like pass', async () => {
   CARDINAL.config.mail = {

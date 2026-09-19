@@ -3,9 +3,6 @@ import { HOOK_EVENTS } from '../../models/hooks.ts'
 import { JOB_STATES } from '../../models/jobs.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * HOOK INPUT - The writable fields, used for both create and update
-   */
   app.addSchema({
     $id: 'HookInput',
     type: 'object',
@@ -56,9 +53,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * HOOK TEST INPUT - What a test delivery needs, straight from the edit form or a saved webhook
-   */
   app.addSchema({
     $id: 'HookTestInput',
     type: 'object',
@@ -83,9 +77,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * HOOK - A webhook with the outcome of its last delivery
-   */
   app.addSchema({
     $id: 'Hook',
     type: 'object',
@@ -147,9 +138,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * HOOK DELIVERY - One attempt to deliver an event to a webhook, as recorded in job history
-   */
   app.addSchema({
     $id: 'HookDelivery',
     type: 'object',

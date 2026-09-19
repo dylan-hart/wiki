@@ -3,37 +3,21 @@ import { limitRenders } from '../../helpers/rateLimit.ts'
 import { actorFrom, mayReadSource, requireReadablePage } from '../../helpers/pageAccess.ts'
 import { sessionCookieName } from '../../helpers/security.ts'
 
-/**
- * A safe filename stem for a page export, from its path.
- *
- * A path is directories joined by `/`; a downloaded file only wants the page's own name, the way
- * `docs/getting-started` becomes `getting-started.pdf` rather than a name with slashes in it. The home
- * page's path is empty, so that falls back to `home`. Shared by every `.../export*` route — PDF,
- * Markdown and HTML alike all name their download off the same rule.
- */
+/** The home page's path is empty, hence the `home` fallback. */
 function exportFilenameStem(path: string): string {
   const segment = path.split('/').filter(Boolean).pop() || 'home'
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
 }
 
-/**
- * Downloading a page as a file: PDF, Markdown or HTML.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * EXPORT PAGE AS PDF
-   */
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/export/pdf',
     {
       /*
-        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
-        granted by a group's RULES. Checked against the page in question below instead, the same
-        `read:pages` the page view itself needs — exporting shows nothing a reader could not already
-        see.
+        No route-level `permissions`: `read:pages` is a page permission granted by a rule, checked
+        against this page below. Exporting shows nothing a reader could not already see.
       */
-      // -> Same cost as re-rendering a page — a headless browser per request — so it shares that
-      //    route's throttle; see `helpers/rateLimit.ts`
+      // -> A headless browser per request, the same cost as a re-render, so it shares that throttle
       preHandler: limitRenders,
       schema: {
         summary: 'Export a page as PDF',
@@ -70,11 +54,12 @@ async function routes(app: FastifyInstance) {
         hostname: req.hostname,
         port: CARDINAL.config.port,
         path: page.path,
-        // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
-        //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient
+        // -> The raw, still-signed value as the browser sent it: the headless browser replays it
         sessionCookie: req.cookies?.[sessionCookieName()] ?? null
       })
 
+      // FIXME: name the file through `exportFilenameStem(page.path)` like the Markdown/HTML export;
+      //    a nested page downloads as `docs%2Fgetting-started.pdf`.
       reply.header(
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(page.path || 'home')}.pdf"`
@@ -85,9 +70,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * EXPORT PAGE AS MARKDOWN OR HTML
-   */
   app.get<{
     Params: { siteId: string; pageId: string }
     Querystring: { format: 'markdown' | 'html' }
@@ -95,12 +77,10 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/:pageId/export',
     {
       /*
-        No route-level `permissions`: `read:pages` is a page permission granted by a group's RULES,
-        checked against this page below (through `requireReadablePage`). `format=markdown` sends back the
-        raw stored `content` — the same thing `withContent=true` on the GET route above returns — so it
-        needs `read:source` ON TOP of `read:pages`, checked the same way. `format=html` sends back the
-        already-rendered, already-sanitized `render` a reader sees anyway, so it needs only `read:pages`,
-        exactly matching the PDF export above.
+        No route-level `permissions`: page permissions are granted by a rule and checked against
+        this page below. `format=markdown` returns the raw stored `content`, so it needs source
+        access on top of `read:pages`; `format=html` returns the sanitized `render` a reader sees
+        anyway.
       */
       schema: {
         summary: 'Export a page as Markdown or HTML',
@@ -133,13 +113,10 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const wantsMarkdown = req.query.format === 'markdown'
       /*
-        `requireReadablePage`'s own `permission` option checks a single permission string via
-        `mayOnPage`, which can't express `mayReadSource`'s read:source/write:pages/manage:pages OR --
-        so the source check is a separate explicit step here rather than passed through that option.
-        `allowLocked: true` defers the lock check to below (done manually with the same message
-        `requireReadablePage` would have used) so the ORDER stays the documented contract: missing →
-        404, this route's own second permission → 403, THEN still-locked → 403 -- unchanged from
-        before this helper existed.
+        `requireReadablePage`'s `permission` option takes one permission string, which cannot
+        express `mayReadSource`'s OR, so the source check is a separate step. `allowLocked: true`
+        defers the lock check to below so the documented order holds: missing → 404, second
+        permission → 403, then still-locked → 403.
       */
       const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
         withContent: wantsMarkdown,
@@ -148,8 +125,6 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      // -> A separate check from `read:pages`, exactly as it is on the GET route above -- and only
-      //    for `format=markdown`, which is the format that hands back the raw source
       if (wantsMarkdown && !mayReadSource(req, req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's source.")
       }

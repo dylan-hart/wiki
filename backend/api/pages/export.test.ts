@@ -4,19 +4,6 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import pagesRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498).
- *
- * `GET /sites/:siteId/pages/:pageId/export/pdf` (task 496) is deliberately not covered here: this
- * file originally also tested that route against `models/rendering.ts#renderPdf()`, but that PDF
- * path was retired at merge-review time in favor of `models/pdfExport.ts`'s richer, live-page-view
- * export -- `api/pagesExportPdf.test.ts` is the winning route's own dedicated test file.
- *
- * The Markdown/HTML export route needs no Puppeteer stub — it just serves `content`/`render` off the
- * page already loaded — so its tests focus on the permission split the task calls for:
- * `format=markdown` needs `read:source` on top of `read:pages`, `format=html` needs only `read:pages`.
- */
-
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const RENDER_HTML = '<p>Hello, PDF.</p>'
@@ -32,10 +19,8 @@ let pageFixture: {
 } | null
 
 /**
- * Mirrors the real model just enough to catch a wiring bug: `content` is only present on the
- * returned page when `withContent` was actually asked for, the same way `models/pages.ts` withholds
- * it — so a test asserting on `page.content` here is genuinely exercising the route's `withContent`
- * option, not just trusting it was passed.
+ * Like `models/pages.ts`, withholds `content` unless `withContent` was asked for, so a test reading
+ * the body exercises the route's `withContent` option.
  */
 async function getPage(opts?: { withContent?: boolean }) {
   if (!pageFixture) return null
@@ -132,8 +117,6 @@ test('format=markdown answers 403 when only read:pages is granted (read:source m
   assert.match(res.json().message, /source/)
 })
 
-// -> OpenProject #3391/#3411: `write:pages` alone (no `read:source`) is enough to export markdown --
-//    `mayReadSource()` folds it in.
 test('format=markdown streams the raw content when write:pages is granted, with no read:source', async () => {
   const res = await app.inject({
     method: 'GET',

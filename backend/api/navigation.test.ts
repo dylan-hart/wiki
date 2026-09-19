@@ -5,20 +5,11 @@ import navigationRoutes from './navigation.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
-/**
- * Task #683: `GET .../navigation/pages/:pageId/inherited` and `PUT .../navigation/pages/:pageId`
- * used to gate on the blanket route-level `manage:navigation` alone. Both routes now also accept the
- * site-scoped `site:navigation` permission from task #682 (`checkSiteAccess()`), checked in-handler
- * via `checkSiteAdminAccess` since `config.permissions` cannot express a per-site check.
- */
-
 const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
 const PAGE_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
 
-// -> Three levels deep: top-level item -> child -> grandchild. The `NavigationItem` response
-//    schema used to be a plain object literal bolting on exactly one hand-written level of
-//    `children`, so `fast-json-stringify` silently dropped the grandchild regardless of what
-//    `getNav` actually returned (OpenProject #814 follow-up to 6d1cd05e).
+// -> Three levels deep: a response schema that hand-writes a fixed number of `children` levels
+//    makes `fast-json-stringify` silently drop anything nested past them.
 const DEEP_NAV_TREE = [
   {
     id: 'top',
@@ -35,7 +26,6 @@ const DEEP_NAV_TREE = [
   }
 ]
 
-/** Calls made to `CARDINAL.models.sites.updateSite` -- asserted by the `pathDisplay` route's tests. */
 let updateSiteCalls: Array<{ id: string; patch: any }> = []
 
 let currentSitePermissionHeader: string | undefined
@@ -61,9 +51,8 @@ let app: FastifyInstance
 before(async () => {
   app = await buildTestApp({
     routes: navigationRoutes,
-    // -> `checkSiteAccess()` takes no `req`, so the stub reads the per-test site-permission grants
-    //    off a module-level variable, populated once per request from the same header the
-    //    handler-level tests set. Returning `undefined` leaves the request's own session alone.
+    // -> `checkSiteAccess()` takes no `req`, so its stub reads the grants from a module-level
+    //    variable set here per request. Returning `undefined` leaves the session alone.
     session: (req: any) => {
       currentSitePermissionHeader = req.headers['x-test-site-permissions']
       return undefined
@@ -86,8 +75,7 @@ before(async () => {
           }),
           getNav: async () => DEEP_NAV_TREE,
           getMode: async () => 'static',
-          // -> A distinguishable, non-default value (OpenProject #2442): a test below asserts the
-          //    route echoes exactly this through the response rather than merely being present.
+          // -> Non-default values, so a test can tell the route echoed them.
           getNavRoot: async () => ({ rootPath: 'stub-section', rootId: 'stub-folder-id' }),
           ensureSiteNav: async () => 'default-nav-id',
           siteRoots: async () => [{ locale: 'en', navigationId: 'root-nav-id' }],
@@ -199,12 +187,6 @@ test('a menu nested three levels deep reaches the response intact', async () => 
   assert.equal(body.items[0].children[0].children[0].id, 'grandchild')
 })
 
-/**
- * OpenProject #2442: the route wires `getNavRoot` in alongside `getMode`/`getNav` and folds its
- * result straight into the response, so `NavSidebar.vue`'s root-level "create here" action can read
- * the override's own section root off the same request instead of the hardcoded locale-root values
- * that were wrong for a page/folder-level override.
- */
 test('GET .../navigation/:navId includes the generator root alongside mode and items', async () => {
   const res = await app.inject({
     method: 'GET',
@@ -216,12 +198,7 @@ test('GET .../navigation/:navId includes the generator root alongside mode and i
   assert.equal(body.rootId, 'stub-folder-id')
 })
 
-/**
- * OpenProject #2155: `getNav()` now requires an `actor` so `generateFromTree()` can run every
- * generated entry through `read:pages` — this pins that the route actually builds and passes one
- * (via `CARDINAL.models.groups.actorForRequest(req)`), the same actor every other page-scoped check in
- * this codebase is built from, rather than leaving the parameter to default away silently.
- */
+// -> `getNav()` filters generated entries through this actor's `read:pages` grant.
 test('GET .../navigation/:navId passes the request-resolved actor through to getNav', async () => {
   const originalGetNav = (globalThis as any).CARDINAL.models.navigation.getNav
   const calls: any[] = []
@@ -248,12 +225,6 @@ test('GET .../navigation/:navId passes the request-resolved actor through to get
   }
 })
 
-/**
- * WP #2577: `PUT .../navigation/pathDisplay` stores the site's path-display case style
- * (`config.pathDisplayCase`) via `CARDINAL.models.sites.updateSite`, gated the same way as every other
- * `site:navigation` surface in this file rather than through `api/sites.ts`'s general `PUT
- * /:siteId` -- see that route's own header comment for why.
- */
 test('manage:navigation may set the path display case style', async () => {
   updateSiteCalls = []
   const res = await app.inject({
@@ -317,14 +288,6 @@ test('an unknown caseStyle is rejected by the schema and never reaches updateSit
   assert.equal(updateSiteCalls.length, 0)
 })
 
-/**
- * OpenProject #933: six navigation endpoints still declared route-level `permissions:
- * ['manage:navigation']` after task #683 introduced `site:navigation` delegation — the global
- * `preHandler` hook resolves that from `session.permissions` only, so `checkSiteAccess()` could
- * never run for these, and a `site:navigation`-only caller got a 403 from every one of them despite
- * `AdminNavigation.vue` showing them the page. Each now checks `checkSiteAdminAccess()` in-handler,
- * the same way their siblings above already did.
- */
 describe('site:navigation delegation on the six previously route-gated endpoints (task #933)', () => {
   const NAV_ID = 'c3d4e5f6-a7b8-49ab-cdef-012345678901'
 
@@ -429,12 +392,6 @@ describe('site:navigation delegation on the six previously route-gated endpoints
     assert.equal(allowed.statusCode, 200)
   })
 
-  /**
-   * OpenProject #933 follow-up: `site:navigation` is granted per site (`helpers/siteRules.ts`), so a
-   * cross-site copy (`sourceSiteId` different from the path's `:siteId`) must not let a caller
-   * delegated ONLY on the target read and duplicate a DIFFERENT site's menu with no permission on
-   * that site at all.
-   */
   test('POST .../copy with a different sourceSiteId requires site:navigation on BOTH sites', async () => {
     const OTHER_SITE_ID = 'b2c3d4e5-f6a7-4890-9abc-def012345679'
 
@@ -457,12 +414,6 @@ describe('site:navigation delegation on the six previously route-gated endpoints
     assert.equal(both.statusCode, 200)
   })
 
-  /**
-   * OpenProject #2217: `target` was an unconstrained string, so a `site:navigation` holder could
-   * store `javascript:...` as an item's target -- it renders in the sidebar of every page of that
-   * site and runs in the wiki origin for any reader who clicks it. Checked recursively (including
-   * nested `children`), on both routes that accept `items` directly.
-   */
   test('PUT .../navigation/:navId rejects a javascript: item target with 400', async () => {
     const res = await app.inject({
       method: 'PUT',
@@ -528,7 +479,6 @@ describe('site:navigation delegation on the six previously route-gated endpoints
   })
 })
 
-/** The session-derived actor the Task 472 describe's own `CARDINAL.models.groups` stub answers from. */
 function sessionActor(req: any) {
   return {
     groupIds: [],
@@ -537,12 +487,6 @@ function sessionActor(req: any) {
 }
 
 describe('manage:navigation permission surface on GET/PUT .../navigation/:navId (Task 472)', () => {
-  /**
-   * No session plugin is registered in this isolated app (see comment above), so a test seeds
-   * `req.session` itself via an `x-test-session` header carrying the JSON a real session would already
-   * hold by the time it reaches a route -- `buildTestApp`'s `session: 'header'` decodes it before the
-   * real permission hook runs, exactly where the real session plugin would sit in the chain.
-   */
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const NAV_ID = '22222222-2222-2222-2222-222222222222'
 
@@ -578,12 +522,6 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
             lastSetNavItemsCall = { siteId, navId, items }
           }
         },
-        // -> Both the GET route's `full=true` branch and the PUT route below check
-        //    `checkSiteAdminAccess()` in-handler (task #933 moved PUT off route-level
-        //    `config.permissions` too) -- this stub answers that from the same `x-test-session`
-        //    header `permissionPreHandler` reads, and never grants `site:navigation`, since no test
-        //    in this describe exercises that delegation path (see the task #933 describe above for
-        //    that coverage).
         groups: {
           actorForRequest: sessionActor,
           checkSiteAccess: () => false,
@@ -593,11 +531,9 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
       }
     }
 
-    // -> Captures the GET .../navigation/:navId route's OpenAPI `description` as it's registered,
-    //    so a test below can assert on its actual text (OpenProject #2342) without needing
-    //    `@fastify/swagger` wired into this lightweight test app. Wrapped around the route plugin
-    //    rather than added to the app, since an `onRoute` hook only fires for routes registered
-    //    into the same encapsulation or below it.
+    // -> Captures the route's OpenAPI `description` without wiring `@fastify/swagger`. Wrapped
+    //    around the route plugin because `onRoute` only fires for routes registered into the same
+    //    encapsulation or below it.
     const capturingRoutes: FastifyPluginAsync = async (instance) => {
       instance.addHook('onRoute', (routeOptions) => {
         if (
@@ -655,13 +591,9 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     assert.equal(lastSetNavItemsCall?.navId, NAV_ID)
   })
 
-  // -> Unlike the GET test above, this one does NOT independently demonstrate OpenProject #814's
-  //    fix: Ajv only strips/rejects undeclared-depth properties when `additionalProperties: false`
-  //    is set somewhere in the schema chain, and it never was here, in either the old inlined
-  //    `navigationItem` shape or the new shared `NavigationItem` schema -- so a PUT body nested
-  //    past the schema's known depth was never actually truncated or rejected on the write path.
-  //    Reverting `navigation.ts` to its pre-fix schema still passes this test. It stays as a
-  //    forward-looking contract test for the write path, not as proof of this bug's existence.
+  // -> Passes whatever depth the body schema declares: Ajv only strips undeclared properties under
+  //    `additionalProperties: false`, which `NavigationItem` does not set. A write-path contract
+  //    test, not a guard on the schema.
   test('a menu nested three levels deep survives the save (body validation)', async () => {
     const res = await app.inject({
       method: 'PUT',
@@ -690,10 +622,6 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     assert.equal(res.statusCode, 403)
   })
 
-  // -> OpenProject #2342: the route's OpenAPI description used to claim the per-item `read:pages`
-  //    filter "runs regardless of `full`" -- the opposite of what `getNav`'s `unfiltered ? null :
-  //    actor` actually does (skips it, same as the visibility-group filter). This pins the
-  //    corrected wording so the two can't silently drift apart again.
   test('the OpenAPI description documents that `full` skips read:pages filtering, not the reverse', () => {
     assert.ok(getNavRouteDescription, 'expected the GET .../navigation/:navId route to be captured')
     assert.doesNotMatch(getNavRouteDescription!, /read:pages.*regardless of `full`/s)
@@ -724,10 +652,8 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
   })
 
   test('an anonymous request is refused a save', async () => {
-    // -> 403, not 401: task #933 moved this route off route-level `config.permissions` (whose
-    //    preHandler hook distinguishes "nobody home" from "wrong permission") onto the same
-    //    in-handler `checkSiteAdminAccess()` check every sibling delegated route already uses, which
-    //    answers a flat forbidden() either way -- see the task #933 describe above.
+    // -> 403, not 401: the in-handler `checkSiteAdminAccess()` check answers a flat forbidden().
+    //    Unlike the route-level permission hook, it does not tell an anonymous caller apart.
     const res = await app.inject({
       method: 'PUT',
       url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,

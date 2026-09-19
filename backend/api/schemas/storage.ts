@@ -2,9 +2,6 @@ import { CONTENT_TYPES } from '../../models/storage.ts'
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * STORAGE TARGET - A storage module as configured for a site
-   */
   app.addSchema({
     $id: 'StorageTarget',
     type: 'object',
@@ -107,30 +104,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           schedule: {
             description:
               'ISO-8601 duration the module syncs on by default (e.g. `PT5M`), or `false` for a module that only acts on write.',
-            // -> `anyOf`, not `oneOf` (OpenProject #2366, same shape as `security.ts`'s `trustProxy`):
-            //    under Fastify's default AJV `coerceTypes: 'array'`, `oneOf` must evaluate every
-            //    branch to count matches, so a real `false` matches the `boolean` branch and then
-            //    also gets coerced to the string `"false"` for the `string` branch, and `oneOf`
-            //    (exactly one match) rejects the whole property. `anyOf` short-circuits on the first
-            //    match -- which is also why the `boolean` branch has to come FIRST, unlike the
-            //    string-then-boolean order this replaced: with `string` first, a real `false` still
-            //    gets coerced to `"false"` and matches there before the `boolean` branch is ever
-            //    tried, silently turning a real boolean into a string. With `boolean` first, `false`
-            //    matches immediately with no coercion attempted, and a real duration string like
-            //    `PT5M` fails the `boolean` branch outright (AJV only coerces a string to boolean
-            //    from the literal `"true"`/`"false"`/`"1"`/`"0"`) and falls through to match the
-            //    `string` branch as-is. This field is read-only/response-only (`StorageTargetInput`
-            //    -- the request-body shape a `PUT` actually accepts -- has no `schedule` property at
-            //    all, only `mode`/`scheduleOverride`), so there is no live input-validation path for
-            //    it to fix; this keeps the declared shape correct and consistent with `trustProxy`
-            //    rather than leaving a second copy of the same broken pattern in place. One
-            //    asymmetric residual quirk from AJV's coercion, harmless precisely because this is
-            //    never validated against real request input: `anyOf` still lets a stray boolean
-            //    `true` validate here too (it fails the `boolean` branch's `enum: [false]` check, but
-            //    then coerces to the string `"true"` and matches the `string` branch) -- unlike
-            //    `trustProxy`, whose `boolean` branch has no `enum` restriction and so always matches
-            //    a real boolean outright, both `true` and `false`, before the `string` branch is ever
-            //    tried.
+            // -> `anyOf` with `boolean` first, not `oneOf`: under Fastify's default AJV
+            //    `coerceTypes: 'array'` a real `false` also coerces into the `string` branch, which
+            //    `oneOf` (exactly one match) rejects and a `string`-first `anyOf` silently turns into
+            //    `"false"`. A stray `true` still coerces to `"true"` and validates -- harmless, since
+            //    this field is response-only (`StorageTargetInput` has no `schedule`).
             anyOf: [{ type: 'boolean', enum: [false] }, { type: 'string' }]
           },
           mode: {
@@ -147,15 +125,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
-      // Deliberately loose: keys and value types come from each storage module's own
-      // `definition.yml` on disk, so the shape genuinely differs per module (db, git, s3, …).
       props: {
         type: 'object',
         additionalProperties: true,
         description:
           'The module configuration, declared in its `definition.yml`: each entry carries a `type`, `title`, `hint`, `default` and the display hints the admin area renders a control from. A `readOnly` prop is shown but cannot be changed, and is silently kept at its stored value when written to.'
       },
-      // Deliberately loose: values for whatever `props` the module (above) declares.
       config: {
         type: 'object',
         additionalProperties: true,
@@ -191,9 +166,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * STORAGE SYNC STATUS - A target's sync status at a glance
-   */
   app.addSchema({
     $id: 'StorageSyncStatus',
     type: 'object',
@@ -218,9 +190,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * STORAGE TARGET INPUT - A partial update of one target
-   */
   app.addSchema({
     $id: 'StorageTargetInput',
     type: 'object',

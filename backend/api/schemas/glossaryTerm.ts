@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * GLOSSARY ALIAS - One alternate surface form of a term (OpenProject #2575)
-   */
   app.addSchema({
     $id: 'GlossaryAlias',
     type: 'object',
@@ -25,9 +22,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY TERM INPUT - The writable fields, used for both create and update
-   */
   app.addSchema({
     $id: 'GlossaryTermInput',
     type: 'object',
@@ -53,14 +47,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       isAcronym: {
         type: 'boolean',
-        // -> Deliberately NO `default` here, unlike `GlossaryAlias#isAcronym`/`GlossaryExportTerm#isAcronym`
-        //    below -- this same schema also validates the single-term PUT body (OpenProject #870's
-        //    "accepts any subset of the fields"), and `useDefaults` would otherwise inject `false`
-        //    into every partial update that omits this field, silently clearing an existing acronym
-        //    flag whenever a caller PUTs just `{ definition: '...' }`. Its absence stays `undefined`
-        //    on the wire, which `models/glossary.ts#updateTerm`'s `input.isAcronym !== undefined`
-        //    guard already treats as "leave it alone" -- `createTerm`'s `!!input.isAcronym` still
-        //    coerces an omitted create-time value to `false` correctly, with no schema default needed.
+        // -> No `default`, unlike `GlossaryAlias#isAcronym`: this schema also validates the partial
+        //    PUT body, where `useDefaults` would inject `false` and silently clear an existing flag.
         description:
           "Marks the TERM ITSELF (as opposed to one of its aliases) as an acronym -- same canonical-display-casing meaning as an alias's own `isAcronym`. Omit to leave unchanged on an update; treated as `false` on create."
       },
@@ -73,9 +61,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY TERM - A stored term, as the admin screen lists it
-   */
   app.addSchema({
     $id: 'GlossaryTerm',
     type: 'object',
@@ -115,9 +100,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY RENDER TERM - The resolved shape the rendering pipeline matches against
-   */
   app.addSchema({
     $id: 'GlossaryRenderTerm',
     type: 'object',
@@ -143,10 +125,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY ACRONYM MAP - A lowercase-surface-form → canonical-display-casing lookup (OpenProject
-   * #2575), consulted by the frontend's path-segment humanization helper.
-   */
   app.addSchema({
     $id: 'GlossaryAcronymMap',
     type: 'object',
@@ -156,10 +134,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * GLOSSARY EXPORT TERM - The portable, external-editing-round-trip shape (OpenProject #1114):
-   * carries `path`, not `pageId`, since an id is meaningless once this JSON is edited outside the app
-   * and re-imported, possibly into a different instance. Shared as-is by export, import, and each
-   * stored version snapshot (OpenProject #1113).
+   * Carries `path`, not `pageId`: an id is meaningless once this JSON is re-imported, possibly into
+   * a different instance. Stored version snapshots use this shape too.
    */
   app.addSchema({
     $id: 'GlossaryExportTerm',
@@ -186,9 +162,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY EXPORT - The whole-glossary JSON round-trip shape, and an import request body.
-   */
   app.addSchema({
     $id: 'GlossaryExport',
     type: 'object',
@@ -202,10 +175,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY VERSION SUMMARY - One saved snapshot's metadata, without the snapshot itself
-   * (OpenProject #1113)
-   */
   app.addSchema({
     $id: 'GlossaryVersionSummary',
     type: 'object',
@@ -218,9 +187,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY VERSION - A saved snapshot, including its full term list
-   */
   app.addSchema({
     $id: 'GlossaryVersion',
     type: 'object',
@@ -234,9 +200,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GLOSSARY SAVE RESULT - The live term list as it now stands, plus the version it was just saved as
-   */
   app.addSchema({
     $id: 'GlossarySaveResult',
     type: 'object',

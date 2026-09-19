@@ -1,11 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * GRAPHTOTALCONTRIBUTORCOUNTS — raw (not distinct) history-row counts for one page's edit history,
-   * split by `via`, the sibling of GRAPHCONTRIBUTORCOUNTS below for the Unique/Total sizing toggle
-   * (OpenProject #1269/#1270). Registered before GRAPHCONTRIBUTORCOUNTS, which `$ref`s it.
-   */
   app.addSchema({
     $id: 'GraphTotalContributorCounts',
     type: 'object',
@@ -26,10 +21,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     required: ['editor', 'mcp', 'all']
   })
 
-  /**
-   * GRAPHCONTRIBUTORCOUNTS — unique-contributor counts for one page's edit history, split by
-   * `pageHistory.via` (OpenProject #1141). Registered before GRAPHNODE, which `$ref`s it.
-   */
   app.addSchema({
     $id: 'GraphContributorCounts',
     type: 'object',
@@ -56,11 +47,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     required: ['editor', 'mcp', 'all', 'total']
   })
 
-  /**
-   * GRAPHTOTALPAGEVIEWWINDOWCOUNTS — raw (not distinct) pageview-row counts for one page within one
-   * trailing window, split by `clientType`, the sibling of GRAPHPAGEVIEWWINDOWCOUNTS below for the
-   * Unique/Total sizing toggle (OpenProject #1269/#1270). Registered before it, which `$ref`s it.
-   */
   app.addSchema({
     $id: 'GraphTotalPageviewWindowCounts',
     type: 'object',
@@ -76,11 +62,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     required: ['browser', 'api', 'mcp', 'all']
   })
 
-  /**
-   * GRAPHPAGEVIEWWINDOWCOUNTS — unique-visitor counts for one page within one trailing window,
-   * split by pageview `clientType` (OpenProject #1140). Registered before GRAPHPAGEVIEWCOUNTS,
-   * which `$ref`s it once per window.
-   */
   app.addSchema({
     $id: 'GraphPageviewWindowCounts',
     type: 'object',
@@ -111,11 +92,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     required: ['browser', 'api', 'mcp', 'all', 'total']
   })
 
-  /**
-   * GRAPHPAGEVIEWCOUNTS — unique-visitor counts for one page, across the three fixed trailing
-   * windows OpenProject #1140's node sizing aggregates over (30 days / 6 months / 2 years, matching
-   * the pageview log's own 2-year retention). Registered before GRAPHNODE, which `$ref`s it.
-   */
   app.addSchema({
     $id: 'GraphPageviewCounts',
     type: 'object',
@@ -130,9 +106,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     required: ['last30d', 'last6mo', 'last2yr']
   })
 
-  /**
-   * GRAPHNODE — one page the caller may read, as a knowledge-graph node (OpenProject #872).
-   */
   app.addSchema({
     $id: 'GraphNode',
     type: 'object',
@@ -170,9 +143,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GRAPHEDGE — an authored relation or an extracted internal link between two visible nodes.
-   */
   app.addSchema({
     $id: 'GraphEdge',
     type: 'object',
@@ -192,9 +162,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GRAPH — the whole permitted graph for one site, across all locales, in one response.
-   */
   app.addSchema({
     $id: 'Graph',
     type: 'object',

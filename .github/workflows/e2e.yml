@@ -1,10 +1,7 @@
 name: E2E Smoke Suite
 
-# `build.yml` now runs this same suite as part of its own `build` job on every push to `scarlett`
-# (task 762: it has to gate the Docker push on it, which a separate workflow can't do — it runs in
-# parallel with no way to block a job in a different workflow run). Triggering here too on that same
-# push would mean installing Playwright's browsers and running the whole suite twice per push for no
-# gain. Left for pull_request/workflow_dispatch, which build.yml's push-only trigger doesn't cover.
+# No `push:` trigger: build.yml runs this same suite inside its own `build` job on every push to
+# `scarlett`, because only a job in the same workflow run can gate the Docker push.
 on:
   pull_request:
   workflow_dispatch:
@@ -13,19 +10,15 @@ jobs:
   e2e:
     name: Playwright smoke suite
     runs-on: ubuntu-latest
-    # OpenProject #2736: no timeout here previously meant GitHub's silent 360-minute default was
-    # the only backstop against a wedged runner -- see quality.yml's own timeout-minutes comment
-    # for the incident that exposed this gap across every workflow in the repo. 30 minutes covers
-    # this job's own frontend/blocks builds, dependency installs, Playwright-Chromium install and
-    # the e2e suite itself with comfortable headroom.
+    # GitHub's default job timeout is 6 hours. 30 minutes is headroom over the builds, the installs
+    # and the e2e suite.
     timeout-minutes: 30
     permissions:
       contents: read
 
     services:
-      # A fresh service container per run is what makes "seeded test database" true every time --
-      # the backend's own first-run path (core/config.ts's initDbValues()) does the actual seeding
-      # the moment it finds no settings row, so nothing here pre-loads data of its own.
+      # A fresh container per run: the backend's first-run path (core/config.ts's `initDbValues()`)
+      # seeds the database when it finds no settings row, so nothing here pre-loads data.
       postgres:
         image: postgres:18
         env:
@@ -43,9 +36,8 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
     steps:
-      # This job only reads the repo and runs PR-controlled code (npm ci against the PR's
-      # lockfiles, then its own webServer.command) -- it never pushes, so there's no reason for
-      # the checkout to leave a credentialed .git/config on the runner for that code to find.
+      # This job runs PR-controlled code and never pushes, so the checkout leaves no credentialed
+      # .git/config on the runner for that code to find.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -69,20 +61,15 @@ jobs:
           npm ci
           npm run build
 
-      # -> Missing here (unlike build.yml's own e2e leg, which this workflow's own header comment
-      #    says duplicates that one to avoid a second full run per push) left `blocks/compiled/`
-      #    absent, which `index.ts` warns about at boot ("root" path ".../blocks/compiled" must
-      #    exist) and serves as a 404 for every /_blocks/*.js request. csp.spec.js's own
-      #    self-contained-block coverage (block-checklist, block-tabs, block-infobox, ...) never
-      #    got past that 404 to actually exercise CSP against a real block render.
+      # -> Without `blocks/compiled/` every /_blocks/*.js request is a 404, and csp.spec.js's block
+      #    coverage never exercises CSP against a real block render.
       - name: Build blocks
         working-directory: blocks
         run: |
           npm ci
           npm run build
 
-      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner (see
-      # quality.yml; enforced by backend/test/workflowInstallEnv.test.ts).
+      # ONNXRUNTIME_NODE_INSTALL=skip: no CUDA download from nuget.org on a GPU-less runner.
       - name: Install backend dependencies
         working-directory: backend
         env:

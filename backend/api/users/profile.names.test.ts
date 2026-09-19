@@ -4,20 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * `PUT /users/profile` carrying the two authored name halves (Feature #2608, Task #2642).
- *
- * The claim under test is the same one `admin.names.test.ts` makes for the admin routes, from the
- * self-service side: the route validates the characters a name refuses and then hands all three
- * fields to `models/users.ts#updateProfile` unchanged. Deciding whether a submitted `name` counts as
- * authoring it belongs to `updateUser` alone; a route that pre-empted that would be the exact
- * duplication Feature #2608's one-owner rule exists to prevent.
- *
- * The `UserProfileUpdate` schema this exercises is registered through `buildTestApp`'s default
- * `schemas: 'all'`, so a field missing from it would surface here as a stripped payload rather than
- * silently passing.
- */
-
 const USER_ID = '33333333-3333-4333-8333-333333333333'
 
 let app: FastifyInstance
@@ -48,9 +34,7 @@ before(async () => {
   const wiki = {
     config: {},
     models: {
-      // -> `isProfileEditable` resolves the request hostname through the sites model; no site
-      //    resolving is the documented "editing enabled" fallback, and what a single-site instance
-      //    behaves like.
+      // -> No site resolving is `isProfileEditable`'s "editing enabled" fallback.
       sites: {
         getSiteByHostname: async () => null
       },

@@ -5,10 +5,8 @@ import { SITE_PERMISSIONS } from '../../helpers/siteRules.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
-   * GLOBAL PERMISSION - The closed vocabulary a group's top-level `permissions` array may name.
-   * Kept separate from `ApiKeyScopePermission#` (`api/schemas/apiKey.ts`), which additionally allows
-   * page permissions -- an API key's scope narrows both kinds at once, but a group's `permissions`
-   * field is global-only (page access is granted through `rules` instead).
+   * Separate from `ApiKeyScopePermission#`, which also allows page permissions: a group's
+   * `permissions` is global-only, page access is granted through `rules`.
    */
   app.addSchema({
     $id: 'GlobalPermission',
@@ -17,12 +15,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * GROUP RULE - A single page rule within a group
-   *
-   * Built as a variable, rather than inline in the `addSchema()` call below, purely so the
-   * `if`/`then` JSON-Schema keywords (added via bracket assignment further down) can be attached
-   * without an object literal spelling out a `then` property -- oxlint's `unicorn/no-thenable` flags
-   * that shape on sight, even though this is plain JSON Schema and no `await` ever sees the object.
+   * A variable rather than an inline literal so `if`/`then` can be attached by assignment below --
+   * oxlint's `unicorn/no-thenable` flags a literal `then` key.
    */
   const groupRuleSchema: Record<string, unknown> = {
     $id: 'GroupRule',
@@ -43,8 +37,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description: 'Permissions granted or denied by this rule.',
         items: {
           type: 'string',
-          // -> `GroupRule.roles` is one shared vocabulary space across both kinds it may name, per
-          //    the delegated-per-site-administration decision.
           enum: [...PAGE_PERMISSIONS, ...SITE_PERMISSIONS]
         }
       },
@@ -99,13 +91,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   }
-  // -> START/END/EXACT compare `path` directly against a page path, which is always stored
-  //    lowercased (`normalizePagePath`) -- so a mixed-case rule could never match, and for a DENY
-  //    rule that failure is silent (OpenProject #2182). Rejected here at write time, on top of the
-  //    lowercasing fold in `models/groups.ts#updateGroup` and the case-insensitive comparison in
-  //    `helpers/pageRules.ts#ruleMatchesPage`. TAG/TAGALL read `tags` instead of `path` (OpenProject
-  //    #3408), REGEX addresses `path` as a pattern that may deliberately use a character class like
-  //    `[A-Z]`, and CLASSIFICATION does not read `path` at all -- none of those are constrained.
+  // -> START/END/EXACT compare `path` against a page path, which is always stored lowercased
+  //    (`normalizePagePath`), so a mixed-case rule could never match -- silently, for a DENY rule.
+  //    REGEX may deliberately use a class like `[A-Z]`; the other match kinds do not read `path`.
   groupRuleSchema['if'] = {
     properties: {
       match: { enum: ['START', 'END', 'EXACT'] }
@@ -125,9 +113,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   }
   app.addSchema(groupRuleSchema)
 
-  /**
-   * GROUP CORE - Essential fields only
-   */
   app.addSchema({
     $id: 'GroupCore',
     type: 'object',
@@ -162,9 +147,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * GROUP - All fields
-   */
   app.addSchema({
     $id: 'Group',
     allOf: [

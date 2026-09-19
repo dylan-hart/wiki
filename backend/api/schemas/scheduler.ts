@@ -2,9 +2,6 @@ import type { FastifyInstance } from 'fastify'
 import { JOB_STATES } from '../../models/jobs.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * SCHEDULER TASK - A cron entry, i.e. a task that runs automatically
-   */
   app.addSchema({
     $id: 'SchedulerTask',
     type: 'object',
@@ -38,9 +35,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * SCHEDULER UPCOMING JOB - A job waiting in the queue
-   */
   app.addSchema({
     $id: 'SchedulerUpcomingJob',
     type: 'object',
@@ -64,7 +58,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'integer'
       },
       waitUntil: {
-        // -> Jobs meant to run as soon as a worker is free have no date at all
         type: 'string',
         nullable: true,
         format: 'date-time',
@@ -92,9 +85,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * SCHEDULER JOB - One execution, as recorded in the job history
-   */
   app.addSchema({
     $id: 'SchedulerJob',
     type: 'object',

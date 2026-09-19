@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * TREE ITEM - One entry of a folder listing, whichever of the three kinds it is
-   */
   app.addSchema({
     $id: 'TreeItem',
     type: 'object',
@@ -76,9 +73,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * BROWSE ITEM - One entry of a reader's folder listing, which may be a page and a folder at once
-   */
   app.addSchema({
     $id: 'BrowseItem',
     type: 'object',
@@ -111,9 +105,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * LISTED PAGE - One page of a reader-facing listing, as an index block draws it
-   */
   app.addSchema({
     $id: 'ListedPage',
     type: 'object',
@@ -149,9 +140,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * FOLDER INPUT - The writable fields of a folder, used for both create and rename
-   */
   app.addSchema({
     $id: 'FolderInput',
     type: 'object',
@@ -172,9 +160,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * FOLDER - A folder, as returned after creating or renaming one
-   */
   app.addSchema({
     $id: 'Folder',
     type: 'object',

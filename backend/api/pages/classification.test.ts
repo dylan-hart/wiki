@@ -5,18 +5,6 @@ import pagesRoutes from './index.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * OpenProject #1080: the PATCH route's declassification guardrail (lowering a page's classification
- * needs `manage:classification` ON THIS PAGE, on top of `write:pages`/`manage:pages`) and the
- * classification-resolution-dialog flow (raising a page's own classification surfaces descendants
- * that now sit below the new floor, resolved via a dedicated endpoint rather than cascaded silently).
- *
- * Route-level only: a real Fastify instance with `CARDINAL.models.pages`/`CARDINAL.models.groups`/
- * `CARDINAL.models.classificationLevels` stubbed to the smallest surface each test needs, rather than a
- * database. The floor-invariant math
- * itself (`meetsFloor`/`isLowerThan`) is covered directly in `models/classificationLevels.test.ts`;
- * this file is about who may reach it and what the route does with the model's answer.
- */
 describe('pages API — classification (OpenProject #1080)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
@@ -26,18 +14,12 @@ describe('pages API — classification (OpenProject #1080)', () => {
   const INTERNAL_ID = '30000000-0000-4000-8000-000000000002'
   const RESTRICTED_ID = '30000000-0000-4000-8000-000000000003'
 
-  // -> Order determines openness: PUBLIC < INTERNAL < RESTRICTED, mirroring the seeded defaults.
   const SORT_ORDER: Record<string, number> = {
     [PUBLIC_ID]: 0,
     [INTERNAL_ID]: 1,
     [RESTRICTED_ID]: 2
   }
 
-  /**
-   * Every page `getPagesByIds`/`getPage` can resolve -- OpenProject #1902's batched select stands in
-   * for what used to be a per-id `getPage()` loop, so the fixture now needs more than one page on hand
-   * to exercise a real batch.
-   */
   const PAGE_FIXTURES: Record<
     string,
     { id: string; path: string; locale: string; classification: string; tags: string[] }
@@ -67,33 +49,24 @@ describe('pages API — classification (OpenProject #1080)', () => {
 
   let updatePageCalls: any[] = []
   let checkAccessCalls: any[] = []
-  /** Which permissions `checkAccess` grants, by permission name — every test overrides what it needs. */
   let grantedPermissions: Set<string>
-  /** A path `checkAccess` refuses every permission for, regardless of `grantedPermissions` -- what a
-   *  mixed-batch test uses to make one target in a batch fail while the others pass. */
   let deniedForPath: string | null = null
   let bulkSetClassificationCalls: any[] = []
   let auditLogCalls: any[] = []
   let getPagesByIdsCalls: any[] = []
   let parentClassificationsCalls: any[] = []
-  /** `CARDINAL.models.pageClassification.parentClassification`'s stubbed return -- null (no parent) by default. */
   let parentClassificationFloor: string | null = null
 
   let app: FastifyInstance
 
   before(async () => {
-    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` for the collab-save
-    //    notification regardless of whether this test's own assertions care about the timestamp.
+    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()`.
     await ensureTemporal()
     const wiki = {
       models: {
         pages: {
           getPage: async ({ id }: { id: string }) =>
             PAGE_FIXTURES[id] ? { ...PAGE_FIXTURES[id], updatedAt: new Date() } : null,
-          // -> OpenProject #1902: the batched select `api/pages/classification.ts`'s resolve route now calls instead
-          //    of a per-id `getPage` loop. One call per request regardless of how many ids are asked
-          //    for -- `getPagesByIdsCalls.length` is what the "query count does not grow with N" tests
-          //    below assert against.
           getPagesByIds: async (siteId: string, ids: string[]) => {
             getPagesByIdsCalls.push({ siteId, ids })
             const map = new Map<string, any>()
@@ -116,12 +89,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
             }
           }
         },
-        // -> The classification cluster moved to `models/pageClassification.ts` when
-        //    `models/pages.ts` was split; the resolve route reaches it there now.
         pageClassification: {
-          // -> OpenProject #1902: the batched parent-classification lookup, one call per request
-          //    regardless of how many targets it covers. `parentClassificationFloor` stands in for
-          //    every target's floor uniformly, the same way the single-target stub did.
           parentClassifications: async (
             siteId: string,
             entries: { locale: string; path: string }[]
@@ -145,8 +113,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
             bulkSetClassificationCalls.push({ siteId, ids, classification })
             return ids.length
           },
-          // -> No parent by default (root-level page in these fixtures) -- overridden per-test where
-          //    the floor-invariant enforcement in the resolve route is what's under test.
           parentClassification: async () => parentClassificationFloor
         },
         groups: {
@@ -173,9 +139,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
           record: async (args: any) => {
             auditLogCalls.push(args)
           },
-          // -> OpenProject #1902: the resolve route's batched writes now go through `recordMany` --
-          //    flattened into `auditLogCalls` too, so the same per-entry assertions the PATCH-route
-          //    tests already make against a single `record()` call work unchanged here.
           recordMany: async (entries: any[]) => {
             auditLogCalls.push(...entries)
           }
@@ -220,7 +183,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(updatePageCalls.length, 1)
     assert.ok(!checkAccessCalls.includes('manage:classification'))
-    // -> OpenProject #1081: every actual classification change is recorded to the audit log.
     assert.equal(auditLogCalls.length, 1)
     assert.equal(auditLogCalls[0].event, 'page.classificationChanged')
     assert.equal(auditLogCalls[0].targetType, 'page')
@@ -259,7 +221,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
       payload: { classification: INTERNAL_ID, title: 'Onboarding' }
     })
     assert.equal(res.statusCode, 200)
-    // -> from === to: recordClassificationChange() is a documented no-op here.
+    // -> from === to: nothing to audit.
     assert.equal(auditLogCalls.length, 0)
   })
 
@@ -335,21 +297,14 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(bulkSetClassificationCalls.length, 1)
       assert.deepEqual(bulkSetClassificationCalls[0].ids, [PAGE_ID])
       assert.equal(bulkSetClassificationCalls[0].classification, RESTRICTED_ID)
-      // -> OpenProject #1081: a bulk resolve records one audit entry per page bumped, `from` being
-      //    that page's OWN classification as fetched by the batched `getPagesByIds` read (INTERNAL_ID
-      //    here, from the shared `PAGE_FIXTURES` fixture).
       assert.equal(auditLogCalls.length, 1)
       assert.equal(auditLogCalls[0].event, 'page.classificationChanged')
       assert.deepEqual(auditLogCalls[0].detail, { from: INTERNAL_ID, to: RESTRICTED_ID })
     })
 
     /*
-      OpenProject #1902: resolving N pages must produce the same per-page outcomes and the same N
-      audit rows the old per-id `getPage`/`parentClassification`/`record` loop would have, while
-      issuing a number of queries that does not grow with N -- `getPagesByIdsCalls.length` and
-      `parentClassificationsCalls.length` staying at 1 regardless of how many ids were submitted is
-      this test's stand-in for "one query", since this suite mocks the model layer rather than a
-      real database.
+      The model layer is mocked, so one call to each batched method stands in for "a query count
+      that does not grow with N".
     */
     test('resolving a batch of N pages issues one batched read/lookup and N audit rows, not N of each', async () => {
       const ids = [PAGE_ID, SECOND_PAGE_ID, THIRD_PAGE_ID]
@@ -362,11 +317,9 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(res.statusCode, 200)
       assert.equal(bulkSetClassificationCalls.length, 1)
       assert.deepEqual(bulkSetClassificationCalls[0].ids, ids)
-      // -> One call each, no matter how many pages were in the batch.
       assert.equal(getPagesByIdsCalls.length, 1)
       assert.deepEqual(getPagesByIdsCalls[0].ids, ids)
       assert.equal(parentClassificationsCalls.length, 1)
-      // -> N audit rows for N pages, all from one `recordMany` flattened into `auditLogCalls`.
       assert.equal(auditLogCalls.length, ids.length)
       assert.deepEqual(auditLogCalls.map((c: any) => c.targetId).sort(), [...ids].sort())
       for (const call of auditLogCalls) {
@@ -389,13 +342,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(auditLogCalls.length, 0)
     })
 
-    /*
-      A mixed batch -- one page the actor may write, one it may not -- must land on the SAME outcome
-      the old serial, early-returning loop would: the actor lacking write:pages on ANY target refuses
-      the whole request with 403 and writes nothing, rather than silently applying to the pages that
-      did pass. OpenProject #1902's batching changes how the targets are READ, not this per-page
-      permission semantics.
-    */
     test('a mixed batch (one page permitted, one refused) is refused as a whole, matching the serial version', async () => {
       deniedForPath = PAGE_FIXTURES[SECOND_PAGE_ID]!.path
       const res = await app.inject({
@@ -409,11 +355,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(auditLogCalls.length, 0)
     })
 
-    /*
-      This endpoint is not restricted to the resolve dialog's own callers, which only ever ask for a
-      raise -- a bare `write:pages` caller passing an actually-lower target must be refused the same
-      way the PATCH route refuses one, not silently allowed just because it arrived here instead.
-    */
     test('refuses to lower a target classification without manage:classification', async () => {
       const res = await app.inject({
         method: 'POST',
@@ -444,8 +385,8 @@ describe('pages API — classification (OpenProject #1080)', () => {
         method: 'POST',
         url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
         headers: sessionHeader,
-        // -> INTERNAL_ID is a raise relative to the fixture page's own current level, but still
-        //    below a RESTRICTED_ID parent floor.
+        // -> INTERNAL_ID is the fixture page's own level, so not a lowering, but it is below the
+        //    RESTRICTED_ID parent floor.
         payload: { pageIds: [PAGE_ID], classification: INTERNAL_ID }
       })
       assert.equal(res.statusCode, 400)
@@ -464,8 +405,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(bulkSetClassificationCalls.length, 1)
     })
 
-    // -> OpenProject #1870: an over-limit pageIds array is rejected by schema validation before the
-    //    handler ever runs, not processed up to the 5 MB body-size limit.
     test('an over-limit pageIds array is rejected with 400 by schema validation', async () => {
       const oversized = Array.from(
         { length: 501 },
@@ -481,8 +420,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(bulkSetClassificationCalls.length, 0)
     })
 
-    // -> OpenProject #1870: a repeated id produces exactly one outcome and one audit row for that
-    //    page, instead of one per occurrence in the request body.
     test('a body repeating one id produces exactly one outcome and one audit row', async () => {
       const res = await app.inject({
         method: 'POST',

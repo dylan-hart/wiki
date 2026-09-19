@@ -2,14 +2,8 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
-   * NOTIFICATION - One unread page-watch event, as the in-app inbox lists it (task 535)
-   *
-   * Backed by `pageWatchEvents` (see that table's own doc comment) rather than a separate table: a row
-   * there already IS "a notification owed to one watcher about one change," and `readAt` is a second,
-   * independent column alongside the pre-existing `deliveredAt` — see `db/schema.ts` for why the two
-   * must not be conflated. This schema only ever describes an UNREAD row (`GET .../notifications`
-   * excludes read ones outright, matching how `InboxReview` lists only pending submissions), so there
-   * is no `readAt` field here to be confusingly always-null.
+   * Only ever describes an unread `pageWatchEvents` row -- the listing excludes read ones -- so
+   * there is no always-null `readAt` field.
    */
   app.addSchema({
     $id: 'Notification',

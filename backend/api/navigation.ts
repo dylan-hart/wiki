@@ -14,23 +14,17 @@ import {
 import { pathDisplayCaseStyles, type PathDisplayCaseStyle } from '../models/sites.ts'
 
 /*
-  Seeing and editing a menu whole — rather than only the parts meant for the reader — is gated by
-  `manage:navigation` or the narrower per-site `site:navigation` delegation, asked of
-  `models/groups.ts#checkSiteAdminAccess` at each route below.
+  No route-level `permissions` anywhere in this file: `site:navigation` is granted per site, which
+  the `config.permissions` hook cannot check, so each gated route asks `maySiteAdmin()` in its
+  handler.
 */
 
 /**
- * Navigation API Routes
- *
- * A menu belongs to a tree entry that overrides it, addressed by that entry's own id, or to one
- * locale of the site itself for the one every page in that locale falls back to, addressed by that
- * row's own id (see `GET .../navigation/default`) rather than the site's — either way a single opaque
- * id, which is why there is a single route to read one.
+ * A menu belongs either to the tree entry that overrides it, addressed by that entry's id, or to
+ * one locale of the site, addressed by its own row id (see `GET .../navigation/default`). Either
+ * way it is one opaque id, which is why a single route reads both.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET NAVIGATION
-   */
   app.get<{ Params: { siteId: string; navId: string }; Querystring: { full?: boolean } }>(
     '/sites/:siteId/navigation/:navId',
     {
@@ -112,16 +106,9 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET A MENU'S SOURCE MODE
-   */
   app.get<{ Params: { siteId: string; navId: string } }>(
     '/sites/:siteId/navigation/:navId/mode',
     {
-      /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: "Get a menu's source mode",
         description:
@@ -157,16 +144,9 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET THE MENU A PAGE INHERITS
-   */
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/navigation/pages/:pageId/inherited',
     {
-      /*
-        No route-level `permissions`: who may see this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: 'Get the menu a page inherits',
         description:
@@ -203,16 +183,9 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * GET THE SITE-WIDE DEFAULT MENU'S ROW ID
-   */
   app.get<{ Params: { siteId: string }; Querystring: { locale: string } }>(
     '/sites/:siteId/navigation/default',
     {
-      /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: "Get a locale's site-wide default menu row id",
         description:
@@ -252,16 +225,9 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST THE SITE-WIDE DEFAULT MENU ROOTS, ONE PER ACTIVE LOCALE
-   */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/navigation/roots',
     {
-      /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: "List a site's default menu roots, one per active locale",
         description:
@@ -293,21 +259,14 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SET THE SITE'S PATH DISPLAY CASE STYLE
-   */
   app.put<{ Params: { siteId: string }; Body: { caseStyle: PathDisplayCaseStyle } }>(
     '/sites/:siteId/navigation/pathDisplay',
     {
       /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET above -- see
-        `models/groups.ts#checkSiteAdminAccess`. Deliberately a dedicated route rather than a key on
-        the general `PUT /:siteId` (`api/sites.ts`) -- that route's bypass is `manage:sites`-first,
-        while every `site:navigation` surface in this file (including this one) falls back to the
-        global `manage:navigation` permission alone, per `frontend/src/composables/
-        siteAdminAccess.js`'s `GLOBAL_FALLBACKS`. Folding this into `SITE_FIELD_PERMISSIONS` instead
-        would silently refuse a `manage:navigation`-only caller who holds no site-scoped
-        `site:navigation` rule.
+        A dedicated route rather than a key on `api/sites.ts`'s general `PUT /:siteId`: that route's
+        global fallback is `manage:sites`, while a `site:navigation` surface falls back to
+        `manage:navigation`. Folding this into `SITE_FIELD_PERMISSIONS` would refuse a
+        `manage:navigation`-only caller.
       */
       schema: {
         summary: "Set a site's path display case style",
@@ -354,16 +313,9 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * LIST NAVIGATION OVERRIDES
-   */
   app.get<{ Params: { siteId: string }; Querystring: { locale?: string } }>(
     '/sites/:siteId/navigation/overrides',
     {
-      /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: 'List navigation overrides',
         description:
@@ -410,19 +362,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * SET NAVIGATION ITEMS
-   */
   app.put<{
     Params: { siteId: string; navId: string }
     Body: { items: NavigationItem[] }
   }>(
     '/sites/:siteId/navigation/:navId',
     {
-      /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: "Set a menu's items directly",
         description:
@@ -481,9 +426,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * COPY NAVIGATION
-   */
   app.post<{
     Params: { siteId: string; targetNavId: string }
     Body: { sourceSiteId?: string; sourceNavId: string; mode: NavCopyMode }
@@ -491,12 +433,9 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/navigation/:targetNavId/copy',
     {
       /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `models/groups.ts#checkSiteAdminAccess`. Checked against BOTH the target site and, when it
-        differs, the resolved source site: `site:navigation` is granted per site (OpenProject #933's own
-        `helpers/siteRules.ts` — a rule's `sites` array can scope it to exactly one), so a caller
-        delegated only on the target could otherwise use `sourceSiteId` to read and duplicate a
-        DIFFERENT site's menu into the target without ever holding a permission on that site at all.
+        Checked against the source site too when it differs: `site:navigation` is granted per site,
+        so a caller delegated only on the target could otherwise read and duplicate another site's
+        menu through `sourceSiteId`.
       */
       schema: {
         summary: 'Copy a menu onto another',
@@ -569,19 +508,12 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * UPDATE NAVIGATION
-   */
   app.put<{
     Params: { siteId: string; pageId: string }
     Body: { mode: NavigationMode; items?: NavigationItem[]; menuMode?: NavigationSourceMode }
   }>(
     '/sites/:siteId/navigation/pages/:pageId',
     {
-      /*
-        No route-level `permissions`: same reasoning as the inherited-menu GET above — see
-        `models/groups.ts#checkSiteAdminAccess`.
-      */
       schema: {
         summary: 'Set how a page resolves its navigation',
         description:

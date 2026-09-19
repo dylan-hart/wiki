@@ -1,7 +1,7 @@
 version: 2
 
 updates:
-  # Four independently-installed npm workspaces — there is no root manifest, so no root entry.
+  # Independently-installed npm workspaces — there is no root manifest, so no root entry.
   - package-ecosystem: npm
     directory: /backend
     schedule:
@@ -30,7 +30,7 @@ updates:
     cooldown:
       default-days: 7
 
-  # Covers the workflow files under .github/workflows/ (quality.yml, build.yml, release.yml, e2e.yml).
+  # `directory: /` is how Dependabot addresses the workflow files under .github/workflows/.
   - package-ecosystem: github-actions
     directory: /
     schedule:

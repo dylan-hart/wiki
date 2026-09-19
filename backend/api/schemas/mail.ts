@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * MAIL CONFIG
-   */
   app.addSchema({
     $id: 'MailConfig',
     type: 'object',

@@ -4,15 +4,6 @@ import type { FastifyInstance } from 'fastify'
 import pagesRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Route-wiring tests for `GET`/`DELETE /sites/:siteId/pages/:pageId/draft` (OpenProject #2455).
- *
- * `CARDINAL.models.pageDrafts` is stubbed rather than backed by a real database -- the model itself
- * already has its own DB-backed coverage in `models/pageDrafts.db.test.ts`. What this file checks is
- * the route's own logic: that both need `write:pages` on the page (never a route-level permission,
- * since this is a page-scoped one granted by a rule), that a missing page or a missing draft both
- * answer 404, and that DELETE is idempotent whether or not a draft existed.
- */
 describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
   const PAGE_ID = '22222222-2222-2222-2222-222222222222'
@@ -47,10 +38,6 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
           getContent: async (_pageId: string) => draftResult
         }
       },
-      // -> The DELETE route hands the clear off to `CARDINAL.collab.discardDraft()` (OpenProject #2898)
-      //    rather than calling `pageDrafts.clear()` directly, so it can coordinate with any
-      //    in-memory room for the page first -- `core/collab.draftPersist.test.ts` covers that
-      //    coordination itself; this file only checks that the route calls it at all.
       collab: {
         discardDraft: async (pageId: string) => {
           clearCalls.push(pageId)
@@ -80,8 +67,6 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
       classification: null,
       isLocked: false
     }
-    // -> Both `read:pages` (required by `loadReadablePage` itself) and `write:pages` (this route's
-    //    own check) are granted by default; individual tests narrow this down.
     checkAccessImpl = () => true
     draftResult = null
     clearCalls = []
@@ -104,8 +89,7 @@ describe('GET/DELETE /sites/:siteId/pages/:pageId/draft', () => {
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}/draft`,
       headers: withSession({ authenticated: true, user: { id: 'u1' } })
     })
-    // -> requireReadablePage() answers 403 for the permission it was given, but with no session the
-    //    request never gets there at all -- authenticated-but-underprivileged is the real 403 case.
+    // FIXME: the title says 404, but read-without-write answers 403. Rename the test.
     assert.equal(res.statusCode, 403)
   })
 

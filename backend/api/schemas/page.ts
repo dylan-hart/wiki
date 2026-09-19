@@ -2,10 +2,8 @@ import { pageHistoryActions, pageHistoryVia } from '../../models/pageHistory.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * A date that may not be set.
- *
- * An empty string counts as unset alongside null, because that is how the editor holds a date nobody
- * has filled in — rejecting it would fail every save of a page that is not scheduled.
+ * An empty string counts as unset alongside null: that is how the editor holds an unfilled date, so
+ * rejecting it would fail every save of an unscheduled page.
  */
 const optionalDateTime = {
   anyOf: [
@@ -17,11 +15,6 @@ const optionalDateTime = {
 }
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
-  /**
-   * PAGE RELATION - One "related page" button, as `PageRelationDialog.vue` writes it and `Index.vue`
-   * renders it. The only producer is that dialog (see `create()`/`persist()`), so unlike the other
-   * `additionalProperties: true` blobs in this file, this shape is fixed and worth stating exactly.
-   */
   app.addSchema({
     $id: 'PageRelation',
     type: 'object',
@@ -53,10 +46,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE TOC NODE - One heading in the table of contents, as `rendering.ts`'s `anchorHeadings` /
-   * `nestHeadings` build it.
-   */
   app.addSchema({
     $id: 'PageTocNode',
     type: 'object',
@@ -80,9 +69,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE INPUT - The writable fields, used for both create and update
-   */
   app.addSchema({
     $id: 'PageInput',
     type: 'object',
@@ -209,9 +195,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE - A page as it is served back
-   */
   app.addSchema({
     $id: 'Page',
     type: 'object',
@@ -405,9 +388,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * WATCH PREFERENCE - The resolved delivery preference on one watch, every field settled
-   */
   app.addSchema({
     $id: 'WatchPreference',
     type: 'object',
@@ -434,11 +414,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * WATCH PREFERENCE INPUT - The same fields, all optional: only what is sent is changed
-   *
-   * `type` includes `null` alongside `object` because `PUT .../watch`'s body is itself optional
-   * (re-watching needs no preference at all) — Fastify still runs body validation against whatever
-   * `req.body` resolves to when a request carries no payload, which is `null`, not `undefined`.
+   * `type` includes `null` because `PUT .../watch`'s body is optional, and Fastify validates a
+   * payload-less request's body as `null`, not `undefined`.
    */
   app.addSchema({
     $id: 'WatchPreferenceInput',
@@ -454,9 +431,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     additionalProperties: false
   })
 
-  /**
-   * WATCHED PAGE - A page somebody asked to be told about, as their inbox lists it
-   */
   app.addSchema({
     $id: 'WatchedPage',
     type: 'object',
@@ -481,9 +455,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * INCLUDED PAGE - Another page's render, as an include block draws it inside the page being read
-   */
   app.addSchema({
     $id: 'IncludedPage',
     type: 'object',
@@ -510,9 +481,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE BACKLINK - Another page whose content links to this one (OpenProject #1914)
-   */
   app.addSchema({
     $id: 'PageBacklink',
     type: 'object',
@@ -525,9 +493,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE HISTORY ENTRY - One version of a page, as the history timeline lists it
-   */
   app.addSchema({
     $id: 'PageHistoryEntry',
     type: 'object',
@@ -597,13 +562,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * RECOVERABLE PAGE ENTRY - One recoverable deletion, as `GET .../pages/deleted` lists them
-   *
-   * Deliberately not `PageHistoryEntry` (OpenProject #2168): that listing spans every deleted path on
-   * the site in one sweep rather than one page's own history, so `author.email` is left out here —
-   * every deleter's email address at once is a wider exposure than this listing needs to serve its
-   * purpose. `tags`/`classification` travel with a version too, unlike `PageHistoryEntry`, since a
-   * caller acting on one of these rows may find them informative the same way the file manager does.
+   * Deliberately not `PageHistoryEntry`: this listing spans every deleted path on the site, so
+   * `author.email` is left out -- every deleter's address at once is more exposure than it needs.
    */
   app.addSchema({
     $id: 'RecoverablePageEntry',
@@ -672,10 +632,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
-   * PAGE HISTORY LIST ENTRY - One version as the paginated history list reports it: the same as
-   * PageHistoryEntry, but the author carries no email -- `list()` doesn't select it (see
-   * `models/pageHistory.ts`'s `PageHistoryListAuthor`), since nothing reading a page's whole timeline
-   * needs a contributor's address and there's no reason to hand hundreds of rows carrying one.
+   * `PageHistoryEntry` without `author.email`: `models/pageHistory.ts`'s `list()` does not select
+   * it, since nothing reading a whole timeline needs every contributor's address.
    */
   app.addSchema({
     $id: 'PageHistoryListEntry',
@@ -742,9 +700,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE HISTORY LIST - One keyset-paginated page of a page's version history
-   */
   app.addSchema({
     $id: 'PageHistoryList',
     type: 'object',
@@ -761,9 +716,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE HISTORY VERSION - The same, with the source it held: one side of a diff
-   */
   app.addSchema({
     $id: 'PageHistoryVersion',
     type: 'object',
@@ -777,10 +729,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             description: 'The page source as of this version.'
           },
           meta: {
-            // Deliberately loose: `pageHistory.ts`'s `record()` builds this by reflecting over every
-            // column of the pages row not in `EXCLUDED_FROM_META`, so its keys track the pages table
-            // schema rather than a fixed contract — pinning it here would drift out of sync the next
-            // time a page column is added or removed.
+            // Deliberately loose: `pageHistory.ts`'s `record()` reflects over every pages column not
+            // in `EXCLUDED_FROM_META`, so the keys track the table rather than a fixed contract.
             type: 'object',
             additionalProperties: true,
             description:
@@ -791,13 +741,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     ]
   })
 
-  /**
-   * PAGE HISTORY RECOVERABLE PAGE - One keyset page of `listRecoverable` results
-   *
-   * Wraps `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168) -- see that schema's own
-   * doc comment for why: `tags`/`classification` ride along and `author.email` is dropped, since this
-   * listing spans every deleted path on the site in one sweep rather than one page's own history.
-   */
   app.addSchema({
     $id: 'PageHistoryRecoverablePage',
     type: 'object',
@@ -815,9 +758,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     }
   })
 
-  /**
-   * PAGE HISTORY RECOVER RESPONSE - A deleted page, recreated from one of its versions
-   */
   app.addSchema({
     $id: 'PageHistoryRecoverResponse',
     type: 'object',

@@ -1,21 +1,9 @@
 name: Quality Gates
 
-# Runs on every pull request (fast feedback before code lands) and is also called by build.yml's
-# own `quality` job via `uses:` on every push to `scarlett`, so the Docker publish job can gate on
-# it with `needs:` -- exactly the reason e2e.yml gives for staying a separate workflow instead of a
-# few more steps bolted onto build.yml: a `needs:` dependency only works on a job in the *same*
-# workflow run, and a plain `pull_request:` trigger added directly to build.yml would have no way to
-# stop the expensive Docker build/push job from also queuing up on every PR. `workflow_call:` lets
-# this file be that one shared definition instead of a second copy of the same steps.
-#
-# Also runs the backend/frontend/blocks unit suites (`npm run test`), not only typecheck/lint/format
-# -- previously these ran nowhere on `pull_request`, only in build.yml's push-to-scarlett `build` job,
-# so a broken unit test landed via a green PR and first failed after merge. build.yml's own `build`
-# job no longer repeats them: it already `needs: quality`, so re-running the same three suites there
-# on every push would just be paying for them twice for no new coverage -- the same "don't run the
-# same suite twice per commit" reasoning e2e.yml's own header comment gives for its removed push
-# trigger. build.yml's postgres service and DATABASE_URL stay, since its Playwright leg still needs
-# both for its own first-run seeding.
+# Runs on every pull request, and is called by build.yml's `quality` job on every push to
+# `scarlett`. A `needs:` dependency only works on a job in the same workflow run, so
+# `workflow_call:` is what lets the Docker publish gate on this one shared definition instead of a
+# second copy of the same steps.
 on:
   pull_request:
   workflow_call:
@@ -25,22 +13,15 @@ jobs:
   production-boot-smoke-test:
     name: Production Install Smoke Boot
     runs-on: ubuntu-latest
-    # OpenProject #2736: GitHub Actions' default job timeout is 360 minutes, so a wedged runner
-    # would otherwise sit silent for up to 6 hours before anyone finds out. This job's own steps
-    # are bounded well under a minute in the normal case (its one potentially-slow step already
-    # carries its own `timeout 20s`), so 10 minutes is generous headroom, not a measured ceiling.
+    # GitHub's default job timeout is 6 hours; this job normally finishes in under a minute.
     timeout-minutes: 10
     permissions:
       contents: read
 
-    # No postgres service here, deliberately: the whole point of this job is that the database is
-    # unreachable, so the boot path's own retry-then-fail behavior (core/db.ts's `connect()`) is what
-    # gets asserted on, not a real connection succeeding. `npm ci` (full, with devDependencies) is
-    # never run in backend/ in this job -- only `npm ci --omit=dev`, the exact tree
-    # dev/build/Dockerfile and the release tarball step in build.yml's `Prepare build archive` both
-    # actually ship. Task 1994/1999/2007: nothing before this job ever exercised that install shape,
-    # which is how a devDependency-only import on the real boot path (`@js-temporal/polyfill`, until
-    # #1999) went unnoticed by CI entirely -- this job exists to catch that class of defect directly.
+    # No postgres service, deliberately: the boot only has to reach core/db.ts's `connect()` retry
+    # loop. backend/ is installed with `npm ci --omit=dev` and nothing else -- the tree
+    # dev/build/Dockerfile and build.yml's "Prepare build archive" ship -- so a devDependency-only
+    # import on the boot path fails here rather than in the published artifact.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -64,17 +45,11 @@ jobs:
         run: cp config.sample.yml config.yml
 
       # `node backend` must run from the repo root -- index.ts refuses otherwise.
-      # Bounded with `timeout` rather than left to core/db.ts's own 10-attempt/3s retry loop running
-      # to completion (~30s+): the very first connection attempt against an unreachable database
-      # fails immediately, so a couple of seconds is enough to see either the module-resolution
-      # crash we're guarding against or the first "connection failed, retrying" log line -- whichever
-      # comes first tells us everything this step needs to know.
-      #
-      # That string is core/db.ts#connect()'s per-attempt line (`warn db connection failed, retrying
-      # attempt=1/10 ...`). It replaced an older per-attempt "Database connection error" error line
-      # when the scoped logger landed: an attempt that will be retried is a warning, and the `error`
-      # an operator has to act on is the throw once all ten attempts are spent -- which this bounded
-      # window deliberately never reaches. So grep for the retry line, not the exhausted-retries one.
+      # Bounded with `timeout` rather than left to core/db.ts's retry loop running to completion:
+      # the first attempt against an unreachable database fails immediately, so a few seconds is
+      # enough to see either a module-resolution crash or `connect()`'s per-attempt
+      # "connection failed, retrying" warning. Grep for that line, not the exhausted-retries error,
+      # which this bounded window never reaches.
       - name: Boot smoke test (production install, unreachable database)
         run: |
           set +e
@@ -98,20 +73,14 @@ jobs:
   quality:
     name: Typecheck, Lint, Format & Unit Tests
     runs-on: ubuntu-latest
-    # OpenProject #2736: no job in this file declared a timeout before this, so a wedged runner
-    # relied on GitHub's silent 360-minute default to ever get killed -- exactly what happened to
-    # PR #52's "Backend Tests" step (observed ~6-8 minute baseline vs. 65+ minutes stuck). 30
-    # minutes is comfortable headroom over the full job's real wall-clock time (backend
-    # typecheck/lint/tests, frontend tests + Playwright-Chromium install, blocks tests, the
-    # quarantine lane and the format check) without being anywhere near the 6-hour exposure this
-    # closes.
+    # GitHub's default job timeout is 6 hours; 30 minutes is headroom over this job's real
+    # wall-clock time.
     timeout-minutes: 30
     permissions:
       contents: read
 
-    # Backing store for the backend's DB-backed model tests (test/db.ts's fixtures switch themselves
-    # on whenever DATABASE_URL is set) -- the frontend and blocks suites are pure-unit and never
-    # touch it. Same one-service-container-per-run shape as build.yml's own postgres service.
+    # For the backend's DB-backed suites, which backend/test/db.ts switches on whenever DATABASE_URL
+    # is set. The frontend and blocks suites never touch it.
     services:
       postgres:
         image: postgres:18
@@ -128,20 +97,15 @@ jobs:
 
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      # `backend/modules/storage/s3/storage.emulated.test.ts` self-contains its root credentials in
-      # this URL, the same shape DATABASE_URL uses -- see that file's header comment. The container
-      # itself is started by the "Start MinIO" step below: a bare `services:` entry can't be used
-      # here because GitHub Actions' services block has no `command:` field and MinIO's image ships
-      # no default CMD (`server /data` must be supplied explicitly, or the image just prints help
-      # and exits).
+      # For backend/modules/storage/s3/storage.emulated.test.ts. MinIO is started by the "Start
+      # MinIO" step below rather than as a `services:` entry: the services block has no `command:`
+      # field, and MinIO's image ships no default CMD (without `server /data` it prints help and
+      # exits).
       S3_TEST_ENDPOINT: http://minioadmin:minioadmin@localhost:9000
 
     steps:
-      # fetch-depth: 0 (full history) -- backend/test/changelog.test.ts runs `git-cliff --unreleased`
-      # against this checkout's own history; the default shallow (depth-1) clone leaves only the tip
-      # commit, which git-cliff's commit_parsers then drops entirely (a squash-merge "Cycle: ..."
-      # subject matches none of them), producing a changelog with zero sections and failing every
-      # assertion in that suite.
+      # Full history: backend/test/changelog.test.ts runs `git-cliff --unreleased` against this
+      # checkout, and the default depth-1 clone leaves it a changelog with zero sections.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -162,11 +126,8 @@ jobs:
           ONNXRUNTIME_NODE_INSTALL: skip
         run: npm ci
 
-      # git-cliff is a standalone binary, not an npm dependency of any workspace (see
-      # backend/test/changelog.test.ts's header comment and docs/versioning.md) -- pinned to a
-      # concrete release rather than a floating tag, per this project's Currency standard.
-      # release.yml's own generation step uses orhun/git-cliff-action@v4 instead, which runs in
-      # that action's own container and never executes this unit suite.
+      # git-cliff is a standalone binary, not an npm dependency of any workspace, pinned to a
+      # concrete release. .devcontainer/Dockerfile's GIT_CLIFF_VERSION must match it.
       - name: Install git-cliff
         run: |
           curl -sL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
@@ -186,27 +147,19 @@ jobs:
         working-directory: backend
         run: npx oxlint --deny-warnings
 
-      # git-cliff is a standalone binary, not an npm dependency of any workspace (see
-      # backend/test/changelog.test.ts's header comment and docs/versioning.md) -- pinned to a
-      # concrete release rather than a floating tag, per this project's Currency standard.
-      # release.yml's own generation step uses orhun/git-cliff-action@v4 instead, which runs in
-      # that action's own container and never executes this unit suite.
+      # FIXME: this step and the "Install pandoc" step after it repeat the two steps before "Backend
+      # Typecheck"; delete this pair.
       - name: Install git-cliff
         run: |
           curl -sL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
             | tar xz --strip-components=1 -C /usr/local/bin git-cliff-2.13.1/git-cliff
           git-cliff --version
 
-      # backend/models/import.test.ts's real-pandoc test (gated on `pandocAvailable`) is the only
-      # thing in the unit suites that needs the actual binary -- everything else mocks `runPandoc`.
       - name: Install pandoc
         run: sudo apt-get update && sudo apt-get install -y pandoc
 
-      # OpenProject #3153: `s3rver` (archived, a permanent `npm audit` high finding through
-      # busboy/dicer) was replaced with a real, container-backed MinIO instance for
-      # `storage.emulated.test.ts`. MinIO's Docker Hub repo no longer exists -- the image lives at
-      # quay.io/minio/minio only -- and there is no floating LTS-major tag the way postgres:18 has,
-      # so this pins to a concrete RELEASE tag per this project's Currency standard.
+      # MinIO's image lives at quay.io only and has no floating LTS-major tag, so this pins a
+      # concrete RELEASE tag. .devcontainer/docker-compose.yml's `minio` service must match it.
       - name: Start MinIO (S3 emulation for backend/modules/storage/s3)
         run: |
           docker run -d --name minio -p 9000:9000 \
@@ -220,20 +173,14 @@ jobs:
         working-directory: backend
         run: npm run test
 
-      # Same shape as the Frontend Icons/Emoji Check steps below: a block's `label`/`hint`/
-      # `description` strings are read straight off blocks/block-*/component.js (no fetch/network),
-      # and diffed against the blocks.<tag>.* keys committed in locales/en.json -- a new string with
-      # no key, a changed string with a stale key, or an orphaned key from a removed block/prop all
-      # fail this step. See backend/scripts/blockLocaleKeys.ts.
+      # Fails when a block's `label`/`hint`/`description` strings in blocks/block-*/component.js and
+      # the blocks.<tag>.* keys in locales/en.json have drifted apart.
       - name: Backend Block Locale Keys Check
         working-directory: backend
         run: npm run block-locale-keys:check
 
-      # Compares the committed assets/icon-sets/tabler.json against a fresh merge of the pinned
-      # @iconify-json/tabler devDependency's icons.json + info.json (backend/scripts/vendor-icon-sets.ts,
-      # OpenProject #3043) -- byte-for-byte, no network. Fails if the vendored file has drifted from
-      # the package, whether from a hand-edit or a dependency bump with no re-vendor. Same
-      # source-scan/no-network shape as the Icons/Emoji Check steps below.
+      # Fails when the committed assets/icon-sets/tabler.json has drifted from the pinned
+      # @iconify-json/tabler devDependency -- a hand-edit, or a bump with no re-vendor. No network.
       - name: Backend Vendor Icons Check
         working-directory: backend
         run: npm run vendor-icons:check
@@ -242,15 +189,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # Both check scripts diff the committed generated bundle (src/assets/icons.generated.js,
-      # src/assets/emoji.generated.js) against what the source + already-`npm ci`-installed data
-      # packages (@iconify-json/mdi, @iconify-json/la, unicode-emoji-json, markdown-it-emoji) produce
-      # right now -- read fs.readFileSync(node_modules/...) only, no fetch/http anywhere in either
-      # script. That's a build-time literal-reference scan, not the runtime `models/icons.ts`
-      # resolution chain the icons system uses at runtime (memory -> disk cache -> db -> live
-      # Iconify API) for icons a *user* picks on a page -- this repo's own chrome icons are inlined at
-      # build time specifically so nothing here ever depends on that service. So both steps are safe
-      # to run on a cold CI runner with no prior icon cache: no network call, nothing to be flaky.
+      # The icons and emoji checks each diff a committed generated bundle
+      # (src/assets/*.generated.js) against what the source and the installed data packages produce.
+      # They read node_modules only: no network call, nothing to be flaky on a cold runner.
       - name: Frontend Icons Check
         working-directory: frontend
         run: npm run icons:check
@@ -259,36 +200,21 @@ jobs:
         working-directory: frontend
         run: npm run emoji:check
 
-      # OpenProject #1615, the last child of #1586 ("Localize the shared library's 14 English
-      # strings, the 41 hardcoded notify messages and the group permission catalog"): oxlint has no
-      # i18n rule, so this Vitest source-scan (`src/i18nSourceGate.test.js`) is the regression guard
-      # against a newly reintroduced untranslated English literal -- a capitalised sentence passed as
-      # `message:` to `notify()`, the same thrown from `new Error()`, a static `aria-label="…"` /
-      # `label="…"` literal under `src/components` or `src/pages`, or the misspelled
-      # `'An unexpected error occured.'`. It also runs as part of `npm run test` below (it is a
-      # `*.test.js` file under `src`), but gets its own step here -- the same way `icons:check` and
-      # `emoji:check` do above -- so a failure here reads as "untranslated literal reintroduced"
-      # rather than being lost in the much larger frontend suite's output.
+      # oxlint has no i18n rule, so `src/i18nSourceGate.test.js` is the guard against an
+      # untranslated English literal. It also runs inside `npm run test` below; its own step makes a
+      # failure read as that rather than being lost in the frontend suite's output.
       - name: Frontend i18n Source Check
         working-directory: frontend
         run: npm run i18n:check
 
-      # Same "source scan must stay in step with a side file" shape as the checks above, but for
-      # backend/locales/en.json: fails if any key has no reader in frontend/src (crediting a dynamic
-      # `t(...)` call's template-literal/concatenation prefix, lookup-table indirection, or
-      # `<i18n-t keypath>` usage -- see check-locales.mjs's own header comment). Pure source-text
-      # scanning, same as the icons/emoji checks -- no network, safe on a cold runner.
+      # Fails when a key in backend/locales/en.json has no reader in frontend/src.
       - name: Frontend Locales Check
         working-directory: frontend
         run: npm run locales:check
 
-      # Fails when a bare `err.message` reaches a `notify()` call in `frontend/src/**/*.vue` --
-      # `helpers/apiError.js`'s `apiErrorMessage(err, fallback)` exists specifically to read the
-      # server's `{ ok, error, statusCode, message }` body off `err.data` instead, since a bare
-      # `err.message` yields only ky's generic "Request failed with status code N". A repo grep, not
-      # a runtime check: reads the `.vue` sources directly, same "no network, safe on a cold runner"
-      # shape as the icon/emoji checks above. See `frontend/scripts/check-notify-err-message.mjs` for
-      # the two allowlisted non-HTTP shapes (clipboard failures, `console.warn` template strings).
+      # Fails when a bare `err.message` reaches a `notify()` call in a `.vue` file: it carries only
+      # ky's generic "Request failed with status code N", where `helpers/apiError.js`'s
+      # `apiErrorMessage(err, fallback)` reads the server's own message.
       - name: Frontend Notify err.message Check
         working-directory: frontend
         run: npm run notify-check
@@ -297,10 +223,8 @@ jobs:
         working-directory: frontend
         run: npx oxlint --deny-warnings
 
-      # `test/realGridLayout.js` (OpenProject #1261) drives a real headless Chromium page to measure
-      # actual CSS Grid column layout -- neither jsdom nor happy-dom runs a layout engine, so this is
-      # the only way a test can tell a fixed defect from a re-broken one. Only chromium is needed,
-      # matching e2e/'s own `install-browsers` script.
+      # `test/realGridLayout.js` measures real CSS Grid layout in headless Chromium: neither jsdom
+      # nor happy-dom runs a layout engine.
       - name: Install Playwright Browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
@@ -313,13 +237,8 @@ jobs:
         working-directory: blocks
         run: npm ci
 
-      # AST-parses every block-*/component.js's "static definition" (via rollup/parseAst, the same
-      # parser rollup.config.mjs's own blocksManifest() plugin uses) and cross-checks its
-      # description:/label:/hint: strings 1:1 against the blocks.<tag>.* keys in
-      # backend/locales/en.json -- no orphan key left behind, no string minted without one. See
-      # blocks/scripts/check-locale-keys.mjs's header comment for the key convention (OpenProject
-      # #1628). Reads only files already on disk from checkout, no network, so it's as safe on a cold
-      # CI runner as the Icons/Emoji Check steps above.
+      # The same cross-check as "Backend Block Locale Keys Check" above, from the blocks side
+      # (blocks/scripts/check-locale-keys.mjs).
       - name: Blocks Locale Keys Check
         working-directory: blocks
         run: npm run locale-keys:check
@@ -332,34 +251,19 @@ jobs:
         working-directory: blocks
         run: npm run test
 
-      # --- Quarantine lane (report-only) ------------------------------------------------------
-      # OpenProject #2692 (Feature #2603, Epic #2600). The `*.flaky.*` lane is every test that
-      # depends on real external state no care inside the test makes deterministic. It runs here as
-      # its own step so a fragile test is visible without being a trunk-red generator.
+      # The `*.flaky.*` lane: tests that depend on real external state no care inside the test makes
+      # deterministic. `continue-on-error: true` makes it report-only, deliberately -- but the
+      # script still exits non-zero on a red lane, so the step shows as failed-but-continued rather
+      # than a green tick nobody reads.
       #
-      # `continue-on-error: true` is what makes it report-only, and it is deliberate rather than
-      # incidental: every other step in this workflow relies on GitHub Actions' `false` default, so
-      # this is the one place the exception is stated. The script itself still exits non-zero on a
-      # red lane, which renders the step with the failed-but-continued marker rather than a plain
-      # green tick -- a step that cannot fail is a step nobody reads, which is exactly how a lane
-      # rots. It also writes a job summary table and one `::error::` annotation per failed lane, so
-      # a red lane is legible on the run page without opening a log.
-      #
-      # Covers backend/frontend/blocks -- the three workspaces whose dependencies this job installs.
-      # The `e2e/` lane runs in build.yml's `build` job instead, where e2e's own dependencies,
-      # browsers, postgres service and a real `assets/` build already exist; see the step there.
-      #
-      # Note this workflow is a `workflow_call:` target invoked by build.yml, so this step runs on
-      # every pull request AND every push to scarlett. Intended.
+      # Covers the workspaces whose dependencies this job installs; the `e2e/` lane runs in
+      # build.yml's `build` job, where e2e's dependencies, browsers and `assets/` build exist.
       - name: Quarantine Lane (report-only)
         continue-on-error: true
         run: ./scripts/ci-quarantine-lane.sh backend frontend blocks
 
-      # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
-      # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be
-      # at run time -- exactly the floating-tag drift this project pins against. The
-      # root .oxfmtrc.json is picked up automatically since oxfmt searches upward from each target
-      # path; its own `$schema` already points at backend/node_modules/oxfmt, confirming backend's
-      # install is the one meant to be canonical for repo-root checks.
+      # Backend's installed, version-pinned oxfmt rather than a bare `npx oxfmt`, which would
+      # resolve whatever `latest` is at run time: backend's install is the canonical one for
+      # repo-root checks. The root .oxfmtrc.json is found by oxfmt's upward search from each target.
       - name: Format Check
         run: npx --prefix backend oxfmt --check backend frontend blocks

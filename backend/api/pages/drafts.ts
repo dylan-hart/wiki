@@ -1,23 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { requireReadablePage } from '../../helpers/pageAccess.ts'
 
-/**
- * A page's recovery draft (OpenProject #2455): the content a collaboration room was holding when it
- * closed with edits still unsaved. `pages/read.ts`'s `viewer.draft` is the lightweight "there is one"
- * signal folded into an ordinary page read; the two routes here are what the editor calls once the
- * reader has actually decided what to do about it -- fetch the content to restore, or drop it.
- */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET PAGE DRAFT
-   */
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/draft',
     /*
-      No route-level `permissions`: that hook reads the group-wide list, and `write:pages` here is a
-      page permission granted by a rule. Checked against this page below instead -- the same
-      permission the collaboration websocket itself requires to join a room in the first place
-      (`controllers/collab.ts`), since a draft is nothing but a room's own leftover content.
+      No route-level `permissions`: `write:pages` is a page permission granted by a rule. Checked
+      against this page below -- the same permission joining the collaboration websocket needs
+      (`controllers/collab.ts`), since a draft is a room's leftover content.
     */
     {
       schema: {
@@ -72,9 +62,6 @@ async function routes(app: FastifyInstance) {
     }
   )
 
-  /**
-   * DISCARD PAGE DRAFT
-   */
   app.delete<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/pages/:pageId/draft',
     // -> No route-level `permissions`: see the GET route above.
@@ -101,11 +88,9 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply
       }
-      // -> Not a bare `pageDrafts.clear()`: `CARDINAL.collab.discardDraft()` (OpenProject #2898) first
-      //    coordinates with any in-memory room for this page, the same way `pageSaved()` already
-      //    does (#2542) -- a debounce timer still pending here would otherwise flush moments after
-      //    this call, once the editor's own websocket disconnect empties the room, and resurrect the
-      //    draft this route was just asked to drop.
+      // -> Not a bare `pageDrafts.clear()`: `discardDraft()` first coordinates with any in-memory
+      //    room for this page. A pending debounce timer would otherwise flush once the editor's
+      //    websocket disconnect empties the room, and resurrect the draft just dropped.
       await CARDINAL.collab.discardDraft(page.id)
       return reply.code(204).send()
     }

@@ -5,14 +5,6 @@ import watchingRoutes from './watching.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('watch preference routes (task 530)', () => {
-  /**
-   * Task 530's API surface: `PATCH /sites/:siteId/pages/:pageId/watch` (the new preference-setting
-   * route) and the preference now threaded through `PUT` on the same path. `CARDINAL.models.pageWatching`
-   * and the permission chain (`CARDINAL.models.pages.getPage` / `CARDINAL.models.groups`) are stubbed — the
-   * model's own persistence and default-resolution behavior is `models/pageWatching.test.ts`'s
-   * DB-backed coverage; this is only the route's request/response wiring and its 404-vs-200 branching.
-   */
-
   let app: FastifyInstance
   let session: any
   let watchMock: ReturnType<typeof mock.fn>
@@ -34,8 +26,6 @@ describe('watch preference routes (task 530)', () => {
   before(async () => {
     app = await buildTestApp({
       routes: watchingRoutes,
-      // -> Stand-in for `@fastify/session` (registered app-wide in the real boot, not here) —
-      //    mutable per-test via the `session` module variable.
       session: () => session,
       wiki: {
         models: {
@@ -115,8 +105,8 @@ describe('watch preference routes (task 530)', () => {
   })
 
   test('PATCH strips an unknown field from the body rather than passing it through', async () => {
-    // -> Fastify's ajv strips properties `additionalProperties: false` disallows rather than erroring
-    //    on them, so the assertion here is that the model never SEES the extra field — not a 400.
+    // -> Fastify's ajv strips a property `additionalProperties: false` disallows rather than
+    //    answering 400.
     const res = await app.inject({
       method: 'PATCH',
       url: WATCH_URL,
@@ -162,11 +152,7 @@ describe('watch preference routes (task 530)', () => {
 })
 
 describe('WATCH route — siteId threading (task 673)', () => {
-  /**
-   * Regression test for task 673: `loadWatchablePage`'s call to `mayOnPage` (pages.ts) passes the
-   * route's `siteId` through, so a page rule scoped to one site (task 671) is enforced when deciding
-   * whether the caller may watch a page, not just when reading it.
-   */
+  /** Without the siteId, a page rule scoped to one site is not enforced when watching a page. */
 
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '33333333-3333-4333-8333-333333333333'
@@ -180,8 +166,6 @@ describe('WATCH route — siteId threading (task 673)', () => {
     app = await buildTestApp({
       routes: watchingRoutes,
       ajv: true,
-      // -> Minimal stand-in for the real session plugin: enough for `actorFrom` to see a logged-in
-      //    user.
       session: { authenticated: true, user: { id: USER_ID }, permissions: [] },
       wiki: {
         models: {
@@ -227,16 +211,8 @@ describe('WATCH route — siteId threading (task 673)', () => {
 
 describe('page watchers listing (OpenProject #2646)', () => {
   /**
-   * `GET /sites/:siteId/pages/:pageId/watchers` — the producer behind the page metadata rail's
-   * Watching section. What is asserted here is the ROUTE's own contract, not the model's SQL (that is
-   * `models/pageWatching.test.ts`'s DB-backed `listForPage` coverage): that an anonymous caller on a
-   * readable page gets the list at all, that an unreadable page answers 404 rather than 403, that the
-   * order the model returns survives the response schema, and that `limit` reaches the model from the
-   * schema's default rather than from a number the route invented.
-   *
-   * `schemas` is left at its default `'all'` on purpose — the response `$ref`s `PageWatchers#`, which
-   * `$ref`s `Watcher#`, so a schema missing from `registerAllSchemas` fails here rather than only at
-   * boot.
+   * `schemas` stays at its default `'all'` on purpose: the response `$ref`s `PageWatchers#`, which
+   * `$ref`s `Watcher#`, so a schema missing from `registerAllSchemas` fails here, not only at boot.
    */
 
   const SITE_ID = '55555555-5555-4555-8555-555555555555'
@@ -279,8 +255,7 @@ describe('page watchers listing (OpenProject #2646)', () => {
   after(() => closeTestApp(app))
 
   beforeEach(() => {
-    // -> Anonymous by default: the rail draws this section for a signed-out reader too, so that is
-    //    the baseline every test here runs against rather than one special case at the end.
+    // -> Anonymous by default: the rail draws this section for a signed-out reader too.
     session = undefined
     readable = true
     locked = false

@@ -5,15 +5,6 @@ import type { FastifyInstance } from 'fastify'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
-/**
- * Feature #2425: the self-service `/profile/notifications` routes — a user's own per-event-type
- * email subscription toggles. Mirrors `profile.apiKeys.test.ts`'s harness: a minimal fastify app with
- * `req.session` simulated via the `x-test-session` header, and `CARDINAL.models.users` mocked rather than
- * hitting a real database — the DB-backed round trip through `prefs` itself is covered in
- * `models/users.profile.test.ts`. What belongs here is the routing: session-gating, and that the
- * session user id (never a client-supplied one) is what reaches the model.
- */
-
 let app: FastifyInstance
 let getNotificationSubscriptionsMock: ReturnType<typeof mock.fn>
 let setNotificationSubscriptionsMock: ReturnType<typeof mock.fn>
@@ -129,10 +120,8 @@ test('PUT /profile/notifications passes the session user id and the body patch t
 })
 
 test('PUT /profile/notifications silently drops an unknown event key, matching every other route in this codebase', async () => {
-  // -> This instance's ajv is configured with the Fastify default `removeAdditional: true` (see
-  //    `schemas/comment.ts`'s own doc comment on `CommentUpdateInput`), which deletes an undeclared
-  //    property from the body rather than rejecting the request -- so an unknown key never reaches
-  //    the model, but the request still succeeds rather than 400ing.
+  // -> ajv runs with Fastify's default `removeAdditional: true`, which strips an undeclared key
+  //    from the body rather than answering 400.
   const res = await app.inject({
     method: 'PUT',
     url: '/profile/notifications',
