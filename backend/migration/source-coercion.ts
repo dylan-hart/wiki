@@ -1,17 +1,10 @@
 /**
- * Cross-engine boolean coercion for the 2.5.x → 3.0 migration read path (OpenProject #1845/#1850).
+ * The one place a 2.x source boolean column is coerced, because its representation depends on the
+ * source engine: `pg` decodes a real `boolean`, but an export bundle from MySQL, MariaDB or SQLite
+ * carries 2.x's knex/Objection integer `0`/`1` as a plain JSON number.
  *
- * `PostgresSourceConnector` hands `content-staging.ts`/`importers/users-groups.ts` a real JS
- * `boolean` for every 2.x `boolean` column, since `pg` decodes them that way. But
- * `docs/migration/decision-source-scope.md` makes the export bundle (`connectors/export-bundle.ts`)
- * the only supported path for MySQL, MariaDB and SQLite — engines where 2.x's knex/Objection layer
- * represents the same columns as integer `0`/`1`, which land in `pages.json.gz` (and friends) as
- * plain JSON numbers, not booleans. (MSSQL is unaffected: tedious decodes `BIT` to a real boolean.)
- *
- * `coerceSourceBoolean` is the one place both connector kinds' consumers coerce a source boolean
- * column, so the representations it accepts only need deciding once. `undefined` means "not
- * recognized as a boolean at all" — distinct from a real `false` — so a caller that needs to tell
- * "this column was present and false" apart from "this column was missing/garbage" still can.
+ * `undefined` means "not recognized as a boolean at all", deliberately distinct from `false`, so a
+ * caller can tell a present-and-false column from a missing or garbage one.
  */
 export function coerceSourceBoolean(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value

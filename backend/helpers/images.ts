@@ -1,44 +1,29 @@
 import sanitizeHtml from 'sanitize-html'
 
-/**
- * Image helpers
- *
- * Only what the server needs to accept an uploaded image safely: recognizing what it actually is,
- * normalizing it when the Sharp extension is available, and sanitizing it when it is SVG.
- */
-
-/** The image formats an upload may use. */
 export const imageMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
 
 export type ImageMimeType = (typeof imageMimeTypes)[number]
 
 /**
- * SVG, which is markup rather than an image format and so is handled apart from the raster ones
- * everywhere: it is recognized by reading it, it cannot be resized or re-encoded, and serving one
- * back means serving a document a browser will happily execute scripts from.
+ * Markup rather than an image format, so it is handled apart from the raster ones everywhere: it
+ * cannot be resized or re-encoded, and serving one back means serving a document a browser will
+ * happily execute scripts from.
  */
 export const svgMimeType = 'image/svg+xml'
 
 /**
- * Recognize SVG markup.
- *
  * There is no magic number to match: an SVG may open with a byte order mark, an XML declaration, a
- * doctype or comments before the root element ever appears. So the start of the file is read as text
- * and the root element looked for — enough to tell an SVG from a file claiming to be one, which is
- * all this decides.
+ * doctype or comments before the root element appears, so the start of the file is read as text and
+ * the root element looked for.
  */
 export function detectSvg(data: Buffer): boolean {
   return /<svg[\s>]/i.test(data.subarray(0, 1024).toString('utf8'))
 }
 
 /**
- * Recognize an image from its leading bytes.
- *
  * The declared `Content-Type` of an upload is whatever the client felt like sending, so the stored
  * bytes are what decides — both for rejecting a file that is not an image at all and for serving it
  * back with a truthful type later.
- *
- * @returns The MIME type, or null if these bytes are not one of the supported formats
  */
 export function detectImageMime(data: Buffer): ImageMimeType | null {
   if (data.length < 12) {
@@ -64,22 +49,17 @@ export function detectImageMime(data: Buffer): ImageMimeType | null {
 }
 
 /**
- * Resize an image to a square JPEG, using the Sharp extension.
- *
- * Sharp ships as an optional dependency, so it is normally there — but an optional dependency is
- * exactly one that may be missing, whether because the platform has no prebuilt binary or because the
- * install skipped it. So this reports back rather than failing, leaving the caller to decide whether
- * the original bytes will do; the admin area's extensions view is where it gets (re)installed.
- *
- * @returns The resized JPEG, or null if Sharp is not usable on this system
+ * Sharp is an optional dependency and may genuinely be missing (no prebuilt binary for the
+ * platform, a skipped install), so an unusable Sharp answers `null` rather than throwing and the
+ * caller decides whether the original bytes will do.
  */
 export async function resizeImageToSquareJpeg(data: Buffer, size: number): Promise<Buffer | null> {
   const definition = CARDINAL.models.extensions.getDefinition('sharp')
   if (!definition || !(await CARDINAL.models.extensions.isInstalled(definition))) {
     return null
   }
-  // -> The specifier is held in a variable on purpose: Sharp is an *optional* dependency, so a literal
-  //    `import('sharp')` would be a type error wherever the optional install was skipped.
+  // -> Specifier in a variable on purpose: a literal `import('sharp')` is a type error wherever the
+  //    optional install was skipped.
   const specifier = 'sharp'
   try {
     const { default: sharp } = await import(specifier)
@@ -88,17 +68,15 @@ export async function resizeImageToSquareJpeg(data: Buffer, size: number): Promi
       .jpeg({ quality: 90 })
       .toBuffer()
   } catch (err: any) {
-    // -> Present but unusable, which is what a native binary built for another platform looks like. The
-    //    caller falls back to the original bytes rather than refusing the upload; the failure is
-    //    recorded because Node will keep replaying it until the server restarts, so reinstalling Sharp
-    //    from the admin area cannot help this process.
+    // -> Present but unusable, which is what a native binary built for another platform looks like.
+    //    Recorded because Node replays the failure until restart, so reinstalling from the admin
+    //    area cannot help this process.
     CARDINAL.models.extensions.noteLoadFailure(specifier)
     CARDINAL.logger.warn('assets', 'could not resize an image with Sharp', { error: err })
     return null
   }
 }
 
-/** How an uploaded image is brought down to the size and format it will be served at. */
 export type ImageNormalization = {
   width: number
   height: number
@@ -108,19 +86,12 @@ export type ImageNormalization = {
    * a logo that may be any shape.
    */
   fit: 'cover' | 'inside'
-  /** `webp` for anything displayed by the app itself; `png` where the widest support is worth the
+  /** `webp` for anything the app displays itself; `png` where the widest support is worth the
    * bytes, as it is for a favicon. Both keep transparency, which a logo usually depends on. */
   format: 'webp' | 'png'
 }
 
-/**
- * Re-encode an image to the given size and format, using the Sharp extension.
- *
- * Never enlarges: upscaling a small upload would cost bytes to look worse. So the result is at most
- * the requested size, and an image already smaller than the box is only re-encoded.
- *
- * @returns The re-encoded image, or null if Sharp is not usable on this system
- */
+/** Never enlarges (`withoutEnlargement`): upscaling a small upload costs bytes to look worse. */
 export async function normalizeImage(
   data: Buffer,
   { width, height, fit, format }: ImageNormalization
@@ -130,8 +101,8 @@ export async function normalizeImage(
     return null
   }
   const specifier = 'sharp'
-  // -> Loading Sharp and running it are kept apart, as they are for a thumbnail: the upload may simply
-  //    be an image Sharp cannot read, which must not be recorded as Sharp itself being broken
+  // -> Load and run are separate try blocks: an upload Sharp cannot read must not be recorded as
+  //    Sharp itself being broken
   let sharp: any
   try {
     ;({ default: sharp } = await import(specifier))
@@ -156,13 +127,8 @@ export async function normalizeImage(
 }
 
 /**
- * Shrink an image to a WebP thumbnail, using the Sharp extension.
- *
- * Unlike an avatar, a thumbnail has no fallback: a file manager that cannot make one simply shows the
- * file type icon instead, so null here is an ordinary outcome rather than a degraded one.
- *
- * @returns The thumbnail, or null if Sharp is not usable on this system or these bytes are not an
- *          image it can read
+ * A thumbnail has no fallback, unlike an avatar: the file manager just shows the file-type icon, so
+ * `null` is an ordinary outcome here rather than a degraded one — hence the `debug`, not `warn`.
  */
 export async function makeImageThumbnail(
   data: Buffer,
@@ -174,9 +140,8 @@ export async function makeImageThumbnail(
     return null
   }
   const specifier = 'sharp'
-  // -> Loading Sharp and running it are kept apart here, unlike above: whatever a user uploaded may
-  //    simply not be an image Sharp can read, and that must not be recorded as Sharp itself being
-  //    broken for the rest of the process
+  // -> Load and run are separate try blocks: an upload Sharp cannot read must not be recorded as
+  //    Sharp itself being broken
   let sharp: any
   try {
     ;({ default: sharp } = await import(specifier))
@@ -197,10 +162,9 @@ export async function makeImageThumbnail(
 }
 
 /**
- * Presentation attributes shared by the SVG elements `sanitizeSvg` allows below. Kept apart from, but
- * deliberately mirroring, `helpers/htmlSanitizePolicy.ts`'s `SVG_ATTRIBUTES` -- that one sanitizes an inline
- * `<svg>` fragment pasted into a page, this one sanitizes a whole uploaded SVG file, so the two lists
- * are independent, but both exist for the same reason and should be kept in step.
+ * Deliberately mirrors `helpers/htmlSanitizePolicy.ts`'s `SVG_ATTRIBUTES` -- that one covers an
+ * inline `<svg>` fragment pasted into a page, this one a whole uploaded SVG file. Independent
+ * lists, same purpose: keep them in step.
  */
 const SVG_ATTRIBUTES = [
   'clip-path',
@@ -241,9 +205,9 @@ const SVG_ATTRIBUTES = [
 ]
 
 /**
- * Tags an uploaded SVG file may use: structure and shapes only. `script`, `foreignObject` and the SMIL
- * animation tags (`animate`, `set`, ...) are all left out on purpose -- each is a way to get script, or
- * arbitrary embedded markup, back into what is nominally just a picture.
+ * Structure and shapes only. `script`, `foreignObject` and the SMIL animation tags (`animate`,
+ * `set`, ...) are left out on purpose -- each is a way to get script, or arbitrary embedded markup,
+ * back into what is nominally just a picture.
  */
 const SVG_ALLOWED_TAGS = [
   'svg',
@@ -296,12 +260,9 @@ const SVG_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
 }
 
 /**
- * Strip an uploaded SVG down to the allowlist above, dropping `<script>`, event-handler attributes
- * (`onload`, `onclick`, ...), `foreignObject`, SMIL animation and anything else outside it.
- *
- * Gated behind `security.uploadScanSVG` by its two callers (`models/assets.ts#upload`,
+ * Gated behind `security.uploadScanSVG` by its callers (`models/assets.ts#upload`,
  * `models/sites.ts#setAsset`) rather than here, so a disabled flag stores the file exactly as
- * uploaded and this function is never reached.
+ * uploaded and this is never reached.
  */
 export function sanitizeSvg(data: Buffer): Buffer {
   const cleaned = sanitizeHtml(data.toString('utf8'), {
@@ -309,7 +270,7 @@ export function sanitizeSvg(data: Buffer): Buffer {
     allowedAttributes: SVG_ALLOWED_ATTRIBUTES,
     allowedSchemes: [],
     allowProtocolRelative: false,
-    // -> Applies only to tags that were dropped: without it, a stripped `<script>`'s body would come
+    // -> Applies only to tags that were dropped: without it, a stripped `<script>`'s body comes
     //    back out as visible text inside the SVG
     nonTextTags: ['script', 'style', 'foreignObject', 'textarea', 'option', 'noscript'],
     parser: {

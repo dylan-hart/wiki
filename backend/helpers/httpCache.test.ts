@@ -7,7 +7,6 @@ import { notModifiedOrPrepare } from './httpCache.ts'
 import { listSourceFiles } from '../test/sourceFiles.ts'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 
-/** The two pieces of a `FastifyRequest`/`FastifyReply` this helper actually touches. */
 function fakeExchange(ifNoneMatch?: string) {
   const headers: Record<string, unknown> = {}
   const sent: number[] = []
@@ -57,7 +56,7 @@ describe('notModifiedOrPrepare', () => {
     })
     assert.equal(answered, true)
     assert.deepEqual(sent, [304])
-    // -> The validator headers go out on the 304 as well, exactly as each controller sent them
+    // -> The validator headers go out on the 304 as well
     assert.equal(headers.ETag, '"abc"')
     assert.equal(headers['Cache-Control'], 'private, no-cache')
   })
@@ -85,30 +84,22 @@ describe('notModifiedOrPrepare', () => {
 const BACKEND_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * Every helper that sends a reply for its caller is answered with `return reply` (OpenProject #2644).
- *
  * A bare `return` resolves an `async` handler's promise with `undefined`, and Fastify then writes the
  * same reply a second time whenever an async `onSend` hook is still in flight — which, thanks to
- * `@fastify/session`'s, is every reply this app serves. `api/locales.test.ts` proves the behaviour
- * end-to-end on the one route it was observed on; this is the cheap scan that keeps the other call
- * sites from drifting back, since the mistake is invisible at the call site and was made
- * independently in six files.
+ * `@fastify/session`'s, is every reply this app serves. The mistake is invisible at the call site,
+ * hence a scan; `api/locales.test.ts` proves the behaviour end-to-end on one route.
  *
- * Scoped to the route layer, `api/` and `controllers/`, because the rule is about a ROUTE HANDLER's
- * resolved value: the one caller outside it, `helpers/siteResolution.ts#siteEnabledPreHandler`, is a
- * synchronous callback-style `preHandler` whose bare `return` is correct — it withholds `done()`
- * rather than resolving a promise, so Fastify never looks at what it returned.
+ * Scoped to `api/` and `controllers/` because the rule is about a ROUTE HANDLER's resolved value:
+ * `helpers/siteResolution.ts#siteEnabledPreHandler` is a callback-style `preHandler` whose bare
+ * `return` is correct — it withholds `done()` rather than resolving a promise.
  *
- * Matched on the call (`name(`), minus the helper's own declaration and minus comment lines — the
- * prose in `mcp/site.ts` and in these helpers' own doc blocks writes `guardSiteEnabled()` with the
- * parentheses, so a bare "has a paren" test alone would flag documentation.
+ * Comment lines are skipped because prose writes `guardSiteEnabled()` with the parentheses too.
  */
 describe('callers of a reply-sending helper return the reply', () => {
   const sourceFiles = ['api', 'controllers'].flatMap((dir) =>
     listSourceFiles(path.join(BACKEND_ROOT, dir), { ext: ['.ts'], skip: ['.test.ts', '.d.ts'] })
   )
 
-  /** A line of prose, not code: `//`, or anywhere inside a `/* … *\/` block. */
   const isComment = (line: string) => /^\s*(\/\/|\/?\*)/.test(line)
 
   for (const helper of ['notModifiedOrPrepare', 'guardSiteEnabled']) {

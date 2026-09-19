@@ -1,11 +1,6 @@
 import { Command, InvalidArgumentError } from 'commander'
 import type { PostgresSourceConfig } from './connectors/postgres.ts'
 
-/**
- * The 2.x source a CLI invocation resolved to, shared between `../tasks/migrate.ts`'s CLI (`cli.ts`)
- * and `../tasks/verify-migration.ts`'s CLI (`verify-cli.ts`) — both need to open the exact same kind of
- * connection to the same source, just for different purposes (import vs. post-import verification).
- */
 export type ParsedSource =
   | { kind: 'postgres'; config: PostgresSourceConfig }
   | { kind: 'export-bundle'; path: string }
@@ -28,10 +23,9 @@ const POSTGRES_SOURCE_FIELDS = [
 ] as const
 
 /**
- * Builds one migration-CLI entry point's commander program: its own name/description/flags (added by
- * `options`), then the source-selection flags every entry point shares, then the two settings that
- * make `parseArgv()` able to report a plain `Error` — `exitOverride()` so commander throws instead of
- * calling `process.exit`, and a silenced output so its own usage text never reaches the console.
+ * Adds the source-selection flags every migration CLI shares. `exitOverride()` plus the silenced
+ * output are what let `parseArgv()` report a plain `Error` instead of commander printing usage and
+ * calling `process.exit`.
  */
 export function buildSourceProgram(config: {
   name: string
@@ -54,9 +48,9 @@ export function buildSourceProgram(config: {
 }
 
 /**
- * Parses bare argv (no `node`/script path prefix) with `program` and returns its resolved options.
+ * `argv` is bare — no `node`/script prefix.
  *
- * @throws A plain `Error` (never commander's own `CommanderError`) describing what was wrong.
+ * @throws A plain `Error`, never commander's own `CommanderError`.
  */
 export function parseArgv<TOptions extends Record<string, any>>(
   program: Command,
@@ -70,8 +64,7 @@ export function parseArgv<TOptions extends Record<string, any>>(
   return program.opts<TOptions>()
 }
 
-/** Splits a comma-separated CLI value into trimmed, non-empty items. `undefined` when the flag was
- * not given at all — which every caller distinguishes from "given, but naming nothing". */
+/** `undefined` means the flag was absent; `[]` means it was given but named nothing usable. */
 export function splitCommaList(raw: string | undefined): string[] | undefined {
   if (!raw) {
     return undefined
@@ -90,13 +83,7 @@ export function parsePort(raw: string): number {
   return port
 }
 
-/**
- * Resolves the source-selection flags into exactly one `ParsedSource`: an export bundle path, or a
- * complete set of discrete Postgres fields. Shared validation logic for every migration-CLI entry
- * point, so a typo or an incomplete source is rejected identically wherever it is given.
- *
- * @throws A plain `Error` when neither source kind was given completely.
- */
+/** @throws A plain `Error` when neither source kind was given completely. */
 export function resolveSource(opts: SourceRawOptions): ParsedSource {
   if (opts.bundlePath) {
     return { kind: 'export-bundle', path: opts.bundlePath }

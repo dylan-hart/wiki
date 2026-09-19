@@ -13,7 +13,6 @@ import {
 
 import { installTestWiki } from '../test/mocks.ts'
 
-/** An 8-byte PNG signature, optionally padded out to a given total length. */
 function pngBytes(length = 16): Buffer {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
   return Buffer.concat([signature, Buffer.alloc(Math.max(0, length - signature.length))])
@@ -101,14 +100,10 @@ describe('detectSvg', () => {
   })
 
   test('returns false for a truncated/malformed fragment that merely starts with the letters "svg"', () => {
-    // -> No whitespace or `>` immediately follows "svg", so this must not match — otherwise
-    //    `<svgfoo` inside arbitrary binary/text garbage would be misdetected as SVG markup.
     assert.equal(detectSvg(Buffer.from('<svgness-is-not-a-tag>')), false)
   })
 
   test('returns false for a corrupted/incomplete SVG whose root element never appears within the first 1024 bytes', () => {
-    // -> Simulates a truncated upload: plausible SVG-adjacent preamble, but the `<svg` root element
-    //    itself got cut off past the read window.
     const padding = 'x'.repeat(1100)
     const markup = `<?xml version="1.0"?>\n<!-- ${padding} -->\n<svg></svg>`
     assert.equal(detectSvg(Buffer.from(markup)), false)
@@ -192,9 +187,8 @@ describe('sanitizeSvg', () => {
 })
 
 /**
- * `resizeImageToSquareJpeg`/`normalizeImage`/`makeImageThumbnail` all consult
- * `CARDINAL.models.extensions` before ever touching Sharp, so this installs a minimal fake of just that
- * surface rather than the full `test/db.ts` fixture — none of the three needs a database.
+ * All three consult `CARDINAL.models.extensions` before touching Sharp, so a minimal fake of that
+ * surface is enough — none of them needs a database.
  */
 describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Sharp unavailable', () => {
   let wikiHandle: { restore(): void }
@@ -246,13 +240,10 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
   })
 
   /**
-   * The "not installed" tests above stub `CARDINAL.models.extensions.isInstalled` directly, which is
-   * exactly what `moduleExists()` (the real implementation) reports for a package genuinely absent
-   * from `node_modules`. This test instead covers the other half of the task description — Sharp
-   * *reported* installed (`isInstalled` says yes, matching what a present-but-broken native binary
-   * looks like to that check) whose `import()` itself then throws. That can't be forced without an
-   * actual failing module resolution, so `node_modules/sharp` is renamed out of the way for the
-   * duration of this one test and restored in `finally` even if an assertion throws.
+   * The present-but-broken case: `isInstalled` says yes, but `import()` throws — which is what a
+   * native binary built for another platform looks like. It cannot be forced without a genuinely
+   * failing module resolution, so `node_modules/sharp` is renamed aside for this one test and
+   * restored in `finally`.
    */
   test('normalizeImage returns null and records a load failure when Sharp is reported installed but cannot actually be imported', async () => {
     const nodeModulesDir = path.join(import.meta.dirname, '..', 'node_modules')
@@ -267,8 +258,7 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
       if (err.code !== 'ENOENT') {
         throw err
       }
-      // -> Nothing installed to rename out of the way; import() will fail on its own
-      //    (ERR_MODULE_NOT_FOUND), which is the same outcome this test verifies either way.
+      // -> Nothing to rename aside; `import()` fails on its own, the same outcome either way
     }
 
     try {
