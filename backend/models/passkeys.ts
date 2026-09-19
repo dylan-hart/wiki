@@ -17,29 +17,23 @@ import type {
 } from '@simplewebauthn/server'
 import type { AfterLoginResult } from './login.ts'
 
-/**
- * One registered authenticator, as stored in the user's `passkeys` blob. Every binary value is held
- * base64url-encoded, since this lives in a JSONB column.
- */
+/** Every binary value is held base64url-encoded, since this lives in a JSONB column. */
 interface StoredPasskey {
-  /** The credential ID, which is also what the browser sends back to identify it. */
+  /** The WebAuthn credential ID. */
   id: string
   name: string
-  /** COSE public key, base64url-encoded. */
+  /** COSE public key. */
   publicKey: string
   /** Signature counter last reported by the authenticator, for replay detection. */
   counter: number
   transports?: AuthenticatorTransportFuture[]
   createdAt: string
   siteId: string
-  /** The hostname the credential is bound to. A passkey only works on the site it was created on. */
+  /** The hostname the credential is bound to: a passkey only works on the site it was created on. */
   rpId: string
 }
 
-/**
- * A ceremony waiting to be answered. Held on the session between the two requests a ceremony takes —
- * see the note on `Session.passkeyLogin` in `types/fastify.d.ts` for why it cannot live anywhere else.
- */
+/** Held on the session between the two requests a ceremony takes. */
 export interface PasskeyChallenge {
   challenge: string
   rpId: string
@@ -47,12 +41,11 @@ export interface PasskeyChallenge {
   siteId: string
 }
 
-/** What a user's `passkeys` column holds: the credentials themselves, and nothing transient. */
 interface PasskeyStore {
   authenticators?: StoredPasskey[]
 }
 
-/** A passkey as the profile page lists it — never the key material. */
+/** What a user may be shown — never the key material. */
 export interface PasskeyInfo {
   id: string
   name: string
@@ -61,32 +54,24 @@ export interface PasskeyInfo {
 }
 
 /**
- * Hostnames a browser treats as a secure context without TLS, so that `http://localhost:3001` — the
- * dev server — is a usable origin. Anything else has to be https, which is a WebAuthn requirement
- * rather than a choice made here.
+ * Hostnames a browser treats as a secure context without TLS, so that the dev server is a usable
+ * origin. Everything else has to be https, which is a WebAuthn requirement, not a choice made here.
  */
 const insecureOriginExceptions = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
 
 /**
- * The origin a passkey ceremony must be performed on.
- *
  * Taken from the request's own `Origin` header rather than assembled from the hostname, because the
- * port is part of an origin and this instance does not know which one the browser reached it on. That
- * is safe because the header is only trusted as far as it agrees with the host the request was
- * addressed to: a page on another origin posting here would disagree, and is rejected. What the
- * header cannot establish is that the connection was secure, so that is checked separately.
+ * port is part of an origin and this instance does not know which one the browser reached it on.
+ * That is safe because the header is trusted only as far as it agrees with the host the request was
+ * addressed to: a page on another origin posting here disagrees, and is rejected. What the header
+ * cannot establish is that the connection was secure, so that is checked separately.
  *
- * @param origin The `Origin` header, if the client sent one
- * @param hostname The host the request was addressed to, i.e. the RP ID
- * @throws `ERR_PK_ORIGIN_MISMATCH` when the origin disagrees with `hostname` — the case a spoofed or
- *         degraded `req.hostname` (an unvalidated `X-Forwarded-Host` under `trustProxy`, or a reverse
- *         proxy that isn't forwarding the real `Host`) produces, since a real browser's `Origin`
- *         header keeps telling the truth even when the server's idea of its own hostname doesn't
- * @throws `ERR_PK_INSECURE_ORIGIN` for an origin that doesn't parse, or isn't a secure context
+ * @throws `ERR_PK_ORIGIN_MISMATCH` when the origin disagrees with `hostname`, or
+ *         `ERR_PK_INSECURE_ORIGIN` for an origin that doesn't parse or isn't a secure context
  */
 export function resolveOrigin(origin: string | undefined, hostname: string): string {
-  // -> A client that sends no Origin at all is not a browser doing a WebAuthn ceremony, but it may
-  //    still be a legitimate API client driving one, so the canonical https origin is assumed
+  // -> A client sending no Origin is not a browser doing a ceremony, but may still be a legitimate
+  //    API client driving one, so the canonical https origin is assumed
   if (!origin) {
     return `https://${hostname}`
   }
@@ -97,9 +82,8 @@ export function resolveOrigin(origin: string | undefined, hostname: string): str
   } catch {
     throw new Error('ERR_PK_INSECURE_ORIGIN')
   }
-  // -> Kept distinct from ERR_PK_INSECURE_ORIGIN below: this is the trustProxy/reverse-proxy
-  //    hostname-mismatch shape, not a protocol problem, and the two want different admin-facing
-  //    troubleshooting text (see the security review this came out of, docs/security-reviews/).
+  // -> Kept distinct from ERR_PK_INSECURE_ORIGIN below: a trustProxy/reverse-proxy hostname
+  //    mismatch, not a protocol problem, and the two want different admin-facing troubleshooting.
   if (parsed.hostname !== hostname) {
     throw new Error('ERR_PK_ORIGIN_MISMATCH')
   }
@@ -110,38 +94,22 @@ export function resolveOrigin(origin: string | undefined, hostname: string): str
 }
 
 /**
- * Passkeys (WebAuthn) model
- *
- * Credentials are stored in the user's `passkeys` JSONB column rather than a table of their own: they
- * are only ever read for one user at a time, and they die with the account.
+ * Credentials are stored in the user's `passkeys` JSONB column rather than a table of their own:
+ * they are only ever read for one user at a time, and they die with the account.
  */
 class Passkeys {
-  /**
-   * The passkeys registered by a user, as the profile page lists them.
-   */
   async list(userId: string): Promise<PasskeyInfo[]> {
     const store = await this.getStore(userId)
     return (store.authenticators ?? []).map((pk) => ({
       id: pk.id,
       name: pk.name,
-      // -> The hostname it was registered against, not the site's current one: that is what the
-      //    credential is actually bound to, and renaming a site does not move it
+      // -> What it was registered against, not the site's current hostname: that is what the
+      //    credential is bound to, and renaming a site does not move it
       siteHostname: pk.rpId,
       createdAt: pk.createdAt
     }))
   }
 
-  /**
-   * Options for registering a new passkey.
-   *
-   * @param userId The user registering it, who must be logged in
-   * @param hostname The host being browsed, which becomes the RP ID the credential is bound to
-   * @param origin The request's `Origin` header
-   * @returns The options to hand the browser, and the challenge to remember for
-   *          `finalizeRegistration()`
-   * @throws `ERR_INVALID_USER`, `ERR_PK_HOSTNAME_MISSING`, `ERR_PK_ORIGIN_MISMATCH` or
-   *         `ERR_PK_INSECURE_ORIGIN`
-   */
   async startRegistration({
     userId,
     hostname,
@@ -169,8 +137,8 @@ class Passkeys {
     const options = await generateRegistrationOptions({
       rpName: site?.config?.title || 'Wiki',
       rpID: hostname,
-      // -> The user handle comes back on login as the only clue to who is signing in, so it is the
-      //    user ID itself rather than a random value that would need a second lookup table
+      // -> The handle comes back on login as the only clue to who is signing in, so it is the user
+      //    ID itself rather than a random value needing a second lookup table
       userID: new TextEncoder().encode(user.id),
       userName: user.email,
       userDisplayName: user.name,
@@ -179,8 +147,8 @@ class Passkeys {
         residentKey: 'required',
         userVerification: 'preferred'
       },
-      // -> Every credential the user already has, so the authenticator can refuse to enroll twice and
-      //    the browser can say so before anything is stored
+      // -> So the authenticator refuses to enroll twice, and the browser says so before anything is
+      //    stored
       excludeCredentials: (store.authenticators ?? []).map((pk) => ({
         id: pk.id,
         transports: pk.transports
@@ -198,13 +166,6 @@ class Passkeys {
     }
   }
 
-  /**
-   * Verify what the authenticator produced and store the credential under the given name.
-   *
-   * @param pending The challenge `startRegistration()` handed out, off the session
-   * @throws `ERR_INVALID_USER`, `ERR_PASSKEY_NOT_SETUP`, `ERR_PK_NAME_MISSING_OR_INVALID`,
-   *         `ERR_PK_ALREADY_REGISTERED` or `ERR_PK_VERIFICATION_FAILED`
-   */
   async finalizeRegistration({
     userId,
     name,
@@ -236,7 +197,7 @@ class Passkeys {
         expectedChallenge: pending.challenge,
         expectedOrigin: pending.origin,
         expectedRPID: pending.rpId,
-        // -> Matches the `preferred` asked for above: an authenticator that has no way to verify the
+        // -> Matches the `preferred` asked for above: an authenticator with no way to verify the
         //    user is still worth registering, and requiring it here would reject exactly those
         requireUserVerification: false
       })
@@ -282,10 +243,8 @@ class Passkeys {
   }
 
   /**
-   * Forget a passkey. The credential itself lives on the user's device and has to be removed there
-   * too, which is what the client says when this succeeds.
-   *
-   * @returns False if the user has no such passkey
+   * The credential itself lives on the user's device and has to be removed there too, which is what
+   * the client says when this succeeds.
    */
   async remove(userId: string, passkeyId: string): Promise<boolean> {
     const store = await this.getStore(userId)
@@ -300,15 +259,10 @@ class Passkeys {
   }
 
   /**
-   * Options for logging in with a passkey.
-   *
    * Nobody is named here, and no `allowCredentials` list is sent: every passkey is registered as a
-   * discoverable credential, so the authenticator offers whichever ones it holds for this host and the
-   * assertion says who signed. That is what makes a passkey login one gesture — there is nothing to ask
+   * discoverable credential, so the authenticator offers whichever ones it holds for this host and
+   * the assertion says who signed. That is what makes a passkey login one gesture — nothing to ask
    * the user first, and no lookup that could reveal whether an address has an account.
-   *
-   * @returns The options to hand the browser, and the challenge to remember for `verifyLogin()`
-   * @throws `ERR_PK_HOSTNAME_MISSING`, `ERR_PK_ORIGIN_MISMATCH` or `ERR_PK_INSECURE_ORIGIN`
    */
   async startLogin({ hostname, origin }: { hostname: string; origin?: string }): Promise<{
     authOptions: PublicKeyCredentialRequestOptionsJSON
@@ -336,18 +290,12 @@ class Passkeys {
   }
 
   /**
-   * Verify a passkey login and, if it holds up, log the user in.
-   *
-   * A passkey establishes both who the user is and that they were present, so this does not go on to
-   * ask for a password or a 2FA code. The account checks the password strategy performs still apply —
-   * a deactivated account cannot be signed into with a key either.
+   * A passkey establishes both who the user is and that they were present, so this does not go on
+   * to ask for a password or a 2FA code. The account checks the password strategy performs still
+   * apply — a deactivated account cannot be signed into with a key either.
    *
    * Who signed comes out of the assertion's user handle, which is the only way this can work: the
    * challenge was handed out before anyone was named.
-   *
-   * @param pending The challenge `startLogin()` handed out, off the session
-   * @returns The same shape a password login returns, so the client handles both the same way
-   * @throws `ERR_LOGIN_FAILED`, `ERR_INACTIVE_USER` or `ERR_USER_NOT_VERIFIED`
    */
   async verifyLogin(
     {
@@ -375,8 +323,8 @@ class Passkeys {
     }
 
     // -> The handle is the user ID this server encoded at registration, so anything else is not a
-    //    credential of ours. Checked for shape before it is looked up: postgres rejects a malformed
-    //    uuid with an error of its own, which would turn a rejected login into a logged fault.
+    //    credential of ours. Shape-checked before it is looked up: postgres rejects a malformed
+    //    uuid with an error of its own, turning a rejected login into a logged fault.
     let userId: string
     try {
       userId = isoBase64URL.toUTF8String(userHandle)
@@ -409,8 +357,8 @@ class Passkeys {
         expectedChallenge: pending.challenge,
         expectedOrigin: pending.origin,
         expectedRPID: pending.rpId,
-        // -> As at registration: the ceremony asked for `preferred`, so requiring it here would turn
-        //    an authenticator that cannot verify into a login that never succeeds
+        // -> As at registration: the ceremony asked for `preferred`, so requiring it here would
+        //    turn an authenticator that cannot verify into a login that never succeeds
         requireUserVerification: false,
         credential: {
           id: passkey.id,
@@ -438,15 +386,12 @@ class Passkeys {
       )
     })
 
-    // -> `isActive`/`isVerified` are checked centrally by `models/users.ts#afterLoginChecks()`, called
-    //    a few lines below -- every login path ends there, this one included, so a passkey login is no
-    //    longer able to skip the check the password strategy would have made.
     CARDINAL.models.flags.authDebug(
       `User ${user.id} <${user.email}> authenticated with passkey "${passkey.name}"`
     )
 
-    // -> Attributed to the local strategy, which is where an account's own credentials belong. Neither
-    //    a password change nor a 2FA code is asked for on top of a passkey.
+    // -> Attributed to the local strategy, which is where an account's own credentials belong.
+    //    Neither a password change nor a 2FA code is asked for on top of a passkey.
     return CARDINAL.models.login.afterLoginChecks(
       user,
       CARDINAL.data.systemIds.localAuthId,
@@ -457,18 +402,10 @@ class Passkeys {
   }
 
   /**
-   * OpenProject #3200: the one place a failed passkey assertion reaches the audit log.
-   *
-   * By this point the credential ID has already resolved to a specific user and a specific stored
-   * authenticator -- unlike an OAuth callback's `login.failed`, this one can name the account
-   * directly, the same as `loginTFA()`'s own credential-rejection audit entries do. Not called for
-   * `verifyLogin()`'s earlier pre-checks (no outstanding challenge, no/unparseable user handle, no
-   * such user, no such credential for that user) -- those are refused before an assertion was ever
-   * actually verified, the same distinction every other `login.failed` call site in this codebase
-   * draws.
-   *
-   * Attributed to the local strategy, matching the successful case a few lines below: a passkey is one
-   * of an account's own credentials, not a third-party provider's.
+   * Only for an assertion that was actually verified and failed: `verifyLogin()`'s earlier
+   * pre-checks refuse before any assertion is verified, the same distinction every other
+   * `login.failed` call site draws. By this point the credential ID has resolved to a specific user
+   * and stored authenticator, so — unlike an OAuth callback — this can name the account.
    */
   private async recordFailedAssertion(
     user: { id: string; name: string; email: string },
@@ -487,17 +424,11 @@ class Passkeys {
     })
   }
 
-  /**
-   * The stored blob for a user, or an empty one for a user who has never registered a passkey.
-   */
   async getStore(userId: string): Promise<PasskeyStore> {
     const user = await CARDINAL.models.users.getById(userId)
     return (user?.passkeys ?? {}) as PasskeyStore
   }
 
-  /**
-   * Replace a user's stored passkey blob.
-   */
   async saveStore(userId: string, store: PasskeyStore): Promise<void> {
     await CARDINAL.db
       .update(usersTable)

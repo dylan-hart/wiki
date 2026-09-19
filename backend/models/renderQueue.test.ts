@@ -4,14 +4,8 @@ import { renderQueue } from './renderQueue.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
 /*
- * `resolveSiteOrigin` is what carries the site's real hostname into the headless renderer's context
- * (OpenProject #1751), so `isExternalHref` in `frontend/src/renderers/markdown.js` classifies an
- * absolute same-site link the same way whether it was just saved by the editor or re-rendered
- * headlessly afterwards. Mirrors `models/mail.ts`'s `resolveMailBaseURL` -- same `https://<hostname>`
- * assumption, same `*`-catch-all/unresolvable-siteId fallback.
- *
- * Private, hence the cast. Nothing here opens a browser or reaches the database: the rest of this
- * model is a Puppeteer drain loop, which is exercised end to end by the e2e suite rather than here.
+ * `resolveSiteOrigin` is private, hence the cast. Nothing here opens a browser or reaches the
+ * database: the rest of this model is a Puppeteer drain loop, exercised end to end by the e2e suite.
  */
 const wiki = installTestWiki()
 after(() => wiki.restore())
@@ -37,15 +31,12 @@ describe('renderQueue.resolveSiteOrigin (OpenProject #1751)', () => {
 })
 
 /**
- * OpenProject #3401: `ensureCanRender()` used to key off the literal editor name (`editor !==
- * 'markdown'`), which refused a `wysiwyg` page even after #3388 made its content markdown too (via
- * `@tiptap/markdown`, not typed Tiptap JSON) -- the very thing this renderer needs. It is now keyed
- * off `getContentTypeForEditor()` instead, so any editor whose OUTPUT is markdown clears the gate,
- * `wysiwyg` included. A gate that passes still needs Puppeteer, so these assert on the error NAME to
- * tell "refused for being an unsupported editor" (`renderUnsupportedEditor`) apart from "would be
- * fine, but nothing here can render it" (`renderPuppeteerMissing`) -- this suite has no real
- * Puppeteer, so `getDefinition: () => undefined` stands in for "the extension isn't installed"
- * without needing the whole extensions model.
+ * The gate is keyed off `getContentTypeForEditor()` rather than the editor name, so any editor whose
+ * OUTPUT is markdown clears it, `wysiwyg` included. A gate that passes still needs Puppeteer, so
+ * these assert on the error NAME to tell "refused for being an unsupported editor"
+ * (`renderUnsupportedEditor`) apart from "would be fine, but nothing here can render it"
+ * (`renderPuppeteerMissing`); `getDefinition: () => undefined` stands in for an uninstalled
+ * extension without needing the whole extensions model.
  */
 describe('renderQueue.ensureCanRender (OpenProject #3401)', () => {
   test('a markdown-editor page clears the editor gate and only fails on missing Puppeteer', async () => {

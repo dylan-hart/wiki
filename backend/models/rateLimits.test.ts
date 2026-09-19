@@ -6,16 +6,6 @@ import { rateLimits as rateLimitsTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import type { RateLimitPolicy } from './rateLimits.ts'
 
-/**
- * `models/rateLimits.ts#consume()` is a single hand-written `INSERT ... ON CONFLICT DO UPDATE` whose
- * three-armed `CASE` expressions decide window rollover, ban issuance and ban expiry atomically — see
- * the file's own doc comment for the four behavioural promises this pins. It is exercised here
- * against a real database rather than mocked: the whole point of doing this in one upsert is
- * atomicity under concurrency, which a mock of the query builder cannot demonstrate at all.
- *
- * `backend/helpers/rateLimit.test.ts` stubs this method — correctly, since it tests the Fastify hook
- * — leaving the counting logic itself, tested here, previously uncovered.
- */
 describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let rateLimitsModel: typeof import('./rateLimits.ts').rateLimits
@@ -30,7 +20,6 @@ describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   beforeEach(async () => {
-    // -> Every key is deleted between tests, so one test's ban/window state never leaks into the next.
     await fixtures.db.delete(rateLimitsTable)
   })
 
@@ -67,9 +56,8 @@ describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }
       const first = await rateLimitsModel.consume(key, POLICY)
       assert.equal(first.allowed, false)
-      // -> This is the attempt that trips the ban -- it is still "counted" (hits: "the one just
-      //    counted included", per the interface doc), one past `max`. `stillBanned` only takes over
-      //    from the next attempt onward, which is what the rest of this test pins.
+      // -> The attempt that trips the ban is itself still counted, one past `max`; `stillBanned`
+      //    only takes over from the next attempt onward.
       assert.equal(first.hits, POLICY.max + 1)
 
       await new Promise((resolve) => setTimeout(resolve, 1200))
@@ -95,8 +83,8 @@ describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
         .select()
         .from(rateLimitsTable)
         .where(eq(rateLimitsTable.key, key))
-      // -> `bannedUntil` itself must be unchanged by the second attempt, not just retryAfter's
-      //    derived reading of it.
+      // -> `bannedUntil` itself must survive the second attempt, not just `retryAfter`'s derived
+      //    reading of it.
       const [row] = rows
       assert.ok(row?.bannedUntil, 'bannedUntil should still be set')
     }

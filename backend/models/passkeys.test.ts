@@ -4,13 +4,6 @@ import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { passkeys, resolveOrigin } from './passkeys.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
-/**
- * Unit coverage for `resolveOrigin()`, the function that ties a WebAuthn ceremony's `expectedOrigin`
- * to the hostname the request was addressed to (see `docs/security-reviews/` for the full review this
- * grew out of — task 435, feature 356).
- *
- * These are pure-function tests: no `CARDINAL` global, no db. `resolveOrigin` never touches either.
- */
 describe('models/passkeys resolveOrigin', () => {
   test('a matching https origin is echoed back verbatim', () => {
     assert.equal(
@@ -43,10 +36,9 @@ describe('models/passkeys resolveOrigin', () => {
   })
 
   test('an origin whose hostname disagrees with the request is rejected as ERR_PK_ORIGIN_MISMATCH', () => {
-    // -> This is the shape a spoofed/degraded `req.hostname` produces: the browser's real Origin
-    //    header says one thing, the value the ceremony was started against says another. Distinct
-    //    from ERR_PK_INSECURE_ORIGIN so an admin debugging a trustProxy/reverse-proxy hostname
-    //    mismatch isn't sent chasing a nonexistent TLS problem instead.
+    // -> The shape a spoofed or degraded `req.hostname` produces. Distinct from
+    //    ERR_PK_INSECURE_ORIGIN so an admin debugging a trustProxy hostname mismatch isn't sent
+    //    chasing a nonexistent TLS problem instead.
     assert.throws(
       () => resolveOrigin('https://attacker.example.com', 'wiki.example.com'),
       /ERR_PK_ORIGIN_MISMATCH/
@@ -59,17 +51,11 @@ describe('models/passkeys resolveOrigin', () => {
 })
 
 /**
- * OpenProject #3200: a failed passkey assertion now reaches the audit log, from `verifyLogin()`'s own
- * `verifyAuthenticationResponse()` catch -- by that point the credential id has already resolved to a
- * specific user and stored authenticator, so (unlike an OAuth callback) this can name the account
- * directly, the same as `loginTFA()`'s credential-rejection entries do.
- *
- * `verifyAuthenticationResponse` is real WebAuthn cryptography with no mocking seam in this codebase,
- * so rather than construct a genuine (and separately verifiable) assertion, this drives it with a
- * response shaped so its own internal parsing throws -- `clientDataJSON` that isn't valid base64url
- * JSON -- which is a real, reachable way an assertion fails to verify, just not the one a browser
- * would normally produce. What is under test is `verifyLogin()`'s own handling of that failure, not
- * the library's parsing.
+ * `verifyAuthenticationResponse` is real WebAuthn cryptography with no mocking seam in this
+ * codebase, so rather than construct a genuine assertion these drive it with a response shaped so
+ * its own parsing throws -- a `clientDataJSON` that isn't valid base64url JSON. A real, reachable
+ * failure, just not the one a browser would produce; what is under test is `verifyLogin()`'s
+ * handling of it, not the library's parsing.
  */
 describe('models/passkeys verifyLogin — login.failed audit recording', () => {
   const userId = '11111111-1111-4111-8111-111111111111'
