@@ -1216,7 +1216,7 @@ describe('MainLayout inline sidebar toggle replaces the corner FAB (OpenProject 
     expect(headerNav(wrapper).props('showSidebarToggle')).toBe(false)
   })
 
-  it("opens the overlaying sidebar through the header's openSidebar emit, and stands the toggle down while it is open", async () => {
+  it("opens the overlaying sidebar through the header's openSidebar emit, and keeps the toggle mounted while it is open", async () => {
     useMinWidth(1200).value = false
 
     const { wrapper } = await mountLayout('/')
@@ -1227,9 +1227,11 @@ describe('MainLayout inline sidebar toggle replaces the corner FAB (OpenProject 
     await wrapper.vm.$nextTick()
 
     expect(drawer.props('modelValue')).toBe(true)
-    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(false)
+    // -> Still asked for, so the header keeps its 64px slot and the logo does not slide left
+    // (OpenProject #3455); the drawer/scrim may cover it
+    expect(headerNav(wrapper).props('showSidebarToggle')).toBe(true)
 
-    // -> The scrim is what closes it; the toggle comes back once it has
+    // -> The scrim is what closes it; the toggle is unchanged
     drawer.vm.$emit('update:modelValue', false)
     await wrapper.vm.$nextTick()
 
