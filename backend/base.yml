@@ -19,55 +19,38 @@ defaults:
       schema: wiki
     pool:
       min: 1
-      # node-postgres defaults `max` to 10 when unset (OpenProject #2276). A handful of concurrent
-      # requests against any unmetered whole-table surface (sitemap/knowledge-graph generation,
-      # icon-set lookup) can occupy that whole pool, queuing every other query behind them, logins
-      # included. Sized here at 20 (double the library default) to give a single instance real
-      # headroom under such a burst while staying well under Postgres' own default `max_connections`
-      # (100), which also has to cover other app instances, the scheduler's worker-thread pools
-      # (each a separate `{min:0,max:1}` connection — see `workerMode` in `core/db.ts`), and
-      # admin/maintenance connections. `max` also needs headroom above the 3 connections permanently
-      # held open for LISTEN (event bus in core/db.ts, scheduler in core/scheduler.ts, collab in
-      # core/collab.ts, all checked out via helpers/pubsub.ts) — see config.sample.yml's `pool:`
-      # section for the operator-facing writeup.
+      # Explicit, at double node-postgres's default of 10: a few concurrent requests against a
+      # whole-table surface (sitemap, knowledge graph, icon-set lookup) can fill the pool and queue
+      # every other query behind them, logins included. Kept well under Postgres' default
+      # `max_connections` (100), which other instances, the scheduler's worker-thread pools, the
+      # LISTEN pool (helpers/pubsub.ts) and admin connections share.
       max: 20
       connectionTimeoutMillis: 5000
       statementTimeoutMillis: 60000
     bindIP: 0.0.0.0
-    # Both validated at boot by core/logger.ts, case-sensitively: logLevel is one of
-    # error/warn/info/debug, logFormat one of text/json. Anything else is a one-line refusal and
-    # exit(1) rather than a silently ignored value logging everything at debug.
+    # Validated at boot by core/logger.ts, case-sensitively: logLevel is error/warn/info/debug,
+    # logFormat text/json. Anything else refuses to boot.
     logLevel: info
     logFormat: text
-    # Optional per-scope thresholds: a map of log scope (core/logScopes.ts) to level, overriding
-    # logLevel for that scope alone -- `logScopes: { http: debug, sql: error }`. Validated at boot
-    # alongside the two keys above: an unknown scope name or level is a one-line refusal and exit(1).
-    # Declared as an explicit null rather than `{}` on purpose: core/config.ts#warnUnknownConfigKeys
-    # descends into any key that is a plain object on BOTH sides, and this one is a free-form map
-    # whose entries cannot be enumerated here -- with `{}` every real entry would warn as an unknown
-    # key on every boot.
+    # Optional map of log scope (core/logScopes.ts) to level, overriding logLevel for that scope
+    # alone -- `logScopes: { http: debug, sql: error }`. Validated at boot like the two keys above.
+    # An explicit null rather than `{}` on purpose: core/config.ts#warnUnknownConfigKeys descends
+    # into any key that is a plain object on both sides, so with `{}` every real entry of this
+    # free-form map would warn as an unknown key on every boot.
     logScopes: ~
-    # Slow-query threshold, in milliseconds. 0 (the default) is off; any positive value makes every
-    # query the main pool runs and that takes at least this long emit one `warn sql slow query` line
-    # carrying the elapsed time, the row count, the first 200 characters of the query text and the
-    # same type/length-only parameter descriptor the `sql` firehose uses -- never a bound value.
-    # A file setting rather than a db-backed one, like `pool.statementTimeoutMillis` next to which it
-    # is meant to be tuned: changing it takes a restart. See config.sample.yml for the operator-facing
-    # writeup, and core/db.ts#instrumentSlowQueries for what is and is not timed.
+    # Slow-query threshold in milliseconds; 0 is off. A main-pool query taking at least this long
+    # emits one `warn sql slow query` line. File-only, so changing it takes a restart. See
+    # core/db.ts#instrumentSlowQueries for what is and is not timed.
     slowQueryMs: 0
     offline: false
     dataPath: ./data
-    # In BYTES. Fastify's `bodyLimit` takes an integer and refuses anything else at boot, unlike the
-    # 2.x body parser this default was written for, which took '5mb'.
+    # In bytes: Fastify's `bodyLimit` takes an integer and refuses anything else at boot.
     bodyParserLimit: 5242880
     icons:
-      # Iconify API the wiki fetches icons from the first time they are used. Point this at a
-      # self-hosted Iconify API to keep icon lookups inside your network.
       apiUrl: 'https://api.iconify.design'
     files:
-      # How much of <dataPath>/cache/files the served copies of uploaded files may take up, in bytes.
-      # Trimmed back oldest-first once it is exceeded. Set to 0 to serve every request from the
-      # database instead.
+      # In bytes, the cap on <dataPath>/cache/files (trimmed oldest-first). 0 serves every request
+      # from the database instead.
       cacheMaxSize: 536870912
     scheduler:
       workers: 3
@@ -76,21 +59,16 @@ defaults:
       maxRetries: 2
       retryBackoff: 60
       historyExpiration: 90000
-      # How long, in seconds, a job may take before the scheduler stops waiting for it and counts it
-      # as failed. Applies to both worker-thread jobs (aborted via AbortSignal, plus a backup timer
-      # for a worker that dies mid-task and never answers at all) and in-process jobs (raced against
-      # a timer only -- an in-process task cannot actually be aborted, so the scheduler's own
-      # bookkeeping becoming finite is the point: without this, a task whose promise never settles
-      # -- `withAdvisoryLock` waiting past its own lock_timeout is the documented case -- permanently
-      # strands the worker slot it holds). A safety net rather than a schedule either way.
+      # Seconds a job may run before the scheduler stops waiting and counts it as failed. A
+      # worker-thread job is aborted; an in-process job cannot be and is only raced against a
+      # timer, which still frees the worker slot a never-settling promise would strand forever.
       taskTimeout: 300
-      # How long, in seconds, a job may sit marked as running before it is assumed that whatever was
-      # running it is gone, and it is requeued. Deliberately generous: it has to outlast the longest
-      # job the instance legitimately runs, since the alternative is starting a second copy of one.
+      # Seconds a job may sit marked as running before its runner is presumed gone and it is
+      # requeued. Must outlast the longest legitimate job, or a second copy of one starts.
       staleJobTimeout: 3600
-      # Caps how many `dispatchWebhook` jobs a single webhook may have queued per window (see
-      # `models/hooks.ts#emit()`). Protects both the remote endpoint and this shared job queue from one
-      # busy hook; deliveries beyond the cap are skipped (never queued, never retried) and logged.
+      # Caps how many `dispatchWebhook` jobs one webhook may queue per window
+      # (`models/hooks.ts#emit()`), protecting the remote endpoint and the shared job queue.
+      # Deliveries beyond the cap are skipped -- never queued, never retried -- and logged.
       webhookRateLimitMax: 60
       webhookRateLimitWindow: '1m'
       webhookRateLimitBan: '1m'
@@ -103,35 +81,26 @@ defaults:
       verifySSL: true
     metrics:
       isEnabled: false
-    # Instance-level scheduled replication (OpenProject #2437/#2491): pulls a full wipe-and-replace
-    # snapshot from another instance on a cron schedule. Off by default -- a half-configured instance
-    # must not be able to arm this (see `api/replication.ts`'s validation), since the pull itself is
-    # destructive to whichever instance is configured as the TARGET. The scheduled due-check/pull
-    # wiring that reads these fields (OpenProject #2492) is `models/replication.ts`/
-    # `tasks/simple/replication-tick.ts`; `lastRunAt` is written back by `tick()` each time it queues a
-    # pull -- an operator never sets it by hand.
+    # Scheduled replication pulls a full wipe-and-replace snapshot from another instance on a cron
+    # schedule. Off by default because the pull is destructive to the target. `lastRunAt` is
+    # written by `models/replication.ts`'s `tick()`, never by an operator.
     replication:
       isEnabled: false
       sourceUrl: ''
-      # Bearer token for the SOURCE instance's bulk-export API (reuses the existing PAT/API-key auth
-      # mechanism -- this is a token generated ON the source instance and pasted in here, not one this
-      # instance issues itself).
+      # An API key generated ON the source instance (for its bulk-export API) and pasted in here,
+      # not one this instance issues.
       bearerToken: ''
       cronSchedule: ''
       lastRunAt: null
-    # Whether page views are logged at all (OpenProject #1238) -- on by default, the admin opt-out this
-    # feeds is a `manage:system` toggle in `api/system.ts`. Off means the write path no-ops entirely:
-    # no row is ever inserted, not merely hidden from a later read.
+    # Off means the write path no-ops entirely: no row is inserted, not merely hidden from reads.
     pageviews:
       isEnabled: true
-      # Real value is generated at first run (`models/settings.ts#init()`, mirroring `auth.secret`
-      # below) and stored in the `settings` table -- this placeholder is only ever seen before that
-      # seeding runs. Keys `hashVisitor()`'s HMAC so a stored `visitorHash` can't be re-derived from
-      # `sessions.id`/`apiKeys.id` without it.
+      # Placeholder: the real value is generated at first run (`models/settings.ts#init()`) and
+      # stored in the `settings` table. Keys `hashVisitor()`'s HMAC so a stored `visitorHash`
+      # can't be re-derived from `sessions.id`/`apiKeys.id` without it.
       hashKey: ''
-    # Only a backstop for a database that predates this key's introduction (the `settings` table row
-    # is what actually governs a live instance -- see `models/settings.ts#init()` and
-    # `models/auditLog.ts`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS`, which this must match).
+    # Only a backstop for a database that predates this key -- the `settings` table row governs a
+    # live instance. Must match `models/auditLog.ts`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS`.
     auditLog:
       retentionDays: 365
     auth:
@@ -144,58 +113,42 @@ defaults:
       corsConfig: ''
       enforceCsp: false
       trustProxy: false
-      # -> Task 2109 / WP 2105 §2 pinned the session cookie `Secure` (and its `__Host-` prefix, which
-      #    requires `Secure`) unconditionally, on the assumption that a plain-`http://localhost` dev
-      #    instance would still work because browsers treat loopback as a trustworthy origin. That
-      #    assumption was wrong: `@fastify/session`'s own `onSend` hook refuses to ever emit a
-      #    `Secure`-flagged cookie unless the actual connection it saw was TLS (`request.protocol ===
-      #    'https'`) -- which a bare `node backend` over plain HTTP never is, loopback or not -- so
-      #    login silently never sets a cookie at all on that setup (OpenProject bug report, 2026-08-31).
-      #    Set this to `false` for a local dev instance reached over plain HTTP with no TLS anywhere in
-      #    the chain: it drops both `Secure` and the `__Host-` prefix from the session cookie name
-      #    (`helpers/security.ts#sessionCookieName()`) so the plugin actually issues it. Leave it `true`
-      #    (the default) for any real deployment -- this does NOT auto-detect loopback, so flipping it
-      #    on a network-reachable instance really does remove the hardening task 2109 added.
+      # -> `@fastify/session` never emits a `Secure` cookie unless the connection it saw was TLS
+      #    (`request.protocol === 'https'`), loopback or not, so over plain HTTP login silently sets
+      #    no cookie at all. `false` is the escape hatch for a local dev instance with no TLS
+      #    anywhere in the chain: it drops both `Secure` and the `__Host-` prefix, which requires
+      #    `Secure` (`helpers/security.ts#sessionCookieName()`). Nothing auto-detects loopback, so
+      #    `false` on a network-reachable instance really does remove the hardening.
       cookieSecure: true
       enforceHsts: false
       hstsDuration: 0
-      # -> A known-good starting point for `enforceCsp`, not enabled by default (WP #2158/#2154): the
-      #    admin area's `cspDirectivesHint` requires at least one directive once enforcement is turned
-      #    on, and an operator with nothing to start from was previously left to author one from
-      #    scratch. `object-src`/`base-uri`/`frame-ancestors` are the "at minimum" baseline; the rest
-      #    is sized to what the app itself actually needs:
-      #      - `script-src 'self'` / `worker-src 'self' blob:` -- Monaco's language workers
-      #        (`frontend/src/boot/monaco.js`) and the custom-blocks loader (`/_blocks/**`) are both
-      #        same-origin; `blob:` covers a worker Monaco spins up via an object URL rather than a
-      #        same-origin script URL, which some of its language services still do internally.
-      #      - `style-src 'self' 'unsafe-inline'` -- KaTeX (`frontend/src/renderers/markdown.js`)
-      #        renders every expression as a tree of inline `style="..."` attributes; there is no
-      #        practical nonce/hash story for content an editor can retype at any time.
+      # -> A known-good starting point for `enforceCsp`, which requires at least one directive once
+      #    turned on. `object-src`/`base-uri`/`frame-ancestors` are the baseline; the rest is sized
+      #    to what the app itself needs:
+      #      - `script-src 'self'` / `worker-src 'self' blob:` -- Monaco's language workers and the
+      #        custom-blocks loader (`/_blocks/**`) are same-origin; `blob:` covers a worker Monaco
+      #        spins up via an object URL.
+      #      - `style-src 'self' 'unsafe-inline'` -- KaTeX renders every expression as a tree of
+      #        inline `style="..."` attributes, and there is no practical nonce/hash story for
+      #        content an editor can retype at any time.
       #      - `img-src 'self' data: https:` / `connect-src 'self' https:` -- `block-kroki` and
-      #        `block-plantuml` `fetch()` and `<img src>` an *admin-configured* diagram-rendering
-      #        server (kroki.io / plantuml.com by default, but changeable per block instance), so the
-      #        host can't be pinned to one name; `data:` covers KaTeX/icon-inlined images.
-      #      - `frame-src 'self' https:` -- `block-youtube`/`block-vimeo`/`block-dailymotion`/
-      #        `block-m365-video` each embed a provider iframe; the exact host is either fixed per
-      #        block or, for m365, entirely operator-supplied.
+      #        `block-plantuml` fetch from an admin-configured diagram server, so the host can't be
+      #        pinned; `data:` covers KaTeX/icon-inlined images.
+      #      - `frame-src 'self' https:` -- the video blocks embed a provider iframe whose host is
+      #        fixed per block or, for `block-m365-video`, operator-supplied.
       #      - `font-src 'self' data:` -- KaTeX's bundled webfonts.
-      #    Deliberately NOT covered: theme HTML injection (`site.theme.injectHead`/`injectBody`, an
-      #    operator-authored inline `<script>`/`<style>`) and the `google`/`gtm`/`matomo` analytics
-      #    modules, which each load a script from their own external origin -- both need directives
-      #    this default can't guess in advance, called out in `AdminSecurity.vue`'s CSP hint instead
-      #    of silently widened for here. See `docs/audit-2026-08-24/security/08-frontend-client.md`
-      #    §10 and the co-located `backend/helpers/security.test.ts` case asserting this parses as
-      #    expected.
+      #    Deliberately NOT covered: theme HTML injection (`site.theme.injectHead`/`injectBody`) and
+      #    the `google`/`gtm`/`matomo` analytics modules, which load scripts from their own origins.
+      #    Those need directives this default can't guess; `AdminSecurity.vue`'s CSP hint says so.
+      #    `backend/helpers/security.test.ts` asserts this string parses as expected.
       cspDirectives: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; media-src 'self' https:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
       uploadScanSVG: true
       disallowIframe: true
       uploadMaxFileSize: 10485760
-      # -> Per-request resource-exhaustion protection for the batch upload endpoints
-      #    (`POST .../assets/batch`, `POST .../blocks/batch`), not a user quota -- the same total
-      #    file count is already reachable by looping the single-file endpoint, so this exists only
-      #    to bound how much one synchronous multipart parse can be made to do (OpenProject #3211).
-      #    Enforced by `@fastify/multipart`'s own `limits.files` at parse time, before a file over
-      #    the count is ever read into memory.
+      # -> Bounds how much one synchronous multipart parse on the batch upload endpoints can be made
+      #    to do. Not a user quota: looping the single-file endpoint reaches the same file count.
+      #    Enforced by `@fastify/multipart`'s `limits.files` at parse time, before a file over the
+      #    count is read into memory.
       uploadMaxFilesPerBatch: 10
       forceAssetDownload: true
       disallowOpenRedirect: true
@@ -208,11 +161,10 @@ defaults:
       apiRateLimitMax: 300
       apiRateLimitWindow: '5m'
       apiRateLimitBan: '15m'
-      # Off by default: every headless Chromium launch (page re-render, PDF export, diagram render)
-      # runs sandboxed. Set true only when the deployment environment cannot give Chromium its own
-      # sandbox (typically a container without the setuid helper) -- this drops Chromium's own process
-      # sandbox for every one of those launches, including the two that render attacker-influenced
-      # content (a live page view with the requester's session cookie, and POSTed Mermaid source).
+      # Set true only where the environment cannot give Chromium its own sandbox (typically a
+      # container without the setuid helper). It drops the process sandbox for every headless
+      # launch, including the ones rendering attacker-influenced content (a live page view with the
+      # requester's session cookie, POSTed Mermaid source).
       allowPuppeteerNoSandbox: false
     flags:
       experimental: false
@@ -223,18 +175,14 @@ defaults:
       dateFormat: 'YYYY-MM-DD'
       timeFormat: '12h'
     update:
-      # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
-      # requarks/wiki-locales. Set to false to disable automatic locale syncing.
+      # Whether the daily updateLocales job may pull the latest strings from requarks/wiki-locales.
       locales: true
-    # Base URL for this fork's own documentation, prepended to every in-app "view docs" / help link
-    # (`siteStore.docsBase` on the frontend). Matches README.md's own Documentation link -- keep the
-    # two in sync if this ever changes.
+    # Upstream Wiki.js's docs site, prepended to every in-app "view docs" / help link
+    # (`siteStore.docsBase` on the frontend).
     docsBase: 'https://beta.js.wiki/docs'
-    # Settings when running in dev mode only -- read directly off WIKI.config.dev by core/db.ts
-    # (dropSchema) and by frontend/vite.config.js (port, hmrClientPort) for its dev-server proxy
-    # target. Declared here so config.sample.yml's `dev:` block (which every dev checkout ships) has a
-    # schema counterpart -- without one, `warnUnknownConfigKeys()` flagged it as unrecognized on every
-    # single dev boot.
+    # Dev mode only: core/db.ts reads dropSchema, frontend/vite.config.js reads port and
+    # hmrClientPort. Declared here so `warnUnknownConfigKeys()` does not flag config.sample.yml's
+    # `dev:` block on every dev boot.
     dev:
       dropSchema: false
       port: 3001

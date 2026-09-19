@@ -11,23 +11,17 @@ import { acquireAdvisoryLock } from '../helpers/advisoryLock.ts'
 import type { Pool } from 'pg'
 
 /**
- * Config is assembled at runtime from config.yml + base.yml + the `settings` DB table, so its shape
- * is only known dynamically. Kept loose on purpose.
+ * Assembled at runtime from config.yml + base.yml + the `settings` DB table, so it has no static
+ * shape.
  */
 type ConfigObject = Record<string, any>
 
 /**
- * Recursively walks a parsed config.yml against base.yml's `defaults.config` shape and warns once
- * per key that has no counterpart there — the only signal a mistyped key (`logLvel:`, `sceduler:`)
- * ever gets, since `toMerged()` otherwise accepts it silently and it does nothing.
+ * Warns once per config.yml key with no counterpart in base.yml's `defaults.config` — the only
+ * signal a mistyped key (`logLvel:`) gets, since `toMerged()` accepts it silently.
  *
- * Only descends into a key present on both sides as a plain object; anything else either matches
- * (nothing to walk further) or is already reported as unknown at that path.
- *
- * Uses `console.warn`, not `CARDINAL.logger.warn`: this runs inside `init()`, which every call site
- * (index.ts, worker.ts, migration/bootstrap.ts, mcp/bootstrap.ts, scripts/audit-site-scoped-rules.ts)
- * awaits before `CARDINAL.logger` is set up — `logger.init()` itself reads `CARDINAL.config.logLevel`, so it
- * can only run after config is loaded, not before.
+ * `console.warn`, not `CARDINAL.logger`: `init()` runs before the logger exists, because
+ * `logger.init()` itself reads `CARDINAL.config.logLevel`.
  */
 function warnUnknownConfigKeys(config: ConfigObject, schema: ConfigObject, pathPrefix = ''): void {
   for (const key of Object.keys(config)) {
@@ -48,45 +42,32 @@ function warnUnknownConfigKeys(config: ConfigObject, schema: ConfigObject, pathP
 }
 
 /**
- * The environment variables that can override what `config.yml` says, in the order `init()` reads
- * them. Closed on purpose: `overrides=` on the `boot starting` line names members of this list and
- * nothing else, so an operator reading it knows the whole set of things that could have been
- * overridden without going to the source.
+ * Every environment variable that can override `config.yml`, in the order `init()` reads them.
+ * Closed on purpose: `overrides=` on the `boot starting` line names members of this list only.
  */
 export const CONFIG_OVERRIDE_VARS = ['CONFIG_FILE', 'PORT', 'WIKI_PORT', 'DB_PASS_FILE'] as const
 
 export type ConfigOverrideVar = (typeof CONFIG_OVERRIDE_VARS)[number]
 
 /**
- * What `init()` learned about where the configuration came from.
- *
- * Returned rather than logged: `init()` runs before `CARDINAL.logger` exists — `logger.init()` reads
- * `CARDINAL.config.logLevel`, so config has to be loaded first — which is also why the unknown-key
- * warnings above go through `console.warn`. `index.ts` puts these on the `boot starting` line.
+ * Returned rather than logged: `init()` runs before `CARDINAL.logger` exists. `index.ts` puts these
+ * on the `boot starting` line.
  */
 export interface ConfigProvenance {
-  /** The resolved absolute path actually read, `CONFIG_FILE` already applied. */
   configPath: string
   /**
-   * Which of `CONFIG_OVERRIDE_VARS` were *honoured* — set AND on the branch that reads them. `PORT`
-   * is only consulted when the configured port is below 1, so merely exporting it does not count:
-   * the line would otherwise claim an override that changed nothing.
+   * Only the vars that were honoured — set AND on the branch that reads them. `PORT` is consulted
+   * only when the configured port is below 1, so merely exporting it does not count.
    */
   overrides: ConfigOverrideVar[]
 }
 
 export default {
   /**
-   * Number of top-level keys in the `settings` blob the last successful `loadFromDb()` read.
-   *
-   * Kept here rather than returned, so `loadFromDb()`'s boolean contract — which `ensureSeeded()`
-   * and `subscribeToEvents()` both branch on — stays a boolean. Only the `config loaded` line reads
-   * it.
+   * Top-level key count of the `settings` blob the last successful `loadFromDb()` read. A property
+   * rather than a return value so `loadFromDb()` stays boolean.
    */
   dbKeyCount: 0,
-  /**
-   * Load root config from disk
-   */
   async init(silent = false): Promise<ConfigProvenance> {
     const overrides: ConfigOverrideVar[] = []
     const confPaths = {
@@ -119,22 +100,13 @@ export default {
       process.exit(1)
     }
 
-    // Merge with defaults
-
     const rawConfig = appconfig
     appconfig = toMerged(appdata.defaults.config, appconfig)
 
-    // Warn about any config.yml key with no counterpart in base.yml's schema -- checked against the
-    // pre-merge parse so only what the file itself specified is walked, not the merged result (which
-    // would have every default key present and nothing left to flag).
     warnUnknownConfigKeys(rawConfig, appdata.defaults.config)
-
-    // Override port
 
     if (appconfig.port < 1) {
       appconfig.port = process.env.PORT || 80
-      // -> Only counted here, not merely on `process.env.PORT` being set: this is the one branch
-      //    that reads it, so anywhere else it is present but inert.
       if (process.env.PORT) {
         overrides.push('PORT')
       }
@@ -145,20 +117,13 @@ export default {
       overrides.push('WIKI_PORT')
     }
 
-    // Load package info
-
     const packageInfo = JSON.parse(
       await fs.readFile(path.join(CARDINAL.SERVERPATH, 'package.json'), 'utf-8')
     )
 
-    // Load DB Password from Docker Secret File
     if (process.env.DB_PASS_FILE) {
-      // -> `silent` now gates only this line: the "Loading configuration... OK" pair it used to
-      //    share the flag with was a raw status-tag line the logging sweep had missed (OpenProject
-      //    #2723) and has been removed outright. Worker threads (`worker.ts`) and the MCP stdio
-      //    transport (`mcp/bootstrap.ts` -- whose stdout must stay pure JSON-RPC, and which
-      //    `process.stdout.write` would bypass even after `mcp/stdio.ts` redirects `console.log`)
-      //    still need this one silenced.
+      // -> `silent` is for worker threads and the MCP stdio transport, whose stdout must stay pure
+      //    JSON-RPC.
       if (!silent) {
         console.info(styleText('blue', 'DB_PASS_FILE is defined. Will use secret from file.'))
       }
@@ -186,9 +151,6 @@ export default {
     return { configPath: confPaths.config, overrides }
   },
 
-  /**
-   * Load config from DB
-   */
   async loadFromDb(): Promise<boolean> {
     const conf = await CARDINAL.models.settings.getConfig()
     if (conf) {
@@ -199,12 +161,6 @@ export default {
       return false
     }
   },
-  /**
-   * Save config to DB
-   *
-   * @param keys Array of keys to save
-   * @returns Promise
-   */
   async saveToDb(keys: string[], propagate = true): Promise<boolean> {
     try {
       for (const key of keys) {
@@ -224,9 +180,6 @@ export default {
 
     return true
   },
-  /**
-   * Initialize DB tables with default values
-   */
   async initDbValues(): Promise<void> {
     const ids = {
       groupAdminId: crypto.randomUUID(),
@@ -251,45 +204,19 @@ export default {
     await CARDINAL.models.icons.init()
   },
   /**
-   * Ensure the DB carries default values, treating the is-empty check and the seed itself as one
-   * atomic boot decision rather than two.
+   * Runs the is-empty check and the seed under one advisory lock. `loadFromDb()` only checks that a
+   * `settings` row exists, and `initDbValues()` writes `settings` first, so an unlocked second
+   * instance booting mid-seed would pass the check and boot against a half-seeded database with no
+   * error.
    *
-   * `loadFromDb()` returns `true` on the mere *presence* of any `settings` row, and `initDbValues()`
-   * writes several tables (`settings` first, then `sites`/`groups`/`classificationLevels`/
-   * `authentication`/`users`/`jobs`/`icons`) across several separate `await`s — so, unlocked, a second
-   * concurrently-booting instance can call `loadFromDb()` in the window after the first has committed
-   * `settings.init()` but before it has finished the rest, see that presence check pass, and proceed
-   * straight to `postBoot()` reloading caches from a half-seeded database (zero sites, no groups) with
-   * no crash to signal it.
-   *
-   * Holding a session-scoped advisory lock (`helpers/advisoryLock.ts`) across the whole check-then-seed
-   * sequence closes that window: the loser blocks until the winner has fully released the lock, then
-   * re-runs its own `loadFromDb()` *inside* the lock and observes a fully-seeded database, correctly
-   * skipping `initDbValues()` rather than racing it. The lock key (`wiki:migrate`) is the same one the
-   * migration lock around `db.ts#syncSchemas` uses, so the two compose into sequential sections under
-   * one key rather than fighting over separate ones.
-   *
-   * Uses `acquireAdvisoryLock` (blocking `pg_advisory_lock`, no give-up), the same primitive
-   * `db.ts#syncSchemas` takes this key through — not `withAdvisoryLock` (bounded retry/backoff, built
-   * for storage-dispatch jobs that must fail fast and let the scheduler retry). A fresh-install seed
-   * (`models/icons.ts#init()` alone does 6232 sequential inserts) can comfortably outrun
-   * `withAdvisoryLock`'s ~15-19s total backoff, and its give-up path here is `index.ts`'s `preBoot()`
-   * calling `process.exit(1)`: a second HA instance booting during a first instance's fresh seed would
-   * die at boot rather than simply wait its turn (OpenProject #3374). Blocking trades that crash for a
-   * wedged holder blocking boot instead — the same trade `syncSchemas` already accepts for this key —
-   * which a session-scoped lock bounds on its own: it releases the moment a crashed holder's
-   * connection drops, same as `syncSchemas`'s.
-   *
-   * @returns Whether this call performed the seed (`false` means another holder already had, or the
-   *   database was already seeded from a previous boot).
+   * The key is the one `db.ts#syncSchemas` uses, so migration and seeding serialise under it.
+   * Blocking `acquireAdvisoryLock`, not `withAdvisoryLock`: a fresh seed can outlast that helper's
+   * bounded backoff, and its give-up here would `process.exit(1)` an instance that only had to
+   * wait. The lock is session-scoped, so a crashed holder's dropped connection releases it.
    */
   async ensureSeeded(): Promise<boolean> {
     const lock = await acquireAdvisoryLock(CARDINAL.db.$client as Pool, 'wiki:migrate')
     try {
-      // -> `keys=` is the top-level count of the `settings` blob itself, not of the merged
-      //    `CARDINAL.config`: what the operator wants to know here is how much of the running
-      //    configuration came from the database rather than from base.yml/config.yml. `seeded=`
-      //    says whether this boot is the one that wrote it.
       if (await this.loadFromDb()) {
         CARDINAL.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: false })
         return false
@@ -308,9 +235,6 @@ export default {
       await lock.release()
     }
   },
-  /**
-   * Subscribe to HA propagation events
-   */
   subscribeToEvents(): void {
     CARDINAL.events.inbound.on('reloadConfig', async () => {
       await CARDINAL.configSvc.loadFromDb()

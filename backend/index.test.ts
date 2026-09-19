@@ -21,15 +21,10 @@ import { installTestWiki } from './test/mocks.ts'
 let wikiHandle: { restore(): void }
 
 /**
- * OpenProject #2274: `index.ts` itself runs its boot sequence at import time (`await preBoot()` etc.
- * at the bottom of the file), so it cannot be imported into a test the way an ordinary module can —
- * the same reason `helpers/rateLimit.test.ts`'s `limitApiKey` suite builds its own small fastify
- * instance rather than importing the real one. This file does the same for the two `onRequest` hooks
- * `index.ts` registers back to back: the pre-existing `/_api/`-scoped one and the new root-mounted
- * public-surface one, wired here exactly as `index.ts` wires them (same `req.url` prefix check, same
- * `isPublicRateLimitedPath` gate, same handlers), so the only thing under test is the wiring itself --
- * that a root-mounted public path now reaches a limiter at all, and that it reaches the NEW one, not
- * the `/_api/` one, with its own separately-accounted bucket.
+ * A replica of the two rate-limit `onRequest` hooks `core/http/authHooks.ts#registerAuthHooks`
+ * registers back to back -- same order, same exported helpers; keep in sync -- so the only thing
+ * under test is the wiring: a root-mounted public path reaches the public limiter, not the
+ * `/_api/` one, on its own separately-accounted bucket.
  */
 describe('rate limiter hook wiring (index.ts)', () => {
   let app: FastifyInstance
@@ -39,8 +34,6 @@ describe('rate limiter hook wiring (index.ts)', () => {
     app = fastify()
     await app.register(fastifySensible)
 
-    // -> Mirrors index.ts's two `onRequest` hooks, in the same order, using the same exported
-    //    helpers -- see the two "General API Rate Limit" / "Public Surface Rate Limit" blocks there.
     app.addHook('onRequest', async (req, reply) => {
       if (!req.url.startsWith('/_api/')) {
         return
@@ -108,33 +101,21 @@ describe('rate limiter hook wiring (index.ts)', () => {
     })
     ;(globalThis as any).CARDINAL.config.security.apiRateLimitMax = 1
 
-    // First /_api/ request consumes the /_api/ bucket's one allowed slot.
     const firstApi = await app.inject({ method: 'GET', url: '/_api/pages' })
     assert.equal(firstApi.statusCode, 200)
-    // A second /_api/ request is refused -- its bucket is now exhausted.
     const secondApi = await app.inject({ method: 'GET', url: '/_api/pages' })
     assert.equal(secondApi.statusCode, 429)
 
-    // The public path, from the same caller, is on its own bucket and unaffected.
     const publicReq = await app.inject({ method: 'GET', url: '/sitemap.xml' })
     assert.equal(publicReq.statusCode, 200)
   })
 })
 
 /**
- * OpenProject #2339: `index.ts`'s "API Key Authentication" `onRequest` hook only ever looked for a
- * Bearer token when `req.url.startsWith('/_api/')`, so `req.apiKey` stayed null for every request to
- * `controllers/files.ts` (`/_files`), `controllers/site.ts` (`/_site`) and `controllers/thumb.ts`
- * (`/_thumb`) regardless of whether a valid token was sent — silently defeating those controllers'
- * own `enforceApiKeySite()` calls (`files.ts`, `site.ts`) and `actorForRequest()`-mediated site-pin
- * check (`thumb.ts`). Wired here exactly as `index.ts` wires it (same `isBearerAuthenticatedPath`
- * gate, same header parsing, same `CARDINAL.models.apiKeys.verify()` and `limitApiKey()` calls), so the
- * only thing under test is the wiring: that `req.apiKey` now actually gets populated on the
- * newly-covered prefixes, and still doesn't on a route this fix deliberately leaves alone.
- *
- * `/_pages/` (`controllers/pageScripts.ts`, OpenProject #3405) joined the covered set later, on the
- * same `actorForRequest()`-mediated reasoning as `/_thumb/` — added to `BEARER_AUTH_PREFIXES` in the
- * same change that introduced the route, not a fresh instance of the #2339 bug.
+ * A replica of the "API Key Authentication" `onRequest` hook in
+ * `core/http/authHooks.ts#registerAuthHooks` -- keep in sync. `req.apiKey` must be populated on
+ * every `isBearerAuthenticatedPath` prefix, not only `/_api/`: left null, those controllers' own
+ * API-key site-pin checks silently never run.
  */
 describe('API-key population hook wiring (index.ts)', () => {
   let app: FastifyInstance
@@ -164,8 +145,6 @@ describe('API-key population hook wiring (index.ts)', () => {
     await app.register(fastifySensible)
     app.decorateRequest('apiKey', null)
 
-    // -> Mirrors index.ts's own "API Key Authentication" onRequest hook verbatim, using the same
-    //    exported gate (`isBearerAuthenticatedPath`) and the same `limitApiKey` helper.
     app.addHook('onRequest', async (req, reply) => {
       if (!isBearerAuthenticatedPath(req.url)) {
         return
@@ -191,8 +170,8 @@ describe('API-key population hook wiring (index.ts)', () => {
     app.get('/_site/current/logo', echoApiKey)
     app.get('/_thumb/some-id.webp', echoApiKey)
     app.get('/_pages/some-id/script.js', echoApiKey)
-    // -> Deliberately NOT covered by this fix -- render.ts resolves no site and is never fetched
-    //    with an API key; a plain route stands in for "everything else stays cookie-authenticated".
+    // -> Deliberately uncovered: render.ts resolves no site and is never fetched with an API key.
+    //    `/login` stands in for every other cookie-authenticated route.
     app.get('/_render/', echoApiKey)
     app.get('/login', echoApiKey)
 
@@ -271,19 +250,9 @@ describe('API-key population hook wiring (index.ts)', () => {
 })
 
 /**
- * OpenProject #2048: `CARDINAL.db = await dbManager.init()` used to run *before* `preBoot()`'s
- * `try` opened, and nothing in `backend/` installs an `unhandledRejection` handler -- so a
- * migration or connection failure at boot killed the process with a bare unhandled-rejection
- * stack instead of the same deliberate "database initialization failed" + `CARDINAL.logger.error` +
- * `process.exit(1)` every other preBoot failure (e.g. an empty settings table) already got.
- * Fixed by moving the `try` up to wrap the db init calls too.
- *
- * Exercised as a real `node backend` boot rather than by stubbing `dbManager.init()` in-process:
- * the bug was specifically about what happens at the process level *between* the two statements
- * that used to straddle the `try` -- there is nowhere inside this same `node --test` run to
- * reproduce "the process dies with an unhandled rejection" without actually taking the test
- * runner down with it. Pointing `DATABASE_URL` at a closed local port fails the connection
- * attempt immediately (`ECONNREFUSED`), so this stays fast despite spawning a real process.
+ * The preBoot failure test below runs a real `node backend` boot rather than stubbing
+ * `dbManager.init()`: "the process dies with an unhandled rejection" cannot be reproduced inside
+ * this `node --test` run without taking the test runner down with it.
  */
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
@@ -294,8 +263,8 @@ let configFile: string
 before(async () => {
   configDir = await mkdtemp(path.join(tmpdir(), 'cardinaljs-preboot-test-'))
   configFile = path.join(configDir, 'config.yml')
-  // -> Everything else preBoot needs (db.schema, pool.min, ...) comes from the real backend/base.yml
-  //    defaults; DATABASE_URL below overrides every db.* connection field regardless of what's here.
+  // -> Everything else comes from backend/base.yml's defaults, and DATABASE_URL below overrides
+  //    every db.* connection field.
   await writeFile(configFile, 'port: 0\n')
 })
 
@@ -305,9 +274,7 @@ after(async () => {
 
 test(
   'a failing dbManager.init() during preBoot logs one deliberate error and exits non-zero, with no unhandled-rejection stack',
-  // -> `dbManager.connect()` retries a connection failure 10 times, 3s apart, before giving up and
-  //    throwing (`core/db.ts`) -- unrelated to what this test verifies (what happens once it does
-  //    give up), but it means a real boot against an unreachable database takes ~30s regardless.
+  // -> `dbManager.connect()` retries a connection failure for ~30s before it throws.
   { timeout: 45000 },
   async () => {
     const child = spawn(
@@ -324,8 +291,8 @@ test(
         env: {
           ...process.env,
           CONFIG_FILE: configFile,
-          // -> Port 1 on loopback: nothing ever listens there, so pg's connection attempt fails
-          //    immediately with ECONNREFUSED rather than timing out.
+          // -> Nothing listens on loopback port 1, so each attempt fails immediately with
+          //    ECONNREFUSED rather than timing out.
           DATABASE_URL: 'postgres://wiki:wiki@127.0.0.1:1/wiki',
           WIKI_PORT: '0'
         }
@@ -357,10 +324,9 @@ test(
       /database initialization failed/,
       `expected the deliberate error message in the output\n--- output ---\n${output}`
     )
-    // -> Node's own warning spells it `UnhandledPromiseRejection`; `core/processGuards.ts` spells
-    //    its deliberate line `unhandled promise rejection`. Neither belongs here: this failure is
-    //    caught and reported by `preBoot()` itself, so a rejection reaching either path means the
-    //    catch stopped covering it.
+    // -> Node spells its warning `UnhandledPromiseRejection`; `core/processGuards.ts` spells its
+    //    line `unhandled promise rejection`. `preBoot()` catches this failure itself, so either
+    //    one means its catch stopped covering it.
     assert.doesNotMatch(
       output,
       /Unhandled(Promise)?Rejection|unhandled promise rejection/i,
@@ -370,34 +336,22 @@ test(
 )
 
 /**
- * `backend/index.ts` is the real process entry point: importing it runs the whole boot sequence
- * (`preBoot()` → `initHTTPServer()` → `postBoot()`) as top-level, side-effecting code against a real
- * Postgres connection and a real bound HTTP listener. That makes it unsafe -- and far from "fast and
- * scoped" -- to exercise by actually importing the module in a unit test. So this test locks down the
- * boot-ordering contract structurally, against the file's own source text, the same way the sibling
- * docs-*.test.ts files in this directory lock down structural properties of otherwise-unexecutable
- * targets.
+ * Importing `backend/index.ts` runs the whole boot sequence against a real Postgres connection and
+ * a bound listener, so the boot-ordering contract is asserted against the file's source text.
  *
- * Regression coverage for OpenProject #2062: `CARDINAL.server.setReady()` must not fire until `postBoot()`
- * has resolved. `postBoot()` is what actually makes the instance able to answer a page request --
- * `sites.reloadCache()` in particular, without which every request resolves to `not-found`. Signalling
- * ready any earlier (the old behavior: the last statement of `initHTTPServer()`, right after the
- * listener binds) meant `/_ready` reported 200 throughout that whole window.
+ * `CARDINAL.server.setReady()` must not fire until `postBoot()` has resolved: until
+ * `sites.reloadCache()` has run every page request resolves to `not-found`, and `/_ready` would
+ * report 200 throughout that window.
  *
- * `postBoot()` itself is invoked through `runBootPhaseOrExit()` (OpenProject #2065), which either
- * resolves after `postBoot()` succeeds or calls `process.exit(1)` -- so a module-level statement
- * placed after that call is only ever reached on success, and the ordering assertions below key off
- * `runBootPhaseOrExit(postBoot,` rather than a literal `await postBoot()`.
+ * `postBoot()` is invoked through `runBootPhaseOrExit()`, which either resolves or calls
+ * `process.exit(1)` -- a statement after that call is only reached on success, so the ordering
+ * assertions key off `runBootPhaseOrExit(postBoot,` rather than a literal `await postBoot()`.
  */
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const indexTs = readFileSync(path.join(REPO_ROOT, 'backend/index.ts'), 'utf8')
 
-/**
- * Extracts the balanced-brace body of `async function <name>() { ... }`, by counting braces from the
- * opening one, so a test can inspect one function's contents without matching text that happens to
- * live in a neighboring function.
- */
+/** Counts raw braces, so a string or comment inside the function must keep its own balanced. */
 function extractFunctionBody(source: string, name: string): string {
   const header = `async function ${name}() {`
   const start = source.indexOf(header)
@@ -443,17 +397,14 @@ describe('backend/index.ts boot sequence (OpenProject #2062)', () => {
   test('setReady() is the final statement of the boot sequence, with nothing after it', () => {
     const setReadyIdx = indexTs.lastIndexOf('CARDINAL.server.setReady()')
     const trailing = indexTs.slice(setReadyIdx + 'CARDINAL.server.setReady()'.length)
-    // Only whitespace (and an optional trailing newline) should remain in the file after it.
     assert.match(trailing, /^\s*$/)
   })
 })
 
 /**
- * The boot narrative's two composed lines, asserted against the source text for the same reason the
- * suite above is: `index.ts` runs its whole boot sequence at import time and cannot be imported.
- * The derivations they carry are covered as real functions in `helpers/bootSummary.test.ts` and
- * `core/config.test.ts` — what is only checkable here is that `index.ts` actually calls them, once,
- * in the right places (OpenProject #2671).
+ * Source-text assertions, for the same reason as the suite above. The derivations are covered as
+ * real functions in `helpers/bootSummary.test.ts` and `core/config.test.ts`; what is only
+ * checkable here is that `index.ts` calls them, once, in the right places.
  */
 describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
   test('the starting line reports the resolved config path and the honoured overrides', () => {
@@ -463,8 +414,7 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
 
     assert.match(call, /config: configProvenance\.configPath/)
     assert.match(call, /overrides: configProvenance\.overrides/)
-    // -> The raw env read the resolved path replaced: reading `CONFIG_FILE` here again would report
-    //    the unresolved value and would not know whether `init()` actually honoured it.
+    // -> Reading `CONFIG_FILE` here would report the unresolved value, not what `init()` honoured.
     assert.doesNotMatch(call, /process\.env\.CONFIG_FILE/)
   })
 
@@ -472,8 +422,7 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
     assert.match(indexTs, /const configProvenance = await CARDINAL\.configSvc\.init\(\)/)
     // -> `init()` runs before `CARDINAL.logger` exists, so it returns this rather than logging it.
     const initIdx = indexTs.indexOf('await CARDINAL.configSvc.init()')
-    // -> Matched as a call prefix, not an exact `init()`: the logger now takes an options object
-    //    (OpenProject #2663), and this assertion is about ordering, not about its arguments.
+    // -> A call prefix, not an exact `init()`: this is about ordering, not the logger's arguments.
     const loggerInitIdx = indexTs.indexOf('CARDINAL.logger = logger.init(')
     assert.ok(initIdx < loggerInitIdx, 'config must still be loaded before the logger is built')
   })
@@ -494,8 +443,8 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
     const postBootIdx = indexTs.indexOf('runBootPhaseOrExit(postBoot,')
     const setReadyIdx = indexTs.lastIndexOf('CARDINAL.server.setReady()')
     assert.ok(postBootIdx < readyIdx, 'every postBoot() summary must land before the ready line')
-    // -> Before `setReady()`, not after: `setReady()` logs nothing, so this is still the last line
-    //    written, and the "nothing follows setReady()" assertion above stays true.
+    // -> Before `setReady()`, which logs nothing: this is still the last line written, and the
+    //    "nothing follows setReady()" assertion above stays true.
     assert.ok(readyIdx < setReadyIdx, 'the ready line must precede setReady()')
   })
 
@@ -508,8 +457,7 @@ describe('backend/index.ts boot narrative (OpenProject #2671)', () => {
     assert.match(call, /sites: CARDINAL\.sites/)
     assert.match(call, /bindIP: CARDINAL\.config\.bindIP/)
     assert.match(call, /port: CARDINAL\.config\.port/)
-    // -> Wall time since the `CARDINAL` literal's own `Temporal.Now.instant()`, as a number, which is
-    //    what the text renderer needs to print it as a closing `in 1.2s` clause.
+    // -> A number, which is what the text renderer needs to print a closing `in 1.2s` clause.
     assert.match(call, /ms: Temporal\.Now\.instant\(\)\.epochMilliseconds - CARDINAL\.startedAt\./)
   })
 })
