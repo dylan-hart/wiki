@@ -149,15 +149,6 @@ jobs:
 
       # FIXME: this step and the "Install pandoc" step after it repeat the two steps before "Backend
       # Typecheck"; delete this pair.
-      - name: Install git-cliff
-        run: |
-          curl -sL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz --strip-components=1 -C /usr/local/bin git-cliff-2.13.1/git-cliff
-          git-cliff --version
-
-      - name: Install pandoc
-        run: sudo apt-get update && sudo apt-get install -y pandoc
-
       # MinIO's image lives at quay.io only and has no floating LTS-major tag, so this pins a
       # concrete RELEASE tag. .devcontainer/docker-compose.yml's `minio` service must match it.
       - name: Start MinIO (S3 emulation for backend/modules/storage/s3)
