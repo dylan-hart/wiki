@@ -29,8 +29,13 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
 
   async function createStrategy({
     isEnabled = true,
-    allowForgotPassword = true
-  }: { isEnabled?: boolean; allowForgotPassword?: boolean } = {}): Promise<string> {
+    allowForgotPassword = true,
+    allowPasswordChange = true
+  }: {
+    isEnabled?: boolean
+    allowForgotPassword?: boolean
+    allowPasswordChange?: boolean
+  } = {}): Promise<string> {
     const [row] = await fixtures.db
       .insert(authenticationTable)
       .values({
@@ -40,7 +45,7 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
         selfRegistration: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
-        config: { allowForgotPassword }
+        config: { allowForgotPassword, allowPasswordChange }
       })
       .returning({ id: authenticationTable.id })
     return row!.id
@@ -81,7 +86,8 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
         usernameType: 'email',
         props: {
           // -> Mirrors `modules/authentication/local/definition.yml`'s own prop.
-          allowForgotPassword: { type: 'Boolean', title: 'Allow Forgot Password', default: true }
+          allowForgotPassword: { type: 'Boolean', title: 'Allow Forgot Password', default: true },
+          allowPasswordChange: { type: 'Boolean', title: 'Allow Password Change', default: true }
         }
       }
     ] as any
@@ -271,6 +277,69 @@ describe('login.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
 
       const [tokenRow] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
       assert.equal(tokenRow, undefined)
+    })
+
+    test('allowPasswordChange off still completes a reset', async () => {
+      const strategyId = await createStrategy({ allowPasswordChange: false })
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'reset-off@example.com' })
+      const token = await userCredentials.generateToken({
+        kind: 'resetPwd',
+        userId,
+        meta: { strategyId }
+      })
+
+      const result = await login.resetPassword(
+        { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+        req()
+      )
+
+      assert.equal(result.authenticated, true)
+      const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+      const auth = (row!.auth as Record<string, any>)[strategyId]
+      assert.equal(await bcrypt.compare('brandnewpwd1', auth.password), true)
+    })
+
+    test('allowPasswordChange off still completes a mustChangePwd change through loginChangePassword', async () => {
+      const strategyId = await createStrategy({ allowPasswordChange: false })
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'forced-off@example.com' })
+      await userCredentials.patchStrategyAuth(userId, strategyId, () => ({ mustChangePwd: true }))
+      const continuationToken = await userCredentials.generateToken({
+        kind: 'changePwd',
+        userId,
+        meta: { strategyId }
+      })
+
+      const result = await login.loginChangePassword(
+        { siteId: fixtures.siteId, strategyId, continuationToken, newPassword: 'brandnewpwd1' },
+        req()
+      )
+
+      assert.equal(result.authenticated, true)
+      const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+      const auth = (row!.auth as Record<string, any>)[strategyId]
+      assert.equal(await bcrypt.compare('brandnewpwd1', auth.password), true)
+      assert.equal(auth.mustChangePwd, false)
+    })
+
+    test('allowPasswordChange off refuses a profile change with ERR_PASSWORD_CHANGE_DISABLED', async () => {
+      const strategyId = await createStrategy({ allowPasswordChange: false })
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, {
+        email: 'profile-off@example.com',
+        password: 'originalpwd1'
+      })
+
+      await assert.rejects(
+        userCredentials.changeOwnPassword({
+          userId,
+          strategyId,
+          currentPassword: 'originalpwd1',
+          newPassword: 'brandnewpwd1'
+        }),
+        /ERR_PASSWORD_CHANGE_DISABLED/
+      )
     })
 
     test('afterLoginChecks refuses a deactivated account, even with a still-valid reset token (OpenProject #2094)', async () => {

@@ -2844,6 +2844,7 @@
   "error.ERR_NO_PROVIDER_ACCOUNT": "The provider did not identify an account.",
   "error.ERR_NO_VERIFIED_EMAIL_FROM_PROVIDER": "The provider did not give a verified email address to identify you by.",
   "error.ERR_PASSKEY_NOT_SETUP": "No passkey registration is in progress. Please start over.",
+  "error.ERR_PASSWORD_CHANGE_DISABLED": "Changing your password is turned off. Ask an administrator to change it for you.",
   "error.ERR_PASSWORD_LOGIN_NOT_APPLICABLE": "This authentication method does not use a password stored here.",
   "error.ERR_PASSWORD_TOO_SHORT": "The password must be at least 8 characters long.",
   "error.ERR_PK_ALREADY_REGISTERED": "It looks like this authenticator is already registered.",

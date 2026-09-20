@@ -759,6 +759,11 @@ async function routes(app: FastifyInstance) {
                           description:
                             'False once password login has been turned off, by the user or by an administrator.'
                         },
+                        canChangePassword: {
+                          type: 'boolean',
+                          description:
+                            "False when the strategy's `allowPasswordChange` setting is off: changing the password from the profile is then refused."
+                        },
                         canDisablePasswordLogin: {
                           type: 'boolean',
                           description:

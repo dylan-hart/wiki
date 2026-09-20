@@ -29,3 +29,9 @@ props:
     hint: Users who have forgotten their password can request a reset link by email from the login screen. Turn this off where passwords are handed out rather than chosen.
     icon: password-reset
     default: true
+  allowPasswordChange:
+    type: Boolean
+    title: Allow Password Change
+    hint: Users can change their own password from their profile. Turn this off where passwords are managed by an administrator. A forced change at login and a password reset by email are not affected.
+    icon: password-reset
+    default: true

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
+import bcrypt from 'bcryptjs'
 import type { FastifyInstance } from 'fastify'
+import { userCredentials } from '../../models/userCredentials.ts'
 import usersRoutes from './index.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
@@ -71,5 +73,117 @@ describe('profile sub-plugin: requireSessionUser', () => {
     //    with the same body `requireSessionUser` would. The 403 above is what tells the two apart.
     const res = await app.inject({ method: 'GET', url: '/users/defaults' })
     assert.equal(res.statusCode, 401)
+  })
+})
+
+describe('profile password change and allowPasswordChange', () => {
+  let app: FastifyInstance
+  let strategyConfig: Record<string, any> | null
+  let patchMock: ReturnType<typeof mock.fn>
+
+  const USER_ID = '11111111-1111-4111-8111-111111111111'
+  const STRATEGY_ID = '22222222-2222-4222-8222-222222222222'
+  const CURRENT_PASSWORD = 'current-password'
+  const SESSION = {
+    'x-test-session': JSON.stringify({ authenticated: true, user: { id: USER_ID } })
+  }
+
+  before(async () => {
+    const passwordHash = await bcrypt.hash(CURRENT_PASSWORD, 4)
+    const user = { id: USER_ID, auth: { [STRATEGY_ID]: { password: passwordHash } } }
+    patchMock = mock.method(userCredentials, 'patchStrategyAuth', async () => true)
+    app = await buildTestApp({
+      routes: usersRoutes,
+      prefix: '/users',
+      session: 'header',
+      ajv: true,
+      swagger: true,
+      wiki: {
+        config: {},
+        data: { authentication: [{ key: 'local', title: 'Local', icon: '', props: {} }] },
+        db: {
+          select: () => ({
+            from: async () => [
+              { id: STRATEGY_ID, module: 'local', displayName: 'Local', config: strategyConfig }
+            ]
+          })
+        },
+        models: {
+          users: { getById: async () => user },
+          userCredentials,
+          passkeys: { list: async () => [] },
+          authentication: {
+            getStrategyById: async () =>
+              strategyConfig === null ? null : { id: STRATEGY_ID, config: strategyConfig }
+          },
+          flags: { authDebug: () => {} }
+        }
+      }
+    })
+  })
+
+  after(async () => {
+    mock.restoreAll()
+    await closeTestApp(app)
+  })
+
+  function changePassword() {
+    return app.inject({
+      method: 'PUT',
+      url: '/users/profile/password',
+      headers: SESSION,
+      payload: {
+        strategyId: STRATEGY_ID,
+        currentPassword: CURRENT_PASSWORD,
+        newPassword: 'a-brand-new-password'
+      }
+    })
+  }
+
+  test('allowPasswordChange off refuses with ERR_PASSWORD_CHANGE_DISABLED and writes nothing', async () => {
+    strategyConfig = { allowPasswordChange: false }
+    patchMock.mock.resetCalls()
+    const res = await changePassword()
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_PASSWORD_CHANGE_DISABLED')
+    assert.equal(patchMock.mock.callCount(), 0)
+  })
+
+  test('allowPasswordChange on changes the password', async () => {
+    strategyConfig = { allowPasswordChange: true }
+    patchMock.mock.resetCalls()
+    const res = await changePassword()
+    assert.equal(res.statusCode, 200)
+    assert.equal(patchMock.mock.callCount(), 1)
+  })
+
+  test('a strategy config saved before the prop existed still allows the change', async () => {
+    strategyConfig = {}
+    patchMock.mock.resetCalls()
+    const res = await changePassword()
+    assert.equal(res.statusCode, 200)
+    assert.equal(patchMock.mock.callCount(), 1)
+  })
+
+  test('a strategy that cannot be found still allows the change', async () => {
+    strategyConfig = null
+    patchMock.mock.resetCalls()
+    const res = await changePassword()
+    assert.equal(res.statusCode, 200)
+  })
+
+  test('the profile providers report canChangePassword: false when it is off', async () => {
+    strategyConfig = { allowPasswordChange: false }
+    const res = await app.inject({ method: 'GET', url: '/users/profile/auth', headers: SESSION })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().authMethods[0].config.canChangePassword, false)
+  })
+
+  test('the profile providers report canChangePassword: true when it is on or absent', async () => {
+    for (const config of [{ allowPasswordChange: true }, {}]) {
+      strategyConfig = config
+      const res = await app.inject({ method: 'GET', url: '/users/profile/auth', headers: SESSION })
+      assert.equal(res.json().authMethods[0].config.canChangePassword, true)
+    }
   })
 })
