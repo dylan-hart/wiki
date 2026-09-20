@@ -29,8 +29,20 @@ function configText(value: unknown): string | undefined {
   return undefined
 }
 
-function srcScript(provider: string, src: string): string {
-  return `<script data-analytics-provider="${provider}" async src="${escapeAttribute(src)}"></script>`
+function srcScript(
+  provider: string,
+  src: string,
+  options: { loading?: 'async' | 'defer'; data?: Record<string, string> } = {}
+): string {
+  const data = Object.entries(options.data ?? {})
+    .map(([name, value]) => ` data-${name}="${escapeAttribute(value)}"`)
+    .join('')
+  return `<script data-analytics-provider="${provider}" ${options.loading ?? 'async'} src="${escapeAttribute(src)}"${data}></script>`
+}
+
+function httpBase(value: unknown, fallback: string): string | null {
+  const text = configText(value) ?? fallback
+  return /^https?:\/\/[^\s/]/i.test(text) ? text.replace(/\/+$/, '') : null
 }
 
 function inlineScript(provider: string, body: string): string {
@@ -89,6 +101,41 @@ _paq.push(['enableLinkTracking']);
   g.type = 'text/javascript'; g.async = true; g.src = u + 'matomo.js'; s.parentNode.insertBefore(g, s)
 })();`
     )
+  },
+
+  plausible(config) {
+    const domain = configText(config.domain)
+    const host = httpBase(config.host, 'https://plausible.io')
+    if (!domain || !host) {
+      return null
+    }
+    return srcScript('plausible', `${host}/js/script.js`, {
+      loading: 'defer',
+      data: { domain }
+    })
+  },
+
+  umami(config) {
+    const websiteId = configText(config.websiteId)
+    const host = httpBase(config.host, 'https://cloud.umami.is')
+    if (!websiteId || !host) {
+      return null
+    }
+    return srcScript('umami', `${host}/script.js`, {
+      loading: 'defer',
+      data: { 'website-id': websiteId }
+    })
+  },
+
+  fathom(config) {
+    const siteId = configText(config.siteId)
+    if (!siteId) {
+      return null
+    }
+    return srcScript('fathom', 'https://cdn.usefathom.com/script.js', {
+      loading: 'defer',
+      data: { site: siteId }
+    })
   }
 }
 
