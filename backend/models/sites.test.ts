@@ -82,6 +82,7 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(config.company, '')
     assert.equal(config.contentLicense, '')
     assert.equal(config.footerExtra, '')
+    assert.deepEqual(config.banner, { isEnabled: false, title: '', content: '' })
     assert.deepEqual(config.pageExtensions, ['md', 'html', 'txt'])
     assert.deepEqual(
       config.allowedUrlSchemes,
@@ -165,6 +166,25 @@ describe(
         .where(eq(sitesTable.id, seededSiteId))
       assert.deepEqual((row!.config as Record<string, any>).analytics, { providers: {} })
       assert.deepEqual((row!.config as Record<string, any>).allowedUrlSchemes, [])
+      assert.deepEqual((row!.config as Record<string, any>).banner, {
+        isEnabled: false,
+        title: '',
+        content: ''
+      })
+    })
+
+    test('updateSite() merges a partial banner patch into the stored banner', async () => {
+      const site = await sitesModel.createSite('sites-banner-merge-test.localhost')
+      await sitesModel.updateSite(site.id, {
+        config: { banner: { title: 'Notice', content: 'Read this.' } }
+      })
+      await sitesModel.updateSite(site.id, { config: { banner: { isEnabled: true } } })
+      const [row] = await fixtures.db.select().from(sitesTable).where(eq(sitesTable.id, site.id))
+      assert.deepEqual((row!.config as Record<string, any>).banner, {
+        isEnabled: true,
+        title: 'Notice',
+        content: 'Read this.'
+      })
     })
   }
 )

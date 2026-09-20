@@ -613,6 +613,112 @@ test('an uppercase security.embedAllowedOrigins entry is rejected by the schema 
   assert.equal(updateSiteCalls.length, 0)
 })
 
+const BANNER = { isEnabled: true, title: 'Maintenance', content: 'Down tonight at 22:00.' }
+
+test('site:general on this site may save the banner', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { banner: BANNER }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.deepEqual(updateSiteCalls[0].patch.config.banner, BANNER)
+})
+
+test('a partial banner patch reaches updateSite untouched so the model can deep-merge it', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { banner: { isEnabled: false } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(updateSiteCalls[0].patch.config.banner, { isEnabled: false })
+})
+
+test('manage:sites may save the banner', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { banner: BANNER }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+})
+
+test('site:theme alone may not save the banner', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:theme@${PUT_SITE_ID}`
+    },
+    payload: { banner: BANNER }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('manage:theme alone may not save the banner', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:theme' },
+    payload: { banner: BANNER }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+for (const [field, limit] of [
+  ['title', 255],
+  ['content', 2000]
+] as const) {
+  test(`a banner ${field} over ${limit} characters is rejected and never reaches updateSite`, async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { banner: { [field]: 'x'.repeat(limit + 1) } }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateSiteCalls.length, 0)
+  })
+
+  test(`a banner ${field} of exactly ${limit} characters is accepted`, async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { banner: { [field]: 'x'.repeat(limit) } }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateSiteCalls.length, 1)
+  })
+}
+
+test('the public site payload carries the banner', async () => {
+  const original = sites[WILDCARD_SITE_ID].config
+  sites[WILDCARD_SITE_ID].config = { ...original, banner: BANNER }
+  try {
+    const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json().banner, BANNER)
+  } finally {
+    sites[WILDCARD_SITE_ID].config = original
+  }
+})
+
 test('site:general on this site may not also save the theme surface', async () => {
   const res = await app.inject({
     method: 'PUT',

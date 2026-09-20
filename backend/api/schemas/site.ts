@@ -105,6 +105,24 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       footerExtra: {
         type: 'string'
       },
+      banner: {
+        type: 'object',
+        description:
+          'Admin-authored site-wide banner. `title` and `content` are plain text: never markdown-rendered or sanitized as HTML.',
+        properties: {
+          isEnabled: {
+            type: 'boolean'
+          },
+          title: {
+            type: 'string',
+            maxLength: 255
+          },
+          content: {
+            type: 'string',
+            maxLength: 2000
+          }
+        }
+      },
       pageExtensions: {
         type: 'array',
         items: {

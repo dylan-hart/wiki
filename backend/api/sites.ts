@@ -26,6 +26,7 @@ const SITE_CONFIG_KEYS = [
   'company',
   'contentLicense',
   'footerExtra',
+  'banner',
   'pageExtensions',
   'allowedUrlSchemes',
   'logoText',
@@ -58,6 +59,7 @@ const SITE_FIELD_PERMISSIONS: Partial<
   company: 'site:general',
   contentLicense: 'site:general',
   footerExtra: 'site:general',
+  banner: 'site:general',
   pageExtensions: 'site:general',
   allowedUrlSchemes: 'site:general',
   logoText: 'site:general',
@@ -146,6 +148,7 @@ export async function buildSitePayload(
     company: config.company,
     contentLicense: config.contentLicense,
     footerExtra: config.footerExtra,
+    banner: config.banner,
     pageExtensions: config.pageExtensions,
     allowedUrlSchemes: config.allowedUrlSchemes,
     discoverable: config.discoverable,
@@ -418,6 +421,7 @@ async function routes(app: FastifyInstance) {
       company?: string
       contentLicense?: string
       footerExtra?: string
+      banner?: { isEnabled?: boolean; title?: string; content?: string }
       pageExtensions?: string[]
       allowedUrlSchemes?: string[]
       logoText?: boolean
@@ -454,7 +458,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Update a site',
         description:
-          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`security`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
+          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`banner`/`pageExtensions`/`allowedUrlSchemes`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`security`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
         params: { $ref: 'SiteIdParams#' },
         body: {
@@ -485,6 +489,9 @@ async function routes(app: FastifyInstance) {
             },
             footerExtra: {
               type: 'string'
+            },
+            banner: {
+              $ref: 'Site#/properties/banner'
             },
             pageExtensions: {
               type: 'array',
