@@ -430,6 +430,87 @@ describe('modules/comments/default', () => {
       assert.ok(!/<img[\s>]/i.test(result.render))
     })
 
+    describe('mentions', () => {
+      const mentions = new Map([
+        ['bob', 'Bob'],
+        ['ann.lee', 'Ann.Lee']
+      ])
+
+      it('wraps a resolved handle in a comment-mention span carrying its stored handle', async () => {
+        const result = await commentsDefaultModule.render('hi @bob, welcome', { mentions })
+        assert.equal(
+          result.render.trim(),
+          '<p>hi <span class="comment-mention" data-handle="Bob">@Bob</span>, welcome</p>'
+        )
+      })
+
+      it('matches case-insensitively and leaves trailing punctuation outside the mention', async () => {
+        const result = await commentsDefaultModule.render('thanks @ANN.LEE.', { mentions })
+        assert.equal(
+          result.render.trim(),
+          '<p>thanks <span class="comment-mention" data-handle="Ann.Lee">@Ann.Lee</span>.</p>'
+        )
+      })
+
+      it('leaves an unresolved @handle literal', async () => {
+        const result = await commentsDefaultModule.render('hi @carol', { mentions })
+        assert.equal(result.render.trim(), '<p>hi @carol</p>')
+      })
+
+      it('does not match a longer handle that merely starts with a resolved one', async () => {
+        const result = await commentsDefaultModule.render('hi @bobby', { mentions })
+        assert.ok(!result.render.includes('comment-mention'))
+      })
+
+      it('renders no mention when no resolved set is supplied', async () => {
+        const result = await commentsDefaultModule.render('hi @bob')
+        assert.equal(result.render.trim(), '<p>hi @bob</p>')
+      })
+
+      it('leaves a mention inside an inline code span alone', async () => {
+        const result = await commentsDefaultModule.render('run `@bob` now', { mentions })
+        assert.equal(result.render.trim(), '<p>run <code>@bob</code> now</p>')
+      })
+
+      it('leaves a mention inside a fenced block alone', async () => {
+        const result = await commentsDefaultModule.render('```\n@bob\n```', { mentions })
+        assert.ok(!result.render.includes('comment-mention'))
+        assert.match(result.render, /@bob/)
+      })
+
+      it('does not treat the @ in an email address as a mention', async () => {
+        const result = await commentsDefaultModule.render('write to alice@bob.com', { mentions })
+        assert.ok(!result.render.includes('comment-mention'))
+      })
+
+      it('does not resolve an escaped @', async () => {
+        const result = await commentsDefaultModule.render('hi \\@bob', { mentions })
+        assert.ok(!result.render.includes('comment-mention'))
+      })
+
+      it('resolves a mention inside emphasis', async () => {
+        const result = await commentsDefaultModule.render('**@bob**', { mentions })
+        assert.match(result.render, /<strong><span class="comment-mention"/)
+      })
+
+      it('strips every attribute other than class and data-handle from typed markup', async () => {
+        const result = await commentsDefaultModule.render(
+          '<span onclick="alert(1)" style="x" data-evil="1">@bob</span>',
+          { mentions }
+        )
+        assert.ok(!/<span[^>]*onclick/.test(result.render))
+        assert.ok(!/<span[^>]*style/.test(result.render))
+        assert.ok(!/<span[^>]*data-evil/.test(result.render))
+      })
+
+      it('never emits an attribute beyond class and data-handle, whatever the handle holds', async () => {
+        const hostile = new Map([['x', 'x" onclick="alert(1)']])
+        const result = await commentsDefaultModule.render('@x', { mentions: hostile })
+        const tag = result.render.match(/<span[^>]*>/)?.[0] ?? ''
+        assert.match(tag, /^<span class="comment-mention" data-handle="[^"]*">$/)
+      })
+    })
+
     it('resolves via fs.access, matching the exact check models/storage.ts runs for storage.ts', async () => {
       // -> `serverPath` stands in for `CARDINAL.SERVERPATH`, which `hasImplementation()` joins the
       //    module-relative path onto.

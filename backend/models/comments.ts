@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm'
 import { chunk } from 'es-toolkit/array'
 import { loadModule } from '../helpers/moduleRegistry.ts'
+import { extractMentionCandidates, MAX_MENTION_CANDIDATES } from '../helpers/mentions.ts'
 import {
   comments as commentsTable,
   pages as pagesTable,
@@ -164,8 +165,9 @@ class Comments {
     if (!active) {
       return null
     }
+    const mentions = await this.resolveMentions(siteId, content)
     try {
-      return (await active.module.render(content)).render
+      return (await active.module.render(content, { mentions })).render
     } catch (err: any) {
       CARDINAL.logger.warn('ext', 'rendering a comment failed', {
         module: active.provider.module,
@@ -175,6 +177,34 @@ class Comments {
       return null
     }
   }
+
+  /**
+   * Lookup failure degrades to no mentions rather than losing the comment's render: `@text` then
+   * stays literal.
+   */
+  private async resolveMentions(siteId: string, content: string): Promise<Map<string, string>> {
+    const resolved = new Map<string, string>()
+    const candidates = extractMentionCandidates(content)
+    if (candidates.length === 0) {
+      return resolved
+    }
+    try {
+      const rows = await CARDINAL.db
+        .select({ handle: usersTable.handle })
+        .from(usersTable)
+        .where(inArray(sql`lower(${usersTable.handle})`, candidates))
+        .limit(MAX_MENTION_CANDIDATES)
+      for (const { handle } of rows) {
+        if (handle) {
+          resolved.set(handle.toLowerCase(), handle)
+        }
+      }
+    } catch (err: any) {
+      CARDINAL.logger.warn('ext', 'resolving comment mentions failed', { siteId, error: err })
+    }
+    return resolved
+  }
+
   async create({
     siteId,
     pageId,

@@ -752,6 +752,14 @@
     outline-offset: 1px;
   }
 
+  .comment-mention {
+    padding: 0.05em 0.3em;
+    border-radius: var(--radius-mark);
+    background-color: color-mix(in srgb, var(--content-link) 12%, transparent);
+    color: var(--content-link);
+    font-weight: 600;
+  }
+
   del {
     color: var(--content-ink-muted);
   }

@@ -17,6 +17,7 @@ import { full as markdownItEmoji } from 'markdown-it-emoji'
 import hljs from 'highlight.js/lib/common'
 import sanitizeHtml from 'sanitize-html'
 import { escape } from 'es-toolkit/string'
+import { isMentionChar, matchMention } from '../../../helpers/mentions.ts'
 
 export interface CommentRenderResult {
   content: string
@@ -62,8 +63,13 @@ export interface CheckRateLimitParams {
   lastCommentAt?: Temporal.Instant | null
 }
 
+export interface CommentRenderOptions {
+  /** Lowercased handle to the handle as stored; only what is in here becomes a mention. */
+  mentions?: ReadonlyMap<string, string>
+}
+
 export interface CommentProviderModule {
-  render(content: string): Promise<CommentRenderResult>
+  render(content: string, options?: CommentRenderOptions): Promise<CommentRenderResult>
 
   /**
    * Never throws, on a spam verdict or on a misconfigured/unreachable Akismet: "this is spam" is a
@@ -97,6 +103,34 @@ const commentMarkdown = new MarkdownIt({
     return `<pre><code class="language-${escape(lang ?? '')}">${highlighted}</code></pre>`
   }
 }).use(markdownItEmoji)
+
+const MENTION_TOKEN_AT = /@([A-Za-z0-9._-]+)/y
+
+commentMarkdown.inline.ruler.after('escape', 'comment_mention', (state, silent) => {
+  const mentions = (state.env as CommentRenderOptions | undefined)?.mentions
+  if (!mentions || mentions.size === 0 || state.src.charCodeAt(state.pos) !== 0x40) {
+    return false
+  }
+  if (state.pos > 0 && isMentionChar(state.src[state.pos - 1])) {
+    return false
+  }
+  MENTION_TOKEN_AT.lastIndex = state.pos
+  const found = MENTION_TOKEN_AT.exec(state.src)
+  const mention = found ? matchMention(found[1], mentions) : null
+  if (!mention) {
+    return false
+  }
+  if (!silent) {
+    state.push('comment_mention', '', 0).content = mention.handle
+  }
+  state.pos += 1 + mention.length
+  return true
+})
+
+commentMarkdown.renderer.rules.comment_mention = (tokens, idx) => {
+  const handle = escape(tokens[idx].content)
+  return `<span class="comment-mention" data-handle="${handle}">@${handle}</span>`
+}
 
 /**
  * Deliberately a strict subset of `models/rendering.ts`'s `BASE_ALLOWED_TAGS`, which is broad
@@ -138,14 +172,14 @@ const COMMENT_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   // -> highlight.js puts `language-<x>` on the wrapping `<code>` and `hljs-<token>` on the `<span>`s
   //    inside it; without these two the syntax highlighting sanitizes back out to plain text
   code: ['class'],
-  span: ['class']
+  span: ['class', 'data-handle']
 }
 
 /** No `data:` — a comment carries no images to need it. */
 const COMMENT_ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel']
 
-function renderComment(content: string): CommentRenderResult {
-  const rendered = commentMarkdown.render(content)
+function renderComment(content: string, options?: CommentRenderOptions): CommentRenderResult {
+  const rendered = commentMarkdown.render(content, { mentions: options?.mentions })
   const clean = sanitizeHtml(rendered, {
     allowedTags: COMMENT_ALLOWED_TAGS,
     allowedAttributes: COMMENT_ALLOWED_ATTRIBUTES,
@@ -324,8 +358,8 @@ export function checkRateLimit(
 }
 
 const commentsDefaultModule: CommentProviderModule = {
-  async render(content) {
-    return renderComment(content)
+  async render(content, options) {
+    return renderComment(content, options)
   },
   async checkSpam(params, conf) {
     return checkSpam(params, conf)
