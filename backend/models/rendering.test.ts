@@ -1,6 +1,6 @@
-import { after, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rendering } from './rendering.ts'
+import { rendering, tabHeadingLevel } from './rendering.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { makeSite } from '../test/builders.ts'
 import type { BlockDefinition } from './blocks.ts'
@@ -539,5 +539,133 @@ describe('rendering.postProcess: site-configured allowedUrlSchemes (OpenProject 
 
     assert.doesNotMatch(result.render, /href="discord:/)
     assert.match(result.render, /href="https:\/\/example\.com"/)
+  })
+})
+
+describe('rendering.postProcess: a block-tab with a header lists in the table of contents (OpenProject #3584)', () => {
+  const TAB_BLOCKS: BlockDefinition[] = [
+    {
+      block: 'tabs',
+      name: 'Tabs',
+      description: 'A set of tabs.',
+      icon: 'layout-navbar',
+      props: []
+    },
+    {
+      block: 'tab',
+      name: 'Tab',
+      description: 'One panel of a set of tabs.',
+      icon: 'layout-navbar',
+      isChild: true,
+      props: [
+        { name: 'label', type: 'string' },
+        { name: 'icon', type: 'string' },
+        { name: 'header', type: 'string' }
+      ]
+    }
+  ]
+  const permissions = { scripts: false, styles: false }
+  const definitions = CARDINAL.models.blocks.definitions as BlockDefinition[]
+
+  before(() => {
+    definitions.push(...TAB_BLOCKS)
+    enabledBlocks = new Set(['tabs'])
+  })
+  after(() => {
+    for (const block of TAB_BLOCKS) {
+      definitions.splice(definitions.indexOf(block), 1)
+    }
+    enabledBlocks = new Set()
+  })
+
+  test('a header="2" tab is a level-2 entry carrying its label, with the id on the element', async () => {
+    const html =
+      '<block-tabs><block-tab label="Install" header="2"><p>Steps</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(result.toc, [{ key: '#install', label: 'Install', level: 2, children: [] }])
+    assert.match(result.render, /<block-tab [^>]*\bid="install"/)
+  })
+
+  test('a heading inside the panel nests under its tab, in document order', async () => {
+    const html =
+      '<h1>Guide</h1>' +
+      '<block-tabs><block-tab label="Install" header="2"><h3>Linux</h3></block-tab>' +
+      '<block-tab label="Configure" header="2"><h3>Files</h3></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(result.toc, [
+      {
+        key: '#guide',
+        label: 'Guide',
+        level: 1,
+        children: [
+          {
+            key: '#install',
+            label: 'Install',
+            level: 2,
+            children: [{ key: '#linux', label: 'Linux', level: 3, children: [] }]
+          },
+          {
+            key: '#configure',
+            label: 'Configure',
+            level: 2,
+            children: [{ key: '#files', label: 'Files', level: 3, children: [] }]
+          }
+        ]
+      }
+    ])
+  })
+
+  for (const header of ['0', '7', '2px', '', ' 2', '02']) {
+    test(`header="${header}" leaves an ordinary tab: no entry, no id`, async () => {
+      const html = `<block-tabs><block-tab label="Plain" header="${header}"><p>x</p></block-tab></block-tabs>`
+
+      const result = await rendering.postProcess('site-1', html, permissions)
+
+      assert.deepEqual(result.toc, [])
+      assert.doesNotMatch(result.render, /<block-tab [^>]*\bid=/)
+    })
+  }
+
+  test('a tab without a header, or with an empty label, is left alone', async () => {
+    const html =
+      '<block-tabs><block-tab label="No header"><p>x</p></block-tab>' +
+      '<block-tab label="  " header="2"><p>y</p></block-tab>' +
+      '<block-tab header="2"><p>z</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(result.toc, [])
+    assert.doesNotMatch(result.render, /<block-tab [^>]*\bid=/)
+  })
+
+  test('two tabs and a heading sharing one slug get -N suffixes, each on its own element', async () => {
+    const html =
+      '<h2>Setup</h2>' +
+      '<block-tabs><block-tab label="Setup" header="2"><p>a</p></block-tab>' +
+      '<block-tab label="Setup" header="3"><p>b</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, permissions)
+
+    assert.deepEqual(
+      result.toc.map((node) => [node.key, node.children.map((child) => child.key)]),
+      [
+        ['#setup', []],
+        ['#setup-1', ['#setup-2']]
+      ]
+    )
+    assert.match(result.render, /<block-tab [^>]*\bid="setup-1"/)
+    assert.match(result.render, /<block-tab [^>]*\bid="setup-2"/)
+  })
+
+  test('tabHeadingLevel accepts only a bare digit 1 to 6', () => {
+    assert.equal(tabHeadingLevel('1'), 1)
+    assert.equal(tabHeadingLevel('6'), 6)
+    for (const bad of [undefined, '', '0', '7', '2px', ' 2', '-1', '1.5', 'h2']) {
+      assert.equal(tabHeadingLevel(bad), null, String(bad))
+    }
   })
 })

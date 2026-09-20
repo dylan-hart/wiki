@@ -70,6 +70,12 @@ function slugifyHeading(text: string): string {
   )
 }
 
+const TAB_TAG = 'block-tab'
+
+export function tabHeadingLevel(header: string | undefined): number | null {
+  return header !== undefined && /^[1-6]$/.test(header) ? Number.parseInt(header, 10) : null
+}
+
 class Rendering {
   /**
    * What the author is not granted is stripped rather than rejected: pasting a snippet carrying a
@@ -308,9 +314,16 @@ class Rendering {
     const used = new Map<string, number>()
     const flat: { level: number; node: TocNode }[] = []
 
-    $('h1, h2, h3, h4, h5, h6').each((_, el) => {
+    $(`h1, h2, h3, h4, h5, h6, ${TAB_TAG}[header]`).each((_, el) => {
       const heading = $(el)
-      const label = heading.text().trim()
+      const isTab = el.tagName === TAB_TAG
+      const level = isTab
+        ? tabHeadingLevel(heading.attr('header'))
+        : Number.parseInt(el.tagName.slice(1), 10)
+      const label = (isTab ? (heading.attr('label') ?? '') : heading.text()).trim()
+      if (level === null || (isTab && label === '')) {
+        return
+      }
       let key = heading.attr('id') || slugifyHeading(label)
 
       // -> Two headings can legitimately read the same; the repeat is suffixed, as anchors
@@ -322,7 +335,6 @@ class Rendering {
       }
 
       heading.attr('id', key)
-      const level = Number.parseInt(el.tagName.slice(1), 10)
       flat.push({
         level,
         node: { key: `#${key}`, label, level, children: [] }
