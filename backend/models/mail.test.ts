@@ -1659,7 +1659,7 @@ describe('mail send wrappers set their own kind', () => {
     // FIXME: `tfaNewDeviceLogin` has a wrapper (`sendTfaNewDeviceLogin`) yet appears in neither
     //        `cases` nor this list, so the claim above holds only by omission. Add it to both, and
     //        pin the list with a `Record<MailKind, true>` literal so a new member cannot be missed.
-    const allKinds: Record<Exclude<MailKind, 'approval'>, true> = {
+    const allKinds: Record<Exclude<MailKind, 'approval' | 'commentMention'>, true> = {
       verify: true,
       forgotPassword: true,
       welcome: true,

@@ -182,7 +182,7 @@ class Comments {
    * Lookup failure degrades to no mentions rather than losing the comment's render: `@text` then
    * stays literal.
    */
-  private async resolveMentions(siteId: string, content: string): Promise<Map<string, string>> {
+  async resolveMentions(siteId: string, content: string): Promise<Map<string, string>> {
     const resolved = new Map<string, string>()
     const candidates = extractMentionCandidates(content)
     if (candidates.length === 0) {
@@ -260,7 +260,11 @@ class Comments {
       })
       .returning()
     const comment = rows[0]
-    await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
+    const authorName = await this.resolveAuthorName(comment)
+    await this.emitEvent('comment:new', comment, authorName)
+    if (!createdAt && !updatedAt) {
+      this.queueMentionNotifications(comment, authorName)
+    }
     return comment
   }
 
@@ -299,8 +303,31 @@ class Comments {
       .where(eq(commentsTable.id, id))
       .returning()
     const comment = rows[0]
-    await this.emitEvent('comment:edit', comment, await this.resolveAuthorName(comment))
+    const authorName = await this.resolveAuthorName(comment)
+    await this.emitEvent('comment:edit', comment, authorName)
+    if (existing) {
+      this.queueMentionNotifications(comment, authorName, existing.content)
+    }
     return comment
+  }
+
+  private queueMentionNotifications(
+    comment: Comment,
+    authorName: string,
+    previousContent?: string
+  ): void {
+    try {
+      void CARDINAL.models.commentNotifications.notifyMentions({
+        comment,
+        authorName,
+        previousContent
+      })
+    } catch (err: any) {
+      CARDINAL.logger.warn('hooks', 'queueing the comment mention notifications failed', {
+        comment: comment.id,
+        error: err
+      })
+    }
   }
 
   async get(id: string): Promise<Comment | null> {

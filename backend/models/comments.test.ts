@@ -147,9 +147,15 @@ describe('comments model — mocked', () => {
    */
   let siteProviders: any[]
   let warnCalls: { message: string; fields: Record<string, any> }[]
+  let mentionNotifications: Record<string, any>[]
+  let notifyMentions: (args: Record<string, any>) => Promise<void>
 
   before(async () => {
     hookEmits = []
+    mentionNotifications = []
+    notifyMentions = async (args) => {
+      mentionNotifications.push(args)
+    }
     usersById = {}
     siteProviders = []
     warnCalls = []
@@ -173,6 +179,9 @@ describe('comments model — mocked', () => {
         users: {
           getById: async (id: string) => usersById[id] ?? null
         },
+        commentNotifications: {
+          notifyMentions: (args: Record<string, any>) => notifyMentions(args)
+        },
         commentProviders: {
           getSiteProviders: async (_siteId: string) => siteProviders
         }
@@ -191,6 +200,10 @@ describe('comments model — mocked', () => {
     usersById = {}
     siteProviders = []
     warnCalls.length = 0
+    mentionNotifications.length = 0
+    notifyMentions = async (args) => {
+      mentionNotifications.push(args)
+    }
     ;(globalThis as any).CARDINAL.db = makeFakeDb()
   })
 
@@ -391,6 +404,60 @@ describe('comments model — mocked', () => {
       assert.equal(calls.inserts[0].values.render, null)
       assert.equal(warnCalls.length, 1)
       assert.equal(warnCalls[0].message, 'loading a module failed')
+    })
+  })
+
+  describe('mention notifications', () => {
+    it('hands a new comment to the notifier with its author name and no previous content', async () => {
+      usersById['u1'] = { name: 'Ann' }
+      const row = await comments.create({
+        siteId: 's1',
+        pageId: 'p1',
+        authorId: 'u1',
+        content: 'hello @bob'
+      })
+
+      assert.equal(mentionNotifications.length, 1)
+      assert.equal(mentionNotifications[0].comment.id, row.id)
+      assert.equal(mentionNotifications[0].authorName, 'Ann')
+      assert.equal(mentionNotifications[0].previousContent, undefined)
+    })
+
+    it('does not notify for a comment carrying an import timestamp', async () => {
+      await comments.create({
+        siteId: 's1',
+        pageId: 'p1',
+        content: 'hello @bob',
+        createdAt: '2020-01-01T00:00:00.000Z',
+        updatedAt: '2020-01-01T00:00:00.000Z'
+      })
+
+      assert.equal(mentionNotifications.length, 0)
+    })
+
+    it('passes the previous content on an edit', async () => {
+      ;(globalThis as any).CARDINAL.db = makeFakeDb({
+        getRows: [{ id: 'c1', siteId: 's1', content: 'before' }]
+      })
+      await comments.update('c1', { content: 'after @bob' })
+
+      assert.equal(mentionNotifications.length, 1)
+      assert.equal(mentionNotifications[0].previousContent, 'before')
+    })
+
+    it('does not notify on an edit of a comment that cannot be found', async () => {
+      await comments.update('c1', { content: 'after @bob' })
+      assert.equal(mentionNotifications.length, 0)
+    })
+
+    it('still returns the comment when the notifier throws synchronously', async () => {
+      notifyMentions = () => {
+        throw new Error('boom')
+      }
+      const row = await comments.create({ siteId: 's1', pageId: 'p1', content: 'hello @bob' })
+
+      assert.equal(row.id, 'new-comment-id')
+      assert.equal(warnCalls.at(-1)?.message, 'queueing the comment mention notifications failed')
     })
   })
 
