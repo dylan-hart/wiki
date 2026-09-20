@@ -1265,3 +1265,44 @@ describe('sanitizeForPreview', () => {
     delete globalThis.__markdownTestSanitizeForPreviewRan
   })
 })
+
+describe('MarkdownRenderer definition lists', () => {
+  it('renders a term with one definition as dl/dt/dd', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Apple\n: A red fruit')
+
+    expect(html).toContain('<dl>')
+    expect(html).toContain('<dt>Apple</dt>')
+    expect(html).toContain('<dd>')
+    expect(html).toContain('A red fruit')
+    expect(html).toContain('</dl>')
+  })
+
+  it('renders a term with two definitions as one dt followed by two dd', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Apple\n: A red fruit\n: A technology company')
+
+    expect(html.match(/<dt>/g)).toHaveLength(1)
+    expect(html.match(/<dd>/g)).toHaveLength(2)
+    expect(html).toContain('A red fruit')
+    expect(html).toContain('A technology company')
+  })
+
+  it('renders a multi-paragraph definition as paragraphs inside one dd', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Apple\n\n: First paragraph\n\n    Second paragraph')
+
+    expect(html.match(/<dd>/g)).toHaveLength(1)
+    expect(html).toMatch(
+      /<dd>\s*<p[^>]*>First paragraph<\/p>\s*<p[^>]*>Second paragraph<\/p>\s*<\/dd>/
+    )
+  })
+
+  it('leaves a plain `a: b` paragraph alone', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('a: b')
+
+    expect(html).toMatch(/<p[^>]*>a: b<\/p>/)
+    expect(html).not.toMatch(/<(dl|dt|dd)[\s>]/)
+  })
+})
