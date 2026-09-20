@@ -141,3 +141,31 @@ describe('initializeApi(): throwHttpErrors', () => {
     expect(options.throwHttpErrors).toBe(true)
   })
 })
+
+describe('initializeApi(): retry', () => {
+  it('retries only GET and HEAD, so a write is never silently re-sent', () => {
+    initializeApi(stubRouter())
+
+    const { retry } = createMock.mock.calls.at(-1)[0]
+
+    expect(retry.methods).toEqual(['get', 'head'])
+  })
+
+  it('retries only transient 5xx/408 statuses and never a 429 or 413', () => {
+    initializeApi(stubRouter())
+
+    const { retry } = createMock.mock.calls.at(-1)[0]
+
+    expect(retry.statusCodes).toEqual([408, 500, 502, 503, 504])
+    expect(retry.statusCodes).not.toContain(429)
+    expect(retry.statusCodes).not.toContain(413)
+  })
+
+  it('has no afterStatusCodes, so ky never sleeps on a Retry-After header', () => {
+    initializeApi(stubRouter())
+
+    const { retry } = createMock.mock.calls.at(-1)[0]
+
+    expect(retry.afterStatusCodes).toEqual([])
+  })
+})
