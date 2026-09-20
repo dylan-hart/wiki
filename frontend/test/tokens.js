@@ -5,14 +5,11 @@ import { fileURLToPath } from 'node:url'
 /**
  * What a design token resolves to under each aesthetic, read out of `css/tailwind.css`.
  *
- * The Cobalt work moved the app's SFC stylesheets off compile-time SCSS literals (`$hairline`,
- * `$ink`, ...) and onto the runtime custom properties that carry the same value under Ledger and a
- * different one under Cobalt -- which is the whole mechanism the aesthetic system runs on. A suite
- * that used to assert a rule painted `#dbe1ec` now sees `var(--color-hairline)`, and the claim it
- * was making splits in two: the RULE still names the hairline, and the hairline is still `#dbe1ec`
- * in Ledger. Asserting the first alone would let a token silently change value; asserting a copied
- * literal would go stale the moment the token moved. This reads the answer from the stylesheet, so
- * both halves stay true or the test fails.
+ * App stylesheets read colours, radii and shadows through runtime custom properties rather than
+ * literals, so a suite's claim that a rule paints a given colour actually splits in two: that the
+ * rule names the right token, and that the token holds the right value. Asserting only the token
+ * name would let its value silently change; asserting a copied literal would go stale the moment
+ * the token's value changed. Reading the value from the stylesheet keeps both halves honest.
  *
  * Values are resolved through one level of `var()` aliasing, which is as deep as the token layer
  * goes (`--color-header: var(--q-header)`, `--color-accent-text: var(--color-accent)`, ...).
@@ -55,15 +52,13 @@ export function tokenValue(name, aesthetic = 'ledger') {
  * Every Ledger token, as a `:root` rule a test environment can install.
  *
  * `happy-dom` and `jsdom` resolve `var()` only against properties something actually declared, and
- * neither of these suites builds `css/tailwind.css` -- so a component rule that reads a token (which
- * is now most of them: see the note above) computes to nothing at all, and a `.body--dark` override
- * written that way silently stops overriding. Installing the Ledger half of the token layer in
- * `test/setup.js` is what puts those rules back on their real values, and reading it out of the
- * stylesheet rather than restating it is what keeps them the REAL values.
+ * neither builds `css/tailwind.css` -- so a component rule that reads a token computes to nothing at
+ * all, and a `.body--dark` override written that way silently stops overriding. `test/setup.js`
+ * installs this to put those rules back on real values; reading them out of the stylesheet rather
+ * than restating them is what keeps them real.
  *
- * Only the Ledger half: a suite that wants to assert Cobalt's own value asks `tokenValue(name,
- * 'cobalt')` for it, rather than every suite silently rendering under whichever aesthetic happened
- * to be installed last.
+ * Only the Ledger half: a suite that wants Cobalt's own value asks `tokenValue(name, 'cobalt')` for
+ * it, rather than every suite silently rendering under whichever aesthetic was installed last.
  */
 export function ledgerTokenCss() {
   const ledgerHalf = block('ledger')

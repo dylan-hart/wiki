@@ -3,16 +3,6 @@ import { mount } from '@vue/test-utils'
 
 import { createTestI18n } from './i18n.js'
 
-/**
- * `createTestI18n` replaces the 196 hand-rolled `createI18n({ legacy: false, locale: 'en', messages:
- * { en: … } })` call sites the test survey counted (TEST-F3) -- 62 distinct spellings of the same
- * three options, ~94 of them the byte-identical empty-messages one-liner. Only `messages` ever
- * differed, so that is the only thing this helper takes.
- *
- * The two shapes both appear in the corpus and both have to keep resolving: nested objects
- * (`{ common: { actions: { apply: 'Apply' } } }`) and flat dotted keys
- * (`{ 'admin.cluster.title': 'Cluster' }`) -- `NavSidebar.test.js` alone uses one of each.
- */
 function mountWithT(i18n, key, params) {
   return mount(
     {

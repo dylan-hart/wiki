@@ -67,48 +67,36 @@ async function verifyTwemojiCoverage(svgDir) {
 }
 
 /**
- * Makes the twemoji SVGs reachable at `/_assets/svg/twemoji/<codepoints>.svg`, which is the `src` the
+ * Makes the twemoji SVGs reachable at `/_assets/svg/twemoji/<codepoints>.svg`, the `src` the
  * markdown renderer writes for every emoji (`src/renderers/markdown.js`).
  *
- * They are neither committed nor imported: the set is ~4000 files and 18 MB, every one of which a page
- * may ask for and none of which is a build input -- nothing in the source names an individual icon, so
- * Vite has no way to discover them. So they are copied into the build output alongside `public/_assets/`
- * and read from `node_modules` on the fly in dev; under `public/` they would be 4000 files in git for a
- * directory that is derived.
+ * The set is ~4000 files and 18 MB, none of which is a build input -- nothing in the source names an
+ * individual icon, so Vite has no way to discover them. They are copied into the build output
+ * alongside `public/_assets/` and read from `node_modules` on the fly in dev, rather than committed
+ * under `public/`, which would put 4000 derived files in git.
  *
- * `@twemoji/api` is the parser alone -- the artwork has never been published to npm, by Twitter or by
- * the fork that maintains it now, and the one package that did (`@twemoji/svg`) stopped at Unicode 15.
- * So `package.json` takes it from the upstream repository as a tarball dependency (`twemoji-assets`),
- * pinned by **commit SHA**, not a tag -- a GitHub tag is not immutable and can be moved, while a
- * commit SHA can't. npm records its integrity hash in the lockfile like any other dependency, so it
- * is fetched once at install time and the build itself needs no network.
+ * `@twemoji/api` is the parser alone; the artwork has never been published to npm (the one package
+ * that tried, `@twemoji/svg`, stopped at Unicode 15). `package.json` instead takes it from the
+ * upstream repository as a tarball dependency (`twemoji-assets`), pinned by commit SHA rather than a
+ * tag since a tag can move. npm records its integrity hash in the lockfile, so the build itself
+ * needs no network.
  *
- * Four things worth knowing about this pin before touching it:
+ * Worth knowing before touching this pin:
  *
- * - **It installs a second copy of `@twemoji/api`.** The tarball *is* the `@twemoji/api` package
- *   (its own `package.json` name), just fetched under the alias `twemoji-assets` for the artwork
- *   alone -- nothing here imports it as code, `import('@twemoji/api')` above always resolves the
- *   real dependency. Splitting the artwork into its own non-npm-published package upstream would
- *   remove the duplication, but that's a change to make in `jdecked/twemoji`, not here; tolerated
- *   as the cost of there being no other source for the SVGs (see below).
- * - **No update tool can bump it.** `npm-check-updates`/Dependabot only understand registry
- *   versions and plain semver ranges, not a `codeload.github.com` tarball URL, so `twemoji-assets`
- *   never appears as an available update. Bumping it is a manual edit: resolve the new tag's commit
- *   SHA (`gh api repos/jdecked/twemoji/git/ref/tags/<tag>`, dereferencing an annotated tag's `object`
- *   if its `type` isn't already `commit`), rewrite the URL, then `npm install` to regenerate the
- *   lockfile.
- * - **It moves in lockstep with `@twemoji/api`, by hand, gated by `verifyTwemojiCoverage` above.**
- *   They're dependencies of the same upstream release and can drift apart with nothing to say so
- *   except a build failure from that check -- see its own comment for why 17.0.3 itself is currently
- *   held back from `@twemoji/api`.
- * - **Regenerating the lockfile after a SHA bump changes the integrity hash even when the commit is
- *   unchanged** -- `codeload.github.com` embeds the literal ref string from the request URL (a tag
- *   name, or a commit SHA) as the tarball's top-level directory name, so a tag-ref request and a
- *   SHA-ref request for the exact same commit are different bytes and therefore different hashes.
- *   That means an unchanged hash is *not* the right check that a bump got the intended commit; diff
- *   the resolved SHA against `gh api .../git/ref/tags/<tag>` instead. See
- *   `docs/decisions/twemoji-assets-sha-pin-integrity-hash-change.md` for how this was verified the
- *   one time it mattered (switching the existing pin from a tag to its SHA).
+ * - It installs a second copy of `@twemoji/api` (the tarball *is* that package, fetched under the
+ *   alias `twemoji-assets`, for the artwork alone) -- a fix belongs upstream, not here; tolerated
+ *   since there's no other source for the SVGs.
+ * - No update tool can bump it: `npm-check-updates`/Dependabot don't understand a
+ *   `codeload.github.com` tarball URL. Bumping is a manual edit -- resolve the new tag's commit SHA
+ *   (`gh api repos/jdecked/twemoji/git/ref/tags/<tag>`, dereferencing an annotated tag's `object` if
+ *   its `type` isn't already `commit`), rewrite the URL, then `npm install`.
+ * - It moves in lockstep with `@twemoji/api`, by hand, gated by `verifyTwemojiCoverage` above.
+ * - Regenerating the lockfile after a SHA bump changes the integrity hash even when the commit is
+ *   unchanged: `codeload.github.com` embeds the literal ref string from the request URL as the
+ *   tarball's top-level directory name, so a tag-ref request and a SHA-ref request for the same
+ *   commit hash differently. Diff the resolved SHA against `gh api .../git/ref/tags/<tag>` rather
+ *   than trusting an unchanged hash. See
+ *   `docs/decisions/twemoji-assets-sha-pin-integrity-hash-change.md`.
  */
 function twemojiAssets() {
   const svgDir = path.join(
@@ -160,12 +148,10 @@ export default defineConfig(({ mode }) => {
   return {
     build: {
       assetsDir: '_assets',
-      // -> Left at (near) Rollup's own 500 kB default rather than raised again -- a warning here is
-      //    the signal that a change grew a chunk, not something to silence. It was previously raised
-      //    to 5000 with no comment and no docs/ entry, which is how markdown-*.js and Monaco's
-      //    editor.api-*.js grew past 500 kB with nothing printing about it. The chunks that still
-      //    exceed this limit are accounted for in docs/decisions/frontend-chunk-size-warnings.md, not
-      //    by moving this number again.
+      // -> Left at (near) Rollup's own 500 kB default rather than raised -- a warning here is the
+      //    signal that a change grew a chunk, not something to silence. The chunks that already
+      //    exceed this limit are accounted for in docs/decisions/frontend-chunk-size-warnings.md,
+      //    not by moving this number again.
       chunkSizeWarningLimit: 500,
       dynamicImportVarsOptions: {
         include: ['!/_blocks/**']
@@ -197,9 +183,9 @@ export default defineConfig(({ mode }) => {
       vue({
         template: {
           /*
-            `/_assets/...` paths are served by the BACKEND at runtime; they are not build inputs and
+            `/_assets/...` paths are served by the backend at runtime; they are not build inputs and
             there is nothing at that path on disk to resolve. Vue's default would turn each one into
-            an import and fail the build. Quasar's Vite plugin used to supply this same setting.
+            an import and fail the build.
           */
           transformAssetUrls: { includeAbsolute: false },
           // -> `iconify-icon` is a custom element registered by its package, not a Vue component
@@ -217,21 +203,17 @@ export default defineConfig(({ mode }) => {
       alias: [
         { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
         /*
-          A RegExp `find`, not a plain string: this Vite build resolves a string alias key as a
-          PREFIX match (confirmed directly -- a plain `'monaco-editor'` key here also rewrote every
-          deep specifier `boot/monaco.js` already imports, `monaco-editor/language/json/json.worker
-          ?worker` included, into a broken path underneath this alias's own target file), where a
-          `find` written as an anchored `/^monaco-editor$/` matches only the bare specifier. So this
-          redirects nothing but the exact `import ... from 'monaco-editor'` every editor surface
-          already writes; `boot/monaco.js`'s own deep worker imports keep resolving into the real
-          package untouched, as do this alias's own target file's deep imports of it.
-          `src/boot/monacoEditorEntry.js`'s own header comment has the full rationale (OpenProject
-          #3171): the real package's entry point pulls in the TypeScript and CSS language services
-          unconditionally, and each one's `workerManager.js` statically bundles a 6.9 MB / 1.05 MB
-          worker chunk into `assets/` whether or not this app ever creates a model in that language --
-          which it never does. Deliberately absent from `vitest.config.js`: every test file's own
-          `vi.mock('monaco-editor', ...)` keeps intercepting the bare specifier exactly as it always
-          has, since this alias only exists for a real build or the dev server.
+          A RegExp `find`, not a plain string: a string alias key resolves as a PREFIX match here
+          (confirmed directly -- a plain `'monaco-editor'` key also rewrote deep specifiers like
+          `monaco-editor/language/json/json.worker?worker` into a broken path), where an anchored
+          `find` like `/^monaco-editor$/` matches only the bare specifier. This redirects nothing but
+          the exact `import ... from 'monaco-editor'` every editor surface writes; deep worker
+          imports keep resolving into the real package untouched.
+          The alias itself exists because the real package's entry point pulls in language services
+          this app never uses (see `src/boot/monacoEditorEntry.js`). Deliberately absent from
+          `vitest.config.js`: each test file's own `vi.mock('monaco-editor', ...)` keeps intercepting
+          the bare specifier as it always does, since this alias only matters for a real build or the
+          dev server.
         */
         {
           find: /^monaco-editor$/,
@@ -240,8 +222,7 @@ export default defineConfig(({ mode }) => {
       ]
     },
     server: {
-      // https: true
-      open: false, // opens browser window automatically
+      open: false,
       host: '0.0.0.0',
       allowedHosts: true,
       port: userConfig.dev?.port,

@@ -2,14 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { createTestRouter } from './router.js'
 
-/**
- * `createTestRouter` replaces the 103 hand-rolled `createRouter({ history: createMemoryHistory(),
- * routes: [...] })` call sites the survey counted (TEST-F4), plus the 109 `router.push` / 90
- * `await router.isReady()` codas that follow them. 35 of those route lists are exactly one stub
- * route (`{ path: '/', component: { template: '<div />' } }`), so a bare path string expands into
- * one; anything a suite needs to be a REAL component (`pages/Index.test.js`, `pages/Search.test.js`)
- * is passed as an object and travels through untouched.
- */
 describe('createTestRouter', () => {
   it('expands bare path strings into stub routes', async () => {
     const router = await createTestRouter(['/', '/:pathMatch(.*)*'])

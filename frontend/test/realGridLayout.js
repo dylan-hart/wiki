@@ -7,33 +7,27 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 /*
- * `import.meta.url` resolves correctly on its own under Vitest's `happy-dom` environment, but
- * `new URL('..', import.meta.url)` throws `TypeError: The URL must be of scheme file` there even
- * though the identical expression works in plain Node -- happy-dom replaces the global `URL`
- * constructor, and something in how Vite's module runner threads `import.meta.url` through a
- * relative-URL resolution trips on it. Resolving via `node:path` instead of a second `new URL(...)`
- * sidesteps it entirely.
+ * `new URL('..', import.meta.url)` throws `TypeError: The URL must be of scheme file` under
+ * Vitest's `happy-dom` environment (happy-dom replaces the global `URL` constructor, and something
+ * in how Vite's module runner resolves `import.meta.url` trips on it) even though the identical
+ * expression works in plain Node. Resolving via `node:path` instead sidesteps it.
  */
 const selfDir = dirname(fileURLToPath(import.meta.url))
 const frontendRoot = dirname(selfDir)
 const tailwindEntry = join(frontendRoot, 'src', 'css', 'tailwind.css')
 
 /*
- * Whether a real Chromium binary is actually installed, probed once here at module top level rather
- * than in a `beforeAll` -- a caller's `describe(name, { skip: !browserAvailable }, ...)` builds its
- * options object while the caller module is still running its own top-level code (i.e. while
- * `describe()` calls are registering the suite, synchronously, top to bottom). A `beforeAll` hook's
- * body doesn't run until the later run phase, so if the probe lived in one, `skip` would still see
- * only its initial value and never actually skip. A top-level `await` here runs to completion before
- * any importer's top-level code continues, which is what makes the result visible in time --
- * `backend/migration/connectors/postgres.test.ts` does the same thing for a Postgres reachability
- * probe, for the identical reason.
+ * Whether a real Chromium binary is installed, probed once here at module top level rather than in
+ * a `beforeAll` -- a caller's `describe(name, { skip: !browserAvailable }, ...)` builds its options
+ * object synchronously while `describe()` calls are still registering the suite, before any
+ * `beforeAll` body has run, so a probe living there would leave `skip` seeing only its initial
+ * value. A top-level `await` here completes before any importer's top-level code continues, which
+ * is what makes the result visible in time.
  *
- * `npm ci` installs the `playwright` library, not the browser binary -- CI installs it separately
- * (`quality.yml`'s `npx playwright install --with-deps chromium` step), but a developer running
- * `npm run test` after a plain `npm ci` has no Chromium on disk, and `chromium.launch()` throws
- * `Executable doesn't exist`. Probing here, once, lets every real-browser suite skip cleanly instead
- * of failing on an environment precondition.
+ * `npm ci` installs the `playwright` library, not the browser binary -- CI installs it separately,
+ * but a developer running `npm run test` after a plain `npm ci` has no Chromium on disk, and
+ * `chromium.launch()` throws `Executable doesn't exist`. Probing here, once, lets every real-browser
+ * suite skip cleanly instead of failing on an environment precondition.
  */
 let chromiumAvailable = true
 {
@@ -53,13 +47,12 @@ export function hasChromium() {
 
 /**
  * The `timeout` every real-Chromium describe passes alongside `skip: !hasChromium()`. A browser
- * launch plus (for the suites that call it) `buildAppCss()`'s Tailwind compile is not a 5-second
- * operation once `vitest` is running every matched file across several workers at once -- Vitest's
- * default test timeout times this out intermittently under full-suite parallelism even though the
- * measurement itself, once the browser is up, passes in well under a second. That is a scheduling
- * fact about the whole run, not anything about the layout being measured, so it belongs on every
- * real-Chromium suite by construction rather than as a literal a new suite has to remember to copy
- * (and one that drifted across the three suites that predate this constant -- OpenProject #2730).
+ * launch (plus, for callers of `buildAppCss()`, its Tailwind compile) is not a 5-second operation
+ * once Vitest is running every matched file across several workers at once -- the default test
+ * timeout times this out intermittently under full-suite parallelism, even though the measurement
+ * itself passes in well under a second once the browser is up. That's a scheduling fact about the
+ * whole run, not the layout being measured, so it belongs on every real-Chromium suite by
+ * construction rather than a literal each new suite has to remember to copy.
  */
 export const CHROMIUM_TIMEOUT = 30000
 
@@ -69,9 +62,8 @@ export const CHROMIUM_TIMEOUT = 30000
  * `happy-dom` can answer, since neither runs a layout engine: every element's
  * `getBoundingClientRect()` comes back zeroed regardless of its CSS (verified directly: a plain
  * `display: grid` container under `happy-dom` reports every child at `{x:0, y:0, width:0,
- * height:0}`). OpenProject #1261 shipped, and re-broke, specifically because its only test asserted
- * the inline style string contained `"auto-fit"` rather than checking what that style actually
- * computes to -- this module exists so a test can check the real thing instead.
+ * height:0}`). Asserting an inline style string contains `"auto-fit"` doesn't check what that style
+ * actually computes to -- this module exists so a test can check the real thing instead.
  *
  * `buildAppCss()` compiles the app's actual `src/css/tailwind.css` through the same
  * `@tailwindcss/vite` pipeline `vite.config.js` and `vitest.config.js` both use, letting Tailwind's
@@ -116,8 +108,7 @@ export function buildAppCss() {
  * single, dependency-free script exposing the module's exports on `window.RenderedContent`. For a
  * real-Chromium test that needs `enhanceRenderedContent`'s actual behavior (not a hand-rewritten
  * mirror of it) running against a bare `page.setContent()`/`page.route()` document that has no
- * bundler or app shell of its own -- `markdown.test.js`'s OpenProject #3238 whole-table-copy
- * coverage is the first caller, injecting it via `page.addScriptTag({ content })`.
+ * bundler or app shell of its own.
  *
  * `process.env.NODE_ENV` is defined explicitly because bypassing the project's own config also
  * bypasses whatever normally defines it for a real build, and Vue's runtime reads it directly at

@@ -3,12 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { stubApi } from './mocks.js'
 
 /**
- * `stubApi` replaces the 24 hand-rolled `API_CLIENT.get.mockImplementation((url) => { if (url ===
- * …) })` switches the survey counted (TEST-F11), plus the five files that had already reinvented the
- * URL-to-payload lookup table (`pages/AdminApi.test.js`, `pages/ProfileApi.test.js`).
- *
- * `API_CLIENT` itself is rebuilt before every test by `test/setup.js`, so each of these configures
- * the current instance and asserts through it.
+ * `API_CLIENT` is rebuilt before every test by `test/setup.js`, so each of these configures the
+ * current instance and asserts through it.
  */
 describe('stubApi', () => {
   it("resolves an exact string key through ky's .json() shape", async () => {
