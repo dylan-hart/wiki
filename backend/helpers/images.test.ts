@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { after, describe, mock, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import {
   detectImageMime,
   detectSvg,
@@ -280,5 +280,75 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
         await fs.rename(disabledDir, sharpDir)
       }
     }
+  })
+})
+
+describe('makeImageThumbnail — dimensions', () => {
+  let wikiHandle: { restore(): void }
+  let sharp: any
+
+  before(async () => {
+    try {
+      ;({ default: sharp } = await import('sharp'))
+    } catch {
+      sharp = null
+    }
+    wikiHandle = installTestWiki({
+      models: {
+        extensions: {
+          getDefinition: () => ({ key: 'sharp', detect: { type: 'module', value: 'sharp' } }),
+          isInstalled: async () => true,
+          noteLoadFailure: mock.fn()
+        }
+      },
+      logger: { warn: mock.fn(), debug: mock.fn() }
+    })
+  })
+
+  after(() => {
+    wikiHandle.restore()
+  })
+
+  async function png(width: number, height: number, orientation?: number): Promise<Buffer> {
+    const image = sharp({
+      create: { width, height, channels: 3, background: { r: 200, g: 10, b: 10 } }
+    })
+    return (orientation ? image.withMetadata({ orientation }) : image).png().toBuffer()
+  }
+
+  test('reports the width and height of the image alongside the thumbnail', async (t) => {
+    if (!sharp) {
+      return t.skip('sharp is not installed')
+    }
+    const result = await makeImageThumbnail(await png(640, 480), 320, 200)
+    assert.ok(result)
+    assert.ok(result.data.length > 0)
+    assert.equal(result.width, 640)
+    assert.equal(result.height, 480)
+  })
+
+  test('reports the size of the original, not the thumbnail, for an image smaller than the box', async (t) => {
+    if (!sharp) {
+      return t.skip('sharp is not installed')
+    }
+    const result = await makeImageThumbnail(await png(40, 20), 320, 200)
+    assert.equal(result?.width, 40)
+    assert.equal(result?.height, 20)
+  })
+
+  test('swaps the dimensions of an image whose EXIF orientation is a quarter turn', async (t) => {
+    if (!sharp) {
+      return t.skip('sharp is not installed')
+    }
+    const result = await makeImageThumbnail(await png(60, 30, 6), 320, 200)
+    assert.equal(result?.width, 30)
+    assert.equal(result?.height, 60)
+  })
+
+  test('returns null for bytes Sharp cannot read', async (t) => {
+    if (!sharp) {
+      return t.skip('sharp is not installed')
+    }
+    assert.equal(await makeImageThumbnail(Buffer.from('not an image at all'), 320, 200), null)
   })
 })
