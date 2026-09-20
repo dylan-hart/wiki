@@ -159,7 +159,8 @@ export function isSameOriginWebSocketHandshake(
  * FIXME: also matches the unhashed `logo-cardinal.svg` that `frontend/public/_assets` copies into
  * the build, so it is served immutable. Rename it, or stop inferring a hash from name shape alone.
  */
-const HASHED_ASSET_PATTERN = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
+const HASHED_ASSET_PATTERN = /-([A-Za-z0-9_-]{8})\.[a-z0-9]+$/
+const HASH_MIX_PATTERN = /[A-Z0-9_]/
 
 /**
  * A content-hashed name can never point at different bytes, so it may be cached immutable. Meant to
@@ -168,8 +169,12 @@ const HASHED_ASSET_PATTERN = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
  *
  * @param filename Basename only, not a full path
  */
-export function isHashedAssetFilename(filename: string): boolean {
-  return HASHED_ASSET_PATTERN.test(filename)
+export function isHashedAssetFilename(relativePath: string): boolean {
+  if (/[\\/]/.test(relativePath)) {
+    return false
+  }
+  const hash = HASHED_ASSET_PATTERN.exec(relativePath)?.[1]
+  return hash !== undefined && HASH_MIX_PATTERN.test(hash)
 }
 
 export function generateHash(str: string): string {
