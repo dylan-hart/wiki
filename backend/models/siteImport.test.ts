@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
@@ -178,6 +178,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let exportModel: typeof import('./export.ts').exportModel
   let importModel: typeof import('./siteImport.ts').importModel
+  let ASSET_INSERT_CHUNK_SIZE: number
   let pagesModel: typeof import('./pages.ts').pages
   let dataPath: string
   let targetSiteId: string
@@ -187,7 +188,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     fixtures = await setupTestDb()
     ;({ exportModel } = await import('./export.ts'))
-    ;({ importModel } = await import('./siteImport.ts'))
+    ;({ importModel, ASSET_INSERT_CHUNK_SIZE } = await import('./siteImport.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
 
     dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-'))
@@ -953,5 +954,158 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(pageHistoryTable)
       .where(eq(pageHistoryTable.siteId, failTargetSiteId))
     assert.equal(leftoverHistory.length, 0)
+  })
+
+  test('importSite reads asset blobs one insert chunk at a time, and rolls back when a later chunk cannot be read', async () => {
+    // -> A dedicated source site, so this test's synthetic assets stay out of the shared fixture site.
+    const [assetSourceSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-assets-source.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning()
+    const assetSourceSiteId = assetSourceSite!.id
+    CARDINAL.sites[assetSourceSiteId] = assetSourceSite! as SiteRow
+
+    // -> One real asset, exported and then cloned into the synthetic manifest rows below.
+    const [templateAsset] = await fixtures.db
+      .insert(assetsTable)
+      .values({
+        fileName: 'template.bin',
+        fileExt: 'bin',
+        mimeType: 'application/octet-stream',
+        fileSize: 1,
+        data: Buffer.from('t'),
+        authorId: fixtures.userId,
+        siteId: assetSourceSiteId
+      })
+      .returning({ id: assetsTable.id })
+    const { filePath: templateArchivePath } = await exportModel.exportSite(assetSourceSiteId)
+    const templateEntries = await readArchiveEntries(templateArchivePath)
+    const [templateManifestRow] = JSON.parse(
+      templateEntries['assets/manifest.json']!.toString('utf8')
+    )
+    delete templateEntries[`assets/${templateAsset!.id}.data`]
+
+    // -> Two full chunks and part of a third, so the reads are shown to span more than one insert.
+    const ASSET_COUNT = ASSET_INSERT_CHUNK_SIZE * 2 + 20
+
+    const expectedData = (i: number) => Buffer.from(`asset ${i} data`)
+    const expectedPreview = (i: number) => (i % 7 === 0 ? Buffer.from(`asset ${i} preview`) : null)
+
+    /**
+     * `withPreviews: false` keeps exactly one blob read per asset, so the failing case below can
+     * count reads against chunk boundaries.
+     */
+    async function writeAssetArchive(fileName: string, { withPreviews = true } = {}) {
+      const manifest: Record<string, any>[] = []
+      const entries: Record<string, Buffer> = { ...templateEntries }
+      for (let i = 0; i < ASSET_COUNT; i++) {
+        const id = crypto.randomUUID()
+        manifest.push({ ...templateManifestRow, id, fileName: `bulk-${i}.bin` })
+        entries[`assets/${id}.data`] = expectedData(i)
+        const preview = withPreviews ? expectedPreview(i) : null
+        if (preview) {
+          entries[`assets/${id}.preview`] = preview
+        }
+      }
+      entries['assets/manifest.json'] = Buffer.from(JSON.stringify(manifest))
+      const archivePath = path.join(dataPath, fileName)
+      await writeArchive(archivePath, entries)
+      return archivePath
+    }
+
+    const [okTargetSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-assets-target-ok.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const okTargetSiteId = okTargetSite!.id
+
+    const okArchivePath = await writeAssetArchive('bulk-assets-ok.tar.gz')
+    const okResult = await importModel.importSite(okArchivePath, okTargetSiteId, fixtures.userId)
+    assert.equal(okResult.assets, ASSET_COUNT)
+
+    const insertedAssets = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.siteId, okTargetSiteId))
+    assert.equal(insertedAssets.length, ASSET_COUNT)
+    const insertedByName = new Map(insertedAssets.map((row) => [row.fileName, row]))
+    for (const i of [0, 1, ASSET_INSERT_CHUNK_SIZE - 1, ASSET_INSERT_CHUNK_SIZE, ASSET_COUNT - 1]) {
+      const row = insertedByName.get(`bulk-${i}.bin`)
+      assert.ok(row)
+      assert.deepEqual(row!.data, expectedData(i))
+      assert.deepEqual(row!.preview, expectedPreview(i))
+    }
+
+    // -> The first read of the second chunk fails. A restore that reads every blob up front would
+    //    have issued all `ASSET_COUNT` reads by then; one reading per chunk has issued only two
+    //    chunks' worth, and the first chunk's already-applied insert has to roll back with the rest.
+    const [failTargetSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-assets-target-fail.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const failTargetSiteId = failTargetSite!.id
+
+    const [preExistingAsset] = await fixtures.db
+      .insert(assetsTable)
+      .values({
+        fileName: 'must-survive.bin',
+        fileExt: 'bin',
+        mimeType: 'application/octet-stream',
+        fileSize: 1,
+        data: Buffer.from('s'),
+        authorId: fixtures.userId,
+        siteId: failTargetSiteId
+      })
+      .returning({ id: assetsTable.id })
+
+    const failArchivePath = await writeAssetArchive('bulk-assets-fail.tar.gz', {
+      withPreviews: false
+    })
+
+    const realReadFile = fs.readFile
+    let stagedBlobReads = 0
+    const readFileMock = mock.method(fs, 'readFile', (async (file: any, ...rest: any[]) => {
+      if (typeof file === 'string' && file.endsWith('.blob')) {
+        stagedBlobReads++
+        if (stagedBlobReads === ASSET_INSERT_CHUNK_SIZE + 1) {
+          throw new Error('simulated unreadable staged blob')
+        }
+      }
+      return (realReadFile as any)(file, ...rest)
+    }) as any)
+    try {
+      await assert.rejects(
+        importModel.importSite(failArchivePath, failTargetSiteId, fixtures.userId),
+        /simulated unreadable staged blob/
+      )
+    } finally {
+      readFileMock.mock.restore()
+    }
+    assert.ok(stagedBlobReads > ASSET_INSERT_CHUNK_SIZE)
+    assert.ok(
+      stagedBlobReads < ASSET_COUNT,
+      `expected blobs to be read per chunk, but all ${stagedBlobReads} were read before the failure`
+    )
+
+    const leftoverAssets = await fixtures.db
+      .select({ id: assetsTable.id })
+      .from(assetsTable)
+      .where(eq(assetsTable.siteId, failTargetSiteId))
+    assert.deepEqual(
+      leftoverAssets.map((row) => row.id),
+      [preExistingAsset!.id]
+    )
   })
 })
