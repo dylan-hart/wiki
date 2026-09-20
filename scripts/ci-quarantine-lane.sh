@@ -1,30 +1,9 @@
 #!/usr/bin/env bash
 #
-# The quarantine lane's CI runner -- OpenProject #2692 (Feature #2603, Epic #2600).
-#
-# Runs `npm run test:flaky` in each workspace named as an argument and reports the result three
-# ways: a markdown table appended to the job summary, a GitHub annotation per failed lane, and a
-# non-zero exit code. The lane is REPORT-ONLY everywhere, so every call site sets
-# `continue-on-error: true` on its step -- that, not an always-zero exit here, is what keeps a red
-# lane from blocking a merge or a release.
-#
-# Why this script exits non-zero on a failed lane rather than swallowing it: a step that cannot
-# fail renders as a plain green tick, indistinguishable from a lane that actually passed, and
-# nobody looks at a step that is always green. With `continue-on-error: true` above it, a non-zero
-# exit renders as GitHub's failed-but-continued marker -- visible on the run page, job still
-# successful. That is the whole point of the step (#2692's spec item 3): a report-only lane whose
-# result is invisible is a lane that rots.
-#
-# Why one script rather than the same twenty lines pasted into three workflow files: three copies
-# of the summary/annotation logic is exactly the drift Epic #2600 exists to remove.
-#
-# An empty lane exits 0: passing nothing means nothing failed, not that nothing ran.
-#
-# Usage: scripts/ci-quarantine-lane.sh <workspace> [<workspace> ...]
-#   e.g. scripts/ci-quarantine-lane.sh backend frontend blocks
-#
-# Runs fine outside GitHub Actions (GITHUB_STEP_SUMMARY unset -> the table is printed to stdout,
-# and the ::error:: lines are just text), so a developer can reproduce a CI lane report locally.
+# The lane is report-only, but this script still exits non-zero on a failure: a step that cannot
+# fail renders as a plain green tick nobody reads, whereas with `continue-on-error: true` on the
+# calling step a non-zero exit renders as GitHub's failed-but-continued marker. That step setting,
+# not an always-zero exit here, is what keeps a red lane from blocking a merge or a release.
 
 set -uo pipefail
 
@@ -35,8 +14,8 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Unset means "not running on Actions": send the summary to a scratch file so the identical code
-# path runs locally, then print it at the end.
+# Unset means "not running on Actions": the summary goes to a scratch file so the identical code
+# path runs locally, printed at the end.
 SUMMARY_FILE="${GITHUB_STEP_SUMMARY:-}"
 LOCAL_SUMMARY=0
 if [ -z "$SUMMARY_FILE" ]; then
@@ -57,8 +36,8 @@ for workspace in "$@"; do
     continue
   fi
 
-  # Run in a subshell and let the runner's output stream straight through rather than capturing it:
-  # a lane that hangs should still show what it got to, and nothing here needs the text.
+  # Output streams straight through rather than being captured: a lane that hangs should still show
+  # what it got to, and nothing here needs the text.
   echo "--- quarantine lane: $workspace ---"
   (cd "$workspace_dir" && npm run --silent test:flaky)
   lane_status=$?
@@ -68,9 +47,8 @@ for workspace in "$@"; do
   else
     failed_lanes+=("$workspace")
     summary_rows+=("| \`$workspace/\` | :x: **FAILED** (exit $lane_status) | \`npm run test:flaky\` |")
-    # One annotation per failed lane, so the run page names the workspace without anyone opening a
-    # log. `::error::` rather than `::warning::` deliberately: what makes the lane non-blocking is
-    # the step's `continue-on-error`, not a claim that a red lane does not matter.
+    # `::error::` rather than `::warning::`: what makes the lane non-blocking is the step's
+    # `continue-on-error`, not a claim that a red lane does not matter.
     echo "::error title=Quarantine lane failed ($workspace)::A quarantined test in $workspace/ failed. This does NOT block the merge or the release -- the lane is report-only by design. It does mean the test is still fragile, or has started failing for a real reason. Every lane member carries a dated expiry; check it."
   fi
 done
