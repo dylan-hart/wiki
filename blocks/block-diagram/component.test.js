@@ -7,12 +7,9 @@ import { BlockPlantumlElement } from '../block-plantuml/component.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /*
-  jsdom implements no SVG layout at all -- `getBBox`, `getComputedTextLength` and the rest of
-  `SVGGraphicsElement` don't exist -- and mermaid's layout engine calls them to measure label text
-  while it draws, so `render()` throws partway through without this. A targeted polyfill of just the
-  two calls this block reaches for, not a different DOM emulator wholesale (`vitest.config.js`'s
-  documented `@web/test-runner` fallback) -- constant-size measurements are fine here, since the
-  assertions below are about whether a diagram redraws, not about the pixels it comes out at.
+  jsdom implements no SVG layout, and mermaid measures label text while it draws, so `render()`
+  throws partway through without these. Constant sizes are enough: the assertions are about whether
+  a diagram redraws, not about the pixels it comes out at.
 */
 if (typeof SVGElement.prototype.getBBox !== 'function') {
   SVGElement.prototype.getBBox = () => ({ x: 0, y: 0, width: 100, height: 20 })
@@ -77,9 +74,8 @@ describe('block-diagram', () => {
 
   describe('dark mode', () => {
     /*
-     * Unlike every other block, dark mode here is not just a CSS attribute: mermaid bakes its
-     * colours into the SVG it draws, so a theme of `auto` needs a real second `_draw()` to repaint,
-     * which `onChange` on the controller triggers.
+     * Mermaid bakes its colours into the SVG, so `auto` needs a real second `_draw()` to repaint
+     * rather than the CSS attribute flip every other block's dark mode is.
      */
     it('redraws when the app theme toggles and the diagram theme is auto', async () => {
       document.body.classList.remove('body--dark')

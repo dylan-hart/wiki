@@ -8,15 +8,10 @@ import { renderError } from '../shared/render.js'
 import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
-/**
- * Draws a draw.io/mxGraph diagram as inline SVG, entirely client-side and read-only — see
- * `mxgraph.js` for the renderer and the reasoning for building one rather than embedding draw.io's
- * own editor or its hosted viewer script.
- */
 export class BlockDrawioElement extends LitElement {
   /**
-   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
-   * of the source text, not by importing the module -- so every value here must be a plain literal.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'drawio',
@@ -24,10 +19,9 @@ export class BlockDrawioElement extends LitElement {
     description: 'Draws a draw.io/diagrams.net diagram from its XML, read-only.',
     icon: 'tabler:vector',
     /*
-      Fenced so the XML arrives exactly as it was typed, rather than having `--` turned into a dash
-      or a `#`-led line read as a heading. The starter diagram is deliberately more than one box: a
-      reader inserting this block should see a shape, a decision, and an edge between them, not
-      wonder whether the block draws anything at all.
+      Fenced so the XML arrives as typed, rather than with `--` turned into a dash or a `#`-led line
+      read as a heading. More than one box on purpose: inserting the block should show a shape, a
+      decision and an edge, not leave the author wondering whether it draws anything.
     */
     template: `\`\`\`drawio
 <mxGraphModel>
@@ -64,11 +58,9 @@ export class BlockDrawioElement extends LitElement {
   }
 
   /*
-    The remote-diagram blocks' own shell (`../shared/diagram-image.js`), which is the same box for
-    the same reason -- a draw.io diagram's colours are chosen against draw.io's own white canvas, so
-    drawing it straight onto a dark page would leave dark text unreadable and strokes with no
-    contrast to sit on. Only the two rules below are this block's own: what sits on the sheet here is
-    an inline `svg` rather than a fetched `img`.
+    `diagramStyles` is shared with the remote-diagram blocks for the same reason -- a draw.io
+    diagram's colours are chosen against draw.io's own white canvas, so drawing it straight onto a
+    dark page would leave dark text unreadable and strokes with nothing to contrast against.
   */
   static get styles() {
     return [
@@ -106,16 +98,13 @@ export class BlockDrawioElement extends LitElement {
     this.align = 'left'
     this._svg = ''
     this._error = ''
-    /** Whether the source came out of a fence, read once on first render — see `_draw`. */
     this._fenced = false
-    // -> Puts `dark` on this element for the .sheet/.caption styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
   /**
-   * Async: a compressed `<mxfile>`/`<diagram>` body decodes through `shared/compress.js`'s
-   * `decompressRaw()`, a native `DecompressionStream` and so stream/async-only -- the same reason
-   * `shared/diagram-image.js`'s own `_draw` is async.
+   * Async because a compressed `<mxfile>`/`<diagram>` body decodes through a native
+   * `DecompressionStream`, which is stream-only.
    */
   async _draw() {
     const { source, fenced } = readFencedSource(this)
@@ -135,9 +124,8 @@ export class BlockDrawioElement extends LitElement {
   }
 
   firstUpdated() {
-    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
-    //    that needs to block it. Kept on the instance so a test can await the draw finishing --
-    //    mirrors `shared/diagram-image.js`'s `_ready` convention.
+    // -> Kept on the instance so a test can await the draw finishing; Lit itself ignores what
+    //    firstUpdated returns. `_ready` is the convention `shared/diagram-image.js` uses too.
     this._ready = this._draw()
   }
 

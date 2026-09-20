@@ -5,8 +5,8 @@ import { DarkMode } from '../shared/theme.js'
 
 export class BlockCountdownElement extends LitElement {
   /**
-   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
-   * of the source text, not by importing the module -- so every value here must be a plain literal.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'countdown',
@@ -26,10 +26,9 @@ export class BlockCountdownElement extends LitElement {
         type: 'string',
         label: 'Timezone',
         hint: "IANA name, e.g. Europe/Paris or UTC. Each reader's own timezone when left empty.",
-        // -> Not 'UTC': the picker never writes an attribute for a field left at its default value
-        //    (`blockAttributes` in `frontend/src/helpers/blocks.js`), so defaulting to '' -- itself
-        //    a meaningful "reader's own clock" choice, not merely an absence -- is what makes
-        //    clearing the field reachable from the picker; UTC remains something an author types.
+        // -> Not 'UTC': the picker writes no attribute for a field left at its default
+        //    (`blockAttributes`, `frontend/src/helpers/blocks.js`), so only a default that is itself
+        //    meaningful -- '' being "the reader's own clock" -- leaves clearing the field reachable.
         default: ''
       },
       {
@@ -57,12 +56,9 @@ export class BlockCountdownElement extends LitElement {
         }
 
         /*
-        The gap below a block lives on this element, not on :host.
-
-        The app resets the margin on every element, and a rule in the page beats a :host rule in the
-        shadow tree whatever its specificity -- so a margin set on the host is simply dropped. Set
-        inside the shadow root it is out of that rule's reach, and collapses out through the host,
-        which carries no padding or border of its own.
+        Not on :host: the app's margin reset in the page beats a :host rule whatever its specificity,
+        so a host margin is simply dropped. Set inside the shadow root it is out of that rule's
+        reach, and collapses out through the host, which has no padding or border of its own.
       */
         .countdown,
         .error {
@@ -77,7 +73,7 @@ export class BlockCountdownElement extends LitElement {
           text-align: center;
         }
 
-        /* Two opposite corner marks, Ledger only -- same technique as the other board blocks. */
+        /* Theme-gated decoration: --block-corner-marks is "none" under Cobalt. */
         .marks {
           display: var(--block-corner-marks);
           position: absolute;
@@ -155,9 +151,8 @@ export class BlockCountdownElement extends LitElement {
       label: { type: String },
 
       /**
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `expiredmsg` while the block picker — which writes the
-       *    literal `static definition.props[].name`, `expired-msg` — writes `expired-msg` into the page.
+       * -> Explicit `attribute`: Lit's default lowercases without inserting a dash (`expiredmsg`),
+       *    but the picker writes `static definition.props[].name` verbatim.
        */
       expiredMsg: { type: String, attribute: 'expired-msg' },
 
@@ -169,9 +164,8 @@ export class BlockCountdownElement extends LitElement {
   constructor() {
     super()
     this.date = ''
-    // -> '' (not 'UTC'): matches the prop's own default -- see its comment for why -- so a picker
-    //    that never wrote the attribute and a page loaded fresh both resolve to "the reader's own
-    //    timezone" identically.
+    // -> Matches the prop's own default, so an absent attribute resolves to the reader's own
+    //    timezone rather than to a different fallback here
     this.timezone = ''
     this.label = ''
     this.expiredMsg = 'The countdown has ended.'
@@ -179,15 +173,13 @@ export class BlockCountdownElement extends LitElement {
     this._error = ''
     this._target = null
     this._timer = null
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
   /**
-   * A date carrying its own offset — `2026-12-25T09:00-05:00`, or a trailing `Z` — is an exact moment
-   * and the timezone only decides how it is displayed. Without one it is a wall-clock time, which is
-   * what an author writing "the ninth of December at nine" means, and the timezone is what turns it
-   * into a moment. Both then count down to the same instant for every reader, wherever they are.
+   * A date carrying its own offset — `2026-12-25T09:00-05:00`, or a trailing `Z` — is already an
+   * exact moment, and the timezone only decides how it is displayed. Without one it is a wall-clock
+   * time, what an author writing "the ninth of December at nine" means, and the zone makes it exact.
    */
   _resolveTarget(zone) {
     try {
@@ -198,12 +190,10 @@ export class BlockCountdownElement extends LitElement {
   }
 
   _tick() {
-    // -> Through `Date.now()`, not `Temporal.Now`: a native `Temporal.Now` (Node 26+) reads the
-    //    system clock through its own binding, not the `Date` global, so `vi.setSystemTime()`
-    //    (which only mocks `Date`) has no effect on it. `Date.prototype.toTemporalInstant()` isn't
-    //    an option either -- `temporal-polyfill` doesn't implement it, only `@js-temporal/polyfill`
-    //    does -- so this goes through `Temporal.Instant.fromEpochMilliseconds`, fed by `Date.now()`,
-    //    the one thing every implementation and `vi.setSystemTime()` agree on.
+    // -> Through `Date.now()`, not `Temporal.Now`: a native `Temporal.Now` reads the system clock
+    //    through its own binding, so `vi.setSystemTime()` (which mocks only `Date`) cannot reach it.
+    //    `Date.prototype.toTemporalInstant()` is no help either -- `temporal-polyfill` does not
+    //    implement it. `Date.now()` is the one clock every implementation and the mock agree on.
     const now = Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(
       this._target.timeZoneId
     )
@@ -267,9 +257,8 @@ export class BlockCountdownElement extends LitElement {
       return null
     }
     /*
-      Spelled out field by field rather than with `dateStyle` / `timeStyle`, which cannot be combined
-      with `timeZoneName` — and the zone is the point: a reader in another country needs to see which
-      clock the target is on, not just a time that does not match their own.
+      Field by field rather than `dateStyle`/`timeStyle`, which cannot be combined with
+      `timeZoneName` — and the zone is the point for a reader in another country.
     */
     const at = this._target.toLocaleString(undefined, {
       year: 'numeric',

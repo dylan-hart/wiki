@@ -4,14 +4,9 @@ import './component.js'
 import { describeDarkMode } from '../test/darkMode.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
-// -> Far enough out that "has this already ended" never becomes true for a test run, whichever
-//    timezone it resolves against.
+// -> Far enough out that no run sees it as already ended, whichever timezone it resolves against
 const FUTURE_DATE = '2099-01-01T00:00'
 
-/**
- * `date` defaults to a far-future value so a test that only cares about another field (timezone,
- * label, ...) never has to think about expiry.
- */
 const mountCountdown = ({ date = FUTURE_DATE, ...rest } = {}) =>
   mountBlock('block-countdown', { props: { date, ...rest } })
 

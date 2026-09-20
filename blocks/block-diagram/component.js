@@ -8,17 +8,16 @@ import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
- * Mermaid names the SVG it produces and writes that name into the CSS it embeds in it, so two
- * diagrams sharing an id would style each other. A counter rather than a random name: the ids stay
- * scoped to one page load, and a run of them is easier to recognise in the inspector.
+ * Mermaid writes the SVG's id into the CSS it embeds in it, so two diagrams sharing an id would
+ * style each other. A counter rather than a random name keeps a run of them readable in the
+ * inspector.
  */
 let drawingCount = 0
 
 /**
- * Mermaid is configured globally — `initialize` sets the library up, not a call to it — so two
- * diagrams on a page asking for different themes would each set theirs and then be drawn in whichever
- * one was set last. Queued, a diagram has the library to itself from the moment it configures it to
- * the moment it is handed back an SVG.
+ * `initialize` configures the library globally, not the call, so two diagrams asking for different
+ * themes would both be drawn in whichever was set last. Queued, each has the library to itself from
+ * configuring it to being handed back an SVG.
  */
 let queue = Promise.resolve()
 
@@ -37,25 +36,21 @@ function drawInTurn(config, id, source) {
 
 export class BlockDiagramElement extends LitElement {
   /**
-   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
-   * of the source text, not by importing the module -- so every value here must be a plain literal.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'diagram',
     /*
-      Named after the engine it draws with, matching how block-kroki and block-plantuml name
-      themselves -- "Diagram" alone would read as a generic catch-all next to those specific names,
-      when this block draws exactly one diagram syntax. The tag stays `block-diagram` (and the fence
-      stays ```mermaid`): only this display name changes.
+      Named after the engine, as block-kroki and block-plantuml are: "Diagram" would read as a
+      catch-all beside them, when this block draws exactly one syntax.
     */
     name: 'Mermaid',
     description: 'Draws a Mermaid diagram — flowchart, sequence, class, state, ER, gantt and more.',
     icon: 'tabler:sitemap',
     /*
-      A fenced block, and not only for the syntax highlighting: markdown would otherwise have its way
-      with the source before this ever sees it. `-->` survives, but the typographer turns `--` into a
-      dash, an indented line reads as a code block of its own, and `%%` comments and `#` labels are
-      claimed as structure. Inside a fence the text arrives exactly as it was typed.
+      Fenced, so markdown cannot get at the source first: the typographer turns `--` into a dash, an
+      indented line reads as a code block, and `%%` comments and `#` labels are claimed as structure.
     */
     template: `\`\`\`mermaid
 flowchart LR
@@ -97,7 +92,8 @@ flowchart LR
           display: block;
         }
 
-        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        /* -> Not on :host: the app's margin reset in the page beats a :host rule whatever the
+              specificity. */
         .diagram,
         .error {
           margin-bottom: 16px;
@@ -114,9 +110,8 @@ flowchart LR
         }
 
         /*
-        Mermaid sizes the drawing itself — it writes a max-width on the SVG at the width the diagram
-        came out to, so a small one is left at its own size and a large one shrinks to the column. Only
-        the height is settled here, so that shrinking keeps the shapes in proportion.
+        Mermaid writes its own max-width onto the SVG, so width is already handled; only the height
+        is settled here, so that shrinking to the column keeps the shapes in proportion.
       */
         svg {
           max-width: 100%;
@@ -147,10 +142,9 @@ flowchart LR
     this._svg = ''
     this._error = ''
     /*
-      Two jobs at once: `dark` on this element is what the caption colour keys off, and the callback
-      is what redraws the diagram itself, since mermaid picks its colours as it draws and writes them
-      into the SVG. Only `auto` has anything to follow -- a diagram asked for a theme by name keeps
-      it either way -- and only once there is a source to draw, which `firstUpdated` reads.
+      Two jobs: the `dark` attribute is what the caption colour keys off, and the callback redraws,
+      since mermaid picks its colours as it draws and writes them into the SVG. Only `auto` has
+      anything to follow -- a diagram asked for a theme by name keeps it either way.
     */
     this._darkMode = new DarkMode(this, {
       onChange: () => {
@@ -159,17 +153,15 @@ flowchart LR
         }
       }
     })
-    /** The drawing being waited on, so a stale one cannot land after a newer one. */
+    /** Generation guard: a stale drawing must not land on top of a newer one. */
     this._drawing = 0
-    /** The source and whether it came from a fence — read from the body once, on first render. */
     this._source = ''
     this._fenced = false
   }
 
   /**
-   * `auto` follows the app, which every other block does in CSS off the `dark` attribute the same
-   * controller sets — a diagram cannot, because mermaid picks its colours while it draws and writes
-   * them into the SVG.
+   * `auto` cannot be answered in CSS off the `dark` attribute the way every other block answers it:
+   * mermaid picks its colours while it draws and writes them into the SVG.
    */
   _theme() {
     if (this.theme && this.theme !== 'auto') {
@@ -207,9 +199,8 @@ flowchart LR
       }
       this._svg = ''
       /*
-        Mermaid says what it could not read and where, which is the useful half. The other half is
-        the fence, because a diagram that renders in every other tool and not here is nearly always a
-        source markdown got to first — see `template`.
+        Mermaid says what it could not read and where; the fence is the other half, because a
+        diagram that renders everywhere else is nearly always a source markdown got to first.
       */
       this._error = explainSourceFailure('diagram could not be drawn', err, this._fenced)
     }

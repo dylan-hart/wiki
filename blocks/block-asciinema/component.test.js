@@ -3,9 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /*
-  `create()` from `asciinema-player` builds a real terminal renderer -- canvas 2D context, a
-  ResizeObserver -- neither of which jsdom implements, so it throws (`2D ctx not available` /
-  `ResizeObserver is not defined`). Mocked here instead.
+  `create()` builds a real terminal renderer, needing a canvas 2D context and a ResizeObserver;
+  jsdom implements neither, so the unmocked call throws.
 */
 const createMock = vi.fn(() => ({ dispose: vi.fn() }))
 vi.mock('asciinema-player', () => ({ create: createMock }))

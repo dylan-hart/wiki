@@ -2,26 +2,20 @@ import { decompressRaw } from '../shared/compress.js'
 
 /**
  * draw.io (diagrams.net) saves diagrams as mxGraph model XML: a flat list of `<mxCell>` elements,
- * each either a vertex (a shape) or an edge (a connector), addressing its parent, and — for an edge —
- * its source and target, by id. There is no official pure-SVG renderer for this format outside the
- * draw.io/mxGraph client itself, which is a full graph-editing library (mxgraph.js, ~10MB, DOM-driven,
- * long since pulled from npm as unsupported) or the hosted `viewer.diagrams.net` embed script — either
- * of which is a large, live dependency for a wiki block whose whole job is "draw this diagram, once,
- * as SVG, for reading".
+ * each a vertex (shape) or an edge (connector), addressing its parent — and, for an edge, its source
+ * and target — by id. The only renderers for it are draw.io's own ~10MB DOM-driven editor library
+ * (long since pulled from npm as unsupported) and the hosted `viewer.diagrams.net` embed script,
+ * both large live dependencies for a block whose whole job is "draw this once, as SVG, for reading".
+ * Hence this from-scratch, read-only one.
  *
- * This module is a from-scratch, read-only renderer covering the common shapes and edges below — not
- * the hundreds of named stencils the shape libraries carry (AWS/Azure/GCP icons, UML-specific glyphs,
- * network gear, …). Seeing correct geometry for a shape it does not know how to draw would be
- * strictly worse than the plainer-but-complete fallback below, so don't assume every visual is
- * pixel-exact.
+ * It covers the common shapes and edges, not the hundreds of named stencils the shape libraries
+ * carry (AWS/Azure/GCP icons, UML glyphs, network gear), so don't assume a visual is pixel-exact.
  *
- * The one rule every path here is written to uphold is the one the upstream bug report
- * (requarks/wiki#6881) was actually about: a complex, multi-layer diagram must not lose elements on
- * render. So nothing is ever skipped for being a shape this renderer does not specifically recognise —
- * an unrecognised style still gets its bounding box, its border, and its label drawn, which is a
- * plainer picture than draw.io's own but never a missing one. Every rendered vertex and edge is
- * wrapped in a `<g data-cell-id="…">`, letting a test — or a curious reader's dev tools — count
- * exactly which source cells made it onto the page.
+ * The rule every path here upholds (upstream requarks/wiki#6881): a complex, multi-layer diagram
+ * must not lose elements. Nothing is skipped for being a shape this renderer does not recognise — an
+ * unknown style still gets its bounding box, border and label, a plainer picture but never a missing
+ * one. Every vertex and edge is wrapped in a `<g data-cell-id="…">` so a test, or dev tools, can
+ * count which source cells made it onto the page.
  */
 
 const DEFAULT_SHAPE = 'rectangle'
@@ -30,14 +24,12 @@ const PADDING = 20
 
 /**
  * draw.io writes two shapes of file: a bare `<mxGraphModel>` (what "Extras > Edit Diagram" shows by
- * default), and `<mxfile><diagram name="…">…</diagram></mxfile>` (what saving a `.drawio` file, or
- * ticking "Compressed" in that same dialog, produces) — where a `<diagram>`'s text is either the model
- * XML directly, or that XML deflated and base64'd. Only the first `<diagram>` is drawn: multi-page
- * files exist, but a block is one diagram, the same limit `block-kroki`/`block-plantuml` accept for
- * their own single-diagram formats.
+ * default), and `<mxfile><diagram name="…">…</diagram></mxfile>` (a saved `.drawio`, or "Compressed"
+ * ticked in that dialog) — where a `<diagram>`'s text is either the model XML directly or that XML
+ * deflated and base64'd. Only the first `<diagram>` is drawn: multi-page files exist, but a block is
+ * one diagram.
  *
- * Async because a compressed `<diagram>` body's decode goes through `decompressRaw()`'s
- * `DecompressionStream`, which is stream/async-only -- see `decompress()` below.
+ * Async because a compressed body decodes through a `DecompressionStream`, which is stream-only.
  */
 export async function extractModelXml(raw) {
   const source = raw.trim()
@@ -66,9 +58,8 @@ export async function extractModelXml(raw) {
 }
 
 /**
- * draw.io's compression for an embedded `<diagram>` body: deflate (raw, no zlib header) a
- * `encodeURIComponent`'d copy of the XML, then base64 it. Reversed here the same way `mxUtils.
- * decompress` is documented to work upstream, via `shared/compress.js`'s native `decompressRaw`.
+ * draw.io's compression for an embedded `<diagram>` body, as `mxUtils.decompress` documents it:
+ * deflate (raw, no zlib header) an `encodeURIComponent`'d copy of the XML, then base64 it.
  */
 async function decompress(base64) {
   try {
@@ -83,7 +74,7 @@ async function decompress(base64) {
   }
 }
 
-/** Parse XML, raising the parser's own message rather than returning a document full of nothing. */
+/** `DOMParser` never throws, so the `parsererror` document is what has to be turned into one. */
 function parseXml(source) {
   const doc = new DOMParser().parseFromString(source, 'text/xml')
   const error = doc.querySelector('parsererror')
@@ -94,9 +85,8 @@ function parseXml(source) {
 }
 
 /**
- * One `<mxCell>`, resolved from either a bare `<mxCell>` or one wrapped in an `<object>`/`<UserObject>`
- * that carries its label and any custom data — draw.io writes a shape with extra fields that way, and
- * the id and label live on the wrapper rather than the cell in that case.
+ * draw.io writes a shape carrying extra fields as an `<object>`/`<UserObject>` wrapper around the
+ * `<mxCell>`, and the id and label then live on the wrapper rather than on the cell.
  *
  * @typedef {object} Cell
  * @property {string} id
@@ -135,7 +125,6 @@ export function parseCells(modelXml) {
   return cells
 }
 
-/** A wrapper draw.io uses to attach custom data/label to a cell, in either of its two spellings. */
 function isWrapperTag(tag) {
   return tag === 'object' || tag === 'UserObject'
 }
@@ -203,9 +192,8 @@ function readPoints(geomEl) {
 }
 
 /**
- * A cell's `value` as XML-attribute text, once its own HTML markup (draw.io writes `<br>`/`<div>` for
- * line breaks when a style has `html=1`) is reduced to plain text and real newlines. Never used to
- * build markup itself — every caller treats the result as text content, escaped like any other.
+ * draw.io writes `<br>`/`<div>` into a cell's `value` for line breaks when a style has `html=1`;
+ * those become real newlines here. The result is never markup — every caller escapes it as text.
  */
 function stripHtmlLabel(value) {
   if (!value.includes('<')) {
@@ -239,8 +227,8 @@ function stripHtmlLabel(value) {
 }
 
 /**
- * Parse a `key=value;key2=value2;…` mxGraph style string. A leading bare token with no `=` (or a
- * `shape=` entry) names the base shape; everything else is a flat map of the rest.
+ * In an mxGraph `key=value;…` style string, a leading bare token with no `=` — or a `shape=` entry —
+ * names the base shape.
  */
 export function parseStyle(style) {
   const props = {}
@@ -263,8 +251,7 @@ export function parseStyle(style) {
 }
 
 /**
- * The id of the cell every layer, and mxGraph's own bookkeeping cell above it, hangs off — normally
- * `"0"`, but read from the document rather than assumed, since nothing requires that literal id.
+ * Normally `"0"`, but read from the document rather than assumed: nothing requires that literal id.
  */
 function findRootId(cells) {
   for (const cell of cells.values()) {
@@ -276,13 +263,10 @@ function findRootId(cells) {
 }
 
 /**
- * Resolve every vertex's geometry to absolute page coordinates, and every edge's endpoints and
- * waypoints, then compute the drawing's overall bounding box.
- *
  * A vertex's geometry is relative to its parent's — a group's children are offset by the group's own
- * position — *unless* the parent is a layer (a direct child of the root cell) or the root cell itself,
- * neither of which carries geometry of its own to offset by. An edge's `sourcePoint`/`targetPoint`/
- * waypoints are already absolute wherever draw.io writes them, so those pass through unchanged.
+ * position — *unless* the parent is a layer (a direct child of the root cell) or the root itself,
+ * neither of which carries geometry to offset by. An edge's `sourcePoint`/`targetPoint`/waypoints
+ * are already absolute wherever draw.io writes them, so those pass through unchanged.
  */
 export function layout(cells) {
   const rootId = findRootId(cells)
@@ -325,7 +309,6 @@ export function layout(cells) {
     if (cell.id === rootId || layerIds.has(cell.id) || !cell.visible) {
       continue
     }
-    // -> A cell on a hidden layer is skipped the same way draw.io itself never shows one
     if (cell.parentId && layerVisible(cells, cell.parentId, rootId, layerIds) === false) {
       continue
     }
@@ -365,7 +348,6 @@ export function layout(cells) {
   }
 }
 
-/** Whether the layer a cell (transitively, through group nesting) sits on is visible. */
 function layerVisible(cells, parentId, rootId, layerIds) {
   let id = parentId
   while (id && !layerIds.has(id) && id !== rootId) {
@@ -374,7 +356,7 @@ function layerVisible(cells, parentId, rootId, layerIds) {
   return id && layerIds.has(id) ? (cells.get(id)?.visible ?? true) : true
 }
 
-/** A box's centre and the point where a line to another point crosses its border. */
+/** Where a line from the box's centre towards `towards` crosses the box's border. */
 function perimeterPoint(box, towards) {
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -390,10 +372,9 @@ function perimeterPoint(box, towards) {
 }
 
 /**
- * An edge's drawable endpoints and waypoints — from its connected cells' boxes when it has them, from
- * its own explicit points otherwise. `null` when neither is available, which drops just this one edge
- * rather than the whole diagram (a dangling reference is a malformed file, not the class of bug this
- * renderer exists to guard against — see the module comment).
+ * From the connected cells' boxes when the edge has them, from its own explicit points otherwise.
+ * `null` drops this one edge rather than the whole diagram: a dangling reference is a malformed
+ * file, not the lost-element class of bug the module comment is about.
  */
 function resolveEdge(cell, cells, absolute) {
   const sourceCell = cell.source ? cells.get(cell.source) : null
@@ -442,7 +423,7 @@ function boxCenter(box) {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
 }
 
-/** Escape text for use inside SVG markup — every label passes through this before it is interpolated. */
+/** Every author-controlled value interpolated into the SVG below is escaped here first. */
 function escapeXml(str) {
   return String(str)
     .replaceAll('&', '&amp;')
@@ -451,7 +432,7 @@ function escapeXml(str) {
     .replaceAll('"', '&quot;')
 }
 
-/** mxGraph colour keywords that mean "nothing here", as opposed to an actual `#rrggbb`/named colour. */
+/** `none` is an mxGraph keyword meaning "nothing here", not a missing value to fall back from. */
 function colorOr(value, fallback) {
   if (!value || value === 'none') {
     return value === 'none' ? 'none' : fallback
@@ -459,7 +440,6 @@ function colorOr(value, fallback) {
   return value
 }
 
-/** The label as one or more escaped `<tspan>` lines, vertically centred within `box`. */
 function labelSvg(label, box, props) {
   if (!label) {
     return ''
@@ -484,15 +464,11 @@ function labelSvg(label, box, props) {
 }
 
 /**
- * `stroke` + `stroke-width`, the one escaping site for both — shared by `paintAttrs()` and by the
- * shapes below (`cylinder`, `swimlane`) that draw a second, fill-less stroke of their own rather than
- * duplicating the color/width handling (and its escaping) at each call site. `strokeWidth` is coerced
- * with `Number()` rather than interpolated as a string: `style` comes from `parseStyle()` splitting
- * `cell.style` on `;`/`=` with no validation at all, so an unescaped numeric-looking property is
- * exactly as attacker-controlled as any other. The fallback to `1` triggers only on a non-finite
- * result (an absent or malicious `strokeWidth` coercing to `NaN`) via `Number.isFinite`, not on
- * falsy-ness, so an explicit `strokeWidth=0` (a legitimate draw.io value meaning "no visible stroke")
- * is preserved rather than silently overridden.
+ * The one escaping site for `stroke` and `stroke-width`, so no shape has to repeat it.
+ * `parseStyle()` splits `cell.style` with no validation, making a numeric-looking property exactly
+ * as attacker-controlled as any other, so `strokeWidth` is coerced with `Number()` rather than
+ * interpolated. The fallback is on `Number.isFinite`, not falsy-ness, so an explicit
+ * `strokeWidth=0` — draw.io's "no visible stroke" — survives.
  */
 function strokeAttrs(props) {
   const stroke = colorOr(props.strokeColor, '#000000')
@@ -501,7 +477,6 @@ function strokeAttrs(props) {
   return `stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}"`
 }
 
-/** Common presentation attributes every filled/stroked shape below shares. */
 function paintAttrs(props) {
   const fill = colorOr(props.fillColor, '#ffffff')
   const dash = props.dashed === '1' ? ` stroke-dasharray="5,5"` : ''
@@ -510,9 +485,8 @@ function paintAttrs(props) {
 }
 
 /**
- * Vertex shape renderers, by the base-shape keyword mxGraph writes into the style string.
- * `DEFAULT_SHAPE` (a plain, optionally-rounded rectangle) is also the fallback for everything not
- * listed here — see the module comment for why that is deliberate, not an omission.
+ * Keyed by the base-shape keyword mxGraph writes into the style string. `DEFAULT_SHAPE` is also the
+ * fallback for everything absent here, deliberately: an unknown shape must still draw something.
  */
 const SHAPES = {
   rectangle(box, props) {
@@ -559,15 +533,14 @@ const SHAPES = {
       <line x1="${box.x}" y1="${box.y + startSize}" x2="${box.x + box.width}" y2="${box.y + startSize}" ${strokeAttrs(props)} />`
   },
   text() {
-    // -> A label with no border or fill: the label itself is added by `renderVertex` for every shape
+    // -> No border or fill; `renderVertex` adds the label for every shape
     return ''
   }
 }
 
 /**
- * A group (`style="group"`, or any container with neither a fill nor a stroke set): nothing is drawn
- * for the cell itself -- just its label, if any -- since its children are positioned and rendered
- * independently.
+ * A group (`style="group"`, or any container with neither fill nor stroke) draws nothing but its own
+ * label: its children are positioned and rendered independently.
  */
 function isInvisibleContainer(shapeKind, props) {
   return shapeKind === 'group' || (props.fillColor === 'none' && props.strokeColor === 'none')
@@ -582,7 +555,6 @@ function renderVertex({ cell, box }) {
   return `<g data-cell-id="${escapeXml(cell.id)}">${body}${label}</g>`
 }
 
-/** A small filled triangle pointing from `from` to `to`, the classic mxGraph arrowhead. */
 function arrowhead(from, to) {
   const angle = Math.atan2(to.y - from.y, to.x - from.x)
   const size = 8
@@ -626,11 +598,7 @@ function arrowheadFill(polygon, color) {
 }
 
 /**
- * The full pipeline: block body text -> inline SVG markup, or a thrown `Error` whose `message` is
- * meant to be shown to the page's author as-is.
- *
- * Async because `extractModelXml()` is (a compressed `<diagram>` body decodes through a
- * `DecompressionStream`); every caller awaits it.
+ * A thrown `Error`'s `message` is meant to be shown to the page's author as-is.
  *
  * @param {string} source The block's raw body text.
  * @returns {Promise<{ svg: string, cellCount: number }>}

@@ -5,28 +5,26 @@ import { DarkMode } from '../shared/theme.js'
 import { getCurrentPageAccess } from '../shared/site.js'
 
 /**
- * Plain `Date`/`Intl`, not `Temporal`: this is formatting an already-resolved instant, not date
- * arithmetic, and `Temporal` is a frontend-boot polyfill (`frontend/src/boot/temporal.js`) a block
- * cannot assume is loaded — it runs wherever its tag turns up on a page, with no boot of its own.
+ * Plain `Date`/`Intl`, not `Temporal`: no date arithmetic is involved, and a block runs wherever its
+ * tag lands with no boot of its own, so it cannot assume the `Temporal` polyfill
+ * (`frontend/src/boot/temporal.js`) has loaded.
  */
 function formatInstant(iso) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 /**
- * A run-log checklist, not a markdown task list — existing `- [ ]` syntax is untouched. Checking an
- * item off calls the backend, which records who checked it and when in a durable run log gated on
- * `write:pages`.
+ * A run-log checklist, not a markdown task list — `- [ ]` syntax is untouched.
  *
- * Items come from the block's own light DOM: MDC parses a block's body as markdown first, so
+ * Items come from the light DOM: MDC parses a block's body as markdown first, so
  * `connectedCallback` reads the rendered `<li>`s. An item's key is its position (`item-0`, ...) —
- * stable across a re-render, but not across the author reordering or editing the list mid-run, which
- * is an accepted trade against inventing a stable-id syntax authors would have to write by hand.
+ * stable across a re-render, but not across the author reordering or editing the list mid-run, an
+ * accepted trade against a stable-id syntax authors would have to write by hand.
  */
 export class BlockChecklistElement extends LitElement {
   /**
-   * Collected at build time into `compiled/blocks.manifest.json` by reading this object literal out
-   * of the source text, not by importing the module — so every value here must be a plain literal.
+   * Read out of the source text at build time rather than by importing the module, so every value
+   * must stay a plain literal.
    */
   static definition = {
     block: 'checklist',
@@ -73,7 +71,7 @@ export class BlockChecklistElement extends LitElement {
           padding: 16px 18px;
         }
 
-        /* Two opposite corner marks, Ledger only -- same technique as the other seven board blocks. */
+        /* Theme-gated decoration: --block-corner-marks is "none" under Cobalt. */
         .marks {
           display: var(--block-corner-marks);
           position: absolute;
@@ -121,11 +119,8 @@ export class BlockChecklistElement extends LitElement {
         }
 
         /*
-          A custom box rather than the native control's own accent-color (dropped per blocks.md's
-          ground rules): appearance:none clears the platform checkbox so the border/radius/fill below
-          are the whole of it, and the check mark itself is a Tabler check icon masked in white onto
-          the fill -- pasted verbatim from frontend/src/assets/icons.generated.js, the same source
-          every other icon swap in this task uses.
+          appearance:none clears the platform checkbox so the border/radius/fill below are the whole
+          control; the tick is then a Tabler check masked in white over the fill, not a glyph.
         */
         input[type='checkbox'] {
           appearance: none;
@@ -198,9 +193,8 @@ export class BlockChecklistElement extends LitElement {
   static get properties() {
     return {
       /**
-       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
-       *    dash inserted) would listen for `runkey` while the block picker — which writes the literal
-       *    `static definition.props[].name`, `run-key` — writes `run-key` into the page.
+       * -> Explicit `attribute`: Lit's default lowercases without inserting a dash (`runkey`), but
+       *    the picker writes `static definition.props[].name` verbatim.
        */
       runKey: { type: String, attribute: 'run-key' },
 
@@ -235,7 +229,6 @@ export class BlockChecklistElement extends LitElement {
     this._canCheck = false
     this._siteId = null
     this._pageId = null
-    // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
 
@@ -248,11 +241,6 @@ export class BlockChecklistElement extends LitElement {
     this._load()
   }
 
-  /**
-   * Client-side convenience only — the actual gate is the server's own `write:pages` check on every
-   * POST, which runs regardless of what this returns. Hiding a control this can't back up would be
-   * worse than showing one the request then refuses.
-   */
   get _basePath() {
     return `/_api/sites/${this._siteId}/pages/${this._pageId}/checklist/${encodeURIComponent(this.runKey)}`
   }
@@ -271,7 +259,8 @@ export class BlockChecklistElement extends LitElement {
     }
     // -> No siteId/pageId threaded down to this block; `getCurrentPageAccess()` resolves both plus
     //    this reader's page-rule permissions, off the same public route the page view itself loads
-    //    a page through.
+    //    a page through. `_canCheck` is client-side convenience only -- the server re-checks
+    //    `write:pages` on every POST, so showing a control the request then refuses beats hiding one.
     const { siteId, pageId, permissions } = await getCurrentPageAccess()
     this._siteId = siteId
     this._pageId = pageId
@@ -298,10 +287,8 @@ export class BlockChecklistElement extends LitElement {
   }
 
   /**
-   * Starts a new execution on the server first if none is active. A no-op for an item already
-   * checked, one mid-flight, or a reader with no `write:pages` — the checkbox is disabled in every
-   * one of those cases too, but a change event can still fire on one a fast double-click raced past
-   * its own re-render, so the handler guards itself as well.
+   * The checkbox is already disabled for an item that is checked, mid-flight, or unwritable, but a
+   * fast double-click can race a change event past the re-render, so the handler guards too.
    */
   async _check(key) {
     if (!this._canCheck || this._checkOf(key) || this._pending.has(key)) {
@@ -329,9 +316,8 @@ export class BlockChecklistElement extends LitElement {
   }
 
   /**
-   * Fetched once, lazily, and cached for the life of this element: a run log an author is reviewing
-   * does not change out from under them mid-read, and re-fetching on every toggle would only cost a
-   * round trip for no benefit.
+   * History is cached for the life of the element: re-fetching per toggle would cost a round trip to
+   * make the log shift under an author mid-read.
    */
   async _toggleHistory() {
     this._historyOpen = !this._historyOpen
