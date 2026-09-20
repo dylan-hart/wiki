@@ -138,6 +138,62 @@ describe('registerAppShellFallback', () => {
     assert.equal(sent.type, 'text/html; charset=utf-8')
   })
 
+  describe('theme injection', () => {
+    function setSite(theme: Record<string, unknown> | undefined) {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = { '*': 'site-1' }
+      cardinal.sites = { 'site-1': { config: { theme } } }
+    }
+
+    after(() => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      cardinal.sites = {}
+    })
+
+    test('a raw fetch carries the site head, CSS and body markup exactly once', async () => {
+      setSite({
+        injectCSS: 'body { color: red }',
+        injectHead: '<meta name="site-verification" content="abc">',
+        injectBody: '<script src="/beacon.js"></script>'
+      })
+      const { body } = await serve('GET', '/guides/x')
+      const count = (needle: string) => body!.split(needle).length - 1
+      assert.equal(count('<style id="theme-inject-css">body { color: red }</style>'), 1)
+      assert.equal(count('<meta name="site-verification" content="abc">'), 1)
+      assert.equal(count('<script src="/beacon.js"></script>'), 1)
+      assert.ok(body!.indexOf('site-verification') < body!.indexOf('</head>'))
+      assert.ok(body!.indexOf('beacon.js') > body!.indexOf('<div id="app">'))
+      assert.ok(body!.indexOf('beacon.js') < body!.indexOf('</body>'))
+    })
+
+    test('a path no page owns (the not-found fallback) is injected the same way', async () => {
+      setSite({ injectHead: '<meta name="x" content="y">' })
+      const { body } = await serve('GET', '/no/such/page')
+      assert.equal(body!.split('<meta name="x" content="y">').length - 1, 1)
+    })
+
+    test('fragments containing replacement patterns or closing tags land intact', async () => {
+      setSite({ injectHead: '<i>$& $1 </body></i>', injectBody: '<b>$`</b>' })
+      const { body } = await serve('GET', '/a')
+      assert.ok(body!.includes('<i>$& $1 </body></i></head>'))
+      assert.ok(body!.includes('<b>$`</b></body>'))
+    })
+
+    test('a site with empty injection fields is served the plain shell', async () => {
+      setSite({ injectCSS: '', injectHead: '', injectBody: '' })
+      const { body } = await serve('GET', '/a')
+      assert.equal(body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    })
+
+    test('an unresolved site is served the plain shell', async () => {
+      const cardinal = (globalThis as any).CARDINAL
+      cardinal.sitesMappings = {}
+      const { body } = await serve('GET', '/a')
+      assert.equal(body, shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">'))
+    })
+  })
+
   test('repeated requests keep serving the same bytes', async () => {
     const first = await serve('GET', '/a')
     const second = await serve('HEAD', '/b?x=1')
