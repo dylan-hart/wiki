@@ -69,43 +69,6 @@ export const figureStyles = css`
  * TODO: no block adopts either class yet, and `.embed-frame__play` draws only the Ledger (square)
  * take -- Cobalt's round one needs a token of its own, the shapes being too different to share.
  */
-export const embedFrameStyles = css`
-  .embed-frame {
-    position: relative;
-    border: 1px solid var(--block-border);
-    border-radius: var(--block-radius);
-    overflow: hidden;
-  }
-
-  /* -> The two corner marks every themed block card draws -- "none" under Cobalt, whose frame is bounded by its own radius instead. */
-  .embed-frame::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    display: var(--block-corner-marks);
-    pointer-events: none;
-    background:
-      linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 7px 1px no-repeat,
-      linear-gradient(var(--block-mark-color), var(--block-mark-color)) 0 0 / 1px 7px no-repeat,
-      linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 7px 1px
-        no-repeat,
-      linear-gradient(var(--block-mark-color), var(--block-mark-color)) 100% 100% / 1px 7px
-        no-repeat;
-  }
-
-  .embed-frame__play {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 56px;
-    height: 56px;
-    border: 1px solid rgb(255 255 255 / 0.5);
-    border-radius: var(--block-radius);
-    background-color: transparent;
-    color: #fff;
-  }
-`
-
 /**
  * An unfenced body has been through markdown's typographer before the block ever sees it, so what
  * failed to parse is usually not what the author typed -- hence the fence hint whenever the source
