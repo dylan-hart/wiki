@@ -3601,6 +3601,7 @@
   "profile.passkeysSetupSuccess": "Passkey registered successfully.",
   "profile.passkeysUnsupported": "Passkeys are not supported on your device.",
   "profile.preferences": "Preferences",
+  "profile.previewPublicProfile": "Preview public profile",
   "profile.pronouns": "Pronouns",
   "profile.pronounsHint": "Let people know which pronouns should they use when referring to you.",
   "profile.save.success": "Profile saved successfully.",
