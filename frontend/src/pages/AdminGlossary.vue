@@ -13,9 +13,8 @@
         </div>
       </div>
       <div class="flex flex-none flex-wrap items-center">
-        <!-- -> Gated on `siteStore.pdfExportAvailable`, the same Puppeteer-availability signal
-                `PageActionsCol.vue`'s per-page Rerender item uses -- no button that would just 503
-                (OpenProject #3181). -->
+        <!-- -> `pdfExportAvailable` is the Puppeteer-availability signal: without it a rerender
+                would only 503, so the button is hidden rather than shown and refused. -->
         <w-btn
           v-if="siteStore.pdfExportAvailable"
           class="acrylic-btn me-2"
@@ -77,11 +76,6 @@
         {{ t('admin.glossary.noTerms') }}
       </w-banner>
       <w-settings-card v-else :title="t('admin.glossary.title')">
-        <!--
-          The definition was a second `WItemSection` in the middle of the row. A settings row has one
-          text column, so it moves into the hint under the term it defines -- which is also the
-          reading order: term, what it means, then how else it is spelled.
-        -->
         <w-settings-row
           v-for="term of state.terms"
           :key="term._key"
@@ -158,54 +152,37 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
 /*
-  No `useSiteAdminAccess()` here: that composable exists for the nine surfaces
-  `composables/siteAdminAccess.js`'s `GLOBAL_FALLBACKS` names, none of which is this one. Glossary is
-  gated the same way `AdminComments.vue` / `AdminAnalytics.vue` are -- the sidebar entry checks
-  `manage:glossary` (see `AdminLayout.vue`), and every `api/glossary.ts` admin route enforces the same
-  permission server-side (OpenProject #1116 -- a dedicated permission rather than piggybacking on
-  `manage:sites`, which also grants site creation/deletion/config editing); there is no client-side
-  redirect to add on top for a page that carries no additional site-admin delegation of its own.
+  No `useSiteAdminAccess()` here: this page carries no site-admin delegation of its own. It is gated
+  on `manage:glossary` — by the sidebar entry in `AdminLayout.vue`, and by every `api/glossary.ts`
+  route server-side.
 
-  EDITING IS A STAGED WORKFLOW (OpenProject #1113): `state.terms` is a local working copy -- add/
-  edit/remove buttons only ever touch it, never the API -- and nothing reaches the server until
-  "Save Glossary" is clicked, which atomically replaces the whole live glossary and records a version
-  snapshot. Each entry is `{ term, definition, isAcronym, aliases, path }` (`aliases` each
-  `{ value, isAcronym }` -- OpenProject #2575) (a client-only `_key` added for
-  `v-for`/editing, stripped back off before anything is sent) -- the exact JSON shape
-  `GET .../glossary/export` already returns and `POST .../glossary/{save,import}` both accept
-  (OpenProject #1114), so loading, saving, exporting and importing all speak the same shape.
+  Editing is staged: `state.terms` is a local working copy that the add/edit/remove buttons touch,
+  and nothing reaches the server until "Save Glossary", which atomically replaces the whole live
+  glossary and records a version snapshot. An entry is the same JSON shape
+  `GET .../glossary/export` returns and `POST .../glossary/{save,import}` accept, so load, save,
+  export and import all speak one shape; `_key` is client-only and stripped before sending.
 */
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.glossary.title')
 }))
 
-// DATA
-
 const { state, load } = useAdminSettings({
   i18nPrefix: 'admin.glossary',
-  // -> A staged-edit list, not a settings form: reading the terms has never raised the full-screen
-  //    overlay, and "Save Glossary" drives its own `state.saving` button instead.
+  // -> A staged-edit list, not a settings form: "Save Glossary" drives its own `state.saving`
+  //    button, so the full-screen overlay would only get in the way.
   overlay: false,
   extraState: {
     saving: false,
     terms: [],
-    /** The last-loaded-or-saved state, for the dirty check below -- `stripKeys(state.terms)`. */
+    /** Serialised `stripKeys(state.terms)` as of the last load or save; `isDirty` diffs against it. */
     baseline: '[]'
   },
   fetch: (siteId) => API_CLIENT.get(`sites/${siteId}/glossary/export`).json(),
@@ -222,11 +199,7 @@ function newKey() {
   return `t${nextKey}`
 }
 
-// COMPUTED
-
 const isDirty = computed(() => JSON.stringify(stripKeys(state.terms)) !== state.baseline)
-
-// METHODS
 
 function stripKeys(terms) {
   return terms.map(({ term, definition, isAcronym, aliases, path }) => ({
@@ -296,10 +269,8 @@ async function saveGlossary() {
       type: 'positive',
       message: t('admin.glossary.saveSuccess')
     })
-    // -> The save response is DB rows (`pageId`, not `path`) -- reloading from `export` right after
-    //    is what gets the displayed list (and the new baseline) each entry's resolved `path` back,
-    //    rather than the response's shape leaking into what this screen otherwise only ever works
-    //    with.
+    // -> The save response is DB rows (`pageId`, not `path`), so reload from `export` rather than
+    //    let that second shape into the displayed list and the new baseline.
     await load()
   } catch (err) {
     notify({
@@ -312,11 +283,9 @@ async function saveGlossary() {
 }
 
 /**
- * "Rerender All Pages" (OpenProject #3181) -- queues every markdown page on this site through the
- * same render queue the per-page Rerender action and every ordinary save already use, so a glossary
- * term change (or any other render-time content) applies site-wide right away rather than waiting on
- * each page's own next save. Confirmed first: this queues EVERY page, not just ones that mention any
- * particular term, and can take a while on a large site.
+ * A term change only reaches a page when that page is re-rendered, which otherwise waits on its
+ * next save. Confirmed first because this queues EVERY page on the site, not just the ones that
+ * mention a term, and can take a while on a large one.
  */
 function rerenderAllPages() {
   confirm({

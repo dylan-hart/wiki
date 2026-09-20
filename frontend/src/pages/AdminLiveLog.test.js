@@ -7,21 +7,15 @@ import { mountWithApp } from '../../test/mount.js'
 import AdminLiveLog from './AdminLiveLog.vue'
 
 /**
- * OpenProject #2680 — the Live Log page that replaced the xterm-backed Terminal.
- *
- * The socket is faked rather than stubbed away: the page's whole job is to turn a stream of
- * `LogFrame`s into filterable rows, and that stream only exists once a `WebSocket` has opened, sent
- * its handshake and started delivering frames. `FakeSocket` below is the smallest thing that lets a
- * test drive those four events (`open`, handshake `message`, frame `message`, `close`) in the order
- * a real server produces them, so every assertion here runs against the same code path production
- * does — including the 4000-range refusal branch, which has no other way in.
+ * The socket is faked, not stubbed away: the page only produces rows once a `WebSocket` has opened,
+ * handshaken and started delivering frames, so `FakeSocket` drives those events in the order a real
+ * server produces them — including the 4000-range refusal branch, which has no other way in.
  */
 
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 const LOCALES_PATH = join(SRC_ROOT, '../../../backend/locales/en.json')
 const PAGE_PATH = join(SRC_ROOT, 'AdminLiveLog.vue')
 
-/** Every `admin.liveLog.*` string the assertions below read, taken from the real catalogue. */
 const localeCatalogue = JSON.parse(readFileSync(LOCALES_PATH, 'utf-8'))
 const messages = Object.fromEntries(
   Object.entries(localeCatalogue).filter(([key]) => key.startsWith('admin.liveLog.'))
@@ -52,7 +46,6 @@ class FakeSocket {
     }
   }
 
-  /** The three-step opening a real server performs, up to and including the handshake frame. */
   handshake(instance = 'inst-1') {
     this.readyState = 1
     this.emit('open', {})
@@ -84,7 +77,6 @@ function mountPage(options = {}) {
   })
 }
 
-/** The rows the page has actually drawn, message text only. */
 function renderedMessages(wrapper) {
   return wrapper.findAll('.admin-live-log-message').map((el) => el.text())
 }
@@ -186,11 +178,8 @@ describe('AdminLiveLog.vue', () => {
     const options = [...document.body.querySelectorAll('[role="option"]')].map((el) =>
       el.textContent.trim()
     )
-    /*
-      Populated from the frames seen so far, not from the whole 27-name vocabulary -- `terminal` is
-      in there because the page's own connect/connected notes are real records under that scope,
-      exactly as the server's own lifecycle lines for this socket are.
-    */
+    // -> Populated from the frames seen so far, not the whole scope vocabulary. `terminal` is there
+    //    because the page's own connect notes are real records under that scope.
     expect(options).toEqual(['jobs', 'sql', 'terminal'])
 
     wrapper.vm.state.scopes = ['sql']
@@ -269,7 +258,6 @@ describe('AdminLiveLog.vue', () => {
     const last = renderedMessages(wrapper).at(-1)
     expect(last).toContain(messages['admin.liveLog.connectError'])
     expect(last).toContain('You are not allowed to read the server logs')
-    // -> No second socket: the page does not reconnect on a refusal, and did not open one itself
     expect(sockets).toHaveLength(1)
     expect(
       wrapper.findAll('button').some((el) => el.text().includes(messages['admin.liveLog.connect']))
@@ -300,11 +288,8 @@ describe('AdminLiveLog.vue', () => {
   })
 
   describe('window arithmetic', () => {
-    /*
-      jsdom lays nothing out, so every height the page could measure is zero -- which is exactly why
-      the window is computed from a declared row height rather than from the DOM. These assert that
-      arithmetic directly; the rendered assertions above cover what it produces.
-    */
+    // -> jsdom lays nothing out, so every measurable height is zero — which is why the window is
+    //    computed from a declared row height, and why these assert that arithmetic directly.
     it('gives every collapsed row the same height and sums them into the scroll height', async () => {
       const { wrapper } = mountPage()
       sockets[0].handshake()
@@ -337,7 +322,7 @@ describe('AdminLiveLog.vue', () => {
 
       expect(wrapper.vm.totalHeight).toBeGreaterThan(before)
       expect(wrapper.vm.offsets.at(-1)).toBeGreaterThan(lastOffsetBefore)
-      // -> Still one entry per row plus the closing bound; expansion changes heights, not the count
+      // -> Expansion changes heights, not the count: one entry per row plus the closing bound.
       expect(wrapper.vm.offsets).toHaveLength(wrapper.vm.visibleRows.length + 1)
     })
 

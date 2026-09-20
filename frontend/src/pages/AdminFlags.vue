@@ -33,10 +33,7 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-7">
-        <!--
-          The warning is a callout about the whole card, not a setting in it, so it sits above the
-          card rather than being forced into a settings row with nothing at its trailing edge.
-        -->
+        <!-- A callout about the whole card, not a setting in it, so it is not a settings row -->
         <w-card class="bg-negative text-white rounded mb-4">
           <w-card-section class="items-center" horizontal>
             <w-card-section class="flex-none pe-0">
@@ -77,23 +74,19 @@
             :hint="t(`admin.flags.sqlLog.hint`)">
             <w-toggle v-model="state.flags.sqlLog" :aria-label="t(`admin.flags.sqlLog.label`)" />
           </w-settings-row>
-          <!--
-            A note about the two flags above it rather than a setting of its own: it takes the hint
-            slot, not the label, so it reads at caption weight and stays attached to what it explains.
-          -->
+          <!-- A note about the flags above it, not a setting: hint slot only, so it reads at
+               caption weight and stays attached to what it explains -->
           <w-settings-row
             control-width="auto"
             icon="tabler:info-circle"
             :hint="t(`admin.flags.serverLogNotice`)" />
         </w-settings-card>
         <w-settings-card class="mt-4" :title="t('admin.flags.advanced.label')">
-          <!--
-            No `label` on the row: the card's own strip already names this setting, and repeating
-            "Custom Configuration" immediately under it would read as two different things.
-          -->
+          <!-- No `label` on the row: the card's own strip already names this setting, and
+               repeating it immediately under would read as two different things -->
           <w-settings-row control-width="auto" icon="tabler:tool">
-            <!-- The editor was never built, and nothing reads custom keys — say so rather than leave -->
-            <!-- a disabled button with no explanation -->
+            <!-- TODO: the editor is unbuilt and nothing reads custom keys; the button stays
+                 disabled behind the notImplemented hint until it is -->
             <template #hint>
               <div>{{ t(`admin.flags.advanced.hint`) }}</div>
               <div class="text-orange">{{ t(`admin.flags.advanced.notImplemented`) }}</div>
@@ -127,21 +120,13 @@ import { useFlagsStore } from '@/stores/flags'
 import { omit } from 'es-toolkit/object'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const flagsStore = useFlagsStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.flags.title')
 }))
-
-// DATA
 
 const {
   state,
@@ -149,7 +134,6 @@ const {
   save: commitFlags
 } = useAdminSettings({
   i18nPrefix: 'admin.flags',
-  // -> Instance-wide, not one site's: no site picker, no reload on switching site
   siteScoped: false,
   extraState: {
     flags: {
@@ -158,7 +142,7 @@ const {
       sqlLog: false
     }
   },
-  // -> Through the store, so that `experimental` is refreshed for the whole app at the same time
+  // -> Through the store on both load and save, so the whole app sees the flags this page holds
   fetch: async () => {
     await flagsStore.load()
     return omit(flagsStore.$state, ['loaded'])
@@ -167,13 +151,9 @@ const {
     state.flags = flags
   },
   commit: () => API_CLIENT.put('system/flags', { json: state.flags }).json(),
-  // -> Re-read through the store, so the whole app sees the flags it just stored
   onSaved: () => load()
 })
 
-// METHODS
-
-/** Refuses a second submit while a load or an earlier save is still in flight. */
 async function save() {
   if (state.loading > 0) {
     return

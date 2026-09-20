@@ -7,17 +7,12 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #3032: `MainLayout.vue` mirrors its reactive `sidebarWidth` onto
- * `--sidebar-current-width`, a CSS custom property set via `:style` on the layout's own root
- * `<w-layout>` element -- `Index.vue`'s Cobalt `.w-footer` rule reads it (through plain CSS
- * inheritance) to inset from the sidebar's own edge, replacing #3018's opposite approach of
- * shrinking the sidebar to clear the footer bar instead. This suite is the pure reactive-value
- * coverage; `MainLayout.footerClearance.test.js` is the real-browser geometry proof that the CSS
- * consuming it actually behaves.
+ * Pure reactive-value coverage; `MainLayout.footerClearance.test.js` is the real-browser geometry
+ * proof that the CSS consuming these properties behaves.
  *
- * Same direct-on-the-ref `useMinWidth` handling as this file's sibling suites (OpenProject
- * #2894/#2928's own notes explain why): a fresh `matchMedia` mock cannot reach a breakpoint another
- * test in the shared module-level cache already set.
+ * `useMinWidth` is driven directly on the ref rather than through a `matchMedia` mock: the
+ * composable caches one ref per breakpoint at module level, so a fresh mock cannot reach a
+ * breakpoint another test in the same run already set.
  */
 
 const LAYOUT_STUBS = {
@@ -62,8 +57,7 @@ describe('MainLayout --sidebar-current-width (OpenProject #3032)', () => {
     const { wrapper } = await mountLayout('/')
 
     // -> `NavSidebar` is stubbed, so `measureSidebarWidth()` finds no `.truncate` labels and stays
-    //    at the floor width (255) -- see `MainLayout.sidebarAutogrow.test.js` for the reactive
-    //    measurement itself, out of scope here.
+    //    at the floor width.
     expect(currentWidthVar(wrapper)).toBe('255px')
   })
 
@@ -85,8 +79,7 @@ describe('MainLayout --sidebar-current-width (OpenProject #3032)', () => {
     siteStore.showSideNav = false
     await wrapper.vm.$nextTick()
 
-    // -> Nothing to make room for: a page/site with no sidebar must not inset the footer bar as
-    //    though one were still occupying the grid column.
+    // -> A site with no sidebar must not inset the footer bar as though a column were occupied.
     expect(currentWidthVar(wrapper)).toBe('0px')
   })
 
@@ -106,20 +99,15 @@ describe('MainLayout --sidebar-current-width (OpenProject #3032)', () => {
     headerNav(wrapper).vm.$emit('openSidebar')
     await wrapper.vm.$nextTick()
 
-    // -> Unconditional on viewport width by design: `Index.vue`'s own media query is what decides
-    //    whether the footer actually reads this value below the sidebar's 1200px breakpoint, not
-    //    this computed -- see that file's `.w-footer` rule.
+    // -> Unconditional on viewport width by design: `Index.vue`'s own media query, not this
+    //    computed, is what decides whether the footer reads the value below the breakpoint.
     expect(currentWidthVar(wrapper)).toBe('255px')
   })
 })
 
 /**
- * OpenProject #3142: `MainLayout.vue` additionally splits `sidebarCurrentWidth` across two
- * directional custom properties, `--sidebar-inset-inline-start`/`--sidebar-inset-inline-end`, so
- * `Index.vue`'s footer rule can inset from whichever edge the sidebar actually renders on without
- * itself branching on `sidebarPosition`. Real-browser geometry (which edge the bar visually meets)
- * is `MainLayout.footerClearance.test.js`'s job; this is the pure reactive-value coverage for the
- * split itself.
+ * The width is split across two directional properties so `Index.vue`'s footer rule can inset from
+ * whichever edge the sidebar renders on without itself branching on `sidebarPosition`.
  */
 describe('MainLayout --sidebar-inset-inline-* (OpenProject #3142)', () => {
   afterEach(() => {

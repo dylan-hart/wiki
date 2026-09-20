@@ -43,9 +43,6 @@
     </div>
     <div class="grid grid-cols-12 p-4 gap-4">
       <div class="col-span-12 lg:col-span-7">
-        <!-- ----------------------- -->
-        <!-- Site Info -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.general.siteInfo')">
           <w-settings-row
             icon="tabler:home"
@@ -79,9 +76,6 @@
               :aria-label="t(`admin.general.siteHostname`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Footer / Copyright -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.general.footerCopyright')">
           <w-settings-row
             icon="tabler:building"
@@ -116,9 +110,6 @@
               :aria-label="t(`admin.general.footerExtra`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- FEATURES -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.general.features')">
           <w-settings-row
             tag="label"
@@ -208,9 +199,6 @@
               :options="reasonForChangeModes" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Defaults -->
-        <!-- ----------------------- -->
         <w-settings-card
           class="mt-4"
           v-if="state.config.defaults"
@@ -243,9 +231,6 @@
         </w-settings-card>
       </div>
       <div class="col-span-12 lg:col-span-5">
-        <!-- ----------------------- -->
-        <!-- Logo -->
-        <!-- ----------------------- -->
         <w-settings-card :title="t('admin.general.logo')">
           <w-settings-row
             control-width="auto"
@@ -273,11 +258,9 @@
               <w-toolbar class="bg-header text-white" style="height: 64px">
                 <!--
                   Keyed off `state.config.id`, not `adminStore.currentSiteId`: the store field flips
-                  the instant a different site is picked, but the title/logoText text below comes from
-                  `state.config`, which only updates once `load()`'s response for the NEW site lands.
-                  Using the store id here showed the new site's image next to the old site's title for
-                  the length of that request. `state.config.id` changes in the exact same assignment as
-                  the text, so the two can never disagree.
+                  the instant another site is picked, while the title below only updates when
+                  `load()`'s response lands. Both come from the same assignment this way, so the
+                  preview can never pair one site's logo with another's title.
                 -->
                 <!-- Preview only, not a real link -- inert rather than given a fake accessible name -->
                 <w-btn dense flat tabindex="-1" aria-hidden="true" v-if="state.config.id">
@@ -332,8 +315,6 @@
             <template #preview>
               <div class="admin-general-favicontabs">
                 <div>
-                  <!-- Same reasoning as the logo preview toolbar above: keyed off `state.config.id`
-                       so this can never show a new site's favicon beside the old site's title. -->
                   <w-avatar v-if="state.config.id" size="24px" square>
                     <img
                       :src="`/_site/` + state.config.id + `/favicon?` + faviconTimestamp"
@@ -357,9 +338,6 @@
             </template>
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Discovery -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.general.discovery')">
           <w-settings-row
             tag="label"
@@ -373,9 +351,6 @@
               :aria-label="t(`admin.general.discoverable`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Embedding -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.general.embedding')">
           <w-settings-row
             icon="tabler:frame"
@@ -387,9 +362,6 @@
               :aria-label="t(`admin.general.embedAllowedOrigins`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- Uploads -->
-        <!-- ----------------------- -->
         <w-settings-card
           class="mt-4"
           v-if="state.config.uploads"
@@ -410,9 +382,6 @@
               :aria-label="t(`admin.general.uploadConflictBehavior`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- URL Handling -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" :title="t('admin.general.urlHandling')">
           <w-settings-row
             icon="tabler:sort-descending"
@@ -433,9 +402,6 @@
               :aria-label="t(`admin.general.allowedUrlSchemes`)" />
           </w-settings-row>
         </w-settings-card>
-        <!-- ----------------------- -->
-        <!-- SEO -->
-        <!-- ----------------------- -->
         <w-settings-card class="mt-4" v-if="state.config.robots" title="SEO">
           <w-settings-row
             tag="label"
@@ -494,32 +460,18 @@ import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
-// ACCESS
-// -> Task #684: gates this page behind `site:general` (or `manage:sites`), redirecting away from a
-//    site the caller may not administer. See `composables/siteAdminAccess.js`.
 useSiteAdminAccess('site:general')
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.general.title')
 }))
 
-// DATA
-
-/**
- * Fallbacks for config keys a site may not have stored yet, so that every control renders with a
- * defined value. Must mirror the defaults used by the backend when creating a site.
- */
+/** Must mirror the backend's own defaults for a new site, so every control renders defined. */
 function defaultConfig() {
   return {
     id: '',
@@ -586,13 +538,10 @@ const rulesTitle = [(val) => /^[^<>"]+$/.test(val) || t('admin.general.siteTitle
 const rulesHostname = [(val) => isValidHostname(val) || t('admin.sites.hostnameInvalidChars')]
 
 /**
- * The hostname this site was serving as of the last successful `load()`. Not reactive on purpose --
- * it exists only for `save()` to diff against, never rendered, so a plain closure variable is enough
- * and avoids it showing up as unrelated Vue reactivity.
+ * The hostname this site was serving as of the last successful `load()`, for `save()` to diff
+ * against. Deliberately not reactive: nothing renders it.
  */
 let loadedHostname = ''
-
-// COMPOSABLES
 
 const {
   state,
@@ -602,18 +551,16 @@ const {
   i18nPrefix: 'admin.general',
   defaults: defaultConfig,
   extraState: {
-    // -> Whether this site has a logo / favicon of its own, i.e. whether there is anything to clear.
-    //    The previews always render: without one they show the default that is served instead.
+    // -> Whether there is anything to clear; the previews render either way, falling back to the
+    //    default image that is served when a site has none of its own.
     hasLogo: false,
     hasFavicon: false,
-    // -> Drives the "requires Sharp" indicator on the logo / favicon uploaders. Starts false rather
-    //    than true so a slow or failed `system/extensions` call understates the warning instead of
-    //    crying wolf while it's still unknown.
+    // -> False until proven otherwise, so a slow or failed `system/extensions` call understates the
+    //    warning rather than crying wolf while it is still unknown.
     sharpMissing: false
   },
   fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
-  // -> The form holds page extensions, allowed URL schemes and embed-allowed origins as a
-  //    comma-separated string each; the API sends each as an array
+  // -> The API sends arrays; the form edits each as one comma-separated string.
   pick: (site) => ({
     ...site,
     pageExtensions: site.pageExtensions.join(','),
@@ -625,8 +572,6 @@ const {
   onLoaded: (site) => {
     state.hasLogo = site?.assets?.logo ?? false
     state.hasFavicon = site?.assets?.favicon ?? false
-    // -> The hostname this site was actually serving as of this load, so save() can tell a real
-    //    rename apart from every other field change. See the comment in save() for why that matters.
     loadedHostname = site?.hostname ?? ''
   },
   commit: (siteId, config) =>
@@ -671,21 +616,12 @@ const {
       }
     }).json(),
   onSaved: () => adminStore.fetchSites(),
-  // -> Decision, so it doesn't silently regress: when the admin is editing the very site
-  //    currently serving their browser tab, the old code unconditionally re-resolved
-  //    `siteStore` from `window.location.hostname`. That is correct for every field EXCEPT
-  //    hostname itself -- `updateSite()` calls `reloadCache()` synchronously, so the instant the
-  //    PUT above resolves, the OLD hostname no longer maps to this site at all. Re-resolving it
-  //    then either mis-loads whatever other site (if any) claims that hostname next, or throws --
-  //    either way `siteStore` ends up mismatched or blank with no warning to the admin.
-  //
-  //    There is no client-side fix that "just follows" a hostname rename: the browser's address
-  //    bar still says the old hostname, and a `window.location` navigation to the new one is a
-  //    guess about DNS/reverse-proxy config this code has no way to confirm. So: skip the stale
-  //    reload and tell the admin instead. The admin API itself is host-agnostic (every other
-  //    admin action here is addressed by siteId, not hostname), so nothing else on this screen
-  //    breaks -- only page-serving under the old hostname stops working, and only once they
-  //    navigate away from it.
+  // -> Re-resolving `siteStore` from `window.location.hostname` is right for every field except
+  //    hostname itself: the PUT above drops the OLD hostname from the server's mappings, so that
+  //    reload would mis-load whatever site claims it next, or throw. Following the rename client
+  //    side is not an option either -- navigating to the new hostname guesses at DNS/proxy config
+  //    this code cannot confirm. The rest of the admin API is addressed by siteId, so only
+  //    page-serving under the old hostname stops working.
   onSavedCurrentSite: (config) => {
     if (hostnameRenamedAway(loadedHostname, config.hostname)) {
       notify({
@@ -698,8 +634,6 @@ const {
     }
   }
 })
-
-// COMPOSABLES (site images)
 
 const {
   upload: uploadLogo,
@@ -726,9 +660,7 @@ const {
   loading: toRef(state, 'loading')
 })
 
-/**
- * The form holds page extensions as a comma-separated string, while the API expects an array.
- */
+/** The form holds this as a comma-separated string; the API expects an array. */
 function parsePageExtensions(value) {
   const extensions = Array.isArray(value) ? value : String(value ?? '').split(',')
   return [
@@ -736,11 +668,7 @@ function parsePageExtensions(value) {
   ]
 }
 
-/**
- * Same shape as `parsePageExtensions` -- the form holds this as a comma-separated string, the API
- * wants an array. Just splits/trims/lowercases/dedupes; the backend schema (`api/sites.ts`) is what
- * enforces the actual scheme-name pattern.
- */
+/** No scheme-name validation here: `api/schemas/site.ts` is what enforces the pattern. */
 function parseAllowedUrlSchemes(value) {
   const schemes = Array.isArray(value) ? value : String(value ?? '').split(',')
   return [
@@ -751,11 +679,8 @@ function parseAllowedUrlSchemes(value) {
 }
 
 /**
- * Same shape as `parsePageExtensions`/`parseAllowedUrlSchemes` -- the form holds this as a
- * comma-separated string, the API wants an array. Lowercased since the backend schema
- * (`api/schemas/site.ts`) only accepts a lowercase origin -- Task #3275 reads these values directly
- * as literal `frame-ancestors` CSP source-list tokens, so this stays a plain split/trim/lowercase/
- * dedupe rather than a scheme-name pattern check, which the backend schema already enforces.
+ * Lowercased because these end up as literal `frame-ancestors` CSP source-list tokens and
+ * `api/schemas/site.ts` only accepts a lowercase origin.
  */
 function parseEmbedAllowedOrigins(value) {
   const origins = Array.isArray(value) ? value : String(value ?? '').split(',')
@@ -766,31 +691,22 @@ function parseEmbedAllowedOrigins(value) {
   ]
 }
 
-/**
- * The hostname `save()` will diff the next one against only moves once the change is actually
- * stored -- a refused save leaves this screen still editing a rename away from `loadedHostname`.
- */
+/** `loadedHostname` only moves on a stored change: a refused save is still an unsaved rename. */
 async function save() {
   if (await commit()) {
     loadedHostname = state.config.hostname ?? ''
   }
 }
 
-// MOUNTED
-
-// -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
-//    site switch). Drives the "requires Sharp" indicator on both uploaders.
+// -> Site-independent, so once on mount rather than inside `load()`, which re-runs per site switch.
 onMounted(async () => {
   state.sharpMissing = !(await isSharpAvailable())
 })
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
+/* Flat on purpose: a `&-suffix` selector is Sass string concatenation, and native CSS nesting
+   silently drops such a rule rather than matching it. */
 .admin-general-favicontabs {
   overflow: hidden;
   display: flex;

@@ -13,10 +13,8 @@ import { mountWithApp } from '../../test/mount.js'
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
   dialog: vi.fn(() => ({ onOk: vi.fn() })),
-  // -> `.onOk(cb)` runs `cb` at once rather than waiting on a real confirmation dialog's own click,
-  //    the same way `AdminApprovals.vue`'s equivalent flow would need mocking if it had a test --
-  //    what matters here is that the callback DOES the right thing once the user has agreed, not the
-  //    confirmation UI itself.
+  // -> `.onOk(cb)` runs `cb` at once: what is under test is what happens once the user has agreed,
+  //    not the confirmation UI.
   confirm: vi.fn(() => ({ onOk: (cb) => cb() }))
 }))
 
@@ -25,10 +23,9 @@ vi.mock('browser-fs-access', () => ({
   fileSave: (...args) => fileSave(...args)
 }))
 
-// -> Declared at module scope (`vi.mock` factories can't close over per-test locals), so unlike
-//    `API_CLIENT` -- rebuilt fresh per test by `test/setup.js` -- this needs its own call history
-//    cleared here, or an earlier test's call would still be there for a later `not
-//    .toHaveBeenCalled()` assertion to trip over.
+// -> `vi.mock` factories cannot close over per-test locals, so `fileSave` lives at module scope and
+//    keeps its call history between tests unless cleared -- unlike `API_CLIENT`, which
+//    `test/setup.js` rebuilds per test.
 beforeEach(() => {
   fileSave.mockClear()
   notifyQueue.splice(0, notifyQueue.length)
@@ -63,9 +60,8 @@ function mountAdminGlossary(terms = EXPORT_TERMS, siteOverrides = {}) {
 }
 
 /**
- * Glossary admin editing is a staged workflow (OpenProject #1113): every add/edit/delete touches only
- * the local `state.terms` working copy, and nothing reaches the API until `saveGlossary()` -- these
- * tests cover that split directly, rather than the pre-#1113 immediate-apply behavior.
+ * Glossary editing is staged: add/edit/delete touch only the local `state.terms` working copy, and
+ * nothing reaches the API until `saveGlossary()`.
  */
 describe('AdminGlossary: load()', () => {
   it('loads via the export endpoint -- the SAME shape save/import both take (OpenProject #1114)', async () => {
@@ -96,9 +92,7 @@ describe('AdminGlossary: load()', () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
 
-    // -> Wiki #2700: the definition used to be a second `WItemSection` in the middle of the row. A
-    //    `WSettingsRow` has one text column, so it sits in the hint under the term it defines --
-    //    the claim this test makes is unchanged, only where the two live.
+    // -> A `WSettingsRow` has one text column, so the definition belongs in the hint slot.
     const row = wrapper.find('.w-settings-row')
 
     expect(row.find('.w-settings-row__label').text()).not.toContain(
@@ -243,7 +237,6 @@ describe('AdminGlossary: saveGlossary()', () => {
         }
       })
     )
-    // -> Reloads from `export` right after -- see the component's own comment on why
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/export')
   })
 
@@ -277,7 +270,6 @@ describe('AdminGlossary: saveGlossary()', () => {
 
     await wrapper.vm.saveGlossary()
 
-    // -> No reload on refusal, so the staged edit -- and the dirty flag it produced -- both survive.
     expect(wrapper.vm.state.terms[0].definition).toBe('Changed.')
     expect(wrapper.vm.isDirty).toBe(true)
     expect(API_CLIENT.get.mock.calls.length).toBe(getCallsBefore)
@@ -337,7 +329,6 @@ describe('AdminGlossary: export/import (OpenProject #1114)', () => {
         componentProps: { siteId: 'site-1' }
       })
     )
-    // -> `.onOk(cb)` above runs `load` immediately -- see the module-level `dialog` mock's own comment
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/export')
   })
 })
@@ -404,9 +395,7 @@ describe('AdminGlossary: rerenderAllPages() (OpenProject #3181)', () => {
 
     expect(confirm).toHaveBeenCalled()
     expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/glossary/rerender-all-pages')
-    // -> `t()` has no real message catalog under test (see `admin.glossary.noTerms`'s own test
-    //    above, which asserts the raw key for the same reason) -- {count} interpolation isn't
-    //    exercised here, only that the queued count made it into the call at all.
+    // -> No message catalog under test, so `{count}` interpolation cannot be asserted on.
     expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
   })
 
@@ -427,9 +416,8 @@ describe('AdminGlossary: rerenderAllPages() (OpenProject #3181)', () => {
   })
 })
 
-// -> OpenProject #1929: `/admin/glossary` names a concept this fork invented (glossary management is
-//    not an upstream Wiki.js feature), so no docs site can describe it -- the help button was deleted
-//    rather than left pointing at a page that does not exist.
+// -> Glossary management is a fork-invented surface with no upstream docs page, so a help button
+//    here could only point at a URL that does not exist.
 describe('AdminGlossary help link', () => {
   it('has no help/docs button', async () => {
     const wrapper = mountAdminGlossary()

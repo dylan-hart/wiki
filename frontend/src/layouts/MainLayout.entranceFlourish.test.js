@@ -7,10 +7,8 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2747/#2751 ("Authenticated-shell entrance flourish"): `MainLayout.vue` reads-and-clears
- * the `cardinal:justLoggedIn` sessionStorage flag Task A (#2750, `AuthLoginPanel.vue`) sets
- * immediately before its hard `window.location.replace()`, and plays the staggered entrance
- * animation only when that flag was present and `prefers-reduced-motion` is not set.
+ * `AuthLoginPanel.vue` sets this flag immediately before a hard `window.location.replace()`, so a
+ * fresh mount is what consumes it -- which is why the fixture is sessionStorage rather than a prop.
  */
 
 const ENTRANCE_FLOURISH_KEY = 'cardinal:justLoggedIn'

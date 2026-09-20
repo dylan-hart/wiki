@@ -76,11 +76,8 @@
             </template>
             <template v-slot:body-cell-usercount="props">
               <w-td :props="props">
-                <!--
-                  An uncoloured chip: Cardinal draws one as a hairline outline on the surface, which
-                  is what a count belongs in. Colouring it (a near-black fill in dark, a grey one in
-                  light) made a tally look like a status.
-                -->
+                <!-- Uncoloured on purpose: a hairline outline reads as a tally, whereas a filled
+                     chip reads as a status. -->
                 <w-chip class="text-caption" dense>{{
                   t('admin.groups.usersCount', { count: props.value })
                 }}</w-chip>
@@ -136,38 +133,22 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import GroupCreateDialog from '../components/GroupCreateDialog.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// ROUTER
-
 const router = useRouter()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.groups.title')
 }))
 
-// COMPUTED
-
-/*
-  `read:groups` reaches this page too (see the nav in `AdminLayout`), and everything that writes needs
-  `manage:groups` -- so the controls behind it are hidden rather than left to fail at the API.
-*/
+// -> `read:groups` alone reaches this page, so every writing control is hidden behind
+//    `manage:groups` rather than left to fail at the API.
 const canManage = computed(() => userStore.can('manage:groups'))
-
-// DATA
 
 const state = reactive({
   groups: [],
@@ -208,15 +189,11 @@ const headers = [
   }
 ]
 
-// OVERLAY ROUTE
-
 useAdminOverlayRoute({
   overlay: 'GroupEditOverlay',
   listPath: '/_admin/groups',
   onClosed: load
 })
-
-// METHODS
 
 async function load() {
   state.loading++
@@ -264,8 +241,8 @@ function deleteGroup(gr) {
       })
       load()
     } catch (err) {
-      // -> ky throws for statuses above 400 (e.g. 409 for a system group), where the reason the API
-      //    gave is in the response body rather than in the error message
+      // -> ky throws on any non-2xx (409 for a system group, say), and the API's reason is in the
+      //    response body rather than the error message.
       notify({
         type: 'negative',
         message: apiErrorMessage(err)
@@ -273,8 +250,6 @@ function deleteGroup(gr) {
     }
   })
 }
-
-// MOUNTED
 
 onMounted(() => {
   load()
