@@ -388,6 +388,45 @@ describe('rendering.postProcess: internal link extraction strips a locale prefix
     assert.deepEqual(result.links, ['de/guide'])
   })
 
+  test('resolves an aliased locale prefix (/zh/guide) to the bare page path, and still the canonical spelling', async () => {
+    CARDINAL.sites['site-locale-alias'] = makeSite({
+      id: 'site-locale-alias',
+      config: {
+        locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+      }
+    })
+    const html =
+      '<p><a href="/zh/guide">Alias</a> <a href="/ZH/manual">Mis-cased</a> <a href="/zh-CN/faq">Canonical</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-locale-alias',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['guide', 'manual', 'faq'])
+  })
+
+  test('an alias of an inactive locale is not a prefix, so the link keeps its first segment', async () => {
+    CARDINAL.sites['site-locale-alias-inactive'] = makeSite({
+      id: 'site-locale-alias-inactive',
+      config: {
+        locales: { primary: 'en', active: ['en'], aliases: { 'zh-CN': 'zh' } }
+      }
+    })
+    const html = '<p><a href="/zh/guide">Guide</a></p>'
+
+    const result = await rendering.postProcess(
+      'site-locale-alias-inactive',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+
+    assert.deepEqual(result.links, ['zh/guide'])
+  })
+
   test('a site with no locales config leaves a link untouched, unchanged from before', async () => {
     const html = '<p><a href="/fr/guide">Guide</a></p>'
 
