@@ -18,12 +18,9 @@ import { ensureTemporal } from '../../../test/temporal.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
- * Exercises `validateConfig`, `dump` and `backup` entirely against the real filesystem (temp
- * directories, cleaned up after each test) with `CARDINAL.db` / `CARDINAL.models.pages` /
- * `CARDINAL.models.assets` stubbed rather than a real Postgres instance — what this module has to get
- * right is filesystem behavior (paths, directory creation, archive contents, surfacing a write
- * failure), not SQL, so a stub answering the exact `select().from().where().orderBy()` chain
- * `listSiteEntries` builds is enough to drive it.
+ * Runs against the real filesystem but stubs `CARDINAL.db` and the models: what this module has to get
+ * right is filesystem behavior, not SQL, so a stub answering the exact
+ * `select().from().where().orderBy()` chain `listSiteEntries` builds is enough to drive it.
  */
 before(async () => {
   await ensureTemporal()
@@ -33,17 +30,13 @@ async function makeTempDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'wiki-disk-storage-test-'))
 }
 
-/** A minimal target for `site-1` configured to write to `dir` -- all `dump`/`backup` read from it. */
 function makeTarget(dir: string): StorageTarget {
   // -> Deliberately NOT `test/builders.ts#makeStorageTarget`: that builder fills in the whole
-  //    blob-module capability superset, and the whole point of this suite's fixture is that `disk`
-  //    reads nothing beyond `siteId` and `config.path` — a target carrying `contentTypes`,
-  //    `assetDelivery`, `versioning` and `sync` could not fail if the module started reaching for
-  //    one of them.
+  //    blob-module capability superset, so it could not fail if `disk` started reaching past
+  //    `siteId` and `config.path`.
   return { siteId: 'site-1', config: { path: dir } } as unknown as StorageTarget
 }
 
-/** Points `CARDINAL` at fakes answering exactly what `dump()` calls: the tree query, pages, assets. */
 function fakeDumpDeps({
   rows = [],
   getPage = async () => null,
@@ -53,8 +46,8 @@ function fakeDumpDeps({
   getPage?: (args: { siteId: string; id: string; withContent: boolean }) => Promise<any>
   getContent?: (id: string) => Promise<any>
 } = {}) {
-  // -> `models` names exactly what `dump()` calls and nothing else, so a reach past them still
-  //    throws (`createWikiStub` defaults `models` to `{}` for precisely this reason).
+  // -> `models` names exactly what `dump()` calls, so a reach past them throws instead of passing
+  //    silently (`createWikiStub` defaults `models` to `{}` for precisely this reason).
   installTestWiki({
     db: {
       select: () => ({
@@ -81,10 +74,6 @@ test('diskStorageModule declares validateConfig, dump, importAll, backup and dai
     'validateConfig'
   ])
 })
-
-// ---------------------------------------------------------------------------------------------
-// validateConfig()
-// ---------------------------------------------------------------------------------------------
 
 test('validateConfig requires a path', async () => {
   assert.match((await validateConfig({})) ?? '', /path is required/)
@@ -133,10 +122,6 @@ test('validateConfig accepts an absolute, existing, writable directory', async (
     await fs.rm(dir, { recursive: true, force: true })
   }
 })
-
-// ---------------------------------------------------------------------------------------------
-// dump()
-// ---------------------------------------------------------------------------------------------
 
 test('dump writes nothing and does not throw for a site with no pages or assets', async () => {
   const dir = await makeTempDir()
@@ -233,8 +218,6 @@ test('re-running dump overwrites deterministically, so a rerun after a partial f
     await dump(makeTarget(dir))
     assert.equal(await fs.readFile(path.join(dir, 'en', 'home.md'), 'utf8'), 'v1')
 
-    // -> A second run against the same path, with the underlying content since changed, must land the
-    //    new bytes rather than leaving the first run's file untouched or erroring on "already exists"
     fakeDumpDeps({
       rows: [{ id: 'p1', type: 'page', locale: 'en', folderPath: '', fileName: 'home' }],
       getPage: async () => ({ path: 'home', locale: 'en', contentType: 'markdown', content: 'v2' })
@@ -248,9 +231,8 @@ test('re-running dump overwrites deterministically, so a rerun after a partial f
 
 test('dump throws a clear error naming the entry when the path becomes unwritable mid-run, leaving earlier writes in place', async () => {
   const dir = await makeTempDir()
-  // -> A plain *file* sits where the second entry needs a directory, forcing an ENOTDIR write failure
-  //    partway through — deterministic on every platform and every user, unlike a chmod-based
-  //    permission failure, which root ignores entirely.
+  // -> A plain *file* where the second entry needs a directory forces ENOTDIR partway through:
+  //    deterministic for every platform and user, unlike a chmod failure, which root ignores.
   await fs.mkdir(path.join(dir, 'en'), { recursive: true })
   await fs.writeFile(path.join(dir, 'en', 'blocked'), 'not a directory')
 
@@ -272,19 +254,12 @@ test('dump throws a clear error naming the entry when the path becomes unwritabl
 
   try {
     await assert.rejects(dump(makeTarget(dir)), /Failed to dump page "second"/)
-    // -> The entry processed before the failure was still written -- dump neither rolls back nor
-    //    buffers, it writes as it goes
     assert.equal(await fs.readFile(path.join(dir, 'en', 'first.md'), 'utf8'), 'ok')
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }
 })
 
-// ---------------------------------------------------------------------------------------------
-// importAll()
-// ---------------------------------------------------------------------------------------------
-
-/** A target for `site-1` importing from `dir`. Active locales are set via `fakeImportDeps`. */
 function makeImportTarget(dir: string): StorageTarget {
   return {
     siteId: 'site-1',
@@ -293,13 +268,6 @@ function makeImportTarget(dir: string): StorageTarget {
   } as unknown as StorageTarget
 }
 
-/**
- * Points `CARDINAL` at fakes answering exactly what `importAll()` calls: the site's active locales, the
- * system actor id, and `tree`/`pages`/`assets` model methods. Each model method defaults to a stub
- * that would fail loudly if actually invoked, and callers override only the ones their scenario
- * exercises -- so a test that never expects e.g. `assets.upload` to run finds out immediately if it
- * does.
- */
 function fakeImportDeps({
   locales = ['en'],
   getEntryAt = async () => null,
@@ -317,9 +285,8 @@ function fakeImportDeps({
     sites: { 'site-1': { config: { locales: { active: locales } } } },
     data: { systemIds: { userAdminId: 'admin-user-id' } },
     models: {
-      // -> No `queueRerender` stub: `importPage()` no longer calls it (OpenProject #1723) --
-      //    `createPage()` alone now owns queuing its own re-render, so a test whose scenario
-      //    somehow still reached it would fail loudly (`TypeError`) rather than silently pass.
+      // -> No `queueRerender` stub on purpose: `createPage()` owns that queuing, so a call
+      //    reintroduced here fails loudly (`TypeError`) rather than silently passing.
       tree: { getEntryAt, getFolder },
       pages: { createPage },
       assets: { upload }
@@ -362,9 +329,8 @@ test('importAll imports a markdown file as a new page', async () => {
   }
 })
 
-// -> OpenProject #926: dump() writes pages in every PAGE_EXTENSIONS extension, so importAll must
-//    reverse all of them, not just .md — the rest previously fell through to importAsset and came
-//    back as a binary asset row instead of a page.
+// -> `dump()` writes pages in every PAGE_EXTENSIONS extension, so `importAll` must reverse all of
+//    them; anything it misses falls through to `importAsset` and returns as a binary asset row.
 test('importAll imports an asciidoc file as a page with the asciidoc editor', async () => {
   const dir = await makeTempDir()
   const filePath = await writeFile(dir, 'en', 'foo', 'home.adoc')
@@ -662,7 +628,6 @@ test('importAll: re-running after a prior run does not duplicate an already-impo
   await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
   await writeFile(dir, 'en', 'logo.png').then((p) => fs.writeFile(p, 'PNGDATA'))
 
-  // -> First run: nothing exists yet
   let pageExists = false
   let assetUploadCount = 0
   fakeImportDeps({
@@ -682,9 +647,8 @@ test('importAll: re-running after a prior run does not duplicate an already-impo
     assert.equal(first.pagesCreated, 1)
     assert.equal(assetUploadCount, 1)
 
-    // -> Second run against the same fakes: the page now resolves as an existing occupant and is
-    //    skipped; the asset upload still runs (its idempotency is `upload()`'s own `overwrite`
-    //    default, exercised by the real model, not by this fake) but produces no new tree entry.
+    // -> The asset upload still runs on the second pass: its idempotency is `upload()`'s own
+    //    `overwrite` default, which only the real model exercises.
     const second = await importAll(makeImportTarget(dir))
     assert.equal(second.pagesCreated, 0)
     assert.equal(second.pagesSkipped, 1)
@@ -719,10 +683,8 @@ test("importAll resolves each locale's same-named folder separately, rather than
   }
 })
 
-// -> OpenProject #1723: `importPage()` used to call `queueRerender()` itself after `createPage()`,
-//    best-effort (a queue failure only warned, the page still counted as imported). `createPage()`
-//    now does that queuing internally whenever `render` is omitted (OpenProject #1716), so this call
-//    site is a plain `createPage()` with nothing after it.
+// -> `createPage()` queues its own re-render whenever `render` is omitted, so this call site must
+//    stay a plain `createPage()` with nothing after it.
 test('importAll creates a page via a plain createPage() call, with no render field and no separate queueRerender call', async () => {
   const dir = await makeTempDir()
   await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
@@ -745,10 +707,8 @@ test('importAll creates a page via a plain createPage() call, with no render fie
   }
 })
 
-// -> `createPage()` now consults `ensureCanRender()` *before* the write (OpenProject #1716), so a
-//    missing Puppeteer refuses the create outright rather than landing a page with no render queued.
-//    `importLocaleDir`'s own per-entry try/catch is what turns that into an `unrecognized` entry
-//    instead of aborting the whole import.
+// -> `createPage()` consults `ensureCanRender()` *before* the write, so a missing Puppeteer refuses
+//    the create rather than landing a page with no render queued.
 test('importAll surfaces a createPage() failure (e.g. missing Puppeteer) as an unrecognized entry, not a silently blank page', async () => {
   const dir = await makeTempDir()
   await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
@@ -769,10 +729,6 @@ test('importAll surfaces a createPage() failure (e.g. missing Puppeteer) as an u
     await fs.rm(dir, { recursive: true, force: true })
   }
 })
-
-// ---------------------------------------------------------------------------------------------
-// backup()
-// ---------------------------------------------------------------------------------------------
 
 test('backup creates the _manual folder and a timestamped tar.gz containing what was on disk', async () => {
   const dir = await makeTempDir()
@@ -808,9 +764,8 @@ test('backup names two calls a second apart with two distinct archives', async (
   const dir = await makeTempDir()
   await fs.writeFile(path.join(dir, 'note.txt'), 'content')
 
-  // -> Timestamps are second-precision (see `backup`'s doc), so proving two calls land as two
-  //    distinct archives -- rather than one silently overwriting the other -- needs them a second
-  //    apart. Stubbing `Temporal.Now.instant` proves that without a real sleep in the test.
+  // -> Archive names are second-precision, so two calls have to be a second apart to land as two
+  //    files; stubbing the clock avoids a real sleep.
   const originalInstant = Temporal.Now.instant
   const base = originalInstant()
   let call = 0
@@ -830,9 +785,8 @@ test('backup names two calls a second apart with two distinct archives', async (
 
 test('backup throws a clear error when _manual cannot be created (path unwritable)', async () => {
   const dir = await makeTempDir()
-  // -> A plain *file* already sits where `backup()` needs to create the `_manual` directory --
-  //    deterministic on every platform and every user, unlike a chmod-based permission failure,
-  //    which root ignores entirely.
+  // -> A plain *file* where `_manual` needs to be created: deterministic for every platform and
+  //    user, unlike a chmod failure, which root ignores.
   await fs.writeFile(path.join(dir, '_manual'), 'not a directory')
   try {
     await assert.rejects(backup(makeTarget(dir)), /Failed to create.*_manual/)
@@ -840,10 +794,6 @@ test('backup throws a clear error when _manual cannot be created (path unwritabl
     await fs.rm(dir, { recursive: true, force: true })
   }
 })
-
-// ---------------------------------------------------------------------------------------------
-// dailyBackup() / pruneDailyBackups()
-// ---------------------------------------------------------------------------------------------
 
 test('dailyBackup creates the _daily folder and a timestamped tar.gz containing what was on disk', async () => {
   const dir = await makeTempDir()

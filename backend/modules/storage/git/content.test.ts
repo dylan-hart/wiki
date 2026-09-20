@@ -1,9 +1,6 @@
 /**
- * Tests for the write-path content-dispatch handlers: page/asset to git file mapping and commits.
- *
- * Same approach as `storage.test.ts`: a real `git` binary via `simple-git` against a throwaway temp
- * directory, and a minimal `CARDINAL` stub covering only what these handlers read (`models.pages`,
- * `models.assets`, `models.users`, `sites`) — a mock of `simple-git` itself would mostly just
+ * A real `git` binary via `simple-git` against a throwaway temp directory, with a minimal `CARDINAL`
+ * stub covering only what these handlers read — a mock of `simple-git` itself would mostly just
  * re-describe the code under test rather than verify it.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
@@ -30,7 +27,6 @@ import type { StorageTarget } from '../../../models/storage.ts'
 const SITE_ID = 'site-1'
 const PRIMARY_LOCALE = 'en'
 
-/** Installs a `CARDINAL` stub. `pages`/`assets`/`users` are keyed by id and overridable per test. */
 function installWiki(
   rootPath: string,
   {
@@ -97,7 +93,6 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
   })
 }
 
-/** Reads back the latest commit's author + message, for asserting the write-path convention. */
 async function latestCommit(repoPath: string) {
   const git = simpleGit(repoPath)
   const log = await git.log()
@@ -158,13 +153,8 @@ describe('git storage content handlers', () => {
       await assert.doesNotReject(fs.access(path.join(repoPath, 'page.html')))
     })
 
-    /**
-     * OpenProject #3401: a WYSIWYG page's `contentType` is `markdown` now (it stores markdown via
-     * `@tiptap/markdown`, not typed Tiptap JSON) -- this handler reads `page.contentType`, never
-     * `page.editor`, so it already writes a `.md` file for one with no fix needed. Pinned explicitly
-     * rather than trusted implicitly, since `w1`'s content here is real markdown source, the same
-     * shape the plain `markdown` editor writes.
-     */
+    // -> This handler reads `page.contentType`, never `page.editor`, and a WYSIWYG page stores
+    //    markdown — so the editor never gets a say in the extension.
     test('writes a WYSIWYG-editor page (content type markdown) to a .md file, same as the markdown editor', async () => {
       installWiki(rootPath, {
         pages: {
@@ -261,7 +251,6 @@ describe('git storage content handlers', () => {
         pages: { p1: { id: 'p1', path: 'new-path', contentType: 'markdown', content: 'body' } }
       })
       const { repoPath } = await ensureRepo(target)
-      // -> Create it at the old path first, as a real create would have
       await created(target, { id: 'p1', path: 'old-path', locale: PRIMARY_LOCALE, siteId: SITE_ID })
 
       await renamed(target, {
@@ -309,7 +298,6 @@ describe('git storage content handlers', () => {
         pages: { p1: { id: 'p1', path: 'same-path', contentType: 'markdown', content: 'body' } }
       })
       const { repoPath } = await ensureRepo(target)
-      // -> Created in a non-primary locale, so it starts inside that locale's directory
       await created(target, { id: 'p1', path: 'same-path', locale: 'fr', siteId: SITE_ID })
 
       await renamed(target, {
@@ -328,14 +316,8 @@ describe('git storage content handlers', () => {
       assert.equal(commit?.message, 'docs: rename fr/same-path to en/same-path')
     })
 
-    /**
-     * `movePage`'s `includeTranslations` cascade (OpenProject #1026) dispatches `page:rename` once
-     * per moved page -- the primary, then each twin -- which reaches this handler as one `renamed()`
-     * call per page. Both files end up moved by the time that dispatch pass is done, each carried by
-     * its own commit (`renamed()` has always committed per call; the cascade does not change that),
-     * confirming the git target actually completes both renames rather than only the one it was
-     * called for first.
-     */
+    // -> `movePage`'s `includeTranslations` cascade dispatches `page:rename` once per moved page, so
+    //    this handler gets one `renamed()` call per twin and each carries its own commit.
     test('a translations cascade renames every twin file too, each in its own commit', async () => {
       installWiki(rootPath, {
         pages: {
@@ -381,9 +363,7 @@ describe('git storage content handlers', () => {
       const git = simpleGit(repoPath)
       const log = await git.log()
       // -> Each is a same-locale rename, so both commit messages read identically (the locale lives
-      //    in the file's directory, not in `renamed()`'s message) -- what proves the cascade actually
-      //    ran twice is that there are two of them, on top of the file-level assertions above already
-      //    proving both locales' files moved.
+      //    in the file's directory, not in the message) -- the count is what proves it ran twice.
       const renameMessages = log.all
         .map((entry) => entry.message)
         .filter((message) => message === 'docs: rename docs/old to docs/new')
@@ -450,11 +430,9 @@ describe('git storage content handlers', () => {
       assert.equal(commit?.message, 'docs: upload images/pic.png')
     })
 
-    // -> OpenProject #924: the handler no longer re-checks the target's content-type coverage —
-    //    `Storage.dispatch()` already gated this (size-aware) before queuing the job that calls it,
-    //    so a target whose row disagrees with dispatch's classification (e.g. edited between queueing
-    //    and delivery) is not second-guessed here. Matches `s3`/`azure`/`gcs`'s own write-path
-    //    handlers, which never re-check either.
+    // -> The handler does not re-check the target's content-type coverage: `Storage.dispatch()`
+    //    already gated this size-aware before queuing, so a target row disagreeing with that
+    //    classification (e.g. edited between queueing and delivery) is not second-guessed here.
     test('writes the asset even though the target row itself would not cover this kind, trusting the dispatch that already gated it', async () => {
       installWiki(rootPath, {
         assets: {

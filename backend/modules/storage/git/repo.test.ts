@@ -1,14 +1,8 @@
 /**
- * Unit tests for `repo.ts` — the git storage module's repo lifecycle and auth wiring leaf.
- *
- * `resolveRepoPath`/`buildAuthenticatedUrl` are tested as pure functions with no `CARDINAL` global and
- * no I/O, made straightforward precisely because `repo.ts` has no sibling imports to stand in the
- * way. `ensureRepo` itself is not pure — it shells out to a real `git` binary via `simple-git`
- * against throwaway temp directories, since the behavior under test — init, remote add/update,
- * branch checkout, SSH config wiring — genuinely is that shelling-out, and a mock of `simple-git`
- * would mostly just be re-describing the code rather than verifying it. No `test/db.ts` fixture:
- * nothing here touches Postgres. `CARDINAL` is a minimal stub: only `ROOTPATH` and `models.extensions`
- * (git-detection) are read by this file.
+ * `ensureRepo` shells out to a real `git` binary via `simple-git` against throwaway temp directories:
+ * the behavior under test — init, remote add/update, branch checkout, SSH config wiring — genuinely
+ * is that shelling-out, and a mock of `simple-git` would mostly just be re-describing the code rather
+ * than verifying it.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,7 +13,6 @@ import { simpleGit } from 'simple-git'
 import { ensureRepo, resolveRepoPath, buildAuthenticatedUrl } from './repo.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
 
-/** Installs a `CARDINAL` stub with git detection reporting `installed`, and ROOTPATH under a temp dir. */
 function installWiki(rootPath: string, { installed = true }: { installed?: boolean } = {}): void {
   installTestWiki({
     ROOTPATH: rootPath,
@@ -79,10 +72,9 @@ describe('git storage: buildAuthenticatedUrl', () => {
     'an @ in the password does not shift where the host is parsed from ' +
       '(OpenProject #823 item 1 — upstream #2646)',
     () => {
-      // -> 2.5.x built this URL by string interpolation, so a password containing its own `@` (a
-      //    real shape for a PAT or generated password) was read as ending the userinfo section
-      //    early, and everything after it — including the *real* `@host` — was misparsed as part of
-      //    the host/path instead. A password with two `@`s is the sharpest version of that.
+      // -> A password containing its own `@` (a real shape for a PAT or generated password) ends the
+      //    userinfo section early if the URL is built by interpolation, misparsing everything after
+      //    it — the *real* `@host` included — as host/path. Two `@`s is the sharpest version.
       const result = buildAuthenticatedUrl(
         'https://git.example.com/org/repo.git',
         'svc-account',
@@ -92,9 +84,8 @@ describe('git storage: buildAuthenticatedUrl', () => {
       assert.equal(parsed.hostname, 'git.example.com')
       assert.equal(parsed.pathname, '/org/repo.git')
       assert.equal(decodeURIComponent(parsed.password), 'tok@en@2026')
-      // -> The raw string must not contain a bare, unencoded `@` inside the credentials portion —
-      //    that is precisely what would let it be re-parsed as the userinfo/host separator by
-      //    anything downstream (git itself included) that re-reads this URL as text.
+      // -> A bare, unencoded `@` inside the credentials portion is what would let anything
+      //    downstream (git itself included) re-read this URL as text and split it at the wrong `@`.
       const credentials = result.slice('https://'.length, result.indexOf('@git.example.com'))
       assert.equal(credentials.includes('@'), false)
     }
@@ -131,13 +122,11 @@ describe('git storage: ensureRepo', () => {
     const result = await ensureRepo({ config: baseConfig() })
     const stat = await fs.stat(path.join(result.repoPath, '.git'))
     assert.ok(stat.isDirectory())
-    // -> Pre-existing content is untouched by init
     await assert.doesNotReject(fs.access(path.join(result.repoPath, 'not-git-yet.txt')))
   })
 
   test('does not re-run init when a git repo already exists', async () => {
     await ensureRepo({ config: baseConfig() })
-    // -> Second call must not throw or wipe the already-initialized repo
     const { repoPath } = await ensureRepo({ config: baseConfig() })
     const stat = await fs.stat(path.join(repoPath, '.git'))
     assert.ok(stat.isDirectory())
@@ -251,14 +240,11 @@ describe('git storage: ensureRepo', () => {
     'honors a custom SSH port embedded in the repository URL (OpenProject #823 item 2 — ' +
       'upstream #2564, "custom SSH port setting silently ignored")',
     async () => {
-      // -> This fork's `definition.yml` has no separate "SSH Port" prop at all: `repoUrl` is a
-      //    "Git-compliant URI", and `ssh://host:port/...` is exactly how one embeds a non-default
-      //    port. The regression this guards is that `core.sshCommand` (`-i <key> -o
-      //    StrictHostKeyChecking=no`) must not clobber or ignore that port — git appends its own
-      //    `-p <port>` when invoking a command it recognizes as the real `ssh` binary, but only for
-      //    the "ssh" variant, not the fallback "simple" variant it assumes for anything not
-      //    literally named `ssh`/`plink`/`tortoiseplink`. `ensureRepo()`'s `core.sshCommand` starts
-      //    with literal `ssh`, so it gets the real-variant treatment.
+      // -> There is no separate "SSH Port" prop: `repoUrl` is a Git-compliant URI, and
+      //    `ssh://host:port/...` is how a non-default port is embedded. Git appends its own
+      //    `-p <port>` only for a command it recognizes as the real `ssh` binary, not for the
+      //    fallback "simple" variant it assumes for anything not literally named
+      //    `ssh`/`plink`/`tortoiseplink` — so `core.sshCommand` must keep starting with `ssh`.
       const { git } = await ensureRepo({
         config: baseConfig({
           authType: 'ssh',
@@ -277,8 +263,8 @@ describe('git storage: ensureRepo', () => {
     const { repoPath } = await ensureRepo({
       config: baseConfig({ authType: 'basic', gitBinaryPath: 'git' })
     })
-    // -> `binary: 'git'` still has to resolve and run correctly — proves the option is honored
-    //    rather than silently ignored, without depending on a fake non-PATH binary being present.
+    // -> `binary: 'git'` still has to resolve and run, which proves the option is honored rather
+    //    than silently ignored, without depending on a fake non-PATH binary being present.
     const check = simpleGit(repoPath)
     assert.ok(await check.checkIsRepo())
   })

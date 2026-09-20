@@ -1,28 +1,8 @@
 /**
- * The three remaining `definition.yml` actions: `syncUntracked` ("Add Untracked Changes"),
- * `importAll` ("Import Everything") and `purge` ("Purge Local Repository").
- *
- * All three reuse the plumbing built for the write-path handlers and `sync`, rather than
- * re-implementing it:
- *  - `ensureRepo` (`storage.ts`, task 504) for repo lifecycle/auth.
- *  - `pageRelPath`/`assetRelPath`/`covers`/`resolveAuthor`/`authorOption` (`content.ts`, task 506)
- *    for the DB→file mapping the forward direction already established.
- *  - `processDiffEntry`/`resolveImportActor`/`DiffEntry` (`sync.ts`, task 507) for the file→DB upsert
- *    the reverse direction already established — `importAll` feeds it synthetic entries (see below)
- *    instead of a real `git diffSummary` line.
- *
- * `syncUntracked`'s asset walk gates on `belongsInTarget` (`helpers/blobTarget.ts`), the same
- * size-aware bucket classification `Storage.dispatch()` gates a write-path event on and the
- * `s3`/`azure`/`gcs` modules' own `exportAll` gates their bulk push on — not `content.ts`'s
- * kind-only `covers(target, assetBucket(...))`, which would silently skip (or wrongly include) a
- * "large" asset for a target that covers `large` but not the asset's own kind bucket, or vice versa
- * (OpenProject #924).
- *
- * Verified against 2.5.x's own `syncUntracked`/`importAll`/`purge` (`server/modules/storage/git/
- * storage.js`, fetched and read directly rather than recalled from memory) for the shape each action
- * takes — one bulk commit for `syncUntracked`, a plain working-tree walk with no diff/rename/delete
- * inference for `importAll`, an empty-and-reinit for `purge` — while re-deriving the actual per-file
- * logic from this branch's own plumbing rather than porting 2.5.x's code.
+ * `syncUntracked`'s asset walk gates on `belongsInTarget` (`helpers/blobTarget.ts`) — the same
+ * size-aware bucket classification `Storage.dispatch()` gates a write-path event on — and not on
+ * `content.ts`'s kind-only `covers(target, assetBucket(...))`, which would silently skip (or wrongly
+ * include) a "large" asset for a target covering `large` but not that asset's own kind bucket.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -34,13 +14,7 @@ import { processDiffEntry, resolveImportActor } from './sync.ts'
 import type { DiffEntry } from './sync.ts'
 import { ensureRepo, gitLog, resolveRepoPath } from './repo.ts'
 
-/**
- * Write `content` to `relPath` if it is missing or its bytes differ from what is already there, and
- * stage it (`git add`) when it was written — never committed here, `syncUntracked` commits everything
- * it staged in one go at the end.
- *
- * @returns Whether the file was written and staged.
- */
+/** Staged but never committed here: `syncUntracked` commits everything it staged in one go. */
 async function writeIfChanged(
   git: SimpleGit,
   repoPath: string,
@@ -65,14 +39,11 @@ async function writeIfChanged(
 }
 
 /**
- * `syncUntracked` ("Add Untracked Changes"): a one-way DB→repo export for content that predates git
- * being enabled (or was created while it was temporarily disabled) — walk every page and asset of the
- * target's site whose content type the target actively covers, write out whichever ones the repo does
- * not yet have or has stale, and commit them all in a single "docs: add all untracked content" commit,
- * matching 2.5.x's own action. Never touches the remote — no pull, no push.
+ * A one-way DB→repo export for content that predates git being enabled, or was created while it was
+ * disabled. Never touches the remote — no pull, no push.
  *
- * If nothing on disk needed writing, no commit is made at all: `git commit` with nothing staged is an
- * error, not a no-op, so this only calls it when at least one file was actually staged.
+ * Commits only when at least one file was actually staged: `git commit` with nothing staged is an
+ * error, not a no-op.
  */
 export async function syncUntracked(target: StorageTarget): Promise<void> {
   const log = gitLog(target)
@@ -119,21 +90,19 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
     return
   }
 
-  // -> A bulk export has no single acting user behind it — same fallback-only situation `resolveAuthor`
-  //    already handles for an asset rename/delete dispatch payload that carries no `authorId`.
+  // -> A bulk export has no single acting user behind it — the fallback-only case `resolveAuthor`
+  //    already handles for a dispatch payload carrying no `authorId`.
   const author = await resolveAuthor(target, undefined)
   await git.commit('docs: add all untracked content', authorOption(author))
   log.info('all content is now tracked')
 }
 
-/** Every regular file under `dir`, relative to `root`, skipping `.git` and any other dotfile/dotdir (an inline SSH key included) and zero-byte files. */
 async function walkFiles(root: string, dir: string = root): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true })
   const relPaths: string[] = []
   for (const entry of entries) {
-    // -> Skips `.git`, this module's own `.wiki-ssh-key` (see `storage.ts`), `.gitignore`, etc. 2.5.x's
-    //    own `importAll` only excludes `.git` by substring match, which would have walked its SSH key
-    //    file straight into the DB as an "other" asset — a real bug, not something worth porting.
+    // -> Every dotfile, not just `.git`: this module's own `.wiki-ssh-key` (see `storage.ts`) sits in
+    //    the repo, and walking an inline SSH key into the DB as an "other" asset would leak it.
     if (entry.name.startsWith('.')) continue
     const absPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
@@ -149,20 +118,15 @@ async function walkFiles(root: string, dir: string = root): Promise<string[]> {
 }
 
 /**
- * `importAll` ("Import Everything"): the inverse full reconciliation — walk every matching file
- * currently in the repo's working tree, regardless of what git's commit history says, and upsert each
- * into the DB. For bootstrapping from a repo that already has content before this target ever ran a
- * `sync` (e.g. a pre-existing remote, manually cloned into `localRepoPath`).
+ * The inverse full reconciliation: every file in the working tree is upserted into the DB regardless
+ * of what git's commit history says, for bootstrapping from a repo that already has content before
+ * this target ever ran a `sync`.
  *
- * Reuses `sync.ts`'s `processDiffEntry` by constructing a synthetic `DiffEntry` per file: `exists:
- * true`, `oldPath` equal to `relPath`, no insertions/deletions. That shape is deliberate, not
- * incidental — `processPageEntry`/`processAssetEntry`'s rename and delete branches both key off
- * `relPath !== oldPath` or `!exists`, neither of which a synthetic entry ever satisfies, so every file
- * falls straight through to the plain "create or update" upsert, exactly what an unconditional import
- * needs and matching 2.5.x's own `importAll: true` flag through the same shared file processor.
+ * The synthetic `DiffEntry` per file is deliberate: `processPageEntry`/`processAssetEntry`'s rename
+ * and delete branches key off `relPath !== oldPath` and `!exists`, so `oldPath: relPath` plus
+ * `exists: true` falls straight through to the plain create-or-update upsert.
  *
- * Does not pull from the remote — the working tree is taken exactly as it stands. `ensureRepo` still
- * runs first so a target that has never been used at all gets an initialized repo to walk.
+ * Does not pull from the remote — the working tree is taken exactly as it stands.
  */
 export async function importAll(target: StorageTarget): Promise<void> {
   const log = gitLog(target)
@@ -196,16 +160,11 @@ export async function importAll(target: StorageTarget): Promise<void> {
 }
 
 /**
- * `purge` ("Purge Local Repository"): delete the contents of `localRepoPath` and re-run `ensureRepo`
- * to leave an empty, freshly-initialized repo. Explicitly local-only, matching the action's own hint
- * text in `definition.yml`: no commit, no push, no effect whatsoever on the remote — `ensureRepo` never
- * fetches or clones, it only inits and wires up config, so the result is an empty repo with `origin`
- * pointed at the configured remote and nothing pulled from it yet.
+ * Local-only, matching the action's own hint text in `definition.yml`: no commit, no push, no effect
+ * whatsoever on the remote — `ensureRepo` never fetches or clones, it only inits and wires up config.
  *
- * Refuses to run if the configured path resolves to something that is clearly not this target's own
- * repo directory (`CARDINAL.ROOTPATH` itself, or a filesystem root) — `fs.rm` below is recursive, and a
- * blank or misconfigured `localRepoPath` must never be able to turn "purge the repo" into "purge the
- * install".
+ * The refusal below is load-bearing: `fs.rm` is recursive, so a blank or misconfigured
+ * `localRepoPath` must never be able to turn "purge the repo" into "purge the install".
  */
 export async function purge(target: StorageTarget): Promise<void> {
   const log = gitLog(target)

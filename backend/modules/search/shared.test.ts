@@ -23,10 +23,6 @@ import type { RebuildPageSource } from './shared.ts'
 import type { AccessActor } from '../../models/groups.ts'
 import type { SearchIndexablePage, SearchResult } from '../../models/search.ts'
 
-/**
- * `buildSearchDocument` calls `Date.prototype.toTemporalInstant()` to build a document's `updatedAt`.
- * Same environment gap every engine suite stubs around: this sandbox's node predates the global.
- */
 before(() => ensureTemporal())
 
 describe('escapeHtml()', () => {
@@ -281,7 +277,6 @@ describe('pageStream()', () => {
     wikiHandle.restore()
   })
 
-  /** A fake `CARDINAL.db` serving successive keyset windows, recording the cursor conditions it saw. */
   function fakeDb(windows: any[][]) {
     const calls: number[] = []
     ;(globalThis as any).CARDINAL.db = {
@@ -310,7 +305,6 @@ describe('pageStream()', () => {
     }
 
     assert.deepEqual(seen, [[{ id: 'a' }, { id: 'b' }], [{ id: 'c' }]])
-    // -> Two queries, not three: the short second window is the end of the set
     assert.deepEqual(calls, [2, 2])
   })
 
@@ -337,7 +331,6 @@ describe('pageStream()', () => {
     const calls = fakeDb([[{ id: 'a' }], [{ id: 'b' }]])
     let inFlight = 0
     for await (const _batch of pageStream('site-1', { pageSize: 1 })) {
-      // -> One query has been made per batch consumed so far, never one ahead
       inFlight += 1
       assert.equal(calls.length, inFlight)
       if (inFlight === 2) {
@@ -348,7 +341,6 @@ describe('pageStream()', () => {
 })
 
 describe('localePageStream()', () => {
-  /** A fake `RebuildPageSource` recording the (locale, offset, limit) it was asked for. */
   function fakeSource(rows: SearchIndexablePage[]) {
     const asked: { locale: string; offset: number; limit: number }[] = []
     const source: RebuildPageSource = {
@@ -410,7 +402,6 @@ describe('filterVisible()', () => {
     wikiHandle.restore()
   })
 
-  /** Installs a `checkAccess` recording every ref it was asked about, and answering from `allow`. */
   function stubCheckAccess(allow: (ref: any) => boolean) {
     const seen: any[] = []
     ;(globalThis as any).CARDINAL.models = {
@@ -466,8 +457,7 @@ describe('filterVisible()', () => {
 
   test('the ref is whatever the caller maps out of its own row shape', () => {
     const seen = stubCheckAccess(() => true)
-    // -> An engine's hits are not page rows: each pulls path/locale/tags/classification out of its
-    //    own document shape before this can check them.
+    // -> An engine's hits are not page rows: each maps its own document shape onto the ref.
     const hits = [{ _source: { p: 'docs/x', l: 'fr', t: ['guide'], c: 'confidential' } }]
 
     filterVisible(hits, actor, 'site-1', (hit) => ({
@@ -519,7 +509,6 @@ describe('toSearchPagesResult()', () => {
     const scanned = [hit('a'), hit('denied'), hit('b')]
     const visible = [hit('a'), hit('b')]
 
-    // -> OpenProject #2151/#2156: the count oracle is closed by deriving this from `visible` alone
     assert.equal(
       toSearchPagesResult(scanned, visible, { offset: 0, limit: 25, toResult }).totalHits,
       2
@@ -569,11 +558,8 @@ describe('fillEmptyStringDefaults()', () => {
         vendor: '',
         website: '',
         props: {
-          // -> A prop with a real default, the case the engines actually depend on
           indexName: fakeProp({ type: 'string', default: 'wiki' }),
-          // -> A credential: declared default is the empty string, so an empty value stays empty
           apiKey: fakeProp({ type: 'string', default: '', sensitive: true }),
-          // -> An enum-backed string, exactly the shape aws's `region`/`analysisSchemeLang` have
           region: fakeProp({
             type: 'string',
             default: 'us-east-1',

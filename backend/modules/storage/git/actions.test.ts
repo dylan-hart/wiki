@@ -1,8 +1,6 @@
 /**
- * Tests for the `syncUntracked`, `importAll` and `purge` actions.
- *
- * Same approach as `content.test.ts`/`sync.test.ts`: a real `git` binary via `simple-git` against a
- * throwaway temp directory, and a minimal `CARDINAL` stub covering only what these actions read.
+ * A real `git` binary via `simple-git` against a throwaway temp directory, with a minimal `CARDINAL`
+ * stub covering only what these actions read.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
@@ -39,7 +37,6 @@ interface AssetRow {
   fileSize?: number
 }
 
-/** Installs a `CARDINAL` stub. `pages`/`assets` back both the listing and per-item lookup calls. */
 function installWiki(
   rootPath: string,
   { pages = [], assets = [] }: { pages?: PageRow[]; assets?: AssetRow[] } = {}
@@ -267,8 +264,8 @@ describe('git storage: syncUntracked', () => {
     await assert.rejects(fs.access(path.join(repoPath, 'foo.md')))
   })
 
-  // -> OpenProject #924: the asset gate must be size-aware (`belongsInTarget`), matching
-  //    `Storage.dispatch()`'s own classification, not a kind-only re-check that disagrees with it.
+  // -> The asset gate must be size-aware (`belongsInTarget`), matching `Storage.dispatch()`'s own
+  //    classification, not a kind-only re-check that disagrees with it.
   test('includes an oversized asset through the large bucket even though its kind bucket is not covered', async () => {
     installWiki(rootPath, {
       assets: [
@@ -284,7 +281,7 @@ describe('git storage: syncUntracked', () => {
     })
     const largeOnlyTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['large'], largeThreshold: '5MB' } // -> no 'images'
+      contentTypes: { activeTypes: ['large'], largeThreshold: '5MB' }
     })
     const { repoPath } = await ensureRepo(largeOnlyTarget)
 
@@ -308,7 +305,7 @@ describe('git storage: syncUntracked', () => {
     })
     const imagesOnlyTarget = makeTarget({
       config: { ...target.config },
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' } // -> no 'large'
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
     })
     const { repoPath } = await ensureRepo(imagesOnlyTarget)
 

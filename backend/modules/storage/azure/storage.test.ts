@@ -12,14 +12,10 @@ import storageModule, {
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
- * Pure unit tests: no database, no real network. `@azure/storage-blob` has no equivalent of
- * `aws-sdk-client-mock` in this repo (see `s3/storage.test.ts`), so the SDK's own I/O methods are
- * stubbed directly on the class prototypes with `node:test`'s `mock.method` — every `ContainerClient`
- * / `BlockBlobClient` instance this module constructs is a real instance of those classes, so patching
- * the prototype catches every call. `generateSasUrl` is exercised for real (unmocked): it's pure local
- * signing against the `StorageSharedKeyCredential`, no network call — see `storage.ts`'s doc comment.
- * `CARDINAL.logger`/`CARDINAL.models.assets` are the only `CARDINAL` members `storage.ts` touches — matching the
- * pure-unit-test convention this repo's backend testing follows.
+ * `@azure/storage-blob` has no `aws-sdk-client-mock` equivalent here, so its I/O methods are stubbed
+ * on the class prototypes — every client this module constructs is a real instance of those classes,
+ * so the patch catches every call. `generateSasUrl` is left unmocked: it is pure local signing
+ * against the `StorageSharedKeyCredential`, with no network call to avoid.
  */
 
 installTestWiki({
@@ -129,11 +125,7 @@ describe('azure storage / ensureContainer (activation)', () => {
   })
 })
 
-/**
- * What `@azure/storage-blob`'s call shapes carry that the shared contract's readers cannot see: the
- * key, the bytes, the content type and the tier are all `test/storageModuleContract.ts`'s to assert,
- * but `upload()`'s positional `contentLength` and `delete()`'s options object are this SDK's alone.
- */
+/** What this SDK's call shapes carry that `test/storageModuleContract.ts`'s readers cannot see. */
 describe('azure storage / per-asset lifecycle', () => {
   test('assetUploaded passes the byte length as upload()’s second, positional argument', async () => {
     ;(CARDINAL.models.assets.getContent as any).mock.mockImplementationOnce(async () => ({
@@ -164,7 +156,7 @@ describe('azure storage / per-asset lifecycle', () => {
 
     assert.equal(deleteMock.mock.callCount(), 1)
     // -> Without `deleteSnapshots: 'include'` Azure REFUSES the delete outright for a blob that has
-    //    snapshots, rather than deleting the base blob and orphaning them (matching 2.5.x).
+    //    snapshots, rather than deleting the base blob and orphaning them.
     assert.deepEqual(deleteMock.mock.calls[0]!.arguments[0], { deleteSnapshots: 'include' })
   })
 })
@@ -191,8 +183,6 @@ describe('azure storage / exportAll', () => {
 })
 
 describe('azure storage / getDirectUrl', () => {
-  /** That it addresses the right key for the shared TTL is the contract's; that it grants READ only,
-   * as an SAS permission string, is this SDK's. */
   test('the SAS grants read and nothing else', async () => {
     const target = makeTarget()
     const url = await storageModule.getDirectUrl!(
@@ -210,14 +200,13 @@ describe('azure storage / getDirectUrl', () => {
 })
 
 /**
- * The ten asset-lifecycle claims every blob storage module owes `models/storage.ts`, read out of
- * `@azure/storage-blob`'s own call shapes — see `test/storageModuleContract.ts` for what they are
- * and why they live in one place. Everything above this line is this module's alone.
+ * The asset-lifecycle claims every blob storage module owes `models/storage.ts`, translated into
+ * this SDK's call shapes. Everything above this line is this module's alone.
  */
 runStorageModuleContract('azure', {
   makeTarget,
   stubSdk: () => {
-    /** `<container>/<key>` off a blob URL's path, dropping the container the target is configured for. */
+    /** `<container>/<key>` off a blob URL's path, dropping the container segment. */
     const keyFromUrl = (url: string) =>
       new URL(url).pathname.replace(/^\//, '').split('/').slice(1).join('/')
     return {
