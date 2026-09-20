@@ -1,0 +1,464 @@
+{
+  "wikis": [
+    {
+      "name": "dense",
+      "pages": [
+        {
+          "id": "d01",
+          "title": "Building small images with multi-stage builds",
+          "chunks": [
+            "A multi-stage Docker build compiles the application in a heavy builder image and copies only the resulting binary into a slim runtime image, which keeps the final container under fifty megabytes.",
+            "Order the layers so that dependency installation is cached: copy the lockfile first, install, then copy the source. Tag every image with the commit hash the CI pipeline built it from."
+          ],
+          "gold": ["docker", "ci"]
+        },
+        {
+          "id": "d02",
+          "title": "Running the local dev stack with Compose",
+          "chunks": [
+            "Run docker compose up to start the database, the queue and the API on your machine. Each service is defined in the compose file with its ports and volumes.",
+            "If a container will not start, run docker compose logs for that service and check that the volume for the database was not left over from an older schema."
+          ],
+          "gold": ["docker", "onboarding"]
+        },
+        {
+          "id": "d03",
+          "title": "Deploying the API to the cluster",
+          "chunks": [
+            "Releases of our API roll out as a Kubernetes Deployment with three replicas behind a Service. Apply the manifests with kubectl and watch the rollout status until every pod reports ready.",
+            "The API exposes a readiness probe on its health endpoint; a failing probe keeps a pod out of the load balancer, so a bad build never takes traffic."
+          ],
+          "gold": ["kubernetes", "api"]
+        },
+        {
+          "id": "d04",
+          "title": "What to do when a pod is crash-looping",
+          "chunks": [
+            "When a Kubernetes pod enters CrashLoopBackOff, describe the pod and read the last state and the exit code, then fetch the logs of the previous container instance with kubectl logs --previous.",
+            "Out-of-memory kills show as exit code 137. Raise the memory limit only after confirming the leak is not new, and page the owning team if the loop began after a deploy."
+          ],
+          "gold": ["kubernetes", "runbook", "oncall"]
+        },
+        {
+          "id": "d05",
+          "title": "Backing up and restoring the database",
+          "chunks": [
+            "Nightly Postgres base backups are taken with pg_basebackup and shipped together with the write-ahead log, so any point in the last fourteen days can be restored.",
+            "To restore, stop the application, recover the base backup into a fresh data directory, set the recovery target time and start the server; verify row counts before reopening traffic."
+          ],
+          "gold": ["postgres", "runbook"]
+        },
+        {
+          "id": "d06",
+          "title": "Finding and fixing slow queries",
+          "chunks": [
+            "Enable the Postgres slow query log and inspect the worst offenders with EXPLAIN ANALYZE. A sequential scan on a large table almost always means a missing index on the filtered column.",
+            "Prefer partial and composite indexes that match the query's filter and sort order, and drop unused indexes because each one slows every write."
+          ],
+          "gold": ["postgres"]
+        },
+        {
+          "id": "d07",
+          "title": "Rotating database passwords",
+          "chunks": [
+            "Postgres credentials are rotated every ninety days. Create the new password as a secret, update the connection setting on the running services, and only then revoke the old one.",
+            "Never paste a password into chat or a ticket; if one is exposed, rotate it immediately and record the exposure in the security log."
+          ],
+          "gold": ["security", "postgres", "runbook"]
+        },
+        {
+          "id": "d08",
+          "title": "Signing users in with OpenID Connect",
+          "chunks": [
+            "The admin console uses single sign-on (SSO) through the company identity provider with the OpenID Connect authorization code flow, so employees sign in once for every internal tool.",
+            "Register the redirect address with the provider, request the profile and email scopes, and map the groups claim onto application roles at login."
+          ],
+          "gold": ["sso", "security"]
+        },
+        {
+          "id": "d09",
+          "title": "Configuring SAML for the admin portal",
+          "chunks": [
+            "For customers that require SAML single sign-on, import their metadata document, set the assertion consumer endpoint and map the NameID attribute to the user's email address.",
+            "Clock skew between the identity provider and our servers is the most common cause of rejected assertions; keep both synchronised over NTP."
+          ],
+          "gold": ["sso", "security"]
+        },
+        {
+          "id": "d10",
+          "title": "How the build pipeline is laid out",
+          "chunks": [
+            "Every pull request triggers the CI pipeline: install, lint, unit tests, then build. A green run on the head commit is required before a change can be merged.",
+            "Jobs share a dependency cache keyed on the lockfile, and the deploy stage only runs on the main branch after all checks have passed."
+          ],
+          "gold": ["ci"]
+        },
+        {
+          "id": "d11",
+          "title": "Triage for flaky tests",
+          "chunks": [
+            "A test that fails and then passes on retry without a code change is flaky and makes CI unreliable. Quarantine it into the non-blocking lane and open a ticket so it does not keep failing unrelated runs.",
+            "Common causes are shared global state, real clocks and unbounded timeouts; fix the cause rather than raising the retry count."
+          ],
+          "gold": ["ci"]
+        },
+        {
+          "id": "d12",
+          "title": "Pagination conventions for list endpoints",
+          "chunks": [
+            "List endpoints accept a limit and a cursor and return the next cursor in the response body. Never use page numbers for collections that change while a client is paging.",
+            "The maximum limit is one hundred items. Requests above it are clamped and the response says so in a warning header."
+          ],
+          "gold": ["api"]
+        },
+        {
+          "id": "d13",
+          "title": "Rate limits and error responses",
+          "chunks": [
+            "Clients are limited to sixty requests per minute per token. Exceeding the limit returns a 429 response with a Retry-After header stating how many seconds to wait.",
+            "Errors share one JSON shape with a machine-readable code and a human message. Validation failures return 422 and list every offending field."
+          ],
+          "gold": ["api"]
+        },
+        {
+          "id": "d14",
+          "title": "Writing Vue components",
+          "chunks": [
+            "Components use the composition API with script setup. Props are declared with types, emitted events are declared explicitly, and shared state lives in a store rather than in props drilled four levels deep.",
+            "Style with the utility classes from the design system and avoid one-off colours; every colour must come from a theme token so dark mode works."
+          ],
+          "gold": ["frontend"]
+        },
+        {
+          "id": "d15",
+          "title": "Keeping the bundle within budget",
+          "chunks": [
+            "The production frontend bundle must stay under 300 kilobytes gzipped. Split routes into lazy chunks and import only the functions you need from utility libraries.",
+            "The CI build fails when a chunk exceeds its budget; run the bundle analyser locally to see which dependency grew before you push."
+          ],
+          "gold": ["frontend", "ci"]
+        },
+        {
+          "id": "d16",
+          "title": "Paging and escalation for the primary on call",
+          "chunks": [
+            "The primary responder acknowledges a page within five minutes. If nobody acknowledges, the page escalates to the secondary and then to the engineering manager.",
+            "Hand over at the end of the oncall week with a written summary of open incidents, silenced alerts and anything that woke someone up."
+          ],
+          "gold": ["oncall", "runbook"]
+        },
+        {
+          "id": "d17",
+          "title": "Blameless postmortem template",
+          "chunks": [
+            "Write the postmortem within three working days of an oncall incident: a timeline of what happened, the customer impact, the contributing factors and what went well.",
+            "Actions must have an owner and a due date. The document describes systems and decisions, never individuals, so people report problems early."
+          ],
+          "gold": ["oncall"]
+        },
+        {
+          "id": "d18",
+          "title": "Your first week",
+          "chunks": [
+            "Onboarding starts on day one, when you receive your accounts and meet your buddy. By Friday you should have shipped a small change to production with your buddy reviewing it.",
+            "Book a coffee with each teammate in your first fortnight and read the architecture overview before your first planning meeting."
+          ],
+          "gold": ["onboarding"]
+        },
+        {
+          "id": "d19",
+          "title": "Setting up your laptop",
+          "chunks": [
+            "Install the package manager, the language runtime version pinned in the repository and Docker, then clone the monorepo using your company key.",
+            "Run the bootstrap script, which checks your toolchain and seeds a local database, and ask in the help channel if any step fails."
+          ],
+          "gold": ["onboarding", "docker"]
+        },
+        {
+          "id": "d20",
+          "title": "Storing and reading secrets",
+          "chunks": [
+            "Secrets live in the vault and are injected into services at start-up as environment variables. Nothing sensitive is committed to a repository, even a private one.",
+            "Access to a secret path is a security control granted per team through policies, and every read is written to the audit log for review."
+          ],
+          "gold": ["security"]
+        },
+        {
+          "id": "d21",
+          "title": "Scanning dependencies for known vulnerabilities",
+          "chunks": [
+            "The CI pipeline scans the lockfile against public advisory databases on every build and fails when a high-severity vulnerability has a fix available.",
+            "Triage findings weekly: upgrade when possible, and otherwise record an exception with an expiry date and the reason the code path is unreachable."
+          ],
+          "gold": ["security", "ci"]
+        },
+        {
+          "id": "d22",
+          "title": "Composing the GraphQL gateway schema",
+          "chunks": [
+            "The API gateway stitches the schemas of each backend service into one graph. Types are owned by exactly one service and extended by others through keys.",
+            "Deprecate a field before removing it, and keep the deprecated field working for at least two releases so mobile clients can catch up."
+          ],
+          "gold": ["api"]
+        },
+        {
+          "id": "d23",
+          "title": "Client-side caching and invalidation",
+          "chunks": [
+            "The frontend single-page app keeps fetched records in a normalised store. After a mutation, invalidate the affected queries instead of patching the cache by hand.",
+            "Show stale data immediately and refresh in the background so navigation feels instant, but never cache anything specific to another user."
+          ],
+          "gold": ["frontend"]
+        },
+        {
+          "id": "d24",
+          "title": "Disk is almost full",
+          "chunks": [
+            "When the disk usage alert pages the oncall engineer, find the largest directories with du and check whether log rotation is running. Old build artefacts are the usual culprit.",
+            "If the volume cannot be cleaned, expand it from the cloud console, then open a follow-up to add capacity alerting at seventy percent."
+          ],
+          "gold": ["runbook", "oncall"]
+        },
+        {
+          "id": "d25",
+          "title": "Planning the team offsite",
+          "chunks": [
+            "The autumn offsite is two days at the lake house. Please book your travel by the end of the month and tell us about any dietary requirements.",
+            "Day one is planning and a shared dinner; day two is a hike and an optional board-game evening for anyone who wants to stay."
+          ],
+          "gold": []
+        },
+        {
+          "id": "d26",
+          "title": "Quarter review: what we celebrated",
+          "chunks": [
+            "This quarter we finished moving the last service off Docker Swarm, completed the Postgres upgrade and cut the CI run time in half. Thank you to everyone who stayed late for the cutover.",
+            "Next quarter we will focus on hiring, on the offsite in the autumn and on giving every team a fair share of the planning time. Kubernetes migrations are paused until the new year."
+          ],
+          "gold": []
+        },
+        {
+          "id": "d27",
+          "title": "Interview loop for backend candidates",
+          "chunks": [
+            "The loop has four sessions: a coding exercise, a system design conversation, a debugging pairing session and a talk with the hiring manager. Candidates may be asked about Postgres, API design or Docker basics.",
+            "Score each session on the shared rubric within a day and write down evidence, not impressions. The panel meets to decide once all four scores are in."
+          ],
+          "gold": []
+        }
+      ]
+    },
+    {
+      "name": "sparse",
+      "pages": [
+        {
+          "id": "s01",
+          "title": "Upgrading the Kubernetes cluster",
+          "chunks": [
+            "Cluster upgrades happen one minor version at a time. Drain each node, upgrade the kubelet and uncordon it before moving on to the next node in the pool.",
+            "Read the deprecation notes for the target version first; removed API versions in our manifests must be migrated before the control plane is upgraded."
+          ],
+          "gold": ["kubernetes"],
+          "applied": ["kubernetes"],
+          "evaluate": false
+        },
+        {
+          "id": "s02",
+          "title": "Upgrading Postgres to a new major version",
+          "chunks": [
+            "Major upgrades use pg_upgrade in link mode on a replica first. Run the upgrade on a restored copy of production and compare query plans before the real cutover.",
+            "After the upgrade run ANALYZE on every database, because planner statistics are not carried across major versions."
+          ],
+          "gold": ["postgres"],
+          "applied": ["postgres"],
+          "evaluate": false
+        },
+        {
+          "id": "s03",
+          "title": "Welcome to the team",
+          "chunks": [
+            "We are glad you have joined. This page lists who to talk to in your first days, where the team eats lunch and how our weekly rhythm works.",
+            "Your manager will schedule a thirty-day check-in. Until then, ask your buddy anything, however small it seems."
+          ],
+          "gold": ["onboarding"],
+          "applied": ["onboarding"],
+          "evaluate": false
+        },
+        {
+          "id": "s04",
+          "title": "Health insurance and benefits",
+          "chunks": [
+            "Choose your health plan within thirty days of your start date. Dental and vision are optional and can be added or changed during the annual enrolment window.",
+            "Retirement contributions are matched up to four percent of salary and vest immediately."
+          ],
+          "gold": ["hr"],
+          "applied": ["hr"],
+          "evaluate": false
+        },
+        {
+          "id": "s05",
+          "title": "Password and device policy",
+          "chunks": [
+            "Passwords must be at least sixteen characters and stored in the approved password manager. Laptops must use full-disk encryption and lock after five minutes.",
+            "Report a lost or stolen device to the security team immediately so it can be wiped remotely."
+          ],
+          "gold": ["security"],
+          "applied": ["security"],
+          "evaluate": false
+        },
+        {
+          "id": "s06",
+          "title": "Who can do what: the access matrix",
+          "chunks": [
+            "This RBAC matrix maps each role to the actions it may perform on each system. Roles are assigned to groups, and people receive access by joining a group.",
+            "Request a new role through the access form; the system owner approves it and access is reviewed every quarter."
+          ],
+          "gold": ["rbac", "security"],
+          "applied": ["rbac"],
+          "evaluate": false
+        },
+        {
+          "id": "s07",
+          "title": "Error budget policy",
+          "chunks": [
+            "Each service has a monthly error budget derived from its availability target. When the budget is exhausted, feature releases stop until reliability work brings it back.",
+            "The SRE team reviews budget burn every Monday and flags services at risk of missing their target."
+          ],
+          "gold": ["sre"],
+          "applied": ["sre"],
+          "evaluate": false
+        },
+        {
+          "id": "s08",
+          "title": "Submitting an expense report",
+          "chunks": [
+            "Submit expenses within thirty days with an itemised receipt for anything over twenty-five dollars. Managers approve reports and finance reimburses on the next payroll run.",
+            "Travel must be booked through the company portal to be reimbursable at the negotiated rates."
+          ],
+          "gold": ["hr"],
+          "applied": []
+        },
+        {
+          "id": "s09",
+          "title": "Parental leave",
+          "chunks": [
+            "Every new parent receives sixteen weeks of fully paid leave, which can be taken in one block or split across the first year after the birth or adoption.",
+            "Tell your manager and HR at least thirty days ahead where you can, and plan a gradual return with them."
+          ],
+          "gold": ["hr"],
+          "applied": []
+        },
+        {
+          "id": "s10",
+          "title": "Tuning the cluster autoscaler",
+          "chunks": [
+            "The Kubernetes autoscaler adds nodes when pods cannot be scheduled and removes nodes that stay underused. Set resource requests accurately, or it will scale on numbers that are wrong.",
+            "Keep a small buffer of spare capacity so bursts do not wait for a new node to boot, and review scale-down events against the reliability targets."
+          ],
+          "gold": ["kubernetes", "sre"],
+          "applied": []
+        },
+        {
+          "id": "s11",
+          "title": "Helm chart values reference",
+          "chunks": [
+            "Every service is packaged as a Helm chart for Kubernetes. The values file sets the image tag, the replica count, resource requests and the ingress hostname.",
+            "Override values per environment with a small file rather than editing the chart, and render the templates locally to check the manifests before you deploy."
+          ],
+          "gold": ["kubernetes"],
+          "applied": []
+        },
+        {
+          "id": "s12",
+          "title": "Vacuum and table bloat",
+          "chunks": [
+            "Dead rows accumulate in Postgres after updates and deletes until vacuum reclaims them. Autovacuum usually keeps up, but very busy tables need lower thresholds.",
+            "Watch the dead tuple ratio of large tables; a table with heavy bloat may need a rewrite during a maintenance window."
+          ],
+          "gold": ["postgres"],
+          "applied": []
+        },
+        {
+          "id": "s13",
+          "title": "Replica lag alerts",
+          "chunks": [
+            "The lag alert fires when a Postgres replica falls more than thirty seconds behind the primary. Check for long-running queries and large batch writes first.",
+            "Sustained lag threatens our recovery objective, so it counts against the availability target and is reviewed by the SRE team."
+          ],
+          "gold": ["postgres", "sre"],
+          "applied": []
+        },
+        {
+          "id": "s14",
+          "title": "Your first day and the buddy programme",
+          "chunks": [
+            "On your first morning you collect your laptop and badge, and your buddy walks you through the office and the tools you will use every day.",
+            "Your buddy is your first point of contact for any question in the first three months, and you should meet weekly."
+          ],
+          "gold": ["onboarding"],
+          "applied": []
+        },
+        {
+          "id": "s15",
+          "title": "Rolling out two-factor authentication",
+          "chunks": [
+            "Everyone must enrol a second factor by the end of the quarter. Hardware keys are preferred; authenticator apps are accepted, and text messages are not.",
+            "Keep the recovery codes in the password manager. Accounts without a second factor will be suspended after the deadline."
+          ],
+          "gold": ["security"],
+          "applied": []
+        },
+        {
+          "id": "s16",
+          "title": "Service accounts and permission groups",
+          "chunks": [
+            "Under our RBAC model, a service account gets the smallest role that lets it work. Grant it to a group named after the service so ownership is visible in the access matrix.",
+            "Review each account's permissions every quarter and remove any role that has not been exercised in ninety days."
+          ],
+          "gold": ["rbac", "security"],
+          "applied": []
+        },
+        {
+          "id": "s17",
+          "title": "Service level objectives and burn-rate alerts",
+          "chunks": [
+            "An SLO, the core tool of SRE, states how often a service must meet a target, such as ninety-nine point nine percent of requests succeeding over thirty days.",
+            "Page on a fast burn of the error budget and open a ticket on a slow burn, so people are woken only when the target is truly at risk."
+          ],
+          "gold": ["sre"],
+          "applied": []
+        },
+        {
+          "id": "s18",
+          "title": "Office holiday calendar",
+          "chunks": [
+            "The office is closed on public holidays and between Christmas and New Year. The full list of dates for the year is below.",
+            "If you need to work on a closed day, agree it with your manager beforehand so building access can be arranged."
+          ],
+          "gold": [],
+          "applied": []
+        },
+        {
+          "id": "s20",
+          "title": "Retro notes from the last sprint",
+          "chunks": [
+            "We talked about the SRE rotation, the Kubernetes upgrade slipping a week and the Postgres migration checklist. Nothing was decided beyond who will chase each item.",
+            "The team liked the new onboarding buddy pairing and asked for more time to cover for each other when someone is out. Snacks were, again, a topic."
+          ],
+          "gold": [],
+          "applied": []
+        },
+        {
+          "id": "s19",
+          "title": "Ordering new equipment",
+          "chunks": [
+            "Request a monitor, keyboard or headset through the equipment form. Standard items are approved automatically; anything above three hundred dollars needs manager sign-off.",
+            "Equipment stays company property. Return it to the office or ship it back with the prepaid label when you leave."
+          ],
+          "gold": [],
+          "applied": []
+        }
+      ]
+    }
+  ]
+}

@@ -11,6 +11,7 @@
     "backend/assets/icon-sets/**",
     "backend/db/migrations/**",
     "backend/locales/**",
+    "backend/scripts/evaluate-auto-tag-fixtures/vectors.json",
     "blocks/compiled/**",
     "frontend/src/assets/icons.generated.js",
     "assets/**",
