@@ -400,15 +400,46 @@ describe('OAuth2Authentication', () => {
   })
 
   describe('logoutUrl', () => {
-    test('returns the configured logout URL, or null when none is set', () => {
+    const build = (logoutURL: string | undefined) =>
+      new OAuth2Authentication('s', makeConf(logoutURL === undefined ? {} : { logoutURL }))
+
+    test('is null when no logout URL is set, or it is empty or not an http(s) URL', () => {
+      for (const value of [undefined, '', 'not a url', 'javascript:alert(1)']) {
+        assert.equal(
+          build(value).logoutUrl({ postLogoutRedirectUri: 'https://wiki.example/' }),
+          null
+        )
+      }
+    })
+
+    test('returns the bare URL when no redirect is given', () => {
       assert.equal(
-        new OAuth2Authentication(
-          's',
-          makeConf({ logoutURL: 'https://provider.example/logout' })
-        ).logoutUrl(),
+        build('https://provider.example/logout').logoutUrl(),
         'https://provider.example/logout'
       )
-      assert.equal(new OAuth2Authentication('s', makeConf()).logoutUrl(), null)
+    })
+
+    test('appends only the encoded post_logout_redirect_uri, preserving the existing query', () => {
+      const out = build('https://provider.example/logout?client_id=abc').logoutUrl({
+        postLogoutRedirectUri: 'https://wiki.example/login?a=1&b=2'
+      })!
+      const url = new URL(out)
+      assert.equal(url.searchParams.get('client_id'), 'abc')
+      assert.equal(
+        url.searchParams.get('post_logout_redirect_uri'),
+        'https://wiki.example/login?a=1&b=2'
+      )
+      assert.ok(
+        out.includes('post_logout_redirect_uri=https%3A%2F%2Fwiki.example%2Flogin%3Fa%3D1%26b%3D2')
+      )
+    })
+
+    test('never appends an id_token_hint, having no id_token', () => {
+      const out = build('https://provider.example/logout').logoutUrl({
+        idTokenHint: 'tok',
+        postLogoutRedirectUri: 'https://wiki.example/'
+      } as any)!
+      assert.equal(new URL(out).searchParams.get('id_token_hint'), null)
     })
   })
 

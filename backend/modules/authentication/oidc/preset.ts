@@ -1,4 +1,5 @@
 import OidcAuthentication from './authentication.ts'
+import type { EndSessionParams } from '../../../helpers/endSessionUrl.ts'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
@@ -74,7 +75,7 @@ export class OidcPreset {
     return this.inner.profile(flow)
   }
 
-  logoutUrl(): string | null {
-    return this.inner.logoutUrl()
+  logoutUrl(params: EndSessionParams = {}): string | null {
+    return this.inner.logoutUrl(params)
   }
 }

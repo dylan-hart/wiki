@@ -315,6 +315,60 @@ describe('mapOidcProfile', () => {
   })
 })
 
+describe('OidcAuthentication#logoutUrl', () => {
+  const build = (logoutURL?: string) =>
+    new OidcAuthentication('s', {
+      issuer: 'https://issuer.example',
+      ...(logoutURL === undefined ? {} : { logoutURL })
+    })
+
+  test('is null when no logout URL is set, or it is empty or not an http(s) URL', () => {
+    for (const value of [undefined, '', 'not a url', 'ftp://idp.example/logout']) {
+      assert.equal(
+        build(value).logoutUrl({ idTokenHint: 'tok', postLogoutRedirectUri: 'https://w.example/' }),
+        null
+      )
+    }
+  })
+
+  test('appends both parameters, encoded', () => {
+    const out = build('https://idp.example/logout').logoutUrl({
+      idTokenHint: 'a.b.c',
+      postLogoutRedirectUri: 'https://wiki.example/login?a=1&b=2'
+    })!
+    const url = new URL(out)
+    assert.equal(url.searchParams.get('id_token_hint'), 'a.b.c')
+    assert.equal(
+      url.searchParams.get('post_logout_redirect_uri'),
+      'https://wiki.example/login?a=1&b=2'
+    )
+    assert.ok(
+      out.includes('post_logout_redirect_uri=https%3A%2F%2Fwiki.example%2Flogin%3Fa%3D1%26b%3D2')
+    )
+  })
+
+  test('preserves the query string already on the configured URL', () => {
+    const out = build('https://idp.example/logout?tenant=t1').logoutUrl({ idTokenHint: 'tok' })!
+    const url = new URL(out)
+    assert.equal(url.searchParams.get('tenant'), 't1')
+    assert.equal(url.searchParams.get('id_token_hint'), 'tok')
+  })
+
+  test('omits each parameter that is not provided', () => {
+    assert.equal(build('https://idp.example/logout').logoutUrl(), 'https://idp.example/logout')
+    assert.equal(
+      build('https://idp.example/logout').logoutUrl({ idTokenHint: 'tok' }),
+      'https://idp.example/logout?id_token_hint=tok'
+    )
+    assert.equal(
+      build('https://idp.example/logout').logoutUrl({
+        postLogoutRedirectUri: 'https://w.example/'
+      }),
+      'https://idp.example/logout?post_logout_redirect_uri=https%3A%2F%2Fw.example%2F'
+    )
+  })
+})
+
 describe('oidc/definition.yml', () => {
   const def = load(readFileSync(path.join(__dirname, 'definition.yml'), 'utf-8')) as Record<
     string,
