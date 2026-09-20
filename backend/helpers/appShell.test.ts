@@ -4,6 +4,7 @@ import {
   resolveAppShellLocale,
   templateAppShell,
   insertIntoAppShell,
+  mergeShellFragments,
   getTemplatedAppShell,
   resetAppShellCache
 } from './appShell.ts'
@@ -280,5 +281,19 @@ describe('insertIntoAppShell', () => {
     assert.equal(again, base)
     assert.equal(insertIntoAppShell(again, {}), base)
     assert.equal(base.includes('<meta name="a">'), false)
+  })
+})
+
+describe('mergeShellFragments', () => {
+  test('concatenates head and bodyEnd in argument order', () => {
+    assert.deepEqual(
+      mergeShellFragments({ head: 'a', bodyEnd: 'x' }, { head: 'b' }, { bodyEnd: 'y' }),
+      { head: 'ab', bodyEnd: 'xy' }
+    )
+  })
+
+  test('skips empty parts and returns an empty object when nothing remains', () => {
+    assert.deepEqual(mergeShellFragments({}, { head: '', bodyEnd: undefined }), {})
+    assert.deepEqual(mergeShellFragments(), {})
   })
 })

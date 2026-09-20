@@ -4,9 +4,12 @@ import type { FastifyInstance } from 'fastify'
 import {
   resolveAppShellLocale,
   getTemplatedAppShell,
-  insertIntoAppShell
+  insertIntoAppShell,
+  mergeShellFragments
 } from '../../helpers/appShell.ts'
-import { stripPageExtension } from '../../helpers/common.ts'
+import { requestOrigin, stripPageExtension } from '../../helpers/common.ts'
+import { pageShellFragments, withShellTitle } from '../../helpers/shellHead.ts'
+import { lookupShellPage } from '../../helpers/shellPage.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
@@ -197,7 +200,25 @@ export function registerAppShellFallback(app: FastifyInstance): void {
         const locales = await CARDINAL.models.locales.getLocales()
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
-      const shell = insertIntoAppShell(template, themeShellFragments(siteConfig?.theme))
+      const shellPage = siteId
+        ? await lookupShellPage({ siteId, urlPath: urlPath!, locale: lang }).catch((err: any) => {
+            CARDINAL.logger.error('http', 'cannot look up page metadata for the app shell', {
+              path: urlPath,
+              error: err
+            })
+            return null
+          })
+        : null
+      const pageFragments = shellPage
+        ? pageShellFragments(shellPage, {
+            origin: requestOrigin(req.protocol, req.hostname),
+            locales: siteConfig?.locales
+          })
+        : {}
+      const shell = insertIntoAppShell(
+        shellPage ? withShellTitle(template, shellPage.title) : template,
+        mergeShellFragments(pageFragments, themeShellFragments(siteConfig?.theme))
+      )
       return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
