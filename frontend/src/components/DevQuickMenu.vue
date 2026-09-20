@@ -1,9 +1,4 @@
 <template>
-  <!--
-    A tab hanging off the top edge of the viewport, mostly above it: all that shows at rest is a lip,
-    enough to find and click without standing in front of the app. Pointing at it (or opening the
-    menu) slides the whole thing into view.
-  -->
   <button
     type="button"
     class="dev-tab w-unstyled font-robotomono"
@@ -13,8 +8,8 @@
     @click="state.menuShown = !state.menuShown">
     dev
     <!--
-      Controlled, rather than letting WMenu bind the trigger itself: the tab stays slid down for as
-      long as the menu is open, which means this component has to know.
+      Controlled rather than letting WMenu bind the trigger itself: the tab stays slid down for as
+      long as the menu is open, so this component has to know.
     -->
     <w-menu v-model="state.menuShown" anchor="bottom middle" self="top middle" :offset="[0, 4]">
       <w-list dense style="min-width: 260px">
@@ -40,34 +35,26 @@ import { computed, reactive } from 'vue'
 import { useDark } from '@/composables/dark'
 
 /**
- * Developer quick menu — mounted only by a dev server, never built into a release. See the guard in
- * `App.vue`, which is what keeps this out of the production bundle entirely.
+ * Mounted only by a dev server, never built into a release -- the guard in `App.vue` is what keeps
+ * this out of the production bundle entirely.
  *
  * Switches that belong here are the ones worth flipping while looking at a screen, without an
- * account, a setting, or a reload: throwaway state that the app should forget on its own. Add rows to
- * the list; the tab is deliberately narrow and dumb.
+ * account, a setting, or a reload: throwaway state the app should forget on its own.
  *
- * Strings are hardcoded English rather than going through `t()`. Nothing in here should reach the
- * translators, and a dev-only key in `en.json` would be shipped to them on the next sync.
+ * Strings are hardcoded English rather than going through `t()`: a dev-only key in `en.json` would
+ * be shipped to the translators on the next sync.
  */
 
-// DARK MODE
-
 const dark = useDark()
-
-// DATA
 
 const state = reactive({
   menuShown: false
 })
 
-// COMPUTED
-
 /*
   Writes straight to the body class through the composable, deliberately going around
   `userStore.appearance`: that one is persisted per user, and the point of this switch is to try the
-  other theme on for a minute. Nothing saves it, so the next boot applies the stored appearance as
-  usual -- as does anything that re-runs `applyTheme()` in App.vue, e.g. changing the real setting.
+  other theme on for a minute. Nothing saves it, so the next boot applies the stored appearance.
 */
 const isDark = computed({
   get: () => dark.isActive,
@@ -80,7 +67,7 @@ const isDark = computed({
   position: fixed;
   top: -14px;
   left: 50%;
-  /* -> Over everything the app itself can draw: notifications (9000), tooltips (7000), menus (6500+) */
+  /* -> Over everything the app itself can draw: notifications, tooltips and menus */
   z-index: 9999;
   display: flex;
   height: 30px;

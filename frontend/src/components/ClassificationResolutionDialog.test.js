@@ -8,11 +8,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * OpenProject #1080: `PageHeader.vue` opens this dialog when a save raises a page's own
- * classification and leaves descendants below the new floor. Each row bumps individually, or all at
- * once, both against `POST sites/:siteId/pages/classification-conflicts/resolve`.
- */
 async function mountDialog(conflicts) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
@@ -23,9 +18,8 @@ async function mountDialog(conflicts) {
     props: { conflicts, floorClassification: 'level-restricted' },
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
-  // -> `useDialogComponent()` mounts hidden and flips visible on the next tick (so the open
-  //    transition actually runs) -- `WDialog` renders its panel only while open, so the row content
-  //    this suite asserts on does not exist in the DOM until this resolves.
+  // -> `useDialogComponent()` mounts hidden and flips visible on the next tick, and `WDialog`
+  //    renders its panel only while open -- the rows do not exist in the DOM until this resolves
   await flushPromises()
 
   return { wrapper, siteStore }
@@ -108,10 +102,9 @@ describe('ClassificationResolutionDialog', () => {
     expect(wrapper.vm.state.items[0].resolved).toBe(false)
   })
 
-  // -> A refused write (400, e.g. a page whose write:pages was revoked between the raising save and
-  //    the resolve) resolves through ky with no exception once boot/api.js stops special-casing 400 --
-  //    the server's own explanation lives on `err.data.message`, which `apiErrorMessage` reads.
-  //    `err.message` alone would show ky's generic "Request failed with status code 400" instead.
+  // -> A refused write (e.g. a page whose `write:pages` was revoked between the raising save and the
+  //    resolve) carries the server's own explanation on `err.data.message`, which `apiErrorMessage`
+  //    reads; `err.message` alone is ky's generic "Request failed with status code 400"
   it("surfaces the server's own message, not ky's generic one, on a refused bump", async () => {
     const queueLengthBefore = notifyQueue.length
     API_CLIENT.post.mockReturnValueOnce({

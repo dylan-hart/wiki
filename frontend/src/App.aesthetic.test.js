@@ -1,10 +1,5 @@
-// Feature #2753 / Task #2766: `App.vue`'s aesthetic resolution watch and `applyTheme()` wiring.
-//
-// Mirrors `App.theme.test.js`'s harness (mount the real `App.vue` against a fresh pinia + a memory
-// router already settled on `/`, drive `applyTheme()` through the same `EVENT_BUS` event a real admin
-// save fires) since this is the same kind of assertion: that `App.vue` actually WIRES the resolved
-// `theme.aesthetic`/`user.aesthetic` values onto `<body>`, not merely that `composables/aesthetic.js`
-// works in isolation (already covered by `composables/aesthetic.test.js`).
+// That `App.vue` actually WIRES the resolved `theme.aesthetic`/`user.aesthetic` values onto
+// `<body>`; `composables/aesthetic.test.js` covers the resolution itself.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -17,7 +12,6 @@ import { createTestRouter } from '../test/router.js'
 
 let currentWrapper
 
-/** Same shape as `App.theme.test.js`'s `mountApp()` -- see that file for the reasoning. */
 async function mountApp() {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
@@ -33,7 +27,6 @@ async function mountApp() {
   return { siteStore, userStore }
 }
 
-/** Same as `App.theme.test.js`'s `triggerApplyTheme()`. */
 async function triggerApplyTheme() {
   EVENT_BUS.emit('applyTheme')
   await new Promise((resolve) => setTimeout(resolve, 0))
@@ -101,22 +94,12 @@ describe('App.vue aesthetic resolution', () => {
     expect(document.body.classList.contains('body--ledger')).toBe(false)
   })
 
-  /*
-   * OpenProject #2887: the aesthetic watch used to flip `body--cobalt`/`body--ledger` directly
-   * (via `aesthetic.set()`) without ever calling `applyTheme()`, so the brand CSS custom
-   * properties `applyTheme()` derives via `resolveAestheticColors()` -- `--q-header`,
-   * `--q-sidebar`, `--q-primary`, and the status colors below -- stayed stale until something
-   * else (initial boot, the first router `afterEach`, a `cvd` change, or a manual `applyTheme`
-   * EVENT_BUS emit) happened to recompute them. A reader switching aesthetics saw the body class
-   * change but the navbar/sidebar fill stay the OLD aesthetic's color until a reload.
-   */
   it('recomputes brand CSS custom properties when the aesthetic itself changes, with no manual applyTheme trigger', async () => {
     const { siteStore } = await mountApp()
     siteStore.theme.aesthetic = 'ledger'
     await triggerApplyTheme()
     expect(document.documentElement.style.getPropertyValue('--q-negative')).toBe('#c14a52')
 
-    // -> No triggerApplyTheme() here: this is the live aesthetic switch, not an admin save.
     siteStore.theme.aesthetic = 'cobalt'
     await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -134,7 +117,6 @@ describe('App.vue aesthetic resolution', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(document.body.classList.contains('body--cobalt')).toBe(true)
-    // -> The aesthetic axis flipped; the appearance axis must not have moved
     expect(document.body.classList.contains('body--dark')).toBe(true)
     expect(document.body.classList.contains('body--light')).toBe(false)
   })
@@ -150,19 +132,10 @@ describe('App.vue aesthetic resolution', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(document.body.classList.contains('body--dark')).toBe(true)
-    // -> The appearance axis flipped; the aesthetic axis must not have moved
     expect(document.body.classList.contains('body--cobalt')).toBe(true)
     expect(document.body.classList.contains('body--ledger')).toBe(false)
   })
 
-  /*
-   * OpenProject #2956: the appearance (light/dark) watch used to call `dark.set()` directly
-   * without ever calling `applyTheme()` -- the same class of bug #2887 fixed for the aesthetic
-   * watch just above, but never applied to this one. `--q-header` (and the rest of the brand CSS
-   * custom properties `resolveAestheticColors()` derives) stayed stale at whatever `applyTheme()`
-   * last resolved, which is `#fff` (the `:root` fallback) if nothing had recomputed it yet this
-   * session -- rendering the header bar white instead of Cobalt's blue in light mode.
-   */
   describe('recomputes brand CSS custom properties when appearance changes, with no manual applyTheme trigger', () => {
     it('resolves the Cobalt light header color on a personal light override', async () => {
       const { siteStore, userStore } = await mountApp()
@@ -171,11 +144,10 @@ describe('App.vue aesthetic resolution', () => {
       await triggerApplyTheme()
       expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1f4fd6')
 
-      // -> Simulate a fresh session where applyTheme() has never resolved Cobalt's real color yet
+      // -> `#fff` is the `:root` fallback: a session where applyTheme() has never resolved Cobalt
       document.documentElement.style.setProperty('--q-header', '#ffffff')
       expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#ffffff')
 
-      // -> No triggerApplyTheme() here: this is the live appearance toggle, not an admin save.
       userStore.appearance = 'dark'
       await new Promise((resolve) => setTimeout(resolve, 0))
       userStore.appearance = 'light'
@@ -191,7 +163,6 @@ describe('App.vue aesthetic resolution', () => {
       await triggerApplyTheme()
       expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1f4fd6')
 
-      // -> No triggerApplyTheme() here: this is the live appearance toggle, not an admin save.
       userStore.appearance = 'dark'
       await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -206,7 +177,6 @@ describe('App.vue aesthetic resolution', () => {
       await triggerApplyTheme()
       expect(document.documentElement.style.getPropertyValue('--q-header')).toBe('#1a43bd')
 
-      // -> No triggerApplyTheme() here: this is the live appearance toggle, not an admin save.
       userStore.appearance = 'site'
       await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -214,12 +184,6 @@ describe('App.vue aesthetic resolution', () => {
     })
   })
 
-  /*
-   * OpenProject #2814: `--q-positive`/`-negative`/`-info`/`-warning` used to be Ledger-literal
-   * (two hardcoded, two never even set) regardless of aesthetic, so toast/banner fills stayed
-   * Ledger-colored under Cobalt. They now follow the resolved aesthetic the same way `--q-primary`/
-   * `-accent`/`-header`/`-sidebar` already did.
-   */
   describe('status color CSS vars follow the resolved aesthetic', () => {
     afterEach(() => {
       document.documentElement.style.removeProperty('--q-positive')

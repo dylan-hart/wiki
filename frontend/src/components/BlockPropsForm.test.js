@@ -9,12 +9,10 @@ import WToggle from '@/components/shared/WToggle.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Part of OpenProject #1624/#1631: a field's label/hint resolve through the
- * `blocks.<tag>.props.<name>.*` key `backend/scripts/blockLocaleKeys.ts` mints, falling back to the
- * raw `field.label`/`field.hint` off the definition -- never to the dotted key path itself -- when
- * the key does not resolve. See `composables/blockLocale.js`. No separate `aria-label` binding: a
- * `WInput`/`WSelect` field given a `label` always renders a real associated `<label for>` and
- * suppresses its own `ariaLabel` prop, so passing both here would be redundant.
+ * A field's label/hint resolve through the `blocks.<tag>.props.<name>.*` key
+ * (`composables/blockLocale.js`), falling back to the definition's raw `field.label`/`field.hint`
+ * -- never to the dotted key path itself. No separate `aria-label` binding: a `WInput`/`WSelect`
+ * given a `label` renders a real associated `<label for>` and suppresses its own `ariaLabel` prop.
  */
 function mountForm({ block, fields, messages = {} }) {
   const i18n = createTestI18n(messages)
@@ -37,7 +35,6 @@ describe('BlockPropsForm i18n', () => {
 
     const input = wrapper.findComponent(WInput)
     expect(input.props('label')).toBe('Translated Spec URL')
-    // -> A real <label for> associated with the field, not a separate/redundant aria-label
     const label = wrapper.find('label')
     expect(label.text()).toContain('Translated Spec URL')
     expect(label.attributes('for')).toBe(wrapper.find('input').attributes('id'))
@@ -78,17 +75,14 @@ describe('BlockPropsForm i18n', () => {
 })
 
 /**
- * OpenProject #2698. The block picker's Insert button is disabled until every required prop is
- * filled (`helpers/blocks.js#blockPropsFilled`), so the form has to say WHICH props those are or
- * the disabled state is unexplained. It does, through the shared field frame: a field passed
- * `:required` draws the app's own accent-toned marker after its label, and announces itself as
- * `aria-required` to a screen reader.
+ * The block picker's Insert button is disabled until every required prop is filled
+ * (`helpers/blocks.js#blockPropsFilled`), so the form has to say WHICH props those are or the
+ * disabled state is unexplained.
  *
  * Both halves are asserted because they come from different places — the marker from
  * `WFieldFrame.vue`'s label, `aria-required` from the control — and because it is this form's job
- * to pass `required` through in the first place. The marker's own glyph belongs to the shared
- * component, not to this form: the block picker must not be the one screen in the app where a
- * required field is marked differently from every other.
+ * to pass `required` through in the first place. The glyph itself belongs to the shared component:
+ * the block picker must not be the one screen where a required field is marked differently.
  */
 describe('a required prop', () => {
   it('is marked on a text field, and announced as required', () => {

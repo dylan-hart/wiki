@@ -10,22 +10,20 @@ import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true on the tick after
- * mount (see `composables/dialog.js`), so the form isn't in the DOM until that settles.
+ * mount, so the form isn't in the DOM until that settles.
  */
 async function mountDialog() {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
 
-  // -> `system/security` is best-effort (see the component's own comment); resolving it here with no
-  //    `uploadMaxFileSize` exercises the "keep the default" branch, matching an admin with no
-  //    `manage:system` for whom the real backend would 403.
+  // -> `system/security` is best-effort; resolving it with no `uploadMaxFileSize` exercises the
+  //    "keep the default" branch, matching an admin without `manage:system`, whom the API would 403
   API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({}) })
 
   const i18n = createTestI18n()
-  // -> `<w-dialog>` renders its panel through `<teleport to="body">` (see `WDialog.vue`), which moves
-  //    that DOM out from under the component's own root -- stubbing it keeps the panel in place so
-  //    `wrapper.find()` can still reach it.
+  // -> `<w-dialog>` teleports its panel to `body`, out from under the component's own root --
+  //    stubbing teleport keeps it in place so `wrapper.find()` can still reach it
   const wrapper = mount(BlockUploadDialog, {
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
@@ -33,8 +31,8 @@ async function mountDialog() {
   return { wrapper, adminStore }
 }
 
-/** A `File`-shaped object with a settable `.type`, since jsdom/happy-dom's real `File` is awkward to
- *  drive through `<input type="file">` under a headless test. */
+/** A `File`-shaped stand-in: jsdom/happy-dom's real `File` is awkward to drive through
+ *  `<input type="file">`. */
 function fakeFile(name, size, type = 'text/javascript') {
   return { name, size, type }
 }

@@ -4,12 +4,6 @@ import { describe, expect, test } from 'vitest'
 
 import { collectRefs, restyleForCardinal } from './generate-icons.mjs'
 
-/**
- * The Cardinal restyle these cover: Tabler's round caps and joins come off every real stroke and its
- * weight drops to 1.5, but the zero-length subpaths it draws dots with keep a round cap — under the
- * default `butt` cap they render nothing at all, which is what erased the point under
- * `tabler:help-circle`'s question mark.
- */
 describe('restyleForCardinal', () => {
   test('strips the round cap and join, and downweights the stroke', () => {
     const body =
@@ -48,9 +42,8 @@ describe('restyleForCardinal', () => {
   })
 
   test('resolves a lifted dot to the absolute point its relative moveto meant', () => {
-    // -> `tabler:help-circle`'s first path. The dot is written `m9 4v.01`, measured from where the
-    //    two arcs left off at (3,12) — copied across as-is into a path of its own, a leading `m` is
-    //    read as absolute and the point would land at (9,4).
+    // -> The dot is written `m9 4v.01`, measured from where the two arcs left off at (3,12); copied
+    //    as-is into a path of its own, a leading `m` reads as absolute and it would land at (9,4).
     const body =
       '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0-18 0m9 4v.01"/>'
 
@@ -60,7 +53,6 @@ describe('restyleForCardinal', () => {
   })
 
   test('keeps a dot written before the strokes it shares a path with', () => {
-    // -> `tabler:photo` opens on the dot standing in for the sun
     const body =
       '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M15 8h.01M3 6a3 3 0 0 1 3-3h12v12z"/>'
     const restyled = restyleForCardinal(body)
@@ -70,7 +62,6 @@ describe('restyleForCardinal', () => {
   })
 
   test('round-caps every dot in a path holding several of them', () => {
-    // -> `tabler:list`, whose three bullets are all zero-length
     const body =
       '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M9 6h11M9 12h11M9 18h11M5 6v.01M5 12v.01M5 18v.01"/>'
 
@@ -81,7 +72,7 @@ describe('restyleForCardinal', () => {
   })
 
   test('reads a short-but-real segment as a stroke, not a dot', () => {
-    // -> `tabler:keyboard`'s space bar is `l4 .01` — four units long, and only its Y delta is 0.01
+    // -> `l4 .01` is four units long; only its Y delta is 0.01
     const body =
       '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="M6 14v.01M10 14l4 .01"/>'
     const restyled = restyleForCardinal(body)
@@ -91,7 +82,7 @@ describe('restyleForCardinal', () => {
   })
 
   test('reads a `.01` inside a long segment as a stroke, not a dot', () => {
-    // -> `tabler:snowflake` is full of `.01`s that a textual match would have mistaken for dots
+    // -> `tabler:snowflake` is full of `.01`s that a textual match mistakes for dots
     const body =
       '<path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" d="m20.66 7l-5.629 3.25l.01 3.458"/>'
 
@@ -114,7 +105,6 @@ describe('restyleForCardinal', () => {
   })
 
   test('leaves a filled path alone, dot idiom or not', () => {
-    // -> `tabler:bell-filled` and its siblings paint a fill and carry no stroke to cap
     const body = '<path fill="currentColor" d="M14 19h.01l.11-.006z"/>'
 
     expect(restyleForCardinal(body)).toBe(body)
@@ -138,11 +128,8 @@ describe('restyleForCardinal', () => {
 })
 
 /**
- * `collectRefs` also scans the sibling `blocks/` workspace's `block-<name>/component.js` files, not
- * just `frontend/src` — a block's `static definition.icon` is read at runtime as `block.icon` (data,
- * not a literal) inside `frontend/src`, so without this second root it would never surface here at
- * all (OpenProject #2869: `block-kroki`'s `tabler:topology-star` was missing from the bundle for
- * exactly this reason).
+ * `collectRefs` scans the sibling `blocks/` workspace as well as `frontend/src`: a block's
+ * `static definition.icon` is a source literal only there, and reaches `frontend/src` as data.
  */
 describe('collectRefs', () => {
   test('finds a literal Iconify reference declared in a block definition', () => {

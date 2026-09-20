@@ -26,9 +26,8 @@ function mountPresence() {
 }
 
 /**
- * Task 480: `editor.collab.editingWithYou` was defined but never referenced anywhere -- the group's
- * `role="group"`/`aria-label` only describes a static snapshot, so a screen-reader user was never told
- * WHEN someone started (or stopped) co-editing, only what the roster looks like if they go check it.
+ * The group's `role="group"`/`aria-label` describes a static snapshot only, so nothing but this
+ * region tells a screen-reader user WHEN someone started co-editing.
  */
 describe('CollabPresence aria-live announcement', () => {
   it('renders an always-present aria-live status region, empty until something happens', () => {
@@ -73,7 +72,7 @@ describe('CollabPresence aria-live announcement', () => {
       'Grace Hopper is editing this page with you.'
     )
 
-    // -> Reset it, so the next assertion proves this update did NOT re-announce
+    // -> An unrelated field changing must leave the announcement exactly as it was
     collabStore.participants[1].typing = true
     await wrapper.vm.$nextTick()
 
@@ -96,10 +95,8 @@ describe('CollabPresence aria-live announcement', () => {
 
     /*
       Grace opens a second tab (a new PARTICIPANT entry, same PERSON) in the same update that Bob
-      genuinely joins. A naive "did the array grow" check would grab whichever entry landed last and
-      could easily announce the second Grace entry instead of Bob's actual arrival -- this pins the
-      announcement to Bob, proving the join is detected off the deduplicated person id, not the raw
-      participants list.
+      genuinely joins. A "did the array grow" check could announce the second Grace entry instead of
+      Bob's arrival -- pinning it to Bob proves the join is detected off the deduplicated person id.
     */
     collabStore.participants = [
       ...collabStore.participants,
@@ -113,9 +110,8 @@ describe('CollabPresence aria-live announcement', () => {
 })
 
 /**
- * OpenProject #1855: the per-row avatar in the presence bubble list should not compete with the
- * initial page render for network priority, and should reserve its own box so the row doesn't
- * jump once it loads.
+ * A per-row avatar must not compete with the initial page render for network priority, and must
+ * reserve its own box so the row doesn't jump once it loads.
  */
 describe('CollabPresence avatar images', () => {
   it('renders a participant avatar lazily with explicit dimensions', async () => {
@@ -143,8 +139,8 @@ describe('CollabPresence avatar images', () => {
 })
 
 /**
- * Task #3264: a participant's manually-uploaded avatar (`hasAvatar`) always wins; their
- * provider-synced picture (`avatarProviderUrl`) is only a fallback, and initials are the last resort.
+ * A participant's manually-uploaded avatar (`hasAvatar`) always wins; their provider-synced picture
+ * (`avatarProviderUrl`) is only a fallback, and initials are the last resort.
  */
 describe('CollabPresence avatar fallback', () => {
   it('renders the uploaded avatar when hasAvatar is set, ignoring avatarProviderUrl', async () => {
@@ -211,9 +207,8 @@ describe('CollabPresence avatar fallback', () => {
 })
 
 /**
- * OpenProject #2609: the rule itself is `helpers/initials.js`'s and is unit-tested there; this is the
- * wiring -- that a bubble with no uploaded avatar behind it draws the shared derivation rather than
- * this component's own former copy of it.
+ * The derivation itself is `helpers/initials.js`'s and is unit-tested there; this is only the
+ * wiring -- that a bubble with no avatar behind it draws the shared one.
  */
 describe('CollabPresence bubble initials', () => {
   async function bubbleTextsFor(names) {

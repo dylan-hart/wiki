@@ -1,13 +1,6 @@
 /*
-  Guards the committed `public/favicon.ico` — the icon a browser fetches from the bare
-  `/favicon.ico` root path on its own, whatever `index.html` declares.
-
-  This reads the bytes rather than re-running `generate-favicon.mjs`: the generator needs
-  Playwright's Chromium, and the whole point of committing the output is that nothing downstream
-  of it does. The committed file is the Cardinal.js brand kit's own hand-supplied icon (see
-  `generate-favicon.mjs`'s header) rather than one rendered from `logo-cardinal.svg` here, so what
-  is asserted is that it carries the official mark's three known fills, not a value read out of the
-  SVG — the two are deliberately decoupled for exactly the reason that header explains.
+  Reads the committed bytes rather than re-running `generate-favicon.mjs`: the generator needs
+  Playwright's Chromium, and the point of committing its output is that nothing downstream does.
 */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -19,12 +12,6 @@ const ICO = path.join(ROOT, 'public/favicon.ico')
 
 const bytes = fs.readFileSync(ICO)
 
-/**
- * Reads the ICONDIR and its ICONDIRENTRYs.
- *
- * @param {Buffer} buf
- * @returns {Array<{ width: number, height: number, planes: number, bitCount: number, length: number, offset: number }>}
- */
 function readDirectory(buf) {
   const count = buf.readUInt16LE(4)
   return Array.from({ length: count }, (_unused, index) => {
@@ -41,13 +28,6 @@ function readDirectory(buf) {
   })
 }
 
-/**
- * Decodes one 32bpp DIB entry back to top-down RGBA.
- *
- * @param {Buffer} buf The whole file.
- * @param {{ width: number, height: number, offset: number }} entry
- * @returns {{ at: (x: number, y: number) => { r: number, g: number, b: number, a: number } }}
- */
 function readPixels(buf, entry) {
   const headerSize = buf.readUInt32LE(entry.offset)
   const pixels = entry.offset + headerSize
@@ -61,10 +41,9 @@ function readPixels(buf, entry) {
   }
 }
 
-/** @param {{ r: number, g: number, b: number }} px @param {{ r: number, g: number, b: number }} target */
 function isNear(px, target) {
-  // Generous enough for the compositing at a boundary between the two fills, far tighter than the
-  // distance between either fill and anything the upstream icon was drawn in.
+  // Generous enough for the compositing where two fills meet, far tighter than the distance
+  // between any two of the three.
   return (
     Math.abs(px.r - target.r) <= 12 &&
     Math.abs(px.g - target.g) <= 12 &&
@@ -72,16 +51,14 @@ function isNear(px, target) {
   )
 }
 
-/** @param {string} hex @returns {{ r: number, g: number, b: number }} */
 function parseHex(hex) {
   const value = Number.parseInt(hex.slice(1), 16)
   return { r: (value >> 16) & 0xff, g: (value >> 8) & 0xff, b: value & 0xff }
 }
 
-// The official mark's three flat fills — see `public/_assets/logo-cardinal.svg`'s own header
-// comment. Hardcoded rather than read off the SVG: this icon is a hand-supplied render, not one
-// generated from that file (see `generate-favicon.mjs`), so the two are checked against the same
-// known constants instead of against each other.
+// The mark's three flat fills, hardcoded rather than read off `public/_assets/logo-cardinal.svg`:
+// this icon is hand-supplied, not rendered from that file, so both are pinned to the same known
+// constants instead of to each other.
 const CRESCENT = parseHex('#f95b53')
 const BODY = parseHex('#d1362f')
 const INK = parseHex('#000000')
@@ -98,7 +75,7 @@ describe('public/favicon.ico', () => {
       expect(entry.planes).toBe(1)
       expect(entry.bitCount).toBe(32)
       // A 32bpp DIB entry is a 40-byte header, `w * h * 4` of BGRA, then a 1bpp AND mask whose rows
-      // are padded to 4 bytes. Anything else means the entry is truncated or mis-declared.
+      // are padded to 4 bytes.
       const mask = Math.ceil(entry.width / 32) * 4 * entry.height
       expect(entry.length).toBe(40 + entry.width * entry.height * 4 + mask)
       expect(entry.offset + entry.length).toBeLessThanOrEqual(bytes.length)
@@ -106,8 +83,8 @@ describe('public/favicon.ico', () => {
   })
 
   it('draws the Cardinal mark in its three known fills', () => {
-    // Read off the 64, the largest entry: fine ink detail (the eye, the beak) is a handful of
-    // pixels even here, and would all but vanish under antialiasing at 16.
+    // The largest entry: the ink detail (the eye, the beak) is a handful of pixels even here, and
+    // would all but vanish under antialiasing at 16.
     const entry = readDirectory(bytes).find((e) => e.width === 64)
     const image = readPixels(bytes, entry)
 
@@ -119,7 +96,7 @@ describe('public/favicon.ico', () => {
       for (let x = 0; x < entry.width; x += 1) {
         const px = image.at(x, y)
         // Edge pixels are antialiased against nothing, so only fully-opaque ones carry a fill
-        // colour unblended. Those are what get counted.
+        // colour unblended.
         if (px.a !== 255) {
           continue
         }
@@ -134,8 +111,7 @@ describe('public/favicon.ico', () => {
       }
     }
 
-    // The mark is mostly the crescent, with the bird's body a smaller share and its ink detail
-    // smaller still — but all three have to actually be present.
+    // Presence floors, not measured counts.
     expect(crescentPixels).toBeGreaterThan(300)
     expect(bodyPixels).toBeGreaterThan(50)
     expect(inkPixels).toBeGreaterThan(5)

@@ -97,8 +97,6 @@ import { localizeError } from '@/helpers/localization'
 import { PASSWORD_CHARSET, randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
-// PROPS
-
 const props = defineProps({
   strategyId: {
     type: String,
@@ -106,21 +104,13 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => currentPasswordIpt.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   currentPassword: '',
@@ -129,17 +119,11 @@ const state = reactive({
   isLoading: false
 })
 
-// REFS
-
 const changeUserPwdForm = ref(null)
 const currentPasswordIpt = ref(null)
 const newPasswordIpt = ref(null)
 
-// COMPUTED
-
 const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
-
-// VALIDATION RULES
 
 const currentPasswordValidation = [(val) => val.length > 0 || t('auth.errors.missingPassword')]
 const newPasswordValidation = [
@@ -150,8 +134,6 @@ const verifyPasswordValidation = [
   (val) => val.length > 0 || t('auth.errors.missingVerifyPassword'),
   (val) => val === state.newPassword || t('auth.errors.passwordsNotMatch')
 ]
-
-// METHODS
 
 function randomizePassword() {
   state.newPassword = randomPassword(16, PASSWORD_CHARSET)

@@ -13,10 +13,9 @@ import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs (`ResizeObserver`, text metrics, a
- * genuine contenteditable surface) that `happy-dom` -- this workspace's Vitest environment, see
- * `vitest.config.js` -- does not provide, so mounting the real editor here would be testing whether
- * happy-dom can pretend to be a browser, not this component's own logic. Mocked to the handful of
- * calls `EditorAsciidoc.vue` actually makes, the same shape `EditorCode.test.js` relies on.
+ * genuine contenteditable surface) that `happy-dom` does not provide, so mounting the real editor
+ * here would test whether happy-dom can pretend to be a browser, not this component's own logic.
+ * Mocked to the handful of calls `EditorAsciidoc.vue` actually makes.
  */
 const fakeEditor = {
   getValue: vi.fn(() => ''),
@@ -63,7 +62,6 @@ function mountEditor(initialContent = '') {
   return { wrapper, pageStore, siteStore }
 }
 
-/** The debounced content-change handler `EditorAsciidoc.vue` registers, captured off the fake editor. */
 function changeHandler() {
   return fakeEditor.onDidChangeModelContent.mock.calls.at(-1)[0]
 }
@@ -155,9 +153,8 @@ describe('EditorAsciidoc', () => {
   })
 
   /**
-   * OpenProject #943, the #808 bug class: a debounced content-change call still pending at unmount
-   * used to fire ~500ms later against the already-disposed editor. Typing then unmounting within the
-   * debounce window must not touch the store afterward.
+   * Regression: a change still pending at unmount fires ~500ms later against an already-disposed
+   * editor and writes to the store behind a component that is gone.
    */
   it('cancels the pending debounced content change on unmount instead of firing it later', async () => {
     const { wrapper, pageStore } = mountEditor('original')
@@ -223,9 +220,8 @@ describe('EditorAsciidoc', () => {
   })
 
   /*
-    `opens the file manager in insert mode from the sidebar button`, `stops listening for insertAsset
-    and disposes the editor on unmount` and the whole `side toolbar tooltip mirroring` describe are
-    byte-identical between this suite and its sibling markup editor's, so they live once, as a
-    `describe.each` over both components, in `editorMarkupShared.test.js`.
+    The insert-mode file-manager button, the unmount listener/dispose and the side toolbar tooltip
+    mirroring are identical between this suite and the markup editor's, so they live once as a
+    `describe.each` over both components in `editorMarkupShared.test.js`.
   */
 })

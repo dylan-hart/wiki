@@ -1,15 +1,14 @@
 // @vitest-environment-options {"settings":{"enableJavaScriptEvaluation":true,"suppressInsecureJavaScriptEnvironmentWarning":true,"disableCSSFileLoading":true,"handleDisabledFileLoadingAsSuccess":true}}
 //
-// Same happy-dom environment options as `App.test.js`, for the same reasons (see that file's own
-// header). Split into its own file the same way `App.beforeunload.test.js` is, so only this file's
-// own `EVENT_BUS` listener registrations and router are ever in play.
+// Its own file, like `App.beforeunload.test.js`, so only this file's own `EVENT_BUS` listener
+// registrations and router are ever in play.
 //
-// OpenProject #2208 §3/§9: `App.vue`'s `'logout'` handler used to test the redirect target with
-// `/^[a-z][a-z0-9+.-]*:\/\//i` before handing it to `window.location.assign()` — satisfied by
-// `javascript://%0aalert(1)` (the `//` reads as a JS line comment, the decoded newline ends it before
-// the real scheme prefix would matter), and letting a protocol-relative `//evil.example` straight
-// through to the router as if it were a same-origin path. `isFollowableRedirectTarget()` replaces
-// the regex with the same rule the backend's `helpers/redirectTarget.ts` applies.
+// `App.vue`'s `'logout'` handler checks the redirect target with `isFollowableRedirectTarget()`,
+// applying the same rule as the backend's `helpers/redirectTarget.ts`. A naive
+// `/^[a-z][a-z0-9+.-]*:\/\//i` scheme test is not enough: `javascript://%0aalert(1)` satisfies it
+// (the `//` reads as a JS line comment, the decoded newline ends it) and a protocol-relative
+// `//evil.example` reaches the router as if it were a same-origin path. `redirect` is a group's
+// `redirectOnLogout`, so the attacker is whoever holds `manage:groups` over a victim's group.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
@@ -107,21 +106,10 @@ describe("App.vue 'logout' EVENT_BUS handler", () => {
 })
 
 /**
- * Moved here from `App.test.js` when that file was split by concern (TEST-F14): it covers the same
- * `'logout'` handler as the describe above, arrived at from the 2026-08-24 security audit rather
- * than from OpenProject #2208's own breakdown, and it observes each branch through
- * `router.currentRoute` rather than through a `push` spy. Kept whole rather than folded into the
- * describe above, since neither is a strict subset of the other in HOW it observes the outcome --
- * this one also proves the https:// branch does NOT additionally route internally, and the one above
- * covers a line-comment-disguised `javascript:` payload this one does not.
- *
- * OpenProject #1360/#2208: the `'logout'` `EVENT_BUS` handler used to treat ANY `scheme://` prefix as
- * "leaving the wiki" and call `window.location.assign()` on it directly -- `javascript://%0aalert(1)`
- * matches that same generic pattern, and a browser executes it as script once it decodes the `%0a`
- * into a real newline (the `//` becomes a JS line comment, ending before `alert(1)`). `redirect` is a
- * group's `redirectOnLogout`, so the actual attacker is whoever holds `manage:groups` (or
- * `write:pages`-adjacent delegation) on the group a victim is a member of -- every member of that
- * group gets this run on their next logout.
+ * The same `'logout'` handler as the describe above, observed through `router.currentRoute` rather
+ * than a `push` spy. Kept separate because neither is a strict subset of the other in HOW it
+ * observes the outcome: this one proves the https:// branch does NOT additionally route internally,
+ * the one above covers a line-comment-disguised `javascript:` payload this one does not.
  */
 describe('App.vue logout handler (OpenProject #2208)', () => {
   async function mountReadyWithOther() {

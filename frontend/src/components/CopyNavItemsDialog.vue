@@ -91,26 +91,17 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 /**
- * Picks a menu to copy items FROM, for `NavItemEditor.vue`'s "Copy from..." action.
- *
- * A sibling of `LinkPickerDialog.vue`: self-contained, answering only `{ sourceSiteId, sourceNavId }`
- * and leaving the caller to actually run the copy (`POST .../navigation/:navId/copy`) and reload.
+ * Self-contained: it answers only `{ sourceSiteId, sourceNavId }`, leaving the caller to run the
+ * copy and reload.
  *
  * `locales` and `otherSites` come in as props rather than being fetched here, because the host
- * (`NavItemEditor.vue`) already has to know both up front anyway -- to decide whether to show the
- * "Copy from..." action at all (hidden when there is nothing to copy from). Passing them down avoids
- * asking the server the same two questions twice. The one thing this dialog fetches for itself is a
- * DIFFERENT site's locale roots, once one is picked -- that list cannot be known ahead of time without
- * fetching it for every enabled site regardless of whether the admin ever chooses it.
- *
- *   dialog({ component: CopyNavItemsDialog, componentProps: { siteId, navId, locales, otherSites } })
- *     .onOk(({ sourceSiteId, sourceNavId }) => ...)
+ * (`NavItemEditor.vue`) already has to know both to decide whether to offer this action at all. The
+ * one thing this dialog fetches for itself is a DIFFERENT site's locale roots, once one is picked --
+ * that list cannot be known ahead of time without fetching it for every enabled site.
  */
 
-// PROPS
-
 const props = defineProps({
-  /** The site of the menu being edited (the copy's target). */
+  /** The site of the menu being edited -- the copy's target. */
   siteId: {
     type: String,
     required: true
@@ -132,32 +123,21 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   otherSite: false,
   sourceSiteId: '',
   sourceLocale: '',
-  /** This site's own roots, minus the menu being edited -- can never be a source for itself. */
+  /** Minus the menu being edited -- it can never be a source for itself. */
   sameSiteLocales: props.locales.filter((r) => r.navigationId !== props.navId),
-  /** Roots for whichever other site is currently picked, fetched on demand. */
   crossSiteLocales: [],
   isFetching: false
 })
-
-// COMPUTED
 
 const localeOptions = computed(() =>
   state.otherSite ? state.crossSiteLocales : state.sameSiteLocales
@@ -169,8 +149,6 @@ const canSubmit = computed(() => {
   }
   return state.otherSite ? Boolean(state.sourceSiteId) : true
 })
-
-// METHODS
 
 async function loadCrossSiteLocales(siteId) {
   state.isFetching = true
@@ -200,23 +178,19 @@ function submit() {
   })
 }
 
-// WATCHERS
-
 watch(
   () => state.otherSite,
   (isOtherSite) => {
     if (isOtherSite) {
       if (state.sourceSiteId) {
-        // -> Already set (re-toggling on with a site already picked) -- the `sourceSiteId` watcher
-        //    below only fires on a CHANGE, so nothing would fetch without this
+        // -> Re-toggling on with a site already picked: the `sourceSiteId` watcher below fires only
+        //    on a CHANGE, so nothing would fetch without this
         loadCrossSiteLocales(state.sourceSiteId)
       } else {
         /*
-          Not yet set when this is the FIRST time the toggle is switched on by hand (`onMounted` only
-          pre-fills it for the "nothing same-site to offer" case below). Assignment alone is enough
-          here -- it is what the `sourceSiteId` watcher below reacts to -- so this deliberately does
-          NOT also call `loadCrossSiteLocales` itself: doing both would fire it twice for one toggle,
-          and whichever response landed second would win, silently discarding the other.
+          The assignment alone is enough -- it is what the `sourceSiteId` watcher below reacts to --
+          so this deliberately does NOT also call `loadCrossSiteLocales`: doing both would fire it
+          twice for one toggle, and whichever response landed second would win.
         */
         state.sourceSiteId = props.otherSites[0]?.id ?? ''
       }
@@ -226,7 +200,6 @@ watch(
   }
 )
 
-/** Re-fetched every time a different source site is picked, not just the first time. */
 watch(
   () => state.sourceSiteId,
   (siteId) => {
@@ -236,14 +209,10 @@ watch(
   }
 )
 
-// MOUNTED
-
 onMounted(() => {
   /*
-    Start on whichever branch actually has something to offer: a site with only one active locale
-    (`sameSiteLocales` empty once its own row is excluded) but at least one other enabled site should
-    not open onto an empty same-site select when the caller already knows to show this dialog only
-    because the cross-site branch has options.
+    Start on whichever branch actually has something to offer: with `sameSiteLocales` empty once the
+    menu's own row is excluded, opening onto the same-site select would show nothing at all.
   */
   if (state.sameSiteLocales.length > 0) {
     state.sourceLocale = state.sameSiteLocales[0].locale

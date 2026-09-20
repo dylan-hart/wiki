@@ -1,20 +1,11 @@
 /*
-  Generates `src/assets/icons.generated.js` — the icon data the UI's own chrome draws with.
+  Inlines the icon data the UI's own chrome draws with instead of letting it resolve through
+  `/_icons` at runtime, so nothing an administrator does can blank the interface: runtime resolution
+  is gated on the set being enabled, deleting a set drops every icon stored for it, and `offline`
+  mode skips the upstream API entirely. Icons the USER picks still resolve at runtime — see `WIcon`.
 
-  Why inline the data rather than fetch it:
-
-  - The webfonts it replaces cost ~577 kB of binary plus a 66 kB (gzipped) class table, to draw 227
-    icons out of the ~8,800 those fonts contain.
-  - Fetching the same icons from `/_icons` at runtime would be small, but it would make the admin UI
-    depend on the icon service: resolution is gated on the set being enabled, `DELETE /icons/sets/:prefix`
-    removes every stored icon for a set, and `offline` mode skips the upstream API entirely. An
-    administrator disabling the `mdi` set would blank the interface they were using to do it.
-
-  Inlining sidesteps all of that: the chrome's icons are build output, and nothing at runtime can take
-  them away. Icons the USER picks still resolve through `/_icons` as before — see `WIcon`.
-
-  The output is committed. Builds are then reproducible and need no network, and the diff shows
-  exactly which icons changed. `npm run icons:check` fails if it drifts out of step with the source.
+  The output is committed, so builds are reproducible and need no network; `npm run icons:check`
+  fails when it drifts out of step with the source.
 
   Usage: node scripts/generate-icons.mjs [--check]
 */
@@ -23,48 +14,40 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // `path.join(..., '..')` rather than `new URL('../', import.meta.url)`: the latter goes through the
-// ambient global `URL` constructor, which a DOM test environment (this repo's Vitest suites default
-// to `happy-dom`) can shadow with its own browser-oriented implementation that doesn't resolve a
-// relative `file:` URL the way Node's does. `check-locales.mjs` carries the same note.
+// ambient global `URL`, which a DOM test environment (happy-dom) can shadow with a browser-oriented
+// implementation that doesn't resolve a relative `file:` URL the way Node's does.
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(ROOT, 'src')
 const OUT = path.join(SRC, 'assets/icons.generated.js')
 
 /**
- * The sibling `blocks/` workspace, holding each `block-<name>/component.js`'s `static definition`
- * literal — `icon: 'tabler:…'` among its fields. Those icons are otherwise read at runtime as
- * `block.icon` (a property off fetched block metadata, not a source literal in `frontend/src`), so
- * without this second root they silently fall through to `/_icons` resolution at runtime instead of
- * getting the same build-time inlining and Cardinal restyling every other chrome icon gets — see
- * OpenProject #2869.
+ * The sibling `blocks/` workspace: each `block-<name>/component.js`'s `static definition` carries an
+ * `icon:` literal that `frontend/src` only ever sees at runtime as `block.icon`, off fetched block
+ * metadata. Without this second root those icons miss the build-time inlining and Cardinal
+ * restyling every other chrome icon gets.
  */
 const BLOCKS_ROOT = path.join(ROOT, '..', 'blocks')
 
 /**
- * Icon sets we bundle from. A prefix not listed here is left to resolve at runtime — which for an icon
- * written into this repo's own source means it does not render at all unless an administrator happens to
- * have added that set, so a new set has to be listed HERE and installed as `@iconify-json/<prefix>`.
+ * A prefix not listed here is left to resolve at runtime — which for an icon written into this
+ * repo's own source means it does not render at all unless an administrator happens to have added
+ * that set, so a new set has to be listed HERE and installed as `@iconify-json/<prefix>`.
  *
- * The skip is silent on purpose: `prefix:name` also describes every permission string in the frontend
- * (`write:pages`, `manage:system`), and those must not be mistaken for icons.
+ * The skip is silent on purpose: `prefix:name` also describes every permission string in the
+ * frontend (`write:pages`), and those must not be mistaken for icons.
  */
 const SETS = ['mdi', 'la', 'tabler']
 
 /**
- * Tabler is drawn at `stroke-width: 2` with ROUND caps and joins. Cardinal is a language of squares
- * and hairlines — the glyphs in `ui-redesign/`'s design files are 1.5px with butt caps and mitre
- * joins, and declare no linecap at all — so a Tabler icon dropped in unchanged reads a weight
- * heavier and a shade softer than everything around it.
+ * Tabler is drawn at `stroke-width: 2` with ROUND caps and joins; Cardinal is squares and
+ * hairlines, 1.5px with butt caps and mitre joins, so a Tabler icon dropped in unchanged reads a
+ * weight heavier and a shade softer than everything around it.
  *
- * Restyling rather than redrawing: the geometry is Tabler's and stays untouched, only its
- * presentation attributes move. Applied at bundle time so the source stays an ordinary
- * `tabler:<name>` reference that anyone can look up, rather than a fork nobody can trace back.
+ * Restyling rather than redrawing: only presentation attributes move, the geometry stays Tabler's,
+ * and the source stays an ordinary `tabler:<name>` reference anyone can look up.
  *
  * Scoped to `tabler` deliberately — `mdi` and `la` are FILLED sets with no stroke to restyle, and
  * running this over them would do nothing but risk mangling a path.
- *
- * The one mark that CANNOT lose its round cap is Tabler's dot idiom — see
- * `roundCapZeroLengthSubpaths`, which gives the cap back to those subpaths and nothing else.
  */
 export function restyleForCardinal(body) {
   return roundCapZeroLengthSubpaths(
@@ -75,57 +58,44 @@ export function restyleForCardinal(body) {
 }
 
 /*
-  ---------------------------------------------------------------------------------------------
-  Tabler's dot idiom, and why stripping the linecap erases it
+  Tabler draws a DOT — the point under a question mark, the eyes of `mood-smile`, the LEDs down the
+  front of `server` — not as a circle but as a subpath that draws essentially nothing (`m9 4v.01`,
+  `M12 16h.01`), visible only because a round cap puts a full stroke-width disc on each end. Under
+  SVG's default `butt` cap it renders nothing at all, so the strip above — right as it is for every
+  real stroke — silently deletes the most meaningful mark in `alert-circle` and its kin.
 
-  Tabler draws a DOT — the point under a question mark, the point under an exclamation mark, the
-  eyes of `mood-smile`, the LEDs down the front of `server` — not as a circle but as a subpath that
-  draws essentially nothing: `m9 4v.01`, `M12 16h.01`. Those 0.01 units are visible only because a
-  round cap puts a full stroke-width disc on each end of the segment. Under SVG's default `butt` cap
-  the same subpath renders a 0.01 x 1.5 sliver, which is to say nothing at all.
-
-  So the strip above, right as it is for every real stroke, silently deletes the most meaningful
-  mark in `alert-circle`, `info-circle`, `alert-triangle` and `help-circle`.
-
-  `stroke-linecap` is a per-ELEMENT property, not a per-subpath one, so "round caps on the dots,
-  square ends on everything else" cannot be said inside a single `<path>`. A path holding both is
-  split in two: the real strokes keep the original element and its square ends, the dots move to a
-  sibling element carrying `stroke-linecap="round"`. A path that is nothing but dots simply gains
-  the attribute where it stands.
+  `stroke-linecap` is a per-ELEMENT property, so "round caps on the dots, square ends on everything
+  else" cannot be said inside a single `<path>`: a path holding both is split in two, the dots
+  moving to a sibling element that carries the attribute.
 
   Detection is GEOMETRIC, not textual. Grepping for `.01` would both over-match (`snowflake`'s
-  `l.01 3.458` is a real three-and-a-half unit segment) and miss the other spellings of the same
-  idiom (`h.01`, `l0 0`, `l.01 .01`). What actually matters is whether the subpath's drawn extent
-  rounds to zero.
-  ---------------------------------------------------------------------------------------------
+  `l.01 3.458` is a real three-and-a-half unit segment) and miss the idiom's other spellings
+  (`h.01`, `l0 0`, `l.01 .01`).
 */
 
-/** How many parameters one repetition of each path command consumes. */
+/** Parameters per REPETITION, not per command — a single `l` may carry many pairs. */
 const COMMAND_ARITY = { m: 2, l: 2, h: 1, v: 1, c: 6, s: 4, q: 4, t: 2, a: 7, z: 0 }
 
-/** One command letter plus everything up to the next one. `e`/`E` is excluded, so `1e-3` survives. */
+/** `e`/`E` is excluded from the command letters, so an exponent like `1e-3` survives. */
 const PATH_COMMAND = /([MmLlHhVvCcSsQqTtAaZz])([^MmLlHhVvCcSsQqTtAaZz]*)/g
 
 const PATH_NUMBER = /-?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g
 
 /**
  * A subpath drawing less than this across both axes is the dot idiom rather than a stroke. Tabler
- * spells it 0.01 on a 24-unit grid and the shortest REAL segment in the bundled set is a whole unit,
- * so there is a hundredfold gap to sit in the middle of.
+ * spells the dot 0.01 on a 24-unit grid and its shortest REAL segment is a whole unit, so this sits
+ * in the middle of a hundredfold gap.
  */
 const DOT_EXTENT = 0.05
 
-/** Trim float noise out of a coordinate that has to be rewritten into a committed artifact. */
+/** Coordinates are rewritten into a committed artifact, so trim float noise out of them. */
 function formatCoordinate(value) {
   return String(Math.round(value * 1000) / 1000)
 }
 
 /**
- * Split a `d` attribute into subpaths, tracking the absolute current point across every command so
- * each subpath knows both where it starts and how far it actually draws.
- *
- * Control points count toward the extent alongside endpoints: a curve returning to where it began
- * still lays down real ink and must not be mistaken for a dot.
+ * Control points count toward a subpath's extent alongside endpoints: a curve returning to where it
+ * began still lays down real ink and must not be mistaken for a dot.
  */
 function readSubpaths(d) {
   const subpaths = []
@@ -174,8 +144,8 @@ function readSubpaths(d) {
       const absY = (value) => (relative ? y + value : value)
 
       if (lower === 'm' && n === 0) {
-        // -> A path's very first moveto is absolute whatever its case, and x/y are still 0 there, so
-        //    the relative branch lands on the same point rather than needing a case of its own.
+        // -> A path's first moveto is absolute whatever its case, and x/y are still 0 there, so the
+        //    relative branch lands on the same point without needing a case of its own.
         x = absX(a[0])
         y = absY(a[1])
         subStartX = x
@@ -227,7 +197,7 @@ function readSubpaths(d) {
           break
         case 'a': {
           // -> An arc between two identical endpoints is dropped by the renderer, but one with real
-          //    radii is no dot either way, so let the radii speak for the extent.
+          //    radii is no dot either way, so the radii speak for the extent.
           const [rx, ry] = a
           visit(x - Math.abs(rx), y - Math.abs(ry))
           visit(x + Math.abs(rx), y + Math.abs(ry))
@@ -252,8 +222,6 @@ function isDotSubpath(sub) {
 }
 
 /**
- * Re-emit a run of subpaths as a `d` attribute.
- *
  * A subpath still sitting immediately behind its original predecessor is copied out verbatim, so the
  * output stays byte-identical to Tabler's own text wherever nothing moved. One that has been lifted
  * away from its predecessor has its moveto rewritten as an absolute `M`: a relative `m` measures
@@ -284,9 +252,9 @@ const PATH_ELEMENT = /<path\b([^>]*?)\s*\/>/g
 const D_ATTRIBUTE = /(\sd=")([^"]*)(")/
 
 /**
- * Whether this element paints a stroke at all. A path with no `stroke` of its own inherits the one
- * on its `<g>` wrapper — unless it declares a real `fill` instead, which is how the handful of
- * filled Tabler glyphs (`bell-filled`, …) are drawn, and why they must be left alone.
+ * A path with no `stroke` of its own inherits the one on its `<g>` wrapper — unless it declares a
+ * real `fill` instead, which is how the handful of filled Tabler glyphs (`bell-filled`, …) are
+ * drawn, and why they must be left alone.
  */
 function isStroked(attributes) {
   if (/\sstroke="/.test(attributes)) {
@@ -300,10 +268,7 @@ function withPathData(attributes, d) {
   return attributes.replace(D_ATTRIBUTE, (_match, before, _value, after) => `${before}${d}${after}`)
 }
 
-/**
- * Slot the cap in where Tabler itself writes it — ahead of `stroke-width`, or ahead of `d` on a path
- * that leaves the weight to its `<g>` — so the generated element still reads like the upstream one.
- */
+/** Slotted in where Tabler itself writes it, so the output still reads like the upstream element. */
 function withRoundCap(attributes) {
   if (/\sstroke-width="/.test(attributes)) {
     return attributes.replace(/\sstroke-width="/, ' stroke-linecap="round" stroke-width="')
@@ -314,7 +279,6 @@ function withRoundCap(attributes) {
   )
 }
 
-/** Give Tabler's zero-length dot subpaths their round cap back, and nothing else. */
 function roundCapZeroLengthSubpaths(body) {
   return body.replaceAll(PATH_ELEMENT, (element, attributes) => {
     const d = D_ATTRIBUTE.exec(attributes)?.[2]
@@ -338,8 +302,8 @@ function roundCapZeroLengthSubpaths(body) {
 }
 
 /**
- * A quoted string that is EXACTLY an Iconify reference. Requiring the whole literal to match is what
- * keeps arbitrary `prefix:name`-shaped strings (i18n keys, CSS values) out of the bundle.
+ * Requiring the WHOLE quoted literal to be an Iconify reference is what keeps arbitrary
+ * `prefix:name`-shaped strings (i18n keys, CSS values) out of the bundle.
  */
 const REF = /(["'`])([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*)\1/g
 
@@ -359,11 +323,9 @@ function* sourceFiles(dir) {
 }
 
 /**
- * Each `block-<name>/component.js` under the sibling `blocks/` workspace, non-recursively — never
- * `blocks/compiled` (build output), `blocks/node_modules` (that workspace's own, independently
- * installed dependency tree, which `sourceFiles`'s recursive walk would otherwise happily descend
- * into) or `blocks/shared` (no block's `static definition` lives there). Absent entirely in a
- * checkout that hasn't cloned `blocks/`, in which case this yields nothing.
+ * Non-recursive, unlike `sourceFiles`: that walk would descend into `blocks/node_modules` (a
+ * separately installed dependency tree) and `blocks/compiled` (build output), and no block's
+ * `static definition` lives outside a `block-<name>/component.js`.
  */
 function* blockDefinitionFiles() {
   if (!fs.existsSync(BLOCKS_ROOT)) {
@@ -380,7 +342,6 @@ function* blockDefinitionFiles() {
   }
 }
 
-/** Every statically written reference to one of the bundled sets. */
 export function collectRefs() {
   const found = new Map()
   for (const file of [...sourceFiles(SRC), ...blockDefinitionFiles()]) {
@@ -400,8 +361,6 @@ export function collectRefs() {
 }
 
 /**
- * Resolve a name against a set, following aliases.
- *
  * An alias may carry its own transform (`hFlip`, `rotate`, …) on top of the icon it points at. Those
  * are applied by the renderer, so they have to travel with the body rather than being dropped.
  */
@@ -448,7 +407,6 @@ export function build() {
     }
     icons[ref] = {
       body: prefix === 'tabler' ? restyleForCardinal(icon.body) : icon.body,
-      // -> Default to the set's own grid; an icon may override it
       width: icon.width ?? set.width ?? 16,
       height: icon.height ?? set.height ?? 16,
       ...(icon.rotate ? { rotate: icon.rotate } : {}),

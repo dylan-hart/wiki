@@ -7,12 +7,8 @@ import { mount } from '@vue/test-utils'
 import BlueprintIcon from './BlueprintIcon.vue'
 
 /**
- * `indicatorDot` decides whether the little status badge (used across the admin area for "requires
- * Sharp" warnings) renders at all. Callers that only ever wrote `indicator` as a bare attribute — no
- * `:indicator="..."` binding — passed the empty string on every render regardless of the condition
- * they meant to express, which `indicatorDot` treats as truthy (`'' === '' ? 'pink' : ...`) same as
- * any other non-null value. This locks down the contract a caller must actually use: `null` hides
- * the badge, anything else (including `''`) shows it.
+ * The contract a caller must use: `null` hides the badge, anything else shows it — including the
+ * `''` that `indicator` written as a bare attribute passes on every render.
  */
 describe('BlueprintIcon indicator', () => {
   it('renders no badge when indicator is not passed (defaults to null)', () => {
@@ -36,11 +32,6 @@ describe('BlueprintIcon indicator', () => {
   })
 })
 
-/**
- * `standalone` drops the `WItemSection` wrapper, which is a `WItem`-ism: it is what gives a list
- * row's leading column its 56px width and 16px trailing gutter. `WSettingsRow` lays out its own
- * 14px gap and would otherwise get 33px.
- */
 describe('BlueprintIcon standalone', () => {
   it('wraps the plate in an item section by default', () => {
     const wrapper = mount(BlueprintIcon, { props: { icon: 'tabler:home' } })
@@ -82,13 +73,9 @@ describe('BlueprintIcon standalone', () => {
 })
 
 /**
- * OpenProject #2694. Handoff 2 draws exactly two plates: the 34px one every settings row and the
- * anchored create menu wear, and a 28px one for a menu opened at the pointer, which "should not be
- * taller than the tree it covers".
- *
- * `compact` is additive and OFF by default on purpose -- `WSettingsRow`, `AdminGeneral` and every
- * other call site depend on 34px staying what you get for asking for nothing, so a regression that
- * shrank the default would move the whole admin area at once.
+ * `compact` is additive and OFF by default on purpose: every other call site depends on 34px
+ * staying what you get for asking for nothing, so a regression shrinking the default would move the
+ * whole admin area at once.
  *
  * The two measurements are read out of the component's own stylesheet rather than off
  * `getComputedStyle`: jsdom runs no layout engine and resolves nothing from a scoped `<style>` block,
@@ -124,10 +111,6 @@ describe('BlueprintIcon plate size', () => {
 })
 
 /**
- * OpenProject #2999. Cobalt has no theming of its own for the plate today, so it falls through to
- * either the base Ledger-light styling or, in dark mode, the `body--dark` override -- both of which
- * draw a hairline/slate frame rather than Cobalt's rounded, backgroundless, saturated-accent one.
- *
  * Asserted the same way as the plate-size describe above: by reading the scoped `<style>` source
  * rather than `getComputedStyle`, since jsdom runs no layout/cascade engine and would pass against
  * any rule at all.
