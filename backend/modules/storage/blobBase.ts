@@ -25,7 +25,12 @@ export const DIRECT_ACCESS_TTL_SECONDS = 5 * 60
 const ACTIVATION_FAILURE_TTL_MS = 30_000
 
 export function keyFor(target: StorageTarget, folderPath: string, fileName: string): string {
-  return objectKeyFor({ siteId: target.siteId, folderPath, fileName })
+  return objectKeyFor({
+    siteId: target.siteId,
+    folderPath,
+    fileName,
+    pathPrefix: target.config?.pathPrefix
+  })
 }
 
 /**
