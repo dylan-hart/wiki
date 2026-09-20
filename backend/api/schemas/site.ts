@@ -291,6 +291,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           forcePrefix: {
             type: 'boolean'
           },
+          aliases: {
+            type: 'object',
+            description:
+              'URL segment each active locale is served under instead of its code, keyed by the canonical code (`{ "zh-CN": "zh" }`). Pages, tree entries and page rules keep the canonical code.',
+            additionalProperties: {
+              type: 'string',
+              maxLength: 64
+            }
+          },
           showMenu: {
             type: 'boolean',
             description:

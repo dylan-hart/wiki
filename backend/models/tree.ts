@@ -1735,6 +1735,25 @@ class Tree {
     return true
   }
 
+  async hasRootSegment(siteId: string, segment: string, db: WikiDbOrTx = CARDINAL.db) {
+    const encoded = encodeTreePath(segment)
+    const rows = await db
+      .select({ id: treeTable.id })
+      .from(treeTable)
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          inArray(treeTable.type, ['page', 'folder']),
+          or(
+            and(eq(treeTable.folderPath, ''), eq(treeTable.fileName, encoded)),
+            sql`${treeTable.folderPath} <@ ${encoded}::ltree`
+          )
+        )
+      )
+      .limit(1)
+    return rows.length > 0
+  }
+
   private async addEntry({
     id,
     type,
