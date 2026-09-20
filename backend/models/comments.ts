@@ -26,27 +26,24 @@ import type { CommentProviderModule } from '../modules/comments/default/comments
 export type Comment = typeof commentsTable.$inferSelect
 
 /**
- * A {@link Comment} shaped for a page-view list: the private `guestEmail`/`guestIp` dropped,
- * `authorName` resolved, and replies nested rather than flat — consumers walk a thread top-down, so
- * that grouping happens once here instead of being re-derived from `replyTo` by each of them.
+ * A {@link Comment} shaped for a page-view list: the private `guestEmail`/`guestIp` dropped, and
+ * replies nested so no consumer re-derives the thread from `replyTo`.
  */
 export interface ThreadedComment {
   id: string
   siteId: string
   pageId: string
   authorId: string | null
-  /** The author's name when `authorId` is set, `guestName` otherwise. */
   authorName: string
   replyTo: string | null
   content: string
   render: string | null
   createdAt: Date
   updatedAt: Date
-  /** Direct replies, oldest first. */
+  /** Oldest first. */
   replies: ThreadedComment[]
 }
 
-/** A page as `helpers/pageRules.ts` matches a rule against, plus its id. */
 export interface AdminPageRef {
   id: string
   path: string
@@ -61,7 +58,6 @@ export interface AdminComment {
   pageId: string
   pagePath: string
   authorId: string | null
-  /** The author's name when `authorId` is set, `guestName` otherwise. */
   authorName: string
   replyTo: string | null
   content: string
@@ -69,7 +65,6 @@ export interface AdminComment {
   updatedAt: Date
 }
 
-/** A comment plus just enough of its page to decide `manage:comments` against. */
 export interface AdminCommentWithPage {
   id: string
   siteId: string
@@ -80,13 +75,11 @@ export interface AdminCommentWithPage {
 export interface ListForAdminOptions {
   siteId: string
   /**
-   * The accessible-pages set the caller has already computed — every comment returned is restricted
-   * to one of these page ids. `null` is no restriction at all (a `manage:system` actor), and the
-   * `pageId IN (...)` condition is then omitted rather than bound with every page id on the site. An
-   * empty array is a legitimate "nothing is accessible", not "no filter".
+   * The accessible-pages set the caller has already computed. `null` is no restriction at all (a
+   * `manage:system` actor) and omits the `pageId IN (...)` condition entirely; an empty array is a
+   * legitimate "nothing is accessible", not "no filter".
    */
   pageIds: string[] | null
-  /** Substring match against the resolved author name (account name, or `guestName`). */
   author?: string
   dateFrom?: Date
   dateTo?: Date
@@ -94,9 +87,8 @@ export interface ListForAdminOptions {
   limit?: number
   /**
    * Max page ids bound into one `pageId IN (...)` before `pageIds` is split across several queries
-   * whose rows are merged in memory. The default sits comfortably under postgres'
-   * 65,535-bind-parameter limit; exposed so a test can exercise the chunking path without needing
-   * tens of thousands of real rows.
+   * merged in memory. The default sits comfortably under postgres' 65,535-bind-parameter limit;
+   * exposed so a test can exercise the chunking path without tens of thousands of real rows.
    */
   pageIdChunkSize?: number
 }
@@ -107,9 +99,9 @@ const DEFAULT_PAGE_ID_CHUNK_SIZE = 20000
 const MIN_CONTENT_LENGTH = 2
 
 /**
- * Mirrors `CommentInput.content`'s `maxLength` in `api/schemas/comment.ts`. AJV enforces that for
- * the request-driven routes, but `create`/`update` are reachable directly too, so the ceiling is
- * enforced here rather than only at the one validated entry point.
+ * Mirrors `CommentInput.content`'s `maxLength` in `api/schemas/comment.ts` — keep in sync. ajv
+ * covers the request-driven routes; `create`/`update` are reachable directly too, so the ceiling is
+ * enforced here as well.
  */
 const MAX_CONTENT_LENGTH = 32768
 
@@ -118,26 +110,23 @@ const DEFAULT_LIMIT = 25
 const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
 
 /**
- * Comments model — create/update/delete/read primitives over the `comments` table.
- *
  * No permission checks and no `FastifyRequest` import: access checks, Akismet scoring and rate
- * limits all belong one layer up, in `api/comments.ts`, which is where the session and the request's
- * own ip/UA/permalink legitimately live.
+ * limits belong one layer up, in `api/comments.ts`, which is where the session and the request's own
+ * ip/UA/permalink legitimately live.
  *
- * `render` is populated synchronously here by the site's active comment-provider module, never
- * through the headless-browser queue `models/renderQueue.ts` drives — far too heavy to hold a
- * comment post open for. It stays `null` when the site has no active provider, its provider is
- * embed-only (Disqus, Commento, Artalk render nothing server-side), or the module throws.
+ * `render` is populated synchronously by the site's comment-provider module, never through the
+ * headless-browser queue `models/renderQueue.ts` drives — far too heavy to hold a comment post open
+ * for.
  */
 
 const providerModules: Record<string, CommentProviderModule> = {}
 
 class Comments {
   /**
-   * The site's active comment-provider row plus its loaded server-side module, or `null` when there
-   * is no active provider or it is embed-only (Disqus, Commento and Artalk declare client-side
-   * config only, with no sibling `comments.ts`). Public so `api/comments.ts`'s POST route can run
-   * `checkSpam()` against the request's own ip/UA/permalink, which this model cannot see.
+   * `null` when there is no active provider or it is embed-only — Disqus, Commento and Artalk
+   * declare client-side config only, with no sibling `comments.ts`. Public so `api/comments.ts`'s
+   * POST route can run `checkSpam()` against the request's own ip/UA/permalink, which this model
+   * cannot see.
    *
    * The config is deliberately unmasked, unlike `commentProviders.getActiveProvider()`, which is
    * masked because it can reach an anonymous reader's browser: a caller here needs the real Akismet
@@ -167,9 +156,8 @@ class Comments {
   }
 
   /**
-   * Render a comment's raw markdown to sanitized HTML through the site's active comment-provider
-   * module. A `null` result is a safe degrade: the column is nullable and `PageComments.vue` falls
-   * back to the raw content.
+   * A `null` result degrades rather than refusing the comment. `PageComments.vue` renders `render`
+   * alone, so a provider that throws leaves that comment showing an empty body.
    */
   private async renderForSite(siteId: string, content: string): Promise<string | null> {
     const active = await this.activeProviderModule(siteId)
@@ -187,10 +175,6 @@ class Comments {
       return null
     }
   }
-  /**
-   * Store a new comment. The length bounds are the only validation here; spam scoring, rate limits
-   * and guest field requirements are provider-layer policy, not this primitive's.
-   */
   async create({
     siteId,
     pageId,
@@ -212,13 +196,11 @@ class Comments {
     guestEmail?: string | null
     guestIp?: string | null
     /**
-     * Backdates `createdAt` instead of stamping the moment `create()` runs. A live post never sets
-     * it and keeps the column's `now()` default; only the migration importer supplies it, to carry
-     * a 2.x comment's real post date across — which is also what keeps `listForPage()`'s
-     * `createdAt` ordering chronological for an imported thread rather than import-ordered.
+     * Only the migration importer supplies this, to carry a 2.x comment's real post date across —
+     * which is also what keeps an imported thread's `createdAt` ordering chronological rather than
+     * import-ordered. A live post keeps the column's `now()` default.
      */
     createdAt?: string
-    /** Same reasoning as {@link createdAt}, for `updatedAt`. */
     updatedAt?: string
   }): Promise<Comment> {
     const trimmed = content.trim()
@@ -253,19 +235,17 @@ class Comments {
   }
 
   /**
-   * Patches `replyTo` on an existing comment. No live path needs this — a live reply knows its
-   * parent's id at `create()` time. The migration importer does: a 2.x reply can name a comment
-   * appearing later in the same source stream, so every imported comment is created top-level and a
-   * second pass threads them once each has a real id.
+   * Only the migration importer needs this: a 2.x reply can name a comment appearing later in the
+   * same source stream, so an import creates every comment top-level and threads them in a second
+   * pass. A live reply knows its parent's id at `create()` time.
    */
   async setReplyTo(id: string, replyTo: string): Promise<void> {
     await CARDINAL.db.update(commentsTable).set({ replyTo }).where(eq(commentsTable.id, id))
   }
 
   /**
-   * Update a comment's content, re-rendering so `render` reflects the new content rather than the
-   * one it replaced. That costs one extra {@link get} to learn which site's provider to render
-   * with — a bare `UPDATE ... SET content` has no `siteId` to hand.
+   * The extra {@link get} is what learns which site's provider to re-render with — a bare
+   * `UPDATE ... SET content` has no `siteId` to hand.
    */
   async update(id: string, { content }: { content: string }): Promise<Comment> {
     const trimmed = content.trim()
@@ -303,11 +283,8 @@ class Comments {
   }
 
   /**
-   * Delete a comment; its replies cascade via the `replyTo` foreign key.
-   *
-   * Fetches the row first so `comment:delete` still has `authorId`/`siteId`/`pageId` to emit once
-   * the row is gone — a caller may only hold a page-scoped ref, not the full row. An id naming no
-   * comment is a silent, non-emitting no-op.
+   * Replies cascade via the `replyTo` foreign key. The row is fetched first so `comment:delete`
+   * still has `authorId`/`siteId`/`pageId` to emit once it is gone.
    */
   async delete(id: string): Promise<void> {
     const existing = await this.get(id)
@@ -318,8 +295,7 @@ class Comments {
   }
 
   /**
-   * Nulls `guestName`/`guestEmail`/`guestIp` on comments older than the retention window, leaving
-   * the comment itself in place -- its content and position in the thread are not PII, only who the
+   * The comment itself stays -- its content and position in the thread are not PII, only who the
    * guest was is. The "still has a guest column set" condition is what stops an already-swept table
    * being rewritten on every run; `authorId IS NULL` is cheap defense in depth, since a logged-in
    * author's row never has these columns populated.
@@ -357,13 +333,8 @@ class Comments {
   }
 
   /**
-   * Every comment on a page, threaded. One flat query — the join is `left` because a guest comment
-   * has no user row — with the tree built in application code from that single result set, rather
-   * than an N+1 of per-reply queries.
-   *
-   * A reply whose `replyTo` is absent from the result set is dropped, not raised to the top level
-   * where it would read as a fresh comment. The cascading `replyTo` foreign key means that should
-   * never happen; the tree builder does not rely on the invariant holding.
+   * One flat query — the join is `left` because a guest comment has no user row — with the tree
+   * built in application code from that single result set, rather than an N+1 of per-reply queries.
    */
   async listForPage(pageId: string): Promise<ThreadedComment[]> {
     const rows = await CARDINAL.db
@@ -393,11 +364,10 @@ class Comments {
   }
 
   /**
-   * Minimal page refs for a site — exactly the shape `helpers/pageRules.ts` matches a rule against,
-   * deliberately not the full `Page` row: the admin moderation listing evaluates `manage:comments`
-   * against every one of these once per request, so a narrow row keeps that bounded by page COUNT,
-   * not page CONTENT. `pathFilter` is pushed into the query as a prefix `ILIKE` rather than applied
-   * after the fact, so it shrinks the very set about to be permission-checked.
+   * Deliberately not the full `Page` row, only what `helpers/pageRules.ts` matches a rule against:
+   * the admin moderation listing evaluates `manage:comments` against every one of these once per
+   * request, so a narrow row keeps that bounded by page COUNT, not page CONTENT. `pathFilter` is
+   * pushed into the query so it shrinks the very set about to be permission-checked.
    */
   async pageRefsForSite(siteId: string, pathFilter?: string): Promise<AdminPageRef[]> {
     const conditions = [eq(pagesTable.siteId, siteId)]
@@ -416,11 +386,6 @@ class Comments {
       .where(and(...conditions))
   }
 
-  /**
-   * Comments across a site, restricted to `pageIds`, filtered and paginated. One page query with
-   * `LIMIT`/`OFFSET` pushed to SQL rather than a fetched-then-sliced array, plus one `count(*)`
-   * sharing the same `WHERE` — nothing here goes to the database once per comment.
-   */
   async listForAdmin({
     siteId,
     pageIds,
@@ -480,18 +445,17 @@ class Comments {
 
     const pageIdChunks = pageIds === null ? null : chunk(pageIds, pageIdChunkSize)
 
-    // No restriction, or few enough ids to bind in one query: pagination stays pushed to SQL,
-    // nothing merged in memory.
+    // Few enough ids to bind in one query: pagination stays in SQL, nothing merged in memory.
     if (pageIdChunks === null || pageIdChunks.length <= 1) {
       const [results, countRows] = await fetchSlice(pageIds, limit, offset)
       return { results: results as AdminComment[], totalHits: countRows[0]?.count ?? 0 }
     }
 
     /*
-     * More accessible page ids than fit one bind-safe `IN (...)`: one query per chunk. Each chunk
-     * must pull `offset + limit` rows, since any chunk's rows can sort ahead of or behind another's
-     * and only the merged, re-sorted set can be sliced to the requested page. Summing each chunk's
-     * own `count(*)` stays exact because the chunks are disjoint page-id sets.
+     * More page ids than fit one bind-safe `IN (...)`: one query per chunk, each pulling
+     * `offset + limit` rows, since any chunk's rows can sort ahead of or behind another's and only
+     * the merged, re-sorted set can be sliced to the requested page. Summing each chunk's own
+     * `count(*)` stays exact because the chunks are disjoint page-id sets.
      */
     const chunkResults = await Promise.all(
       pageIdChunks.map((idsChunk) => fetchSlice(idsChunk, offset + limit, 0))
@@ -540,9 +504,8 @@ class Comments {
   }
 
   /**
-   * The display name behind a comment, only for the `metadata.authorName` a hook payload carries.
-   * An API response's own `authorName` is resolved at the route layer instead, since that also has
-   * to cover `listForPage`'s shape, which never reaches this method.
+   * Only for the `metadata.authorName` a hook payload carries. An API response's own `authorName`
+   * is resolved at the route layer instead, since that also has to cover `listForPage`'s shape.
    */
   private async resolveAuthorName(comment: {
     authorId: string | null
@@ -584,9 +547,8 @@ class Comments {
 }
 
 /**
- * Builds {@link Comments.listForPage}'s reply tree from its flat, `createdAt`-ordered rows. Walking
- * those rows in order is what leaves every `replies` array and the root list oldest-first with no
- * separate sort step.
+ * Relies on `rows` arriving `createdAt`-ordered: walking them in order is what leaves every
+ * `replies` array and the root list oldest-first with no separate sort step.
  */
 function buildThread(
   rows: Array<{

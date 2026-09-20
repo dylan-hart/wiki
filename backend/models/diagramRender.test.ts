@@ -13,10 +13,9 @@ const PUPPETEER_DEFINITION: ExtensionDefinition = {
 
 /**
  * `mountBlockElementScript` runs inside a headless browser via `page.evaluate`, so it can only ever
- * touch `document` off `globalThis` — exactly what is stubbed here, standing in for the page's own
- * DOM without needing a real browser. `importBlockScript`'s single `import()` is not tested
- * directly: a dynamic import of a network specifier is meaningless outside a real browser page, so
- * only the URL it is called with is checked, in `DiagramRender.render`'s tests below.
+ * touch `document` off `globalThis` — which is why stubbing that stands in for a real browser.
+ * `importBlockScript`'s single `import()` is not tested directly: a dynamic import of a network
+ * specifier is meaningless outside a real browser page, so only the URL it is called with is.
  */
 describe('mountBlockElementScript', () => {
   let created: any[]
@@ -78,10 +77,6 @@ describe('mountBlockElementScript', () => {
   })
 })
 
-/**
- * `extractDiagramScript` runs inside a headless browser via `page.evaluate`, reading back a mounted
- * block's shadow root — stubbed here the same way `mountBlockElementScript`'s tests stub `document`.
- */
 describe('extractDiagramScript', () => {
   after(() => {
     delete (globalThis as any).document
@@ -143,10 +138,8 @@ describe('extractDiagramScript', () => {
 })
 
 /**
- * `DiagramRender.render` orchestrates both paths end to end. The Mermaid path mocks `launchBrowser`,
- * so the settle wait, the script URL, the timeout guards and closing the browser whether or not the
- * render succeeded are all verified without a real Puppeteer install. The PlantUML path mocks
- * `globalThis.fetch` instead, since it never touches a browser at all.
+ * The Mermaid path mocks `launchBrowser`, so everything around the render is verified without a real
+ * Puppeteer install; the PlantUML path mocks `globalThis.fetch`, since it never touches a browser.
  */
 describe('DiagramRender.render', () => {
   let isInstalled: ReturnType<typeof mock.fn>

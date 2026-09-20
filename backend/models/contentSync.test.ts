@@ -20,14 +20,10 @@ import { contentSync, type SyncContentType } from './contentSync.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * Exercises the model against a real Postgres instance, because the whole point of this model is SQL
- * correctness — the out-of-date query's LEFT JOIN/NULL handling and the upsert's conflict target are
- * exactly the kind of thing a mock of the query builder would not actually verify.
- *
- * The fixture is `test/db.ts`'s fresh per-run migrated schema, never a hand-rolled `Pool` against
- * the target database's `public` schema: a drifted long-lived schema there (`lastSyncedAt` left as a
- * naive `timestamp`) reads back through postgres-date's process-`TZ` fallback and silently breaks
- * the timestamp assertions below.
+ * The fixture must stay `test/db.ts`'s fresh per-run migrated schema, never a hand-rolled `Pool`
+ * against the target database's `public` schema: a drifted long-lived schema there (`lastSyncedAt`
+ * left as a naive `timestamp`) reads back through postgres-date's process-`TZ` fallback and
+ * silently breaks the timestamp assertions below.
  */
 const DATABASE_URL = process.env.DATABASE_URL
 const skip = DATABASE_URL
@@ -101,10 +97,9 @@ async function makeAsset(fileName: string): Promise<string> {
 
 /**
  * `recordSuccess` serialises `syncedAt` with `smallestUnit: 'millisecond'`, which TRUNCATES, while a
- * freshly inserted row's `updatedAt` is Postgres's own `now()` at microsecond precision. A "sync
- * right after the insert" therefore lands *before* the row's `updatedAt` whenever the two fall in
- * the same millisecond, leaving the row still out of date. Reading the DB clock once and adding a
- * whole second makes the ordering a fact, not a race, and keeps it on one clock.
+ * freshly inserted row's `updatedAt` is Postgres's own `now()` at microsecond precision — so a sync
+ * "right after the insert" can land *before* it, leaving the row still out of date. Reading the DB
+ * clock once and adding a whole second makes the ordering a fact, not a race.
  */
 async function dbClock(): Promise<Temporal.Instant> {
   const [{ dbNow }] = (await CARDINAL.db.execute(sql`select now() as "dbNow"`)).rows as [
@@ -118,8 +113,8 @@ async function syncedAfterInserts(): Promise<Temporal.Instant> {
 }
 
 /**
- * Read-back oracles: these read `contentSyncState` directly rather than through the model — a read
- * method whose only caller is its own test is a fixture, not model surface.
+ * These read `contentSyncState` directly rather than through the model: a read method whose only
+ * caller is its own test is a fixture, not model surface.
  */
 type SyncStateRow = typeof contentSyncStateTable.$inferSelect
 
@@ -164,7 +159,7 @@ async function readStatesForTarget(targetId: string): Promise<SyncStateRow[]> {
     .where(eq(contentSyncStateTable.targetId, targetId))
 }
 
-/** A fresh storage target of its own, so a count over it is not shared with any other test. */
+/** Its own target, so a count over it is not shared with any other test. */
 async function makeTarget(module: string): Promise<string> {
   const [row] = await CARDINAL.db
     .insert(storageTable)
@@ -270,9 +265,8 @@ test('recordSuccess files a row per target, each scoped to its own', { skip }, a
 })
 
 // ---------------------------------------------------------------------------------------------
-// countOutOfDate -- asserted as a delta around one page rather than against an absolute number:
-// every test in this file shares one `siteId`, so the site's page/asset population only ever grows
-// and no single count is stable across the run.
+// countOutOfDate -- asserted as a delta around one page: every test in this file shares one
+// `siteId`, so the site's page/asset population only grows and no absolute count is stable.
 // ---------------------------------------------------------------------------------------------
 
 test('countOutOfDate counts a page that has never synced to the target', { skip }, async () => {
@@ -303,8 +297,7 @@ test('countOutOfDate counts a page updated after its last sync again', { skip },
 
   // -> Both timestamps come off one read of Postgres's own clock: `pages.updatedAt` is written by
   //    Postgres while `recordSuccess` stamps `lastSyncedAt` from the caller's instant, truncated to
-  //    milliseconds. Mixing in the Node clock, or an un-padded `now()`, lets the "synced" page still
-  //    count as out of date. Sync at now + 1s, edit at now + 2s: the ordering holds at any timing.
+  //    milliseconds. Sync at now + 1s, edit at now + 2s: the ordering holds at any timing.
   const dbNow = await dbClock()
   const editedAt = dbNow.add({ seconds: 2 })
   await contentSync.recordSuccess({
@@ -367,8 +360,8 @@ test('getTargetSummary reports nothing for a target with no state at all', { ski
   assert.equal(summary.lastSyncedAt, null)
   assert.equal(summary.lastError, null)
   assert.equal(summary.lastAttemptAt, null)
-  // -> Not asserted as 0: tests here share `siteId`, and a page left behind by another one has
-  //    never synced to this brand-new target either, which legitimately counts as out of date.
+  // -> Not asserted as 0: tests share `siteId`, and a page left behind by another has never synced
+  //    to this brand-new target either, which legitimately counts as out of date.
   assert.ok(summary.outOfDateCount >= 0)
 })
 
@@ -402,9 +395,8 @@ test(
   'getTargetSummary counts every page and asset for a target that has never synced',
   { skip },
   async () => {
-    // -> A brand-new target has no contentSyncState rows at all, so every page and asset on the site
-    //    matches through the `isNull(lastSyncedAt)` disjunct -- which is what pins `getTargetSummary`
-    //    to `countOutOfDate`'s aggregate path rather than fetching and counting rows.
+    // -> A brand-new target has no `contentSyncState` rows at all, so every page and asset matches
+    //    through the `isNull(lastSyncedAt)` disjunct -- the aggregate path, not a fetch-and-count.
     const targetId = await makeTarget('test-summary-never-synced')
     await makePage('never-synced-summary-page')
     await makeAsset('never-synced-summary-asset.png')
@@ -415,9 +407,8 @@ test(
       CARDINAL.db.$count(assetsTable, eq(assetsTable.siteId, siteId))
     ])
 
-    // -> No fixed number to assert against, since earlier tests share this `siteId` -- so
-    //    cross-check the aggregate against a plain count of the site's own pages and assets, which
-    //    is exactly what a never-synced target must reproduce.
+    // -> No fixed number to assert against, since earlier tests share this `siteId` -- so the
+    //    aggregate is cross-checked against a plain count of the site's own pages and assets.
     assert.equal(summary.outOfDateCount, pageCount + assetCount)
     assert.ok(summary.outOfDateCount >= 2)
   }
@@ -490,10 +481,9 @@ test(
       error: 'connection refused'
     })
     // -> A later success on a DIFFERENT item: the failed row is never retried, so its own
-    //    `lastError` stays set, but the target as a whole has since proven itself healthy.
-    //    `syncedAt` is nudged two seconds ahead because the failure's `updatedAt` came from
-    //    postgres's own clock, and the comparison is otherwise sensitive to skew against this
-    //    process's.
+    //    `lastError` stays set while the target as a whole has proven itself healthy. `syncedAt` is
+    //    nudged two seconds ahead because the failure's `updatedAt` comes from postgres's own clock,
+    //    not this process's.
     const succeededPageId = await makePage('stale-error-other-item')
     await contentSync.recordSuccess({
       contentType: 'page',
@@ -551,8 +541,7 @@ test(
 // ---------------------------------------------------------------------------------------------
 // Non-UTC process TZ coverage -- `lastSyncedAt` is a `timestamptz` column, decoded by node-postgres
 // from the wire-format offset it carries rather than reinterpreted through the Node process's local
-// zone the way a naive `timestamp` column would be. These prove that invariance directly, and that
-// `errorIsStale` agrees with itself regardless of `process.env.TZ`.
+// zone the way a naive `timestamp` column would be.
 // ---------------------------------------------------------------------------------------------
 
 test(
@@ -586,10 +575,6 @@ test(
   }
 )
 
-/**
- * Runs the "one failed item, one later success on the same target" shape under a given process TZ,
- * with the success either after the failure (stale -- suppressed) or before it (fresh -- surfaced).
- */
 async function runStaleCheck(
   tz: string,
   { successAfterFailure }: { successAfterFailure: boolean }
@@ -758,9 +743,8 @@ test('forgetContentBatch is a no-op for an empty id list', { skip }, async () =>
 })
 
 // ---------------------------------------------------------------------------------------------
-// Integration: deleting a page through the real model cleans up its contentSyncState rows. Takes
-// its own `setupTestDb()` fixture because it needs `pages.deletePage`'s whole dependency graph
-// (`pageHistory`, `tree`, `navigation`, `glossary`, `search`, `hooks`, `storage`), not just `db`.
+// Takes its own `setupTestDb()` fixture because `pages.deletePage` needs its whole model dependency
+// graph installed on the global, not just `db`.
 // ---------------------------------------------------------------------------------------------
 
 describe('forgetContent via pages.deletePage (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -829,9 +813,8 @@ describe('forgetContent via pages.deletePage (DB-backed)', { skip: !hasTestDatab
 })
 
 // ---------------------------------------------------------------------------------------------
-// purgeOrphaned -- the backstop sweep for rows whose page/asset is already gone. `contentId` is
-// deliberately not a foreign key, so these rows only ever get cleaned up here or by the delete
-// path's own cleanup.
+// purgeOrphaned -- the backstop sweep: with no FK on `contentId`, a row whose page/asset is already
+// gone is cleaned up only here or by the delete path's own cleanup.
 // ---------------------------------------------------------------------------------------------
 
 test(

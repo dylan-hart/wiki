@@ -1,14 +1,14 @@
 import { CustomError } from '../helpers/common.ts'
 
-/** Engines this proxy knows how to speak POST to. Mermaid is deliberately not one of them — it
- *  already renders entirely client-side (`block-diagram`) and has no URL-size ceiling to escape. */
+/** Mermaid is deliberately not one of these — it already renders entirely client-side
+ *  (`block-diagram`) and has no URL-size ceiling to escape. */
 export type DiagramProxyEngine = 'kroki' | 'plantuml'
 export type DiagramProxyFormat = 'svg' | 'png'
 
 export interface DiagramProxyRequest {
   engine: DiagramProxyEngine
   source: string
-  /** Kroki only, required for it — which of Kroki's diagram languages `source` is written in. */
+  /** Required for Kroki: which of its diagram languages `source` is written in. */
   diagramType?: string
   format?: DiagramProxyFormat
 }
@@ -18,23 +18,21 @@ export interface DiagramProxyResult {
   data: Buffer
 }
 
-/** What each engine draws against unless the site's own block config names a server of its own. */
 const DEFAULT_SERVERS: Record<DiagramProxyEngine, string> = {
   kroki: 'https://kroki.io',
   plantuml: 'https://www.plantuml.com/plantuml'
 }
 
 /**
- * A source past this length is refused before any outbound request is made. Generous, but still
- * bounded: Fastify's own body-size backstop (`CARDINAL.config.bodyParserLimit`) covers the request as
- * a whole with no diagram-specific explanation, so this is a narrower, better-explained ceiling in
+ * Fastify's own body-size backstop (`CARDINAL.config.bodyParserLimit`) already covers the request as
+ * a whole, with no diagram-specific explanation; this is a narrower, better-explained ceiling in
  * front of it.
  */
 const MAX_SOURCE_LENGTH = 200_000
 
 /**
- * A rendered diagram past this many bytes is refused mid-download rather than buffered in full — a
- * hostile or misbehaving upstream must not decide how much this process holds in memory per request.
+ * Refused mid-download rather than buffered in full: a hostile or misbehaving upstream must not
+ * decide how much this process holds in memory per request.
  */
 const MAX_RESPONSE_BYTES = 10_000_000
 
@@ -45,11 +43,8 @@ const MAX_RESPONSE_BYTES = 10_000_000
 const FETCH_TIMEOUT_MS = 10000
 
 /**
- * Diagram proxy model
- *
- * A shared, site-scoped, POST proxy for Kroki and PlantUML: streams a diagram's fenced source to the
- * configured engine server and returns the rendered image bytes, so `block-kroki`/`block-plantuml`
- * do not have to pack the source into a GET URL with an 8,000-character ceiling.
+ * A site-scoped POST proxy for Kroki and PlantUML, so `block-kroki`/`block-plantuml` do not have to
+ * pack a diagram's source into a GET URL with an 8,000-character ceiling.
  *
  * Deliberately separate from `models/diagramRender.ts`, which also renders PlantUML: that backs a
  * session-authenticated, unscoped route (PDF export, MCP) over the GET-URL transport, while this is
@@ -61,7 +56,6 @@ const FETCH_TIMEOUT_MS = 10000
  * author or reader supplies.
  */
 class DiagramProxy {
-  /** Render one diagram; `siteId` is what the engine's configured server is resolved against. */
   async render(siteId: string, request: DiagramProxyRequest): Promise<DiagramProxyResult> {
     if (!request.source?.trim()) {
       throw new CustomError('diagramProxyEmpty', 'There is no diagram source to render.', 400)
@@ -97,10 +91,8 @@ class DiagramProxy {
   }
 
   /**
-   * The server this site is configured to render `engine` against — its block row's site-level
-   * `server` value, which `models/blocks.ts`'s `assertValidConfig` already validated at write time,
-   * so it is trusted as-is here. Falls back to {@link DEFAULT_SERVERS} for a site with no such value,
-   * no such block row, or an unknown `siteId`.
+   * The site's own block-row `server` value, which `models/blocks.ts`'s `assertValidConfig` already
+   * validated at write time, so it is trusted as-is here.
    */
   private async resolveServer(engine: DiagramProxyEngine, siteId: string): Promise<string> {
     const siteBlocks = await CARDINAL.models.blocks.getSiteBlocks(siteId)
@@ -177,12 +169,8 @@ class DiagramProxy {
   }
 
   /**
-   * The outbound POST every engine shares: bounded timeout, no redirect following — a redirecting or
-   * hanging engine server must not be able to bounce this request elsewhere or hold a `limitRenders`
-   * slot open indefinitely — and a capped read of the response body.
-   *
-   * @param explainReason Reads an engine-specific reason for failure off the response headers, or
-   *   `null` when there is none — preferred over the generic status-line message when present.
+   * Bounded timeout and no redirect following: a redirecting or hanging engine server must not be
+   * able to bounce this request elsewhere or hold a `limitRenders` slot open indefinitely.
    */
   private async fetchDiagram(
     engineLabel: string,
@@ -223,9 +211,8 @@ class DiagramProxy {
   }
 
   /**
-   * Read a response's body into memory, refusing once it grows past {@link MAX_RESPONSE_BYTES} —
-   * counted as bytes actually arrive, not merely from `Content-Length`, which a chunked response
-   * omits and no upstream is obliged to send truthfully.
+   * Counted as the bytes actually arrive, not merely from `Content-Length`, which a chunked
+   * response omits and no upstream is obliged to send truthfully.
    */
   private async readCapped(response: Response, engineLabel: string): Promise<Buffer> {
     const contentLength = Number(response.headers.get('content-length'))

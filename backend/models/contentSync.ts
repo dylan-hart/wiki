@@ -12,12 +12,10 @@ const SYNC_DIRECTIONS = ['push', 'pull'] as const
 export type SyncDirection = (typeof SYNC_DIRECTIONS)[number]
 
 /**
- * A target's sync status at a glance. Deliberately not itself a verdict ("synced" / "never" / "out
- * of date" / "error") -- the caller has the locale strings and relative-time formatting the model
- * has no business deciding, so this hands back the raw ingredients instead.
+ * Deliberately not itself a verdict ("synced" / "never" / "out of date" / "error") -- the caller has
+ * the locale strings and relative-time formatting the model has no business deciding.
  */
 export interface TargetSyncSummary {
-  /** The most recent successful sync to this target, across every content item. */
   lastSyncedAt: string | null
   /**
    * The error from the most recently updated row that has one — unless a *different* content item on
@@ -31,37 +29,30 @@ export interface TargetSyncSummary {
 }
 
 /**
- * Content sync state model
- *
- * Where a sync run last left one (content item, storage target) pairing. A page or asset can have
- * several enabled targets at once, so this is a dedicated table keyed by
- * `(contentType, contentId, targetId)` rather than a jsonb column on `pages`/`assets` -- a single blob
- * per row cannot be keyed by target without hand-rolled merge logic on every write.
+ * Where a sync run last left one (content item, storage target) pairing: a dedicated table keyed by
+ * `(contentType, contentId, targetId)` rather than a jsonb column on `pages`/`assets`, because one
+ * item can have several enabled targets at once and a single blob per row cannot be keyed by target
+ * without hand-rolled merge logic on every write.
  *
  * Only content-level dispatches (`contentType` and `contentId` both present) touch this table at
  * all -- a whole-target action such as `sync` has no single content item to record state against.
  *
- * `contentId` carries no foreign key -- it addresses either `pages` or `assets` depending on
- * `contentType`, and a single uuid column can't reference two tables. That means a row outlives the
- * page or asset it describes: `countOutOfDate` joins outward from `pages`/`assets`, so an orphan
- * simply drops out of its results, but `getTargetSummary`'s error lookup joins through no content at
- * all -- it can surface an orphan's `lastError` until `purgeOrphaned` sweeps it.
+ * `contentId` carries no foreign key: one uuid column cannot reference both `pages` and `assets`.
+ * A row therefore outlives the item it describes -- `countOutOfDate` joins outward from the content
+ * table so an orphan drops out of its results, but `getTargetSummary`'s error lookup joins through
+ * no content at all and can surface an orphan's `lastError` until `purgeOrphaned` sweeps it.
  */
 class ContentSync {
   /**
-   * A target's sync status at a glance: when it last succeeded, its most recent error (if any), and
-   * how much content on the site is out of date on it.
-   *
    * Aggregate queries rather than every row for the target reduced in memory: a target can have one
    * row per page and asset on the site, and this needs three numbers out of that.
    *
    * **A stale error is suppressed rather than surfaced.** `recordSuccess` only ever clears
    * `lastError` on the *same* content item's own row, so a page that failed once and was never
    * individually retried would otherwise win the "most recently updated row with an error" query
-   * forever, long after the target went back to syncing everything else fine. Staleness is therefore
-   * judged at the target level: once *any* content item has synced more recently than the error's
-   * own `updatedAt`, the target counts as healthy again and the error is hidden. The row itself is
-   * left untouched, so it still stands for anyone inspecting that specific item.
+   * forever. Staleness is therefore judged at the target level: once *any* content item has synced
+   * more recently than the error's own `updatedAt`, the error is hidden. The row itself is left
+   * untouched, so it still stands for anyone inspecting that specific item.
    */
   async getTargetSummary(
     targetId: string,
@@ -110,11 +101,6 @@ class ContentSync {
     }
   }
 
-  /**
-   * Record that a sync attempt succeeded, clearing any previous error. Upserts on the
-   * `(targetId, contentType, contentId)` unique index, so the first sync of an item creates its row
-   * and every one after updates it in place.
-   */
   async recordSuccess({
     contentType,
     contentId,
@@ -153,9 +139,9 @@ class ContentSync {
   }
 
   /**
-   * Record that a sync attempt failed. Leaves `lastSyncedAt`/`lastDirection`/`targetRef` untouched --
-   * they describe the last *successful* sync, which this attempt was not. Upserts the same way
-   * `recordSuccess` does, so an item that has never synced still gets a row saying it was tried.
+   * Leaves `lastSyncedAt`/`lastDirection`/`targetRef` untouched -- they describe the last
+   * *successful* sync, which this attempt was not. The upsert means an item that has never synced
+   * still gets a row saying it was tried.
    */
   async recordFailure({
     contentType,
@@ -182,9 +168,8 @@ class ContentSync {
   }
 
   /**
-   * Drop every sync-state row for one content item, across every target. Call this when the page or
-   * asset itself is deleted -- `contentId` is deliberately not a foreign key, so nothing at the db
-   * level cleans this up; this is the compensating delete that design assumed.
+   * The compensating delete a page or asset deletion has to call: with no foreign key on
+   * `contentId`, nothing at the db level cleans these rows up.
    */
   async forgetContent(contentType: SyncContentType, contentId: string): Promise<void> {
     await CARDINAL.db
@@ -197,10 +182,6 @@ class ContentSync {
       )
   }
 
-  /**
-   * `forgetContent` for a batch of same-type items in one query -- what a folder deletion's bulk
-   * path needs, rather than one query per item.
-   */
   async forgetContentBatch(contentType: SyncContentType, contentIds: string[]): Promise<void> {
     if (contentIds.length < 1) {
       return
@@ -215,13 +196,6 @@ class ContentSync {
       )
   }
 
-  /**
-   * How many content items of one kind are out of date on this target -- their `updatedAt` is newer
-   * than their last successful sync to it, including every item that has never synced to it at all.
-   *
-   * Asks Postgres for `count(*)` over the join rather than selecting a row per match: the caller
-   * needs the number, never the ids, and a target can have one row per page and asset on the site.
-   */
   async countOutOfDate(
     contentType: SyncContentType,
     targetId: string,
@@ -256,9 +230,8 @@ class ContentSync {
   }
 
   /**
-   * Sweeps rows whose `contentId` no longer matches any `pages`/`assets` row -- the backstop for
-   * rows the delete path's own cleanup never reached, e.g. one lost to a dispatch that failed
-   * partway through. `contentId` is deliberately not a foreign key, so nothing else enforces this.
+   * The backstop for rows the delete path's own cleanup never reached -- one lost to a dispatch
+   * that failed partway through, say.
    */
   async purgeOrphaned(): Promise<number> {
     const result = await CARDINAL.db.delete(contentSyncStateTable).where(

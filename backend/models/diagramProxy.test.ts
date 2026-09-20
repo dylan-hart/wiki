@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 
-/**
- * `DiagramProxy.render` never touches a browser — both engines are a plain outbound `fetch`, so
- * every test here mocks `globalThis.fetch` directly.
- */
 describe('DiagramProxy.render', () => {
   let getSiteBlocks: ReturnType<typeof mock.fn>
   let diagramProxy: typeof import('./diagramProxy.ts').diagramProxy
