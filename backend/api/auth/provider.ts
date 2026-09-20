@@ -120,6 +120,9 @@ async function finishProviderLogin(
       { siteId: flow.siteId, strategy, profile: resolvedProfile, ip: req.ip },
       req
     )
+    if (result.authenticated && resolvedProfile.idToken) {
+      req.session.idpSession = { strategyId: strategy.id, idToken: resolvedProfile.idToken }
+    }
     /*
       `result.redirect` is a group's `redirectOnLogin`/`redirectOnFirstLogin`. `api/groups.ts`
       validates it at write time; checked again here as defence in depth against a row written

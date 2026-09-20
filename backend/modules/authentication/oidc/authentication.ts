@@ -158,7 +158,7 @@ export default class OidcAuthentication {
     codeVerifier
   }: AuthFlowCallback): Promise<ProviderProfile> {
     const config = await this.configuration()
-    const tokens = await client.authorizationCodeGrant(config, new URL(currentUrl), {
+    const tokens = await this.exchangeCode(config, currentUrl, {
       expectedState: state,
       expectedNonce: nonce,
       pkceCodeVerifier: codeVerifier
@@ -181,7 +181,20 @@ export default class OidcAuthentication {
       }
     }
 
-    return mapOidcProfile(this.conf, claims.sub, info)
+    return {
+      ...mapOidcProfile(this.conf, claims.sub, info),
+      ...(typeof tokens.id_token === 'string' && tokens.id_token
+        ? { idToken: tokens.id_token }
+        : {})
+    }
+  }
+
+  private exchangeCode(
+    config: client.Configuration,
+    currentUrl: string,
+    checks: client.AuthorizationCodeGrantChecks
+  ) {
+    return client.authorizationCodeGrant(config, new URL(currentUrl), checks)
   }
 
   logoutUrl(): string | null {
