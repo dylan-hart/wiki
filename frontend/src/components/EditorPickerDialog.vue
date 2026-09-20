@@ -48,6 +48,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { useSiteStore } from '@/stores/site'
 
 import { PICKABLE_EDITORS } from '@/helpers/editorPicker'
+import { EDITOR_ICONS } from '@/helpers/editorIcons'
 
 /**
  * Reuses `AdminEditors.vue`'s own `admin.editors.*Name` / `*Description` locale keys rather than
@@ -64,18 +65,6 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
 const siteStore = useSiteStore()
 
 const { t } = useI18n()
-
-/*
-  FIXME: these are leftover 2.x asset names, not Iconify references -- `WIcon` resolves anything
-  without a `<prefix>:` to `kind: 'none'`, so every plate in this list draws empty. Use the
-  `tabler:*` names `AdminEditors.vue` already lists for the same editors.
-*/
-const EDITOR_ICONS = {
-  asciidoc: 'asciidoc',
-  code: 'html',
-  markdown: 'markdown',
-  wysiwyg: 'google-presentation'
-}
 
 const activeEditors = computed(() =>
   PICKABLE_EDITORS.filter((id) => siteStore.editors?.[id]).map((id) => ({

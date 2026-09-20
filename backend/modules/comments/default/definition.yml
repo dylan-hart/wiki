@@ -12,10 +12,12 @@ props:
     default: ''
     title: Akismet API Key
     hint: 'Prevent spam by using the Akismet service. Enter your API key here to enable. Leave empty to disable.'
+    icon: tabler:shield-check
     order: 1
   minDelay:
     type: Number
     default: 30
     title: Post delay
     hint: 'Minimum delay (in seconds) between comments per account. Note that all guests are considered as a single account.'
+    icon: tabler:clock
     order: 2

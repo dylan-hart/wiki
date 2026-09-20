@@ -9,7 +9,7 @@ props:
     type: Boolean
     title: Term Highlighting
     hint: Show a highlighted excerpt with matched terms alongside each search result.
-    icon: search
+    icon: tabler:search
     default: false
 # dictOverrides (a locale -> PostgreSQL text search dictionary map, e.g. { "en": "english" }) is
 # deliberately not a prop: parseModuleProps only validates scalars, not an object with an arbitrary

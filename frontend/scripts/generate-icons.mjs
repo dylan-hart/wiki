@@ -28,6 +28,11 @@ const OUT = path.join(SRC, 'assets/icons.generated.js')
  */
 const BLOCKS_ROOT = path.join(ROOT, '..', 'blocks')
 
+const MODULES_ROOT = path.join(ROOT, '..', 'backend', 'modules')
+
+const YAML_ICON =
+  /^[ \t]+icon:[ \t]*(["']?)([a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*)\1[ \t]*$/gm
+
 /**
  * A prefix not listed here is left to resolve at runtime — which for an icon written into this
  * repo's own source means it does not render at all unless an administrator happens to have added
@@ -342,19 +347,44 @@ function* blockDefinitionFiles() {
   }
 }
 
+function* moduleDefinitionFiles() {
+  if (!fs.existsSync(MODULES_ROOT)) {
+    return
+  }
+  for (const kind of fs.readdirSync(MODULES_ROOT, { withFileTypes: true })) {
+    if (!kind.isDirectory()) {
+      continue
+    }
+    for (const mod of fs.readdirSync(path.join(MODULES_ROOT, kind.name), { withFileTypes: true })) {
+      const definition = path.join(MODULES_ROOT, kind.name, mod.name, 'definition.yml')
+      if (mod.isDirectory() && fs.existsSync(definition)) {
+        yield definition
+      }
+    }
+  }
+}
+
 export function collectRefs() {
   const found = new Map()
+  const add = (ref, file) => {
+    if (!SETS.includes(ref.split(':')[0])) {
+      return
+    }
+    if (!found.has(ref)) {
+      found.set(ref, [])
+    }
+    found.get(ref).push(path.relative(ROOT, file))
+  }
   for (const file of [...sourceFiles(SRC), ...blockDefinitionFiles()]) {
     const src = fs.readFileSync(file, 'utf8')
     for (const m of src.matchAll(REF)) {
-      const ref = m[2]
-      if (!SETS.includes(ref.split(':')[0])) {
-        continue
-      }
-      if (!found.has(ref)) {
-        found.set(ref, [])
-      }
-      found.get(ref).push(path.relative(ROOT, file))
+      add(m[2], file)
+    }
+  }
+  for (const file of moduleDefinitionFiles()) {
+    const src = fs.readFileSync(file, 'utf8')
+    for (const m of src.matchAll(YAML_ICON)) {
+      add(m[2], file)
     }
   }
   return found

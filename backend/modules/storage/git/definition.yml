@@ -26,7 +26,7 @@ props:
     default: 'ssh'
     title: Authentication Type
     hint: Use SSH for maximum security.
-    icon: security-configuration
+    icon: tabler:shield-cog
     enum:
       - basic|Basic
       - ssh|SSH
@@ -36,20 +36,20 @@ props:
     type: String
     title: Repository URI
     hint: Git-compliant URI (e.g. git@server.com:org/repo.git for ssh, https://server.com/org/repo.git for basic). For a non-default SSH port, use ssh://git@server.com:2222/org/repo.git — there is no separate port field.
-    icon: dns
+    icon: tabler:world-www
     order: 2
   branch:
     type: String
     default: 'main'
     title: Branch
     hint: The branch to use during pull / push
-    icon: code-fork
+    icon: tabler:git-branch
     order: 3
   sshPrivateKeyMode:
     type: String
     title: SSH Private Key Mode
     hint: The mode to use to load the private key. Fill in the corresponding field below.
-    icon: grand-master-key
+    icon: tabler:shield-lock
     order: 11
     default: inline
     enum:
@@ -62,7 +62,7 @@ props:
     type: String
     title: SSH Private Key Path
     hint: Absolute path to the key. The key must NOT be passphrase-protected.
-    icon: key
+    icon: tabler:key
     order: 12
     if:
       - { key: 'authType', eq: 'ssh' }
@@ -71,7 +71,7 @@ props:
     type: String
     title: SSH Private Key Contents
     hint: Paste the contents of the private key. The key must NOT be passphrase-protected.
-    icon: key
+    icon: tabler:key
     multiline: true
     sensitive: true
     order: 13
@@ -83,13 +83,13 @@ props:
     default: true
     title: Verify SSL Certificate
     hint: Some hosts requires SSL certificate checking to be disabled. Leave enabled for proper security.
-    icon: security-ssl
+    icon: tabler:certificate
     order: 14
   basicUsername:
     type: String
     title: Username
     hint: Basic Authentication Only
-    icon: test-account
+    icon: tabler:user-circle
     order: 20
     if:
       - { key: 'authType', eq: 'basic' }
@@ -97,7 +97,7 @@ props:
     type: String
     title: Password / PAT
     hint: Basic Authentication Only
-    icon: password
+    icon: tabler:password
     sensitive: true
     order: 21
     if:
@@ -107,50 +107,50 @@ props:
     title: Default Author Email
     default: 'name@company.com'
     hint: 'Used as fallback in case the author of the change is not present.'
-    icon: email
+    icon: tabler:mail
     order: 30
   defaultName:
     type: String
     title: Default Author Name
     default: 'John Smith'
     hint: 'Used as fallback in case the author of the change is not present.'
-    icon: customer
+    icon: tabler:user-edit
     order: 31
   localRepoPath:
     type: String
     title: Local Repository Path
     default: './data/repo'
     hint: 'Path where the local git repository will be created.'
-    icon: symlink-directory
+    icon: tabler:folder
     order: 32
   maxDeletePercent:
     type: Number
     title: Sync Safety Threshold (%)
     default: 50
     hint: "If a pull would delete this percentage (or more) of the wiki's pages, the sync applies everything else but skips the deletions and logs a warning instead of applying them — run Force Sync again with confirmation to proceed anyway. Only applies once the wiki has a meaningful number of pages."
-    icon: security-configuration
+    icon: tabler:shield-cog
     order: 40
   gitBinaryPath:
     type: String
     title: Git Binary Path
     default: ''
     hint: Optional - Absolute path to the Git binary, when not available in PATH. Leave empty to use the default PATH location (recommended).
-    icon: run-command
+    icon: tabler:terminal-2
     order: 50
 actions:
   syncUntracked:
     label: Add Untracked Changes
     hint: Output all content from the DB to the local Git repository to ensure all untracked content is saved. If you enabled Git after content was created or you temporarily disabled Git, you'll want to execute this action to add the missing untracked changes.
-    icon: database-daily-export
+    icon: tabler:database-export
   sync:
     label: Force Sync
     hint: Will trigger an immediate sync operation, regardless of the current sync schedule. The sync direction is respected.
-    icon: synchronize
+    icon: tabler:refresh
   importAll:
     label: Import Everything
     hint: Will import all content currently in the local Git repository, regardless of the latest commit state. Useful for importing content from the remote repository created before git was enabled.
-    icon: database-daily-import
+    icon: tabler:database-import
   purge:
     label: Purge Local Repository
     hint: Empties the local repository and clones it again from the remote when a Repository URI is configured. A local repository that has lost its shared history with the remote re-attaches itself on the next sync, so this is for when git can no longer make sense of the working copy. The remote is not touched and nothing is committed. Any local commit that was never pushed is lost.
-    icon: trash
+    icon: la:trash

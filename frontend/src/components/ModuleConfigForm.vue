@@ -5,7 +5,7 @@
         v-if="cfg.type === `boolean`"
         :tag="cfg.readOnly ? `div` : `label`"
         control-width="auto"
-        :icon="iconFor(cfg)"
+        :icon="cfg.icon"
         :label="cfg.title">
         <template #hint>
           <span :class="cfg.readOnly ? `text-orange` : ``">{{ cfg.hint }}</span>
@@ -15,7 +15,7 @@
       <w-settings-row
         v-else
         :control-width="controlWidthFor(cfg)"
-        :icon="iconFor(cfg)"
+        :icon="cfg.icon"
         :label="cfg.title">
         <template #hint>
           <span :class="cfg.readOnly ? `text-orange` : ``">{{ cfg.hint }}</span>
@@ -87,18 +87,6 @@ function inputTypeFor(cfg) {
     return 'password'
   }
   return cfg.type === 'number' ? 'number' : 'text'
-}
-
-/**
- * TODO: drop the fallback once every module kind's `definition.yml` names a real Iconify reference.
- * A module prop's `icon` there is still a 2.x asset name (`key`, `tune`, `geography`, `open-box`)
- * from an illustration set that no longer exists, and `WIcon` resolves anything without a set prefix
- * to `kind: 'none'`, so every one of them would draw an empty plate.
- */
-function iconFor(cfg) {
-  return /^[a-z0-9]+(-[a-z0-9]+)*:/.test(cfg.icon ?? '')
-    ? cfg.icon
-    : 'tabler:adjustments-horizontal'
 }
 
 // A button group has a width of its own and reads wrong stretched; a number is a short value in a

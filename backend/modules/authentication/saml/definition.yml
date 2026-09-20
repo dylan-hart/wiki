@@ -15,28 +15,28 @@ props:
     type: String
     title: Identity Provider SSO URL
     hint: Where the browser is sent to sign in — the identity provider's SSO endpoint.
-    icon: internet
+    icon: tabler:world
     default: ''
     order: 1
   issuer:
     type: String
     title: Issuer / Entity ID
     hint: This wiki's own identifier, as registered with the identity provider.
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     default: ''
     order: 2
   audience:
     type: String
     title: Audience
     hint: (optional) The audience value expected inside the assertion's `AudienceRestriction`. Left empty, defaults to the Issuer / Entity ID above — the correct value for almost every identity provider, and it is always checked against something.
-    icon: flag-filled
+    icon: tabler:flag
     default: ''
     order: 3
   cert:
     type: String
     title: Identity Provider Certificate
     hint: The identity provider's signing certificate, PEM-encoded. Paste more than one, separated by a `|`, during a certificate rotation.
-    icon: secure
+    icon: tabler:lock-check
     multiline: true
     default: ''
     order: 4
@@ -44,7 +44,7 @@ props:
     type: String
     title: Service Provider Private Key
     hint: (optional) This wiki's own private key, PEM-encoded — signs outgoing AuthnRequests. Leave empty to send unsigned requests.
-    icon: lock
+    icon: tabler:lock
     multiline: true
     sensitive: true
     default: ''
@@ -53,7 +53,7 @@ props:
     type: String
     title: Assertion Decryption Key
     hint: (optional) This wiki's own private key, PEM-encoded, matching the certificate the identity provider encrypts assertions against. Leave empty if the identity provider does not encrypt assertions.
-    icon: key
+    icon: tabler:key
     multiline: true
     sensitive: true
     default: ''
@@ -62,7 +62,7 @@ props:
     type: String
     title: Signature Algorithm
     hint: Used to sign outgoing AuthnRequests.
-    icon: security-ssl
+    icon: tabler:certificate
     enum:
       - sha1|SHA-1
       - sha256|SHA-256
@@ -73,7 +73,7 @@ props:
     type: String
     title: Digest Algorithm
     hint: Used to sign outgoing AuthnRequests.
-    icon: security-ssl
+    icon: tabler:certificate
     enum:
       - sha1|SHA-1
       - sha256|SHA-256
@@ -84,35 +84,35 @@ props:
     type: String
     title: NameID Format
     hint: (optional) The `NameID` format requested of the identity provider, e.g. `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`. Left empty, none is requested.
-    icon: rename
+    icon: tabler:tag
     default: ''
     order: 9
   wantAssertionsSigned:
     type: Boolean
     title: Require Signed Assertions
     hint: Refuse a response whose assertion is not itself signed, even if the response envelope is.
-    icon: security-ssl
+    icon: tabler:certificate
     default: true
     order: 10
   acceptedClockSkewMs:
     type: Number
     title: Accepted Clock Skew (ms)
     hint: How far apart this server's and the identity provider's clocks may be before an assertion just inside its validity window is refused anyway. `-1` disables the check entirely — not recommended.
-    icon: clock
+    icon: tabler:clock
     default: 0
     order: 11
   disableRequestedAuthnContext:
     type: Boolean
     title: Disable Requested Authn Context
     hint: Omit the `RequestedAuthnContext` element from the AuthnRequest entirely, rather than requesting the context below.
-    icon: security-ssl
+    icon: tabler:certificate
     default: false
     order: 12
   authnContext:
     type: String
     title: Authn Context
     hint: (optional) One or more authentication context class references to request, comma-separated. Defaults to password authentication when left empty.
-    icon: security-ssl
+    icon: tabler:certificate
     default: ''
     order: 13
     if:
@@ -121,7 +121,7 @@ props:
     type: String
     title: Authn Context Comparison
     hint: How strictly the identity provider must match the requested authn context.
-    icon: filtration
+    icon: tabler:filter
     enum:
       - exact|Exact
       - minimum|Minimum
@@ -135,35 +135,35 @@ props:
     type: Boolean
     title: Force Re-authentication
     hint: Require the identity provider to prompt for credentials again, even if the person already has a session there.
-    icon: security-ssl
+    icon: tabler:certificate
     default: false
     order: 15
   passive:
     type: Boolean
     title: Passive
     hint: Ask the identity provider not to interact with the user at all — it may only silently succeed or fail. Rarely wanted on an interactive login button.
-    icon: info-popup
+    icon: tabler:info-circle
     default: false
     order: 16
   providerName:
     type: String
     title: Provider Name
     hint: (optional) A human-readable name for this wiki, shown to the person by some identity providers during sign-in.
-    icon: rename
+    icon: tabler:tag
     default: ''
     order: 17
   skipRequestCompression:
     type: Boolean
     title: Skip Request Compression
     hint: Send the AuthnRequest uncompressed. Some identity providers are strict about this; most accept the default DEFLATE-compressed form.
-    icon: tune
+    icon: tabler:adjustments-horizontal
     default: false
     order: 18
   authnRequestBinding:
     type: String
     title: Authn Request Binding
     hint: How the AuthnRequest itself is sent to the identity provider. HTTP-POST auto-submits a form; HTTP-Redirect appends it to the SSO URL's query string.
-    icon: internet
+    icon: tabler:world
     enum:
       - HTTP-POST|HTTP-POST
       - HTTP-Redirect|HTTP-Redirect
@@ -173,42 +173,42 @@ props:
     type: String
     title: Unique ID Claim Mapping
     hint: The claim (attribute URI or name) holding the user's unique identifier. Falls back to the assertion's `NameID` when left empty.
-    icon: fingerprint-scan
+    icon: tabler:fingerprint
     default: ''
     order: 20
   mappingEmail:
     type: String
     title: Email Claim Mapping
     hint: The claim holding the user's email address. Falls back to the assertion's `NameID` when left empty.
-    icon: envelope
+    icon: tabler:mail
     default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'
     order: 21
   mappingDisplayName:
     type: String
     title: Display Name Claim Mapping
     hint: The claim holding the user's display name.
-    icon: person
+    icon: tabler:user
     default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'
     order: 22
   mappingPicture:
     type: String
     title: Picture Claim Mapping
     hint: (optional) The claim holding a URL to the user's avatar/picture. Leave empty to not sync an avatar from this identity provider. A manually-uploaded avatar is never overwritten.
-    icon: image
+    icon: tabler:photo
     default: ''
     order: 23
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
-    icon: user-groups
+    icon: tabler:users
     default: false
     order: 24
   mappingGroups:
     type: String
     title: Groups Claim Mapping
     hint: The claim holding the user's group memberships. A SAML claim with several values is repeated as several `AttributeValue` elements, not comma-joined.
-    icon: user-groups
+    icon: tabler:users
     default: 'http://schemas.xmlsoap.org/claims/Group'
     order: 25
     if:
@@ -217,5 +217,5 @@ refs:
   acsUrl:
     title: Assertion Consumer Service (ACS) URL
     hint: Register this as the ACS URL (sometimes called the reply URL or single sign-on URL) at the identity provider.
-    icon: back
+    icon: tabler:arrow-back
     value: '{host}/_api/auth/{id}/callback'

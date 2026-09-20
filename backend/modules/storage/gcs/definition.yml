@@ -25,14 +25,14 @@ props:
     type: String
     title: Project ID
     hint: The project ID from the Google Developer's Console (e.g. grape-spaceship-123).
-    icon: 3d-touch
+    icon: tabler:id
     default: ''
     order: 1
   credentialsJSON:
     type: String
     title: JSON Credentials
     hint: Contents of the JSON credentials file for the service account having Cloud Storage permissions.
-    icon: key
+    icon: tabler:key
     default: ''
     multiline: true
     sensitive: true
@@ -41,13 +41,13 @@ props:
     type: String
     title: Unique bucket name
     hint: The unique bucket name to create (e.g. wiki-johndoe).
-    icon: open-box
+    icon: tabler:box
     order: 3
   storageTier:
     type: String
     title: Storage Tier
     hint: Select the storage class to use when uploading new assets.
-    icon: scan-stock
+    icon: tabler:stack-2
     order: 4
     default: STANDARD
     enum:
@@ -59,11 +59,11 @@ props:
     type: String
     title: API Endpoint
     hint: The API endpoint of the service used to make requests.
-    icon: api
+    icon: tabler:api
     default: storage.google.com
     order: 5
 actions:
   exportAll:
     label: Export All DB Assets to GCS
     hint: Output all content from the DB to Google Cloud Storage, overwriting any existing data. If you enabled Google Cloud Storage after content was created or you temporarily disabled it, you'll want to execute this action to add the missing content.
-    icon: this-way-up
+    icon: tabler:upload
