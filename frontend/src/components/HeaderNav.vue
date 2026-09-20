@@ -184,6 +184,7 @@ import { useI18n } from 'vue-i18n'
 import { useMinWidth } from '@/composables/screen'
 
 import { useCommonStore } from '@/stores/common'
+import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -209,6 +210,7 @@ defineProps({
 const emit = defineEmits(['openSidebar'])
 
 const commonStore = useCommonStore()
+const graphStore = useGraphStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -364,6 +366,7 @@ function onGraphNavClick() {
     return
   }
   if (route.meta.contentPage) {
+    graphStore.select(pageStore.path)
     router.push({ path: GRAPH_ROUTE_PATH, query: { path: pageStore.folderPath } })
     return
   }

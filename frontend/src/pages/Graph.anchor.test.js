@@ -138,6 +138,37 @@ describe('Graph.vue anchor + descendants restriction (OpenProject #3333)', () =>
     expect(realPaths).toHaveLength(graph.nodes.length)
   })
 
+  it('a root-anchored ?path= resolves the synthetic root node as the anchor and highlights it on the canvas (OpenProject #3490)', async () => {
+    const wrapper = await mountGraph({
+      graph: ANCHOR_TREE_GRAPH,
+      initialPath: '/_graph?path=',
+      pageLocale: 'en'
+    })
+
+    expect(wrapper.vm.routeFocusAnchor).toEqual({ path: '', locale: 'en' })
+    expect(wrapper.vm.focusNodeId).toBe('en:')
+    expect(wrapper.vm.highlightedNodeIds.has('en:')).toBe(true)
+    expect(wrapper.vm.nodes.find((node) => node.root)).toMatchObject({ path: '', locale: 'en' })
+  })
+
+  it('a page selected before entry stays ringed under a folder anchor and under the root anchor (OpenProject #3490)', async () => {
+    const underFolder = await mountGraph({
+      graph: ANCHOR_TREE_GRAPH,
+      initialPath: '/_graph?path=docs',
+      pageLocale: 'en',
+      graphSelectedPath: 'docs/child'
+    })
+    expect(underFolder.vm.selectedNodeId).toBe('en:docs/child')
+
+    const underRoot = await mountGraph({
+      graph: ANCHOR_TREE_GRAPH,
+      initialPath: '/_graph?path=',
+      pageLocale: 'en',
+      graphSelectedPath: 'about'
+    })
+    expect(underRoot.vm.selectedNodeId).toBe('en:about')
+  })
+
   it('watch(focusNodeId, ...) re-runs the anchor restriction reactively, not only at mount', async () => {
     const wrapper = await mountGraph({ graph: ANCHOR_TREE_GRAPH })
 
