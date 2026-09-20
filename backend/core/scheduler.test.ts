@@ -181,8 +181,9 @@ describe('addScheduled (fake CARDINAL)', () => {
     existingJobsMock = []
     insertShouldFail = true
 
-    await scheduler.addScheduled()
+    const added = await scheduler.addScheduled()
 
+    assert.equal(added, 0, 'addScheduled() must report zero jobs added')
     assert.equal(insertedJobs.length, 0, 'no row should have been inserted')
   })
 })

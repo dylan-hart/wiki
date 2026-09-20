@@ -434,7 +434,16 @@ describe(
         // FIXME: backdate `jobs.waitUntil` first, as the `lastErrorMessage` test does -- if this
         // claim misses the requeued row, `secondReap` is 0 for the wrong reason and the test
         // passes vacuously.
+        await fixtures.db
+          .update(jobsTable)
+          .set({ waitUntil: pastDate(1) })
+          .where(eq(jobsTable.id, job!.id))
         await scheduler.processJob()
+        const [reclaimed] = await fixtures.db
+          .select()
+          .from(jobHistoryTable)
+          .where(eq(jobHistoryTable.id, job!.id))
+        assert.equal(reclaimed!.state, 'active', 'the retry must have reclaimed the requeued row')
         await fixtures.db
           .update(jobHistoryTable)
           .set({ startedAt: pastDate(120) })

@@ -504,7 +504,8 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .select()
       .from(navigationTable)
       .where(eq(navigationTable.siteId, fixtures.siteId))
-    assert.ok(leftoverOnSource.every((n) => n.siteId === fixtures.siteId))
+    assert.equal(leftoverOnSource.length, 1)
+    assert.equal((leftoverOnSource[0]!.items as any[])[0].label, 'Source Home')
   })
 
   test('importSite leaves isSystem groups on the target instance untouched', async () => {

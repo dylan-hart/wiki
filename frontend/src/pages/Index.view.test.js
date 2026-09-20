@@ -176,7 +176,7 @@ describe('Index.vue: unpublished chip (OpenProject #817)', () => {
 
     // FIXME: `:has-text()` is a Playwright selector, not CSS, so this never matches and the
     // assertion holds whether or not the chip rendered. Assert on `.text-accent`, as above.
-    const chip = wrapper.find('div:has-text("Unpublished")')
+    const chip = wrapper.find('.text-accent')
     expect(chip.exists()).toBe(false)
   })
 

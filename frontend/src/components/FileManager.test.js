@@ -720,7 +720,7 @@ describe('FileManager page detail dates (OpenProject #1755)', () => {
     )
     // FIXME: this only asserts the value is non-empty, so it would still pass against a raw
     // `toLocaleString()`. Assert the `common.datetime` separator ("{date} at {time}") instead.
-    expect(createdItem.value).not.toBe('')
+    expect(createdItem.value).toMatch(/^2026-01-01 at 00:00$/)
     wrapper.unmount()
   })
 })
