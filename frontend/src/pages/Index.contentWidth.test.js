@@ -235,6 +235,75 @@ describe('Index.vue measured content excludes block-infobox', () => {
   })
 })
 
+describe('Index.vue measured comments (Task #3483)', () => {
+  function commentsMarkup({ measured }) {
+    return (
+      `<div style="width:${COLUMN_WIDTH}px">` +
+      `<div class="page-container-scrl" style="height:100%">` +
+      `<div class="page-container-body${measured ? ' is-measured' : ''}">` +
+      `<div class="page-contents"><p>Prerequisites</p></div>` +
+      `<div class="page-comments-measure"><div class="comments-inner">Comments</div></div>` +
+      `</div></div></div>`
+    )
+  }
+
+  it('wraps both comment providers in the measured wrapper', async () => {
+    const sfc = await readFile(join(pagesDir, 'Index.vue'), 'utf8')
+    const wrapper = sfc.match(/<div class="page-comments-measure">([\s\S]*?)<\/div>\s*<\/template>/)
+
+    expect(wrapper).not.toBeNull()
+    expect(wrapper[1]).toContain('<page-comments-embed v-if="siteStore.commentsProvider" />')
+    expect(wrapper[1]).toContain('<page-comments v-else />')
+  })
+
+  describe('in a real browser', { skip: !hasChromium(), timeout: 60000 }, () => {
+    let browser
+    let css
+
+    beforeAll(async () => {
+      browser = await chromium.launch()
+      css = await indexPageCss()
+    })
+
+    afterAll(async () => {
+      await browser?.close()
+    })
+
+    async function measureComments({ measured }) {
+      const page = await browser.newPage({ viewport: { width: COLUMN_WIDTH, height: 800 } })
+      try {
+        await page.setContent(
+          `<!doctype html><html><head><style>*{margin:0;padding:0;box-sizing:border-box}` +
+            `${css}</style></head><body>${commentsMarkup({ measured })}</body></html>`
+        )
+        return await page.evaluate(() => {
+          const body = document.querySelector('.page-container-body').getBoundingClientRect()
+          const wrap = document.querySelector('.page-comments-measure').getBoundingClientRect()
+          const inner = document.querySelector('.comments-inner').getBoundingClientRect()
+          return { bodyLeft: body.x, left: wrap.x, width: wrap.width, innerWidth: inner.width }
+        })
+      } finally {
+        await page.close()
+      }
+    }
+
+    it('caps measured comments at 720px, flush with the article', async () => {
+      const rect = await measureComments({ measured: true })
+
+      expect(rect.width).toBe(MEASURE)
+      expect(rect.innerWidth).toBe(MEASURE)
+      expect(rect.left - rect.bodyLeft).toBe(COLUMN_PADDING_INLINE)
+    })
+
+    it('lets unmeasured comments fill the padded column', async () => {
+      const rect = await measureComments({ measured: false })
+
+      expect(rect.width).toBe(COLUMN_WIDTH - COLUMN_PADDING_INLINE * 2)
+      expect(rect.left - rect.bodyLeft).toBe(COLUMN_PADDING_INLINE)
+    })
+  })
+})
+
 describe('Index.vue contentWidth: per-user override precedence (Task #3068)', () => {
   beforeEach(() => {
     window.matchMedia =

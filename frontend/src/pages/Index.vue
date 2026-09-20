@@ -167,8 +167,10 @@
                 (Disqus/Commento/Artalk); the native provider and no provider at all both fall to
                 `page-comments`.
               -->
-              <page-comments-embed v-if="siteStore.commentsProvider" />
-              <page-comments v-else />
+              <div class="page-comments-measure">
+                <page-comments-embed v-if="siteStore.commentsProvider" />
+                <page-comments v-else />
+              </div>
             </template>
           </div>
           <!--
@@ -1426,6 +1428,10 @@ body.body--cobalt .page-container > .min-w-0.flex-1 {
   exactly what it is for.
 */
 .page-container-body.is-measured > .page-contents > :not(block-infobox) {
+  max-width: 720px;
+}
+
+.page-container-body.is-measured > .page-comments-measure {
   max-width: 720px;
 }
 
