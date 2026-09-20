@@ -15,6 +15,7 @@ describe('API_KEY_SCOPES', () => {
         'read:users',
         'read:groups',
         'manage:glossary',
+        'read:audit',
         'manage:classification'
       ])
     )

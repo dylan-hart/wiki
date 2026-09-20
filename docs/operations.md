@@ -371,6 +371,11 @@ The **audit log** is a different thing entirely: a durable, queryable table of w
 (`models/auditLog.ts`, the admin area's Audit Log page, retention configurable there). Security
 questions are answered from it, not from stdout.
 
+Reading it takes `read:audit` (or `manage:system`), which also covers `GET /_api/audit-log/export`:
+the same filters as the list, streamed as newline-delimited JSON, one entry per line, for a SIEM or
+an auditor. Each export is itself recorded as an `auditLog.exported` event. Changing the retention
+window stays with `manage:system`.
+
 ## Metrics
 
 `GET /metrics` (deliberately outside `/_api` — see the header comment in

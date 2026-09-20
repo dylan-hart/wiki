@@ -18,6 +18,7 @@ describe('helpers/permissions', () => {
       'manage:theme',
       'manage:sites',
       'manage:glossary',
+      'read:audit',
       'manage:system'
     ])
   })
