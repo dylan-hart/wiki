@@ -147,6 +147,17 @@ describe('buildFilters()', () => {
     )
   })
 
+  test('tagsMatch any ORs the tags into one group', () => {
+    assert.equal(
+      buildFilters(params({ includeDrafts: true, tags: ['a', 'b'], tagsMatch: 'any' })),
+      'siteId:"site-1" AND isSearchable:true AND (tags:"a" OR tags:"b")'
+    )
+    assert.equal(
+      buildFilters(params({ includeDrafts: true, tags: ['a'], tagsMatch: 'any' })),
+      'siteId:"site-1" AND isSearchable:true AND tags:"a"'
+    )
+  })
+
   test('editor becomes an equality filter', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, editor: ['markdown'] })),

@@ -151,6 +151,23 @@ test('forwards every include and exclude list to the search model', async () => 
   assert.deepEqual(call.excludeAuthorId, [U1])
 })
 
+test('tagsMatch defaults to all and forwards any', async () => {
+  await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/search?tags=a,b` })
+  assert.equal(queryCalls[0]!.tagsMatch, 'all')
+  await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/search?tags=a,b&tagsMatch=any` })
+  assert.equal(queryCalls[1]!.tagsMatch, 'any')
+})
+
+test('rejects a tagsMatch other than all or any', async () => {
+  const before = queryCalls.length
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search?tags=a&tagsMatch=some`
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(queryCalls.length, before)
+})
+
 test('rejects a creatorId or authorId that is not a uuid', async () => {
   for (const name of ['creatorId', 'excludeCreatorId', 'authorId', 'excludeAuthorId']) {
     const res = await app.inject({

@@ -411,7 +411,7 @@ function nonEmpty(values?: string[]): values is string[] {
 /** Conditions over the aliased `pages p` table, shared by the `db` engine and semantic search. */
 export function buildSqlFilterConditions(filters: SearchFilters): SQL[] {
   const conditions: SQL[] = []
-  const { path, excludePath, locales, excludeLocales, tags, excludeTags } = filters
+  const { path, excludePath, locales, excludeLocales, tags, tagsMatch, excludeTags } = filters
   const { editor, excludeEditor, publishState, excludePublishState } = filters
   const { creatorId, excludeCreatorId, authorId, excludeAuthorId } = filters
   const prefix = (value: string) => `${escapeLikePattern(value)}%`
@@ -436,7 +436,11 @@ export function buildSqlFilterConditions(filters: SearchFilters): SQL[] {
     conditions.push(sql`p.locale <> ALL(${sql.param(excludeLocales)}::text[])`)
   }
   if (nonEmpty(tags)) {
-    conditions.push(sql`p.tags @> ${sql.param(tags)}::text[]`)
+    conditions.push(
+      tagsMatch === 'any'
+        ? sql`p.tags && ${sql.param(tags)}::text[]`
+        : sql`p.tags @> ${sql.param(tags)}::text[]`
+    )
   }
   if (nonEmpty(excludeTags)) {
     conditions.push(sql`NOT (p.tags && ${sql.param(excludeTags)}::text[])`)

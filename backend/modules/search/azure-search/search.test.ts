@@ -355,8 +355,13 @@ describe('azure-search module: buildFilter', () => {
     assert.match(filter, /search\.in\(locale, 'en\|fr', '\|'\)/)
   })
 
-  test('tags become tags/any(t: search.in(t, ...))', () => {
+  test('tags are all-of by default: one tags/any clause per tag', () => {
     const filter = buildFilter({ siteId: 'site-1', tags: ['a', 'b'] })
+    assert.match(filter, /tags\/any\(t: t eq 'a'\) and tags\/any\(t: t eq 'b'\)/)
+  })
+
+  test('tagsMatch any becomes tags/any(t: search.in(t, ...))', () => {
+    const filter = buildFilter({ siteId: 'site-1', tags: ['a', 'b'], tagsMatch: 'any' })
     assert.match(filter, /tags\/any\(t: search\.in\(t, 'a\|b', '\|'\)\)/)
   })
 

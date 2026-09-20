@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   SEARCH_ORDER_BY,
+  TAGS_MATCH,
   type SearchFilters,
+  type TagsMatch,
   type SearchOrderBy,
   type SearchResult
 } from '../../models/search.ts'
@@ -121,7 +123,16 @@ function filterQueryProperties(localesDescription: string) {
     excludePath: stringList('Drop pages whose path starts with any of these.'),
     locales: stringList(localesDescription),
     excludeLocales: stringList('Drop pages in any of these locales (comma-separated allowed).'),
-    tags: stringList('Tags a page must carry all of (comma-separated allowed).'),
+    tags: stringList(
+      'Tags a page must carry (comma-separated allowed): all of them, or any one of them per `tagsMatch`.'
+    ),
+    tagsMatch: {
+      type: 'string',
+      enum: TAGS_MATCH,
+      default: 'all',
+      description:
+        'Whether a page must carry every tag in `tags` (`all`) or at least one (`any`). Exclusions are always any-of.'
+    },
     excludeTags: stringList('Drop pages carrying any of these tags (comma-separated allowed).'),
     editor: stringList('Only pages using any of these editors.'),
     excludeEditor: stringList('Drop pages using any of these editors.'),
@@ -140,6 +151,7 @@ interface FilterQuery {
   locales?: string[]
   excludeLocales?: string[]
   tags?: string[]
+  tagsMatch?: TagsMatch
   excludeTags?: string[]
   editor?: string[]
   excludeEditor?: string[]
@@ -162,6 +174,7 @@ function searchFiltersFrom(query: FilterQuery): SearchFilters {
     locales: commaList(query.locales),
     excludeLocales: commaList(query.excludeLocales),
     tags: commaList(query.tags),
+    tagsMatch: query.tagsMatch ?? 'all',
     excludeTags: commaList(query.excludeTags),
     editor: query.editor ?? [],
     excludeEditor: query.excludeEditor ?? [],

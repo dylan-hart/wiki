@@ -257,6 +257,22 @@ describe('buildEsQuery()', () => {
     )
   })
 
+  test('tagsMatch any wraps the tags in a should group needing one match', () => {
+    const q = buildEsQuery(params({ tags: ['guide', 'howto'], tagsMatch: 'any' }))
+    assert.deepEqual(
+      q.bool.filter.filter((f: any) => f.bool?.should),
+      [
+        {
+          bool: {
+            should: [{ match: { tags: 'guide' } }, { match: { tags: 'howto' } }],
+            minimum_should_match: 1
+          }
+        }
+      ]
+    )
+    assert.equal(q.bool.filter.filter((f: any) => f.match?.tags).length, 0)
+  })
+
   test('editor becomes a term filter', () => {
     const q = buildEsQuery(params({ editor: ['markdown'] }))
     assert.ok(q.bool.filter.some((f: any) => f.term?.editor === 'markdown'))
