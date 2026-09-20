@@ -32,58 +32,41 @@ import { useAnchoredFloat } from '@/composables/anchoredFloat'
 import { pushEscapeHandler } from '@/composables/escapeStack'
 
 /*
-  The root is a fragment -- an inline placeholder that marks the trigger, plus a teleported popup --
-  so Vue cannot decide for itself which half an attribute belongs to, and drops it with a warning.
-
-  Everything belongs to the popup. This matters most for `class`: the menu this replaces put its own
-  root IN the popup, so `<q-menu class="translucent-menu">` styled the popup, and that spelling is
-  all over the app alongside the explicit `content-class`. Forwarding attrs here keeps both working
-  rather than leaving the plain-`class` sites silently unstyled.
+  The root is a fragment -- an inline placeholder marking the trigger, plus a teleported popup -- so
+  Vue cannot decide which half an attribute belongs to and drops it with a warning. Everything
+  belongs to the popup; `class` especially, which call sites use to style the panel alongside the
+  explicit `content-class`.
 */
 defineOptions({ inheritAttrs: false })
 
 /*
-  Nesting depth, so a menu opened from inside another menu stacks ABOVE it.
-
-  Each menu lays a full-screen catcher just under its own popup to dismiss it on an outside click.
-  With one fixed pair of z-indexes for every menu, an inner menu's catcher sits at the same level as
-  the outer one's -- and therefore UNDERNEATH the outer menu's content. Clicking the outer panel
-  then never reaches the inner catcher, so a select's dropdown inside a menu could only be dismissed
-  by clicking somewhere outside the menu entirely.
-
-  Injected from the enclosing menu, if there is one, and re-provided for anything nested deeper.
-  Slot content is mounted inside this component's subtree, so a control written between the menu's
-  tags still inherits the value.
+  Nesting depth, so a menu opened from inside another stacks ABOVE it. Each menu lays a full-screen
+  catcher just under its own popup; with one fixed pair of z-indexes for every menu, an inner menu's
+  catcher sits underneath the outer menu's content, and clicking the outer panel never dismisses the
+  inner one.
 */
 const POPUP_DEPTH = Symbol.for('w-popup-depth')
 const depth = inject(POPUP_DEPTH, 0) + 1
 provide(POPUP_DEPTH, depth)
 
 /*
-  A way for content rendered inside the menu to dismiss it -- what `v-close-popup` used to do, minus
-  the directive. Content mounted through the default slot lives in this component's subtree, so it
-  inherits the provide even though it is written at the call site.
+  Lets content dismiss the menu from inside it: slot content is mounted in this component's subtree,
+  so it inherits the provide even though it is written at the call site.
 */
 provide(POPUP_CLOSE, () => hide())
 
-/**
- * Base 6500, a step per level. Capped so deep nesting cannot climb over the tooltip (7000) and
- * notification (9000) layers, which must stay on top of any menu.
- */
+/** Capped so deep nesting cannot climb over the tooltip (7000) and notification (9000) layers. */
 const catcherZ = 6500 + Math.min(depth - 1, 40) * 10
 
 /**
- * Dropdown menu anchored to its parent element, written as the last child of its trigger:
+ * Anchored to its parent element, so it is written as the last child of its trigger:
  *
  *   <w-btn :label="t('common.header.language')">
  *     <w-menu auto-close anchor="bottom right" self="top right"> ... </w-menu>
  *   </w-btn>
- *
- * Opens on click by default, or with `context-menu`: on right-click, on a touch long-press, or on
- * the keyboard Context Menu key / Shift+F10.
  */
 const props = defineProps({
-  /** Two-way open state. Omit to let the menu manage itself from its trigger. */
+  /** Two-way open state; omit to let the menu manage itself from its trigger. */
   modelValue: {
     type: Boolean,
     default: null
@@ -106,7 +89,7 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Opens on right-click at the pointer instead of on left-click at the anchor. */
+  /** Opens on right-click, long-press or Context Menu / Shift+F10 instead of on left-click. */
   contextMenu: {
     type: Boolean,
     default: false
@@ -116,7 +99,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Caps the panel width, so a long option does not stretch the menu across the screen. */
   maxWidth: {
     type: String,
     default: null
@@ -126,16 +108,12 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Extra classes for the floating panel. */
   contentClass: {
     type: String,
     default: null
   }
 })
 
-/*
-  `bg-[var(--color-white)]` rather than `bg-white`: see the comment at the top of the template.
-*/
 const surfaceClass = computed(() =>
   props.dark
     ? 'bg-[var(--color-dark-3)] text-[var(--color-white)]'
@@ -151,11 +129,6 @@ const placeholderEl = ref(null)
 /** Set for a context menu, where the anchor is the pointer rather than the trigger element. */
 let pointerRect = null
 
-/*
-  Trigger discovery and placement are shared with WTooltip; what is this menu's own is the sizing it
-  does before measuring (fit-to-trigger width, a height that keeps a long menu on screen) and the
-  pointer rect a context menu opens against, both of which `beforeMeasure` owns.
-*/
 const { triggerEl, floatStyle, reposition } = useAnchoredFloat({
   placeholderEl,
   floatEl,
@@ -177,11 +150,10 @@ const { triggerEl, floatStyle, reposition } = useAnchoredFloat({
 })
 
 /*
-  Focus management for the teleported panel: it renders at the end of `<body>`, nowhere near its
-  trigger in DOM order, so a keyboard user tabbing forward from the trigger would otherwise land on
-  whatever unrelated control happens to follow it in the document instead of the menu. `focusReturnEl`
-  is whichever element held focus when the menu opened (usually, but not necessarily, `triggerEl` --
-  a context menu opens from a right-click that need not have moved focus at all).
+  The teleported panel renders at the end of `<body>`, nowhere near its trigger in DOM order, so a
+  keyboard user tabbing forward from the trigger lands on whatever follows it in the document unless
+  focus is moved explicitly. `focusReturnEl` is whichever element held focus when the menu opened --
+  not necessarily `triggerEl`, since a right-click need not have moved focus at all.
 */
 let focusReturnEl = null
 
@@ -206,14 +178,9 @@ function restoreFocus() {
   }
 }
 
-// -> `modelValue` is opt-in: null means uncontrolled, so only mirror it when actually provided
+// -> `null` means uncontrolled, so the prop is mirrored back only when a caller provides it
 const isControlled = () => props.modelValue !== null
 
-/**
- * This instance's current registration on the shared Escape stack (`composables/escapeStack.js`),
- * or `null` while closed. Pushed in `show()`, released in `hide()` -- see `handleEscape` and the
- * import above for why this replaced a bare `document` listener (OpenProject #2370).
- */
 let releaseEscapeHandler = null
 
 function handleEscape() {
@@ -278,14 +245,10 @@ function onTriggerContextMenu(ev) {
 }
 
 /*
-  Touch long-press: the native `contextmenu` event `onTriggerContextMenu` handles is a desktop-only
-  gesture (a right-click). Touch has no equivalent unless one is built -- so a context-menu-mode
-  trigger gets a second listener pair, held to `pointerType === 'touch'` only, so mouse/pen input
-  keeps going through the click/contextmenu handlers unchanged.
-
-  A press starts a timer; it fires the menu open if the finger stays down and (roughly) still for
-  the hold duration. Either releasing early or moving far enough to read as a scroll/drag rather
-  than a press-and-hold cancels it -- the same trade-off a native long-press gesture makes.
+  Touch has no equivalent of the right-click `onTriggerContextMenu` handles, so context-menu mode
+  builds one. Held to `pointerType === 'touch'` so mouse and pen input keep going through the
+  click/contextmenu handlers unchanged. Releasing early, or moving far enough to read as a scroll
+  rather than a press-and-hold, cancels the pending open.
 */
 const LONG_PRESS_MS = 500
 const LONG_PRESS_MOVE_TOLERANCE = 10
@@ -314,7 +277,6 @@ function onTriggerPointerDown(ev) {
     if (!at) {
       return
     }
-    // -> Same anchor mechanism a right-click uses: a zero-size rect at the touch point
     pointerRect = { left: at.x, top: at.y, width: 0, height: 0 }
     show()
   }, LONG_PRESS_MS)
@@ -339,12 +301,9 @@ function onTriggerPointerUp(ev) {
 }
 
 /*
-  Keyboard: the Context Menu key (`ev.key === 'ContextMenu'`) and the Shift+F10 fallback are the two
-  conventional ways to ask for a context menu without a pointer at all. Handled explicitly rather
-  than relying on the browser's own keyboard-invoked `contextmenu` event, since that path is
-  unreliable across platforms (notably absent on macOS/Safari, which has neither key). Opens anchored
-  to the trigger itself -- no `pointerRect` set -- the same placement a plain click-triggered menu
-  already uses.
+  The Context Menu key and the Shift+F10 fallback are handled explicitly rather than through the
+  browser's own keyboard-invoked `contextmenu` event, which is unreliable across platforms (absent
+  on macOS/Safari, which has neither key). No `pointerRect`, so it anchors to the trigger.
 */
 function onTriggerKeydown(ev) {
   if (!props.contextMenu) {
@@ -368,9 +327,8 @@ function onContentClick() {
 const ROW_SELECTOR = '[tabindex="0"], a[href]'
 
 /**
- * The panel's own focusable rows, in DOM order. `WItem` puts `tabindex="0"` on a clickable
- * non-anchor row and renders a disabled or non-interactive row with neither a tab stop nor an
- * `href` -- so this selector already excludes both without checking `aria-disabled` itself.
+ * `WItem` puts `tabindex="0"` on a clickable non-anchor row and gives a disabled or non-interactive
+ * row neither a tab stop nor an `href`, so the selector excludes both without checking further.
  */
 function focusableRows() {
   if (!floatEl.value) {
@@ -380,9 +338,8 @@ function focusableRows() {
 }
 
 /**
- * Up/Down/Home/End roving focus between the panel's rows, wrapping at both ends. Any other key is
- * left alone -- neither `preventDefault` nor `stopPropagation` -- so it still reaches whatever a
- * row itself does with it (e.g. `WItem`'s own Enter/Space handling).
+ * Any key other than the four is left alone -- neither `preventDefault` nor `stopPropagation` -- so
+ * it still reaches whatever a row itself does with it, such as `WItem`'s Enter/Space handling.
  */
 function onPanelKeydown(ev) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
@@ -429,8 +386,8 @@ onMounted(() => {
     return
   }
   /*
-    Only bind the trigger when uncontrolled. With `v-model` the parent already toggles the state on
-    the same click, and binding here too would toggle twice -- opening and immediately closing.
+    Only bind the trigger when uncontrolled: with `v-model` the parent already toggles the state on
+    the same click, so binding here too would toggle twice and close it again immediately.
   */
   if (!isControlled()) {
     triggerEl.value.addEventListener('click', onTriggerClick)
@@ -460,17 +417,13 @@ onBeforeUnmount(() => {
   }
   clearLongPress()
   window.removeEventListener('resize', hide)
-  // -> An unmount while still shown (route change, host teardown) would otherwise leak this
-  //    instance's registration on the shared Escape stack -- `hide()`'s own release runs only on
-  //    the ordinary close paths, none of which fire on an unmount.
+  // -> An unmount while still shown (route change, host teardown) runs no close path, so `hide()`'s
+  //    own release never fires and the Escape-stack registration would leak.
   releaseEscapeHandler?.()
   releaseEscapeHandler = null
 })
 
-/*
-  `updatePosition` is part of the contract callers rely on: a menu whose content changes height
-  (NavEditMenu adds and removes rows) has to be re-anchored, or it drifts off its trigger.
-*/
+/* `updatePosition` is for a menu whose content changes height: unanchored, it drifts off. */
 defineExpose({ show, hide, toggle, updatePosition: reposition })
 </script>
 

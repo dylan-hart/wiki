@@ -16,43 +16,32 @@
 import { computed } from 'vue'
 
 /**
- * A row in a `WList`: an optional leading section, a main section, and an optional trailing
- * section, supplied as `WItemSection` children.
- *
- * Simplification: the ripple the previous implementation drew on press is replaced by a hover and
- * active background tint. It reads the same at a glance without the extra DOM and animation
- * bookkeeping a ripple needs.
+ * Row in a `WList`, with `WItemSection` children. Differs from the component it replaces in drawing
+ * a hover/active background tint instead of a press ripple -- the same read at a glance, without a
+ * ripple's DOM and animation bookkeeping.
  */
 const props = defineProps({
-  /** Gives the row hover/press feedback and makes it keyboard-operable. */
   clickable: {
     type: Boolean,
     default: false
   },
-  /** Renders as a `router-link`; implies `clickable`. */
   to: {
     type: [String, Object],
     default: null
   },
-  /**
-   * Renders as a plain `<a>`; implies `clickable`. For an address this app does not route -- another
-   * site, a `mailto:` -- which `to` cannot carry: the router would try to match it as a path.
-   */
+  /** For an address the router cannot match as a path -- another site, a `mailto:`. */
   href: {
     type: String,
     default: null
   },
-  /** `_blank` and the rest, for an `href` row. `rel` follows from it. */
   target: {
     type: String,
     default: null
   },
-  /** Applied when `to` matches the current route. */
   activeClass: {
     type: String,
     default: null
   },
-  /** Forces the active styling on a non-link item. */
   active: {
     type: Boolean,
     default: false
@@ -61,12 +50,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Reduced height. */
   dense: {
     type: Boolean,
     default: false
   },
-  /** Underlying element when this is not a link. */
   tag: {
     type: String,
     default: 'div'
@@ -74,8 +61,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['click'])
-
-// COMPUTED
 
 const isDisabled = computed(() => props.disabled)
 
@@ -87,16 +72,11 @@ const isInteractive = computed(
 const isAnchor = computed(() => Boolean(props.to || props.href) && !isDisabled.value)
 
 /*
-  Whether the row should look clickable.
-
-  Wider than `isInteractive`, because a `tag="label"` row is operable without this component doing
-  anything: the browser forwards a click on a <label> to the control inside it, which is how the
-  settings rows toggle their switch from anywhere along the row. That is invisible without a
-  cursor and a hover tint -- the row looks inert and the affordance goes unnoticed.
-
-  Deliberately NOT folded into `isInteractive`: that one also adds `role="button"` and a tab stop,
-  which on a label wrapping a switch would announce a button around a switch and put two stops in
-  the tab order for one control.
+  Wider than `isInteractive`: a `tag="label"` row is operable without this component doing anything,
+  since the browser forwards a click on a <label> to the control inside it, and that affordance goes
+  unnoticed without a cursor and hover tint. Kept separate because `isInteractive` also adds
+  `role="button"` and a tab stop -- on a label wrapping a switch, that announces a button around a
+  switch and puts two stops in the tab order for one control.
 */
 const showsAffordance = computed(
   () => (isInteractive.value || props.tag === 'label') && !isDisabled.value
@@ -114,36 +94,30 @@ const linkAttrs = computed(() => {
   if (!isAnchor.value) {
     return {}
   }
-  /*
-    `target` goes with `href` only, as it does on `WBtn`: a row that opens somewhere else is not the
-    router's to swap in, so a caller wanting a new tab asks for a plain link and gets one.
-  */
+  // -> `target` goes with `href` only, as on `WBtn`: a destination the router swaps in never opens
+  //    a new tab, so a caller wanting one asks for a plain link.
   if (props.to) {
     return { to: props.to, activeClass: props.activeClass ?? undefined }
   }
   return {
     href: props.href,
     target: props.target ?? undefined,
-    // -> Never let a new tab keep a handle on this window
     rel: props.target === '_blank' ? 'noopener noreferrer' : undefined
   }
 })
 
 const classes = computed(() => [
   /*
-    `text-inherit` because a row with `to` renders an <a>, and with no colour of its own it takes
-    the user agent's link colour -- which showed as purple for visited routes on the admin sidebar.
-
-    `items-stretch` (the default, stated for the reader) rather than centring: the sections stretch
-    to the row's height and centre their own content, which is what lets a child sized `height:
-    100%` -- the status lights beside the nav items -- span the full row.
+    `text-inherit` because a row with `to` renders an <a>, which without a colour of its own takes
+    the user agent's link colour -- purple once the route has been visited. `items-stretch` rather
+    than centring so a child sized `height: 100%`, such as a nav item's status light, spans the row.
   */
   'w-item flex flex-nowrap items-stretch px-4 text-inherit no-underline',
   props.dense ? 'min-h-8 py-0.5' : 'min-h-12 py-2',
   /*
-    `w-item--clickable`, not Tailwind's `cursor-pointer`: Quasar declares that class UNLAYERED and
-    `!important`, which no ordinary rule can override -- so the disabled row below could not take
-    its cursor back. The class doubles as the marker WList keys its dark-surface hover off.
+    `w-item--clickable` carries the cursor rather than Tailwind's `cursor-pointer` so the disabled
+    rule below can override it, and it doubles as the marker `WList` and the nav stylesheets key
+    their own hover rules off.
   */
   showsAffordance.value
     ? 'w-item--clickable hover:bg-black/8 active:bg-black/14 dark:hover:bg-white/14 dark:active:bg-white/22'
@@ -151,8 +125,6 @@ const classes = computed(() => [
   isDisabled.value ? 'pointer-events-none opacity-60' : '',
   props.active && props.activeClass ? props.activeClass : ''
 ])
-
-// METHODS
 
 function onClick(ev) {
   if (isDisabled.value) {
@@ -163,7 +135,7 @@ function onClick(ev) {
   emit('click', ev)
 }
 
-/** Keyboard parity for items that are buttons rather than links. */
+/** Keyboard parity for a row that is a button rather than a link, which the browser handles. */
 function onKeydown(ev) {
   if (!isInteractive.value || isAnchor.value) {
     return
@@ -178,46 +150,21 @@ function onKeydown(ev) {
 
 <style scoped>
 /*
-  RESPONSIVE ROW STACKING (OpenProject #2822, narrowed by #2823)
-  =============================================
-  A settings-style row (an icon/label section beside an input section -- two adjacent MAIN
-  sections) runs out of room whenever something ELSE has squeezed the row -- a nav rail, a
-  sidebar, a narrow dialog -- not necessarily the viewport itself. `container-type: inline-size`
-  makes `.w-item` a query container keyed off its own rendered width, so `WItemSection`'s stacking
-  rule (see that component, and its matching comment) reacts to the row actually running out of
-  room rather than to `window.innerWidth`.
+  A settings-style row runs out of room whenever something ELSE squeezes it -- a nav rail, a
+  sidebar, a narrow dialog -- not necessarily the viewport, so `WItemSection`'s stacking rule keys
+  off this query container's own rendered width rather than `window.innerWidth`.
 
-  Scoped to `:has(.w-item-section--main + .w-item-section--main)` -- i.e. only a row that actually
-  has the two-main-section shape -- rather than bare `.w-item`, unconditionally, everywhere: an
-  ordinary menu/nav row (a `side` section beside a single main one, e.g. `AdminLayout.vue`'s
-  locale switcher or any `w-menu` item list) has no reason to become a query container, and doing
-  so anyway broke it. `container-type: inline-size` implies SIZE CONTAINMENT on the inline axis,
-  which makes the element's own content stop contributing to an ANCESTOR's intrinsic (shrink-to-
-  fit) width calculation -- fine for a settings row, which always sits in an explicitly-sized
-  dialog/overlay, but fatal for a menu row sitting in a `w-menu` popup with no `matchTrigger`
-  (auto-width, sized to fit its content): verified directly, in a real Chromium page, that such a
-  popup's row collapses to its own padding alone (0 content width) the moment `container-type` is
-  applied unconditionally, which is what produced OpenProject #2823's flaky-turned-failing RTL e2e
-  test (`AdminLayout.vue`'s language switcher's native-name label kept jittering between 0-width
-  and its real width, reading to Playwright as "not stable"/"not visible"). `:has()` is already
-  used below (`.w-item--clickable:has(:disabled)`) so this follows an established pattern rather
-  than introducing a new one, and needs no template changes at any of the many two-main-section
-  call sites (`ProfileInfo.vue`, `UserEditOverlay.vue`, `GroupEditOverlay.vue`, ...) since it keys
-  off the DOM shape those already have.
+  Narrowed with `:has()` to the two-main-section shape rather than applied to every `.w-item`:
+  `container-type: inline-size` implies inline-axis size containment, so a row that becomes a query
+  container stops contributing to an ancestor's shrink-to-fit width. Harmless in an
+  explicitly-sized dialog, fatal for a menu row in a `w-menu` popup with no `matchTrigger`, which
+  collapses to its own padding with 0 content width.
 
-  `flex-wrap: wrap` here is UNCONDITIONAL (within that same `:has()` scope), not itself behind a
-  container query -- a same-element container query (`.w-item` querying its own container) was
-  tried first and verified, in a real browser, to never actually take effect: Chromium silently
-  leaves a query container's own styling unaffected by a query against itself, so a rule inside
-  `@container w-item { .w-item { ... } }` never applied no matter how narrow the row was measured.
-  Leaving `flex-wrap: wrap` permanently on is not a workaround for that -- it is inert on its own:
-  every `WItemSection` here defaults to `flex: 1 1 0%` (a zero flex-basis), and the flex
-  line-wrapping algorithm decides whether to break onto a new line from items' flex-BASIS sizes,
-  not their post-shrink rendered width, so a row of zero-basis sections never wraps regardless of
-  how little room they end up sharing. The ONLY thing that ever asks this row to wrap is
-  `WItemSection`'s own container query giving a stacked section a flex-basis of 100% -- which is
-  also what proves this is still driven by the row's real width, not by `flex-wrap` alone: without
-  that companion rule matching, nothing here ever produces a second line.
+  `flex-wrap` cannot itself sit behind the container query: a query container's own styling is
+  unaffected by a query against itself, so `@container w-item { .w-item { ... } }` never applies.
+  Leaving it on unconditionally is inert -- every `WItemSection` defaults to a zero flex-basis and
+  wrapping is decided from flex-basis, not post-shrink width, so only `WItemSection`'s companion
+  container query raising a section to a 100% basis ever produces a second line.
 */
 .w-item:has(.w-item-section--main + .w-item-section--main) {
   container-type: inline-size;
@@ -230,12 +177,9 @@ function onKeydown(ev) {
 }
 
 /*
-  A row whose control is disabled offers nothing to click, so it must not look clickable -- a
-  `tag="label"` row is only interactive because the browser forwards its click to that control,
-  and a disabled control ignores it.
-
-  Detected from the DOM with `:has()` rather than a prop, so the row cannot fall out of step with
-  the control it wraps: there is nothing at the call site to remember to update.
+  A `tag="label"` row is interactive only because the browser forwards its click to the control it
+  wraps, and a disabled control ignores it. Detected from the DOM with `:has()` rather than a prop
+  so the row cannot fall out of step with its control.
 */
 .w-item--clickable:has(:disabled) {
   cursor: default;

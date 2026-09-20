@@ -1,27 +1,20 @@
 <template>
   <teleport to="body">
     <!--
-      -> `left-1/2 -translate-x-1/2` centers this stack on the viewport (OpenProject #1590's
-         physical-positioning triage): centering is symmetric, so it lands in the same place either
-         way, but `translate-x` is itself a physical transform that never mirrors under RTL -- so
-         `start-1/2` here, still paired with the SAME leftward translate, would pull the stack off
-         to one side instead of centering it. Left physical rather than "fixed" with logical, since
-         swapping only half the pair would be worse than swapping neither.
+      -> `left-1/2 -translate-x-1/2` centers this stack on the viewport. Deliberately physical:
+         `translate-x` never mirrors under RTL, so a logical `start-1/2` paired with the same
+         leftward translate would pull the stack off to one side instead of centering it.
 
-      -> `bottom-0`, not `top-0` (OpenProject #3029): anchored at the top, the stack could sit over
-         the searchbar. There is no Ledger/Cobalt split here -- both aesthetics anchor the same way.
+      -> `bottom-0`, not `top-0`: anchored at the top, the stack could sit over the searchbar.
     -->
     <div
       class="w-notifications fixed bottom-0 left-1/2 z-[9000] flex w-full max-w-md -translate-x-1/2 flex-col items-center gap-2 p-2 pointer-events-none">
       <transition-group name="w-notification">
         <!--
-          The repeat-count badge below deliberately overhangs this wrapper's bottom-left corner
-          (`-bottom-1.5 -left-1.5`), so it has to sit OUTSIDE the clipped, rounded `.w-notification`
-          box rather than inside it (OpenProject #3038) -- this wrapper, not `.w-notification`
-          itself, is what `v-for`/`:key` and the transition-group's generated enter/leave/move
-          classes apply to; those classes are keyed off `<transition-group>`'s `name` prop, not off
-          any element's own `class` attribute, so moving them here changes nothing about how the
-          leave/move transitions behave.
+          A wrapper so the repeat-count badge can overhang the bottom-left corner from OUTSIDE
+          `.w-notification`'s `overflow-hidden` box. The transition-group's generated classes key
+          off its `name` prop, not off any element's own `class`, so hosting `v-for`/`:key` here
+          rather than on the toast changes nothing about the enter/leave/move transitions.
         -->
         <div
           v-for="n of queue"
@@ -55,22 +48,12 @@
             </button>
             <!--
               Keyed on the count so a repeat replaces the element: a CSS animation does not restart
-              when its element merely re-renders, so a merged toast would otherwise keep running the
-              original countdown, empty the bar, and then sit there for the remainder of its
-              restarted timer with nothing left to show.
+              when its element merely re-renders, so a merged toast would keep running the original
+              countdown, empty the bar, and sit there for the rest of its restarted timer.
 
-              `start-0` (OpenProject #1590), not `left-0`: the bar's WIDTH keyframes from 100% to 0%
-              while this edge stays put, so whichever edge it is anchored to is the edge the bar
-              drains TOWARD as time runs out. `left-0` pinned that to the physical left always, which
-              reads as depleting toward the trailing edge under RTL instead of the reading-end one --
-              this is a spacing gutter's usual leading/trailing question, not a screen-position one,
-              so it belongs with the rest of this component's already-logical classes, not the
-              allowlist.
-
-              `overflow-hidden` on `.w-notification` (OpenProject #3038) clips this bar's own square
-              corners to whatever `--radius-control` currently resolves to -- 0 under Ledger (no
-              visible change), a real radius under Cobalt, where the 3px-tall, full-width bar used
-              to poke past the container's now-rounded bottom corners.
+              `start-0`, not `left-0`: the bar's width keyframes from 100% to 0% while this edge
+              stays put, so the anchored edge is the one it drains TOWARD -- a leading/trailing
+              question rather than a screen-position one, which must mirror under RTL.
             -->
             <div
               v-if="n.timeout > 0"
@@ -79,21 +62,11 @@
               :style="{ animationDuration: `${n.timeout}ms` }" />
           </div>
           <!--
-            How many times this notification has been raised while on screen. `aria-hidden`
-            because the count is already spoken: each repeat re-fires the alert.
+            `aria-hidden` because the count is already spoken: each repeat re-fires the alert.
 
-            Keyed on the count for the same reason as the progress bar: replacing the element is
-            what restarts its animation, and the bounce is the whole point -- a number quietly
-            changing from 2 to 3 in the corner is easy to miss.
-
-            Drawn as Cardinal draws every other count -- Roboto Mono on the chrome slate -- rather
-            than the orange chip it used to be. It sits on a toast that is already carrying its own
-            status colour, so a second status hue there said nothing and competed with the first.
-
-            A sibling of `.w-notification`, not a child of it: `.w-notification` now carries
-            `overflow-hidden` (OpenProject #3038) and this badge deliberately overhangs its
-            bottom-left corner, so nesting it inside would clip it the moment the bar-clipping fix
-            landed.
+            Keyed on the count for the same reason as the progress bar -- replacing the element is
+            what restarts the bounce, and a number quietly changing in the corner is easy to miss.
+            Neutral slate rather than a status hue, since the toast beneath it already carries one.
           -->
           <span
             v-if="n.count > 1"
@@ -113,21 +86,13 @@ import { useI18n } from 'vue-i18n'
 import { dismiss, queue } from '@/composables/notify'
 
 /**
- * Renders the notification stack. Mounted once, in App.vue -- notifications are pushed from
- * anywhere via `notify()` in `composables/notify.js`.
- *
- * Each toast's corner takes `--radius-control` -- `0` under Ledger (unchanged from before) and a
- * real value under Cobalt (`body.body--cobalt`, OpenProject #2767/#2772), matching "toasts ... take
- * `--radius-control`".
+ * Mounted once, in App.vue -- notifications are pushed from anywhere via `notify()` in
+ * `composables/notify.js`.
  */
-
-// I18N
 
 const { t } = useI18n()
 
-/** Runs a notification's action (OpenProject #2073's undo-discard toast is the first caller), then
- * dismisses it -- one click both acts and clears the toast, rather than leaving it to auto-dismiss
- * or requiring a second click on the close button. */
+/** Dismisses as well as acting, so one click does both rather than leaving the toast on screen. */
 function runAction(n) {
   n.action.onClick()
   dismiss(n.id)
@@ -141,13 +106,8 @@ function runAction(n) {
 }
 
 /*
-  Toast typography (cobalt-typography.md §3, "Shared primitives"). Explicit rather than the Material
-  `text-body2`/`text-caption` utilities this used to carry -- those pull in `@theme static`'s type
-  scale (14px/400/0.018em tracking and 12px/400/0.033em tracking respectively), which is exactly the
-  "Material scale reaching a Cardinal role" the audit forbids, and the positive tracking on top of it
-  violates the "no positive letter-spacing on Barlow body text" rule regardless of aesthetic. Sizes
-  and weights are unchanged between Ledger and Cobalt; only each toast's own fill color (`n.classes`,
-  `composables/notify.js`) varies.
+  Stated explicitly rather than with the `text-body2`/`text-caption` utilities: those pull in
+  `@theme static`'s Material type scale, whose positive tracking is not allowed on Barlow body text.
 */
 .w-notification-title {
   font-family: var(--font-sans);
@@ -178,7 +138,6 @@ function runAction(n) {
   animation: w-notification-count-bounce 0.45s var(--ease-standard);
 }
 
-/* Overshoot, settle back past the resting size, then land -- a spring rather than a pop */
 @keyframes w-notification-count-bounce {
   0% {
     transform: scale(0.4);
@@ -215,13 +174,10 @@ function runAction(n) {
   transform: translateY(24px);
 }
 /*
-  Takes the leaving toast out of flow, so the ones below it close the gap under TransitionGroup's
-  move transition instead of jumping.
-
-  The insets are pinned rather than left to the static position. An absolutely positioned child
-  resolves its offsets against the nearest positioned ancestor's PADDING box, so a `w-full` toast
-  grew by the container's padding the instant it left the flow -- a sideways jump part-way through
-  the fade. These reproduce that padding, holding the leaving toast exactly where it already was.
+  Out of flow, so the toasts below close the gap under TransitionGroup's move transition instead of
+  jumping. The insets are pinned because an absolutely positioned child resolves its offsets against
+  the ancestor's PADDING box, so a `w-full` toast would grow by that padding and jump sideways
+  part-way through the fade; these reproduce it, holding the leaving toast where it already was.
 */
 .w-notification-leave-active {
   position: absolute;

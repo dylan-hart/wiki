@@ -6,12 +6,7 @@ import { loading } from '@/composables/loading'
 
 import { createTestI18n } from '../../../test/i18n.js'
 
-/**
- * OpenProject #3385: the overlay used to render only a bare spinner regardless of what `show()`
- * was called with, so a slow login/register/TFA wait was a wordless black screen. Teleport is
- * stubbed the same way `WNotifications.test.js` does it, so a plain `wrapper.find()` reaches the
- * content without going to `document.body`.
- */
+/** Teleport is stubbed so a plain `wrapper.find()` reaches the content without `document.body`. */
 
 function mountOverlay() {
   return mount(WLoadingOverlay, {

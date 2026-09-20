@@ -10,10 +10,8 @@ import { computed } from 'vue'
 import { resolveSize } from './metrics'
 
 /**
- * Indeterminate spinner.
- *
- * Simplification: this replaces a family of spinners (tail, rings, clock, infinity, ...) that were
- * picked more or less at random across the admin area. They all mean "working"; one is enough.
+ * Simplification: this replaces a family of spinners (tail, rings, clock, infinity, ...) picked
+ * more or less at random across the admin area. They all mean "working"; one is enough.
  */
 const props = defineProps({
   /** A named size, or any CSS length. */
@@ -21,12 +19,10 @@ const props = defineProps({
     type: String,
     default: '24px'
   },
-  /** Ring thickness, as a CSS length. */
   thickness: {
     type: String,
     default: '2px'
   },
-  /** Theme color name. Omit to inherit the surrounding text color. */
   color: {
     type: String,
     default: null
@@ -46,12 +42,6 @@ const style = computed(() => {
 
 <style scoped>
 .w-spinner {
-  /*
-    `display` is set here rather than with an `inline-block` utility on purpose. Quasar declares
-    `.inline-block { display: inline-block !important }` unlayered, and an !important stylesheet
-    rule beats a non-important inline style -- which defeats `v-show`, leaving the spinner
-    permanently visible. A scoped rule has no !important, so `v-show` wins as it should.
-  */
   display: inline-block;
   border-style: solid;
   animation: w-spinner 0.7s linear infinite;

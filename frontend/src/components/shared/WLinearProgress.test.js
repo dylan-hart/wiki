@@ -4,9 +4,6 @@ import { mount } from '@vue/test-utils'
 import WLinearProgress from './WLinearProgress.vue'
 
 describe('WLinearProgress', () => {
-  // -> OpenProject #1590: the determinate fill was found anchored to the physical `left-0`, which
-  //    reads as filling toward the trailing edge instead of the reading-end one under RTL. Fixed
-  //    to `start-0` rather than allowlisted -- this is the regression test for that fix.
   it('anchors the fill to the logical inline-start edge, not the physical left', () => {
     const wrapper = mount(WLinearProgress, { props: { value: 0.5 } })
 

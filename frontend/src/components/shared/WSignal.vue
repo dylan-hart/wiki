@@ -11,16 +11,10 @@ import { computed } from 'vue'
 import { resolveSize } from './metrics'
 
 /**
- * Status signal -- concentric rings pulsing outward from a beating core.
- *
  * Distinct from `WSpinner` on purpose. A spinner says "working, please wait" and is expected to
- * stop; this says "live", and runs for as long as the thing it describes is in that state. The
- * admin metrics and API screens use it as an at-a-glance indicator beside an enabled/disabled
- * label, where a rotating spinner would read as a page that never finished loading.
+ * stop; this says "live", and runs for as long as the thing it describes is in that state.
  *
- * Geometry mirrors the `q-spinner-rings` it replaces, so the two look identical at the same size:
- * a 45-unit box, a 2-unit stroke, rings growing from radius 6 to 22 over 3s while their stroke
- * thins to nothing, half a cycle apart.
+ * Geometry mirrors the `q-spinner-rings` it replaces, so the two look identical at the same size.
  */
 const props = defineProps({
   /** A named size, or any CSS length. */
@@ -28,7 +22,6 @@ const props = defineProps({
     type: String,
     default: '24px'
   },
-  /** Theme color name. Omit to inherit the surrounding text color. */
   color: {
     type: String,
     default: null
@@ -43,12 +36,6 @@ const style = computed(() => ({
 
 <style scoped>
 .w-signal {
-  /*
-    `display` is set here rather than with an `inline-block` utility for the same reason as in
-    `WSpinner`: Quasar declares `.inline-block { display: inline-block !important }` unlayered, and
-    an !important stylesheet rule beats a non-important inline style -- which would defeat
-    `v-show`. A scoped rule carries no !important, so `v-show` wins as it should.
-  */
   display: inline-block;
   position: relative;
   flex-shrink: 0;
@@ -61,9 +48,8 @@ const style = computed(() => ({
 }
 
 /*
-  Every circle is centred and sized from the middle out. `border-box` is what keeps the
-  correspondence with the SVG exact: an SVG circle's painted diameter is `2r + stroke`, which is
-  precisely the border-box width of a bordered element.
+  `border-box` is what keeps the correspondence with the SVG exact: an SVG circle's painted diameter
+  is `2r + stroke`, which is precisely the border-box width of a bordered element.
 */
 .w-signal__ring,
 .w-signal__core {
@@ -77,8 +63,8 @@ const style = computed(() => ({
 }
 
 /*
-  Resting state, and what `prefers-reduced-motion` falls back to: the rings invisible and the core
-  at full size, leaving a plain ring that still reads as a status light.
+  Resting state, and what `prefers-reduced-motion` falls back to: a plain ring that still reads as a
+  status light.
 */
 .w-signal__ring {
   opacity: 0;
@@ -123,10 +109,7 @@ const style = computed(() => ({
   }
 }
 
-/*
-  The core collapses in one step and climbs back out in five -- a heartbeat rather than a
-  symmetrical throb. Radius 6, 1, 2, 3, 4, 5, 6 at a constant 2-unit stroke.
-*/
+/* Collapses in one step and climbs back out in five -- a heartbeat, not a symmetrical throb */
 @keyframes w-signal-core {
   0% {
     width: calc(var(--w-signal-unit) * 14);

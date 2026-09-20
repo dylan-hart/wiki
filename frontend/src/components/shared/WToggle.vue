@@ -10,19 +10,8 @@
     :class="isDisabled ? 'w-toggle--disabled pointer-events-none' : 'cursor-pointer'"
     @click="toggle">
     <!--
-      A track with a knob pushed to one end: on is a solid accent block with a white knob at the
-      trailing edge, off is a tinted box with a hairline edge and a pale slate knob at the leading
-      one. State is read from which end the knob sits at and from the fill behind it.
-
-      Both take `--radius-pill` (0 under Ledger -- square, unchanged from before -- a real value
-      under Cobalt, OpenProject #2767/#2772, matching "toggles take `--radius-pill`"): on the knob a
-      pill radius clamps to a full circle since it exceeds half the box, same as `rounded-full`
-      would draw, so one token covers both shapes with no separate case.
-
-      No relief, no glow and no glyph in the knob. The switch this replaces was a recessed channel
-      with a knob standing proud of it, lit from the top left, carrying a tick or a cross -- all of
-      which went with the app's relief generally; Cardinal separates a control from its ground with
-      a hairline, not with light.
+      One `--radius-pill` covers both shapes with no separate case: on the knob a pill radius
+      exceeds half the box and clamps to a full circle, the way `rounded-full` would draw it.
     -->
     <span
       class="w-toggle__track relative inline-flex shrink-0 items-center rounded-pill border p-0.5 transition-colors"
@@ -32,11 +21,6 @@
           ? 'w-toggle__track--on justify-end'
           : 'justify-start border-slate-pale bg-tint dark:border-border-dark dark:bg-dark-4'
       ]">
-      <!--
-        While the real value is still being fetched, a spinner stands in for the knob rather than
-        the knob rendering at its `false` default and sliding across once `loading` drops -- see the
-        file header comment.
-      -->
       <span v-if="loading" class="absolute inset-0 flex items-center justify-center">
         <w-spinner :size="dense ? '10px' : '12px'" />
       </span>
@@ -57,29 +41,19 @@ import { computed } from 'vue'
 import { useToggleModel } from '@/composables/toggleModel'
 
 /**
- * On/off switch.
- *
- * A track with a knob at one end (square under Ledger, pill/circular under Cobalt -- both draw off
- * `--radius-pill`). On is the accent fill with a white knob pushed to
- * the trailing edge; off is a tinted box with a hairline edge and a pale slate knob at the leading
- * one. Both the fill and the knob's position say the same thing, so the state survives a viewer who
- * cannot tell the two fills apart.
- *
- * There are no glyphs in the knob and no glow under it. The tick/cross pair the previous switch
- * carried was a third statement of the same fact, and it forced a second colour decision (which
- * green, which red) on a control that has no business making one.
+ * Both the fill and the knob's position carry the state, so it survives a viewer who cannot tell
+ * the two fills apart. No glyph in the knob and no glow under it: a tick/cross pair is a third
+ * statement of the same fact, and it forces a second colour decision (which green, which red) on a
+ * control that has no business making one. There is no `color` prop either -- a toggle that needs
+ * to signal danger should say so in its label.
  *
  * The label's `pt-px` is optical centring, the same compensation WInput makes: an ascent exceeding
  * its descent puts a geometrically-centred line box above the middle of the track beside it.
  *
- * There is no `color` prop: the switch says the same thing everywhere, in one place, rather than
- * each caller picking a tint. A toggle that needs to signal danger should say so in its label.
- *
- * `loading` is for a value seeded with a placeholder default (`false`, typically) that an async
- * `load()` overwrites once the real value arrives: bound straight through, the toggle would mount on
- * the placeholder and visibly animate to the fetched value the moment it lands. Passing
- * `:loading="state.loading"` for as long as that fetch is in flight swaps the knob for a spinner
- * instead, so the control mounts already showing its real state and never animates from a wrong one.
+ * `loading` is for a value seeded with a placeholder default that an async `load()` overwrites:
+ * bound straight through, the toggle would mount on the placeholder and visibly animate to the
+ * fetched value the moment it lands. A spinner in place of the knob means it never animates from a
+ * state that was never real.
  */
 const props = defineProps({
   modelValue: {
@@ -103,15 +77,11 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Shows a spinner in place of the knob and blocks interaction -- see the file header comment. */
   loading: {
     type: Boolean,
     default: false
   },
-  /**
-   * Present only when `modelValue` is an array: the value this toggle contributes to it. Lets a set
-   * of toggles bind to one array of selected values.
-   */
+  /** Present only when `modelValue` is an array: the value this toggle contributes to it. */
   val: {
     type: null,
     default: undefined
@@ -120,9 +90,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 
-// COMPUTED
-
-// -> The boolean-or-array model is shared with WCheckbox; see `composables/toggleModel.js`
 const { isOn, toggle } = useToggleModel(props, emit)
 
 const isDisabled = computed(() => props.disabled || props.loading)
@@ -130,15 +97,12 @@ const isDisabled = computed(() => props.disabled || props.loading)
 
 <style scoped>
 /*
-  Two things a utility cannot state here.
+  The "on" fill is the themeable accent -- a custom property rather than a fixed palette step, so no
+  utility can state it. It goes on the border as well as the background, so the track does not
+  change size between its two states.
 
-  The "on" fill is the themeable accent, which is a custom property rather than a fixed palette step
-  -- so it has to be written as `var()`, and it is written on both the background and the border so
-  the track does not change size between its two states.
-
-  And the disabled treatment: flat and colourless. The fill is what makes the control read as
-  operable, so it goes rather than merely dimming -- a switch that stays accent-red while nobody can
-  move it says the wrong thing.
+  Disabled drops the fill rather than merely dimming it: the fill is what makes the control read as
+  operable.
 */
 .w-toggle__track--on {
   background-color: var(--color-accent);

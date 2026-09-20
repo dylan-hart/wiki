@@ -7,13 +7,10 @@ import WSortable from './WSortable.vue'
 /*
   No `vi.mock('sortablejs', ...)` here: `sortablejs` is a plain CJS package (no `exports` field),
   which this workspace's Vitest config resolves outside vite-node's own module graph -- a mock
-  registered against the bare specifier is never seen by `WSortable.vue`'s own import of it. The real
-  library mounts happily against a `happy-dom` element with no actual pointer/drag support, and
-  exposes exactly the hooks this suite needs without one: `Sortable.get(el)` reads the instance a
-  component bound to that element (and reads back `null` once `destroy()` has run, which is what
-  "no leaked instance" below actually asserts), and `instance.option(name)` reads back whatever
-  callback or setting the constructor was given -- including `onEnd`/`onUpdate`, which is how this
-  suite simulates a completed drag without simulating real pointer events.
+  registered against the bare specifier is never seen by `WSortable.vue`'s own import of it. The
+  real library mounts happily against a `happy-dom` element, and `Sortable.get(el)` plus
+  `instance.option(name)` expose the instance and the callbacks it was constructed with -- which is
+  how this suite simulates a completed drag without real pointer events.
 */
 
 function mountSortable(
@@ -63,9 +60,7 @@ describe('WSortable', () => {
     expect(instance).toBeTruthy()
     expect(instance.option('handle')).toBe('.handle')
     expect(instance.option('animation')).toBe(150)
-    // -> Unlike `sortablejs-vue3`, a user-supplied `options.onMove` is passed straight through, not
-    //    silently overridden with an internal wrapper -- `NavItemEditor.vue`'s drag-boundary `onMove`
-    //    relies on this.
+    // -> Identity, not just presence: a caller's `onMove` must reach SortableJS unwrapped.
     expect(instance.option('onMove')).toBe(onMove)
   })
 

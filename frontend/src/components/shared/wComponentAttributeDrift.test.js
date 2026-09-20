@@ -4,32 +4,15 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #1805 ("Add a `defineProps`-vs-call-site drift check test for the shared W* library"),
- * the last child of #1784 ("Give the shared W* library a `defineProps`-vs-call-site drift check, and
- * delete the dead Quasar-era attributes"). Nothing in `frontend/` otherwise rejects an attribute
- * written against a `W*` component that declares no such prop -- with default `inheritAttrs` it is
- * simply emitted onto the component's root element as an inert non-standard HTML attribute, so a
- * functional attribute is visually indistinguishable from a dead one at the call site. This is the
- * same shape of gate `npm run icons:check` and `src/i18nSourceGate.test.js` already run for their
- * own invariants: parse the source of truth (here, each shared component's `defineProps`), scan
- * every real call site, and fail on drift.
+ * Nothing in `frontend/` otherwise rejects an attribute written against a `W*` component that
+ * declares no such prop: with default `inheritAttrs` it is simply emitted onto the component's root
+ * element as an inert non-standard HTML attribute, so a functional attribute is visually
+ * indistinguishable from a dead one at the call site.
  *
- * Two describe blocks, matching `i18nSourceGate.test.js`'s own split:
- *  - `parser` exercises the prop/attribute extraction against small in-memory fixtures, independent
- *    of the repository's current state -- this is what proves the *mechanism* correctly extracts a
- *    component's declared props (object and array `defineProps` forms, including ones with no
- *    `defineProps` block at all -- e.g. `WScrollArea.vue`, which declares zero props on purpose),
- *    finds only `<w-*>` tags inside the template region (not an example call site quoted inside a
- *    `<script setup>` JSDoc comment -- `WCardHeader.vue`'s own header comment is exactly this shape),
- *    and correctly allows the fall-through channel this WP's own "Done when" names: `class`, `style`,
- *    `key`, `ref`, any `v-*` directive (including the `:`/`@`/`#` shorthands and a bare `v-bind="…"` /
- *    `v-on="…"` spread), and `data-*`/`aria-*`.
- *  - `frontend/src component call sites` runs those same functions against the real tree -- the
- *    actual gate. It is expected to stay green: #1789, #1796 and #1803 (the sibling call-site-fix and
- *    attribute-sweep children) already landed on `scarlett` before this one, so the tree is clean of
- *    the drift they targeted. Should a future call site reintroduce an attribute naming no declared
- *    prop -- or a future prop rename leave a stale call site behind -- this test names the offending
- *    (component, attribute) pair and fails.
+ * Two describe blocks: `parser` exercises the prop/attribute extraction against small in-memory
+ * fixtures, independent of the repository's current state, and `frontend/src component call sites`
+ * runs those same functions against the real tree -- the actual gate, which names the offending
+ * (component, attribute) pair.
  */
 
 const SHARED_DIR = dirname(fileURLToPath(import.meta.url))
@@ -46,9 +29,9 @@ function listVueFiles(dir, out = []) {
 }
 
 /**
- * Returns the substring of `source` strictly between `openIdx` (pointing at an opening `(`, `{` or
- * `[`) and its matching close, skipping over string/template literals and `//`/`/* *\/` comments so
- * a brace or quote inside one of those does not perturb the depth count.
+ * The substring between `openIdx` (which must point at an opening `(`, `{` or `[`) and its matching
+ * close. String literals and comments are skipped so a brace or quote inside one does not perturb
+ * the depth count.
  */
 function extractBalanced(source, openIdx) {
   let depth = 0
@@ -86,7 +69,6 @@ function extractBalanced(source, openIdx) {
   throw new Error('extractBalanced: unbalanced input')
 }
 
-/** Depth-0 identifiers within an object-literal body, i.e. its top-level keys. */
 function topLevelKeys(body) {
   const keys = []
   let depth = 0
@@ -129,8 +111,8 @@ function topLevelKeys(body) {
       continue
     }
     if (depth === 0) {
-      // -> `...fieldProps` names an object of props to merge in, not a prop; kept distinguishable
-      //    from a key so `parsePropsAndEmits` can expand it (see `parsePropMixins`)
+      // -> A spread names an object of props to merge in, not a prop; the `...` prefix is kept so
+      //    `parsePropsAndEmits` can expand it rather than treat it as a key.
       if (body.startsWith('...', i)) {
         const spread = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(body.slice(i + 3))
         if (spread) {
@@ -152,9 +134,8 @@ function topLevelKeys(body) {
 }
 
 /**
- * The prop objects a component may spread into its own `defineProps` -- `composables/fieldFrame.js`'s
- * `fieldProps`, which `WInput` and `WSelect` both merge in. Read out of the source rather than
- * imported, so this stays one parser over text like everything else here.
+ * The prop objects a component may spread into its own `defineProps`. Read out of the source rather
+ * than imported, so this stays one parser over text like everything else here.
  */
 function parsePropMixins() {
   const source = readFileSync(join(SRC_ROOT, 'composables/fieldFrame.js'), 'utf-8')
@@ -167,11 +148,9 @@ function parsePropMixins() {
 }
 
 /**
- * Extracts a component's declared prop names and emit event names from its full SFC source.
- *
  * @param {Map<string, Set<string>>} [propMixins] Named prop objects a `...spread` in `defineProps`
- *   may refer to; a spread naming one contributes its props, and a spread naming anything else
- *   contributes none -- rather than the identifier itself, which is not a prop.
+ *   may refer to. A spread naming anything else contributes no props at all, rather than
+ *   contributing the identifier itself.
  */
 function parsePropsAndEmits(source, propMixins = new Map()) {
   const props = new Set()
@@ -205,12 +184,16 @@ function parsePropsAndEmits(source, propMixins = new Map()) {
   return { props, emits }
 }
 
-/** `WBtnGroup` -> `w-btn-group`. Every shared component file is named this way (see components/shared/index.js). */
+/** `WBtnGroup` -> `w-btn-group`. */
 function componentNameToTag(name) {
   return name.replace(/(?!^)([A-Z])/g, '-$1').toLowerCase()
 }
 
-/** Just the `<template>…</template>` region of an SFC -- every file here starts with `<template>` on line 1, followed by `<script setup>` on its own line, so slicing up to that boundary excludes `<script>`-side comments (a JSDoc usage example, say) that happen to quote `<w-*>` markup without it ever being a real call site. */
+/**
+ * Just the `<template>` region of an SFC. Slicing at the first line starting with `<script`
+ * excludes script-side comments -- a JSDoc usage example, say -- that quote `<w-*>` markup without
+ * it ever being a real call site.
+ */
 function templateRegion(source) {
   const scriptStart = source.search(/^<script/m)
   return scriptStart === -1 ? source : source.slice(0, scriptStart)
@@ -218,11 +201,8 @@ function templateRegion(source) {
 
 const ALLOWED_BARE_ATTRS = new Set(['class', 'style', 'key', 'ref'])
 
-/** Attribute names the shared library's own fall-through channel accepts with no matching prop --
- *  `class`/`style`/`key`/`ref` (bound or bare), any `v-*` directive (including the `:`/`@`/`#`
- *  shorthands), and `data-*`/`aria-*` (bound or bare). */
 function isAllowedFallThrough(rawName) {
-  if (rawName.startsWith('v-')) return true // v-if, v-model[:foo], v-bind[:foo], v-on:foo, v-slot, ...
+  if (rawName.startsWith('v-')) return true
   if (rawName.startsWith('@') || rawName.startsWith('#')) return true
   if (rawName.startsWith('[')) return true // dynamic attribute name -- not statically resolvable
   const name = rawName.startsWith(':') ? rawName.slice(1) : rawName
@@ -235,7 +215,6 @@ function kebabToCamel(name) {
   return name.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase())
 }
 
-/** The prop name a raw template attribute would bind to, once any `:`/`v-bind:` prefix and its kebab-case are resolved the way Vue itself resolves them. */
 function attrToPropName(rawName) {
   let name = rawName
   if (name.startsWith(':')) name = name.slice(1)
@@ -247,11 +226,9 @@ const TAG_RE = /<(w-[a-z][a-z0-9-]*)((?:\s+[^\s"'=<>/]+(?:=(?:"[^"]*"|'[^']*'|[^
 const ATTR_RE = /([^\s"'=<>/]+)(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/g
 
 /**
- * Every (component, attribute) pair in `templateSource` that is neither an allowed fall-through
- * attribute nor a name matching one of `registry`'s declared props for that tag. `registry` maps a
- * `w-*` tag name to its `{ props, emits }` sets, as returned by `parsePropsAndEmits`. A tag with no
- * entry in `registry` (a non-shared custom element, or a shared component this file's caller chose
- * not to include) is skipped rather than flagged.
+ * `registry` maps a `w-*` tag name to its `{ props, emits }` sets, as returned by
+ * `parsePropsAndEmits`. A tag with no entry there -- a non-shared custom element -- is skipped
+ * rather than flagged.
  */
 function findAttributeDrift(templateSource, registry) {
   const violations = []

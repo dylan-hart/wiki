@@ -4,10 +4,8 @@ import { mount } from '@vue/test-utils'
 import WTable from './WTable.vue'
 
 /**
- * `WTable` has no `<script setup>` emits at all -- sorting is purely local reactive state
- * (`sort.name`/`sort.descending`) that reorders `visibleRows`, not an event a parent listens for.
- * "Sorting" is therefore pinned here as the row-order change it actually produces, not a fabricated
- * `emitted('sort')`.
+ * `WTable` emits nothing -- sorting is local reactive state that reorders `visibleRows`, not an
+ * event a parent listens for. Sorting is therefore asserted as the row order it produces.
  */
 const COLUMNS = [
   { name: 'name', label: 'Name', field: 'name', sortable: true },
@@ -75,13 +73,10 @@ describe('WTable', () => {
     expect(cellTexts(wrapper, 0)).toEqual(['Charlie', 'Bob', 'Alice'])
     expect(nameHeader.attributes('aria-sort')).toBe('descending')
 
-    // -> Third click on the same column returns to the unsorted/default row order, rather than
-    //    toggling asc<->desc forever.
     await nameHeader.trigger('click')
     expect(cellTexts(wrapper, 0)).toEqual(['Charlie', 'Alice', 'Bob'])
     expect(nameHeader.attributes('aria-sort')).toBe('none')
 
-    // -> A fourth click starts the cycle over at ascending.
     await nameHeader.trigger('click')
     expect(cellTexts(wrapper, 0)).toEqual(['Alice', 'Bob', 'Charlie'])
     expect(nameHeader.attributes('aria-sort')).toBe('ascending')
@@ -193,8 +188,7 @@ describe('WTable #no-data slot', () => {
       }
     })
 
-    // -> Both rows are filtered out by 'zzz', so the slot renders -- and rowsCount reports the
-    //    unfiltered count (2), not the post-filter count (0), which is the whole point of exposing it.
+    // -> 'zzz' matches neither row, so the slot renders; rowsCount stays 2, not the post-filter 0.
     expect(wrapper.find('.w-table__no-data').text()).toBe('2|zzz')
   })
 

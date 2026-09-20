@@ -9,12 +9,8 @@
     :aria-valuemax="indeterminate ? undefined : 100">
     <div class="absolute inset-0 opacity-25" :style="{ backgroundColor: trackColor }" />
     <!--
-      -> `start-0` (OpenProject #1590), not `left-0`: the fill's WIDTH grows from 0 to `value`
-         while this edge stays put, so whichever edge it is anchored to is the edge progress reads
-         as advancing FROM. Pinning that to the physical left always had it filling toward the
-         trailing edge under RTL rather than the reading-end one -- an ordinary leading/trailing
-         gutter question, not a screen-position one, so it belongs logical like every other side of
-         this component rather than on the physical-positioning allowlist.
+      -> `start-0`, not `left-0`: the anchored edge is the one progress reads as advancing FROM, a
+         leading/trailing question rather than a screen-position one, so it must flip under RTL.
     -->
     <div
       class="absolute inset-y-0 start-0"
@@ -26,21 +22,17 @@
 <script setup>
 import { computed } from 'vue'
 
-/**
- * Horizontal progress bar, determinate or indeterminate.
- */
 const props = defineProps({
   /** Progress from 0 to 1. Ignored when `indeterminate` or `query` is set. */
   value: {
     type: Number,
     default: 0
   },
-  /** Continuous animation for work of unknown duration. */
   indeterminate: {
     type: Boolean,
     default: false
   },
-  /** Alias of `indeterminate`, matching the previous component's naming. */
+  /** Alias of `indeterminate`, kept for callers written against the previous component. */
   query: {
     type: Boolean,
     default: false
@@ -54,7 +46,6 @@ const props = defineProps({
     type: String,
     default: '4px'
   },
-  /** Fully rounded ends. */
   rounded: {
     type: Boolean,
     default: false
@@ -65,11 +56,7 @@ const NAMED_SIZES = { xs: '2px', sm: '4px', md: '6px', lg: '10px', xl: '14px' }
 
 const resolvedSize = computed(() => NAMED_SIZES[props.size] ?? props.size)
 
-/*
-  An unrecognised colour name falls back to primary rather than resolving to nothing. The previous
-  component silently rendered an uncoloured bar for a name with no matching class -- which is how
-  `color="page"` (a name that has never existed) ended up effectively invisible.
-*/
+/* The fallback is load-bearing: an unrecognised colour name otherwise renders an invisible bar. */
 const trackColor = computed(() => `var(--color-${props.color}, var(--color-primary))`)
 
 const isIndeterminate = computed(() => props.indeterminate || props.query)

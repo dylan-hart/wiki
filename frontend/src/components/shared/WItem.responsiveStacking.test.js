@@ -9,23 +9,12 @@ import {
 } from '../../../test/realGridLayout.js'
 
 /**
- * OpenProject #2822: an icon/label section beside an input section -- two adjacent MAIN sections,
- * the shape every settings-style `WItem` row shares -- drops the second section onto a line of its
- * own once the ROW itself runs out of room, via a `container-type: inline-size` container query on
- * `.w-item` (`WItem.vue`), not a viewport media query. `ProfileOverlay.vue` used to carry its own
- * scoped copy of this, keyed off `window.innerWidth`; this suite covers the shared primitive that
- * replaced it.
- *
- * OpenProject #2823 narrowed that container query to only a row with the two-main-section shape
- * (`:has(.w-item-section--main + .w-item-section--main)`) after the unconditional version broke
- * every OTHER `WItem` row in the app -- a `side` + single-main menu/nav row sitting in a `w-menu`
- * popup with no `matchTrigger` (auto-width, sized to fit its content). `container-type: inline-size`
- * implies size containment on the inline axis, which stops such a row's content from contributing to
- * its auto-width ancestor's shrink-to-fit calculation at all, collapsing the row to its own padding.
- * The second describe below covers that regression directly.
+ * Row stacking is keyed off a container query on `.w-item`, narrowed to the two-main-section shape
+ * (`:has(.w-item-section--main + .w-item-section--main)`): `container-type: inline-size` implies
+ * inline-axis size containment, so applying it unconditionally stops any other row's content from
+ * contributing to an auto-width ancestor's shrink-to-fit width, collapsing the row to its padding.
  */
 
-/** Two adjacent MAIN sections -- an icon+label section, then an input section -- inside one row. */
 function mountTwoMainSectionRow() {
   return mount({
     template: `
@@ -44,7 +33,6 @@ function mountTwoMainSectionRow() {
   })
 }
 
-/** A menu/nav row -- one `side` section plus a single MAIN section, no second main. */
 function mountSideAndSingleMainRow() {
   return mount({
     template: `
@@ -68,31 +56,24 @@ describe('WItem/WItemSection responsive row stacking', () => {
       .map((el) => el.textContent)
       .join('\n')
 
-    // -> `.w-item` becomes the query container ONLY when it has the two-main-section shape
-    //    (OpenProject #2823) -- not unconditionally. `container: w-item / inline-size`, not
-    //    `container-type`/`container-name` as two declarations: lightningcss (wired into
-    //    `vitest.config.js` to downlevel native CSS nesting for happy-dom's benefit, OpenProject
-    //    #3254) coalesces the source's separate longhands into this shorthand -- equivalent CSS.
+    // -> `container: w-item / inline-size`, not the source's two longhands: lightningcss (wired
+    //    into `vitest.config.js` to downlevel native CSS nesting for happy-dom) coalesces them.
     expect(compiledCss).toMatch(
       /\.w-item\[data-v-[\da-f]+]:has\(\.w-item-section--main \+ \.w-item-section--main\)\s*{[^}]*container:\s*w-item \/ inline-size/
     )
-    // -> `flex-wrap: wrap` is unconditional WITHIN that same `:has()` scope, not itself behind a
-    //    container query (see WItem.vue's own comment on why a same-element container query never
-    //    actually applied)
+    // -> `flex-wrap` cannot sit behind the container query itself: an element never matches a
+    //    query on the container it declares.
     expect(compiledCss).toMatch(
       /\.w-item\[data-v-[\da-f]+]:has\(\.w-item-section--main \+ \.w-item-section--main\)\s*{[^}]*flex-wrap:\s*wrap/
     )
     expect(compiledCss).not.toMatch(
       /@container[^{]*{\s*\.w-item\[data-v-[\da-f]+]\s*{[^}]*flex-wrap/
     )
-    // -> A second adjacent main section claims the full row width under a container query keyed off
-    //    `w-item`. `(width <= 599.98px)`, not the source's own `(max-width: 599.98px)`: lightningcss
-    //    (wired into `vitest.config.js` to downlevel native CSS nesting for happy-dom's benefit,
-    //    OpenProject #3254) canonicalizes to the modern range-syntax form -- equivalent condition.
+    // -> `(width <= 599.98px)`, not the source's own `(max-width: 599.98px)`: lightningcss
+    //    canonicalizes to range syntax.
     expect(compiledCss).toMatch(
       /@container w-item \(width <= 599\.98px\)\s*{\s*\.w-item-section--main \+ \.w-item-section--main\[data-v-[\da-f]+]\s*{[^}]*flex:\s*1 0 100%/
     )
-    // -> No leftover viewport-keyed media query duplicating the same rule
     expect(compiledCss).not.toMatch(
       /@media[^{]*max-width:\s*599\.98px[^{]*{\s*\.w-item-section--main/
     )
@@ -111,27 +92,17 @@ describe('WItem/WItemSection responsive row stacking', () => {
 })
 
 /*
-  Real-Chromium layout, mirroring `ApiKeyCreateDialog.test.js`'s "real layout" describe and
-  `test/realGridLayout.js`'s own reasoning: neither jsdom nor happy-dom runs a layout engine, so
-  nothing above actually proves the row wraps at the right width -- only that the right CSS text was
-  emitted. This launches a real headless Chromium page, drops the row's OWN compiled scoped CSS
-  (harvested from the mount above, exactly as the app ships it -- `data-v-*` attributes included)
-  alongside the app's real compiled Tailwind CSS into it, and measures where the two main sections
-  actually land at two different CONTAINER widths -- proving the row reacts to its own rendered
-  width, with no viewport involved at all (Chromium's default viewport never changes between the two
-  measurements below; only the wrapping `<div>`'s width does).
+  Neither jsdom nor happy-dom runs a layout engine, so the assertions above prove only that the
+  right CSS text was emitted. This measures a real headless Chromium page at two wrapping-`<div>`
+  widths, with the viewport unchanged between them.
 
-  A `@container` condition is evaluated against the query container's CONTENT box, same as `cqw`
-  units and `%` widths -- not its border box. `.w-item` carries its own `px-4` (32px of horizontal
-  padding), so a wrapping `<div>` narrower than roughly `599.98 + 32 = 631.98px` already puts the
-  row's CONTENT width at or under the 599.98px threshold. `WRAPPER_WIDTH_UNSTACKED` /
-  `WRAPPER_WIDTH_STACKED` below sit well clear of that boundary on either side -- verified directly
-  against a real Chromium page (not assumed) while this suite was written, after an initial attempt
-  with values close to 599.98 itself (which do not account for the padding) produced a row that
-  stayed stacked at every width tried, silently disproving the very thing being tested.
+  A `@container` condition is evaluated against the container's CONTENT box, and `.w-item` carries
+  32px of its own horizontal padding (`px-4`), so the wrapper width at which the row stacks is
+  ~631.98px rather than the 599.98px in the query. The two widths below sit clear of that on either
+  side; values near 599.98 leave the row stacked at every width and silently prove nothing.
 */
-const WRAPPER_WIDTH_UNSTACKED = 700 // -> content width ~668px, clear of the ~631.98px boundary
-const WRAPPER_WIDTH_STACKED = 580 // -> content width ~548px, clear of the ~631.98px boundary
+const WRAPPER_WIDTH_UNSTACKED = 700
+const WRAPPER_WIDTH_STACKED = 580
 describe(
   'WItem/WItemSection responsive row stacking — real layout',
   { skip: !hasChromium(), timeout: CHROMIUM_TIMEOUT },
@@ -175,7 +146,6 @@ describe(
 
       expect(sections).toHaveLength(2)
       expect(Math.round(sections[0].y)).toBe(Math.round(sections[1].y))
-      // -> Side by side, not stacked: the second section sits to the right of the first
       expect(sections[1].x).toBeGreaterThan(sections[0].x)
     })
 
@@ -184,7 +154,6 @@ describe(
 
       expect(sections).toHaveLength(2)
       expect(sections[1].y).toBeGreaterThan(sections[0].y)
-      // -> Full width once stacked, not squeezed beside the first section
       expect(sections[1].x).toBeLessThanOrEqual(sections[0].x + 1)
     })
 
@@ -202,15 +171,9 @@ describe(
 )
 
 /*
-  OpenProject #2823 regression: a menu/nav row (one `side` section plus a single main one, e.g.
-  `AdminLayout.vue`'s locale switcher) sitting inside an auto-width ("shrink-to-fit") ancestor -- a
-  `w-menu` popup with no `matchTrigger`, which sizes itself to its content rather than to a fixed
-  pixel width. Reproduced directly against a real Chromium page before the fix: giving `.w-item`
-  `container-type: inline-size` unconditionally made the row's label stop contributing to the
-  popup's shrink-to-fit width calculation at all, collapsing the whole row to its own padding (32px
-  of `px-4`, 0 content) regardless of how long the label text was -- which is what made Playwright
-  see the label as jittering between 0-width and its real width ("not stable"/"not visible") once
-  something (a live locale name, a re-render) touched the row.
+  The shape unconditional size containment collapses: a `side` + single-main menu row inside an
+  auto-width ("shrink-to-fit") ancestor -- a `w-menu` popup with no `matchTrigger`. The label stops
+  contributing to the popup's width, so the row measures its own padding with a 0-width label.
 */
 describe(
   'WItem/WItemSection responsive row stacking — menu row inside an auto-width ancestor (real layout)',
@@ -236,7 +199,7 @@ describe(
       const page = await browser.newPage()
       try {
         // -> `display: inline-block` with no `width` mirrors an un-widened `w-menu` popup, which
-        //    shrink-wraps to its content rather than filling a fixed pixel width.
+        //    shrink-wraps to its content.
         await page.setContent(
           `<!doctype html><html><head><style>${tailwindCss}\n${componentCss}</style></head><body>` +
             `<div style="display: inline-block">${rowHtml}</div></body></html>`
@@ -250,8 +213,7 @@ describe(
           }
         })
 
-        // -> The row's own horizontal padding alone (`px-4`, 16px each side) is 32px -- a collapsed
-        //    row (the #2823 bug) measures exactly that, with the label rendered at 0 width inside it.
+        // -> 32px is the row's `px-4` padding alone: exactly what a collapsed row measures.
         expect(itemWidth).toBeGreaterThan(32)
         expect(labelWidth).toBeGreaterThan(0)
       } finally {

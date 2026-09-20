@@ -1,8 +1,7 @@
 <template>
   <!--
-    Zero-size, display:none marker left at this component's own position. The tooltip itself is
-    teleported to <body>, so without this there would be nothing in the tree identifying which
-    element the tooltip describes. `hidden` keeps it out of layout and out of the a11y tree.
+    The panel is teleported to <body>, so this marker is the only thing left in the tree identifying
+    which element the tooltip describes. `hidden` keeps it out of layout and out of the a11y tree.
   -->
   <span ref="placeholderEl" class="hidden" aria-hidden="true" />
   <teleport to="body">
@@ -25,15 +24,15 @@ import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { useAnchoredFloat } from '@/composables/anchoredFloat'
 
 /**
- * Hover/focus tooltip, written as the last child of whatever it describes:
+ * Written as the last child of whatever it describes:
  *
  *   <w-btn icon="tabler:settings">
  *     <w-tooltip>Settings</w-tooltip>
  *   </w-btn>
  *
  * The trigger gains `aria-describedby` (or, with `labels`, `aria-labelledby`) pointing at the
- * teleported panel while it is shown, so assistive tech associates the two despite the teleport
- * putting them nowhere near each other in the DOM.
+ * teleported panel while it is shown, since the teleport leaves the two nowhere near each other in
+ * the DOM.
  */
 const props = defineProps({
   /** Anchor point on the trigger, e.g. `bottom middle`. */
@@ -51,14 +50,13 @@ const props = defineProps({
     type: Array,
     default: () => [0, 8]
   },
-  /** Delay before showing, in ms. */
   delay: {
     type: Number,
     default: 250
   },
   /**
-   * The trigger has no accessible name of its own and the tooltip text IS that name (the
-   * icon-only button case) -- associate via `aria-labelledby` instead of `aria-describedby`.
+   * For a trigger with no accessible name of its own, whose name IS the tooltip text (the
+   * icon-only button case): associates via `aria-labelledby` rather than `aria-describedby`.
    */
   labels: {
     type: Boolean,
@@ -73,12 +71,9 @@ const floatEl = ref(null)
 const placeholderEl = ref(null)
 
 /*
-  Trigger discovery and placement are shared with WMenu; see `composables/anchoredFloat.js`.
-
   `.w-badge` is in the selector to STOP the climb, not to continue it: `closest` tests the element
-  itself first, so a tooltip written inside a badge resolves to that badge. Without it the climb ran
-  on to the enclosing `.w-item`, and the tooltip for a 12px indicator dot was measured against the
-  whole settings row -- appearing under the middle of the row rather than under the dot.
+  itself first, so a tooltip written inside a badge resolves to that badge rather than running on to
+  the enclosing `.w-item` and anchoring under the middle of a whole row.
 */
 const { triggerEl, floatStyle, reposition } = useAnchoredFloat({
   placeholderEl,
@@ -90,8 +85,7 @@ const { triggerEl, floatStyle, reposition } = useAnchoredFloat({
 })
 
 let timer = null
-// The aria-* attribute currently applied to triggerEl (null when not associated), and whatever
-// value it held before -- so hiding restores a pre-existing attribute instead of clobbering it.
+// Remembered so hiding restores a pre-existing aria-* value instead of clobbering it.
 let associatedAttr = null
 let previousAttrValue = null
 
@@ -146,7 +140,6 @@ onMounted(() => {
 
   triggerEl.value.addEventListener('mouseenter', show)
   triggerEl.value.addEventListener('mouseleave', hide)
-  // -> Keyboard users get the same information, and Escape dismisses it (WAI-ARIA tooltip practice)
   triggerEl.value.addEventListener('focusin', show)
   triggerEl.value.addEventListener('focusout', hide)
   triggerEl.value.addEventListener('keydown', onKeydown)

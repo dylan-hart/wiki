@@ -3,7 +3,5 @@
 </template>
 
 <script setup>
-/**
- * Flexible gap that pushes the elements after it to the far end of a flex container.
- */
+/** Flexible gap that pushes what follows it to the far end of a flex container. */
 </script>

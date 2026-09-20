@@ -21,25 +21,18 @@ import { content, isActive } from '@/composables/loading'
 import WSpinner from './WSpinner.vue'
 
 /**
- * Full-screen blocking loader. Mounted once, in App.vue; driven by `loading.show()` / `.hide()`.
+ * Mounted once, in App.vue; driven by `loading.show()` / `.hide()`. The delay before it appears
+ * lives in `composables/loading.js` -- once `isActive` flips it is meant to be visible immediately.
  *
- * The 500ms delay before this appears lives in `composables/loading.js`, not here -- by the time
- * `isActive` flips, the overlay is meant to be visible immediately.
- *
- * `aria-label` is the message where there is one: the generic "Loading..." would otherwise be
- * announced INSTEAD of the contents, a label on a live region standing in for what it labels.
+ * `aria-label` prefers the message: the generic string would otherwise be announced INSTEAD of the
+ * contents, a label on a live region standing in for what it labels.
  */
-
-// I18N
 
 const { t } = useI18n()
 </script>
 
 <style scoped>
-/*
-  Held off the spinner and each other, and kept to a readable measure -- the overlay is the full
-  viewport, so an unconstrained line would run its whole width.
-*/
+/* Held to a readable measure: the overlay is the full viewport, so a line would run its width. */
 .w-loading-message {
   margin: 1.25rem 0 0;
   max-width: 28rem;

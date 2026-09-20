@@ -5,21 +5,9 @@ import { DOMWrapper, mount, flushPromises } from '@vue/test-utils'
 import WMenu from './WMenu.vue'
 
 /**
- * OpenProject #1641: the teleported panel used to render `role="menu"`, but its rows (`WItem`s,
- * plain `<w-btn>`s, or arbitrary slot content) never render the required `menuitem`/`menuitemcheckbox`/
- * `menuitemradio`/`group`/`separator` child roles `role="menu"` demands -- so the panel is a plain
- * popup of buttons now, with no `menu` role claimed over content that doesn't satisfy it.
- *
- * OpenProject #1645: the panel renders inside `<teleport to="body">`, appended at the end of the
- * document -- far from its trigger in DOM order -- with no focus management at all. A keyboard user
- * who opened it would have to Tab through the rest of the document to reach its first row, in
- * practice making the menu unreachable.
- *
- * The trigger is climbed from `WMenu`'s hidden placeholder span's own parent (`onMounted` in
- * `WMenu.vue`), the same way the real app writes it (`<w-btn><w-menu>...</w-menu></w-btn>`) -- so the
- * host below wraps `w-menu` in a real, natively-focusable `<button>` rather than mounting `WMenu`
- * bare, which is what lets `document.activeElement` genuinely move onto and off of that button the
- * way a keyboard user's focus would.
+ * `WMenu` climbs to its trigger from its hidden placeholder's own parent, so the host below wraps
+ * `w-menu` in a real, natively-focusable `<button>` rather than mounting `WMenu` bare -- the shape
+ * every call site provides, and what lets `document.activeElement` genuinely move onto and off it.
  */
 const Host = defineComponent({
   components: { WMenu },
@@ -118,10 +106,8 @@ describe('WMenu focus management', () => {
   })
 
   /**
-   * OpenProject #2364: a commit-on-blur field focused inside the panel must get its own Escape
-   * handler's turn (discard) before WMenu's Escape handler moves focus and fires a blur that would
-   * otherwise commit the in-progress value. See `PageActionsCol.vue`'s pending-asset rename field
-   * for the real call site this reproduces (`@keydown.esc="discard"` + `@blur="commit"`).
+   * A commit-on-blur field inside the panel must get its own Escape handler's turn (discard) before
+   * `WMenu`'s moves focus and fires the blur that would commit the in-progress value.
    */
   const EditableHost = defineComponent({
     components: { WMenu },
@@ -170,12 +156,9 @@ describe('WMenu focus management', () => {
 })
 
 /**
- * OpenProject #1648: Up/Down/Home/End roving focus between `WMenu` rows.
- *
- * `WMenu` is mounted `modelValue: true` (controlled) so it shows immediately on mount rather than
- * needing a trigger climbed/clicked first -- see `onMounted`'s `if (props.modelValue === true) {
- * show() }`. The panel is teleported to `body`, outside the mounted subtree `@vue/test-utils`
- * tracks, so every assertion below queries `document` rather than `wrapper`.
+ * Mounted controlled (`modelValue: true`) so the panel shows on mount rather than needing a trigger
+ * climbed and clicked first, and teleported to `body` outside the subtree `@vue/test-utils` tracks
+ * -- hence `document` queries rather than `wrapper` ones below.
  */
 let rovingFocusWrapper = null
 
@@ -203,9 +186,8 @@ async function press(key) {
 
 describe('WMenu roving focus', () => {
   afterEach(() => {
-    // -> Explicitly unmounted, not just DOM-wiped: `WMenu` binds its Escape listener on `document`
-    //    itself while open, and a bare `document.body.innerHTML = ''` leaves that listener (and the
-    //    component's live reactive effects) dangling to fire against later tests' own DOM.
+    // -> Explicitly unmounted, not just DOM-wiped: an open `WMenu` holds an Escape registration and
+    //    live reactive effects that a bare `document.body.innerHTML = ''` leaves dangling.
     rovingFocusWrapper?.unmount()
     rovingFocusWrapper = null
     document.body.innerHTML = ''
@@ -302,8 +284,8 @@ describe('WMenu roving focus', () => {
       <w-item clickable>Three</w-item>
     `)
     const rowEls = rows()
-    // -> The disabled row renders neither `tabindex="0"` nor `role="button"`, so it never appears
-    //    in the focusable set at all -- two rows found, not three.
+    // -> A disabled row renders neither `tabindex="0"` nor `role="button"`, so it is never in the
+    //    focusable set at all -- two rows, not three.
     expect(rowEls).toHaveLength(2)
     const [one, three] = rowEls
     one.focus()
@@ -344,16 +326,6 @@ describe('WMenu roving focus', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 })
-
-/**
- * `WMenu` renders its panel behind a `<teleport to="body">`, same as `WDialog` -- see that file's
- * test for the same `DOMWrapper(document.body)` pattern this one reuses.
- *
- * It resolves its own trigger element by climbing from a hidden placeholder to the nearest
- * `button, a, .w-btn, .w-item` ancestor (`onMounted`), which is why every test here mounts against a
- * real `<button>` via `attachTo` rather than a bare container -- that is the shape every real call
- * site (`<w-btn><w-menu>...</w-menu></w-btn>`) actually provides.
- */
 
 let mountedWrappers = []
 let triggerButtons = []
@@ -428,13 +400,6 @@ describe('WMenu', () => {
     expect(body().find('.w-menu').exists()).toBe(false)
   })
 
-  /**
-   * OpenProject #2370: `WMenu` registers its Escape handling on the shared stack
-   * (`composables/escapeStack.js`) only while shown, releasing it in `hide()` -- not a bare
-   * `document` listener kept alive for the component's whole lifetime, the way it worked before.
-   * A later Escape must be a no-op once closed, same guarantee `WDialog.test.js` asserts for its
-   * own listener.
-   */
   it('a later Escape does nothing once already closed', async () => {
     const { wrapper, button } = mountBasicMenu()
     await new DOMWrapper(button).trigger('click')
@@ -446,14 +411,12 @@ describe('WMenu', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await nextTick()
 
-    // -> No second 'hide' -- the stack registration was released, not fired again
     expect(wrapper.emitted('hide')).toHaveLength(1)
   })
 
   it('releases its Escape-stack registration on unmount while still open', async () => {
-    // -> A self-contained mount/cleanup, deliberately not `mountBasicMenu()`'s shared
-    //    `mountedWrappers`/`triggerButtons` arrays -- this test unmounts mid-test, and the
-    //    describe's own `afterEach` would otherwise try to unmount the same wrapper again.
+    // -> Self-contained rather than `mountBasicMenu()`: this test unmounts mid-test, and the shared
+    //    `afterEach` would otherwise unmount the same wrapper a second time.
     const button = document.createElement('button')
     document.body.appendChild(button)
     const wrapper = mount(WMenu, {
@@ -466,7 +429,7 @@ describe('WMenu', () => {
     wrapper.unmount()
     button.remove()
 
-    // -> Must not throw reaching into the unmounted instance's own reactive state
+    // -> A leaked registration throws here, reaching into the unmounted instance's reactive state
     expect(() =>
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     ).not.toThrow()
@@ -502,10 +465,9 @@ describe('WMenu', () => {
 })
 
 /**
- * OpenProject #2441: `context-menu` mode used to open only on a native right-click, with no way for
- * a touch or keyboard-only user to reach it at all. Two more triggers cover those cases -- a touch
- * long-press, and the conventional Context Menu key / Shift+F10 keyboard shortcut -- both scoped to
- * `context-menu` mode only, so the default click-triggered menu is unaffected.
+ * A native right-click is unreachable for a touch or keyboard-only user, so `context-menu` mode
+ * also opens on a long-press and on Context Menu / Shift+F10. Both are scoped to that mode, leaving
+ * the default click-triggered menu alone.
  */
 describe('WMenu context-menu mode: keyboard trigger', () => {
   it('opens on the Context Menu key', async () => {

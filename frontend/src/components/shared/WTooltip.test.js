@@ -5,8 +5,7 @@ import { defineComponent, h } from 'vue'
 import WTooltip from './WTooltip.vue'
 
 // WTooltip resolves its trigger by climbing from its own placeholder to the nearest
-// `button, a, .w-btn, .w-item, .w-badge` ancestor, so mount it inside a real <button> the same
-// way every real caller does (`<w-btn icon="..."><w-tooltip>...</w-tooltip></w-btn>`).
+// `button, a, .w-btn, .w-item, .w-badge` ancestor, so it only works mounted inside one.
 function mountTrigger(props = {}) {
   const TestHost = defineComponent({
     render() {

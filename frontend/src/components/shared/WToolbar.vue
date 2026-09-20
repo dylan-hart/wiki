@@ -6,10 +6,8 @@
 
 <script setup>
 /**
- * Horizontal bar of controls, used inside headers and card headings.
- *
- * Matches Quasar's toolbar metrics exactly: `min-height: 50px`, `padding: 0 12px`, and crucially
- * NO gap. Spacing between items comes from the items' own margins (`ml-4` and friends), which is
- * how the existing headers are written -- adding a gap here silently widened every one of them.
+ * Metrics match the toolbar this replaces (`min-height: 50px`, `padding: 0 12px`) and crucially
+ * carry NO gap: spacing between items comes from the items' own margins, so adding a gap here
+ * silently widens every header.
  */
 </script>

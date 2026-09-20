@@ -12,28 +12,24 @@
 import { computed, provide, ref } from 'vue'
 
 /**
- * A strip of tabs, drawn as a segmented control: a tinted track holding the tabs, with the active
- * one raised out of it as a light pill (see `WTab`). `WTab` children register through it; the panels
- * are either `WTabPanels` or, where a caller prefers, plain `v-if` on the same model.
+ * Panels are either a `WTabPanels` or plain `v-if` on the same model.
  *
- * The track fill is a utility rather than a rule in this file's stylesheet, so a caller that puts
- * the strip on a surface of its own can still override it with a class like `alt-card`. An SFC
+ * The track fill is a utility rather than a rule in this file's stylesheet, so a caller putting the
+ * strip on a surface of its own can still override it with a class like `alt-card`: an SFC
  * stylesheet is emitted unlayered and would outrank any such class.
  *
- * Simplification: no scroll arrows, no overflow menu. The two tab strips in this app have two tabs
- * each; the strip simply scrolls if it ever cannot fit.
+ * Simplification: no scroll arrows and no overflow menu -- the strip simply scrolls if it cannot
+ * fit.
  */
 const props = defineProps({
   modelValue: {
     type: [String, Number],
     default: null
   },
-  /** Leave labels as written instead of upper-casing them. */
   noCaps: {
     type: Boolean,
     default: false
   },
-  /** Icon and label side by side rather than stacked. */
   inlineLabel: {
     type: Boolean,
     default: false
@@ -51,10 +47,7 @@ provide('wTabs', {
   select: (name) => emit('update:modelValue', name)
 })
 
-/**
- * Arrow keys move between tabs, which is what a tablist is expected to do -- and the reason the
- * handler lives here rather than on each tab: only the strip knows what the neighbours are.
- */
+/** On the strip rather than on each tab: only the strip knows what a tab's neighbours are. */
 function onKeydown(ev) {
   const keys = { ArrowRight: 1, ArrowLeft: -1, Home: 'first', End: 'last' }
   const move = keys[ev.key]
