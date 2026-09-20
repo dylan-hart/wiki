@@ -5,38 +5,11 @@ import { sortBy } from 'es-toolkit/array'
 import { log } from '@/helpers/log'
 
 /**
- * Turn the site's active locale CODES into the descriptors the UI reads.
- *
- * The API stores and returns `locales.active` as bare codes -- `['en']` -- because that is what the
- * admin screen writes back and what the server validates against its installed set. Everything that
- * DISPLAYS a locale, though, wants a name for it: the sidebar's locale menu, the language filter on
- * the search screen, and the check in App.vue that a requested locale is one this site offers. They
- * were each reading `.code` / `.language` / `.nativeName` off a string, so every one of them rendered
- * blank -- the locale menu showed an empty row rather than "English".
- *
- * Resolved here rather than server-side so the write shape stays a plain list of codes, and with
- * `Intl.DisplayNames` rather than a table, which gives the name in the reader's own language for
- * free. Asking for a code's name IN that code is what produces the native spelling.
- *
- * `isRTL` is resolved the same way, with `Intl.Locale`'s own text-direction info rather than a
- * second request to `/_api/locales` (which also carries `isRTL`, sourced from CLDR via
- * `backend/models/locales.ts`). Every page load already reaches this function for the name fields,
- * and `Intl.Locale` reads from the same CLDR-backed data the ICU build ships with -- so folding the
- * direction in here keeps this store the single source of truth for locale descriptors without a
- * second locale-list round trip on every load.
- *
- * `textDirection()` below feature-detects between the two shapes real engines actually ship for
- * this: verified live (feature 413, task 727) against a real Chromium build (Playwright's, a recent
- * one) rather than assumed, since Node's own V8 -- what every Vitest run in this repo executes
- * against -- silently accepted the OTHER shape and never caught the mismatch. Chrome/Chromium
- * implements `Intl.Locale.prototype.getTextInfo()` as a METHOD (the shape the "Intl Locale Info"
- * proposal settled on); this environment's Node instead exposes the EARLIER draft's `.textInfo`
- * GETTER, which Chrome does not have at all. Reading `.textInfo.direction` -- what this function did
- * before task 727 -- throws in Chrome (`.textInfo` is `undefined`), which the surrounding `try/catch`
- * swallows, silently defaulting every single locale to `isRTL: false`. That is a whole-feature
- * regression, not a cosmetic one: it means `dir="rtl"` never actually applied in a real browser
- * regardless of anything task 716/721/723 built on top of it, and the existing Vitest suite could not
- * have caught it because it runs on Node's shape, not Chrome's.
+ * Real engines ship two shapes: Chrome/Chromium implements `Intl.Locale.prototype.getTextInfo()` as
+ * a METHOD (what the "Intl Locale Info" proposal settled on), while Node exposes the earlier draft's
+ * `.textInfo` GETTER, which Chrome lacks entirely. Reading `.textInfo.direction` alone therefore
+ * throws in a browser and `describeLocales`'s `try/catch` swallows it into `isRTL: false` for every
+ * locale -- a loss of `dir="rtl"` no Vitest run can catch, since those execute against Node's shape.
  */
 function textDirection(locale) {
   if (typeof locale.getTextInfo === 'function') {
@@ -45,6 +18,14 @@ function textDirection(locale) {
   return locale.textInfo?.direction
 }
 
+/**
+ * The API stores and returns `locales.active` as bare codes -- that is what the admin screen writes
+ * back and what the server validates against its installed set -- but everything that displays a
+ * locale needs a name for it. Resolving here keeps the write shape a plain list of codes, and
+ * `Intl.DisplayNames` gives the name in the reader's own language for free; asking for a code's name
+ * IN that code is what produces the native spelling. `isRTL` comes from `Intl.Locale`'s own
+ * CLDR-backed direction info rather than a second `/_api/locales` round trip on every page load.
+ */
 function describeLocales(codes) {
   const localized = new Intl.DisplayNames(undefined, { type: 'language' })
 
@@ -58,11 +39,10 @@ function describeLocales(codes) {
       isRTL = textDirection(new Intl.Locale(code)) === 'rtl'
     } catch {
       // -> An unregistered or malformed tag throws rather than returning nothing; show the code and
-      //    fall back to left-to-right, the safer default for a direction nothing could be read for
+      //    fall back to left-to-right
     }
     return {
       code,
-      // -> The bare language, for the two-letter badge beside each entry
       language: code.split('-')[0],
       name,
       nativeName,
@@ -75,11 +55,7 @@ export const useSiteStore = defineStore('site', {
   state: () => ({
     id: null,
     hostname: '',
-    /**
-     * Keyed by provider key (`google`, `gtm`, `matomo`, ...) — see `backend/modules/analytics/*`.
-     * Read once, on app load, by `boot/analytics.js` to inject each enabled provider's tracking
-     * snippet; nothing else in the app consumes this.
-     */
+    /** Keyed by provider key (`google`, `gtm`, `matomo`, ...) — see `backend/modules/analytics/*`. */
     analytics: {
       providers: {}
     },
@@ -90,36 +66,29 @@ export const useSiteStore = defineStore('site', {
     description: '',
     logoText: true,
     /**
-     * Whether this instance can render a page to PDF — i.e. whether the Puppeteer extension is
-     * installed. Instance-wide, not something a site configures, so the export UI reads this to hide
-     * or disable the PDF option with an explanatory tooltip rather than offering a control that would
-     * always 503.
+     * Whether the Puppeteer extension is installed -- instance-wide, not something a site
+     * configures, so the export UI can disable the PDF option rather than offer a control that
+     * would always 503.
      */
     pdfExportAvailable: false,
     /**
-     * This site's enabled blocks, keyed by tag, as `{ id, isCustom }` — `backend/api/sites.ts`'s
-     * `siteBlocksInfoFor()`, carried on the same public site-info response `pdfExportAvailable`
-     * above travels on. Lets `Index.vue`'s block-loading scan resolve an undefined `block-*` element
-     * to a custom block's `/_blocks/custom/:siteId/:id.js` import URL (`blockImportUrl()` in
-     * `stores/common.js`) without calling the manage:sites-gated `GET /sites/:siteId/blocks` route,
-     * which every reader who isn't also an author gets refused (OpenProject #954).
+     * This site's enabled blocks, keyed by tag, as `{ id, isCustom }`. Carried on the public
+     * site-info response so `Index.vue`'s block-loading scan can resolve a custom block's import URL
+     * without the `manage:sites`-gated `GET /sites/:siteId/blocks`, which a reader who is not also
+     * an author gets refused.
      */
     blocksIndex: {},
     /**
      * Non-null only when this site's active comment provider is a `codeTemplate` one
-     * (Disqus/Commento/Artalk) -- `backend/api/sites.ts`'s `buildSitePayload()`, carried on the same
-     * public site-info response `blocksIndex` above travels on. `{ module, title, config, origin }`;
-     * `origin` is computed server-side from the request that served this payload
-     * (`requestOrigin(req.protocol, req.hostname)`, `helpers/common.ts`), never re-derived here.
-     * `PageCommentsEmbed.vue` reads this off `Index.vue` to decide whether to render a vendor embed
-     * at all, in place of `PageComments.vue`'s native list -- see `models/commentProviders.ts`'s
-     * permission/canonical-URL boundary doc comments for the full contract.
+     * (Disqus/Commento/Artalk): `{ module, title, config, origin }`. `origin` is computed
+     * server-side from the request that served this payload, never re-derived here. See
+     * `models/commentProviders.ts` for the permission/canonical-URL contract.
      */
     commentsProvider: null,
     /**
-     * The extensions this site's content is written in, lowercase and without the dot. A path ending
-     * in one of them addresses the page underneath it — `/foo/bar.md` is `/foo/bar` — which the
-     * router acts on for links inside pages and the server acts on for requests that reach it.
+     * Lowercase and without the dot. A path ending in one of them addresses the page underneath it
+     * -- `/foo/bar.md` is `/foo/bar` -- both for links inside pages and for requests reaching the
+     * server.
      */
     pageExtensions: [],
     search: '',
@@ -134,29 +103,27 @@ export const useSiteStore = defineStore('site', {
       collaborativeEditing: false,
       comments: false,
       /**
-       * The site-wide execution kill switch for per-page scripts/styles (Feature #3389 / Task
-       * #3403). Off by default, same rationale as `comments` above: consumers should have a real
-       * `false` to gate on before the backend's site-info response ever overrides it.
+       * The site-wide execution kill switch for per-page scripts/styles. Off by default, same
+       * rationale as `comments` above: a consumer should have a real `false` to gate on before the
+       * backend's site-info response ever overrides it.
        */
       pageScripts: false,
       profile: false,
       reasonForChange: 'required',
       search: false,
       /**
-       * True only when BOTH `WIKI.capabilities.semanticSearch` (boot-time pgvector availability)
-       * AND this site's own `search.semanticEnabled` admin setting are true (Task #3103). Defaults
-       * false here so `Search.vue`'s Keyword/Semantic toggle stays hidden until the site-info
-       * response actually says otherwise, rather than flashing on for an instant on a slow fetch.
+       * True only when BOTH `CARDINAL.capabilities.semanticSearch` (boot-time pgvector
+       * availability) AND this site's own `search.semanticEnabled` setting are. False here so
+       * `Search.vue`'s Keyword/Semantic toggle stays hidden until the site-info response says
+       * otherwise, rather than flashing on for an instant on a slow fetch.
        */
       semanticSearch: false,
       showOtherGroups: false
     },
-    /** How this site handles signing in. Set in the admin area's Login section. */
     auth: {
       /**
-       * Send a visitor who is not logged in straight to the login screen instead of showing them
-       * the unauthorized page. For a wiki that is closed to the public, that screen is a dead end
-       * with a login button on it, and this skips the step.
+       * Send a logged-out visitor straight to the login screen instead of the unauthorized page,
+       * which on a wiki closed to the public is a dead end with a login button on it.
        */
       bypassUnauthorized: false
     },
@@ -170,12 +137,8 @@ export const useSiteStore = defineStore('site', {
       Whether an optional, system-wide extension is installed -- key -> boolean, from
       `GET system/extensions/status`. Unlike `editors` above, this has nothing to do with any one
       site's config: it is what gates a feature that needs a tool this instance may not have.
-      `PageNewMenu.vue`'s page-import item was the original caller but no longer needs it (OpenProject
-      #1092: `format: 'markdown'` needs no Pandoc extension, and every other format is now gated at
-      conversion time instead of at menu-render time) -- kept here as the general-purpose presence
-      check `GET system/extensions/status` itself is documented as (task 668), for the next feature
-      that needs to ask. Fetched lazily via `fetchExtensionsStatus`, same cached-until-asked-again
-      shape as `tags` / `tagsLoaded` below.
+      Fetched lazily via `fetchExtensionsStatus`, same cached-until-asked-again shape as
+      `tags` / `tagsLoaded` below.
     */
     extensionsStatus: {},
     extensionsStatusLoaded: false,
@@ -195,40 +158,34 @@ export const useSiteStore = defineStore('site', {
     tags: [],
     tagsLoaded: false,
     /**
-     * The Header Search "Popular Tags" widget's own, narrower list (OpenProject #3046): at most 10
-     * tags, ranked by 60-day content activity rather than `tags`' all-time usage count. Deliberately
-     * separate state/fetch from `tags`/`tagsLoaded`/`fetchTags()` above -- those stay the complete,
-     * unlimited, all-time list `PageTags.vue`'s tag-edit autocomplete and `TagsBrowse.vue`/`Search.vue`
-     * still need.
+     * The Header Search "Popular Tags" widget's own, narrower list: at most 10 tags, ranked by
+     * 60-day content activity rather than `tags`' all-time usage count. Deliberately separate
+     * state/fetch from `tags`/`tagsLoaded`/`fetchTags()` above, which stay the complete, unlimited,
+     * all-time list the tag-edit autocomplete and the browse/search screens need.
      */
     popularTags: [],
     popularTagsLoaded: false,
     /**
-     * The case style (Feature #2574/#2577) applied to a path-derived label at every render site --
-     * breadcrumbs, sidebar/tree nav, auto-nav, and a page's own heading (#2578) -- via
-     * `composables/pathDisplay.js#usePathDisplay()`. `'off'` (the default) means every one of those
-     * sites shows its label unchanged, exactly as before this feature existed.
+     * The case style applied to a path-derived label at every render site -- breadcrumbs,
+     * sidebar/tree nav, auto-nav, a page's own heading -- via
+     * `composables/pathDisplay.js#usePathDisplay()`. `'off'` leaves every one of them unchanged.
      */
     pathDisplayCase: 'off',
     /**
-     * The site's lowercase-surface-form -> canonical-display-casing acronym lookup
-     * (`GET sites/:siteId/glossary/acronyms`), consulted by `usePathDisplay()`'s humanizer so e.g.
-     * "uss" renders as "USS" rather than the case style's own guess. Fetched lazily by
-     * `fetchAcronymMap` -- triggered from `applySiteInfo` itself, once per site load, only when
-     * `pathDisplayCase` is not `'off'` -- since a site with the setting off never needs it. Both
-     * fields are per-site and are reset by `applySiteInfo` on every site load, so a switch never
-     * renders the previous site's casing.
+     * Lowercase surface form -> canonical display casing (`GET sites/:siteId/glossary/acronyms`),
+     * consulted by `usePathDisplay()`'s humanizer so "uss" renders as "USS" rather than the case
+     * style's own guess. Fetched lazily by `fetchAcronymMap`, triggered from `applySiteInfo` only
+     * when `pathDisplayCase` is not `'off'`. Both fields are per-site and are reset on every site
+     * load, so a switch never renders the previous site's casing.
      */
     acronymMap: {},
     acronymMapLoaded: false,
     /**
      * The pre-load shape, before `applySiteInfo` overwrites it with the real site config. The color
      * fields are literal hex rather than `var(--color-*)` on purpose: they mirror
-     * `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed (also restated in `AdminTheme.vue`'s
-     * `defaultConfig()`/`resetColors()`, and documented once in `css/tailwind.css`'s `:root`
-     * comment) so a fresh install and a not-yet-loaded site both start on Cardinal's own colors
-     * rather than on an arbitrary CSS fallback -- a seed value, not a token consumer, so there is
-     * nothing here for the aesthetic to resolve through.
+     * `backend/models/sites.ts`'s `DEFAULT_THEME_COLORS` seed, so a fresh install and a
+     * not-yet-loaded site both start on Cardinal's own colors rather than an arbitrary CSS
+     * fallback. A seed value, not a token consumer.
      */
     theme: {
       dark: false,
@@ -252,32 +209,25 @@ export const useSiteStore = defineStore('site', {
     sideDialogComponent: '',
     /**
      * Base URL every in-app "view docs" / help link is built from -- always server-provided
-     * (`WIKI.config.docsBase`, from `backend/base.yml`), so this holds no hardcoded fallback: it
+     * (`CARDINAL.config.docsBase`, from `backend/base.yml`), so this holds no hardcoded fallback: it
      * reads as `''` until `applySiteInfo` (via `loadSite` or `bootstrap`) fills it in.
      */
     docsBase: '',
-    /**
-     * Instance-wide, not per-site -- `WIKI.config.replication?.isEnabled` on `buildSitePayload()`
-     * (`backend/api/sites.ts`, OpenProject #2851), same "always server-provided" shape as `docsBase`
-     * above. `HeaderNav.vue` reads this to show its replication warning banner (OpenProject #2852).
-     */
+    /** Instance-wide, not per-site; same always-server-provided shape as `docsBase` above. */
     isReplicationEnabled: false,
     /**
-     * This site's default menu id for its default locale (`backend/api/sites.ts`'s
-     * `buildSitePayload`, resolved via `WIKI.models.navigation.ensureSiteNav`) -- always server-
-     * provided, same as `docsBase` above. What `MainLayout.vue` and `NavSidebar.vue` fall back to on
-     * a route with no page-inherited `navigationId` of its own (the knowledge graph, tags browse),
-     * instead of leaving the sidebar with nothing to load (OpenProject #2527).
+     * This site's default menu id for its default locale -- always server-provided, same as
+     * `docsBase` above. What a route with no page-inherited `navigationId` of its own (the knowledge
+     * graph, tags browse) falls back to, instead of leaving the sidebar with nothing to load.
      */
     navigationId: null,
     nav: {
       currentId: null,
       items: [],
       mode: 'static',
-      /** The generator's own root for the current `auto`/`mixed` menu -- what `NavSidebar.vue`'s
-       *  root-level "create here" action targets instead of always the locale root, since a
-       *  page/folder-level override's own root is not always the locale root (OpenProject #2442).
-       *  Meaningless for a `static` menu. */
+      /** The generator's own root for the current `auto`/`mixed` menu -- what a root-level "create
+       *  here" action targets, since a page/folder-level override's own root is not always the
+       *  locale root. Meaningless for a `static` menu. */
       rootPath: '',
       rootId: null,
       inFlightId: null
@@ -289,8 +239,7 @@ export const useSiteStore = defineStore('site', {
     useLocales: (state) => {
       return state.locales?.active?.length > 1
     },
-    /** The exact triple `shouldPrefixLocale` / `localizedPagePath` take -- built once here instead of
-     *  by hand at every call site. */
+    /** The exact triple `shouldPrefixLocale` / `localizedPagePath` take. */
     localeRouting() {
       return {
         useLocales: this.useLocales,
@@ -301,11 +250,8 @@ export const useSiteStore = defineStore('site', {
   },
   actions: {
     /**
-     * The one entry point for opening any `MainOverlayDialog` overlay with initial state --
      * `MainOverlayDialog.vue` forwards `overlayOpts` to the mounted component as a prop, so a new
-     * overlay reads its initial params off that prop rather than off this store directly (OpenProject
-     * #2530). `opts` defaults to `{}` rather than being left `undefined`, matching what `overlayOpts`
-     * already defaults to at rest.
+     * overlay reads its initial params off that prop rather than off this store directly.
      */
     openOverlay(name, opts) {
       this.$patch({
@@ -331,8 +277,8 @@ export const useSiteStore = defineStore('site', {
       }
     },
     /**
-     * Take in a site configuration that arrived with something else — `bootstrap` hands it over with
-     * the flags and the session, which is how an app load gets all three in one request.
+     * Separate from `loadSite` because `bootstrap` already holds the site configuration, alongside
+     * the flags and the session — one request for all three on an app load.
      */
     applySiteInfo(siteInfo) {
       this.$patch({
@@ -369,8 +315,8 @@ export const useSiteStore = defineStore('site', {
           markdown: siteInfo.editors.markdown.isActive,
           wysiwyg: siteInfo.editors.wysiwyg.isActive
         },
-        // -> Spread over the state defaults, as `features` and `theme` above do, so a key the
-        //    site config has never been saved with reads as its default rather than undefined
+        // -> Spread over the state defaults, as `features` and `theme` do, so a key the site config
+        //    has never been saved with reads as its default rather than undefined
         locales: {
           ...this.locales,
           ...siteInfo.locales,
@@ -385,37 +331,28 @@ export const useSiteStore = defineStore('site', {
           ...siteInfo.theme
         }
       })
-      // -> The acronym lookup is per-site, so the previous site's map and its loaded flag are
-      //    dropped here rather than left for `fetchAcronymMap` to notice: the early return on
-      //    `acronymMapLoaded` would otherwise skip the new site's fetch entirely and leave it
-      //    rendering the old site's casing, and the `'off'` branch below issues no fetch at all, so
-      //    without the reset that map would simply stay put (#2599). Deliberately a second,
-      //    FUNCTION-form `$patch` rather than an `acronymMap: {}` field on the object one above --
-      //    the object form deep-merges a plain object field instead of replacing it, exactly as
-      //    `fetchAcronymMap`'s own comment records, so folding it in there would be a no-op.
+      // -> The acronym lookup is per-site: without this reset, `fetchAcronymMap`'s early return on
+      //    `acronymMapLoaded` skips the new site's fetch and leaves the old site's casing on screen.
+      //    A second, FUNCTION-form `$patch` rather than an `acronymMap: {}` field on the object one
+      //    above, since the object form deep-merges a plain object field instead of replacing it.
       this.$patch((state) => {
         state.acronymMap = {}
         state.acronymMapLoaded = false
       })
-      // -> Only a site with the setting on ever needs its acronym lookup; not awaited, since every
-      //    render site (`usePathDisplay()`) reads `acronymMap` reactively off this store and updates
-      //    on its own once the fetch resolves -- the same lazy, swallow-on-failure shape as
-      //    `fetchExtensionsStatus` below, just triggered from here instead of on demand, so every
-      //    caller of `applySiteInfo` (`loadSite`, `bootstrap`) picks it up with no call of its own.
+      // -> Only a site with the setting on ever needs its acronym lookup; not awaited, since
+      //    `usePathDisplay()` reads `acronymMap` reactively off this store and re-renders on its own
+      //    once the fetch resolves. Triggered here so every caller of `applySiteInfo` picks it up.
       if (this.pathDisplayCase !== 'off') {
         this.fetchAcronymMap()
       }
     },
     /**
-     * The site's acronym lookup (Feature #2574/#2575), for `usePathDisplay()`'s humanizer. Same
-     * cached-until-asked-again, swallow-on-failure shape as `fetchExtensionsStatus` below: a reader
-     * seeing a path-derived label without its acronym override is the safe fallback for a failed or
-     * not-yet-finished fetch, not an uncaught rejection.
+     * Swallows its own failure, like `fetchExtensionsStatus` below: a path-derived label without its
+     * acronym override is the safe fallback for a failed or not-yet-finished fetch.
      *
-     * Written through the function form of `$patch` rather than an object -- `acronymMap`'s own keys
-     * come and go as the glossary's acronym entries do, and the object form deep-merges a plain
-     * object field instead of replacing it, which would leave a term removed from the glossary since
-     * the last fetch stuck around forever on `forceRefresh`.
+     * Written through the function form of `$patch` rather than an object -- the object form
+     * deep-merges a plain object field instead of replacing it, so a term dropped from the glossary
+     * since the last fetch would survive a `forceRefresh` forever.
      */
     async fetchAcronymMap(forceRefresh = false) {
       if (this.acronymMapLoaded && !forceRefresh) {
@@ -446,11 +383,6 @@ export const useSiteStore = defineStore('site', {
         throw err
       }
     },
-    /**
-     * The Header Search "Popular Tags" widget's own fetch (OpenProject #3046) -- a separate endpoint
-     * and a separate cached-until-asked-again flag from `fetchTags()` above, since the two answer
-     * different questions (60-day activity, capped at 10, vs. every tag in use, unlimited).
-     */
     async fetchPopularTags(forceRefresh = false) {
       if (this.popularTagsLoaded && !forceRefresh) {
         return
@@ -467,13 +399,9 @@ export const useSiteStore = defineStore('site', {
       }
     },
     /**
-     * Fetch which optional extensions are installed, e.g. to decide whether the page-import menu
-     * item should offer itself.
-     *
-     * Swallows its own failure rather than rethrowing, unlike `fetchTags` above: this only ever
-     * gates a menu item's visibility, and a caller that cannot reach the check should get the item
-     * hidden -- the safe default, since showing it would promise a conversion this instance cannot
-     * actually be sure it can do -- not an uncaught rejection.
+     * Swallows its own failure rather than rethrowing, unlike `fetchTags` above: this only gates a
+     * menu item's visibility, and hiding it is the safe default -- showing it would promise a
+     * conversion this instance cannot be sure it can do.
      */
     async fetchExtensionsStatus(forceRefresh = false) {
       if (this.extensionsStatusLoaded && !forceRefresh) {
@@ -490,32 +418,27 @@ export const useSiteStore = defineStore('site', {
       }
     },
     /**
-     * Load the sidebar menu a page resolves to.
-     *
-     * @param id The page's `navigationId`, which addresses either a tree entry that overrides the menu
-     *           or the site itself for the one every page inherits
-     * @param forceRefresh Skip the "already showing this menu" check below and refetch anyway
-     *           (OpenProject #1012). The check exists so a plain route change within the same menu
-     *           doesn't re-trigger `generateFromTree`'s tree walk for an `auto`/`mixed` menu on every
-     *           navigation -- but it also means the same `id` can go stale the moment a nav-mutating
-     *           action changes what THAT id resolves to. Every same-tab invalidation after an admin
-     *           nav edit, a nav copy, or a page create/move/delete passes `true` here for exactly that
-     *           reason; `NavSidebar.vue`'s passive `pageStore.navigationId` watcher is the only caller
-     *           that leaves it `false`, since nothing changed there for a menu it already has cached.
+     * @param id The page's `navigationId`, which addresses either a tree entry that overrides the
+     *           menu or the site itself for the one every page inherits
+     * @param forceRefresh Skip the "already showing this menu" check and refetch anyway. That check
+     *           keeps a plain route change from re-walking the tree for an `auto`/`mixed` menu, but
+     *           it also means the same `id` goes stale the moment a nav-mutating action changes what
+     *           THAT id resolves to -- so every same-tab invalidation after a nav edit, a nav copy
+     *           or a page create/move/delete passes `true`.
      */
     async fetchNavigation(id, forceRefresh = false) {
       if (!id || (!forceRefresh && id === this.nav.currentId)) {
         return
       }
       // -> Set synchronously, before the request goes out, so a second overlapping call can mark
-      //    this one stale the instant it starts -- not only once it too has a response in hand.
+      //    this one stale the instant it starts.
       this.nav.inFlightId = id
       try {
         const { mode, items, rootPath, rootId } = await API_CLIENT.get(
           `sites/${this.id}/navigation/${id}`
         ).json()
-        // -> A newer call may have started (and even finished) while this one was in flight; if so,
-        //    its id is no longer the one this response is for, so discard rather than clobber it.
+        // -> A newer call may have started, and even finished, while this one was in flight; its id
+        //    is no longer the one this response is for, so discard rather than clobber it.
         if (this.nav.inFlightId !== id) {
           return
         }
@@ -532,8 +455,8 @@ export const useSiteStore = defineStore('site', {
         if (this.nav.inFlightId !== id) {
           return
         }
-        // -> An empty sidebar is the right outcome for a menu nobody has set up, rather than an error
-        //    in front of a reader who cannot act on it
+        // -> An empty sidebar is the right outcome for a menu nobody has set up, rather than an
+        //    error in front of a reader who cannot act on it
         log.warn('nav', 'could not load the sidebar menu', err)
         this.$patch({
           nav: {
