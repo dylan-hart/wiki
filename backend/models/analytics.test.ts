@@ -37,3 +37,21 @@ test('a scan that fails leaves CARDINAL.data.analytics an empty array rather tha
     ;(globalThis as any).CARDINAL.data = {}
   }
 })
+
+test('the shipped definitions discover every provider, each with a snippet builder', async () => {
+  ;(globalThis as any).CARDINAL.data = {}
+  await analyticsModel.refreshFromDisk()
+  const { ANALYTICS_SNIPPET_BUILDERS } = await import('../helpers/analyticsSnippets.ts')
+  const keys = analyticsModel.getModules().map((m) => m.key)
+  assert.deepEqual(keys.slice().sort(), Object.keys(ANALYTICS_SNIPPET_BUILDERS).sort())
+  assert.deepEqual(keys.slice().sort(), ['fathom', 'google', 'gtm', 'matomo', 'plausible', 'umami'])
+  assert.deepEqual(Object.keys(analyticsModel.getModule('plausible')!.props).sort(), [
+    'domain',
+    'host'
+  ])
+  assert.deepEqual(Object.keys(analyticsModel.getModule('umami')!.props).sort(), [
+    'host',
+    'websiteId'
+  ])
+  assert.deepEqual(Object.keys(analyticsModel.getModule('fathom')!.props), ['siteId'])
+})

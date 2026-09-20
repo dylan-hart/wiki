@@ -1,0 +1,18 @@
+key: plausible
+title: Plausible
+description: Plausible is a lightweight, open source and privacy-friendly web analytics service. No cookies and fully compliant with GDPR, CCPA and PECR.
+logo: https://static.requarks.io/logo/plausible.svg
+website: https://plausible.io/
+isAvailable: true
+props:
+  domain:
+    type: String
+    title: Domain
+    hint: The domain of your site as registered in Plausible (e.g. wiki.example.com)
+    order: 1
+  host:
+    type: String
+    title: Host
+    hint: Including https:// and optionally the port. Without trailing slash. Change only when self-hosting Plausible.
+    default: https://plausible.io
+    order: 2

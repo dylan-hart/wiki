@@ -1,0 +1,18 @@
+key: umami
+title: Umami
+description: Umami is a simple, fast, privacy-focused and open source alternative to Google Analytics.
+logo: https://static.requarks.io/logo/umami.svg
+website: https://umami.is/
+isAvailable: true
+props:
+  websiteId:
+    type: String
+    title: Website ID
+    hint: The website ID shown in your Umami tracking code (e.g. 94db1cb1-74f4-4a40-ad6c-962362670409)
+    order: 1
+  host:
+    type: String
+    title: Host
+    hint: Including https:// and optionally the port. Without trailing slash. Change only when self-hosting Umami.
+    default: https://cloud.umami.is
+    order: 2

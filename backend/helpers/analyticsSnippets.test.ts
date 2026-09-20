@@ -34,7 +34,7 @@ describe('analyticsShellFragments', () => {
   })
 
   test('a key with no builder is skipped, including inherited object keys', () => {
-    assert.deepEqual(analyticsShellFragments(enabled('plausible', { domain: 'x' })), {})
+    assert.deepEqual(analyticsShellFragments(enabled('nonesuch', { domain: 'x' })), {})
     assert.deepEqual(analyticsShellFragments(enabled('toString', {})), {})
     assert.deepEqual(analyticsShellFragments(enabled('constructor', {})), {})
   })
@@ -115,6 +115,107 @@ describe('analyticsShellFragments', () => {
     })
   })
 
+  describe('plausible', () => {
+    test('renders a deferred script carrying the domain, from the default host', () => {
+      const { head } = analyticsShellFragments(enabled('plausible', { domain: 'wiki.example.com' }))
+      assert.equal(
+        head,
+        '<script data-analytics-provider="plausible" defer src="https://plausible.io/js/script.js" data-domain="wiki.example.com"></script>'
+      )
+    })
+
+    test('a self-hosted host replaces the default, trailing slashes trimmed', () => {
+      const { head } = analyticsShellFragments(
+        enabled('plausible', { domain: 'a.test', host: 'https://stats.example.org:8443//' })
+      )
+      assert.ok(head!.includes('src="https://stats.example.org:8443/js/script.js"'))
+    })
+
+    test('a blank domain or a non-http(s) host adds nothing', () => {
+      assert.deepEqual(analyticsShellFragments(enabled('plausible', {})), {})
+      assert.deepEqual(analyticsShellFragments(enabled('plausible', { domain: '' })), {})
+      assert.deepEqual(
+        analyticsShellFragments(enabled('plausible', { domain: 'a.test', host: 'javascript:1' })),
+        {}
+      )
+    })
+
+    test('markup in either value is attribute-escaped and cannot break out', () => {
+      const evil = `"><script>alert(1)</script>&'`
+      const { head } = analyticsShellFragments(
+        enabled('plausible', { domain: evil, host: `https://h.test/${evil}` })
+      )
+      assert.equal(head!.match(/<script/g)!.length, 1)
+      assert.equal(head!.match(/<\/script>/g)!.length, 1)
+      assert.ok(head!.includes('data-domain="&quot;&gt;&lt;script&gt;'))
+    })
+  })
+
+  describe('umami', () => {
+    test('renders a deferred script carrying the website id, from the default host', () => {
+      const { head } = analyticsShellFragments(
+        enabled('umami', { websiteId: '94db1cb1-74f4-4a40-ad6c-962362670409' })
+      )
+      assert.equal(
+        head,
+        '<script data-analytics-provider="umami" defer src="https://cloud.umami.is/script.js" data-website-id="94db1cb1-74f4-4a40-ad6c-962362670409"></script>'
+      )
+    })
+
+    test('a self-hosted host replaces the default', () => {
+      const { head } = analyticsShellFragments(
+        enabled('umami', { websiteId: 'w', host: 'https://umami.example.org/' })
+      )
+      assert.ok(head!.includes('src="https://umami.example.org/script.js"'))
+    })
+
+    test('a blank website id or a non-http(s) host adds nothing', () => {
+      assert.deepEqual(analyticsShellFragments(enabled('umami', { host: 'https://u.test' })), {})
+      assert.deepEqual(
+        analyticsShellFragments(enabled('umami', { websiteId: 'w', host: '//u.test' })),
+        {}
+      )
+    })
+
+    test('markup in the website id is attribute-escaped', () => {
+      const { head } = analyticsShellFragments(
+        enabled('umami', { websiteId: `"><img src=x onerror=alert(1)>` })
+      )
+      assert.ok(!head!.includes('<img'))
+      assert.ok(head!.includes('data-website-id="&quot;&gt;&lt;img'))
+    })
+  })
+
+  describe('fathom', () => {
+    test('renders a deferred script carrying the site id', () => {
+      const { head } = analyticsShellFragments(enabled('fathom', { siteId: 'ABCDEFGH' }))
+      assert.equal(
+        head,
+        '<script data-analytics-provider="fathom" defer src="https://cdn.usefathom.com/script.js" data-site="ABCDEFGH"></script>'
+      )
+    })
+
+    test('a blank site id adds nothing', () => {
+      assert.deepEqual(analyticsShellFragments(enabled('fathom', {})), {})
+      assert.deepEqual(analyticsShellFragments(enabled('fathom', { siteId: '' })), {})
+    })
+
+    test('markup in the site id is attribute-escaped', () => {
+      const { head } = analyticsShellFragments(enabled('fathom', { siteId: `"><b>'` }))
+      assert.ok(!head!.includes('<b>'))
+      assert.ok(head!.includes('data-site="&quot;&gt;&lt;b&gt;&#39;"'))
+    })
+  })
+
+  test('google keeps its async loader, unchanged by the generalised src builder', () => {
+    const { head } = analyticsShellFragments(enabled('google', { propertyTrackingId: 'G-1' }))
+    assert.ok(
+      head!.startsWith(
+        '<script data-analytics-provider="google" async src="https://www.googletagmanager.com/gtag/js?id=G-1"></script>'
+      )
+    )
+  })
+
   test('several enabled providers render in config order, disabled ones between are skipped', () => {
     const { head } = analyticsShellFragments({
       providers: {
@@ -136,7 +237,14 @@ describe('analyticsShellFragments', () => {
 })
 
 describe('ANALYTICS_SNIPPET_BUILDERS', () => {
-  test('has exactly the providers whose client builders it replaces', () => {
-    assert.deepEqual(Object.keys(ANALYTICS_SNIPPET_BUILDERS).sort(), ['google', 'gtm', 'matomo'])
+  test('has one builder per shipped analytics module', () => {
+    assert.deepEqual(Object.keys(ANALYTICS_SNIPPET_BUILDERS).sort(), [
+      'fathom',
+      'google',
+      'gtm',
+      'matomo',
+      'plausible',
+      'umami'
+    ])
   })
 })

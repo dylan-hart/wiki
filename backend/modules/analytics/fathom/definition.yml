@@ -1,0 +1,12 @@
+key: fathom
+title: Fathom
+description: Fathom Analytics is a simple, privacy-focused website analytics service that is compliant with GDPR, PECR and CCPA.
+logo: https://static.requarks.io/logo/fathom.svg
+website: https://usefathom.com/
+isAvailable: true
+props:
+  siteId:
+    type: String
+    title: Site ID
+    hint: The site ID shown in your Fathom tracking code (e.g. ABCDEFGH)
+    order: 1
