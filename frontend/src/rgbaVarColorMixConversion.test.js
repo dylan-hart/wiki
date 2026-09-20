@@ -6,10 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * Nothing compiles Sass in this build any more, so a re-introduced `rgba($var, …)` would be a
- * dropped declaration -- an unrecognised plain-CSS function -- rather than a build error. This
- * source scan is what still catches it. The two converted sites are also asserted against the
- * exact `color-mix(in srgb, var(--color-x) N%, transparent)` text they were converted to.
+ * Nothing compiles Sass in this build, so a re-introduced `rgba($var, …)` is an unrecognised
+ * plain-CSS function and silently dropped rather than a build error. This source scan is what
+ * catches it.
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
@@ -53,11 +52,6 @@ describe('GroupRulesEditor.vue .is-forceallow uses color-mix(), matching .is-all
 
 describe('EditorMarkdown.vue teal callout dark-mode tint uses color-mix()', () => {
   const source = readFileSync(resolve(SRC_ROOT, 'components/EditorMarkdown.vue'), 'utf-8')
-  /*
-   * This rule now lives as a flat, unnested rule under `.body--dark` rather than a nested
-   * `@at-root .theme--dark &` escape -- see EditorMarkdown.vue's "Hand-converted @at-root escapes"
-   * comment for why. The scan follows it to its new selector; the color-mix() value is unchanged.
-   */
   const darkContentRule = source.match(
     /\.body--dark \.editor-markdown-preview-content \.tabset-content \{\s*background-color:\s*([^;]+);\s*\}/
   )

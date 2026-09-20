@@ -82,8 +82,7 @@ describe('mountWithApp', () => {
   })
 
   it('applies each named seed onto its store BEFORE the component mounts', () => {
-    // A component that branches on store state at `setup()` time renders the unseeded branch if
-    // the stores are seeded after `mount()` rather than before it -- this checks the ordering.
+    // -> A `setup()`-time read renders the unseeded branch if the seeds land after `mount()`.
     const Reader = {
       setup: () => ({ seen: `${useSiteStore().id}/${useUserStore().permissions.join(',')}` }),
       template: '<div class="seen">{{ seen }}</div>'

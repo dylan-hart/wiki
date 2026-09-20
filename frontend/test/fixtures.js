@@ -1,12 +1,8 @@
 import { vi } from 'vitest'
 
 /**
- * The store seeds `mountWithApp`'s `stores` option takes, plus the router stub the page store wants.
- *
- * Each seed is a single repeated identity field, not a realistic object -- deliberately so, since a
- * fat default would silently satisfy a component whose test meant to prove it copes with a field
- * being absent. Seeding is never automatic: nothing writes to a store unless a mount names it (see
- * `mount.js`).
+ * Each seed is a single identity field, not a realistic object: a fat default would silently
+ * satisfy a component whose test meant to prove it copes with that field being absent.
  */
 export function seedSite(overrides = {}) {
   return { id: 'site-1', ...overrides }
@@ -25,9 +21,8 @@ export function seedAdmin(overrides = {}) {
 }
 
 /**
- * The `router` stub the page store navigates through (`stores/page.js` calls it from
- * `pageCreate`/`pageMove`/...). Carries both `push` and `replace` so a missing one fails as a
- * readable assertion rather than a `TypeError` deep inside the action.
+ * Carries both `push` and `replace` so a store action reaching for the other one fails as a
+ * readable assertion rather than a `TypeError` deep inside it.
  */
 export function stubRouter(overrides = {}) {
   const { path = '/some/page', ...rest } = overrides

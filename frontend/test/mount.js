@@ -13,22 +13,16 @@ import { createTestI18n } from './i18n.js'
 import { buildTestRouter } from './router.js'
 
 /**
- * The one mount every component and page suite goes through.
+ * A store is written to only when `stores` names it -- several suites deliberately assert against
+ * an untouched store.
  *
- * Store seeding stays opt-in at the call: a store is written to only when `stores` names it (several
- * suites deliberately assert against an untouched store), and every store is returned either way so
- * a test can seed after the fact or assert on what the component wrote.
- *
- * Routing comes in two forms because navigation is async and mounting is not. `routes`/`initialPath`
- * build a router inline for a suite that never needs to await `isReady()` before mounting -- the
- * route settles by the first `await` the test performs. A suite that branches on `route.params` and
- * needs the route settled first instead awaits `createTestRouter()` itself and passes the result as
- * `router`.
+ * Routing comes in two forms because navigation is async and mounting is not.
+ * `routes`/`initialPath` build a router inline and the route settles by the test's first `await`;
+ * a suite that branches on `route.params` before that awaits `createTestRouter()` itself and
+ * passes the result as `router`.
  *
  * `stubs` defaults to `{ teleport: true }`, since a `<w-dialog>` teleports its body to
- * `document.body`, out of the wrapper, where `wrapper.find()` cannot see it. Pass `stubs: {}` to opt
- * out. Anything else in the options object (`slots`, `shallow`, `global` additions, ...) is forwarded
- * to `mount()` untouched.
+ * `document.body`, out of where `wrapper.find()` can see it. Pass `stubs: {}` to opt out.
  */
 export function mountWithApp(Component, options = {}) {
   const {

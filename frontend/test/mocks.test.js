@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { stubApi } from './mocks.js'
 
-/**
- * `API_CLIENT` is rebuilt before every test by `test/setup.js`, so each of these configures the
- * current instance and asserts through it.
- */
+/** `API_CLIENT` is rebuilt before every test by `test/setup.js`; these configure that instance. */
 describe('stubApi', () => {
   it("resolves an exact string key through ky's .json() shape", async () => {
     stubApi({ sites: [{ id: 'site-1' }] })

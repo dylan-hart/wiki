@@ -2,12 +2,8 @@ import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * The one recursive source walker for this workspace's source-scanning suites.
- *
- * `ext` is a list of extensions to keep; `skip` is either a list of substrings or a predicate over
- * the absolute path (the scanners that exclude `.test.js`, or their own file, want one or the
- * other). The result is sorted, so a scanner's failure message names the same file first on every
- * machine regardless of readdir order.
+ * Sorted, so a scanner's failure message names the same file first on every machine regardless of
+ * readdir order.
  */
 export function listSourceFiles(root, { ext = ['.vue', '.js'], skip = [] } = {}) {
   const rejects =

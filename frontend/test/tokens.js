@@ -3,16 +3,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * What a design token resolves to under each aesthetic, read out of `css/tailwind.css`.
- *
  * App stylesheets read colours, radii and shadows through runtime custom properties rather than
- * literals, so a suite's claim that a rule paints a given colour actually splits in two: that the
- * rule names the right token, and that the token holds the right value. Asserting only the token
- * name would let its value silently change; asserting a copied literal would go stale the moment
- * the token's value changed. Reading the value from the stylesheet keeps both halves honest.
- *
- * Values are resolved through one level of `var()` aliasing, which is as deep as the token layer
- * goes (`--color-header: var(--q-header)`, `--color-accent-text: var(--color-accent)`, ...).
+ * literals, so a suite's claim that a rule paints a given colour splits in two: that the rule
+ * names the right token, and that the token holds the right value. Asserting only the token name
+ * would let its value change silently; asserting a copied literal would go stale. Reading the
+ * value out of the stylesheet keeps both halves honest.
  */
 const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'css', 'tailwind.css')
 const source = readFileSync(CSS_PATH, 'utf8')
@@ -35,8 +30,8 @@ function declared(name, which) {
 
 /**
  * @param {string} name A custom property name, including the leading `--`.
- * @param {'ledger'|'cobalt'|'cobalt-dark'} [aesthetic] Which block to read; falls back to Ledger's.
- * @returns {string} The resolved value, e.g. `#dbe1ec`.
+ * @param {'ledger'|'cobalt'|'cobalt-dark'} [aesthetic] Falls back to Ledger's block for a token
+ *   this one does not declare.
  */
 export function tokenValue(name, aesthetic = 'ledger') {
   let value = declared(name, aesthetic) ?? declared(name, 'ledger')
@@ -49,16 +44,9 @@ export function tokenValue(name, aesthetic = 'ledger') {
 }
 
 /**
- * Every Ledger token, as a `:root` rule a test environment can install.
- *
- * `happy-dom` and `jsdom` resolve `var()` only against properties something actually declared, and
- * neither builds `css/tailwind.css` -- so a component rule that reads a token computes to nothing at
- * all, and a `.body--dark` override written that way silently stops overriding. `test/setup.js`
- * installs this to put those rules back on real values; reading them out of the stylesheet rather
- * than restating them is what keeps them real.
- *
- * Only the Ledger half: a suite that wants Cobalt's own value asks `tokenValue(name, 'cobalt')` for
- * it, rather than every suite silently rendering under whichever aesthetic was installed last.
+ * A `:root` rule `test/setup.js` installs, since `happy-dom` resolves `var()` only against
+ * properties something actually declared. Read out of the stylesheet rather than restated, so the
+ * installed values cannot drift from the ones the app ships.
  */
 export function ledgerTokenCss() {
   const ledgerHalf = block('ledger')

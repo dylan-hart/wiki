@@ -6,20 +6,11 @@ import { describe, expect, it } from 'vitest'
 import { listSourceFiles } from '../test/sourceFiles.js'
 
 /**
- * Every Monaco-mounting surface registers the same theme pair (`defineMonacoThemes(monaco, …)` in
- * `helpers/monacoTheme.js`) immediately before setting `theme: monacoThemeName(<aesthetic>)`. Two
- * ids rather than one because Monaco takes plain hex and can't resolve a CSS custom property, so the
- * aesthetic switches by swapping themes. Registration happens per-component, not once at boot,
- * because any surface can be first to mount and Monaco's theme registry is global (re-registering is
- * a no-op).
- *
- * The gate exists because an unregistered id fails silently: Monaco falls back to its own light `vs`
- * theme with nothing thrown or logged, and every surface mocks Monaco in its own suite, so only
- * reading the source text catches a missing or mismatched registration.
- *
- * `MONACO_SURFACES` is checked against disk first so a renamed/moved component fails as a missing
- * guard rather than silently shrinking the scan; a new surface needs no edit here since the scan
- * covers the whole tree.
+ * An unregistered theme id fails silently -- Monaco falls back to its own light `vs` theme with
+ * nothing thrown or logged -- and every surface mocks Monaco in its own suite, so only reading the
+ * source text catches a missing or mismatched registration. Two ids rather than one because Monaco
+ * takes plain hex and cannot resolve a CSS custom property, so the aesthetic switches by swapping
+ * themes.
  */
 const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 
@@ -35,20 +26,17 @@ const MONACO_SURFACES = [
   'pages/InboxReview.vue'
 ]
 
-// A registration is the shared helper's call, not a raw `defineTheme`, and a reference is
-// `monacoThemeName(...)`, not a quoted id -- matched by call site rather than literal id so the
-// two ids stay defined in exactly one place, `helpers/monacoTheme.js`.
+// Matched by call site rather than by literal id, so the two ids stay defined in exactly one
+// place, `helpers/monacoTheme.js`.
 const DEFINE_THEME = /\bdefineMonacoThemes\(\s*monaco\b/g
 const THEME_OPTION = /\btheme:\s*monacoThemeName\(/g
 const RAW_DEFINE = /monaco\.editor\.defineTheme\(/
 const RAW_THEME_OPTION = /\btheme:\s*(['"])(cardinaljs[^'"]*)\1/
 
-// One `THEME_IDS` pair per call site matched, not per unique id.
 function idsMatching(source, pattern) {
   return [...source.matchAll(pattern)].flatMap(() => THEME_IDS)
 }
 
-/** `{ path, registered, referenced }` for every source file under `src/`. */
 function scanSourceFiles() {
   return listSourceFiles(SRC_ROOT, { skip: (full) => full.endsWith('.test.js') }).map((file) => {
     const source = readFileSync(file, 'utf-8')
@@ -70,8 +58,8 @@ describe('the Monaco theme id (OpenProject #2656)', () => {
   })
 
   it('finds a theme registration in every listed surface and nowhere unaccounted for', () => {
-    // -> A floor, not an exact count: a new surface may register too. Refuses only fewer than the
-    //    known seven, which is how a broken regex would otherwise pass vacuously.
+    // -> A floor, not an exact count: a new surface may register too. The floor is what stops a
+    //    broken regex from passing vacuously.
     expect(registering.length).toBeGreaterThanOrEqual(MONACO_SURFACES.length)
   })
 

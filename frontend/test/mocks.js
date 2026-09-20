@@ -1,19 +1,8 @@
 import { vi } from 'vitest'
 
 /**
- * A stand-in for the `API_CLIENT` global (`src/boot/api.js`), which is the real `ky` HTTP client
- * everywhere outside a test — not something a unit test should ever let a request through to.
- *
- * Shaped after `ky`'s own chainable surface (`API_CLIENT.get(url, opts).json()`) so store code needs
- * no test-only branch to call it. Every HTTP method is a fresh `vi.fn()` per instance, each returning
- * a response whose `.json()` / `.blob()` resolve to `undefined` by default — a test that cares about
- * the payload overrides the method directly:
- *
- *   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ id: '1' }) })
- *
- * or, for a rejection (the `try { API_CLIENT... } catch` shape every store call is wrapped in):
- *
- *   API_CLIENT.post.mockImplementationOnce(() => { throw new Error('network') })
+ * Shaped after `ky`'s own chainable surface (`API_CLIENT.get(url, opts).json()`) so store code
+ * needs no test-only branch to call it.
  */
 export function createApiClientStub() {
   const stubResponse = () => ({
@@ -28,20 +17,10 @@ export function createApiClientStub() {
 }
 
 /**
- * A URL-to-payload routing table for the current `API_CLIENT` stub.
- *
- *   stubApi({ sites: [{ id: 'site-1' }], 'users/whoami': USER })
- *
- * A plain object keys by exact URL, which covers almost every call site. Pass a `Map` when a route
- * needs a `RegExp` (a prefix or a path with an id in the middle) — an exact string key always wins
- * over a `RegExp` that also matches, so a table can carry both. A value that is a function is called
- * per request with the URL, which is how a paginated route can return a different page each time.
- *
- * `method` picks which HTTP method to stub (`get` by default); `fallback` is the payload for a URL
- * no route matches, which is otherwise `undefined` — the same thing `createApiClientStub()` resolves
- * by default, so an unstubbed route stays a quiet `undefined` rather than a throw.
- *
- * Returns `{ calls }`, the URLs seen in order.
+ * Keys are exact URLs; a route needing a `RegExp` goes in a `Map`, since an object cannot key by
+ * one. An exact key wins over a `RegExp` that also matches, so a table can carry both; a function
+ * value is called per request with the URL, for a route that must answer differently each time.
+ * An unmatched URL stays a quiet `undefined` (or `fallback`) rather than throwing.
  */
 export function stubApi(routes, { method = 'get', fallback } = {}) {
   const entries = routes instanceof Map ? [...routes.entries()] : Object.entries(routes ?? {})

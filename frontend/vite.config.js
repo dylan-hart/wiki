@@ -13,18 +13,15 @@ import { temporalPolyfillChunkPlugin } from './src/build/temporalPolyfillChunk.j
 const TWEMOJI_ROUTE = '/_assets/svg/twemoji'
 
 /**
- * Fails the build unless every emoji a page can contain has an SVG in `svgDir`.
+ * The parser and the artwork are two dependencies of the same upstream release (see below), so an
+ * upgrade can drift them apart with nothing to say so -- what that looks like is a page with a
+ * broken image in it, or an emoji left to whatever font the reader has. The renderer hands the
+ * emoji plugin's tokens to twemoji and nothing else -- a raw emoji character typed into a page
+ * stays a character -- so `markdown-it-emoji`'s shortcode map IS the vocabulary, and running the
+ * parser over it yields exactly the set of files a page can ask for.
  *
- * The parser and the artwork are two dependencies of the same upstream release (see below), so they
- * can drift apart on an upgrade with nothing to say so -- and what that looks like is a page with a
- * broken image in it, or an emoji quietly left to whatever font the reader has. Both are cheap to
- * rule out here: the renderer hands the emoji plugin's tokens to twemoji and nothing else -- a raw 🎉
- * typed into a page stays a character -- so `markdown-it-emoji`'s shortcode map IS the vocabulary, and
- * running the parser over it yields exactly the set of files a page can ask for.
- *
- * `@twemoji/api` is pinned a patch behind for this reason: 17.0.3 moved to `@twemoji/parser` 17.0.2,
- * which stopped matching ✌️ ☝️ 🕵️ 🏋️ and six others at all, leaving them as text. This is the check
- * that catches it.
+ * `@twemoji/api` is held a patch behind for this reason: 17.0.3's parser stopped matching ten
+ * emoji at all, leaving them as text.
  */
 async function verifyTwemojiCoverage(svgDir) {
   const [{ default: twemoji }, { default: shortcodes }] = await Promise.all([
@@ -67,35 +64,30 @@ async function verifyTwemojiCoverage(svgDir) {
 }
 
 /**
- * Makes the twemoji SVGs reachable at `/_assets/svg/twemoji/<codepoints>.svg`, the `src` the
- * markdown renderer writes for every emoji (`src/renderers/markdown.js`).
+ * `/_assets/svg/twemoji/<codepoints>.svg` is the `src` `src/renderers/markdown.js` writes for every
+ * emoji. The set is ~4000 files and 18 MB, none of it a build input -- nothing in the source names
+ * an individual icon, so Vite has no way to discover them. They are copied into the build output
+ * and read from `node_modules` on the fly in dev rather than committed under `public/`, which would
+ * put 4000 derived files in git.
  *
- * The set is ~4000 files and 18 MB, none of which is a build input -- nothing in the source names an
- * individual icon, so Vite has no way to discover them. They are copied into the build output
- * alongside `public/_assets/` and read from `node_modules` on the fly in dev, rather than committed
- * under `public/`, which would put 4000 derived files in git.
+ * `@twemoji/api` is the parser alone; the artwork has never been published to npm, so
+ * `package.json` takes it from the upstream repository as a tarball dependency (`twemoji-assets`)
+ * pinned by commit SHA rather than a tag, since a tag can move. npm records its integrity hash in
+ * the lockfile, so the build itself needs no network.
  *
- * `@twemoji/api` is the parser alone; the artwork has never been published to npm (the one package
- * that tried, `@twemoji/svg`, stopped at Unicode 15). `package.json` instead takes it from the
- * upstream repository as a tarball dependency (`twemoji-assets`), pinned by commit SHA rather than a
- * tag since a tag can move. npm records its integrity hash in the lockfile, so the build itself
- * needs no network.
+ * Before touching that pin:
  *
- * Worth knowing before touching this pin:
- *
- * - It installs a second copy of `@twemoji/api` (the tarball *is* that package, fetched under the
- *   alias `twemoji-assets`, for the artwork alone) -- a fix belongs upstream, not here; tolerated
- *   since there's no other source for the SVGs.
- * - No update tool can bump it: `npm-check-updates`/Dependabot don't understand a
- *   `codeload.github.com` tarball URL. Bumping is a manual edit -- resolve the new tag's commit SHA
- *   (`gh api repos/jdecked/twemoji/git/ref/tags/<tag>`, dereferencing an annotated tag's `object` if
- *   its `type` isn't already `commit`), rewrite the URL, then `npm install`.
- * - It moves in lockstep with `@twemoji/api`, by hand, gated by `verifyTwemojiCoverage` above.
- * - Regenerating the lockfile after a SHA bump changes the integrity hash even when the commit is
- *   unchanged: `codeload.github.com` embeds the literal ref string from the request URL as the
- *   tarball's top-level directory name, so a tag-ref request and a SHA-ref request for the same
- *   commit hash differently. Diff the resolved SHA against `gh api .../git/ref/tags/<tag>` rather
- *   than trusting an unchanged hash. See
+ * - It installs a second copy of `@twemoji/api` -- the tarball IS that package, aliased, for the
+ *   artwork alone. Tolerated because there is no other source for the SVGs.
+ * - No update tool understands a `codeload.github.com` tarball URL, so bumping is a manual edit:
+ *   resolve the new tag's commit SHA (`gh api repos/jdecked/twemoji/git/ref/tags/<tag>`,
+ *   dereferencing an annotated tag's `object` if its `type` isn't already `commit`), rewrite the
+ *   URL, then `npm install`. It moves in lockstep with `@twemoji/api`, gated by
+ *   `verifyTwemojiCoverage` above.
+ * - Regenerating the lockfile changes the integrity hash even when the commit is unchanged:
+ *   `codeload.github.com` embeds the literal ref string from the request URL as the tarball's
+ *   top-level directory name, so a tag-ref request and a SHA-ref request for the same commit hash
+ *   differently. Diff the resolved SHA rather than trusting an unchanged hash. See
  *   `docs/decisions/twemoji-assets-sha-pin-integrity-hash-change.md`.
  */
 function twemojiAssets() {
@@ -133,7 +125,6 @@ function twemojiAssets() {
   }
 }
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const userConfig =
     mode === 'development'
@@ -149,9 +140,8 @@ export default defineConfig(({ mode }) => {
     build: {
       assetsDir: '_assets',
       // -> Left at (near) Rollup's own 500 kB default rather than raised -- a warning here is the
-      //    signal that a change grew a chunk, not something to silence. The chunks that already
-      //    exceed this limit are accounted for in docs/decisions/frontend-chunk-size-warnings.md,
-      //    not by moving this number again.
+      //    signal that a change grew a chunk, not something to silence. The chunks already over it
+      //    are accounted for in docs/decisions/frontend-chunk-size-warnings.md.
       chunkSizeWarningLimit: 500,
       dynamicImportVarsOptions: {
         include: ['!/_blocks/**']
@@ -183,9 +173,8 @@ export default defineConfig(({ mode }) => {
       vue({
         template: {
           /*
-            `/_assets/...` paths are served by the backend at runtime; they are not build inputs and
-            there is nothing at that path on disk to resolve. Vue's default would turn each one into
-            an import and fail the build.
+            `/_assets/...` paths are served by the backend at runtime, with nothing at that path on
+            disk; Vue's default would turn each one into an import and fail the build.
           */
           transformAssetUrls: { includeAbsolute: false },
           // -> `iconify-icon` is a custom element registered by its package, not a Vue component
@@ -203,17 +192,14 @@ export default defineConfig(({ mode }) => {
       alias: [
         { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
         /*
-          A RegExp `find`, not a plain string: a string alias key resolves as a PREFIX match here
-          (confirmed directly -- a plain `'monaco-editor'` key also rewrote deep specifiers like
-          `monaco-editor/language/json/json.worker?worker` into a broken path), where an anchored
-          `find` like `/^monaco-editor$/` matches only the bare specifier. This redirects nothing but
-          the exact `import ... from 'monaco-editor'` every editor surface writes; deep worker
-          imports keep resolving into the real package untouched.
+          A RegExp `find`, not a plain string: a string alias key resolves as a PREFIX match, so a
+          plain `'monaco-editor'` key also rewrites deep specifiers like
+          `monaco-editor/language/json/json.worker?worker` into a broken path. Anchored, it
+          redirects nothing but the bare specifier every editor surface imports.
           The alias itself exists because the real package's entry point pulls in language services
           this app never uses (see `src/boot/monacoEditorEntry.js`). Deliberately absent from
-          `vitest.config.js`: each test file's own `vi.mock('monaco-editor', ...)` keeps intercepting
-          the bare specifier as it always does, since this alias only matters for a real build or the
-          dev server.
+          `vitest.config.js`: it matters only for a real build or the dev server, and each test
+          file's own `vi.mock('monaco-editor', ...)` intercepts the bare specifier regardless.
         */
         {
           find: /^monaco-editor$/,
