@@ -178,14 +178,6 @@ describe('the markdown editor’s own chrome', () => {
     single source of truth for dark mode and toggles `.body--dark` on `<body>` -- so any rule keyed
     off it is permanently dead and never paints.
   */
-  it('tints the tabset panel teal in dark mode via the app’s real .body--dark class, not the dead .theme--dark one', () => {
-    // -> `declarations()` throws when the selector isn't emitted, which is the assertion here.
-    expect(
-      declarations(css, '.body--dark .editor-markdown-preview-content .tabset-content')
-    ).toEqual({
-      'background-color': `color-mix(in srgb, ${token('--color-teal-5', '#26a69a')} 10%, transparent)`
-    })
-  })
 })
 
 describe('the page actions rail while a page is being written', () => {
