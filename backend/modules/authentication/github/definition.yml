@@ -36,6 +36,15 @@ props:
     hint: (optional) Login name of a GitHub organization. Only its members may sign in — which needs the account to be a public member, or the OAuth app to be approved by the organization.
     icon: user-groups
     order: 4
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: >-
+      Reconcile a user's wiki groups with their GitHub team memberships on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
+      Teams are reported as `org/team-slug` names, which is what the allow-list matches. Needs the `read:org` scope. An organization with OAuth app access restrictions must approve this app, or its teams are invisible. GitHub Enterprise Server behaves per its own version.
+    icon: user-groups
+    default: false
+    order: 5
 refs:
   callbackUrl:
     title: Authorization Callback URL
