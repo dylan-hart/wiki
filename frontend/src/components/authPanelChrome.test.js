@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
+import { startAuthentication } from '@simplewebauthn/browser'
 
 import AuthLoginPanel from './AuthLoginPanel.vue'
 import AuthRegisterScreen from './AuthRegisterScreen.vue'
 import AuthTfaScreens from './AuthTfaScreens.vue'
+
+import { queue as notifyQueue } from '@/composables/notify'
 
 import { mountWithApp } from '../../test/mount.js'
 
@@ -228,6 +231,70 @@ describe('AuthLoginPanel — the login screen', () => {
     expect(resetSubmit.classes()).toContain('auth-marks')
     expect(resetSubmit.props('color')).toBe('accent')
     expect(btnByLabel(wrapper, 'Cancel').props('outline')).toBe(true)
+  })
+})
+
+describe('AuthLoginPanel — the inline error alert', () => {
+  async function failLoginAndPasskey() {
+    notifyQueue.splice(0, notifyQueue.length)
+    const wrapper = await mountPanel([LOCAL_STRATEGY])
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, authOptions: {} })
+    })
+    return wrapper
+  }
+
+  it('draws a failed passkey sign-in as a negative alert above the fields, not a toast', async () => {
+    const wrapper = await failLoginAndPasskey()
+    startAuthentication.mockRejectedValueOnce(new Error('The passkey was rejected.'))
+
+    await btnByLabel(wrapper, 'Log In with a Passkey').trigger('click')
+    await flushPromises()
+
+    const alert = wrapper.find('[role="alert"]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain('The passkey was rejected.')
+    expect(alert.classes()).toContain('bg-negative')
+    expect(wrapper.element.firstElementChild).toBe(alert.element)
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(false)
+  })
+
+  it('shows nothing when the reader dismisses the browser passkey prompt', async () => {
+    const wrapper = await failLoginAndPasskey()
+    startAuthentication.mockRejectedValueOnce(
+      Object.assign(new Error('dismissed'), { name: 'NotAllowedError' })
+    )
+
+    await btnByLabel(wrapper, 'Log In with a Passkey').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(notifyQueue).toHaveLength(0)
+  })
+
+  it('clears a passkey failure on the next attempt and on a screen switch', async () => {
+    const wrapper = await failLoginAndPasskey()
+    startAuthentication.mockRejectedValueOnce(new Error('The passkey was rejected.'))
+    await btnByLabel(wrapper, 'Log In with a Passkey').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+
+    API_CLIENT.post.mockReturnValueOnce({ json: () => new Promise(() => {}) })
+    await btnByLabel(wrapper, 'Log In with a Passkey').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+
+    startAuthentication.mockRejectedValueOnce(new Error('again'))
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, authOptions: {} })
+    })
+    await btnByLabel(wrapper, 'Log In with a Passkey').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+
+    await btnByLabel(wrapper, 'Forgot Password').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })
 
