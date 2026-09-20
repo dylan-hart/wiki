@@ -36,6 +36,7 @@ export interface UserProfileAuthMethod {
     isTfaSetup: boolean
     isTfaRequired: boolean
     isPasswordLoginEnabled: boolean
+    canChangePassword: boolean
     canDisablePasswordLogin: boolean
     /** 0 when 2FA is off, not the leftovers of a previous setup. */
     recoveryCodesRemaining: number
@@ -348,6 +349,8 @@ class UserCredentials {
                 tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa
               ),
               isPasswordLoginEnabled: !rawConfig?.restrictLogin,
+              canChangePassword:
+                (strategy?.config as Record<string, any>)?.allowPasswordChange !== false,
               canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0
             }
           : { ...rest, ...shared, isTfaRequired: Boolean(tfaRequired) }
@@ -387,6 +390,10 @@ class UserCredentials {
     // -> An external identity provider holds the password somewhere this instance cannot reach
     if (!auth[strategyId]?.password) {
       throw new Error('ERR_INVALID_STRATEGY')
+    }
+    const strategy = await CARDINAL.models.authentication.getStrategyById(strategyId)
+    if (strategy?.config?.allowPasswordChange === false) {
+      throw new Error('ERR_PASSWORD_CHANGE_DISABLED')
     }
     if ((await bcrypt.compare(currentPassword, auth[strategyId].password)) !== true) {
       CARDINAL.models.flags.authDebug(
