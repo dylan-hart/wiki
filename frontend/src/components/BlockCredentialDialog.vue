@@ -89,8 +89,6 @@ import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { isValidOriginPattern } from '@/helpers/originPattern'
 
-// PROPS
-
 const props = defineProps({
   mode: {
     type: String,
@@ -104,11 +102,7 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 /**
  * Which field is "first" depends on `mode`: create shows the name field, rotate shows the secret
@@ -122,15 +116,9 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
   }
 })
 
-// STORES
-
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   name: '',
@@ -145,9 +133,8 @@ const iptName = ref(null)
 const iptSecret = ref(null)
 
 /**
- * Matches `originMatchesAllowlist`'s own accepted syntax (see `helpers/originPattern.js`) rather
- * than accepting anything non-empty (OpenProject #1099, extended by #2185/#2195/#2198 to a full
- * origin+path-prefix shape): a malformed entry used to be stored silently and just never match any
+ * Matches `originMatchesAllowlist`'s own accepted syntax (`helpers/originPattern.js`) rather than
+ * accepting anything non-empty: a malformed entry would otherwise be stored but never match any
  * real request at resolve time.
  */
 const originValidation = [
@@ -185,13 +172,11 @@ const submitDisabled = computed(() => {
   return !state.name.trim() || !state.secret.trim() || state.allowedOrigins.length === 0
 })
 
-// METHODS
-
 /**
  * Lowercases only the scheme and host, never the path: unlike a bare hostname, an origin+prefix
  * entry can carry a case-sensitive path (`https://api.example.com/V1` legitimately differs from
- * `.../v1` on most APIs), so blindly lowercasing the whole value the way the old hostname-only
- * input did would silently corrupt an intentionally-cased prefix.
+ * `.../v1` on most APIs), so blindly lowercasing the whole value would silently corrupt an
+ * intentionally-cased prefix.
  */
 function normalizeOrigin(raw) {
   const trimmed = raw.trim()
@@ -212,12 +197,11 @@ function addOrigin() {
   if (!value) {
     return
   }
-  // -> Written back before validating, so an admin who typed a mixed-case scheme or host (neither
-  //    is meaningful case, unlike the path) sees the normalized form rather than their raw input.
-  //    The push decision itself is `isValidOriginPattern(value)` directly, not
-  //    `originInputRef.value.validate()`'s return: `validate()` reads the *prop* `WInput` was last
-  //    rendered with, which only catches up to this synchronous write on the next render, so
-  //    calling it right here would validate the stale, pre-normalization value.
+  // -> Written back before validating, so the admin sees the normalized form rather than their raw
+  //    input. The push decision below is `isValidOriginPattern(value)` directly, not
+  //    `validate()`'s return: `validate()` reads the *prop* `WInput` was last rendered with, which
+  //    only catches up to this write on the next render -- calling it here would validate the
+  //    stale, pre-normalization value.
   state.originInput = value
   originInputRef.value?.validate()
   if (!isValidOriginPattern(value)) {

@@ -10,12 +10,12 @@ import WBtn from '@/components/shared/WBtn.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Regression coverage for the picker starting a newly-selected block's form on the site's configured
- * default (`block.config`, written by the admin "Blocks" page's per-block "Server" field —
- * see `models/blocks.ts#setBlocksState`) rather than always on the component's own hardcoded
- * `prop.default`. `helpers/blocks.js#propDefault` carries the actual precedence logic and has its own
- * direct unit coverage via `helpers/markdownBlocks.test.js`; this locks down that the picker's
- * `select()` really calls it, by reading the generated markdown back out of the panel.
+ * Regression coverage for the picker starting a newly-selected block's form on the site's
+ * configured default (`block.config`, see `models/blocks.ts#setBlocksState`) rather than always on
+ * the component's own hardcoded `prop.default`. `helpers/blocks.js#propDefault` carries the actual
+ * precedence logic and has its own direct unit coverage via `helpers/markdownBlocks.test.js`; this
+ * locks down that the picker's `select()` really calls it, by reading the generated markdown back
+ * out of the panel.
  */
 
 const BLOCK = {
@@ -66,9 +66,9 @@ describe('BlockPickerOverlay', () => {
     expect(wrapper.find('.block-picker-output').text()).not.toContain('server=')
   })
 
-  // -> OpenProject #1929: `/guide/blocks` names a concept this fork invented (custom blocks are not
-  //    an upstream Wiki.js feature), so no docs site can describe it -- the help button was deleted
-  //    rather than left pointing at a page that does not exist.
+  // -> `/guide/blocks` names a concept this fork invented (custom blocks are not an upstream
+  //    Wiki.js feature), so no docs site can describe it -- the help button was deleted rather
+  //    than left pointing at a page that does not exist.
   it('has no help/docs button', async () => {
     const wrapper = await mountPicker([BLOCK])
 
@@ -76,9 +76,9 @@ describe('BlockPickerOverlay', () => {
   })
 
   /**
-   * OpenProject #2530: `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it
-   * mounts as this prop -- the picker has no use for it, but must still declare it, or the value
-   * falls through onto its rendered DOM root as a stray attribute.
+   * `MainOverlayDialog.vue` forwards `siteStore.overlayOpts` to every overlay it mounts as this
+   * prop -- the picker has no use for it, but must still declare it, or the value falls through
+   * onto its rendered DOM root as a stray attribute.
    */
   it('declares overlayOpts as a prop, so it does not fall through onto the rendered DOM root', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([BLOCK]) })
@@ -92,14 +92,13 @@ describe('BlockPickerOverlay', () => {
 })
 
 /**
- * OpenProject #2634. Every card used to draw its icon by concatenating the definition's bare name
- * into `img:/_assets/icons/ultraviolet-<name>.svg` — which worked only for as long as those names
- * stayed unprefixed, and so was the one thing standing in the way of the same value resolving on
- * Admin Blocks and in the params dialog, where it drew nothing at all. Both halves are asserted
- * here: the reference reaches `WIcon` untouched, and no path is assembled from it.
+ * Both halves are asserted here: the definition's Iconify reference reaches `WIcon` untouched, and
+ * no `img:/_assets/icons/ultraviolet-<name>.svg` path is assembled from it by concatenation (a
+ * built name is invisible to `scripts/generate-icons.mjs`, and `WIcon` draws nothing for a
+ * reference with no Iconify prefix).
  *
  * `WIcon` stamps `data-icon` on all three of its branches, so this reads the same whether the
- * reference happens to be in the inlined bundle or falls through to `iconify-icon` at runtime.
+ * reference is in the inlined bundle or falls through to `iconify-icon` at runtime.
  */
 describe('the block icon', () => {
   it("renders the definition's own Iconify reference, unmodified", async () => {
@@ -119,13 +118,11 @@ describe('the block icon', () => {
 
 /**
  * `blocks` is computed straight off `state.isEnabled` with no other gate, so a block the site has
- * switched off must never appear as a card at all -- not just unselected, but literally absent, since
- * a card is the only way to select or insert one. This is also what rules out the "stale, insertable
- * entry" the task asks about: the picker fetches the block list fresh every time it mounts (see
- * `onMounted`), and a component instance is torn down and rebuilt each time the overlay dialog closes
- * and reopens (`MainOverlayDialog.vue`'s `<component :is>` unmounts it the moment
- * `siteStore.overlay` stops naming it) -- so a block disabled after the picker was last open is
- * simply never in the list the next mount fetches, and nothing here can hold a reference to it.
+ * switched off must never appear as a card at all -- not just unselected, but literally absent,
+ * since a card is the only way to select or insert one. A stale, still-insertable entry can't
+ * survive either: the picker fetches the block list fresh on every mount, and the overlay's
+ * `<component :is>` (`MainOverlayDialog.vue`) tears this component down and rebuilds it each time
+ * the dialog closes and reopens.
  */
 describe('the isEnabled filter', () => {
   const DISABLED = { ...BLOCK, id: 'block-2', block: 'diagram', name: 'Mermaid', isEnabled: false }
@@ -149,14 +146,14 @@ describe('the isEnabled filter', () => {
 })
 
 /**
- * OpenProject #2698. Selection stopped being a coloured glow and became line weight — an accent
- * hairline, four corner marks and a tinted icon plate — and the design's hard requirement is that
- * NOTHING reflows as selection travels between cards.
+ * Selection is drawn as line weight -- an accent hairline, four corner marks and a tinted icon
+ * plate -- and the design's hard requirement is that NOTHING reflows as selection travels between
+ * cards.
  *
  * What is asserted here is the half a DOM emulator can actually answer: that selection is a class
  * swap on an element whose children are identical in both states, so there is nothing for the
- * browser to add or remove and therefore nothing to reflow. The geometry itself — that the boxes
- * really are pixel-identical, and that the grid really does hold two cards to a row — is measured
+ * browser to add or remove and therefore nothing to reflow. The geometry itself -- that the boxes
+ * really are pixel-identical, and that the grid really does hold two cards to a row -- is measured
  * in a real browser by `blockPickerLayout.test.js`; neither `happy-dom` nor `jsdom` runs a layout
  * engine, so an assertion about position written here would pass against zeroed rects.
  */
@@ -215,7 +212,7 @@ describe('the selection treatment', () => {
     expect(cards[0].find('.block-picker-plate').exists()).toBe(true)
   })
 
-  // -> #2634 owns the icon reference itself; this only pins the plate it now sits inside
+  // -> The icon reference itself is covered above; this only pins the plate it now sits inside
   it('draws the glyph inside the plate rather than loose on the card', async () => {
     const wrapper = await mountPicker([FIRST])
 
@@ -224,8 +221,8 @@ describe('the selection treatment', () => {
   })
 
   /**
-   * OpenProject #2775: the card and its plate carried no shape-token classes at all, so neither
-   * ever drew Cobalt's `--radius-card`/`--shadow-card` (`0`/`none` under Ledger, unchanged there).
+   * Regression: the card and its plate carried no shape-token classes, so neither ever drew
+   * Cobalt's `--radius-card`/`--shadow-card` (`0`/`none` under Ledger, unchanged there).
    */
   it('draws the card and its plate off --radius-card/--shadow-card', async () => {
     const wrapper = await mountPicker([FIRST])
@@ -240,7 +237,7 @@ describe('the selection treatment', () => {
   })
 
   /**
-   * OpenProject #2896: `.block-picker-mark` drew Ledger's `+` registration-mark corner accents
+   * Regression: `.block-picker-mark` drew Ledger's `+` registration-mark corner accents
    * unconditionally on a selected card, missing the `display: var(--corner-marks)` gate
    * `Login.vue`/`NavEditMenu.vue` already use to hide the same kind of mark under Cobalt.
    */
@@ -277,12 +274,12 @@ describe('the selection treatment', () => {
 })
 
 /**
- * OpenProject #2698. Insert is this screen's primary action, so it takes the accent rather than the
- * `positive` green it was drawn in — `accent` (#c14a52), not the brighter `accent-fill`, because the
- * label over it is white and only the darker tone clears 4.5:1 under white.
+ * Insert is this screen's primary action, so it takes `accent` rather than `positive` green --
+ * `accent`, not the brighter `accent-fill`, because the label over it is white and only the darker
+ * tone clears 4.5:1 contrast under white.
  *
- * Its disabled rule is unchanged and already correct (`canInsert` → `blockPropsFilled`); what is
- * pinned here is that the rule really is what the button is bound to, in both directions.
+ * What is pinned here is not `canInsert`'s own logic (`blockPropsFilled`), but that the button
+ * really is bound to it, in both directions.
  */
 describe('the Insert action', () => {
   const REQUIRED_PROP = {
@@ -331,11 +328,10 @@ describe('the Insert action', () => {
 })
 
 /*
- * OpenProject #2873: adjacent buttons in a Cobalt button group take an 8-10px gap and each keeps its
- * own radius, per the general rule (Task #2859, `ui-iteration/README.md` Part 2), rather than
- * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain CSS
- * value Vitest's compiled SCSS resolves under `happy-dom` (`css: true`) with no layout engine needed.
- * The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
+ * Adjacent buttons in a Cobalt button group take a gap and each keeps its own radius, rather than
+ * `WBtnGroup`'s default Ledger look of buttons joined by a single hairline seam. `gap` is a plain
+ * CSS value Vitest's compiled CSS resolves under `happy-dom` (`css: true`) with no layout engine
+ * needed. The seam itself is a logical `border-inline-end`, which `happy-dom` does not resolve for
  * `getComputedStyle` at all -- so whether it is present is asserted only in a real browser, in
  * `blockPickerLayout.test.js`, off the actual rendered gap between the two buttons.
  */

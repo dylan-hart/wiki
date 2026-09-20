@@ -50,16 +50,11 @@ import { blockPropsFilled } from '@/helpers/blocks'
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
 
 /**
- * What a block already in the page was given, for changing.
+ * The same form `BlockPropsForm` fills in for a new block, over the values already on this one.
+ * The caller owns writing the answer back to the page; this only hands the finished object back.
  *
- * The same form the picker fills in for a new block — see `BlockPropsForm` — over the values read
- * back out of the page source. What comes back is only that: the caller knows which line the block
- * was on and what else was written on it, and is the one to put the answer back.
- *
- * The values are copied on the way in, so closing without applying leaves the page as it was.
+ * Values are copied on the way in, so closing without applying leaves the page as it was.
  */
-
-// PROPS
 
 const props = defineProps({
   /** The block as the API describes it: its name, its icon and the props it declares. */
@@ -74,30 +69,18 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   values: { ...props.values }
 })
 
-// COMPUTED
-
 // -> A required prop emptied out would leave a block that cannot draw anything
 const canApply = computed(() => blockPropsFilled(props.definition, state.values))
-
-// METHODS
 
 function apply() {
   onDialogOK({ ...state.values })

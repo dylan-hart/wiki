@@ -8,7 +8,7 @@
       <!--
         The design draws no recovery-code field at all -- it covers the six-digit state only -- so
         this keeps the format placeholder, which says something the field's own name does not, and
-        moves the name onto `aria-label` the way every other field on these screens now does.
+        moves the name onto `aria-label` the way every other field on these screens does.
       -->
       <w-input
         v-else
@@ -19,13 +19,8 @@
         :hint="t(`auth.tfa.recoveryCodeHint`)"
         placeholder="XXXX-XXXX-XXXX-XXXX"
         @keyup:enter="verifyTFA" />
-      <!--
-        OpenProject #2779: `color="accent"`, not `primary` -- both auth mockups draw this as the
-        "accent fill carrying white text" role (`--color-accent`, `#c8303c` under Cobalt), which
-        Ledger's `colorPrimary`/`colorAccent` sharing one value had made indistinguishable from
-        `primary` until now. `WBtn` itself applies the matching Cobalt glow (OpenProject #2813), with
-        no corner marks -- neither design file draws marks on this button.
-      -->
+      <!-- `color="accent"`, not `primary`: a distinct "accent fill, white text" role from primary
+           text/link color. -->
       <w-btn
         class="w-full mt-4"
         color="accent"
@@ -49,13 +44,10 @@
         "
         @click="toggleRecoveryCodeMode" />
     </template>
-    <!-- ----------------------------------------------------- -->
-    <!-- TFA SETUP SCREEN -->
-    <!-- ----------------------------------------------------- -->
     <template v-else-if="props.screen === `tfasetup`">
       <!--
-        The design leads with the requirement in bold and then two ordinary instruction lines; the QR
-        is a 150px hairline-framed plate rather than a bare 200px SVG dropped into the flow.
+        The design leads with the requirement in bold and then two ordinary instruction lines; the
+        QR is a 150px hairline-framed plate rather than a bare 200px SVG dropped into the flow.
       -->
       <p class="auth-notice auth-notice--lead">{{ t('auth.tfaSetupTitle') }}</p>
       <p class="auth-subtitle">{{ t('auth.tfaSetupInstrFirst') }}</p>
@@ -66,7 +58,6 @@
       <div class="auth-otp auth-otp--sm">
         <w-otp-input v-model="state.securityCode" :length="6" autofocus />
       </div>
-      <!-- -> OpenProject #2779: see the `tfa` screen's Verify button above for the accent color note -->
       <w-btn
         class="w-full mt-4"
         color="accent"
@@ -95,21 +86,14 @@ import { useSiteStore } from '@/stores/site'
  * The two-factor screens of `AuthLoginPanel.vue`: entering a code to finish a sign-in (`tfa`, with
  * the recovery-code alternative), and entering one to activate a newly-issued secret (`tfasetup`).
  *
- * Split out of the panel because the code being typed is theirs alone -- no other screen reads it --
- * and everything they need from the sign-in attempt is the strategy and the continuation token that
- * identify it. The panel is keyed on `screen`, so moving between the two remounts this with the
- * fields empty, which is what the panel used to clear them by hand for.
+ * Split out because the code being typed is theirs alone -- no other screen reads it -- and
+ * everything they need from the sign-in attempt is the strategy and the continuation token that
+ * identify it.
  */
-
-// STORES
 
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// PROPS
 
 const props = defineProps({
   /** Which of the two screens to draw: `tfa` or `tfasetup`. */
@@ -117,17 +101,15 @@ const props = defineProps({
     type: String,
     required: true
   },
-  /** The strategy the sign-in attempt was made against. */
   strategyId: {
     type: String,
     default: null
   },
-  /** The token that ties this code back to that attempt. */
   continuationToken: {
     type: String,
     default: ''
   },
-  /** The `tfasetup` screen's QR image, as the server rendered it. */
+  /** The `tfasetup` screen's QR image, as the server rendered it (an `<svg>` string, not a URL). */
   qrImage: {
     type: String,
     default: ''
@@ -136,17 +118,13 @@ const props = defineProps({
 
 const emit = defineEmits(['login-response', 'restart'])
 
-// DATA
-
 const state = reactive({
   securityCode: '',
   useRecoveryCode: false,
   recoveryCode: ''
 })
 
-// COMPUTED
-
-/** Reformats the recovery code field as the user types, matching the server's display shape. */
+/** Matches the server's recovery-code display shape as the user types. */
 const recoveryCodeInput = computed({
   get: () => state.recoveryCode,
   set: (val) => {
@@ -154,11 +132,7 @@ const recoveryCodeInput = computed({
   }
 })
 
-// METHODS
-
 /**
- * Send the security code for the login this panel is in the middle of.
- *
  * The continuation token is only cleared once the code is accepted: a mistyped one can be entered
  * again, up to the handful of attempts the server allows before it discards the token -- and the
  * same counter (`countTfaFailure` on the backend) applies whether the wrong entry was a 6-digit
@@ -193,7 +167,6 @@ async function submitTFA(setup) {
   return resp
 }
 
-/** Switches the `tfa` screen between the 6-digit authenticator field and the recovery code field. */
 function toggleRecoveryCodeMode() {
   state.useRecoveryCode = !state.useRecoveryCode
   state.securityCode = ''
@@ -233,9 +206,6 @@ async function verifyTFA() {
   }
 }
 
-/**
- * FINISH TFA SETUP
- */
 async function finishSetupTFA() {
   loading.show({
     message: t('auth.tfaSetupVerifying')
@@ -255,24 +225,15 @@ async function finishSetupTFA() {
 
 <style scoped>
 /*
-  The digit row, re-dressed for the auth panel.
+  The digit row, re-dressed for the auth panel: `css/tailwind.css`'s app-wide `.otp-input` default
+  is a fixed 3rem square with side margins; this screen instead draws six boxes sharing the row's
+  full width (`flex: 1`), separated by a gap rather than margins, with the accent on the box being
+  typed into rather than the ones already filled.
 
-  `css/tailwind.css`'s `.otp-input` is the app-wide default `vue3-otp-input` takes -- a fixed
-  3rem square with a 2px `rgba(0,0,0,.2)` edge, 4px side margins, and a GREEN edge once a digit is
-  entered. `Cardinal Wiki - Auth Screens 3x.dc.html` draws something else: six boxes that share the
-  row's full width (`flex:1`), separated by an 8px gap rather than by margins, in a 1px hairline, and
-  with the accent on the box being typed into rather than the ones already filled -- "here" instead
-  of "done".
-
-  Overridden here rather than at source deliberately. The design file covers the LOGIN panel's 2FA;
-  `SetupTfaDialog.vue` (the profile's own 2FA activation) uses the same class on an undesigned
-  surface and should not silently inherit this screen's treatment. A scoped `:deep()` rule is
-  unlayered, so it beats `@layer components` without needing `!important`.
-
-  OpenProject #2779: every color in this block moved off the old Sass `_theme.scss`'s literal
-  `$`-prefixed variables onto the matching `var(--color-*)` custom property -- see `Login.vue`'s
-  identical note on its own `.auth` block for why (this screen never followed `body.body--cobalt`'s
-  token overrides before).
+  Overridden here rather than at source deliberately: `SetupTfaDialog.vue` (the profile's own 2FA
+  activation) uses the same class on an undesigned surface and should not silently inherit this
+  screen's treatment. A scoped `:deep()` rule is unlayered, so it beats `@layer components` without
+  needing `!important`.
 */
 .auth-otp :deep(.otp-input-container) {
   display: flex;
@@ -300,7 +261,6 @@ async function finishSetupTFA() {
   font-size: 18px;
 }
 
-/* -> The box being typed into, which is the one the design marks */
 .auth-otp :deep(.otp-input:focus),
 .auth-otp :deep(.otp-input:focus-visible) {
   border-color: var(--color-accent-fill);

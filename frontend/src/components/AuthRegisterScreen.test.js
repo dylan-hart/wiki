@@ -7,14 +7,12 @@ import { useDark } from '@/composables/dark'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Feature #2608, Task #2642: self-registration collects First Name and Last Name outright rather
- * than one string that gets split.
- *
- * The naive whitespace split exists only for a federated provider that hands over a single display
- * name (Task #2641) -- an account created here is this instance's own, so nothing is ever parsed:
- * the halves are authored, and `models/users.ts#resolveNameFields` derives the display name from
- * them server-side. There is deliberately no display name field on this screen; it is reachable in
- * the profile once the account exists, which is where the override belongs.
+ * Self-registration collects First Name and Last Name outright rather than one string that gets
+ * split. The naive whitespace split exists only for a federated provider that hands over a single
+ * display name -- an account created here is authored directly, and
+ * `models/users.ts#resolveNameFields` derives the display name from the halves server-side. There
+ * is deliberately no display name field on this screen; it is reachable in the profile once the
+ * account exists.
  */
 const MESSAGES = {
   auth: {
@@ -155,9 +153,9 @@ describe('AuthRegisterScreen first/last name fields', () => {
 })
 
 /**
- * OpenProject #2807: `--color-accent-fill` has no dark-mode override anywhere in `tailwind.css`, so
- * the "check your email" glyph drew the same bright light-mode tone against a dark ground. Fixed by
- * resolving `color` through `dark.isActive` instead of the static `accent-fill` prop.
+ * Regression: `--color-accent-fill` has no dark-mode override, so this glyph drew its light-mode
+ * tone against a dark ground unless `color` is resolved through `dark.isActive` rather than a
+ * static `accent-fill` prop.
  */
 describe('AuthRegisterScreen check-email glyph dark mode (OpenProject #2807)', () => {
   afterEach(() => {
