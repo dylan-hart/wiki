@@ -1,11 +1,9 @@
 <template>
   <!--
-    `h-full` so the card fills the panel: the scroll area below is sized `calc(100% - 50px)`, which
-    against an auto-height card resolves to `auto` and let the card grow past the panel instead of
-    scrolling inside it -- the white surface and the panel's shadow ending in different places.
+    `h-full`: the scroll area below is sized `calc(100% - 50px)`, which against an auto-height card
+    resolves to `auto` and lets the card grow past the panel instead of scrolling inside it.
   -->
   <w-card class="page-properties-dialog h-full">
-    <!-- -> Offset comes from the stylesheet now, relative to this card; see SideDialog -->
     <div class="floating-sidepanel-quickaccess animated fadeIn" v-if="state.showQuickAccess">
       <template v-for="(qa, idx) of quickaccess" :key="`qa-` + qa.key">
         <w-btn
@@ -66,9 +64,8 @@
             </template>
             <template #append>
               <!--
-                A button, not a bare `w-icon`: for a bundled icon WIcon renders an <svg> whose body is
-                set through `v-html`, which renders no slot -- so the menu inside it never existed and
-                the control did nothing. It was also just the 14px glyph, with no hit area of its own.
+                A button, not a bare `w-icon`: WIcon draws a bundled icon's body through `v-html`,
+                which renders no slot, so a `w-menu` child of it would never exist.
               -->
               <w-btn
                 flat
@@ -137,11 +134,8 @@
               <w-item-label caption>{{ rel.caption }}</w-item-label>
             </w-item-section>
             <!--
-              -> A status indicator, not a tag/filter chip: the radii-sweep role assignment
-                 (`css/tailwind.css`'s Cobalt shape-token comment, OpenProject #2767/#2775) puts
-                 badges on `--radius-mark`, distinct from the `--radius-pill` a `w-chip` always
-                 draws (WChip.vue's own doc: "one token, no aesthetic branch"). `0` under Ledger
-                 either way, so this only changes what Cobalt draws.
+              -> A badge, not a `w-chip`: this is a status indicator, and the shape tokens put
+                 badges on `--radius-mark` rather than the `--radius-pill` a chip always draws.
             -->
             <w-item-section side>
               <w-badge color="primary" :label="rel.position" />
@@ -176,23 +170,16 @@
         </w-btn>
       </w-card-section>
       <!--
-        Gated on `write:scripts`/`write:styles` (OpenProject #3389/#3402) -- PAGE-scoped permissions,
-        so `userStore.pagePermissions` (this reader's grants AT THIS PATH), not `userStore.can()`
-        (see root CLAUDE.md's Permissions section). Offering a control here without the matching
-        permission would look like it worked and then be refused with 403 on save, so the section and
-        its jump-rail entry below disappear together instead -- nothing left in the section to jump
-        to otherwise.
+        `write:scripts`/`write:styles` are PAGE-scoped, so `userStore.pagePermissions` (this
+        reader's grants AT THIS PATH), not `userStore.can()`. A control offered without the grant
+        would look like it worked and then be refused with 403 on save.
       -->
       <w-card-section class="alt-card" id="refCardScripts" v-if="mayScripts || mayStyles">
         <div class="w-section-header">{{ t('editor.props.scripts') }}</div>
         <!--
-          Site-wide execution kill switch (Feature #3389 / Task #3403, OpenProject #3422): an author
-          holding write:scripts/write:styles can save a script or stylesheet here that never runs,
-          with zero errors, zero logs and zero network activity, when the site's own
-          `features.pageScripts` switch is off -- `composables/pageScripts.js` gates its `showing`
-          computed on that flag before it ever builds the script URL. This hint is the only place
-          that tells the author so, rather than leaving it to be discovered by reading source or
-          asking an admin.
+          With the site's `features.pageScripts` kill switch off, a script or stylesheet saved here
+          simply never runs -- no error, no log, no request. This hint is the only thing that tells
+          the author so.
         -->
         <div class="text-caption text-warning mb-2" v-if="!siteStore.features.pageScripts">
           <em>{{ t('editor.props.pageScriptsDisabledHint') }}</em>
@@ -285,11 +272,9 @@
         </w-form>
       </w-card-section>
       <!--
-        Gated on `write:tags` (OpenProject #3393) -- a PAGE-scoped permission, so
-        `userStore.pagePermissions` (this reader's grants AT THIS PATH), same as `mayScripts`/
-        `mayStyles` above. Unlike the scripts section, this stays visible without the permission as
-        long as the page already carries tags -- an editor who cannot retag a page can still see what
-        it is tagged; the section only disappears entirely when there is also nothing to show.
+        `write:tags` is PAGE-scoped, same as `mayScripts`/`mayStyles` above. Unlike the scripts
+        section this stays visible without the grant while the page carries tags: an editor who
+        cannot retag a page can still see what it is tagged.
       -->
       <w-card-section class="pb-6" id="refCardTags" v-if="mayTags || pageStore.tags?.length > 0">
         <div class="w-section-header">{{ t('editor.props.tags') }}</div>
@@ -338,11 +323,8 @@
               :label="$t(`editor.props.requirePassword`)" />
           </div>
           <div v-if="state.requirePassword" style="padding-inline-start: 40px">
-            <!-- -> Masked, with WInput's own reveal toggle: this is a secret to hand out rather than
-                    one to remember, so the author has to be able to read back what they typed.
-                    Always starts empty -- the server never hands an existing password back
-                    (OpenProject #2232), so there is nothing here to prefill even when the page
-                    already has one; leaving it blank on save just keeps that one as it is. -->
+            <!-- -> Always starts empty: the server never hands an existing password back, so there
+                    is nothing to prefill; leaving it blank on save keeps the current one. -->
             <w-input
               ref="iptPagePassword"
               v-model="pageStore.password"
@@ -391,18 +373,12 @@ import PageRelationDialog from './PageRelationDialog.vue'
 import PageScriptsDialog from './PageScriptsDialog.vue'
 import PageTags from './PageTags.vue'
 
-// STORES
-
 const adminStore = useAdminStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   showRelationDialog: false,
@@ -411,28 +387,14 @@ const state = reactive({
   showScriptsDialog: false,
   pageScriptsMode: 'jsLoad',
   showQuickAccess: true,
-  /**
-   * The classification this page was loaded with, before anything in this panel touched it -- what
-   * `mayLowerClassification` compares a picker change against. An editor may raise it freely; only
-   * lowering (making it MORE open than this) needs `manage:classification` on the page.
-   */
   originalClassification: pageStore.classification
 })
 
-/**
- * Page-scoped, so `userStore.pagePermissions` (this reader's grants AT THIS PATH), not
- * `userStore.can()` -- see the `refCardScripts` section's own doc comment above.
- */
 const mayScripts = computed(() => userStore.pagePermissions.includes('write:scripts'))
 const mayStyles = computed(() => userStore.pagePermissions.includes('write:styles'))
 const mayTags = computed(() => userStore.pagePermissions.includes('write:tags'))
 
-/**
- * The `refCardScripts` entry is dropped when the reader holds neither `write:scripts` nor
- * `write:styles` (OpenProject #3389/#3402) -- that section itself doesn't render for them either, so
- * a jump-rail button that scrolled to nothing would be its own small bug. `refCardTags` (OpenProject
- * #3393) follows the same rule against the section's own `v-if` just below.
- */
+/** Mirrors the sections' own `v-if`s -- a jump button to a hidden section is a bug. */
 const quickaccess = computed(() => [
   { key: 'refCardInfo', icon: 'tabler:info-circle', label: t('editor.props.info') },
   { key: 'refCardPublishState', icon: 'tabler:power', label: t('editor.props.publishState') },
@@ -453,12 +415,8 @@ const quickaccess = computed(() => [
   { key: 'refCardVisibility', icon: 'tabler:eye', label: t('editor.props.visibility') }
 ])
 
-// REFS
-
 const iptTitle = ref(null)
 const iptPagePassword = ref(null)
-
-// COMPUTED
 
 const publishingRange = computed({
   get() {
@@ -474,11 +432,9 @@ const publishingRange = computed({
 })
 
 /**
- * Whether the current picker selection is safe to save without `manage:classification` on this page
- * (OpenProject #1080) -- unchanged or raised needs nothing extra; only actually lowering it below
- * `state.originalClassification` does. Purely advisory: the server enforces the real guardrail
- * regardless of what this shows, since `pagePermissions` here can be stale the moment a group
- * changes underneath the session.
+ * Raising a page's classification is free; only lowering it below what the page was loaded with
+ * needs `manage:classification`. Advisory only -- the server enforces the guardrail regardless,
+ * since these permissions can go stale the moment a group changes under the session.
  */
 const mayLowerClassification = computed(() => {
   if (pageStore.classification === state.originalClassification) {
@@ -492,19 +448,6 @@ const mayLowerClassification = computed(() => {
   }
   return userStore.can('manage:classification')
 })
-
-// WATCHERS
-
-/*
-  No `pageStore.$subscribe` of this component's own (OpenProject #1133): `<page-tags edit />` below
-  is always rendered, unconditionally, whenever this panel is open, and `PageTags.vue` registers the
-  identical whole-store subscribe itself whenever `props.edit` is true. A second one here would just
-  double-patch `lastChangeTimestamp` on every mutation this panel makes, tags included -- harmless
-  since `hasPendingChanges` only checks inequality, but redundant. `PageTags.vue` keeps its own copy
-  because it is also used standalone, outside Properties, where nothing else would fire the signal.
-*/
-
-// METHODS
 
 function newRelation() {
   state.editRelationId = null
@@ -527,16 +470,9 @@ function jumpToSection(id) {
   })
 }
 /*
-  Watched rather than read once in `onMounted` (OpenProject #1133): this panel can mount before
-  `pageStore.pageLoad()` resolves, and a one-time read left `state.requirePassword` stuck at whatever
-  it saw at that moment even after the real answer arrived. `immediate: true` still covers the
-  already-loaded case `onMounted` used to handle, so nothing here depends on load ordering any more.
-  Watches `hasPassword` rather than `password` (OpenProject #2232): the server never hands the actual
-  password back, so `password` alone cannot tell "this page has one" from "the field is empty" --
-  `hasPassword` is the informational flag it sends instead. `toggleRequirePassword` below also writes
-  `pageStore.password`, but only ever to `''` while turning the toggle off -- `state.requirePassword`
-  is already `false` by then from the toggle's own `v-model`, so this watcher re-deriving the same
-  value is a no-op, not a fight over who owns it.
+  Watched with `immediate`, not read once on mount: this panel can mount before `pageLoad()` resolves.
+  `hasPassword` rather than `password` because the server never hands the password back, so `password`
+  alone cannot tell "this page has one" from "the field is empty".
 */
 watch(
   () => pageStore.hasPassword,
@@ -548,8 +484,7 @@ watch(
 
 function toggleRequirePassword(newValue) {
   if (newValue) {
-    // -> Undoes an accidental off-then-back-on before saving; see `pageStore.removePassword`'s own
-    //    doc comment for what turning the toggle off records instead.
+    // -> Undoes an accidental off-then-back-on before saving
     pageStore.removePassword = false
     nextTick(() => {
       iptPagePassword.value.focus()
@@ -559,17 +494,13 @@ function toggleRequirePassword(newValue) {
     })
   } else {
     pageStore.password = ''
-    // -> The explicit "take the password off" signal `pageSave` needs (OpenProject #2232): once the
-    //    server stopped echoing the password back, an empty `password` field alone is ambiguous
-    //    between "never touched" and "just cleared it".
+    // -> An empty `password` alone is ambiguous between "never touched" and "just cleared", so
+    //    `pageSave` needs this explicit "take the password off" signal.
     pageStore.removePassword = true
   }
 }
 
-// MOUNTED
-
 onMounted(async () => {
-  // -> Title is the field this panel is opened to edit, so the caret starts there
   nextTick(() => {
     iptTitle.value?.focus()
   })
@@ -588,12 +519,9 @@ onMounted(async () => {
 
 <style>
 /*
-  The panel is inset from the window and rounded now, so the two children that reach its corners have
-  to be rounded too -- a square toolbar or scroll area paints straight over the radius. `inherit`
-  takes the card's own value, so these stay right if that radius ever changes.
-
-  The scroll area is what makes the BOTTOM corners work: it already clips its overflow, so giving it
-  the radius clips the last section (grey, `alt-card`) to the corner instead of letting it square off.
+  The two children that reach the card's corners have to round with it -- a square toolbar or scroll
+  area paints straight over the radius. `inherit` tracks the card's own value. The scroll area is
+  what makes the bottom corners work: it clips its overflow, so the last section is clipped too.
 */
 .page-properties-dialog {
   > .w-toolbar {
@@ -607,17 +535,9 @@ onMounted(async () => {
   }
 
   /*
-    The design's own section rhythm: a full-bleed 34px band, then 14px/16px of content under it
-    (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`). `WCardSection` pads itself `p-4`, so
-    the sections here take the design's inset instead and the band cancels exactly that inset back
-    out -- it used to cancel 16px against a 16px pad while giving 16px back at the top, which left
-    the band sitting a couple of pixels off the fields under it in every section.
-
-    The band's own top rule is the shared `.w-section-header`'s; all this does is give back the
-    section's inset around it.
-
-    The tinted `alt-card` sections keep their stripe: the heading is inside the section, so the wash
-    is drawn over whichever surface that section has.
+    A full-bleed section band over content inset 14px/16px: `WCardSection` pads itself `p-4`, so the
+    sections here take the design's inset instead and the header's negative margin has to cancel
+    exactly that inset -- mismatched values leave the band a few pixels off the fields under it.
   */
   .w-card-section {
     padding: 14px 16px;

@@ -1,15 +1,8 @@
 <template>
   <ul class="treeview-level">
-    <!-- ROOT NODE -->
     <li class="treeview-node" v-if="!props.parentId">
-      <!--
-        The root row is the tree's own ink with a chrome glyph beside it, which is what both
-        aesthetics' File Manager mockups draw (`#1c2233`/`#64789f` in Ledger, `#10194a`/`#1f4fd6` in
-        Cobalt). It used to be set in the Material palette's purple in both themes -- a hue that
-        appears nowhere else in either language, and that no mockup ever sanctioned.
-      -->
-      <!-- -> Keyboard-operable the same way `TreeNode.vue`'s own rows are (OpenProject #3063) --
-              this is the one row that isn't a `TreeNode`, so it needs the same treatment on its own. -->
+      <!-- -> The one row that is not a `TreeNode`, so it carries that component's keyboard
+              handling itself -->
       <div
         class="treeview-label"
         tabindex="0"
@@ -40,7 +33,6 @@
         <w-icon v-if="!selection" class="treeview-root-icon" name="tabler:chevron-right" />
       </div>
     </li>
-    <!-- NORMAL NODES -->
     <tree-node
       v-for="node of level"
       :key="node.id"
@@ -55,8 +47,6 @@ import { computed, inject } from 'vue'
 
 import TreeNode from './TreeNode.vue'
 
-// PROPS
-
 const props = defineProps({
   depth: {
     required: true,
@@ -68,16 +58,10 @@ const props = defineProps({
   }
 })
 
-// INJECT
-
 const roots = inject('roots')
 const nodes = inject('nodes')
 const selection = inject('selection')
 const contextActionList = inject('contextActionList')
-
-// COMPOSABLES
-
-// COMPUTED
 
 const rootContextActionList = computed(() => {
   if (props.parentId) {
@@ -106,14 +90,10 @@ const level = computed(() => {
   return items
 })
 
-// METHODS
-
 function setRoot() {
   selection.value = null
 }
 
-/** Keyboard parity for the root row (OpenProject #3063), matching `TreeNode.vue`'s own Enter/Space
- *  handling and `WItem.vue`'s pattern it in turn mirrors. */
 function handleRootKeydown(event) {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
@@ -124,10 +104,8 @@ function handleRootKeydown(event) {
 
 <style>
 /*
-  The root row's own two tones. Tokens rather than a `color` prop, for the reason `NavSidebar.vue`'s
-  icon rule gives: `WIcon` builds its `color` class at runtime and Tailwind cannot see it, so the
-  prop would resolve to nothing. Ledger's `--color-tree-root-icon` is the chrome stroke tone each
-  mockup draws it in; Cobalt's is the aesthetic's own blue.
+  Tokens rather than a `color` prop on the icon: `WIcon` builds its `color` class at runtime, which
+  Tailwind cannot see, so the prop would resolve to nothing.
 */
 .treeview-root-text {
   color: var(--color-ink);

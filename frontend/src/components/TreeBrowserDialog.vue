@@ -2,12 +2,9 @@
   <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
       <!--
-        Corner marks. The handoff's rule is two opposite corners on a menu -- a light object -- and
-        all four on a dialog, which this is. Four separate elements rather than two pseudo-elements
-        on the card, because a box has only `::before` and `::after` to give and the marks have to
-        be four independent boxes sitting OUTSIDE the card's own edge.
-
-        Marked `aria-hidden`: they are the frame, not content.
+        Corner marks, as four elements rather than two pseudo-elements on the card: a box has only
+        `::before` and `::after` to give, and the marks are four independent boxes sitting OUTSIDE
+        the card's own edge.
       -->
       <span aria-hidden="true" class="page-save-dialog-corner page-save-dialog-corner--ss" />
       <span aria-hidden="true" class="page-save-dialog-corner page-save-dialog-corner--se" />
@@ -17,13 +14,6 @@
         <w-icon name="tabler:file-plus" size="sm" class="me-2" />
         <span>{{ t('pageSaveDialog.title') }}</span>
       </w-card-section>
-      <!--
-        `tabler:copy`, not the `img:/_assets/icons/color-documents.svg` this replaces: Cardinal's
-        chrome is monochrome line work, and a full-colour raster-style asset in a dialog's own title
-        band was the last of the 2.x artwork on this sheet. It is also a literal Iconify reference,
-        so `scripts/generate-icons.mjs` inlines it rather than leaving it to resolve through
-        `/_icons` at runtime.
-      -->
       <w-card-section v-else-if="props.mode === `duplicatePage`" class="card-header">
         <w-icon name="tabler:copy" size="sm" class="me-2" />
         <span>{{ t('pageDuplicateDialog.title') }}</span>
@@ -33,20 +23,17 @@
         <span>{{ t('pageRenameDialog.title') }}</span>
       </w-card-section>
       <!--
-        The fixed 300px is stated here as an inline style as well as in the stylesheet below. Both
-        columns scroll INSIDE it, so the dialog does not grow with a deep tree or a crowded folder --
-        which is a geometry claim, and `TreeBrowserDialog.test.js` measures it in a real headless
-        Chromium page off this markup. That measurement reads the compiled `tailwind.css` plus
-        whatever the test document's own <style> elements carry; stating the height on the element
-        keeps the claim answerable regardless of how the SFC's styles reach the page.
+        The 300px is stated inline as well as in the stylesheet below: `TreeBrowserDialog.test.js`
+        measures this geometry in a real Chromium page built out of this markup, and stating the
+        height on the element keeps the claim answerable however the SFC's styles reach that page.
       -->
       <div
         class="page-save-dialog-browser flex flex-nowrap"
         style="height: 300px; overflow: hidden">
         <div class="page-save-dialog-tree w-1/3">
           <w-scroll-area style="height: 300px">
-            <!-- -> No side padding: the rows carry their own 12px and span the column, as in the
-                    File Manager. Padding here would inset the highlight band as well. -->
+            <!-- -> No side padding: the rows carry their own and span the column, and padding here
+                    would inset the highlight band with them -->
             <div>
               <tree
                 ref="treeComp"
@@ -62,11 +49,6 @@
           </w-scroll-area>
         </div>
         <div class="w-2/3">
-          <!--
-            Scrolls on its own, as the tree beside it does: this row is a fixed 300px, and a folder
-            with more entries than that holds simply drew straight over the path bar, the two fields
-            and the buttons underneath.
-          -->
           <w-scroll-area style="height: 300px">
             <w-list class="page-save-dialog-filelist" dense>
               <w-item
@@ -88,17 +70,6 @@
         </div>
       </div>
       <div class="page-save-dialog-hint">{{ t('pageSaveDialog.newFolderHint') }}</div>
-      <!--
-        The folder you are saving into, and the one control that changes it without a tree click: the
-        shared up-one-level plate (`UpOneLevelBtn.vue`), the same one the Browse panel and the File
-        Manager carry. It goes on this row rather than above the browser because this row is already
-        the answer to "where am I" -- which is what the plate acts on, and what the design means by
-        the name beside it moving with it.
-
-        The name beside it is what the tree selection and the leaf field add up to -- the path that
-        will actually be written, not the folder alone. It is the same string `save()` assembles, so
-        the bar cannot disagree with the button beside it.
-      -->
       <div class="page-save-dialog-path flex flex-nowrap items-center">
         <up-one-level-btn :show="Boolean(state.currentFolderId)" @click="goUp" />
         <span class="font-robotomono truncate">{{ assembledPath }}</span>
@@ -120,12 +91,10 @@
           <blueprint-icon icon="tabler:file-symlink" />
           <w-item-section>
             <!--
-              `label` stays exactly as it is: `e2e/helpers/admin.js#savePage` resolves this field by
-              `getByLabel('Path Name')` and depends on the focus its `fill()` fires reaching
-              `onPathFocus`, which is what sets `pathDirty` and stops the title watcher overwriting
-              what was typed. `hint` adds an `aria-describedby`, never an accessible name, so the
-              locator is unaffected -- asserted in this component's own suite so a future edit fails
-              as itself rather than as three e2e specs.
+              `label` is load-bearing: `e2e/helpers/admin.js#savePage` resolves this field by
+              `getByLabel('Path Name')`, and depends on the focus its `fill()` fires reaching
+              `onPathFocus`. `hint` adds an `aria-describedby`, never an accessible name, so the
+              locator is unaffected by it.
             -->
             <w-input
               v-model="state.path"
@@ -138,11 +107,7 @@
               @keyup:enter="onPathEnter" />
           </w-item-section>
         </w-item>
-        <!--
-          Only when there is something to offer: a locale-only rename (path staying put) has nothing
-          to cascade, since translations are found by path -- see the model-side comment in
-          `movePage`.
-        -->
+        <!-- -> Translations are found by path, so a locale-only rename has nothing to cascade -->
         <w-item
           v-if="props.mode === `renamePage` && state.translationsCount > 0"
           class="page-save-dialog-translations">
@@ -191,11 +156,8 @@
             </w-card>
           </w-menu>
         </w-btn>
-        <!--
-          The plate says nothing on its own, and a tooltip is not readable without a pointer. The
-          design puts the sentence beside it instead; the tooltip stays as the button's accessible
-          name.
-        -->
+        <!-- -> A tooltip is not readable without a pointer, so the sentence sits beside the button;
+                the tooltip stays on as the button's accessible name -->
         <span class="page-save-dialog-display-hint">{{
           t('pageSaveDialog.displayOptionsHint')
         }}</span>
@@ -241,8 +203,6 @@ import { log } from '@/helpers/log'
 import { fetchTreeEntries, mergeFolderEntries, parentFolderIdOf } from '@/helpers/treeNodes'
 import { normalizePagePath } from '@/helpers/pagePaths'
 
-// PROPS
-
 const props = defineProps({
   mode: {
     type: String,
@@ -250,9 +210,8 @@ const props = defineProps({
     default: 'savePage'
   },
   /**
-   * The site to browse, when it isn't the one currently on screen -- the admin area's Recently
-   * Deleted view opens this dialog for whichever site its own picker has selected, which is not
-   * necessarily the site `siteStore` is showing.
+   * The site to browse, when it isn't the one on screen: the admin area opens this dialog for
+   * whichever site its own picker has selected, which `siteStore` knows nothing about.
    */
   siteId: {
     type: String,
@@ -280,9 +239,8 @@ const props = defineProps({
     default: ''
   },
   /**
-   * The content locale to browse. Absent (null) for a caller with no page context of its own -- an
-   * absent value is sent to the server as no `locale` param at all, so the tree defaults to the
-   * site's primary locale, same as before this prop existed.
+   * The content locale to browse. Null for a caller with no page context of its own: it is sent as
+   * no `locale` param at all, so the tree falls back to the site's primary locale.
    */
   locale: {
     type: String,
@@ -291,25 +249,15 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptTitle.value
 })
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   displayMode: 'title',
@@ -323,25 +271,19 @@ const state = reactive({
   path: '',
   typesToFetch: [],
   pathDirty: false,
-  /** How many other locales' pages share this page's current path -- see `fetchTranslationsCount`. */
   translationsCount: 0,
   includeTranslations: true
 })
 
-// REFS
-
 const treeComp = ref(null)
 const iptTitle = ref(null)
 
-// -> Path Name is the leaf slug only -- the folder itself comes from the tree browser (#1013), not
-//    from typing `/`-separated segments here. Live validation (`w-input`'s `rules` convention) is
-//    what blocks that pre-submit, rather than the old pattern of only catching it inside save() with
-//    a post-submit notification.
+// -> Path Name is the leaf slug only -- the folder comes from the tree browser, not from typing
+//    `/`-separated segments here -- and a rule refuses one pre-submit rather than leaving it to
+//    `save()`'s notification
 const pathRules = [(value) => !value?.includes('/') || t('pageSaveDialog.pathNoSlashes')]
 
-// COMPUTED
-
-/** Mirrors the header's own per-mode title (below), as the dialog's accessible name. */
+/** Mirrors the header's own per-mode title, as the dialog's accessible name. */
 const dialogTitle = computed(() => {
   switch (props.mode) {
     case 'duplicatePage':
@@ -366,19 +308,14 @@ const currentFolderPath = computed(() => {
 const pathHasSlash = computed(() => state.path.includes('/'))
 
 /**
- * What the path bar shows: the folder the tree has selected plus the leaf the field holds.
- *
- * The design's own note is that the bar "always shows what the two add up to" -- the path that will
- * be written, rather than only the half the tree contributes. Deliberately the same concatenation
- * `save()` performs, so the bar and the button cannot disagree; `currentFolderPath` already carries
- * its trailing slash, so an empty leaf leaves the folder reading as a folder.
+ * Deliberately the same concatenation `save()` performs, so the path bar and the Save button cannot
+ * disagree. `currentFolderPath` carries its own trailing slash, so an empty leaf still reads as a
+ * folder.
  */
 const assembledPath = computed(() => `${currentFolderPath.value}${state.path}`)
 
-// -> The Save button's `:disabled="pathHasSlash"` only blocks a click -- the Path Name field's own
-//    `@keyup:enter` used to call `save()` directly regardless, so pressing Enter with a slash still
-//    present silently bypassed the block this same commit added (OpenProject #1025). Route Enter
-//    through the same guard rather than letting it call `save()` unconditionally.
+// -> The Save button's `:disabled="pathHasSlash"` only blocks a click, so Enter has to go through
+//    the same guard rather than calling `save()` unconditionally
 function onPathEnter() {
   if (pathHasSlash.value) {
     return
@@ -402,8 +339,6 @@ const files = computed(() => {
   })
 })
 
-// WATCHERS
-
 watch(
   () => state.currentFolderId,
   async (newValue) => {
@@ -423,8 +358,6 @@ watch(
   }
 )
 
-// METHODS
-
 /** Typing in the path field takes over from the tree selection that was driving it. */
 function onPathFocus() {
   state.pathDirty = true
@@ -442,10 +375,10 @@ async function save() {
   // -> A path is a URL: casing and spaces are corrected rather than refused, the way the server does
   //    it, and the field is left showing what will actually be saved
   state.path = normalizePagePath(state.path)
-  // -> This mirrors the backend's `rePathName` (`models/tree.ts`), which validates one path segment
-  //    at a time -- checking the WHOLE path against it rejected every nested path outright. A segment
-  //    can also be empty (a stray double slash; `normalizePagePath` only trims the leading/trailing
-  //    ones), which the pattern itself would otherwise accept as "zero letters".
+  // -> Mirrors the backend's `rePathName` (`models/tree.ts`), which validates ONE segment at a
+  //    time: against the whole path it rejects every nested path. An empty interior segment (a stray
+  //    double slash; `normalizePagePath` trims only the outer ones) is refused here too, since `+`
+  //    needs at least one character.
   if (state.path.split('/').some((segment) => !/^[a-z0-9-]+$/.test(segment))) {
     notify({
       type: 'negative',
@@ -464,10 +397,9 @@ async function save() {
 }
 
 /**
- * How many other locales' pages share this page's current path -- what decides whether the
- * "Also move N translation(s)" checkbox shows at all. Fetched only in `renamePage` mode, where
- * `props.itemId` names a real, already-saved page; `savePage`/`duplicatePage` have no page here to
- * ask about yet.
+ * How many other locales' pages share this page's current path -- what decides whether the "Also
+ * move N translation(s)" checkbox shows at all. Only `renamePage` has an already-saved page to ask
+ * about.
  */
 async function fetchTranslationsCount() {
   if (!props.itemId) {
@@ -480,10 +412,8 @@ async function fetchTranslationsCount() {
     ).json()
     state.translationsCount = translations.length
   } catch (err) {
-    // -> Missing entirely rather than defaulting to "may not move translations": a caller who
-    //    cannot even list them almost certainly cannot cascade to them either, and the checkbox
-    //    staying hidden is a safe, silent fallback -- the plain move/rename this dialog already
-    //    offers is unaffected either way.
+    // -> A caller who cannot list translations almost certainly cannot cascade to them either, so
+    //    leaving the checkbox hidden is the safe fallback; the plain rename still works.
     log.warn('page', "could not count this page's translations", err)
   }
 }
@@ -494,11 +424,9 @@ async function treeLazyLoad(nodeId, isCurrent, { done }) {
 }
 
 /**
- * Loads one folder into the tree, and — when that folder is the selected one — into the file list.
- *
- * `initLoad` asks for the folders above the one being listed as well, so that opening the dialog on a
- * page buried a few levels down draws its whole branch from a single request. Those extra entries come
- * back flagged `isAncestor` and belong in the tree only, never in the file list.
+ * `initLoad` asks for the folders above the one being listed as well, so opening the dialog on a
+ * page buried a few levels down draws its whole branch from a single request. Those extra entries
+ * come back flagged `isAncestor` and belong in the tree only, never in the file list.
  */
 async function loadTree({ parentId = null, parentPath = null, initLoad = false }) {
   if (state.isFetching) {
@@ -522,13 +450,10 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
       initLoad
     })
     if (items?.length > 0) {
-      // -> The folder half of the response is the tree, merged the same way the File Manager and the
-      //    link picker merge it; the file list below is this dialog's own projection
       const { roots: newTreeRoots } = mergeFolderEntries(state.treeNodes, items, parentId)
       for (const item of items) {
         switch (item.type) {
           case 'folder': {
-            // -> File List
             if (isCurrentFolder && !item.isAncestor) {
               state.fileList.push({
                 id: item.id,
@@ -583,13 +508,9 @@ function treeContextAction(nodeId, action) {
 }
 
 /**
- * Up one level: save into the folder above the one currently selected, or into the root when that
- * folder is directly under it.
- *
- * The same one-line assignment a tree click makes, so the watcher on `currentFolderId` lists the
- * folder arrived at either way. It deliberately leaves `state.path`, `state.title` and `pathDirty`
- * alone -- moving WHERE a page is saved is not the same as retyping WHAT it is called, and the path
- * field's auto-slug behaviour is what `e2e/helpers/admin.js#savePage` drives.
+ * The same assignment a tree click makes, so the `currentFolderId` watcher lists the folder arrived
+ * at either way. It deliberately leaves `state.path`, `state.title` and `pathDirty` alone: moving
+ * where a page is saved is not the same as retyping what it is called.
  */
 function goUp() {
   if (!state.currentFolderId) {
@@ -622,7 +543,6 @@ function newFolder(parentId) {
   })
 }
 
-/** The id of an already-loaded folder, addressed the way a path addresses it. */
 function findFolderIdByPath(path) {
   if (!path) {
     return null
@@ -632,8 +552,6 @@ function findFolderIdByPath(path) {
   )
   return entry?.[0] ?? null
 }
-
-// MOUNTED
 
 onMounted(async () => {
   let fPath = props.folderPath
@@ -662,8 +580,8 @@ onMounted(async () => {
     parentPath: fPath,
     initLoad: true
   })
-  // -> A page that lives in a subfolder opens the browser on that subfolder rather than on the root.
-  //    The initial request asked for the ancestors too, so the whole branch is already here.
+  // -> The initial request asked for the ancestors too, so opening the browser on the page's own
+  //    subfolder, with its branch expanded, needs no further fetch
   const startFolderId = findFolderIdByPath(fPath)
   if (startFolderId) {
     const parts = fPath.split('/')
@@ -679,23 +597,12 @@ onMounted(async () => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .page-save-dialog {
-  /*
-    The stronger of the two Cardinal edges. A dialog is laid over the app rather than sitting in it,
-    so it takes `var(--color-rule)` where a card in the page takes `var(--color-hairline)` -- `WCard`'s own hairline border
-    is what this overrides.
-  */
+  /* A dialog is laid over the app rather than sitting in it, so it overrides `WCard`'s hairline
+     with the stronger of the two edges. */
   border-color: var(--color-rule);
-  /*
-    Room for the corner marks. They sit 5px outside the card's edge, and `WDialog`'s panel scrolls
-    its own overflow (`.w-dialog-panel` is `overflow-auto`), so without the margin every one of them
-    would be clipped away by the box that holds the card.
-  */
+  /* Room for the corner marks: they sit 5px outside the card's edge, and `WDialog`'s panel is
+     `overflow-auto`, so without this margin the box holding the card clips every one of them. */
   margin: 5px;
 }
 .body--dark .page-save-dialog {
@@ -703,10 +610,9 @@ onMounted(async () => {
 }
 .page-save-dialog {
   /*
-    A crop mark: two 1px edges meeting at a 9px corner, drawn in the ground the dialog is laid over
-    rather than in the card's own edge colour, so it reads as registration around the sheet instead
-    of as a thickening of its border. Over the backdrop's scrim in dark mode the paper tone
-    disappears, so it takes the faint slate there instead.
+    A crop mark is drawn in the ground the dialog is laid over, not in the card's own edge colour,
+    so it reads as registration around the sheet rather than as a thickening of its border. The
+    paper tone disappears over the backdrop's scrim, so dark mode takes the faint slate instead.
   */
 }
 .page-save-dialog-corner {
@@ -723,10 +629,8 @@ onMounted(async () => {
 }
 .page-save-dialog {
   /*
-    Named for CSS's own logical corners (`border-start-start-radius` and friends): block-start /
-    inline-start, block-start / inline-end, and so on. Logical rather than top-left/top-right so the
-    set still frames the card under RTL -- all four are present and the shape is symmetric, so each
-    one simply becomes the corner it is drawing.
+    Named for CSS's own logical corners (`border-start-start-radius` and friends) rather than
+    top-left/top-right, so the set still frames the card under RTL.
   */
 }
 .page-save-dialog-corner--ss {
@@ -755,22 +659,16 @@ onMounted(async () => {
 }
 .page-save-dialog {
   /*
-    The header draws its separator as an OUTSET box-shadow, which is painted with the header's own
-    background -- and a later sibling's background is painted after it. So the tinted tree column
-    covered that 1px line while the untinted file list left it showing, and the two columns looked as
-    though they started at different heights.
-
-    Positioning the header puts it above both: a positioned element paints over its in-flow siblings,
-    so the line survives across the full width.
+    The header draws its separator as an OUTSET box-shadow, painted with the header's own
+    background, and a later sibling's background paints over it -- so the tinted tree column hid
+    that 1px line while the untinted file list left it showing. Positioning the header puts it
+    above both, since a positioned element paints over its in-flow siblings.
   */
 }
 .page-save-dialog .card-header {
   position: relative;
-  /*
-    The one accent on the title band. `.card-header` is the near-black raised tone, on which the
-    accent's own text tone is too dark to read -- `var(--color-accent-dark)` is the tone Cardinal lightens it
-    to for an ink ground.
-  */
+  /* -> `.card-header` is the near-black raised tone, on which the accent's own text tone is too
+        dark to read; `--color-accent-dark` is the tone it is lightened to for an ink ground */
 }
 .page-save-dialog .card-header > .w-icon {
   color: var(--color-accent-dark);
@@ -779,7 +677,7 @@ onMounted(async () => {
   height: 300px;
   max-height: 90vh;
   /* -> Belt and braces with the scroll areas inside: whatever either column ends up holding, the
-        browser cannot spill over the fields and buttons below it */
+        browser cannot spill over the fields and buttons below */
   overflow: hidden;
   border-bottom: 1px solid var(--color-hairline);
 }
@@ -788,12 +686,9 @@ onMounted(async () => {
 }
 .page-save-dialog {
   /*
-    Tinted so the tree reads as a column of its own rather than running into the file list beside it,
-    and ruled off along its trailing edge -- the tint alone leaves the two columns sharing an edge
-    that nothing draws, which at this width reads as a gradient rather than as a division.
-
-    This was a `> .col-4` rule, which the layout migration left pointing at a class that no longer
-    exists -- the columns are Tailwind fractions now -- so the pane had been plain white since.
+    Tinted so the tree reads as a column of its own, and ruled off along its trailing edge -- the
+    tint alone leaves the two columns sharing an edge nothing draws, which at this width reads as a
+    gradient rather than as a division.
   */
 }
 .page-save-dialog-tree {
@@ -806,12 +701,10 @@ onMounted(async () => {
 }
 .page-save-dialog {
   /*
-    The one accent FILL on the sheet: the folder being saved into, and nothing else.
-
-    `TreeNav` draws its own `.active` row as a faint wash of the ground, which is right everywhere
-    else it is mounted (the File Manager, the link picker) and is not this dialog's to change. Scoped
-    under the tree column and prefixed with the theme class so it out-specifies that rule on
-    specificity rather than on which stylesheet happens to be written out last.
+    The one accent FILL on the sheet: the folder being saved into. `TreeNav`'s own `.active` row is
+    a faint wash of the ground, which is right everywhere else it is mounted and is not this
+    dialog's to change -- so this is scoped under the tree column AND prefixed with the theme class,
+    to win on specificity rather than on which stylesheet happens to be written out last.
   */
 }
 .body--light .page-save-dialog-tree .treeview-label.active,
@@ -837,10 +730,9 @@ onMounted(async () => {
 .page-save-dialog-filelist > .w-item {
   padding: 4px 6px;
   /*
-    NOT a fill. The tree's selected folder is the sheet's only filled surface, so the selected
-    file -- which is an offer to overwrite, not the destination -- is drawn as a tinted row with
-    an accent edge at its leading side instead. `box-shadow` rather than a border, so the row
-    does not change width as the selection moves down the list.
+    NOT a fill: the tree's selected folder is the sheet's only filled surface, and a selected file
+    is an offer to overwrite rather than the destination. `box-shadow` rather than a border for the
+    leading edge, so the row does not change width as the selection moves down the list.
   */
 }
 .page-save-dialog-filelist > .w-item.active {
@@ -875,13 +767,9 @@ onMounted(async () => {
 }
 .page-save-dialog {
   /*
-    The path bar. The cooler of the two tints, ruled off underneath, in mono -- it is a path, and
-    every path in Cardinal is mono.
-
-    A fixed height, for the same reason the Browse panel's header has one: the up-one-level plate is
-    absent at the root rather than disabled, and a row that sized itself to its contents would jog by
-    16px every time the browser crossed in or out of the root. 38px is the 28px plate plus the 5px
-    this row already had above and below it.
+    A fixed height because the up-one-level plate is absent at the root rather than disabled: a row
+    that sized itself to its contents would jog every time the browser crossed in or out of the
+    root. 38px is the 28px plate plus this row's own 5px above and below.
   */
 }
 .page-save-dialog-path {
@@ -898,19 +786,16 @@ onMounted(async () => {
   color: var(--color-slate-light);
 }
 .page-save-dialog {
-  /*
-    Block padding only. Each `w-item` already carries the 16px inline inset the path bar and the hint
-    above it use, so adding it here as well would inset the plates by 32px and break the one vertical
-    line those three share.
-  */
+  /* -> Block padding only: each `w-item` already carries the same 16px inline inset the path bar
+        and the hint use, and adding it here too would double it and break their shared line */
 }
 .page-save-dialog-fields {
   padding-block: 14px;
 }
 .page-save-dialog {
   /*
-    Aligned onto the fields' own text column rather than under their plates: the checkbox is a
-    qualifier on the move the two fields describe, not a third field. The row's own 16px, plus the
+    Aligned onto the fields' own text column rather than under their plates -- the checkbox is a
+    qualifier on the move those fields describe, not a third field. The row's own 16px, plus the
     34px plate and the 14px gap beside it.
   */
 }

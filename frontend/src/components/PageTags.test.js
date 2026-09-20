@@ -28,11 +28,6 @@ async function mountPageTags(props = {}, { attachTo } = {}) {
   return { wrapper, router, pageStore }
 }
 
-/**
- * Regression coverage for the tag-browse routing change (OpenProject #987): a tag chip used to send
- * the reader to `/_search?q=#tag`. It now opens the dedicated browse page instead, pre-selected on
- * that one tag.
- */
 describe('PageTags.vue', () => {
   it('view mode: clicking a tag chip opens the tag-browse page pre-selected on that tag', async () => {
     const { wrapper, router } = await mountPageTags({ edit: false })
@@ -63,10 +58,8 @@ describe('PageTags.vue', () => {
   })
 
   /**
-   * Regression coverage for OpenProject #2966: WChip's own inline `font-size` style always beats
-   * `.page-tag`'s external `font-size: 12px` rule, regardless of source order or specificity. Left
-   * on its default `size` ('md'), that inline style rendered the chip at 14px instead of 12px. The
-   * fix passes `size="sm"` explicitly so WChip's inline style itself produces 12px.
+   * WChip's own inline `font-size` always beats `.page-tag`'s external rule, whatever the source
+   * order or specificity, so only an explicit `size="sm"` gets the chip to 12px.
    */
   it('renders the tag chip at 12px via an explicit size prop, not the .page-tag CSS rule', async () => {
     const { wrapper } = await mountPageTags({ edit: false })
@@ -81,19 +74,14 @@ describe('PageTags.vue', () => {
 })
 
 /**
- * OpenProject #2979 ("Cobalt typography: tags and revision"), `cobalt-typography.md` §3's "Tags and
- * revision" role table and §4.3's role swap. `.page-tag` is drawn attached to `document.body` (not a
- * detached div) because both rules key off a `body.body--cobalt &` ancestor selector, which only
- * matches once the class really sits on `<body>` -- the same pattern `PageHistoryOverlay.test.js`
- * uses for its own `body--dark` cascade assertions.
+ * `.page-tag` is drawn attached to `document.body` rather than to a detached div: both rules key off
+ * a `body.body--cobalt &` ancestor selector, which only matches once the class really sits on
+ * `<body>`.
  *
- * Font SIZE is deliberately not asserted here via computed style: `WChip` sets its own inline
- * `font-size` (sibling Bug #2966, "tag chip size -- `WChip` inline-style conflict"), which wins over
- * this component's `.page-tag { font-size: 12px }` regardless of which lands first, so a computed-
- * style assertion here would pass or fail depending on that OTHER task's state rather than this
- * one's. The static-source test below pins this file's own declared value instead, and every test in
- * this describe unmounts its wrapper before returning so the next one starts from a clean
- * `document.body` rather than accumulating stale `.page-tag` nodes.
+ * Font SIZE is deliberately not asserted here via computed style -- `WChip`'s own inline `font-size`
+ * wins over `.page-tag { font-size: 12px }` regardless of which lands first -- so the static-source
+ * test below pins this file's declared value instead. Every test unmounts its wrapper so the next one
+ * starts from a clean `document.body`.
  */
 describe('PageTags.vue Cobalt typography (OpenProject #2979)', () => {
   afterEach(() => {

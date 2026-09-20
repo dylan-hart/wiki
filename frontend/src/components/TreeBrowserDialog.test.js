@@ -6,26 +6,14 @@ import { mountWithApp } from '../../test/mount.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /*
-  `w-dialog` teleports its panel to `document.body`, and a mounted wrapper that is never unmounted
-  leaves that panel standing. Every test in this file mounts one, so without this the SECOND test's
-  `document.body.querySelector('.page-save-dialog…')` resolves the FIRST test's dialog -- a
-  stale-element failure that reads as the component not rendering what it plainly does.
+  `w-dialog` teleports its panel to `document.body`, and a wrapper that is never unmounted leaves
+  that panel standing -- so without this a later test's `document.body.querySelector` resolves an
+  earlier test's dialog, a stale-element failure that reads as the component not rendering.
 */
 afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/**
- * Regression test for task 515's `siteId` prop.
- *
- * Every existing call site (`PageHeader`, `PageActionsCol`, `FileManager`, `PageHistoryOverlay`) opens
- * this dialog from the main site view, where `siteStore.id` IS the site being browsed, so it always
- * fetched the tree from there. The admin area's Recently Deleted view (task 515) opens the same dialog
- * for whichever site ITS OWN picker has selected (`adminStore.currentSiteId`), which is not
- * necessarily the site `siteStore` is currently showing — without a way to say which site, the browser
- * would silently list the wrong site's pages and a path picked there would be meaningless once posted
- * back against the admin-selected site.
- */
 function mountDialog(props, { viewedSiteId = 'viewed-site' } = {}) {
   globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue([]) })
 
@@ -65,12 +53,9 @@ describe('TreeBrowserDialog siteId prop', () => {
 })
 
 /**
- * Regression test for task 810: `save()` used to test the WHOLE path against
- * `/^[a-z0-9-]+$/` -- a pattern with no slash in its character class, meant to validate one
- * path segment at a time (it mirrors the backend's `rePathName` in `models/tree.ts`) -- so any
- * nested path (`docs/setup/install`) was rejected outright. The fix checks each slash-separated
- * segment individually instead. Covered across all three modes the dialog's single shared `save()`
- * serves (`savePage`, `duplicatePage`, `renamePage`), since the same function backs all of them.
+ * `save()` validates each slash-separated segment on its own, mirroring the backend's `rePathName`
+ * in `models/tree.ts` -- a pattern with no slash in its class, applied to the whole path, rejects
+ * every nested path outright. All three modes share the one `save()`.
  */
 describe.each(['savePage', 'duplicatePage', 'renamePage'])(
   'TreeBrowserDialog save() path validation (mode: %s)',
@@ -112,14 +97,8 @@ describe.each(['savePage', 'duplicatePage', 'renamePage'])(
   }
 )
 
-/**
- * OpenProject #1013: the only way to create a new folder is right-clicking an existing folder in the
- * tree pane, which nothing in the dialog otherwise communicates. A hint line makes that discoverable.
- */
 describe('TreeBrowserDialog new-folder hint', () => {
   it('shows a hint explaining how to create a new folder', async () => {
-    // -> `w-dialog` teleports its content to `document.body`, so it is queried there rather than off
-    //    the mounted wrapper's own subtree -- the same pattern `EditorPickerDialog.test.js` uses.
     mountDialog({})
     await flushPromises()
 
@@ -130,9 +109,8 @@ describe('TreeBrowserDialog new-folder hint', () => {
 })
 
 /**
- * OpenProject #1025: Path Name holds only the leaf slug -- the folder comes from the tree browser
- * (#1013), not from `/`-separated segments typed here. A slash is rejected live, pre-submit, rather
- * than only inside save()'s post-submit `pathInvalid` notification.
+ * Path Name holds the leaf slug alone -- the folder comes from the tree browser, not from
+ * `/`-separated segments typed here -- so a slash is refused live rather than only by `save()`.
  */
 describe('TreeBrowserDialog Path Name rejects slashes', () => {
   it('the Save button is disabled while the field holds a slash', async () => {
@@ -163,9 +141,8 @@ describe('TreeBrowserDialog Path Name rejects slashes', () => {
     await flushPromises()
 
     wrapper.vm.state.title = 'A Title'
-    // -> Marks the field dirty first, same as a real focus event -- otherwise the title-to-slug
-    //    watcher (`!state.pathDirty` in the title watcher) overwrites our manual path on the next
-    //    tick, same as a user would avoid by actually clicking into the field before typing.
+    // -> Marks the field dirty first, as a real focus would: otherwise the title watcher's
+    //    `!state.pathDirty` branch overwrites the path set below on the next tick.
     wrapper.vm.onPathFocus()
     wrapper.vm.state.path = 'foo/bar'
     await wrapper.vm.$nextTick()
@@ -190,17 +167,12 @@ describe('TreeBrowserDialog Path Name rejects slashes', () => {
   })
 })
 
-/**
- * `includeTranslations` (OpenProject #1026): `renamePage` mode fetches this page's translations on
- * mount to decide whether "Also move N translation(s)" has anything to offer, default checked.
- */
 describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
   /**
-   * A dedicated mount helper rather than the shared `mountDialog` above: that one resets
-   * `API_CLIENT.get` to an unconditional `mockReturnValue([])` right before mounting, which would
-   * clobber a per-URL mock configured beforehand -- `onMounted`'s `fetchTranslationsCount()` call
-   * fires synchronously up to its first `await`, i.e. during `mount()` itself, so the mock has to be
-   * in its final shape before that call, not merely before this helper returns.
+   * A dedicated mount helper rather than the shared `mountDialog` above, which resets
+   * `API_CLIENT.get` to an unconditional `mockReturnValue([])` right before mounting and would
+   * clobber a per-URL mock: `onMounted`'s `fetchTranslationsCount()` runs synchronously up to its
+   * first `await`, during `mount()` itself, so the mock must be final before then.
    */
   function mountRenameDialog({ tree = [], translations = [] } = {}, props = {}) {
     globalThis.API_CLIENT.get.mockImplementation((url) => ({
@@ -216,8 +188,6 @@ describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
         ...props
       },
       stores: { site: { id: 'site-1' } },
-      // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
-      //    its body to `document.body`, which is where this suite asserts.
       stubs: {}
     }).wrapper
   }
@@ -277,13 +247,8 @@ describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
 })
 
 /**
- * The three `mode` values, and what each one changes (OpenProject #2696).
- *
- * The design's Save as… sheet is one dialog with three headers: `mode` picks the title and its
- * glyph, and gates the "also move the translations" line. Asserted here per mode rather than only
- * for `renamePage`, because the header is the ONLY thing on the sheet that says which of the three
- * operations the reader is about to perform — a wrong glyph or a header that failed to switch is
- * silent otherwise.
+ * The header is the only thing on the sheet that says which of the three operations is about to
+ * happen, so a wrong glyph or a header that failed to switch is otherwise silent.
  */
 describe.each([
   ['savePage', 'pageSaveDialog.title', 'tabler:file-plus'],
@@ -315,7 +280,6 @@ describe.each([
 })
 
 describe('TreeBrowserDialog translations checkbox by mode', () => {
-  /** As `mountRenameDialog` below, but parameterised by mode — the count is what is being gated. */
   function mountWithTranslations(mode, translations) {
     globalThis.API_CLIENT.get.mockImplementation((url) => ({
       json: vi.fn().mockResolvedValue(url.includes('/translations') ? translations : [])
@@ -352,11 +316,6 @@ describe('TreeBrowserDialog translations checkbox by mode', () => {
   )
 })
 
-/**
- * The path bar is "what the tree and the leaf field add up to" (handoff 2). It used to show the
- * folder alone, which meant the one line on the sheet whose whole job is to say what will be
- * written never actually said it.
- */
 describe('TreeBrowserDialog path bar', () => {
   it('shows the folder and the leaf together', async () => {
     const wrapper = mountDialog({})
@@ -409,22 +368,18 @@ describe('TreeBrowserDialog path bar', () => {
 })
 
 /**
- * The contract `e2e/helpers/admin.js#savePage` drives, and which `page-publish.spec.js`,
- * `multi-site.spec.js` and `assets.spec.js` all run through: the path field auto-slugs from the
- * title on every keystroke until the field itself is focused, so the helper has to fill it
- * explicitly, by label.
- *
- * A restyle that moved the label, changed `pathDirty`'s trigger or renamed the Save button would
- * surface three aisles away as an e2e failure. These assertions make it fail here instead.
+ * The contract `e2e/helpers/admin.js#savePage` drives: the path field auto-slugs from the title
+ * until the field itself is focused, so the helper fills it explicitly, by label. A restyle that
+ * moved the label, changed `pathDirty`'s trigger or renamed the Save button would otherwise
+ * surface only as an e2e failure.
  */
 describe('TreeBrowserDialog e2e save-dialog contract', () => {
   it("the path field is still reachable as a labelled control named 'Path Name'", async () => {
     mountDialog({})
     await flushPromises()
 
-    // -> `getByLabel('Path Name')` resolves through a `<label for>` pointing at the control's id.
-    //    The Cardinal hint under the field adds an `aria-describedby`, which is a DESCRIPTION, not a
-    //    name — this asserts the association it must not have disturbed.
+    // -> `getByLabel` resolves through a `<label for>` pointing at the control's id. The hint under
+    //    the field adds an `aria-describedby`, which is a DESCRIPTION, not a name.
     const labels = [...document.body.querySelectorAll('.page-save-dialog label')]
     const pathLabel = labels.find((l) => l.textContent.trim().startsWith('pageSaveDialog.pathName'))
     expect(pathLabel).toBeDefined()
@@ -439,7 +394,6 @@ describe('TreeBrowserDialog e2e save-dialog contract', () => {
     await flushPromises()
     expect(wrapper.vm.state.pathDirty).toBe(false)
 
-    // -> The title watcher keeps slugging while the field is untouched
     wrapper.vm.state.title = 'First Title'
     await wrapper.vm.$nextTick()
     expect(wrapper.vm.state.path).toBe('first-title')
@@ -452,8 +406,6 @@ describe('TreeBrowserDialog e2e save-dialog contract', () => {
 
     expect(wrapper.vm.state.pathDirty).toBe(true)
 
-    // -> And from there the title no longer overwrites it, which is the whole point of the helper
-    //    filling the field explicitly
     wrapper.vm.state.path = 'chosen-by-the-caller'
     wrapper.vm.state.title = 'Second Title'
     await wrapper.vm.$nextTick()
@@ -470,19 +422,11 @@ describe('TreeBrowserDialog e2e save-dialog contract', () => {
 })
 
 /**
- * The card's geometry, measured in a real headless Chromium page (OpenProject #2696).
- *
- * The handoff pins four numbers to this sheet — an 860px card, a tree column at 1/3, a file list at
- * 2/3, and both of them scrolling INSIDE the same fixed 300px so the dialog does not grow with a
- * deep tree — and none of them can be checked under `happy-dom`, which runs no layout engine at all
- * (`getBoundingClientRect()` comes back zeroed regardless of the CSS). Asserting the inline style
- * string instead would only restate the source, which is exactly the failure mode
- * `test/realGridLayout.js` was written for.
- *
- * The page is handed the compiled `src/css/tailwind.css` (the `w-1/3` / `w-2/3` fractions and every
- * other utility on the markup) PLUS the `<style>` elements Vitest injected for this SFC's own
- * `<style>` block, which is where the column tint, the browser height and the corner
- * marks live. Both halves are needed: neither describes the dialog on its own.
+ * Measured in a real headless Chromium page: `happy-dom` runs no layout engine, so
+ * `getBoundingClientRect()` comes back zeroed whatever the CSS, and asserting the inline style
+ * string instead would only restate the source. The page is handed the compiled
+ * `src/css/tailwind.css` (the utilities on the markup) AND the `<style>` elements Vitest injected
+ * for this SFC — neither half describes the dialog on its own.
  */
 describe(
   'TreeBrowserDialog Cardinal geometry',
@@ -498,7 +442,7 @@ describe(
       await browser?.close()
     })
 
-    /** A folder tree and a file list far taller than the 300px they have to live inside. */
+    /** Far taller than the 300px the two columns have to live inside. */
     function crowdedTree(count = 40) {
       const folders = Array.from({ length: count }, (_, i) => ({
         id: `folder-${i}`,
@@ -518,14 +462,10 @@ describe(
       return [...folders, ...pages]
     }
 
-    /**
-     * Mounts the dialog, then re-renders the panel Chromium-side out of the markup and stylesheets the
-     * mount actually produced.
-     */
     async function measure({ entries = [], viewport = { width: 1280, height: 900 } } = {}) {
-      // -> The file-level `afterEach` only fires BETWEEN tests, and a test that measures twice (empty
-      //    against crowded) mounts twice inside one. Without this the second `querySelector` below
-      //    would resolve the first mount's panel and quietly measure the same dialog twice.
+      // -> The file-level `afterEach` only fires BETWEEN tests, and a test that measures twice
+      //    mounts twice inside one -- the second `querySelector` below would otherwise resolve the
+      //    first mount's panel and quietly measure the same dialog twice.
       document.body.innerHTML = ''
       globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue(entries) })
       mountWithApp(TreeBrowserDialog, {
@@ -596,7 +536,6 @@ describe(
       //    than a row that simply had nothing in it
       expect(crowded.overflowing).toEqual([true, true])
 
-      // -> And the card itself does not grow with them
       expect(Math.round(crowded.card.height)).toBe(Math.round(empty.card.height))
     }, 30000)
 

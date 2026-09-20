@@ -51,22 +51,17 @@ import { useAesthetic } from '@/composables/aesthetic'
 import { defineMonacoThemes, monacoThemeName } from '@/helpers/monacoTheme'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 
-// PROPS
-
 const props = defineProps({
-  /** Whoever saved the newer version the server now has, for the dialog message. */
   authorName: {
     type: String,
     required: false,
     default: ''
   },
-  /** The content the server actually has stored -- what this author's save was refused against. */
   serverContent: {
     type: String,
     required: false,
     default: ''
   },
-  /** This author's own unsaved edit, as it stood at the moment the conflict was detected. */
   pendingContent: {
     type: String,
     required: false,
@@ -74,32 +69,21 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// DIALOG
-
 const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
-
-// I18N
 
 const { t } = useI18n()
 
 /*
   Monaco cannot read the design-token layer (`defineTheme()` takes plain hex, not `var()`), so the
-  aesthetic is applied by registering both themes and switching between them -- see
-  `helpers/monacoTheme.js`.
+  aesthetic is applied by registering both themes and switching between them.
 */
 const aesthetic = useAesthetic()
 
-// DIFF EDITOR
-
 /*
-  Same shape as `PageHistoryOverlay.vue`'s own lazy diff-editor mount: `<w-dialog>` only renders its
-  teleported slot content -- including this template's `diffEl` container -- once `dialogVisible`
-  flips true on the tick after mount (see `useDialogComponent()`), so mounting Monaco has to wait for
-  that flip rather than running in this component's own `onMounted`.
+  `<w-dialog>` only renders its teleported slot content -- `diffEl` included -- once `dialogVisible`
+  flips true on the tick after mount, so mounting Monaco waits for that rather than for `onMounted`.
 */
 const diffEl = ref(null)
 let diffEditor = null
@@ -136,8 +120,6 @@ function mountEditor() {
     wordWrap: 'on'
   })
 
-  // -> Always markdown: this dialog is only ever opened from `PageHeader.vue`'s save-conflict
-  //    handling, unlike `PageHistoryOverlay.vue`'s multi-format history, so no `languageOf()` needed.
   originalModel = monaco.editor.createModel(props.serverContent, 'markdown')
   modifiedModel = monaco.editor.createModel(props.pendingContent, 'markdown')
   diffEditor.setModel({ original: originalModel, modified: modifiedModel })
@@ -172,6 +154,10 @@ onBeforeUnmount(disposeEditor)
   margin-bottom: 4px;
 }
 
+/*
+  FIXME: `rgba(#fff, 0.08)` is Sass syntax, invalid in plain CSS, so the border below never renders.
+  Write the color as `rgb(255 255 255 / 8%)`. `PageDraftRestoreDialog.vue` carries the same bug.
+*/
 .save-conflict-diff {
   height: 320px;
   border: 1px solid rgba(#fff, 0.08);

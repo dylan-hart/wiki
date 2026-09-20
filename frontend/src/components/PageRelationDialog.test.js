@@ -27,11 +27,6 @@ const MESSAGES = {
 }
 
 describe('PageRelationDialog', () => {
-  /**
-   * OpenProject #2725: unlike its two siblings (PagePropertiesDialog, NavItemEditor), this button
-   * carried no `icon` prop at all -- so it drew no glyph, rather than the wrong one. All three settle
-   * on `tabler:search` for the "Open Icon Picker" action.
-   */
   it('uses the search icon for the Select Icon / Open Icon Picker button', async () => {
     const { wrapper } = mountWithApp(PageRelationDialog, { messages: MESSAGES })
     await flushPromises()

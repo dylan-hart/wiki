@@ -10,13 +10,6 @@ import TreeNav from './TreeNav.vue'
 
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * OpenProject #2742: `TreeNav.vue`'s right-click `contextActionList` hardcoded `iconColor: 'blue'`
- * (newFolder), `'teal'` (duplicate/rename/move) and `'negative'` (delete) -- static strings passed
- * through to `WIcon`'s flat `text-<color>` class, with no dark-mode counterpart, unlike the sibling
- * chevron icon two lines away in `TreeNode.vue` (`:color="dark.isActive ? 'yellow-9' : 'brown-4'"`).
- * These assert each context-menu icon now resolves a dark-aware pair the same way.
- */
 describe('TreeNav context menu icon colors (OpenProject #2742)', () => {
   afterEach(() => {
     useDark().set(false)
@@ -40,8 +33,7 @@ describe('TreeNav context menu icon colors (OpenProject #2742)', () => {
         }
       },
       // -> Bypasses the popover's own show/hide logic so the context menu's contents are always in
-      //    the DOM to assert against, matching `PageNewMenu.test.js`'s established convention for
-      //    this exact component.
+      //    the DOM to assert against.
       stubs: { WMenu: { template: '<div><slot /></div>' } }
     }).wrapper
   }
@@ -77,13 +69,9 @@ describe('TreeNav context menu icon colors (OpenProject #2742)', () => {
 })
 
 /**
- * OpenProject #3090 ("File Manager tree has hover/expand-collapse animations the main navbar
- * doesn't"): `.treeview-label` used to fade its hover/active background in/out
- * (`transition: background-color 0.4s ease`), and the tree's own `treeview-enter/-leave` classes
- * used to slide+fade a folder's children in/out on expand/collapse -- both absent from
- * `NavSidebar.vue`/`NavSidebarItem.vue`. Checks the stylesheet source directly, since a settled
- * hover/active state and a settled expanded/collapsed state both look identical with or without a
- * `transition` declaration -- only the source shows whether one exists.
+ * Checks the stylesheet source directly: a settled hover/active state and a settled
+ * expanded/collapsed state look identical with or without a `transition` declaration, so only the
+ * source shows whether one exists.
  */
 describe('TreeNav: no hover or expand/collapse transitions (OpenProject #3090)', () => {
   it('declares no transition on .treeview-label and no treeview-enter/-leave animation rules', () => {
