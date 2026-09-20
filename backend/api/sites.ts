@@ -5,6 +5,7 @@ import { defaultLocale } from '../helpers/localeRouting.ts'
 import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
+import { semanticSearchAvailable } from '../helpers/semanticSearch.ts'
 import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
@@ -91,19 +92,6 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
   }
   return SITE_PERMISSIONS.filter((permission) =>
     CARDINAL.models.groups.checkSiteAccess(actor, permission, siteId)
-  )
-}
-
-/**
- * The single place the instance-wide pgvector capability and the site's own toggle are combined:
- * consumers read `features.semanticSearch` off the site-info response rather than re-deriving it.
- * `CARDINAL.capabilities` is absent on a `CARDINAL` that never ran the db boot step (a test stub),
- * which reads as `false`.
- */
-function semanticSearchAvailable(config: Record<string, any>): boolean {
-  return (
-    CARDINAL.capabilities?.semanticSearch === true &&
-    config.search?.config?.semanticEnabled === true
   )
 }
 
