@@ -793,3 +793,33 @@ describe('site store: openFileManager()', () => {
     expect(store.overlayOpts).toEqual({ insertMode: true })
   })
 })
+
+describe('site store: localeRouting', () => {
+  it('carries the locale aliases the site returns', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({
+        locales: {
+          primary: 'en',
+          forcePrefix: true,
+          active: ['en', 'zh-CN'],
+          aliases: { 'zh-CN': 'zh' }
+        }
+      })
+    )
+
+    expect(store.localeRouting).toEqual({
+      useLocales: true,
+      primary: 'en',
+      forcePrefix: true,
+      aliases: { 'zh-CN': 'zh' }
+    })
+  })
+
+  it('carries an empty alias map when the site returns none', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.localeRouting.aliases).toEqual({})
+  })
+})
