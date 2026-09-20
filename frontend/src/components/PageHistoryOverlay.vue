@@ -302,6 +302,7 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
+import { duplicatedPageProps } from '@/helpers/duplicatedPageProps'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
@@ -625,12 +626,8 @@ function branchFrom(version) {
           editor: full.meta?.editor || pageStore.editor,
           content,
           render: await renderOf(full, content),
-          description: full.meta?.description ?? '',
-          icon: full.meta?.icon ?? '',
-          tags: full.meta?.tags ?? [],
-          // -> A version that was scheduled carries dates this new page has not got, and the API
-          //    refuses that combination
-          publishState: full.meta?.publishState === 'published' ? 'published' : 'draft',
+          description: '',
+          ...duplicatedPageProps({ ...full.meta, ...full.meta?.config }),
           reasonForChange: t('history.branchReason', { date: humanizeDate(t, full.versionDate) })
         }
       }).json()
