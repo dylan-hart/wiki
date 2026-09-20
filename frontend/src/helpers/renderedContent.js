@@ -101,6 +101,13 @@ function tagCodeLanguage(pre) {
   }
 }
 
+function tagCodeLineStart(pre) {
+  if (!/^\d{1,9}$/.test(pre.dataset.lineStart ?? '')) {
+    return
+  }
+  pre.style.setProperty('--codeline-offset', String(Math.max(Number(pre.dataset.lineStart) - 1, 0)))
+}
+
 /**
  * RFC4180 quoting: a comma, a double quote or a newline in the text would otherwise be ambiguous with
  * the format's own delimiters.
@@ -299,6 +306,7 @@ function addCodeCopyButtons(root, t) {
     // -> Marks the block as done; the stylesheet also keys the button's position off this attribute
     pre.dataset.codeCopy = ''
     tagCodeLanguage(pre)
+    tagCodeLineStart(pre)
 
     const restingLabel = t('common.renderedContent.copyCode')
 

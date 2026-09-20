@@ -2249,3 +2249,36 @@ describe('_page-contents.css cobalt h1 ink (OpenProject #2964)', () => {
     })
   })
 })
+
+describe('_page-contents.css code-fence title bar, highlighted rows and start number (OpenProject #3588)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const source = readFileSync(join(dir, '_page-contents.css'), 'utf-8')
+
+  it('reads the gutter start from --codeline-offset rather than a typed attr()', () => {
+    expect(source).toMatch(/counter-reset:\s*codeline var\(--codeline-offset, 0\)/)
+    expect(source).not.toMatch(/attr\([^)]*type\(/)
+  })
+
+  it('takes the wash from a token derived from the keyword colour, so it themes with the code palette', () => {
+    expect(source).toMatch(
+      /--content-code-highlight:\s*color-mix\(in srgb, var\(--content-code-keyword\) \d+%, transparent\)/
+    )
+    expect(source).toMatch(/background-color:\s*var\(--content-code-highlight\)/)
+  })
+
+  it('draws the title bar off the shared code tokens, with no hard-coded colour in its rules', () => {
+    const start = source.indexOf('.codeblock-title {')
+    const end = source.indexOf('\n  }\n', start)
+    const rule = source.slice(start, end)
+    expect(start).toBeGreaterThan(-1)
+    expect(rule).toMatch(/border:\s*1px solid var\(--content-code-frame\)/)
+    expect(rule).toMatch(/border-inline-start:\s*2px solid var\(--content-code-edge\)/)
+    expect(rule).toMatch(/border-radius:\s*var\(--radius-card\)/)
+    expect(rule).toMatch(/direction:\s*ltr/)
+    expect(rule).not.toMatch(/#[0-9a-f]{3,8}\b/i)
+  })
+
+  it('keeps a titled block from splitting across a printed page', () => {
+    expect(source).toMatch(/pre\.codeblock,\s*\.codeblock-titled,\s*table,/)
+  })
+})
