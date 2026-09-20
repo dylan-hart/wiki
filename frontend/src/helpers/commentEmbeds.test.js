@@ -25,6 +25,8 @@ afterEach(() => {
   delete window.commento
   delete window.Artalk
   delete window.artalkInstance
+  delete window.remark_config
+  delete window.REMARK42
 })
 
 describe('COMMENT_EMBED_PROVIDERS.disqus', () => {
@@ -262,5 +264,111 @@ describe('COMMENT_EMBED_PROVIDERS.giscus', () => {
       )
       expect(container.children).toHaveLength(0)
     }
+  })
+})
+
+describe('COMMENT_EMBED_PROVIDERS.remark42', () => {
+  const config = {
+    host: 'https://remark.example.com/',
+    siteId: 'my-site',
+    theme: 'dark',
+    maxShownComments: 30
+  }
+
+  it('appends a #remark42 node and loads the host embed.js with the trailing slash stripped', async () => {
+    const container = makeContainer()
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      container,
+      config,
+      'https://wiki.example.com/en/getting-started'
+    )
+
+    expect(container.querySelector('#remark42')).not.toBeNull()
+    expect(
+      document.head.querySelectorAll('script[src="https://remark.example.com/web/embed.js"]')
+    ).toHaveLength(1)
+  })
+
+  it('sets remark_config from the config and the canonical pageUrl', async () => {
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      { ...config, host: 'https://config-values.example.com' },
+      'https://wiki.example.com/en/some-page'
+    )
+
+    expect(window.remark_config).toEqual({
+      host: 'https://config-values.example.com',
+      site_id: 'my-site',
+      url: 'https://wiki.example.com/en/some-page',
+      components: ['embed'],
+      theme: 'dark',
+      max_shown_comments: 30
+    })
+  })
+
+  it('falls back to the default site ID, light theme and 15 shown comments', async () => {
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      { host: 'https://defaults.example.com' },
+      'https://wiki.example.com/en/page'
+    )
+
+    expect(window.remark_config).toMatchObject({
+      site_id: 'remark',
+      theme: 'light',
+      max_shown_comments: 15
+    })
+  })
+
+  it('destroys and re-creates the instance instead of appending a second script once REMARK42 is present', async () => {
+    const calls = []
+    window.REMARK42 = {
+      destroy: () => calls.push(['destroy']),
+      createInstance: (cfg) => calls.push(['createInstance', cfg])
+    }
+    const container = makeContainer()
+
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      container,
+      { ...config, host: 'https://remount.example.com' },
+      'https://wiki.example.com/en/two'
+    )
+
+    expect(container.querySelector('#remark42')).not.toBeNull()
+    expect(calls).toEqual([['destroy'], ['createInstance', window.remark_config]])
+    expect(window.remark_config.url).toBe('https://wiki.example.com/en/two')
+    expect(document.head.querySelector('script[src*="remount.example.com"]')).toBeNull()
+  })
+
+  it('does not append a second script when mounted twice before REMARK42 exists', async () => {
+    const remounted = { ...config, host: 'https://twice.example.com' }
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      remounted,
+      'https://wiki.example.com/en/one'
+    )
+    await COMMENT_EMBED_PROVIDERS.remark42.mount(
+      makeContainer(),
+      remounted,
+      'https://wiki.example.com/en/two'
+    )
+
+    expect(
+      document.head.querySelectorAll('script[src="https://twice.example.com/web/embed.js"]')
+    ).toHaveLength(1)
+  })
+
+  it('mounts nothing and sets no config without a host', async () => {
+    for (const partial of [{}, { host: '' }, { host: '///' }]) {
+      const container = makeContainer()
+      await COMMENT_EMBED_PROVIDERS.remark42.mount(
+        container,
+        partial,
+        'https://wiki.example.com/en/page'
+      )
+      expect(container.children).toHaveLength(0)
+    }
+    expect(window.remark_config).toBeUndefined()
+    expect(document.head.querySelector('script')).toBeNull()
   })
 })

@@ -258,17 +258,19 @@ describe('commentProviders (definition loading)', () => {
     const commento = commentProvidersModel.definitions.find((d) => d.key === 'commento')!
     const artalk = commentProvidersModel.definitions.find((d) => d.key === 'artalk')!
     const giscus = commentProvidersModel.definitions.find((d) => d.key === 'giscus')!
+    const remark42 = commentProvidersModel.definitions.find((d) => d.key === 'remark42')!
     const defaultProvider = commentProvidersModel.definitions.find((d) => d.key === 'default')!
 
     assert.equal(disqus.codeTemplate, true)
     assert.equal(commento.codeTemplate, true)
     assert.equal(artalk.codeTemplate, true)
     assert.equal(giscus.codeTemplate, true)
+    assert.equal(remark42.codeTemplate, true)
     assert.equal(defaultProvider.codeTemplate, false)
   })
 
   test('all external providers are available and selectable via codeTemplate', () => {
-    for (const key of ['disqus', 'commento', 'artalk', 'giscus']) {
+    for (const key of ['disqus', 'commento', 'artalk', 'giscus', 'remark42']) {
       const definition = commentProvidersModel.definitions.find((d) => d.key === key)!
       assert.equal(definition.hasImplementation, false, `${key} unexpectedly has an implementation`)
       assert.equal(definition.codeTemplate, true, `${key} did not declare codeTemplate: true`)
