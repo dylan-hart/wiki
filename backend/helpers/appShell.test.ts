@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   resolveAppShellLocale,
   templateAppShell,
+  insertIntoAppShell,
   getTemplatedAppShell,
   resetAppShellCache
 } from './appShell.ts'
@@ -152,5 +153,98 @@ describe('getTemplatedAppShell', () => {
     assert.equal(second, '<html lang="fr" dir="ltr">')
     assert.equal(reader.readFile.calls.calls, 2)
     assert.equal(resolveCalls, 2)
+  })
+})
+
+describe('insertIntoAppShell', () => {
+  const shell =
+    '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title></head>\n<body><div id="app"></div></body>\n</html>'
+
+  test('inserts the head fragment before </head> and the body fragment before </body>', () => {
+    const result = insertIntoAppShell(shell, {
+      head: '<meta name="x" content="y">',
+      bodyEnd: '<i>z</i>'
+    })
+    assert.equal(
+      result,
+      '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title><meta name="x" content="y"></head>\n<body><div id="app"></div><i>z</i></body>\n</html>'
+    )
+  })
+
+  test('with nothing to insert the output is the very same string', () => {
+    assert.equal(insertIntoAppShell(shell, {}), shell)
+    assert.equal(insertIntoAppShell(shell, { head: '', bodyEnd: '' }), shell)
+    assert.equal(insertIntoAppShell(shell, { head: undefined, bodyEnd: undefined }), shell)
+  })
+
+  test('inserts each fragment independently', () => {
+    assert.equal(
+      insertIntoAppShell(shell, { head: '<b></b>' }),
+      shell.replace('</head>', '<b></b></head>')
+    )
+    assert.equal(
+      insertIntoAppShell(shell, { bodyEnd: '<b></b>' }),
+      shell.replace('</body>', '<b></b></body>')
+    )
+  })
+
+  test('inserts fragments verbatim, including String.replace $-patterns', () => {
+    const fragment = '<meta content="$& $1 $` $\' $$ $<x>">'
+    const result = insertIntoAppShell(shell, { head: fragment, bodyEnd: fragment })
+    assert.equal(result.split(fragment).length, 3)
+    assert.equal(
+      result,
+      shell
+        .replace('</head>', () => fragment + '</head>')
+        .replace('</body>', () => fragment + '</body>')
+    )
+  })
+
+  test('a closing tag inside one fragment does not redirect the other', () => {
+    const head = '<script>var s = "</body>"</script>'
+    const bodyEnd = '<script>var s = "</head>"</script>'
+    assert.equal(
+      insertIntoAppShell(shell, { head, bodyEnd }),
+      '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title><script>var s = "</body>"</script></head>\n<body><div id="app"></div><script>var s = "</head>"</script></body>\n</html>'
+    )
+  })
+
+  test('matches closing tags case-insensitively and with trailing whitespace', () => {
+    const result = insertIntoAppShell('<HEAD></HEAD >\n<BODY></BODY\n></html>', {
+      head: 'H',
+      bodyEnd: 'B'
+    })
+    assert.equal(result, '<HEAD>H</HEAD >\n<BODY>B</BODY\n></html>')
+  })
+
+  test('the body fragment goes before the last </body>', () => {
+    const html = '<head></head><body><script>"</body>"</script></body>'
+    assert.equal(
+      insertIntoAppShell(html, { bodyEnd: 'B' }),
+      '<head></head><body><script>"</body>"</script>B</body>'
+    )
+  })
+
+  test('a fragment whose closing tag is missing is dropped, the other still lands', () => {
+    assert.equal(
+      insertIntoAppShell('<html><body></body></html>', { head: 'H', bodyEnd: 'B' }),
+      '<html><body>B</body></html>'
+    )
+    assert.equal(
+      insertIntoAppShell('<html><head></head></html>', { head: 'H', bodyEnd: 'B' }),
+      '<html><head>H</head></html>'
+    )
+  })
+
+  test('does not touch the memoised base: repeated calls with different fragments are independent', async () => {
+    resetAppShellCache()
+    const deps = { readFile: async () => shell, stat: async () => ({ mtimeMs: 1 }) }
+    const base = await getTemplatedAppShell('/shell.html', 'en', () => false, deps)
+    const withHead = insertIntoAppShell(base, { head: '<meta name="a">' })
+    const again = await getTemplatedAppShell('/shell.html', 'en', () => false, deps)
+    assert.notEqual(withHead, base)
+    assert.equal(again, base)
+    assert.equal(insertIntoAppShell(again, {}), base)
+    assert.equal(base.includes('<meta name="a">'), false)
   })
 })
