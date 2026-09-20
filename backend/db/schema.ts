@@ -341,18 +341,22 @@ export const classificationLevels = pgTable(
   (table) => [uniqueIndex('classificationLevels_sortOrder_idx').on(table.sortOrder)]
 )
 
-export const groups = pgTable('groups', {
-  id: uuid().primaryKey().defaultRandom(),
-  name: varchar({ length: 255 }).notNull(),
-  permissions: jsonb().notNull(),
-  rules: jsonb().notNull(),
-  redirectOnLogin: varchar({ length: 255 }).notNull().default(''),
-  redirectOnFirstLogin: varchar({ length: 255 }).notNull().default(''),
-  redirectOnLogout: varchar({ length: 255 }).notNull().default(''),
-  isSystem: boolean().notNull().default(false),
-  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
-})
+export const groups = pgTable(
+  'groups',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: varchar({ length: 255 }).notNull(),
+    permissions: jsonb().notNull(),
+    rules: jsonb().notNull(),
+    redirectOnLogin: varchar({ length: 255 }).notNull().default(''),
+    redirectOnFirstLogin: varchar({ length: 255 }).notNull().default(''),
+    redirectOnLogout: varchar({ length: 255 }).notNull().default(''),
+    isSystem: boolean().notNull().default(false),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [uniqueIndex('groups_name_normalized_idx').on(sql`lower(trim(${table.name}))`)]
+)
 
 /** `value` is cased as the admin typed it; for an acronym alias that casing (e.g. "USS") is its
  *  canonical DISPLAY casing. */

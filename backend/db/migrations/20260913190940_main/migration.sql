@@ -657,6 +657,7 @@ CREATE INDEX "tree_tags_idx" ON "tree" USING gin ("tags");--> statement-breakpoi
 CREATE INDEX "tree_siteId_idx" ON "tree" ("siteId");--> statement-breakpoint
 CREATE UNIQUE INDEX "tree_composite_page_idx" ON "tree" ("siteId","locale","folderPath","fileName") WHERE "tree" = 'page';--> statement-breakpoint
 CREATE UNIQUE INDEX "tree_composite_nonpage_idx" ON "tree" ("siteId","locale","folderPath","fileName") WHERE "tree" <> 'page';--> statement-breakpoint
+CREATE UNIQUE INDEX "groups_name_normalized_idx" ON "groups" (lower(trim("name")));--> statement-breakpoint
 CREATE INDEX "userGroups_groupId_idx" ON "userGroups" ("groupId");--> statement-breakpoint
 CREATE INDEX "userKeys_userId_idx" ON "userKeys" ("userId");--> statement-breakpoint
 CREATE UNIQUE INDEX "userKeys_token_idx" ON "userKeys" ("token");--> statement-breakpoint
