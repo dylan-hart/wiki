@@ -6,6 +6,7 @@ import {
   mayBypassPassword,
   mayOnPage,
   mayReadSource,
+  mayReadSourceAs,
   pagePermissionsFor,
   unlockedFor
 } from './pageAccess.ts'
@@ -426,6 +427,34 @@ describe('mayReadSource', () => {
       }
     } as unknown as FastifyRequest
     assert.equal(mayReadSource(req, SITE_ID, { path: 'other/page', locale: 'en' }), true)
+  })
+
+  describe('mayReadSourceAs (actor-based core, no request)', () => {
+    const actorGranting = (permission: string | null) => ({
+      groupIds: ['rule-group'],
+      permissions: permission ? [permission] : []
+    })
+
+    test('read:source, write:pages and manage:pages each suffice', () => {
+      for (const permission of ['read:source', 'write:pages', 'manage:pages']) {
+        assert.equal(mayReadSourceAs(actorGranting(permission), SITE_ID, PAGE), true, permission)
+      }
+    })
+
+    test('read:pages alone, or nothing, refuses', () => {
+      assert.equal(mayReadSourceAs(actorGranting('read:pages'), SITE_ID, PAGE), false)
+      assert.equal(mayReadSourceAs(actorGranting(null), SITE_ID, PAGE), false)
+    })
+
+    test('a grant outside the rule scope still refuses', () => {
+      assert.equal(
+        mayReadSourceAs(actorGranting('write:pages'), SITE_ID, {
+          path: 'other/page',
+          locale: 'en'
+        }),
+        false
+      )
+    })
   })
 })
 

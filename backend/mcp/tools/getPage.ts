@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server'
 import { generatePathHash, normalizePagePath } from '../../helpers/common.ts'
+import { mayReadSourceAs } from '../../helpers/pageAccess.ts'
 import {
   actorFor,
   McpToolError,
@@ -79,10 +80,7 @@ export async function handleGetPage(
 
   // FIXME: unlike `helpers/pageAccess.ts#mayReadSource`, `write:pages`/`manage:pages` do not imply
   //    `read:source` here, so an editor's key is refused source the REST route returns. OR in both.
-  const maySeeSource = CARDINAL.models.groups.checkAccess(actor, 'read:source', {
-    ...page,
-    siteId: site.id
-  })
+  const maySeeSource = mayReadSourceAs(actor, site.id, page)
   const includeSource = Boolean(args.includeSource) && !page.isLocked && maySeeSource
 
   return toResult({
