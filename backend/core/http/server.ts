@@ -13,6 +13,7 @@ import {
 } from '../../helpers/common.ts'
 import { buildRequestLogContext } from '../../helpers/requestLogContext.ts'
 import { registerAjvFormats } from './ajvFormats.ts'
+import { createLiveTrustProxy } from './trustProxy.ts'
 import {
   createGracefulShutdown,
   registerProbes,
@@ -50,7 +51,7 @@ export function createHttpApp(): FastifyInstance {
     //    lookup reads `req.hostname`, so a trusted-proxy address/CIDR list here, not a bare `true`,
     //    is what keeps an untrusted client's `X-Forwarded-Host` from steering a request to another
     //    site -- see `docs/audits/tls-termination.md`.
-    trustProxy: CARDINAL.config.security.trustProxy ?? false,
+    trustProxy: createLiveTrustProxy(),
     routerOptions: {
       ignoreTrailingSlash: true
     }
