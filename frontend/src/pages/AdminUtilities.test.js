@@ -13,15 +13,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * The `import` utility used to be `disabled` with no handler at all (task 585). These tests cover the
- * two things it now does: picking a file opens the same destructive-action confirmation pattern as
- * `purgeHistory`/`invalidApiCertificates` (see `AdminUtilities.vue`'s other confirm() calls), and
- * confirming it uploads the file's raw bytes to `POST /_api/system/import`, scoped to the current
- * site — the same "body is the raw file, not a multipart form" shape `FileManager.vue` uses to upload
- * an asset.
- */
-
 const messages = {
   'admin.utilities.title': 'Utilities',
   'admin.utilities.subtitle': '',
@@ -76,7 +67,7 @@ async function mountUtilities() {
   }).wrapper
 }
 
-/** Picks a fake `.tar.gz` through the hidden file input, the way a real user's file picker would. */
+/** An input's `files` is read-only, so the picked file is defined onto the element directly. */
 async function pickFile(wrapper) {
   const file = new File(['fake tarball bytes'], 'export.tar.gz', { type: 'application/gzip' })
   const input = wrapper.find('input[type="file"]')
@@ -86,10 +77,9 @@ async function pickFile(wrapper) {
 }
 
 /**
- * The `export` utility used to be a permanently `disabled` button with no handler at all (WP 1214).
  * There is no separate status route for an export job — `GET /export/:jobId/download` itself answers
  * 409 while the job is still running — so `exportContent` polls that same download route until it
- * stops 409-ing, then saves whatever it resolves to.
+ * stops 409-ing.
  */
 describe('AdminUtilities export', () => {
   beforeEach(() => {
@@ -125,7 +115,6 @@ describe('AdminUtilities export', () => {
       json: { siteId: 'aaaaaaaa-0000-4000-8000-000000000001' }
     })
 
-    // -> Three polls of the download route: 409, 409, then the finished archive.
     await vi.advanceTimersByTimeAsync(1500)
     await flushPromises()
     await vi.advanceTimersByTimeAsync(1500)
@@ -139,11 +128,7 @@ describe('AdminUtilities export', () => {
     )
   })
 
-  /**
-   * WP 1896: the export is a content export, not a backup — restoring it loses accounts, page
-   * history, comments, settings, auth strategies, storage targets and site branding. Neither the
-   * button's own hint nor the line naming what the archive omits may call it a backup.
-   */
+  /** A content export, not a backup: restoring it loses accounts, history, comments and settings. */
   it('does not call the export a backup, and names what the archive omits', async () => {
     const wrapper = await mountUtilities()
 
@@ -223,12 +208,6 @@ describe('AdminUtilities import', () => {
   })
 })
 
-/**
- * The `scanPageProblems` utility used to be `disabled` with no handler (task 586). It queues a
- * background job, then polls `GET /_api/system/pages/scan/:jobId` — first `queued`/`active`, then
- * `completed` with the report — and shows that report inline rather than as a toast, since a scan's
- * whole value is the list of what it found.
- */
 describe('AdminUtilities scanPageProblems', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -290,7 +269,6 @@ describe('AdminUtilities scanPageProblems', () => {
 
     expect(API_CLIENT.post).toHaveBeenCalledWith('system/pages/scan')
 
-    // -> Three polls: queued, active, completed — each gated behind the poll interval
     await vi.advanceTimersByTimeAsync(1500)
     await flushPromises()
     await vi.advanceTimersByTimeAsync(1500)
@@ -354,12 +332,6 @@ describe('AdminUtilities scanPageProblems', () => {
   })
 })
 
-/**
- * OpenProject #3400: `convertWysiwygJson` follows the exact same queue-and-poll shape as
- * `scanPageProblems` above (`POST system/wysiwyg/convert` then poll `GET
- * system/wysiwyg/convert/:jobId`), just against a different report shape -- a converted count plus a
- * `failed` list, shown inline the same way.
- */
 describe('AdminUtilities convertWysiwygJson', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -458,16 +430,6 @@ describe('AdminUtilities convertWysiwygJson', () => {
   })
 })
 
-/**
- * The Cardinal settings pattern, as it reaches a TOOL page.
- *
- * Each of these eleven utilities is a fixed, design-time named action: a plate, a label over a
- * sentence, and one control at the trailing edge. That is the settings row's own shape, so the page
- * draws them with `WSettingsRow` rather than the hand-written `WItem` + `BlueprintIcon` + two
- * `WItemSection` + two `WItemLabel` stack it used to. What it deliberately does NOT take is a header
- * strip on the tool card (the page header above already names it) — while the scan-results card,
- * which the page header does not name, does take one.
- */
 describe('AdminUtilities settings pattern', () => {
   it('draws every tool as a settings row with a plate, a label and one trailing control', async () => {
     const wrapper = await mountUtilities()
@@ -491,8 +453,7 @@ describe('AdminUtilities settings pattern', () => {
   it('leaves no hand-written list row behind', async () => {
     const wrapper = await mountUtilities()
 
-    // -> The tool list's own `WItem`s are gone. The scan report's expansion list is not mounted
-    //    here (no report yet), so the page should hold none at all.
+    // -> The scan report's expansion list is not mounted yet, so no `.w-item` should exist at all.
     expect(wrapper.findAll('.w-item')).toHaveLength(0)
   })
 
@@ -506,7 +467,6 @@ describe('AdminUtilities settings pattern', () => {
     const control = row.find('.w-settings-row__control')
     expect(control.find('select, input, [role="combobox"]').exists()).toBe(true)
     expect(control.text()).toContain('Proceed')
-    // -> One control cell, not two: `WSettingsRow` has a single trailing slot by design.
     expect(row.findAll('.w-settings-row__control')).toHaveLength(1)
   })
 

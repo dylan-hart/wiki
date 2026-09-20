@@ -27,10 +27,9 @@
     </div>
     <div class="p-4 gap-4">
       <!--
-        The settings row, not a hand-written `WItem` stack: each of these is a fixed, design-time
-        named action -- a label, a sentence, and one control at the trailing edge -- which is the
-        same shape a settings row draws and the same material the design says a menu row is made of.
-        No header strip on the card: the page header above already names it.
+        Each row is a fixed, design-time named action -- a label, a sentence, one trailing control --
+        which is the settings row's own shape. No header strip: the page header above already names
+        the card.
       -->
       <w-card>
         <w-settings-row
@@ -50,7 +49,6 @@
           icon="tabler:database-export"
           control-width="auto"
           :label="t(`admin.utilities.export`)">
-          <!-- Two sentences, not one: what the export contains, and what it deliberately leaves out. -->
           <template #hint>
             <div>{{ t(`admin.utilities.exportHint`) }}</div>
             <div>{{ t(`admin.utilities.exportExclusions`) }}</div>
@@ -131,9 +129,8 @@
             :label="t(`common.actions.proceed`)" />
         </w-settings-row>
         <!--
-          The one row with two controls. `WSettingsRow` has a single trailing slot by design, so the
-          timeframe the action reads and the button that runs it go into it as one group rather than
-          asking the shared component for a second slot.
+          `WSettingsRow` has a single trailing slot by design, so the timeframe and the button that
+          reads it go into it as one group rather than asking for a second slot.
         -->
         <w-settings-row
           icon="tabler:history"
@@ -203,10 +200,6 @@
             :label="t(`common.actions.proceed`)" />
         </w-settings-row>
       </w-card>
-      <!--
-        Inline for the same reason as the scan report above: the value of a run is the list of what
-        it could not convert, read right beside the button that ran it.
-      -->
       <w-card v-if="state.wysiwygConvertReport" class="mt-4">
         <w-card-header>
           {{ t('admin.utilities.wysiwygConvertResults') }}
@@ -236,16 +229,10 @@
         </w-list>
       </w-card>
       <!--
-        Inline rather than a dialog or the scheduler's history view: the value of this scan is the
-        list of what it found, and an admin reviewing that wants it beside the button that ran it, not
-        behind another click.
+        Inline rather than a dialog: a run's value is the list of what it found, read beside the
+        button that ran it rather than behind another click. Same for the conversion report above.
       -->
       <w-card v-if="state.scanReport" class="mt-4">
-        <!--
-          A heading the page header does not already give: this card is a result, not the page. The
-          band is `w-card-header` -- the app-wide section header -- rather than the settings card's
-          own strip, which is inseparable from `WSettingsCard`; whether the two converge is #2631's.
-        -->
         <w-card-header>
           {{ t('admin.utilities.scanPageProblemsResults') }}
           <template #hint>{{
@@ -296,37 +283,25 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// STORES
-
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.utilities.title')
 }))
-
-// DATA
 
 const state = reactive({
   purgeHistoryTimeframe: '1y',
   isScanning: false,
   isExporting: false,
   isConvertingWysiwyg: false,
-  /** The last completed scan's report, or null before one has run. See `scanPageProblems`. */
   scanReport: null,
-  /** The last completed conversion's report, or null before one has run. See `convertWysiwygJson`. */
   wysiwygConvertReport: null
 })
 
 const importFileIpt = ref(null)
-
-// COMPUTED
 
 const purgeHistoryTimeframes = computed(() => [
   { value: '24h', label: t('admin.utilities.purgeHistoryToday') },
@@ -344,10 +319,7 @@ const scanReportScannedAt = computed(() => {
   return userStore.formatDateTime(t, state.scanReport.scannedAt, { seconds: true })
 })
 
-/**
- * The report's five checks, each with its entries rendered as one readable line — a raw dump of
- * every field would be harder to scan than the sentence a human would write about it.
- */
+/** Each entry renders as one readable line: a raw dump of every field is harder to scan. */
 const scanChecks = computed(() => {
   if (!state.scanReport) {
     return []
@@ -394,16 +366,13 @@ const scanReportHasProblems = computed(() =>
   scanChecks.value.some((check) => check.entries.length > 0)
 )
 
-// METHODS
-
 /**
- * Close every websocket the wiki holds — the editors of anyone collaborating on a page, and any open
- * admin terminal. Confirmed first because it interrupts people who are working: their clients
- * reconnect on their own, but an editor is briefly cut off from the others in its room.
+ * Confirmed because it interrupts people who are working: clients reconnect on their own, but an
+ * editor is briefly cut off from the others in its room.
  *
- * Both this and {@link flushCache} reach every instance: the one answering the request acts on itself
- * and publishes the same instruction to the others. `count` in the response is therefore only what
- * this one closed, which is why it is not reported.
+ * This and {@link flushCache} reach every instance — the one answering publishes the same
+ * instruction to the rest — so the response's `count` covers only this instance's own closures and
+ * is not reported.
  */
 function disconnectWS() {
   confirm({
@@ -432,11 +401,10 @@ function disconnectWS() {
 }
 
 /**
- * Replace the keypair API keys are signed with, taking back every key ever issued.
- *
- * Nobody is logged out by this — session cookies are signed with a secret of their own, which is the
- * point of the two being separate — but every integration holding a key stops working until it is
- * given a new one, so the confirmation says how many are affected rather than asking blind.
+ * Replaces the keypair API keys are signed with, taking back every key ever issued. Nobody is logged
+ * out — session cookies are signed with a secret of their own, which is the point of the two being
+ * separate — but every integration holding a key stops working until it is given a new one, so the
+ * confirmation reports how many are affected rather than asking blind.
  */
 function invalidateApiCertificates() {
   confirm({
@@ -468,11 +436,8 @@ function invalidateApiCertificates() {
 }
 
 /**
- * Rotate the secret session cookies are signed with, and end every session.
- *
- * Including this one: the admin who clicks it is logged out with everybody else, which the
- * confirmation says outright. Nothing is notified afterwards for that reason — the router lands on
- * the login screen while the notification would still be on its way.
+ * Ends every session including this one, which the confirmation says outright. Nothing is notified
+ * on success for that reason — the login screen loads while the notification is still on its way.
  */
 function invalidateSessionSecret() {
   confirm({
@@ -487,9 +452,8 @@ function invalidateSessionSecret() {
     loading.show()
     try {
       await API_CLIENT.post('system/sessions/invalidate').json()
-      // -> This session is one of the ones just ended, so there is nowhere to go but back to the
-      //    login screen. A full load rather than a route push: every store is holding the state of
-      //    somebody who is no longer signed in.
+      // -> A full load rather than a route push: every store still holds the state of somebody who
+      //    is no longer signed in.
       window.location.assign('/login')
     } catch (err) {
       loading.hide()
@@ -503,12 +467,9 @@ function invalidateSessionSecret() {
 }
 
 /**
- * Rotate the key pageview `visitorHash` rows are keyed with (OpenProject #2288).
- *
- * Existing rows are left untouched, but they stop correlating with anything logged from here on —
- * the confirmation says so, since that is the entire point of rotating rather than a side effect to
- * apologize for. Unlike {@link invalidateSessionSecret}, nobody is logged out and nothing else stops
- * working: no other part of the app keys off `pageviews.hashKey`.
+ * Existing `visitorHash` rows are left untouched but stop correlating with anything logged from here
+ * on — the point of rotating, and what the confirmation says. Nothing else in the app keys off
+ * `pageviews.hashKey`, so nobody is logged out and nothing else stops working.
  */
 function rotatePageviewsHashKey() {
   confirm({
@@ -542,10 +503,8 @@ function rotatePageviewsHashKey() {
 }
 
 /**
- * Delete every page version older than the selected timeframe, on every site.
- *
- * Confirmed, and named in the confirmation: pages keep what they say now, but a version thrown away
- * here is gone for good — and the versions of a page somebody deleted are all that is left of it.
+ * Every site, not only the current one. A version discarded here is gone for good, and the versions
+ * of a deleted page are all that is left of it — hence the destructive confirmation.
  */
 function purgeHistory() {
   const timeframe = purgeHistoryTimeframes.value.find(
@@ -581,12 +540,7 @@ function purgeHistory() {
   })
 }
 
-/**
- * Delete the rows of keys somebody revoked.
- *
- * Confirmed, but not coloured as a destruction: nothing loses access here, since a revoked key
- * already had none. What goes is the record that it existed.
- */
+/** Nothing loses access: a revoked key already had none. What goes is the record that it existed. */
 function purgeRevokedKeys() {
   confirm({
     title: t('admin.utilities.purgeRevokedKeys'),
@@ -616,16 +570,12 @@ function purgeRevokedKeys() {
   })
 }
 
-/** How long to wait between polls of a running export's download route. */
 const EXPORT_POLL_INTERVAL_MS = 1500
 
 /**
- * Queue a content export for the current site, then poll the download route until the job is done
- * and save the resulting tarball.
- *
  * There is no separate status route for an export job — `GET /export/:jobId/download` itself answers
- * 409 while the job is still running, so polling it directly is also the same call that fetches the
- * finished archive, with no extra round-trip once it succeeds.
+ * 409 while the job is still running — so the poll and the fetch of the finished archive are the
+ * same call.
  */
 async function exportContent() {
   state.isExporting = true
@@ -671,22 +621,13 @@ async function exportContent() {
   state.isExporting = false
 }
 
-/**
- * Open the file picker for a content archive to import. The actual upload happens in
- * {@link importFileSelected} once a file has been chosen, so this only ever triggers the native
- * dialog.
- */
 function pickImportFile() {
   importFileIpt.value.click()
 }
 
 /**
- * Confirm, then upload the picked archive and queue its restore into the current site.
- *
- * Confirmed and coloured as a destruction, matching `purgeHistory`/`invalidApiCertificates`: unlike
- * those, this one names the site by hostname, since what it is about to overwrite is not obvious from
- * the button alone. The body is the raw file (not a multipart form), same pattern `FileManager.vue`
- * uses to upload an asset.
+ * The confirmation names the site by hostname: what the import is about to overwrite is not obvious
+ * from the button alone. The body is the raw file, not a multipart form.
  */
 function importFileSelected() {
   const file = importFileIpt.value.files?.[0]
@@ -731,11 +672,7 @@ function importFileSelected() {
     })
 }
 
-/**
- * Throw away everything the wiki has cached off the database — files, icons, and the site, group and
- * locale state read on every request. Not confirmed: nothing is lost and nothing stops working, the
- * next request simply pays for the refill.
- */
+/** Not confirmed: nothing is lost and nothing stops working, the next request pays for the refill. */
 async function flushCache() {
   loading.show()
   try {
@@ -754,15 +691,9 @@ async function flushCache() {
   loading.hide()
 }
 
-/** How long to wait between polls of a running scan job. */
 const SCAN_POLL_INTERVAL_MS = 1500
 
-/**
- * Queue a page problems scan and poll its job until it finishes, then show the report inline (see the
- * template) rather than just a toast — a scan's whole value is the list of what it found.
- *
- * Not confirmed: this only reads, nothing it does is destructive.
- */
+/** Not confirmed: the scan only reads. */
 async function scanPageProblems() {
   state.isScanning = true
   state.scanReport = null
@@ -793,16 +724,11 @@ async function scanPageProblems() {
   state.isScanning = false
 }
 
-/** How long to wait between polls of a running conversion job. Same cadence as the scan above. */
 const WYSIWYG_CONVERT_POLL_INTERVAL_MS = 1500
 
 /**
- * Queue the legacy WYSIWYG JSON conversion (OpenProject #3400) and poll its job until it finishes,
- * then show the report inline (see the template) — mirrors `scanPageProblems`'s own queue-and-poll
- * shape, since this is the same "background job, then read its report back" pattern.
- *
- * Not confirmed: every row it touches was already labeled as this editor's own content, and what
- * changes is how it's encoded, not what it says.
+ * Not confirmed: what changes is how a row is encoded, not what it says, and every row it touches is
+ * already labeled as this editor's own content.
  */
 async function convertWysiwygJson() {
   state.isConvertingWysiwyg = true

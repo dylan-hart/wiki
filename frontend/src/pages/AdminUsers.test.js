@@ -33,11 +33,6 @@ async function mountPage() {
   return { wrapper }
 }
 
-/**
- * OpenProject #953: the search watcher called `load({ page: 1 })` directly but left
- * `state.currentPage` (bound to `w-pagination`) at whatever it was -- typing a search while on page 3
- * fetched page 1 of the filtered results while the pager kept highlighting page 3.
- */
 describe('AdminUsers search resets the pager (OpenProject #953)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -50,8 +45,8 @@ describe('AdminUsers search resets the pager (OpenProject #953)', () => {
   it('resets state.currentPage to 1 when a search is typed while on a later page', async () => {
     const { wrapper } = await mountPage()
 
-    // -> Lands on page 3 the same way a reader would: clicking a pager button, which is what drives
-    //    `state.currentPage` via the `currentPage` watcher's own `load()` call.
+    // -> Clicks the pager rather than setting `state.currentPage`, so the `currentPage` watcher's
+    //    own `load()` runs the way it does for a reader.
     const pageThreeBtn = wrapper.findAll('button').find((b) => b.text() === '3')
     await pageThreeBtn.trigger('click')
     await vi.waitUntil(() => API_CLIENT.get.mock.calls.length >= 2)
@@ -85,9 +80,8 @@ describe('AdminUsers search resets the pager (OpenProject #953)', () => {
 
     const search = wrapper.find('input')
     await search.setValue('alice')
-    // -> The debounce is 400ms; advancing well past it and settling any microtasks it schedules is
-    //    what would have caught a second, redundant fetch from the currentPage watcher reacting to
-    //    the reset -- one that a shorter wait, or asserting immediately, could miss.
+    // -> Well past the 400ms debounce, then settling its microtasks: a shorter wait could miss a
+    //    second, redundant fetch from the `currentPage` watcher reacting to the reset.
     await vi.advanceTimersByTimeAsync(1000)
     await Promise.resolve()
 
@@ -108,10 +102,7 @@ describe('AdminUsers search resets the pager (OpenProject #953)', () => {
   })
 })
 
-/**
- * OpenProject #2064: `AdminUsers` filters server-side, so a no-match search empties `state.users`
- * entirely -- with `hide-header` set on `<w-table>`, that used to be a literally blank white card.
- */
+/** Filtering is server-side, so a no-match search empties `state.users` rather than hiding rows. */
 describe('AdminUsers empty state (OpenProject #2064)', () => {
   beforeEach(() => {
     vi.useFakeTimers()

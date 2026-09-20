@@ -118,9 +118,8 @@
                   :color="dark.isActive ? `indigo-4` : `indigo`"
                   :label="canManage ? t(`common.actions.edit`) : t(`common.actions.view`)" />
                 <!--
-                  Disabled rather than hidden for your own account: the row is yours and the action
-                  exists, it is just not yours to take — deleting the account you are signed in as
-                  would end the session that was doing it. Another administrator can.
+                  Disabled rather than hidden for your own account: deleting the account you are
+                  signed in as would end the session doing it. Another administrator can.
                 -->
                 <w-btn
                   class="acrylic-btn"
@@ -178,34 +177,22 @@ import UserDeleteDialog from '../components/UserDeleteDialog.vue'
 import UserDefaultsMenu from '@/components/UserDefaultsMenu.vue'
 import AdminPageEyebrow from '@/components/AdminPageEyebrow.vue'
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// META
 
 useMeta(() => ({
   title: t('admin.users.title')
 }))
 
-// COMPUTED
-
 /*
-  `read:users` reaches this page too (see the nav in `AdminLayout`), and everything that writes needs
-  `manage:users` -- so the controls behind it are hidden rather than left to fail at the API.
+  `read:users` reaches this page too, and every write needs `manage:users` -- so the write controls
+  are hidden rather than left to fail at the API.
 */
 const canManage = computed(() => userStore.can('manage:users'))
-
-// DATA
 
 const state = reactive({
   users: [],
@@ -254,23 +241,16 @@ const headers = [
   }
 ]
 
-// OVERLAY ROUTE
-
 useAdminOverlayRoute({
   overlay: 'UserEditOverlay',
   listPath: '/_admin/users',
   onClosed: load
 })
 
-// WATCHERS
-
 /**
  * Set by the search watcher just before it resets `state.currentPage` to 1, so the `currentPage`
- * watcher below -- which would otherwise treat that reset as an ordinary, user-driven page change
- * (the pager click it exists for) and issue its own, duplicate `load({ page: 1 })` -- skips its own
- * fetch instead. Without this, typing a search while on page 3 fetched page 1 of the filtered
- * results while `w-pagination` (bound to `state.currentPage`) kept highlighting page 3 -- the pager
- * was left desynced from what was actually shown (OpenProject #953).
+ * watcher below does not read that reset as a pager click and issue a duplicate
+ * `load({ page: 1 })`.
  */
 let resettingPageForSearch = false
 
@@ -292,8 +272,6 @@ watch(
     load({ page: newValue })
   }
 )
-
-// METHODS
 
 async function load({ page } = {}) {
   state.loading++
@@ -335,8 +313,6 @@ function deleteUser(usr) {
     }
   }).onOk(load)
 }
-
-// MOUNTED
 
 onMounted(() => {
   load({ page: 1 })

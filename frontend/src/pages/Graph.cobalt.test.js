@@ -4,13 +4,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #2777 ("Tags + Search + Graph: diff against Cobalt mockups, fix gaps"). Same rationale
- * as `TagsBrowse.cobalt.test.js`/`Search.cobalt.test.js`: a source-text scan, not a mounted-and-
- * computed style, is the established pattern for pinning a hand-edited `<style>` block's shape here.
- *
- * `Graph.vue`'s floating panels, legend and tooltip all styled themselves with hardcoded Ledger
- * SCSS literals scoped only by bare .body--light/.body--dark -- never body.body--cobalt -- so the
- * screen picked up no Cobalt color, radius or shadow at all. This suite pins the fix.
+ * A source-text scan rather than a mounted-and-computed style: what is pinned here is the shape of a
+ * hand-edited `<style>` block, not what one selector resolves to.
  */
 
 const SOURCE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'Graph.vue')
@@ -22,8 +17,8 @@ function styleBlock(src) {
 
 describe('Graph.vue Cobalt diff (OpenProject #2777)', () => {
   it('introduces no hardcoded Ledger SCSS color literal in its style block', () => {
-    // -> Strip comments first: several explain the fix by NAMING the literal they replaced
-    //    (`$ink`, ...), which would otherwise read as the regression itself.
+    // -> Strip comments first: a comment that names one of these literals would read as the
+    //    regression itself.
     const withoutComments = styleBlock(source).replace(/\/\*[\s\S]*?\*\//g, '')
     expect(withoutComments).not.toMatch(
       /\$(hairline|surface|primary|slate|ink|tint|dark-\d|text-(body|secondary|caption|dark)(-dark)?|accent-(fill|strong|dark|text)|paper)\b/
@@ -40,8 +35,7 @@ describe('Graph.vue Cobalt diff (OpenProject #2777)', () => {
     const overrides = styleBlock(source).match(
       /body\.body--cobalt & \{\s*border: 0;\s*border-radius: var\(--radius-card\);\s*box-shadow: var\(--shadow-card\);\s*\}/g
     )
-    // -> One for the shared .graph-panel class (both floating panels carry it in the template), one
-    //    for the truncation notice.
+    // -> One for the shared .graph-panel class, one for the truncation notice.
     expect(overrides?.length).toBe(2)
   })
 
