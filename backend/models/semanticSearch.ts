@@ -1,10 +1,9 @@
 import { sql } from 'drizzle-orm'
 import { embedText } from '../helpers/embeddings.ts'
-import { escapeLikePattern } from '../helpers/common.ts'
-import { filterVisible } from '../modules/search/shared.ts'
+import { buildSqlFilterConditions, filterVisible } from '../modules/search/shared.ts'
 import type { AccessActor } from './groups.ts'
 import type { VisibilityRef } from '../modules/search/shared.ts'
-import type { SearchPagesResult } from './search.ts'
+import type { SearchFilters, SearchPagesResult } from './search.ts'
 
 /**
  * `pageEmbeddingChunks` is deliberately **not** declared in `db/schema.ts` / managed by
@@ -74,17 +73,11 @@ export interface SemanticSearchResult {
   hop: 1 | 2
 }
 
-export interface AnnSearchScope {
+export interface AnnSearchScope extends SearchFilters {
   siteId: string
   /** Never empty — the route defaults it to the site's primary locale. */
   locales: string[]
   actor?: AccessActor
-  /** Prefix match, as in keyword search. */
-  path?: string
-  /** A page must carry every one of these, not merely one. */
-  tags?: string[]
-  editor?: string
-  publishState?: string
 }
 
 /** `actor` is excluded deliberately: permission filtering is `filterVisible`'s job, never SQL. */
@@ -138,30 +131,11 @@ function parseVector(raw: unknown): number[] {
 async function queryChunks(
   embedding: number[],
   siteId: string,
-  { locales, path, tags, editor, publishState }: ChunkFilters
+  filters: ChunkFilters
 ): Promise<SemanticChunkMatch[]> {
   const vectorLiteral = toVectorLiteral(embedding)
 
-  const conditions = [
-    sql`p."siteId" = ${siteId}`,
-    // -> `sql.param`, because drizzle expands a bare array into a list of placeholders rather than
-    //    binding it as one array value.
-    sql`p.locale = ANY(${sql.param(locales)}::text[])`
-  ]
-  if (path) {
-    // -> `escapeLikePattern` makes the filter literal; the trailing `%` is what makes it a prefix
-    //    match rather than an exact one.
-    conditions.push(sql`p.path LIKE ${`${escapeLikePattern(path)}%`}`)
-  }
-  if (tags && tags.length > 0) {
-    conditions.push(sql`p.tags @> ${sql.param(tags)}::text[]`)
-  }
-  if (editor) {
-    conditions.push(sql`p.editor = ${editor}`)
-  }
-  if (publishState) {
-    conditions.push(sql`p."publishState" = ${publishState}`)
-  }
+  const conditions = [sql`p."siteId" = ${siteId}`, ...buildSqlFilterConditions(filters)]
 
   const result = await CARDINAL.db.execute(sql`
     SELECT
@@ -211,9 +185,9 @@ async function queryChunks(
  */
 export async function annSearch(
   embedding: number[],
-  { siteId, locales, actor, path, tags, editor, publishState }: AnnSearchScope
+  { siteId, actor, ...filters }: AnnSearchScope
 ): Promise<SemanticChunkMatch[]> {
-  const rows = await queryChunks(embedding, siteId, { locales, path, tags, editor, publishState })
+  const rows = await queryChunks(embedding, siteId, filters)
   return filterVisible(rows, actor, siteId, toVisibilityRef)
 }
 
@@ -249,15 +223,9 @@ export async function runHop2(
  */
 async function hop1Outcome(
   queryVector: number[],
-  { siteId, locales, actor, path, tags, editor, publishState }: AnnSearchScope
+  { siteId, actor, ...filters }: AnnSearchScope
 ): Promise<HopOutcome> {
-  const scanned = await queryChunks(queryVector, siteId, {
-    locales,
-    path,
-    tags,
-    editor,
-    publishState
-  })
+  const scanned = await queryChunks(queryVector, siteId, filters)
   const visible = filterVisible(scanned, actor, siteId, toVisibilityRef)
   return { scanned, visible }
 }
@@ -265,12 +233,10 @@ async function hop1Outcome(
 /** `runHop2`'s counterpart, for the same reason `hop1Outcome` is `annSearch`'s. */
 async function hop2Outcome(
   seeds: SemanticChunkMatch[],
-  { siteId, locales, actor, path, tags, editor, publishState }: AnnSearchScope
+  { siteId, actor, ...filters }: AnnSearchScope
 ): Promise<HopOutcome> {
   const scannedBatches = await Promise.all(
-    seeds.map((seed) =>
-      queryChunks(seed.embedding, siteId, { locales, path, tags, editor, publishState })
-    )
+    seeds.map((seed) => queryChunks(seed.embedding, siteId, filters))
   )
   const scanned = scannedBatches.flat()
   const visible = filterVisible(scanned, actor, siteId, toVisibilityRef)
@@ -365,28 +331,14 @@ export async function search(
   actor: AccessActor | undefined,
   siteId: string,
   locales: string[],
-  {
-    limit,
-    offset,
-    path,
-    tags,
-    editor,
-    publishState
-  }: {
-    limit: number
-    offset: number
-    path?: string
-    tags?: string[]
-    editor?: string
-    publishState?: string
-  }
+  { limit, offset, ...filters }: Omit<SearchFilters, 'locales'> & { limit: number; offset: number }
 ): Promise<SemanticSearchPagesResult> {
   const queryVector = await embedText(query)
   if (!queryVector) {
     return { results: [], totalHits: 0, totalHitsApproximate: false, suggestion: null }
   }
 
-  const scope: AnnSearchScope = { siteId, locales, actor, path, tags, editor, publishState }
+  const scope: AnnSearchScope = { ...filters, siteId, locales, actor }
   const hop1Result = await hop1Outcome(queryVector, scope)
   const seeds = selectHop2Seeds(hop1Result.visible)
   const hop2Result = seeds.length > 0 ? await hop2Outcome(seeds, scope) : EMPTY_HOP_OUTCOME

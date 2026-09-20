@@ -121,14 +121,14 @@ describe('buildFilters()', () => {
 
   test('an explicit publishState ANDs onto the publicOnly/includeDrafts branch, not replaces it', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, publishState: 'published' })),
+      buildFilters(params({ includeDrafts: true, publishState: ['published'] })),
       'siteId:"site-1" AND isSearchable:true AND publishState:"published"'
     )
   })
 
   test('path becomes a pathAncestors equality filter', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, path: 'docs/guide' })),
+      buildFilters(params({ includeDrafts: true, path: ['docs/guide'] })),
       'siteId:"site-1" AND isSearchable:true AND pathAncestors:"docs/guide"'
     )
   })
@@ -149,15 +149,55 @@ describe('buildFilters()', () => {
 
   test('editor becomes an equality filter', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, editor: 'markdown' })),
+      buildFilters(params({ includeDrafts: true, editor: ['markdown'] })),
       'siteId:"site-1" AND isSearchable:true AND editor:"markdown"'
     )
   })
 
   test('escapes a quote embedded in a filter value', () => {
     assert.equal(
-      buildFilters(params({ includeDrafts: true, editor: 'weird"editor' })),
+      buildFilters(params({ includeDrafts: true, editor: ['weird"editor'] })),
       'siteId:"site-1" AND isSearchable:true AND editor:"weird\\"editor"'
+    )
+  })
+
+  test('several include values become an OR group', () => {
+    assert.equal(
+      buildFilters(
+        params({
+          includeDrafts: true,
+          path: ['docs', 'guides'],
+          editor: ['markdown', 'code'],
+          publishState: ['published', 'scheduled']
+        })
+      ),
+      'siteId:"site-1" AND isSearchable:true AND (publishState:"published" OR publishState:"scheduled")' +
+        ' AND (pathAncestors:"docs" OR pathAncestors:"guides") AND (editor:"markdown" OR editor:"code")'
+    )
+  })
+
+  test('every exclude list becomes native NOT facet clauses', () => {
+    assert.equal(
+      buildFilters(
+        params({
+          includeDrafts: true,
+          excludePath: ['docs/private', 'drafts'],
+          excludeLocales: ['fr'],
+          excludeTags: ['old', 'stale'],
+          excludeEditor: ['code'],
+          excludePublishState: ['scheduled']
+        })
+      ),
+      'siteId:"site-1" AND isSearchable:true AND NOT publishState:"scheduled"' +
+        ' AND NOT pathAncestors:"docs/private" AND NOT pathAncestors:"drafts"' +
+        ' AND NOT locale:"fr" AND NOT tags:"old" AND NOT tags:"stale" AND NOT editor:"code"'
+    )
+  })
+
+  test('an exclusion value is escaped like an inclusion', () => {
+    assert.equal(
+      buildFilters(params({ includeDrafts: true, excludeEditor: ['weird"editor'] })),
+      'siteId:"site-1" AND isSearchable:true AND NOT editor:"weird\\"editor"'
     )
   })
 

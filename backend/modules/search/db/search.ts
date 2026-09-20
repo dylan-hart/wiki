@@ -1,11 +1,16 @@
 import { sql } from 'drizzle-orm'
-import { escapeLikePattern } from '../../../helpers/common.ts'
 import {
   search,
   SUGGEST_TITLE_CANDIDATES,
   SUGGEST_TITLE_THRESHOLD
 } from '../../../models/search.ts'
-import { filterVisible, HL_START, HL_STOP, normalizeMarkers } from '../shared.ts'
+import {
+  buildSqlFilterConditions,
+  filterVisible,
+  HL_START,
+  HL_STOP,
+  normalizeMarkers
+} from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -165,11 +170,7 @@ class DbSearchModule implements SearchModule {
   async query({
     siteId,
     query = '',
-    path = '',
     locales = [],
-    tags = [],
-    editor = '',
-    publishState = '',
     orderBy = 'relevancy',
     orderByDirection = 'desc',
     offset = 0,
@@ -177,7 +178,8 @@ class DbSearchModule implements SearchModule {
     publicOnly = false,
     includeDrafts = false,
     hideProtectedContent = true,
-    actor
+    actor,
+    ...filters
   }: SearchPagesParams): Promise<SearchPagesResult> {
     const terms = query.trim()
     const hasQuery = terms.length > 0
@@ -217,23 +219,7 @@ class DbSearchModule implements SearchModule {
       */
       conditions.push(sql`(p.password IS NULL OR ts_filter(p.ts, '{a,b}') @@ ${tsQuery})`)
     }
-    if (publishState) {
-      conditions.push(sql`p."publishState" = ${publishState}`)
-    }
-    if (path) {
-      // -> `escapeLikePattern` keeps the value literal; the trailing `%` makes it a prefix match
-      conditions.push(sql`p.path LIKE ${`${escapeLikePattern(path)}%`}`)
-    }
-    if (locales.length > 0) {
-      // -> `sql.param`: drizzle expands a bare array into a list of placeholders, not one array value
-      conditions.push(sql`p.locale = ANY(${sql.param(locales)}::text[])`)
-    }
-    if (tags.length > 0) {
-      conditions.push(sql`p.tags @> ${sql.param(tags)}::text[]`)
-    }
-    if (editor) {
-      conditions.push(sql`p.editor = ${editor}`)
-    }
+    conditions.push(...buildSqlFilterConditions({ ...filters, locales }))
 
     const direction = orderByDirection === 'asc' ? sql`ASC` : sql`DESC`
     // -> Every page ranks 0 without a query, which would leave the order down to the planner

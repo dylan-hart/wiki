@@ -339,12 +339,12 @@ describe('azure-search module: buildFilter', () => {
   })
 
   test('a plain path becomes a startswith filter', () => {
-    const filter = buildFilter({ siteId: 'site-1', path: 'docs/' })
+    const filter = buildFilter({ siteId: 'site-1', path: ['docs/'] })
     assert.match(filter, /startswith\(path, 'docs\/'\)/)
   })
 
   test('a wildcard path becomes a search.ismatch filter', () => {
-    const filter = buildFilter({ siteId: 'site-1', path: 'docs/*' })
+    const filter = buildFilter({ siteId: 'site-1', path: ['docs/*'] })
     assert.match(filter, /search\.ismatch\('docs\/\*', 'path', 'full', 'any'\)/)
   })
 
@@ -359,7 +359,7 @@ describe('azure-search module: buildFilter', () => {
   })
 
   test('editor becomes an eq filter', () => {
-    const filter = buildFilter({ siteId: 'site-1', editor: 'markdown' })
+    const filter = buildFilter({ siteId: 'site-1', editor: ['markdown'] })
     assert.match(filter, /editor eq 'markdown'/)
   })
 
@@ -375,7 +375,7 @@ describe('azure-search module: buildFilter', () => {
   })
 
   test('an explicit publishState is ANDed alongside the draft exclusion', () => {
-    const filter = buildFilter({ siteId: 'site-1', publishState: 'published' })
+    const filter = buildFilter({ siteId: 'site-1', publishState: ['published'] })
     assert.match(filter, /publishState ne 'draft' and publishState eq 'published'/)
   })
 
@@ -385,8 +385,51 @@ describe('azure-search module: buildFilter', () => {
   })
 
   test('a single quote in a value is escaped by doubling it', () => {
-    const filter = buildFilter({ siteId: 'site-1', editor: "o'brien" })
+    const filter = buildFilter({ siteId: 'site-1', editor: ["o'brien"] })
     assert.match(filter, /editor eq 'o''brien'/)
+  })
+
+  test('several include values become any-of clauses', () => {
+    const filter = buildFilter({
+      siteId: 'site-1',
+      includeDrafts: true,
+      path: ['docs/', 'guides/'],
+      editor: ['markdown', 'code'],
+      publishState: ['published', 'scheduled']
+    })
+    assert.equal(
+      filter,
+      `siteId eq 'site-1' and (startswith(path, 'docs/') or startswith(path, 'guides/'))` +
+        ` and search.in(editor, 'markdown|code', '|')` +
+        ` and search.in(publishState, 'published|scheduled', '|')`
+    )
+  })
+
+  test('every exclude list becomes a native negated OData clause', () => {
+    const filter = buildFilter({
+      siteId: 'site-1',
+      includeDrafts: true,
+      excludePath: ['docs/private', 'legacy/*'],
+      excludeLocales: ['fr', 'de'],
+      excludeTags: ['old', 'stale'],
+      excludeEditor: ['code'],
+      excludePublishState: ['scheduled']
+    })
+    assert.equal(
+      filter,
+      `siteId eq 'site-1'` +
+        ` and not startswith(path, 'docs/private')` +
+        ` and not search.ismatch('legacy/*', 'path', 'full', 'any')` +
+        ` and not search.in(locale, 'fr|de', '|')` +
+        ` and not tags/any(t: search.in(t, 'old|stale', '|'))` +
+        ` and not search.in(editor, 'code', '|')` +
+        ` and not search.in(publishState, 'scheduled', '|')`
+    )
+  })
+
+  test('a single quote in an excluded value is escaped by doubling it', () => {
+    const filter = buildFilter({ siteId: 'site-1', excludeEditor: ["o'brien"] })
+    assert.match(filter, /not search\.in\(editor, 'o''brien', '\|'\)/)
   })
 })
 

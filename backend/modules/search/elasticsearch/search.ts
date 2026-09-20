@@ -82,6 +82,10 @@ export function toSniffIntervalMs(sniffInterval: unknown): number | false {
   return typeof sniffInterval === 'number' && sniffInterval > 0 ? sniffInterval * 1000 : false
 }
 
+function oneOf(field: string, values: string[]): Record<string, any> {
+  return values.length === 1 ? { term: { [field]: values[0] } } : { terms: { [field]: values } }
+}
+
 /**
  * No search terms falls back to `match_all`, so a browse of nothing but filters still returns rows.
  */
@@ -89,17 +93,23 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
   const {
     siteId,
     query = '',
-    path = '',
+    path = [],
+    excludePath = [],
     locales = [],
+    excludeLocales = [],
     tags = [],
-    editor = '',
-    publishState = '',
+    excludeTags = [],
+    editor = [],
+    excludeEditor = [],
+    publishState = [],
+    excludePublishState = [],
     publicOnly = false,
     includeDrafts = false
   } = params
   const terms = query.trim()
 
   const filter: Record<string, any>[] = [{ term: { siteId } }, { term: { isSearchable: true } }]
+  const mustNot: Record<string, any>[] = []
 
   // -> Matches what a page view shows an anonymous reader, so search cannot surface a page that
   //    could not then be opened.
@@ -109,21 +119,38 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
     filter.push({ bool: { must_not: [{ term: { publishState: 'draft' } }] } })
   }
   // -> Additional to the branch above, not a replacement: both apply as separate ANDed conditions.
-  if (publishState) {
-    filter.push({ term: { publishState } })
+  if (publishState.length > 0) {
+    filter.push(oneOf('publishState', publishState))
   }
-  if (path) {
-    filter.push({ match_phrase_prefix: { path } })
+  if (excludePublishState.length > 0) {
+    mustNot.push({ terms: { publishState: excludePublishState } })
+  }
+  if (path.length > 0) {
+    const prefixes = path.map((value) => ({ match_phrase_prefix: { path: value } }))
+    filter.push(
+      prefixes.length === 1 ? prefixes[0]! : { bool: { should: prefixes, minimum_should_match: 1 } }
+    )
+  }
+  for (const value of excludePath) {
+    mustNot.push({ match_phrase_prefix: { path: value } })
   }
   if (locales.length > 0) {
     filter.push({ terms: { locale: locales } })
   }
-  // -> ANDed clauses rather than an OR group: every named tag must be present.
+  if (excludeLocales.length > 0) {
+    mustNot.push({ terms: { locale: excludeLocales } })
+  }
   for (const tag of tags) {
     filter.push({ match: { tags: tag } })
   }
-  if (editor) {
-    filter.push({ term: { editor } })
+  for (const tag of excludeTags) {
+    mustNot.push({ match: { tags: tag } })
+  }
+  if (editor.length > 0) {
+    filter.push(oneOf('editor', editor))
+  }
+  if (excludeEditor.length > 0) {
+    mustNot.push({ terms: { editor: excludeEditor } })
   }
 
   const must =
@@ -139,7 +166,7 @@ export function buildEsQuery(params: SearchPagesParams): Record<string, any> {
         ]
       : [{ match_all: {} }]
 
-  return { bool: { must, filter } }
+  return { bool: mustNot.length > 0 ? { must, filter, must_not: mustNot } : { must, filter } }
 }
 
 /**

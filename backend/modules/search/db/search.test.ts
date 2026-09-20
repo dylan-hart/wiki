@@ -299,6 +299,96 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(unrestricted.totalHits, 3)
   })
 
+  describe('include/exclude filter lists', () => {
+    const pathsOf = (result: { results: { path: string; locale: string }[] }) =>
+      result.results.map((r) => `${r.locale}:${r.path}`).sort()
+
+    before(async () => {
+      const make = (path: string, overrides: Partial<PageInput> = {}) =>
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path, title: 'Wombat Census', publishState: 'published', ...overrides }),
+          actor
+        )
+      await make('wombat/alpha', { tags: ['red', 'old'] })
+      await make('wombat/beta', { tags: ['red'], editor: 'code' })
+      await make('wombat/private/gamma', { tags: ['blue'] })
+      await make('wombat/delta', { locale: 'fr', tags: ['blue'] })
+      await make('wombat/epsilon', { publishState: 'draft', tags: [] })
+    })
+
+    const base = () => ({ siteId: fixtures.siteId, query: 'wombat', includeDrafts: true })
+
+    test('excludePath drops every page under any listed prefix, keeping totals exact', async () => {
+      const excludePath = ['wombat/private', 'wombat/beta']
+      const first = await searchModel.query({ ...base(), excludePath, limit: 2 })
+      assert.equal(first.totalHits, 3)
+      assert.equal(first.results.length, 2)
+      const second = await searchModel.query({ ...base(), excludePath, limit: 2, offset: 2 })
+      assert.equal(second.results.length, 1)
+      const seen = [...first.results, ...second.results].map((r) => r.path)
+      assert.equal(seen.includes('wombat/private/gamma'), false)
+      assert.equal(seen.includes('wombat/beta'), false)
+    })
+
+    test('several include paths are any-of', async () => {
+      const result = await searchModel.query({
+        ...base(),
+        path: ['wombat/alpha', 'wombat/beta']
+      })
+      assert.deepEqual(pathsOf(result), ['en:wombat/alpha', 'en:wombat/beta'])
+    })
+
+    test('excludeTags drops a page carrying any listed tag', async () => {
+      const result = await searchModel.query({ ...base(), excludeTags: ['old', 'blue'] })
+      assert.deepEqual(pathsOf(result), ['en:wombat/beta', 'en:wombat/epsilon'])
+    })
+
+    test('excludeLocales drops a locale, and combines with an include list', async () => {
+      const result = await searchModel.query({ ...base(), excludeLocales: ['fr'] })
+      assert.equal(
+        result.results.some((r) => r.locale === 'fr'),
+        false
+      )
+      assert.equal(result.totalHits, 4)
+      const none = await searchModel.query({ ...base(), locales: ['fr'], excludeLocales: ['fr'] })
+      assert.equal(none.totalHits, 0)
+    })
+
+    test('excludeEditor and editor lists', async () => {
+      const without = await searchModel.query({ ...base(), excludeEditor: ['code'] })
+      assert.equal(without.totalHits, 4)
+      assert.equal(
+        without.results.some((r) => r.path === 'wombat/beta'),
+        false
+      )
+      const only = await searchModel.query({ ...base(), editor: ['code', 'wysiwyg'] })
+      assert.deepEqual(pathsOf(only), ['en:wombat/beta'])
+    })
+
+    test('excludePublishState drops a state, and publishState accepts several', async () => {
+      const without = await searchModel.query({ ...base(), excludePublishState: ['draft'] })
+      assert.equal(without.totalHits, 4)
+      const either = await searchModel.query({
+        ...base(),
+        publishState: ['draft', 'scheduled']
+      })
+      assert.deepEqual(pathsOf(either), ['en:wombat/epsilon'])
+    })
+
+    test('filters of different types AND together', async () => {
+      const result = await searchModel.query({
+        ...base(),
+        path: ['wombat'],
+        excludePath: ['wombat/private'],
+        excludeTags: ['old'],
+        excludeLocales: ['fr'],
+        excludePublishState: ['draft']
+      })
+      assert.deepEqual(pathsOf(result), ['en:wombat/beta'])
+    })
+  })
+
   /** `suggestTitle()` is private; `query()`'s `suggestion` field is the only way in. */
   describe('"did you mean" suggestions', () => {
     let readerActor: PageActor

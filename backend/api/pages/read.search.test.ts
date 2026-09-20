@@ -7,11 +7,13 @@ import { ensureTemporal } from '../../test/temporal.ts'
 
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
+let queryCalls: Array<Record<string, unknown>>
 let searchResults: Array<{ id: string; path: string; locale: string }>
 let translationRowsCalls: Array<{ siteId: string; paths: string[] }>
 let translationRows: Array<{ path: string; locale: string; updatedAt: Date }>
 
-async function query() {
+async function query(params: Record<string, unknown>) {
+  queryCalls.push(params)
   return {
     results: searchResults,
     totalHits: searchResults.length,
@@ -54,6 +56,7 @@ beforeEach(() => {
     { id: 'page-2', path: 'docs/two', locale: 'en' }
   ]
   translationRowsCalls = []
+  queryCalls = []
   translationRows = [
     { path: 'docs/one', locale: 'en', updatedAt: new Date('2026-06-01T00:00:00.000Z') },
     { path: 'docs/two', locale: 'en', updatedAt: new Date('2026-06-01T00:00:00.000Z') },
@@ -114,4 +117,58 @@ test('an empty result set skips the join call entirely', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(translationRowsCalls.length, 0)
+})
+
+test('forwards every include and exclude list to the search model', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/pages/search?path=docs&path=guides&excludePath=docs%2Fprivate` +
+      '&locales=en,fr&excludeLocales=de&tags=a,b&excludeTags=old,stale' +
+      '&editor=markdown&excludeEditor=code&excludeEditor=wysiwyg' +
+      '&publishState=published&excludePublishState=draft'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(queryCalls.length, 1)
+  const call = queryCalls[0]!
+  assert.deepEqual(call.path, ['docs', 'guides'])
+  assert.deepEqual(call.excludePath, ['docs/private'])
+  assert.deepEqual(call.locales, ['en', 'fr'])
+  assert.deepEqual(call.excludeLocales, ['de'])
+  assert.deepEqual(call.tags, ['a', 'b'])
+  assert.deepEqual(call.excludeTags, ['old', 'stale'])
+  assert.deepEqual(call.editor, ['markdown'])
+  assert.deepEqual(call.excludeEditor, ['code', 'wysiwyg'])
+  assert.deepEqual(call.publishState, ['published'])
+  assert.deepEqual(call.excludePublishState, ['draft'])
+})
+
+test('sends empty lists when no filter is given', async () => {
+  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/search` })
+  assert.equal(res.statusCode, 200)
+  const call = queryCalls[0]!
+  for (const key of [
+    'path',
+    'excludePath',
+    'locales',
+    'excludeLocales',
+    'tags',
+    'excludeTags',
+    'editor',
+    'excludeEditor',
+    'publishState',
+    'excludePublishState'
+  ]) {
+    assert.deepEqual(call[key], [], key)
+  }
+})
+
+test('rejects a publishState outside the known states in either list', async () => {
+  for (const param of ['publishState', 'excludePublishState']) {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/search?${param}=bogus`
+    })
+    assert.equal(res.statusCode, 400, param)
+  }
 })

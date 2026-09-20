@@ -216,7 +216,7 @@ describe('buildEsQuery()', () => {
   })
 
   test('an explicit publishState filters in addition to, not instead of, the draft exclusion', () => {
-    const q = buildEsQuery(params({ publishState: 'published' }))
+    const q = buildEsQuery(params({ publishState: ['published'] }))
     assert.ok(
       q.bool.filter.some((f: any) => f.term?.publishState === 'published'),
       'missing explicit publishState filter'
@@ -228,7 +228,7 @@ describe('buildEsQuery()', () => {
   })
 
   test('path becomes a match_phrase_prefix filter', () => {
-    const q = buildEsQuery(params({ path: 'docs/guide' }))
+    const q = buildEsQuery(params({ path: ['docs/guide'] }))
     assert.ok(
       q.bool.filter.some((f: any) => f.match_phrase_prefix?.path === 'docs/guide'),
       'missing path prefix filter'
@@ -253,8 +253,60 @@ describe('buildEsQuery()', () => {
   })
 
   test('editor becomes a term filter', () => {
-    const q = buildEsQuery(params({ editor: 'markdown' }))
+    const q = buildEsQuery(params({ editor: ['markdown'] }))
     assert.ok(q.bool.filter.some((f: any) => f.term?.editor === 'markdown'))
+  })
+
+  test('several include values become any-of clauses', () => {
+    const q = buildEsQuery(
+      params({
+        path: ['docs', 'guides'],
+        editor: ['markdown', 'code'],
+        publishState: ['published', 'scheduled']
+      })
+    )
+    assert.ok(
+      q.bool.filter.some(
+        (f: any) =>
+          f.bool?.minimum_should_match === 1 &&
+          f.bool.should.length === 2 &&
+          f.bool.should[0].match_phrase_prefix.path === 'docs'
+      ),
+      'missing any-of path prefixes'
+    )
+    assert.ok(q.bool.filter.some((f: any) => f.terms?.editor?.length === 2))
+    assert.ok(q.bool.filter.some((f: any) => f.terms?.publishState?.length === 2))
+  })
+
+  test('no exclusion leaves the query without a must_not clause', () => {
+    assert.equal('must_not' in buildEsQuery(params()).bool, false)
+  })
+
+  test('every exclude list becomes a native must_not clause, never a post-filter', () => {
+    const q = buildEsQuery(
+      params({
+        excludePath: ['docs/private', 'drafts'],
+        excludeLocales: ['fr', 'de'],
+        excludeTags: ['old', 'stale'],
+        excludeEditor: ['code'],
+        excludePublishState: ['scheduled']
+      })
+    )
+    assert.deepEqual(q.bool.must_not, [
+      { terms: { publishState: ['scheduled'] } },
+      { match_phrase_prefix: { path: 'docs/private' } },
+      { match_phrase_prefix: { path: 'drafts' } },
+      { terms: { locale: ['fr', 'de'] } },
+      { match: { tags: 'old' } },
+      { match: { tags: 'stale' } },
+      { terms: { editor: ['code'] } }
+    ])
+  })
+
+  test('an exclusion sits beside, not in place of, the always-on draft exclusion', () => {
+    const q = buildEsQuery(params({ excludeEditor: ['code'] }))
+    assert.ok(q.bool.filter.some((f: any) => f.bool?.must_not?.[0]?.term?.publishState === 'draft'))
+    assert.deepEqual(q.bool.must_not, [{ terms: { editor: ['code'] } }])
   })
 })
 
