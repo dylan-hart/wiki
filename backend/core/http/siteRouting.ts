@@ -7,18 +7,13 @@ import {
   insertIntoAppShell,
   mergeShellFragments
 } from '../../helpers/appShell.ts'
-import { normalizePagePath, requestOrigin, stripPageExtension } from '../../helpers/common.ts'
+import { requestOrigin, stripPageExtension } from '../../helpers/common.ts'
 import { analyticsShellFragments } from '../../helpers/analyticsSnippets.ts'
 import { pageShellFragments, withShellTitle } from '../../helpers/shellHead.ts'
 import { lookupShellPage, type ShellPage } from '../../helpers/shellPage.ts'
 import { robotsDirective, robotsShellFragments } from '../../helpers/shellRobots.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
-import {
-  localePrefixRedirectTarget,
-  localePrefixStripTarget,
-  stripLocalePrefix,
-  type LocaleRoutingConfig
-} from '../../helpers/localeRouting.ts'
+import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
   applyEmbedFrameAncestors,
   resolveRequestSite,
@@ -95,11 +90,6 @@ const SPA_APP_ROUTES: readonly RegExp[] = [
 export function isSpaAppRoute(urlPath: string): boolean {
   const trimmed = trimTrailingSlash(urlPath)
   return SPA_APP_ROUTES.some((route) => route.test(trimmed))
-}
-
-function isSiteRootUrl(urlPath: string, locales?: LocaleRoutingConfig | null): boolean {
-  const stripped = stripLocalePrefix(urlPath, locales)
-  return normalizePagePath(stripped ? stripped.path : urlPath) === ''
 }
 
 function trimTrailingSlash(urlPath: string): string {
@@ -234,7 +224,7 @@ export function registerAppShellFallback(app: FastifyInstance): void {
         if (siteId && isPageUrl(urlPath!)) {
           try {
             shellPage = await lookupShellPage({ siteId, urlPath: urlPath!, locale: lang })
-            status = shellPage || isSiteRootUrl(urlPath!, siteConfig?.locales) ? 200 : 404
+            status = shellPage ? 200 : 404
           } catch (err: any) {
             status = 200
             CARDINAL.logger.warn('http', 'cannot look up the page for the app shell', {
