@@ -96,7 +96,7 @@ props:
     hint: The signing region to use for SigV4 requests. Must match the value your S3-compatible server is configured with (e.g. Garage's `s3_region`) or every signed request will fail signature validation.
     icon: geography
     default: us-east-1
-    order: 9
+    order: 10
     if:
       - { key: 'mode', eq: 'custom' }
   bucket:
@@ -105,25 +105,32 @@ props:
     hint: The unique bucket name to create (e.g. wiki-johndoe).
     icon: open-box
     order: 3
+  pathPrefix:
+    type: String
+    title: Path Prefix
+    hint: Optional folder inside the bucket under which everything is stored, so keys become `<prefix>/<siteId>/...` (e.g. wiki/prod). It lets several instances or apps share one bucket, and lets an IAM policy be scoped to just this sub-path. Changing it on an existing target orphans objects already uploaded under the old prefix; they are not moved or deleted.
+    icon: symlink-directory
+    default: ''
+    order: 4
   accessKeyId:
     type: String
     title: Access Key ID
     hint: The Access Key.
     icon: 3d-touch
-    order: 4
+    order: 5
   secretAccessKey:
     type: String
     title: Secret Access Key
     hint: The Secret Access Key for the Access Key ID you created above.
     icon: key
     sensitive: true
-    order: 5
+    order: 6
   storageTier:
     type: String
     title: Storage Tier
     hint: The storage tier to use when adding files.
     icon: scan-stock
-    order: 6
+    order: 7
     default: STANDARD
     enum:
       - STANDARD|Standard
@@ -143,7 +150,7 @@ props:
     hint: Whether to enable SSL for requests
     icon: secure
     default: true
-    order: 10
+    order: 11
     if:
       - { key: 'mode', eq: 'custom' }
   s3ForcePathStyle:
@@ -152,7 +159,7 @@ props:
     hint: Whether to address objects as https://endpoint/bucket/key instead of https://bucket.endpoint/key. Required for MinIO and most other self-hosted S3-compatible servers, which have no wildcard DNS record for a per-bucket subdomain.
     icon: filtration
     default: false
-    order: 11
+    order: 12
     if:
       - { key: 'mode', eq: 'custom' }
   s3BucketEndpoint:
@@ -161,7 +168,7 @@ props:
     hint: Whether the provided endpoint addresses an individual bucket.
     icon: swipe-right
     default: false
-    order: 12
+    order: 13
     if:
       - { key: 'mode', eq: 'custom' }
 actions:

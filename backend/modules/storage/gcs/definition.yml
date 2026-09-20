@@ -42,12 +42,19 @@ props:
     hint: The unique bucket name to create (e.g. wiki-johndoe).
     icon: open-box
     order: 3
+  pathPrefix:
+    type: String
+    title: Path Prefix
+    hint: Optional folder inside the bucket under which everything is stored, so keys become `<prefix>/<siteId>/...` (e.g. wiki/prod). It lets several instances or apps share one bucket, and lets an IAM policy be scoped to just this sub-path. Changing it on an existing target orphans objects already uploaded under the old prefix; they are not moved or deleted.
+    icon: symlink-directory
+    default: ''
+    order: 4
   storageTier:
     type: String
     title: Storage Tier
     hint: Select the storage class to use when uploading new assets.
     icon: scan-stock
-    order: 4
+    order: 5
     default: STANDARD
     enum:
       - STANDARD|Standard
@@ -60,7 +67,7 @@ props:
     hint: The API endpoint of the service used to make requests.
     icon: api
     default: storage.google.com
-    order: 5
+    order: 6
 actions:
   exportAll:
     label: Export All DB Assets to GCS
