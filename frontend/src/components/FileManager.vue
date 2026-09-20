@@ -496,7 +496,10 @@
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.download`) }}</w-item-section>
                         </w-item>
-                        <w-item clickable v-if="item.type === `page`" @click="duplicateItem(item)">
+                        <w-item
+                          clickable
+                          v-if="item.type === `page` || item.type === `folder`"
+                          @click="duplicateItem(item)">
                           <w-item-section side>
                             <w-icon name="tabler:copy" color="slate-soft" />
                           </w-item-section>
@@ -708,6 +711,7 @@ const {
   reloadFolder,
   rerenderPage,
   duplicatePage,
+  duplicateFolder,
   renameMovePage,
   delPage,
   renameAsset,
@@ -1181,6 +1185,10 @@ function moveItem(item) {
 /** Only a page can be duplicated: there is no endpoint behind a folder or an asset. */
 function duplicateItem(item) {
   switch (item.type) {
+    case 'folder': {
+      duplicateFolder(item)
+      break
+    }
     case 'page': {
       duplicatePage(item)
       break
