@@ -8,19 +8,9 @@ import { createTestI18n } from '../../test/i18n.js'
 import { CHROMIUM_TIMEOUT, buildAppCss, chromium, hasChromium } from '../../test/realGridLayout.js'
 
 /**
- * `ui-iteration-cobalt-typography/cobalt-typography.md` §3's "Footer (`FooterNav.vue`)" role table:
- *
- * | Role           | Font           | Light                          | Dark    |
- * | -------------- | -------------- | ------------------------------- | ------- |
- * | Copyright line | 400 11px mono  | `--color-footer-text` `#a7b3ea` | `#8b98d6` |
- * | Footer link    | inherit        | `--color-footer-link` `#ff7a84` | `#ff7a84` |
- *
- * Measured in real headless Chromium, following `PageHeader.typography.test.js`'s established
- * pattern (`buildAppCss()` for `tailwind.css`'s tokens, the `<style>` elements Vitest injects for
- * `FooterNav.vue`'s own scoped rule with `:global()` already resolved, `wrapper.html()` for the
- * markup) -- a computed `color` driven by a CSS custom property cascade is not something
- * `jsdom`/`happy-dom` can answer without also hand-building the token layer, and the whole point
- * here is to catch a real cascade-specificity bug (OpenProject #2980), not just read the source.
+ * Measured in real headless Chromium: a computed `color` driven by a CSS custom-property cascade is
+ * not something `jsdom`/`happy-dom` can answer without hand-building the token layer, and what is
+ * being caught here is a cascade-specificity bug rather than anything readable from the source.
  */
 describe(
   'FooterNav typography (OpenProject #2980)',
@@ -113,8 +103,7 @@ describe(
 
       // -> `--color-footer-text` in `body.body--cobalt`
       expect(cobaltLight.footer.color).toBe('rgb(167, 179, 234)') // #a7b3ea
-      // -> `--color-text-caption-dark`, restated `#8b98d6` under `body.body--cobalt.body--dark`
-      //    (OpenProject #2980's fix: without it this read back as the light value above)
+      // -> `--color-text-caption-dark`, restated under `body.body--cobalt.body--dark`
       expect(cobaltDark.footer.color).toBe('rgb(139, 152, 214)') // #8b98d6
       expect(cobaltDark.footer.color).not.toBe(cobaltLight.footer.color)
     })
@@ -135,7 +124,7 @@ describe(
       const light = await measure()
       const dark = await measure({ dark: true })
 
-      // -> `--color-text-caption` / `--color-text-caption-dark`, unaffected by the Cobalt-only fix
+      // -> Ledger's own `--color-text-caption` / `--color-text-caption-dark`, not Cobalt's tokens
       expect(light.footer.color).not.toBe('rgb(167, 179, 234)')
       expect(dark.footer.color).not.toBe('rgb(139, 152, 214)')
     })

@@ -8,10 +8,9 @@ import { useSiteStore } from '@/stores/site'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * OpenProject #1668: 13 dialogs carried a dead `<w-input autofocus>` attribute (it lands on
- * `WInput.vue`'s non-focusable root `<div>`) and opened with nothing focused. Each now passes
- * `useDialogComponent({ autofocus: () => iptX.value })` instead -- this is the one representative
- * mount that proves the wiring actually works rather than re-verifying it by hand in all 13.
+ * The one representative mount proving `useDialogComponent({ autofocus })` really moves focus, for
+ * every dialog that passes it. `<w-input autofocus>` does not: that attribute lands on
+ * `WInput.vue`'s non-focusable root `<div>`.
  */
 async function mountDialog() {
   setActivePinia(createPinia())
@@ -19,17 +18,15 @@ async function mountDialog() {
   siteStore.id = 'site-1'
 
   const i18n = createTestI18n()
-  // -> `<w-dialog>` teleports its panel to `<body>` (see `WDialog.vue`) -- stubbing `teleport` keeps
-  //    it under the wrapper's own root so `wrapper.find()` can still reach it, and `attachTo` puts the
-  //    wrapper itself in the real `document.body` so `document.activeElement` actually reflects a
-  //    `.focus()` call instead of staying on a detached node happy-dom never considers "active".
+  // -> Stubbing `teleport` keeps `<w-dialog>`'s panel under the wrapper root so `find()` reaches
+  //    it; `attachTo` is what makes `document.activeElement` reflect a `.focus()` call at all --
+  //    happy-dom never considers a node on a detached tree active.
   const wrapper = mount(FolderCreateDialog, {
     global: { plugins: [i18n], stubs: { teleport: true } },
     attachTo: document.body
   })
-  // -> `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true one tick after
-  //    mount, then focuses the field a SECOND tick after that (`composables/dialog.js`) -- the panel
-  //    doesn't exist yet on the first tick, so the focus call is deliberately deferred past it.
+  // -> Focus lands two ticks after mount: `useDialogComponent()` shows the panel on the first and
+  //    focuses on the second, since the field does not exist until the panel does.
   await flushPromises()
 
   return { wrapper, siteStore }

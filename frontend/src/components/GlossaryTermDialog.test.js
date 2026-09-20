@@ -6,11 +6,9 @@ import GlossaryTermDialog from './GlossaryTermDialog.vue'
 import { createTestI18n } from '../../test/i18n.js'
 
 /*
-  `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
-  `document.body`, outside `@vue/test-utils`'s own tracked tree -- unmounting the wrapper is what
-  removes it again. Only the `required fields` test below reads real DOM (`document.body`) rather
-  than the component tree, so it is the one that would otherwise see every prior test's now-orphaned
-  dialog too.
+  `WDialog` teleports its content to `document.body`, outside `@vue/test-utils`'s tracked tree, and
+  unmounting the wrapper is what removes it again. The `required fields` test below reads real DOM,
+  so without this it would count every prior test's orphaned dialog too.
 */
 let currentWrapper = null
 afterEach(() => {
@@ -27,12 +25,6 @@ function mountDialog({ siteId = 'site-1', term = null } = {}) {
   return currentWrapper
 }
 
-/**
- * Glossary admin editing is a staged workflow (OpenProject #1113): this dialog collects/edits ONE
- * entry and hands it back to `AdminGlossary.vue` via `onDialogOK` -- it makes NO API call of its own,
- * unlike the pre-#1113 version this replaces. `AdminGlossary.vue`'s own tests cover what happens to
- * the returned entry once it reaches the staged list.
- */
 describe('GlossaryTermDialog - create', () => {
   it('hands back the trimmed term/definition/aliases and a null path with none entered', async () => {
     API_CLIENT.get.mockReturnValue({ json: () => Promise.reject(new Error('no path to check')) })
@@ -137,12 +129,9 @@ describe('GlossaryTermDialog - required fields (OpenProject #1111)', () => {
     mountDialog()
     await flushPromises()
 
-    // -> `WDialog` teleports its content to `document.body` (see the file header comment), so this
-    //    reads real DOM rather than the component tree. `WInput`'s `required` prop surfaces as
-    //    `aria-required` on the underlying control (its own header comment) -- exactly the two fields
-    //    `termValidation`/`definitionValidation` already enforce as non-empty, and none of the others
-    //    (the alias-add field, the canonical-page path input). Term (an <input>) and Definition (a
-    //    <textarea>) are the form's first two controls in DOM order, ahead of the alias-add field.
+    // -> Reads real DOM because the dialog is teleported. `required` surfaces as `aria-required`;
+    //    Term and Definition are the form's first two controls in DOM order, and the only two the
+    //    validators enforce as non-empty.
     const controls = document.body.querySelectorAll('input, textarea')
     expect(controls[0].getAttribute('aria-required')).toBe('true')
     expect(controls[1].getAttribute('aria-required')).toBe('true')

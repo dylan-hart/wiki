@@ -22,9 +22,8 @@ const OPTIONS = [
   { value: 'mcp', label: 'MCP' }
 ]
 
-// Reads a top-level SCSS rule's body (opening `selector {` through its matching `}`) straight out
-// of an SFC's source, for a style assertion scoped nesting can't reliably make via computed style
-// under happy-dom -- shared by the #2522 and #2893 guards below.
+// Reads a rule's body (`selector {` through its matching `}`) straight out of an SFC's source:
+// happy-dom's computed style cannot reliably resolve a scoped, nested rule's cascade.
 const ruleBodyFor = (source, selector) => {
   const opener = `${selector} {`
   const start = source.indexOf(opener)
@@ -53,15 +52,8 @@ describe('GraphClientTypeFilter', () => {
     expect(boxes[1].attributes('aria-checked')).toBe('false')
   })
 
-  /**
-   * OpenProject #3030: the checkboxes used to render with `w-checkbox`'s fixed-blue `primary`
-   * default rather than picking up Cobalt's accent red the way the GROUP BY/SIZE BY toggle
-   * buttons on the same panel already do (`WBtnToggle`'s `toggleColor` defaults to
-   * `segment-selected`, which resolves to `--color-accent` under Cobalt and `--color-primary`
-   * under Ledger). Passing `color="segment-selected"` through to `w-checkbox` keeps both
-   * checkbox groups visually consistent with the rest of the graph control panel in both
-   * aesthetics.
-   */
+  // `segment-selected` resolves to `--color-accent` under Cobalt and `--color-primary` under
+  // Ledger, so the panel's checkboxes and toggle buttons match in both aesthetics.
   it('passes color="segment-selected" to its checkboxes, matching WBtnToggle (OpenProject #3030)', () => {
     const wrapper = mount(GraphClientTypeFilter, {
       props: { modelValue: ['editor'], label: 'Client type', options: OPTIONS }
@@ -107,13 +99,9 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    // -> `flexFlow`, not `flexDirection` directly: lightningcss (wired into `vitest.config.js` to
-    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) coalesces the
-    //    source's separate `flex-direction: row; flex-wrap: wrap;` into the shorthand
-    //    `flex-flow: wrap;`, omitting `row` since it is that shorthand's own initial value -- valid,
-    //    equivalent CSS, but happy-dom does not expand a shorthand missing a component back into
-    //    that component's own longhand, so `style.flexDirection` reads empty. `flexFlow` is what
-    //    happy-dom actually populates.
+    // -> `flexFlow`, not `flexDirection`: lightningcss coalesces the source's `flex-direction: row`
+    //    and `flex-wrap: wrap` into `flex-flow: wrap` (dropping `row` as the initial value), and
+    //    happy-dom never expands a shorthand back into longhands, so `flexDirection` reads empty.
     expect(style.flexFlow).toBe('wrap')
   })
 
@@ -132,26 +120,11 @@ describe('GraphClientTypeFilter', () => {
     })
 
     const style = getComputedStyle(wrapper.get('.graph-client-type-filter-options').element)
-    // -> `flexFlow`, not `flexDirection` directly: lightningcss (wired into `vitest.config.js` to
-    //    downlevel native CSS nesting for happy-dom's benefit, OpenProject #3254) coalesces the
-    //    source's separate `flex-direction: row; flex-wrap: wrap;` into the shorthand
-    //    `flex-flow: wrap;`, omitting `row` since it is that shorthand's own initial value -- valid,
-    //    equivalent CSS, but happy-dom does not expand a shorthand missing a component back into
-    //    that component's own longhand, so `style.flexDirection` reads empty. `flexFlow` is what
-    //    happy-dom actually populates.
     expect(style.flexFlow).toBe('wrap')
   })
 
-  /**
-   * OpenProject #2522: this component sits in a transparent overlay directly over the graph
-   * canvas, with no page-level ancestor supplying a dark-aware text color -- its own caption
-   * (`.graph-client-type-filter-caption`) had no color rule at all, and the `w-checkbox` option
-   * labels are deliberately colorless by design (inheriting from an ancestor). Both fell back to
-   * browser-default black in dark mode. As with `Graph.darkMode.test.js`'s OpenProject #2497
-   * guard, scoped `.body--dark &` nesting is a build-time (Sass) / runtime (browser) transform
-   * whose cascade isn't reliably assertable via computed style under happy-dom, so this reads the
-   * raw SFC source and checks the rule body directly instead.
-   */
+  // Nothing above this component in the overlay supplies a dark-aware text color, and the checkbox
+  // labels are colorless by design, so both themes must be declared here or both fall back to black.
   describe('dark mode text color (OpenProject #2522)', () => {
     it('.graph-client-type-filter declares a color under both .body--light and .body--dark', () => {
       const body = ruleBodyFor(componentSource, '.graph-client-type-filter')
@@ -169,13 +142,6 @@ describe('GraphClientTypeFilter', () => {
     })
   })
 
-  /**
-   * OpenProject #2893: the "Count edits/visits by" caption used to render as a plain 11px,
-   * 70%-opacity label -- a different font family, size, weight, letter-spacing and casing than
-   * `Graph.vue`'s `.graph-view-control-caption`, which GROUP BY/SIZE BY/the filter captions all
-   * use. Reads both raw SFC sources rather than mounting + computed style, for the same
-   * reason the #2522 guard above does.
-   */
   describe('caption style matches Graph.vue GROUP BY/SIZE BY captions (OpenProject #2893)', () => {
     it('shares font-family/size/weight/letter-spacing/text-transform with .graph-view-control-caption', () => {
       const filterCaptionBody = ruleBodyFor(componentSource, '.graph-client-type-filter-caption')

@@ -1,24 +1,19 @@
 <template>
   <w-layout class="fileman" container>
     <!--
-      Three toolbars in one flex row, which below ~700px is more than fits: the row overflowed and took the
-      last of them -- the one holding Close -- off the side of the screen, so on a phone the overlay could
-      be opened and not shut. They wrap onto two lines instead below 900px; see the stylesheet, which is
-      also why each of the three carries a name.
+      Below 900px the three toolbars wrap onto two lines rather than overflowing the row (see the
+      stylesheet, which is also why each carries a name). Close is in the last of them, and it is
+      the only way out of the overlay.
     -->
     <w-header class="card-header">
       <w-toolbar class="fileman-hdr-title">
         <!--
-          -> The band's glyph takes the accent lightened for a dark ground, not the white the title
-             is set in: `ui-redesign/Cardinal Wiki - File Manager 3x.dc.html` strokes it `#f08287`,
-             which is `--color-accent-dark`, and nine other 3x design files draw their own overlay
-             header the same way. Stated here rather than in `.card-header` (`css/_base.css`)
-             because that band is shared with every other dialog in the app.
+          -> The accent lightened for a dark ground, not the white the title is set in. Stated here
+             rather than in `.card-header` (`css/_base.css`), which every dialog in the app shares.
 
           -> A class rather than `WIcon`'s `color` prop: that prop resolves to a `text-<name>` CLASS,
-             and `text-accent-dark` appears as literal text nowhere in this repo for Tailwind's
-             scanner to find (`css/tailwind.css`'s own note by `@theme static` describes exactly this
-             hazard). The stylesheet below reads the variable instead, which `static` guarantees is
+             and `text-accent-dark` appears as literal text nowhere for Tailwind's scanner to find.
+             The stylesheet below reads the variable instead, which `@theme static` guarantees is
              emitted.
         -->
         <w-icon class="fileman-hdr-icon" name="tabler:folder" left size="md" />
@@ -26,25 +21,15 @@
       </w-toolbar>
       <w-toolbar class="fileman-hdr-search">
         <!--
-          -> The CONTENT locale being browsed, not the UI language -- `commonStore.locale` /
-             `<locale-selector-menu/>` switch that, and mounting it here read as "which locale's
-             files am I seeing" without doing anything of the sort. Gated on `siteStore.useLocales`
-             (more than one active locale) rather than `locales.showMenu`: that flag is about
-             whether a READER is offered a switcher, which has no bearing on whether an author
-             browsing the tree needs to pick which locale's files to see.
+          -> The CONTENT locale being browsed, not the UI language (`commonStore.locale` /
+             `<locale-selector-menu/>`). Gated on `siteStore.useLocales` rather than
+             `locales.showMenu`: that flag is about whether a READER is offered a switcher, which
+             has no bearing on an author browsing the tree.
 
-          Menu idiom follows this same file's "view options" button just below: a `w-menu` of
-          `w-item`s with a check-circle/circle pair marking the current choice, rather than
-          `LocaleSelectorMenu`'s avatar-initials layout -- that one is styled for a reader-facing
-          language switcher, this is an in-toolbar filter control like the rest of this row. The
-          design agrees and settles it: `Cardinal Wiki - File Manager 3x.dc.html` draws this control
-          as a bare outlined chip reading `EN` with a chevron after it -- no avatar, no initials --
-          so `helpers/initials.js` existing (WP #2609) does not change the calculus either way.
-
-          -> The chip itself: 34px tall with a `rgba(255,255,255,.25)` edge, matching the search
-             field beside it rather than standing a button's height above it. The chevron is what
-             says a menu opens from here; without it the code drew a bare two-letter label that read
-             as a status, not a control.
+          -> Built on the "view options" menu idiom just below rather than on
+             `LocaleSelectorMenu`, which is styled for a reader-facing language switcher. The
+             chevron is what says a menu opens from here; without it a bare two-letter label reads
+             as a status.
         -->
         <w-btn
           v-if="siteStore.useLocales"
@@ -78,13 +63,9 @@
           </w-menu>
         </w-btn>
         <!--
-          The same pill the site header uses, rather than a `w-input`.
-
-          It was a `w-input` carrying `dark`, `standout="bg-white text-dark"` and `debounce`, none of
-          which that component has -- they fell through as bare attributes and styled nothing. What
-          rendered was the FILLED variant: a 4%-black wash holding white text, on a near-black header,
-          with its label stranded above the toolbar. Written out here so it matches HeaderSearch,
-          which is what a search field in this app looks like.
+          The same pill the site header uses (`HeaderSearch`), written out rather than a `w-input`:
+          that component has no `dark`/`standout`/`debounce`, so those fall through as bare
+          attributes and style nothing.
         -->
         <div class="fileman-search" :class="{ 'is-focused': state.searchIsFocused }">
           <w-icon class="fileman-search-lead" name="tabler:search" />
@@ -107,14 +88,9 @@
             <w-icon name="tabler:x" />
           </button>
           <!--
-            The shortcut hint the design draws at this field's trailing edge, and the same key cap
-            `HeaderSearch` sets: a mono square on the field's own ground. It is truthful here -- this
-            overlay really does claim Cmd/Ctrl+K while it is up (`handleKeyPress` below, and the note
-            in `HeaderSearch` explaining why that one stands down for an overlay) -- so the field was
-            answering a shortcut it never advertised.
-
-            Gives way once the field is in use, as HeaderSearch's does: past that point the reader is
-            already where the key would have taken them, and the clear button needs the room.
+            Truthful only because this overlay really does claim Cmd/Ctrl+K while it is up
+            (`handleKeyPress` below; `HeaderSearch` stands down for an overlay). Gives way once the
+            field is in use, where the clear button needs the room.
           -->
           <span
             v-if="!state.searchIsFocused && state.search.length < 1"
@@ -125,14 +101,6 @@
           </span>
         </div>
       </w-toolbar>
-      <!--
-        The same chrome the editing overlays close themselves with -- see `NavEditOverlay`: a flat round
-        help button, then the pushed group. One button in the group here, since there is nothing to save;
-        `push` goes on the buttons, which is where `WBtn` reads it, not on the group.
-
-        -> No right margin on the last control: the toolbar's own 12px is already close to the 9-10px the
-           header leaves above and below.
-      -->
       <w-toolbar class="fileman-hdr-actions">
         <w-space />
         <w-btn
@@ -144,7 +112,6 @@
           icon="tabler:help-circle"
           :href="siteStore.docsBase + `/guide/file-manager`"
           target="_blank">
-          <!-- -> `WTooltip` already defaults to below-the-trigger, which is where a header wants it -->
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn-group>
@@ -159,25 +126,14 @@
       </w-toolbar>
     </w-header>
     <!--
-      The folder tree. Beside the list where there is room for both, and a panel over it where there is
-      not -- which is what `WDrawer` does on its own below 1024px, except that this was bound `:model-value
-      ="true"`: one-way, and permanently open. Overlaying, that put 350px of tree across a 390px screen
-      with no way to put it away, since the drawer asks to be closed when its scrim is tapped and nothing
-      was listening. `treeDrawerOpen` is that listener, and above the breakpoint it answers true always.
-
-      Narrower while it overlays, so there is a comfortable width of scrim left to tap on.
-
-      -> 320px beside the list, which is what the design measures both flanking columns at. The
-         overlay width stays 300: the design draws no phone state, and that number is about how much
-         scrim is left beside the panel, not about matching the column.
+      The folder tree: beside the list where there is room, a panel over it below 1024px, which is
+      what `WDrawer` does on its own. The binding must be two-way -- the drawer asks to be closed
+      when its scrim is tapped, and a one-way `:model-value="true"` left 350px of tree across a
+      phone with no way to put it away. Narrower while it overlays, so there is scrim left to tap on.
     -->
     <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 320">
       <w-scroll-area style="height: 100%">
-        <!--
-          -> No side padding: the tree's rows run the full width of the drawer, so a hovered or
-             selected row reads as a band across it rather than a floating pill. `pt-2` is the gap
-             above the root entry that the padding used to imply.
-        -->
+        <!-- -> No side padding: a hovered or selected tree row reads as a band across the drawer -->
         <div class="pt-2 pb-2">
           <tree
             ref="treeComp"
@@ -196,16 +152,9 @@
         <div class="p-4">
           <template v-if="currentFileDetails">
             <!--
-              A FRAMED slot, always drawn, not a bare image that appears only when there is one to
-              show: the design gives this pane a fixed 16/10 plate at the top with blueprint corner
-              marks around it, holding a placeholder glyph when the selected file has no preview.
-              Only images have a thumbnail (`/_thumb/:id.webp` 404s for anything else) and pages get
-              an illustration, so a PDF or an archive used to open the pane with the detail rows
-              jumped to the top and nothing above them -- the pane's whole layout changing with the
-              row the reader happened to click.
-
-              -> No `rounded` on the image any more. `--radius-*` is zeroed repo-wide (see the note
-                 in `css/tailwind.css`), and the frame around it is square.
+              The plate is always drawn, holding a placeholder glyph when the file has no preview:
+              only images have a thumbnail and pages get an illustration, so otherwise the pane's
+              whole layout changed with the row the reader happened to click.
             -->
             <div class="fileman-thumb">
               <img
@@ -229,16 +178,10 @@
             <template v-if="insertMode">
               <w-separator class="my-4" />
               <!--
-                -> `accent` (`--q-accent`, `#c14a52` in Ledger), not the `#e4676b` the Ledger design
-                   fills this button with: the fill tone is 2.9:1 under a white label and
-                   `helpers/accessibility.test.js` pins it as never carrying one.
-
-                   Not `primary` either (OpenProject #2776): the two happen to share Ledger's
-                   `#c14a52` default, which is what let this stay `primary` unnoticed, but Cobalt's
-                   own File Manager mockup (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`)
-                   fills this same button `#c8303c` -- `--q-accent`'s cobalt default -- not
-                   `--q-primary`'s unrelated blue (`#1f4fd6`). Same call, for the same reason, as
-                   the segmented control and the A/B markers in `PageHistoryOverlay.vue`.
+                -> `accent`, not `primary`: the two share a default under Ledger, but under Cobalt
+                   the design fills this button with the accent rather than `primary`'s unrelated
+                   blue. Not the accent's lighter FILL tone either -- that is 2.9:1 under a white
+                   label, and `helpers/accessibility.test.js` pins it as never carrying one.
               -->
               <w-btn
                 class="w-full fileman-insert-btn"
@@ -254,18 +197,13 @@
     </w-drawer>
     <w-page-container>
       <!--
-        Tapping this pane puts the tree panel away, which is the "tap outside to dismiss" the drawer's own
-        scrim would normally provide. It cannot here: `WDrawer` teleports that scrim to <body> at z-30, and
-        this whole view is inside a dialog which paints above it -- so the scrim is invisible, and a tap
-        beside the panel lands on this pane instead. Rather than raise the z-index of a scrim shared with
-        the site's nav drawer, the pane takes the tap it is already receiving.
-
-        On the pane rather than on the list inside it, because the list is only as tall as its rows: below
-        the last file the tap reaches this element and nothing else. The handler steps aside for the
-        toolbar, which holds the button that OPENS the tree.
+        The drawer's own scrim cannot provide "tap outside to dismiss" here: `WDrawer` teleports it
+        to the body at z-30 and this view sits inside a dialog painted above it, so a tap beside the
+        panel lands on this pane instead. On the pane rather than on the list inside it, which is
+        only as tall as its rows; the handler steps aside for the toolbar, which holds the button
+        that OPENS the tree.
       -->
       <w-page class="fileman-center column" @click="dismissTreeOverlay">
-        <!-- TOOLBAR ----------------------------------------------------- -->
         <w-toolbar class="fileman-toolbar">
           <template v-if="state.isUploading">
             <div class="fileman-progressbar">
@@ -285,21 +223,15 @@
           </template>
           <template v-else>
             <!--
-              The shared up-one-level plate (`UpOneLevelBtn.vue`), the same control the Browse panel
-              and the save dialog carry. Absent at the root, where the folder tree beside the list is
-              already showing that there is nothing above this. First in the toolbar, ahead of the way
-              INTO the tree, because both answer "where am I" rather than "what can I do here".
+              Ahead of the way INTO the tree: both answer "where am I" rather than "what can I do
+              here".
             -->
             <up-one-level-btn
               :show="Boolean(state.currentFolderId)"
               tooltip-anchor="bottom middle"
               tooltip-self="top middle"
               @click="goUp" />
-            <!--
-              What opens the tree while it is a panel: nothing else does, and the tree is how a reader
-              gets to another folder. First in the toolbar rather than in the pushed group, because it is
-              about where they are rather than about what to do here.
-            -->
+            <!-- The only way to open the tree while it overlays the list -->
             <w-btn
               v-if="isTreeOverlay"
               class="me-2"
@@ -314,11 +246,7 @@
               }}</w-tooltip>
             </w-btn>
             <w-space />
-            <!--
-              -> The toolbar sits on Cardinal's own 32px band, which is `WBtn`'s regular geometry --
-                 `dense` is the 28px compact variant, and the design draws every control in this row
-                 at 32px. See `WBtn`'s own "Cardinal geometry" note.
-            -->
+            <!-- -> No `dense`: the design draws this row at `WBtn`'s regular 32px, not its 28px -->
             <w-btn
               class="me-2"
               flat
@@ -413,12 +341,10 @@
             </w-btn>
             <w-separator class="me-2" inset vertical />
             <!--
-              The two labelled actions are OUTLINED where the icon buttons before them are flat: the
-              design rules a separator across the toolbar and puts an edge around everything past it,
-              so "what I can do here" reads as a pair of controls rather than as two more glyphs in
-              the row. `slate`, not `slate-soft` -- the design sets this label in `#38465f`, and
-              `slate-soft` is a hairline/icon tone below the 4.5:1 floor for text (see
-              `css/tailwind.css`'s own note beside the two faint slates).
+              The two labelled actions are OUTLINED where the icon buttons before them are flat, so
+              "what I can do here" reads as a pair of controls rather than two more glyphs in the
+              row. `slate`, not `slate-soft`, which is a hairline/icon tone below the 4.5:1 floor
+              for text.
             -->
             <w-btn
               class="fileman-new-btn me-2"
@@ -435,15 +361,10 @@
                 :base-path="folderPath" />
             </w-btn>
             <!--
-              Upload is GREEN, not the accent: the design draws it `#3f7a66` inside a `#5f9c86` edge,
-              which is `--color-positive` in `--color-positive-fill`. It used to be the accent on the
-              reasoning that this pane's primary action should be the one accent-coloured control in
-              it -- but the accent is spoken for on this screen, marking which row is selected, and a
-              second accent control competing with that is exactly what the design avoids.
-
-              `WBtn`'s `outline` deliberately draws every outlined edge in the hairline tone ("an
-              outlined button's edge is chrome, its label is not"), so the green edge comes from the
-              class below rather than from a change to the shared component.
+              Green, not the accent: the accent is spoken for on this screen, marking which row is
+              selected, and a second accent control would compete with that. `WBtn`'s `outline`
+              deliberately draws every outlined edge in the hairline tone, so the green edge comes
+              from the class below rather than from a change to the shared component.
             -->
             <w-btn
               class="fileman-upload-btn"
@@ -454,10 +375,9 @@
               icon="tabler:cloud-upload"
               @click="uploadFile" />
             <!--
-              Insert lives in the details pane, which is a 350px column with no overlay form -- so below
-              1440px the editor's insert flow could be opened and never completed: the file list offers it
-              only through a right-click menu, which is not a gesture a touch screen has. Here it is the
-              same call on the same selection, in the one place that is always on screen.
+              Insert's other home is the details pane, which is absent below 1440px, and the file
+              list offers it only through a right-click menu, which a touch screen has no gesture
+              for. Same call on the same selection, in the one place always on screen.
             -->
             <w-btn
               v-if="insertMode && !detailsPaneShown && state.currentFileId"
@@ -473,11 +393,10 @@
         </w-toolbar>
         <div class="flex flex-wrap" style="flex: 1 1 100%">
           <!--
-            The drop zone for drag-and-drop upload -- scoped to the file-LISTING pane specifically,
-            not the toolbar or the tree beside it, so a drag that starts over either of those does
-            not compete with what they already do (searching, browsing folders). `dragover` has to be
-            prevented too, not just `drop`: the browser's default for an unhandled `dragover` is to
-            refuse the drop outright, which suppresses `drop` from firing at all.
+            Scoped to the file-LISTING pane, so a drag over the toolbar or the tree does not compete
+            with what those already do. `dragover` has to be prevented too, not just `drop`: the
+            browser's default for an unhandled `dragover` refuses the drop outright, which
+            suppresses `drop` from firing at all.
           -->
           <div
             class="min-w-0 flex-1 fileman-droptarget"
@@ -486,11 +405,9 @@
             @dragleave.prevent="handleDragLeave"
             @drop.prevent="handleDrop">
             <!--
-              `pointer-events: none` (see the stylesheet) keeps this overlay itself from ever being
-              the target of a `dragenter`/`dragleave` -- without it, the overlay appearing under the
-              pointer the instant a drag begins would immediately fire a `dragleave` on the pane
-              underneath it, and `handleDragEnter`/`handleDragLeave` would have to account for an
-              event this element caused by existing.
+              `pointer-events: none` (see the stylesheet) keeps this overlay from ever being the
+              target of a `dragenter`/`dragleave`: appearing under the pointer the instant a drag
+              begins, it would otherwise fire a `dragleave` on the pane underneath it.
             -->
             <div class="fileman-dropoverlay" v-if="state.isDraggingOver">
               <w-icon name="tabler:cloud-upload" size="64px" />
@@ -520,24 +437,12 @@
                   <w-item-section class="fileman-filelist-label">
                     <w-item-label>{{ usePathTitle ? item.fileName : item.title }}</w-item-label>
                   </w-item-section>
-                  <!--
-                    -> The filetype caption ("PNG Image", "Markdown Page", ...) used to be a
-                       sub-line under the filename (WP #2920). It's now its own column between the
-                       filename and the size -- the filename column is exclusive to the name now.
-                  -->
                   <w-item-section class="fileman-filelist-type">
                     <div>{{ item.caption }}</div>
                   </w-item-section>
-                  <!--
-                    -> A file size is a MEASUREMENT, and the design sets every one of those in the
-                       mono face -- here, in the details pane beside it, and in the path bar along
-                       the bottom. `.text-caption` is the proportional caption scale and was drawing
-                       "248 KB" in the same face as the file's own name.
-                  -->
                   <w-item-section class="fileman-filelist-side" side v-if="item.side">
                     <div>{{ item.side }}</div>
                   </w-item-section>
-                  <!-- RIGHT-CLICK MENU -->
                   <w-menu class="translucent-menu" context-menu auto-close>
                     <w-card class="p-2">
                       <w-list dense style="min-width: 150px">
@@ -557,9 +462,9 @@
                           <w-item-section>{{ t(`common.actions.edit`) }}</w-item-section>
                         </w-item>
                         <!-- -> The route 503s without the Puppeteer extension (mirrored here via
-                                siteStore.pdfExportAvailable) and throws renderUnsupportedEditor for
-                                any page whose editor isn't markdown (backend/models/rendering.ts's
-                                ensureCanRender). No button that just fails, per OpenProject #864. -->
+                                siteStore.pdfExportAvailable) and refuses any editor but markdown
+                                (backend/models/rendering.ts's ensureCanRender), so the button is
+                                absent rather than offered and failing. -->
                         <w-item
                           clickable
                           v-if="
@@ -598,9 +503,8 @@
                           <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
                         </w-item>
                         <!--
-                          One entry for a page: its name and its place are picked in the same dialog
-                          the page view's own action rail opens, so offering them as two actions
-                          would be offering two ways into one form.
+                          One entry for a page: name and place are picked in the same dialog, so two
+                          actions would be two ways into one form.
                         -->
                         <w-item clickable v-if="item.type === `page`" @click="renameMovePage(item)">
                           <w-item-section side>
@@ -634,11 +538,6 @@
         </div>
       </w-page>
     </w-page-container>
-    <!--
-      -> No utility classes on the text: `.fileman-path` already owns the mono face, the 11.5px size
-         and the colour for both appearances, and `text-grey-7` was painting a neutral Material grey
-         into a language whose every other muted tone is blue-tinted.
-    -->
     <w-footer>
       <w-bar class="fileman-path">
         <small>{{ folderPath }}</small>
@@ -675,57 +574,43 @@ import { formatFileSize } from '@/helpers/fileSize'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { isApplePlatform } from '@/helpers/platform'
 
-// PROPS
-
 /**
  * Initial state from whoever opened this overlay (`siteStore.openOverlay('FileManager', opts)`),
- * forwarded here by `MainOverlayDialog.vue` (OpenProject #2530). Read via `props`, not
- * `siteStore.overlayOpts` directly -- the store field is the transport, the prop is the contract.
+ * forwarded here by `MainOverlayDialog.vue`. Read via `props`, not `siteStore.overlayOpts` directly
+ * -- the store field is the transport, the prop is the contract.
  */
 const props = defineProps({
   overlayOpts: { type: Object, default: () => ({}) }
 })
 
-// COMPOSABLES
-
 const dark = useDark()
 const screen = useScreen()
-
-// STORES
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
-// ROUTER
-
 const router = useRouter()
-
-// I18N
 
 const { t } = useI18n()
 
-// DATA
-
 /**
- * Where the view options are remembered. The browser rather than the account, deliberately: how
- * densely a list should be drawn is a property of the screen it is being read on, and the same person
- * on a laptop and on a large monitor will not want the same answer.
+ * Remembered in the browser rather than on the account, deliberately: how densely a list should be
+ * drawn is a property of the screen it is being read on, and the same person on a laptop and on a
+ * large monitor will not want the same answer.
  */
 const VIEW_OPTIONS_KEY = 'wiki.fileman.viewOptions'
 
 /**
- * The remembered view options, each taken only if it is still a value this component understands.
- *
- * Field by field rather than wholesale: the entry outlives the code that wrote it, and an option that
- * has since changed shape -- or been hand-edited in devtools -- must not be able to put the file list
- * into a state it has no way back out of.
+ * Field by field rather than wholesale: the stored entry outlives the code that wrote it, and an
+ * option that has since changed shape -- or been hand-edited in devtools -- must not be able to put
+ * the file list into a state it has no way back out of.
  */
 function storedViewOptions() {
   let stored = null
   try {
     stored = JSON.parse(globalThis.localStorage?.getItem(VIEW_OPTIONS_KEY) ?? 'null')
   } catch {
-    // -> Unreadable is the same as absent: the defaults below stand
+    // -> Unreadable is the same as absent
   }
   if (!stored || typeof stored !== 'object') {
     return {}
@@ -743,30 +628,19 @@ const state = reactive({
   loading: 0,
   isFetching: false,
   search: '',
-  /** Drives the search pill's inversion, as HeaderSearch does it. */
   searchIsFocused: false,
   currentFolderId: null,
   currentFileId: null,
-  /**
-   * The content locale currently being browsed -- distinct from `commonStore.locale` (the UI
-   * language). Initialized in `onMounted` to `pageStore.locale` and changed only by `selectLocale`.
-   */
+  /** The CONTENT locale being browsed -- not `commonStore.locale`, which is the UI language. */
   locale: null,
   /**
-   * Whether the folder tree has been opened. Only consulted while it overlays the list — beside it, it
-   * is simply there. Deliberately NOT one of the remembered view options: those describe how a list is
-   * drawn, and this is a panel that is open at the moment.
+   * Only consulted while the tree overlays the list. Deliberately NOT one of the remembered view
+   * options: those describe how a list is drawn, and this is a panel that is open at the moment.
    */
   treeOpen: false,
   treeNodes: {},
   treeRoots: [],
   displayMode: 'title',
-  /**
-   * Row density (OpenProject #2960): compact stays the DEFAULT -- a work-cycle commit
-   * (`db2b0196a`) briefly deleted comfortable mode entirely rather than merely defaulting away from
-   * it, which is not what was asked for. `true` here, not `false`, is the one behavioral change
-   * from this flag's pre-`db2b0196a` shape.
-   */
   isCompact: true,
   shouldShowFolders: true,
   isUploading: false,
@@ -774,11 +648,10 @@ const state = reactive({
   uploadPercentage: 0,
   fileList: [],
   fileListLoading: false,
-  /** Whether a file drag from outside the browser is currently over the drop zone. See `dragDepth` in `composables/fileUpload.js`. */
+  /** Maintained by `composables/fileUpload.js` (see its `dragDepth`), not here. */
   isDraggingOver: false
 })
 
-// -> Over the defaults just above, which is what the view falls back to on a first visit
 Object.assign(state, storedViewOptions())
 
 /*
@@ -794,25 +667,18 @@ watch(
         JSON.stringify({ displayMode, isCompact, shouldShowFolders })
       )
     } catch {
-      // -> Full, or storage denied. Not worth a word to the reader: the options still work, they
-      //    just will not be there next time.
+      // -> Full, or storage denied: the options still work, they just will not persist
     }
   }
 )
-
-// REFS
 
 const fileIpt = ref(null)
 const searchField = ref(null)
 const treeComp = ref(null)
 
-// COMPOSABLES OVER THIS COMPONENT'S OWN STATE
-
 /*
-  The upload on-ramps and the item actions, both lifted out whole
-  (`composables/fileUpload.js`, `composables/fileManagerActions.js`). Both still work on this
-  component's `state` and its listing -- `loadTree` and `close` are function declarations below, so
-  they are already hoisted by the time these run.
+  `loadTree` and `close` are function declarations below, so they are already hoisted by the time
+  these composables run over this component's own `state`.
 */
 const {
   uploadFile,
@@ -842,41 +708,32 @@ const {
   delAsset
 } = useFileManagerActions({ state, treeComp, loadTree, close })
 
-// COMPUTED
-
 const insertMode = computed(() => props.overlayOpts?.insertMode ?? false)
 
 /**
- * The search field's key-cap hint: `⌘K` on macOS/iOS/iPadOS, `Ctrl+K` everywhere else, resolved
- * exactly as `HeaderSearch` resolves its own -- the two answer the same key and must name it the
- * same way. A `computed()` rather than a `const` for the reason spelled out there: `t()`'s result is
- * what is reactive, and this component can set up before `boot/i18n.js` has loaded the catalog.
+ * Resolved exactly as `HeaderSearch` resolves its own -- the two answer the same key and must name
+ * it the same way. A `computed()` rather than a `const` because `t()`'s result is what is reactive,
+ * and this component can set up before `boot/i18n.js` has loaded the catalog.
  */
 const searchShortcutHint = computed(() =>
   isApplePlatform() ? t('common.header.searchShortcutMac') : t('common.header.searchShortcutOther')
 )
 
 /**
- * Whether the folder tree is a panel over the list rather than a column beside it.
- *
- * 1024 is `WDrawer`'s own default `overlayBelow`, which is what actually decides how the drawer draws
- * itself — this is the same question asked from the outside, so that the toolbar knows whether to offer a
- * way in. The two have to agree.
+ * 1024 is `WDrawer`'s own default `overlayBelow`, which is what actually decides how the drawer
+ * draws itself — this asks the same question from the outside, so the toolbar knows whether to
+ * offer a way in. The two have to agree.
  */
 const isAtLeastMd = useMinWidth(1024)
 const isTreeOverlay = computed(() => !isAtLeastMd.value)
 
 /**
- * Whether the details pane is beside the list. It is a 350px column with no overlay form, so below 1440px
- * there is simply no room for it -- which is also why the Insert button it holds needs a second home; see
- * the toolbar.
+ * The details pane has no overlay form, so below `lg` there is simply no room for it -- which is
+ * why the Insert button it holds needs a second home; see the toolbar.
  */
 const detailsPaneShown = computed(() => screen.gte.lg)
 
-/**
- * The tree drawer's open state: always open where it has a column of its own, and the reader's to decide
- * where it overlays. The setter is what the drawer's scrim reaches when it is tapped.
- */
+/** The setter is what the drawer's scrim reaches when it is tapped. */
 const treeDrawerOpen = computed({
   get: () => !isTreeOverlay.value || state.treeOpen,
   set: (val) => {
@@ -911,7 +768,6 @@ const filteredFiles = computed(() => {
 const files = computed(() => {
   return filteredFiles.value
     .filter((f) => {
-      // -> Show Folders Filter
       if (f.type === 'folder' && !state.shouldShowFolders) {
         return false
       }
@@ -925,13 +781,11 @@ const files = computed(() => {
           break
         }
         case 'page': {
-          // -> A redirection has a target where a page has content, so it reads as its own kind of row
           f.icon = f.pageType === 'redirect' ? fileTypes.redirect.icon : fileTypes.page.icon
           f.caption = t(`fileman.${f.pageType}PageType`)
           break
         }
         case 'asset': {
-          // -> An unmapped extension still gets a real Tabler glyph, never a blank slot
           f.icon = fileTypes[f.fileExt]?.icon ?? 'tabler:file'
           f.side = formatFileSize(f.fileSize)
           if (fileTypes[f.fileExt]) {
@@ -984,7 +838,7 @@ const currentFileDetails = computed(() => {
       break
     }
     case 'asset': {
-      // -> Only images get one, and the endpoint answers 404 for anything else
+      // -> `/_thumb/` answers 404 for anything that is not an image
       thumbnail = item.mimeType?.startsWith('image/') ? `/_thumb/${item.id}.webp` : null
       items.push({
         label: t('fileman.detailsAssetType'),
@@ -1005,29 +859,15 @@ const currentFileDetails = computed(() => {
   }
 })
 
-// WATCHERS
-
 watch(
   () => state.currentFolderId,
   async (newValue) => {
-    /*
-      Picking a folder is what the tree is open FOR, so it closes behind the choice -- the contents of that
-      folder are in the list underneath, which the panel is covering. Only while it overlays; beside the
-      list it is a column and there is nothing to close.
-    */
+    // -> Picking a folder is what the tree is open FOR, so the panel closes behind the choice
     state.treeOpen = false
     await loadTree({ parentId: newValue })
   }
 )
 
-// METHODS
-
-/**
- * Put the folder tree away when the list behind it is tapped.
- *
- * A no-op unless the tree is actually overlaying and open, so an ordinary click on a file — which is what
- * this handler mostly receives — costs nothing and behaves as it always did.
- */
 function dismissTreeOverlay(ev) {
   if (!isTreeOverlay.value || !state.treeOpen) {
     return
@@ -1040,12 +880,8 @@ function dismissTreeOverlay(ev) {
 }
 
 /**
- * Up one level: select the folder above the one being listed, or the root when that folder is
- * directly under it.
- *
- * Setting `currentFolderId` is the whole of it -- the same watcher a tree click goes through reloads
- * the list and closes the tree panel behind the choice, so going up and clicking up arrive at exactly
- * the same place. Nothing is done at the root; the control is absent there.
+ * Setting `currentFolderId` is the whole of it -- the same watcher a tree click goes through
+ * reloads the list and closes the tree panel, so going up and clicking up arrive at the same place.
  */
 function goUp() {
   if (!state.currentFolderId) {
@@ -1093,13 +929,10 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
       initLoad
     })
     if (items?.length > 0) {
-      // -> The folder half of the response is the tree, and is merged the same way in all three
-      //    browsers; what each does with the entries is its own list projection, below
       const { roots: newTreeRoots } = mergeFolderEntries(state.treeNodes, items, parentId)
       for (const item of items) {
         switch (item.type) {
           case 'folder': {
-            // -> File List
             if (parentId === state.currentFolderId && !item.isAncestor) {
               state.fileList.push({
                 id: item.id,
@@ -1168,12 +1001,8 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
 }
 
 /**
- * Switch the content locale being browsed and reload the tree from the root.
- *
- * A folder id (or a selected file) from one locale means nothing in another, so the reset clears
- * every bit of state the previous locale's tree left behind -- the same fields `renameFolder`'s
- * `onOk` resets before its own reload -- rather than trying to re-resolve the current position in
- * the new locale's tree.
+ * A folder id (or a selected file) from one locale means nothing in another, so every bit of the
+ * previous locale's tree state is cleared rather than re-resolved against the new one.
  */
 async function selectLocale(code) {
   if (code === state.locale) {
@@ -1205,10 +1034,6 @@ function treeContextAction(nodeId, action) {
     }
   }
 }
-
-// --------------------------------------
-// ITEM LIST ACTIONS
-// --------------------------------------
 
 function selectItem(item) {
   if (item.type === 'folder') {
@@ -1257,7 +1082,7 @@ async function copyItemURL(item) {
         break
       }
       case 'asset': {
-        // -> Under `/_files/`, which is where a file is served from: the page tree it is listed
+        // -> `/_files/`, where a file is actually served from: the page tree it is listed
         //    alongside in here is not a place a browser can fetch it from
         await navigator.clipboard.writeText(
           `${window.location.origin}${assetUrl(item.folderPath, item.fileName)}`
@@ -1293,8 +1118,7 @@ async function editItem(item) {
 
 async function downloadItem(item) {
   try {
-    // -> Fetched rather than linked to: the content route is behind the API client, which is what
-    //    carries the token
+    // -> Fetched rather than linked to: the content route lives behind the API client
     const blob = await API_CLIENT.get(`sites/${siteStore.id}/assets/${item.id}/content`).blob()
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -1328,10 +1152,7 @@ function renameItem(item) {
   }
 }
 
-/**
- * Duplicating a folder or an asset has no endpoint behind it yet, so the menu item itself is gated
- * to `item.type === 'page'` (see the template) -- this only ever runs for a page.
- */
+/** Only a page can be duplicated: there is no endpoint behind a folder or an asset. */
 function duplicateItem(item) {
   switch (item.type) {
     case 'page': {
@@ -1360,11 +1181,9 @@ function delItem(item) {
 }
 
 /**
- * Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) reaches THIS search field while the overlay is up.
- *
- * HeaderSearch owns the same shortcut and steps aside for an overlay (see the note there), so the two
- * never both answer it. Bound and unbound with the component, which only exists while the overlay is
- * open -- the listener's lifetime is the window in which it should win.
+ * `HeaderSearch` owns the same shortcut and steps aside for an overlay, so the two never both
+ * answer it. Bound and unbound with the component, whose lifetime is the window in which this one
+ * should win.
  */
 function handleKeyPress(ev) {
   if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
@@ -1373,13 +1192,10 @@ function handleKeyPress(ev) {
   }
 }
 
-// MOUNTED
-
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyPress)
 
-  // -> pageStore.locale is always a real code (App.vue's resolveRouteLocale never leaves it empty,
-  //    and its own store default is the site's primary), so there is no fallback case to cover here.
+  // -> `pageStore.locale` is always a real code, so there is no fallback case to cover here
   state.locale = pageStore.locale
 
   const pathParts = pageStore.path.split('/')
@@ -1390,7 +1206,6 @@ onMounted(async () => {
     initLoad: true
   })
 
-  // -> Open tree up to current folder
   const folderFolderPath = pathParts.slice(0, -2).join('/')
   const folderFileName = pathParts.at(-2)
 
@@ -1402,7 +1217,6 @@ onMounted(async () => {
     }
   }
 
-  // -> Switch to current folder (from page path)
   const currentNode = Object.entries(state.treeNodes).find(
     ([, n]) => n.folderPath === folderFolderPath && n.fileName === folderFileName
   )
@@ -1417,31 +1231,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 /*
-  Where the overlay's header stops fitting on one line. Its own threshold: the three toolbars want roughly
-  700px between them, and this leaves a margin over that. Not one of the app's shared breakpoints, though
-  it is the same 900 the site header collapses its actions at -- both are simply where a window stops
-  having room for a row of chrome.
+  Selectors are flat, not nested: a `&-suffix` selector is Sass string concatenation, and native CSS
+  nesting silently drops such a rule rather than matching it.
 */
 .fileman {
   /*
-    THE HEADER ON A NARROW SCREEN
-    =============================
-
-    `.card-header` is a flex row, and its three toolbars are each `w-full`, so with wrapping turned on they
-    would take a line each -- three lines of chrome above a file list. Two is enough:
-
-      line 1   the title, with the help and Close group pushed to its end
-      line 2   the locale button and the search field
-
-    The title and the actions give up `w-full` to share the first line; the search toolbar keeps it and is
-    ordered last, which is what puts it on the second. Close is what this is for -- off the end of the row
-    it was unreachable, and it is the only way out of the overlay.
+    Below 900px the header's three `w-full` toolbars would take a line each. The title and the
+    actions give up `w-full` to share line one; the search toolbar keeps it and is ordered last, so
+    it lands on line two. Close is what this is for: off the end of an unwrapped row it is
+    unreachable, and it is the only way out of the overlay.
   */
 }
 @media (max-width: 899.98px) {
@@ -1451,7 +1250,7 @@ onBeforeUnmount(() => {
   .fileman-hdr-title {
     width: auto;
     flex: 1 1 auto;
-    /* -> "File Manager" wrapped to two lines rather than letting the row grow */
+    /* -> Otherwise the title wraps to two lines rather than letting the row grow */
     white-space: nowrap;
   }
   .fileman-hdr-actions {
@@ -1463,21 +1262,15 @@ onBeforeUnmount(() => {
   }
 }
 .fileman {
-  /*
-    The overlay title's own glyph, in the accent lightened for a dark ground. See the template note:
-    the variable rather than a `text-accent-dark` utility, which nothing in this repo emits.
-  */
+  /* The variable, not a `text-accent-dark` utility: nothing in this repo emits that class. */
 }
 .fileman-hdr-icon {
   color: var(--color-accent-dark);
 }
 .fileman {
   /*
-    The locale chip. The design draws it as a hairline box the same 34px height as the search field
-    beside it -- not as a button standing proud of the row -- so the edge is stated here and the
-    height matched rather than left to `WBtn`'s own 32px band. This selector is one class and so is
-    the `min-h-*` the component sets inline, but the inline style wins regardless of specificity,
-    which is why the height goes on as `!important`; nothing else here needs it.
+    The locale chip matches the 34px search field beside it rather than `WBtn`'s own 32px band. The
+    height needs `!important` because `WBtn` sets `min-h-*` inline, which wins on any specificity.
   */
 }
 .fileman-locale {
@@ -1491,28 +1284,14 @@ onBeforeUnmount(() => {
 }
 .fileman {
   /*
-    The search field, following `.header-search-field` in HeaderSearch: 40px tall, dark fill on the
-    dark header, inverting to white ink-on-white in use. Stated here rather than borrowing that
-    component's class, so a change to the site header cannot silently restyle this overlay -- and the
-    two have since parted company on both of the things that tie a control to its surroundings.
-
-    The FILL: HeaderSearch sits on the site header, which is black, so its neutral `#212121` reads as
-    a lift out of it. This header is `.card-header` -- `var(--color-dark-3)` graded towards `var(--color-dark-5)`, all of them
-    blue-tinted -- and a neutral grey on a blue-grey ground reads as a different, muddier colour
-    rather than a raised surface. One step up the same ramp, `var(--color-dark-2)`, is the lift without the clash.
-
-    The CORNERS: 7px, which is `WBtn`'s `push` radius, so the field and the Close button at the other
-    end of the header are cut to the same shape. A full pill next to a 7px button read as two
-    unrelated controls that happened to share a row.
+    The search field follows `.header-search-field` in `HeaderSearch`, restated here rather than
+    borrowing that component's class so a change to the site header cannot silently restyle this
+    overlay. The two have since parted company on fill and on focus behaviour.
   */
 }
 .fileman-search {
   display: flex;
-  /*
-    -> Bounded, as the design bounds it: `min-width: 180px; max-width: 420px`. Unbounded, the field
-       ate every pixel the header's spacer did not, and on a wide monitor a folder search ran the
-       better part of a metre.
-  */
+  /* -> Bounded: unbounded, the field ate every pixel the header's spacer did not */
   flex: 1 1 auto;
   min-width: 180px;
   max-width: 420px;
@@ -1521,10 +1300,8 @@ onBeforeUnmount(() => {
   height: 34px;
   padding: 0 8px 0 11px;
   /*
-    A white box on the dialog's dark title band -- the design's own treatment, and the mirror of
-    what `HeaderSearch` does on the light one: a search field always presents the surface it is
-    typed on, whichever ground it happens to sit against. So this one goes lighter than its bar
-    where the header's goes darker, and neither inverts on focus any more.
+    A white box on the dialog's dark title band, mirroring what `HeaderSearch` does on the light
+    one: a search field presents the surface it is typed on, whichever ground it sits against.
   */
   background-color: var(--color-surface);
   color: var(--color-text-caption);
@@ -1568,12 +1345,7 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 .fileman-search {
-  /*
-    The shortcut key cap, declared the same way `.header-search-kbd` is: a square mono cap on the
-    field's own ground. Restated rather than borrowed for the same reason the field itself is --
-    this one sits on a white field in a dark title band, that one on the light site header, and a
-    change to either must not silently move the other.
-  */
+  /* The key cap is restated from `.header-search-kbd` for the same reason the field itself is. */
 }
 .fileman-search-kbd {
   flex-shrink: 0;
@@ -1591,10 +1363,9 @@ onBeforeUnmount(() => {
 }
 .fileman {
   /*
-    Each pane states its own ink alongside its fill. Nothing above these sets a text color for dark
-    mode -- the app has no global `body--dark { color }` rule, and the panes are not `w-card`s, which
-    is where that pairing normally lives -- so anything that just inherits (the folder tree's labels,
-    a file's title, the size in the right-hand column) came out black on the dark fill.
+    Each pane states its own ink alongside its fill: there is no global `body--dark { color }` rule
+    and these panes are not `w-card`s, so anything that merely inherits comes out black on the dark
+    fill.
   */
 }
 .body--light .fileman-left {
@@ -1617,11 +1388,9 @@ onBeforeUnmount(() => {
 }
 .fileman-right {
   /*
-    `#fbfcfe` stays a Ledger-only literal rather than `--color-surface` (OpenProject #2776): the
-    design draws this pane a hair off pure white in Ledger but pure white (`#ffffff`, matching
-    `--color-surface`) under Cobalt (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`'s right
-    pane). No token distinguishes "surface" from "surface, a shade warmer" -- logged rather than
-    guessed at with a new one-off selector.
+    `#fbfcfe` stays a literal rather than `--color-surface`: the design draws this pane a hair off
+    pure white in Ledger but pure white under Cobalt, and no token distinguishes "surface" from
+    "surface, a shade warmer".
   */
 }
 .body--light .fileman-right {
@@ -1636,10 +1405,8 @@ onBeforeUnmount(() => {
 }
 .fileman {
   /*
-    The action bar over the list. The design paints it in the page tint rather than in the list's own
-    white -- the same pairing the path bar along the bottom already uses, so the pane reads as a
-    sheet of paper with a strip of chrome at each end rather than as one continuous white field with
-    two hairlines ruled across it. Dark follows the path bar too: the recessed rung, not the panel's.
+    The action bar takes the page tint rather than the list's own white, pairing with the path bar
+    along the bottom, so the pane reads as a sheet of paper with a strip of chrome at each end.
   */
 }
 .body--light .fileman-toolbar {
@@ -1652,14 +1419,13 @@ onBeforeUnmount(() => {
 }
 .fileman {
   /*
-    Upload's green edge. `WBtn`'s `outline` draws every outlined edge in the hairline tone on purpose
-    ("an outlined button's edge is chrome, its label is not"), and this is the one control the design
-    overrides that for -- so the override lives here rather than as a prop on the shared component.
+    `WBtn`'s `outline` draws every outlined edge in the hairline tone on purpose, and Upload is the
+    one control the design overrides that for -- so the override lives here rather than as a prop on
+    the shared component.
   */
 }
 .fileman-upload-btn {
-  /* -> The fill tone in both appearances: it is a hairline here, not a label, so the "never under */
-  /*    white text" constraint that separates `var(--color-positive-fill)` from `var(--color-positive)` does not apply. */
+  /* -> The fill tone: a hairline, not a label, so its "never under white text" bar does not apply */
   border-color: var(--color-positive-fill);
 }
 .fileman-path {
@@ -1718,11 +1484,7 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 .fileman {
-  /*
-    Covers the whole pane rather than sitting as a border on it: a dashed inset rectangle plus a
-    translucent wash reads as "drop here" at a glance, the same affordance file managers and mail
-    clients use. `pointer-events: none` is load-bearing -- see the template comment beside it.
-  */
+  /* `pointer-events: none` on the drop overlay is load-bearing -- see the template comment. */
 }
 .fileman-dropoverlay {
   position: absolute;
@@ -1749,74 +1511,39 @@ onBeforeUnmount(() => {
 }
 .fileman {
   /*
-    The listing runs edge to edge -- the rows are the page, not cards floating on it -- so the
-    padding is each row's own and the list has none of its own.
-
-    CSS GRID, not flex (OpenProject #2940): `.fileman-filelist-side` (the size column, `v-if=
-    "item.side"`, set only for a file -- a folder or a page has none) carried no width of its own
-    under the previous flex row. With nothing there to claim it, `.fileman-filelist-label`'s
-    `flex: 1 1 0%` simply grew to absorb the space the size column would have used, pushing the
-    fixed-width `.fileman-filelist-type` column further right than on a row that DOES have a size
-    -- "the type column spills into where size is displayed", reported against the live file
-    manager. An explicit `grid-template-columns` on the row reserves every column's width
-    regardless of whether a given row's cell is populated, so `v-if="item.side"` stays exactly as
-    it is: the fourth track is still there, just empty, on a folder or page row.
-
-    ROW DENSITY (OpenProject #2960): comfortable, below, is the unmodified base -- the design's
-    original ~69px row -- and `.is-compact` shrinks it down to the ~40px row that ships as the
-    DEFAULT (`state.isCompact` starts `true`). An intervening work-cycle commit (`db2b0196a`)
-    deleted comfortable entirely rather than merely defaulting away from it, and separately sized
-    the compact icon at `md` (32px) instead of the `sm` (24px) every other row list of this kind
-    uses (`TreeBrowserDialog.vue`) -- both restored/fixed here.
+    CSS Grid, not flex: the size column (`v-if="item.side"`, absent on a folder or a page) has no
+    width of its own, so under flex the label's `flex: 1 1 0%` absorbed the space it would have
+    used and pushed the fixed-width type column further right than on a row that DOES have a size.
+    An explicit `grid-template-columns` reserves every track whether or not a row populates it.
   */
 }
 .fileman-filelist {
   padding: 0;
   /*
-    The selected row: the accent WASH plus an accent bar down its leading edge, matching how the
-    site sidebar and the folder tree beside this list both mark what the reader is on. A solid
-    accent fill (what this used to do) is the treatment a BUTTON gets; a selected row in a list is
-    not one, and filling it meant the file name, its type and its size all had to be restated in
-    white -- three overrides that existed only to survive the fill.
-
-    The wash, not `--color-tint`: the design tints the selected row towards the accent (`#fdeced`),
-    which is `--color-accent-wash`. The neutral tint was the same colour as the toolbar above the
-    list, so a selected row read as a second strip of chrome rather than as a selection.
-
-    The bar is an inset SHADOW rather than a border, again as the design draws it (`inset 3px 0 0`).
-    A border would have to be reserved as `2px solid transparent` on every unselected row, which is
-    what the previous rule did -- three pixels of padding stolen from every row in the list to make
-    room for a mark almost none of them carry.
+    The selected row is an accent wash plus an inset bar, not a solid fill: a fill is what a BUTTON
+    gets, and it would force the name, the type and the size each to be restated in white. The wash
+    rather than `--color-tint`, which is the toolbar's own colour, so a selection would read as a
+    second strip of chrome. The bar is an inset SHADOW rather than a border, which would have to be
+    reserved as transparent on every unselected row.
   */
 }
 .fileman-filelist > .w-item {
   display: grid;
   /*
-    Comfortable's own column widths: a 56px icon track (room for the `xl`/46px icon plus the
-    6px `padding-inline-end` below), matching `WItemSection`'s own default avatar reservation.
-    `.is-compact` narrows this track to 40px, for its smaller `sm`/24px icon.
+    The 56px icon track holds the `xl` (46px) icon plus the 6px `padding-inline-end` below, and
+    matches `WItemSection`'s own default avatar reservation.
   */
   grid-template-columns: 56px minmax(0, 1fr) 110px 90px;
-  /*
-    The comfortable row: ~69px, the design's own original density. 11px top/bottom padding
-    plus the `xl` (46px) icon below lands it there.
-  */
   padding: 11px 16px;
   min-height: 69px;
   /*
-    Opts this row out of `WItem.vue`'s own container-query row stacking
-    (`.w-item:has(.w-item-section--main + .w-item-section--main)`) -- real for the settings
-    rows it was built for, which are single-column and genuinely need to drop a second field
-    onto its own line below ~600px, but wrong here: unopposed, that rule's `margin-top`/
-    `margin-inline-start` would land on this row's own TYPE column (also a "main" section,
-    adjacent to the label) the moment the pane narrows under 600px, which the file list pane
-    does routinely once the details or tree panel sits beside it. `!important` rather than
-    out-specificing the `:has()` selector, which carries its own scoped attribute: matching or
-    beating it here would be one more thing to keep in step by hand if that selector ever
-    changes.
+    Opts out of `WItem.vue`'s container-query row stacking
+    (`.w-item:has(.w-item-section--main + .w-item-section--main)`): unopposed, its margins would
+    land on this row's TYPE column, also a "main" section, whenever the pane narrows under 600px --
+    which it does routinely once the details or tree panel sits beside it. `!important` rather than
+    out-specificing a scoped `:has()` selector that would then have to be kept in step by hand.
   */
   container-type: normal !important;
-  /* -> The design rules each row off from the next; the last one meets the pane's own edge */
 }
 .fileman-filelist > .w-item:not(:last-child) {
   border-block-end: 1px solid var(--color-tint);
@@ -1835,12 +1562,10 @@ onBeforeUnmount(() => {
 }
 .fileman-filelist > .w-item {
   /*
-    `WItemSection.vue`'s own `.w-item-section--avatar` reserves 56px width AND a matching
-    `min-width` -- fine for comfortable's own 56px track, but under Grid that `min-width`
-    overflows `.is-compact`'s narrower 40px track rather than simply being ignored the way it
-    was on a shrinking flex item. Overridden unconditionally here, nested under `.w-item`, for
-    the specificity to beat that scoped rule reliably rather than tying with it in either
-    density.
+    `WItemSection.vue`'s `.w-item-section--avatar` reserves a 56px `min-width` too, which under
+    Grid overflows `.is-compact`'s narrower track instead of being ignored the way it was on a
+    shrinking flex item. Nested under `.w-item` to beat that scoped rule's specificity outright
+    rather than tie with it.
   */
 }
 .fileman-filelist > .w-item .fileman-filelist-icon {
@@ -1849,10 +1574,8 @@ onBeforeUnmount(() => {
 }
 .fileman-filelist {
   /*
-    Compact (the default -- `state.isCompact` starts `true`): roughly the ~40px row
-    `db2b0196a` shipped as the only option, now reachable as a toggle instead. The icon itself
-    shrinks with it, in the template's `:size="state.isCompact ? 'sm' : 'xl'"` -- CSS alone
-    can't resize the icon glyph, only the row and its grid track around it.
+    The icon shrinks with the compact row from the template's own `:size` binding: CSS here can
+    only size the row and its grid track, not the glyph inside it.
   */
 }
 .fileman-filelist.is-compact > .w-item {
@@ -1861,7 +1584,7 @@ onBeforeUnmount(() => {
   min-height: 40px;
 }
 .fileman-filelist {
-  /* -> The design's own row type scale: a 14.5px/500 name, the filename column now exclusive */
+  /* -> The name, at the design's own row type scale */
 }
 .fileman-filelist-label .w-item-label {
   font-size: 14.5px;
@@ -1869,11 +1592,8 @@ onBeforeUnmount(() => {
 }
 .fileman-filelist {
   /*
-    The dedicated filetype column ("PNG Image", "Markdown Page", ...) that used to be a sub-line
-    under the filename (WP #2920). Its width is the row's own grid template, not its own -- see
-    `> .w-item` above -- with the same 12px caption treatment the sub-line used to carry, and
-    truncated rather than wrapped: a long caption wrapping onto a second line would blow out this
-    row's fixed height.
+    The filetype column takes its width from the row's grid template, not from here, and truncates
+    rather than wraps: a caption on a second line would blow out the row's fixed height.
   */
 }
 .fileman-filelist-type {
@@ -1890,9 +1610,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-caption-dark);
 }
 .fileman-filelist {
-  /* -> A measurement, in the mono face, as every other measurement on this screen is. Its width */
-  /*    is the row's own grid template too -- reserved whether or not this row's `item.side` is */
-  /*    actually populated, which is the fix for OpenProject #2940. */
+  /* -> A measurement, in the mono face, as every other measurement on this screen is */
 }
 .fileman-filelist-side {
   font-family: var(--font-mono);
@@ -1905,11 +1623,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary-dark);
 }
 .fileman {
-  /*
-    The preview plate at the top of the details pane, always drawn -- see the template note. A framed
-    16/10 box on the tint, with the blueprint corner marks the design language sets around anything
-    it wants read as a plate rather than as a picture that happens to be there.
-  */
+  /* The preview plate is always drawn, even with nothing to preview -- see the template note. */
 }
 .fileman-thumb {
   position: relative;
@@ -1928,7 +1642,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-hairline-dark);
 }
 .fileman-thumb {
-  /* -> The image fills the plate it is framed by, so the frame's own aspect ratio is the one drawn */
+  /* -> The image fills the plate, so the frame's aspect ratio is the one drawn */
 }
 .fileman-thumb > img {
   display: block;
@@ -1940,17 +1654,10 @@ onBeforeUnmount(() => {
 }
 .fileman-thumb {
   /*
-    The four corner marks. Outside the frame by 4px, drawn as two edges of a 7px square each, so
-    they read as registration ticks rather than as a second border. Positioned with logical
-    insets, so each tick's two drawn edges stay on the corner it is named for under RTL.
-
-    `display: var(--corner-marks)` -- `block` in Ledger (a no-op), `none` in Cobalt
-    (OpenProject #2767/`NavEditMenu.vue`'s identical construction) -- is what this was missing:
-    Cobalt draws no corner marks anywhere ("white cards ... instead of hairlines and corner
-    marks", DESIGN-DECISIONS.md), and the File Manager mockup's own preview plate
-    (`Cardinal Wiki - File Manager 3x - Cobalt.dc.html`) confirms a plain hairline frame with no
-    ticks, but this frame kept drawing all four regardless of aesthetic until now
-    (OpenProject #2776).
+    Two edges of a 7px square each, 4px outside the frame, so they read as registration ticks
+    rather than as a second border. Logical insets keep each tick's drawn edges on the corner it is
+    named for under RTL. `display: var(--corner-marks)` resolves to `none` under Cobalt, which
+    draws no corner marks anywhere.
   */
 }
 .fileman-thumb-tick {
@@ -1990,10 +1697,9 @@ onBeforeUnmount(() => {
 }
 .fileman {
   /*
-    A detail row is a LABELLED VALUE, and the design lays it out as one: a 92px mono-uppercase label
-    gutter with the value beside it, each row ruled off from the next. Stacked (what this used to do)
-    made every value look like the start of its own paragraph and cost twice the vertical room, which
-    is how a four-row pane came to need scrolling.
+    A detail row is a labelled value beside its gutter, not a stack: stacked, each value read as
+    the start of its own paragraph and cost twice the vertical room, which is how a four-row pane
+    came to need scrolling.
   */
 }
 .fileman-details-row {
@@ -2036,11 +1742,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-dark);
 }
 .fileman {
-  /*
-    The pane's own commit button, marked with the same registration ticks the plate above it carries
-    -- the design puts them on the leading-top and trailing-bottom corners only, which is the motif's
-    abbreviated form for a control rather than a plate.
-  */
+  /* Registration ticks on two corners only: the motif's abbreviated form for a control. */
 }
 .fileman-insert-btn::before,
 .fileman-insert-btn::after {

@@ -4,14 +4,6 @@ import { flushPromises } from '@vue/test-utils'
 import GroupUsersPanel from './GroupUsersPanel.vue'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * OpenProject #2440: this panel is the other direction of the group-assignment warning -- adding a
- * user to a group that is itself on an enabled strategy's `mappableGroups` allow-list. Unlike
- * `UserEditOverlay.vue`'s per-selection warning, this one is per-group and shown as soon as the
- * panel mounts, since `groupId` (and therefore whether it is synced) never changes while the panel
- * is open.
- */
-
 async function mountPanel({ groupId = 'group-editors', syncWarnings = [] } = {}) {
   API_CLIENT.get.mockImplementation((url) => {
     if (url === `groups/${groupId}/users`) {

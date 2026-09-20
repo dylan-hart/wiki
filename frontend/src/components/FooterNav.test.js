@@ -8,10 +8,8 @@ import { useSiteStore } from '@/stores/site'
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
- * Task 749's `hasSiteFooter` audit: it only checks truthiness of `company`/`contentLicense`, with no
- * reference to `logoText` at all (that flag only ever gates the site title next to the logo in
- * `HeaderNav`/`Login.vue`/`AdminGeneral.vue`'s preview) -- so `logoText:false` has no interaction
- * with the footer, verified below by leaving it at its default `false` throughout.
+ * `logoText` gates only the site title beside the logo, never the footer -- pinned false here so
+ * the suite below proves the footer is indifferent to it.
  */
 function mountFooter(props = {}) {
   setActivePinia(createPinia())
@@ -43,10 +41,8 @@ describe('FooterNav — hasSiteFooter edge cases', () => {
     siteStore.contentLicense = 'alr'
     await wrapper.vm.$nextTick()
 
-    // No "© 2026 . All Rights Reserved" -- the i18n-t for it doesn't render at all.
     expect(wrapper.text()).not.toContain('All Rights Reserved')
     expect(wrapper.text()).not.toContain('©')
-    // The second, always-on line still renders normally.
     expect(wrapper.text()).toContain('Cardinal.js')
   })
 
@@ -58,10 +54,9 @@ describe('FooterNav — hasSiteFooter edge cases', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain(longName)
-    // Defensive wrap so a single unbroken token can't push the footer bar wider than the page --
-    // real layout (word breaking) isn't measurable under jsdom, so this pins the CSS rule itself.
-    // Vitest's CSS pipeline (`test.css: true`) injects the compiled scoped style into the document
-    // head rather than into the mounted component's own subtree, so it's read from there.
+    // -> Word breaking is not measurable without a layout engine, so this pins the rule itself.
+    //    `test.css: true` injects the compiled scoped style into the document head rather than
+    //    into the mounted component's own subtree, which is why it is read from there.
     const styleText = Array.from(document.head.querySelectorAll('style'))
       .map((el) => el.textContent)
       .join('\n')

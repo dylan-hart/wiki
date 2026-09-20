@@ -133,45 +133,28 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { relativeDate } from '@/helpers/datetime'
 
 /**
- * Whole-glossary version history (OpenProject #1113): browse saved snapshots, expand one to see how
- * it differs from the admin screen's CURRENT working copy (`props.currentTerms`, passed by the parent
- * rather than re-fetched here, since it already has it loaded), and restore one as the new live state.
- * `currentTerms` is `AdminGlossary.vue`'s staged edits, not necessarily the live saved glossary -- if
- * there are unsaved changes, the diff shows what a restore would change relative to THOSE, which is
- * what the admin is looking at right now. A restore itself creates a new version rather than rewriting
- * history -- see `models/glossary.ts`'s own `restoreVersion` comment -- so the list only ever grows.
+ * A version is diffed against the admin screen's staged working copy, which the parent passes in
+ * rather than this dialog re-fetching the live glossary: with unsaved edits pending, the diff then
+ * shows what a restore would change relative to what the admin is actually looking at.
  */
-
-// PROPS
 
 const props = defineProps({
   siteId: {
     type: String,
     required: true
   },
-  /** The admin screen's current working copy -- `{ term, definition, isAcronym, aliases, path }[]`,
-   *  `aliases` each `{ value, isAcronym }` (OpenProject #2575) -- what an
-   *  expanded version's snapshot is diffed against. May include unsaved staged edits; this is NOT
-   *  guaranteed to match the live, already-saved glossary. */
+  /** `{ term, definition, isAcronym, aliases: { value, isAcronym }[], path }[]` */
   currentTerms: {
     type: Array,
     required: true
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false,
@@ -182,8 +165,6 @@ const state = reactive({
   restoringId: null,
   downloadingId: null
 })
-
-// METHODS
 
 async function load() {
   state.isLoading = true
@@ -198,9 +179,8 @@ async function load() {
   state.isLoading = false
 }
 
-/** A term's aliases (`{ value, isAcronym }[]`), reduced to a comparable, order-independent key --
- *  sorted by `value` so two lists differing only in insertion order still compare equal, but a
- *  different `isAcronym` flag on the same alias still counts as a change (OpenProject #2575). */
+/** Sorted so two alias lists differing only in insertion order compare equal, while a flipped
+ *  `isAcronym` on the same alias still counts as a change. */
 function aliasesKey(aliases) {
   return JSON.stringify(
     [...(aliases ?? [])]
@@ -265,11 +245,9 @@ async function toggleExpanded(version) {
 }
 
 /**
- * Downloads this version's snapshot as a standalone JSON file -- `full.snapshot` already matches the
- * `GlossaryExport` shape (`{ formatVersion, terms }`), the same one `GET .../glossary/export` and
- * `POST .../glossary/import` both speak, so nothing needs reshaping before it goes into the Blob.
- * Mirrors `PageHistoryOverlay.vue`'s `downloadVersion()`: build a Blob, hand it to `fileSave()`, and
- * silently ignore a cancelled save picker (`AbortError`) rather than surfacing it as a failure.
+ * The stored snapshot already matches the `{ formatVersion, terms }` shape the export and import
+ * endpoints speak, so it goes into the Blob unreshaped. `AbortError` is the reader cancelling the
+ * save picker, not a failure.
  */
 async function download(version) {
   state.downloadingId = version.id
@@ -320,8 +298,6 @@ function restore(version) {
     state.restoringId = null
   })
 }
-
-// MOUNTED
 
 onMounted(load)
 </script>

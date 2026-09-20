@@ -6,9 +6,8 @@
         <span>{{ t(`fileman.folderCreate`) }}</span>
       </w-card-section>
       <!--
-        Neither icon is `self-start`: both fields pass `hide-bottom-space`, which suppresses the hint
-        line, so each row is the field alone and a centred icon is what lines up with it. See the note in
-        `ApiKeyCreateDialog`.
+        No `self-start` on the icons: both fields pass `hide-bottom-space`, so each row is the field
+        alone and a centred icon is what lines up with it.
       -->
       <w-form ref="newFolderForm" class="py-2" @submit="create">
         <w-item>
@@ -73,8 +72,6 @@ import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { normalizePagePath } from '@/helpers/pagePaths'
 
-// PROPS
-
 const props = defineProps({
   parentId: {
     type: String,
@@ -82,25 +79,15 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptTitle.value
 })
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   path: '',
@@ -109,12 +96,8 @@ const state = reactive({
   loading: false
 })
 
-// REFS
-
 const newFolderForm = ref(null)
 const iptTitle = ref(null)
-
-// VALIDATION RULES
 
 const titleValidation = [
   (val) => val.length > 0 || t('fileman.folderTitleMissing'),
@@ -125,8 +108,6 @@ const pathValidation = [
   (val) => val.length > 0 || t('fileman.folderFileNameMissing'),
   (val) => /^[a-z0-9-]+$/.test(val) || t('fileman.folderFileNameInvalid')
 ]
-
-// WATCHERS
 
 watch(
   () => state.title,
@@ -139,8 +120,6 @@ watch(
     }
   }
 )
-
-// METHODS
 
 async function create() {
   state.loading++

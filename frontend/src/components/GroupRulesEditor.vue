@@ -198,10 +198,8 @@
                       }
                     ]" />
                   <!--
-                        OpenProject #1079: CLASSIFICATION reads none of `path` -- it matches page
-                        metadata via `rule.classifications`, an admin-configured level list rather than
-                        free text, so it gets its own picker instead of the path input every other
-                        match kind shares.
+                        CLASSIFICATION reads none of `path`: it matches an admin-configured level
+                        list, so it gets a picker rather than the shared free-text path input.
                       -->
                   <w-select
                     v-if="rule.match === `CLASSIFICATION`"
@@ -237,12 +235,6 @@
                       </w-item>
                     </template>
                   </w-select>
-                  <!--
-                        OpenProject #3408: TAG/TAGALL read `rule.tags`, a first-class string array,
-                        instead of the comma list `path` used to carry -- chips + free entry, fed by
-                        this site's tag catalogue, the same combination `PageTags.vue` uses for a
-                        page's own tags.
-                      -->
                   <w-select
                     v-else-if="[`TAG`, `TAGALL`].includes(rule.match)"
                     class="mt-2"
@@ -294,57 +286,32 @@ import { useAdminStore } from '@/stores/admin'
 import { v4 as uuid } from 'uuid'
 import { fileOpen, fileSave } from 'browser-fs-access'
 
-/**
- * The rules half of `GroupEditOverlay.vue`: the catalog of permissions a rule may grant, the card
- * each rule is edited through, and the import/export of the whole set as JSON.
- *
- * Split out of the overlay because it shares nothing with the other three sections except the group
- * it belongs to -- and the group's `rules` array is the entirety of that, so it comes in as the
- * model and is written back through it.
- */
-
-// COMPOSABLES
-
 const dark = useDark()
-
-// STORES
 
 const adminStore = useAdminStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// MODEL
 
 const groupRules = defineModel('rules', {
   type: Array,
   default: () => []
 })
 
-// PROPS
-
 const props = defineProps({
-  /** Whether this is the guests group, whose rules may only grant `GUEST_ROLES` below. */
   isGuestGroup: {
     type: Boolean,
     default: false
   },
-  /**
-   * Whether the viewer holds `manage:groups`. A `read:groups` viewer still gets the export button:
-   * it only reads what is on screen.
-   */
+  /** A read-only viewer still gets the export button: it only reads what is on screen. */
   canManage: {
     type: Boolean,
     default: false
   }
 })
 
-// DATA
-
 /**
- * The subset of `rules` below that the guests group may be granted. Mirrors `GUEST_ROLES` in
- * `models/groups.ts`, which is the copy that decides — this one only shapes what is offered.
+ * Mirrors `GUEST_ROLES` in `models/groups.ts`, which is the copy that decides — this one only
+ * shapes what is offered.
  */
 const GUEST_ROLES = [
   'read:pages',
@@ -356,25 +323,15 @@ const GUEST_ROLES = [
 ]
 
 /*
-  Structural data only -- no English text. `title:`/`hint:` are resolved from
-  `admin.groups.permissions.<permission>.title` / `.hint` in the `rules` computed below, where `t()`
-  is available; a plain module-scope array can only ever hold a literal, not a reactive translation,
-  so it stays purely structural here.
+  Structural only: a module-scope array can hold a literal but not a reactive translation, so
+  titles and hints resolve through `t()` in the `rules` computed below instead.
 
-  Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
-  `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
-  one without the other). Each governs exactly one settings surface behind `/_admin/:siteid/...`,
-  one surface per permission by design.
+  Keep in step with `PAGE_PERMISSIONS` and `SITE_PERMISSIONS` in `backend/helpers/`, both closed
+  vocabularies -- never add to one without the other.
 
-  Deliberately in the SAME catalog as the page permissions above, not a second list or a second
-  UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
-  exactly what it already means for a page permission -- empty is every site, populated is only
-  those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
-  `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
-
-  None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
-  group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
-  screen offers.
+  The `site:*` entries share this catalog rather than getting a second UI: the sites picker below
+  already means for them what it means for a page permission (empty is every site, populated is
+  only those), and `path` / `match` / `locales` are simply not read for them.
 */
 const RULES_DATA = [
   { permission: 'read:pages', warning: false, restrictedForSystem: false, disabled: false },
@@ -384,10 +341,8 @@ const RULES_DATA = [
   { permission: 'delete:pages', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'write:styles', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'write:scripts', warning: false, restrictedForSystem: true, disabled: false },
-  // -> read:source's hint (below, via en.json) documents that write:pages/manage:pages hold it
-  //    implicitly too -- CLAUDE.md's Permissions section's one exception to "names are not
-  //    interchangeable" (OpenProject #3391/#3412). No special-casing needed here: the row still just
-  //    grants the literal `read:source` string, same as any other permission.
+  // -> No special-casing despite write:pages/manage:pages implying read:source: this row grants
+  //    the literal string like any other, and the hint text is what says so to the administrator.
   { permission: 'read:source', warning: false, restrictedForSystem: false, disabled: false },
   { permission: 'read:history', warning: false, restrictedForSystem: false, disabled: false },
   { permission: 'read:assets', warning: false, restrictedForSystem: false, disabled: false },
@@ -422,17 +377,11 @@ const rules = computed(() =>
   }))
 )
 
-// COMPUTED
-
 /**
- * The permissions a rule may grant, which for the guests group is a short list.
- *
- * That group is every anonymous reader at once, so a rule on it is a rule about the open internet:
- * reading, and saying something in a comment, are what the public may be given — writing a page or
- * deleting one is an action attributable to somebody, and there is nobody here.
- *
- * Only what is OFFERED. The set is enforced in `models/groups.ts`, which is what makes it true for a
- * group edited through the API as well; this keeps the screen from offering what would be dropped.
+ * The guests group is every anonymous reader at once, so a rule on it is a rule about the open
+ * internet: reading and commenting are what the public may be given, while writing or deleting a
+ * page is an action attributable to somebody and there is nobody here. `models/groups.ts` enforces
+ * the set; this only keeps the screen from offering what a save would drop.
  */
 const ruleOptions = computed(() =>
   props.isGuestGroup
@@ -440,20 +389,11 @@ const ruleOptions = computed(() =>
     : rules.value
 )
 
-// DATA (tag suggestions)
-
-/**
- * Suggestions for the TAG/TAGALL picker below, fed by the current admin site's own tag catalogue
- * (`GET /sites/:siteId/tags`, OpenProject #3408) -- the same convenience `PageTags.vue` offers a
- * page's own tags, not a closed vocabulary: `create` on the picker still lets a tag nobody has used
- * yet be typed in.
- */
+/** Suggestions only, not a closed vocabulary: the picker's `create` still takes an unused tag. */
 const state = reactive({
   siteTags: [],
   siteTagsLoading: false
 })
-
-// WATCHERS
 
 watch(
   () => adminStore.currentSiteId,
@@ -467,9 +407,7 @@ watch(
       const tags = await API_CLIENT.get(`sites/${siteId}/tags`).json()
       state.siteTags = (tags ?? []).map((tg) => tg.tag)
     } catch (err) {
-      // -> Suggestions are a convenience: without them the picker still adds tags via `create`, so
-      //    this is a warning rather than a failure, and the spinner must not be left running either
-      //    way -- mirrors `PageTags.vue#fetchTags`'s own failure handling.
+      // -> A warning, not a failure: without suggestions the picker still adds tags via `create`.
       notify({
         type: 'warning',
         message: t('admin.groups.ruleTagsFetchFailed'),
@@ -482,26 +420,19 @@ watch(
   { immediate: true }
 )
 
-// METHODS
-
 /**
- * START/END/EXACT compare `path` directly against a page path, which is always stored lowercased
- * (`backend/helpers/common.ts#normalizePagePath`) -- so typing any uppercase character there would
- * save a rule that can never match (silently, for a DENY -- OpenProject #2182). Lowercase as the
- * administrator types rather than only rejecting on save: TAG/TAGALL no longer read `path` at all
- * (OpenProject #3408 -- they read `rule.tags` instead, via the picker below) and REGEX addresses a
- * pattern that may deliberately use a character class like `[A-Z]`, so neither is folded here.
+ * START/END/EXACT compare `path` against a page path, which is always stored lowercased, so an
+ * uppercase character saves a rule that can never match -- silently, for a DENY. REGEX is left
+ * alone: its pattern may deliberately use a character class like `[A-Z]`.
  */
 function onRulePathInput(rule, value) {
   rule.path = ['START', 'END', 'EXACT'].includes(rule.match) ? value.toLowerCase() : value
 }
 
 /**
- * A typed tag that matched nothing existing becomes a value of its own (`create`, mirroring
- * `PageTags.vue#createTag`) -- split on comma/semicolon so a pasted list adds more than one at
- * once. Normalization (trim/lowercase/de-dupe) is re-applied server-side by `updateGroup` regardless
- * (`models/groups.ts#normalizeRuleTags`); doing it here too keeps what the picker shows back in
- * sync with what a save will actually store.
+ * Split on comma/semicolon so a pasted list adds more than one tag at once. The trim/lowercase/
+ * de-dupe fold mirrors `models/groups.ts#normalizeRuleTags`, which re-applies it on save, so the
+ * picker shows what will actually be stored.
  */
 function createRuleTag(rule, val) {
   const tags = val
@@ -653,9 +584,8 @@ async function importRules() {
             : 'START',
           roles: r.roles || [],
           path: r.path || '',
-          // -> OpenProject #3408: same trim/lowercase/de-dupe fold `models/groups.ts#normalizeRuleTags`
-          //    re-applies server-side on save -- done here too so an imported rule's tags already
-          //    read back the way they will after that save.
+          // -> Folded the same way `models/groups.ts#normalizeRuleTags` will on save, so an
+          //    imported rule's tags read back as they will be stored.
           tags: [
             ...new Set(
               (Array.isArray(r.tags) ? r.tags : [])
@@ -686,11 +616,6 @@ async function importRules() {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .admin-groups-rule {
   position: relative;
   padding-block: 10px 24px;
@@ -725,13 +650,9 @@ async function importRules() {
 }
 .admin-groups-rule-icon {
   /*
-    Sized and placed to the disc `::before` draws, with the glyph inset by the padding: an inline
-    <svg> scales its viewBox to whatever box it is given, so the old `width: 100%; height: 38px`
-    -- metrics for the icon FONT this replaced, where `font-size` did the sizing -- stretched the
-    mark across the whole circle.
-
-    The box stays the full 31px even though the glyph is 15px, so the click target is the disc a
-    reader is aiming at rather than the mark inside it.
+    The icon box below is sized to the disc `::before` draws and insets the glyph with padding: an
+    inline <svg> scales its viewBox to whatever box it is given, and the full 31px keeps the click
+    target on the disc the reader is aiming at rather than the smaller mark inside it.
   */
 }
 .admin-groups-rule-icon .w-icon {
@@ -749,10 +670,8 @@ async function importRules() {
   display: flex;
   flex-wrap: nowrap;
   /*
-    On the text baseline, not stretched. An <input> stretched to the row's height centres its text
-    inside that height, while the mode name beside it sits at the top of its own box -- so the two
-    read as a few pixels apart even though both are 12px type. The separator between them is
-    unaffected: it carries its own `self-stretch`, which outranks this.
+    Baseline, not stretch: a stretched <input> centres its text in the row height while the mode
+    name beside it sits at the top of its own box, so the two read as a few pixels apart.
   */
   align-items: baseline;
   padding-top: 4px;

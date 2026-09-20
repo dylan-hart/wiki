@@ -56,14 +56,10 @@
       </w-list>
     </w-drawer>
     <w-page-container>
-      <!-- ----------------------------------------------------------------------- -->
-      <!-- USERS -->
-      <!-- ----------------------------------------------------------------------- -->
       <!--
         Ahead of the loading page below, and keyed off the overlay's own id rather than the fetched
-        record: the members list is the one section that reads nothing OF the group, so it has
-        never had a reason to wait on `fetchGroup` -- and waiting would also unmount and refetch it
-        each time that request runs.
+        record: the members list reads nothing OF the group, and waiting on `fetchGroup` would
+        unmount and refetch it every time that request runs.
       -->
       <group-users-panel
         v-if="route.params.section === `users`"
@@ -71,9 +67,6 @@
         :can-manage="canManage"
         @update:total="state.usersTotal = $event" />
       <w-page v-else-if="state.isLoading" />
-      <!-- ----------------------------------------------------------------------- -->
-      <!-- OVERVIEW -->
-      <!-- ----------------------------------------------------------------------- -->
       <w-page v-else-if="route.params.section === `overview`">
         <div class="p-4">
           <div class="grid grid-cols-12 gap-4">
@@ -183,17 +176,11 @@
           </div>
         </div>
       </w-page>
-      <!-- ----------------------------------------------------------------------- -->
-      <!-- RULES -->
-      <!-- ----------------------------------------------------------------------- -->
       <group-rules-editor
         v-else-if="route.params.section === `rules`"
         v-model:rules="state.group.rules"
         :is-guest-group="isGuestGroup"
         :can-manage="canManage" />
-      <!-- ----------------------------------------------------------------------- -->
-      <!-- PERMISSIONS -->
-      <!-- ----------------------------------------------------------------------- -->
       <w-page v-else-if="route.params.section === `permissions`">
         <div class="p-4">
           <div class="grid grid-cols-12 gap-4">
@@ -250,46 +237,31 @@ import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 import GroupRulesEditor from '@/components/GroupRulesEditor.vue'
 import GroupUsersPanel from '@/components/GroupUsersPanel.vue'
 
-// STORES
-
 const adminStore = useAdminStore()
 const userStore = useUserStore()
-
-// ROUTER
 
 const router = useRouter()
 const route = useRoute()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   group: {
     rules: []
   },
   /**
-   * A deep-cloned snapshot of `state.group` as last fetched (or last saved) -- what `save()` diffs
-   * against, so it PUTs only the fields the admin actually changed rather than resubmitting the
-   * entire fetched group verbatim (OpenProject #2555: stale/legacy data in an untouched field --
-   * e.g. a pre-existing group's `permissions` -- must not be able to trip a save of something else
-   * entirely).
+   * Deep-cloned snapshot as last fetched or saved, so `save()` can PUT only what the admin changed:
+   * data a schema now rejects, sitting untouched in another field, must not fail an unrelated save.
    */
   original: null,
   isLoading: false,
-  /**
-   * Members, for the section badge only -- seeded from the group's own `userCount` and kept up to
-   * date by `GroupUsersPanel`, which owns the listing itself.
-   */
+  /** For the section badge only; `GroupUsersPanel` owns the listing and keeps this current. */
   usersTotal: 0
 })
 
 /**
- * The fields `save()` may PUT, each with how to normalize a value before comparing/sending it --
- * `undefined` (never fetched, or cleared client-side) and the field's own empty default must compare
- * equal, or an untouched field would look "changed" purely from that difference.
+ * `normalize` exists so `undefined` (never fetched, or cleared client-side) and the field's empty
+ * default compare equal -- otherwise an untouched field reads as changed.
  */
 const EDITABLE_FIELDS = [
   { key: 'name', normalize: (v) => v ?? '' },
@@ -319,10 +291,8 @@ const sections = [
 ]
 
 /*
-  Structural data only -- no English text. `title:`/`hint:` are resolved from
-  `admin.groups.permissions.<permission>.title` / `.hint` in the `permissions` computed below, where
-  `t()` is available; a plain module-scope array can only ever hold a literal, not a reactive
-  translation, so it stays purely structural here.
+  Structural only: a module-scope array can hold a literal but not a reactive translation, so
+  titles and hints resolve through `t()` in the `permissions` computed below instead.
 */
 const PERMISSIONS_DATA = [
   { permission: 'access:admin', warning: false, restrictedForSystem: true, disabled: false },
@@ -344,24 +314,18 @@ const permissions = computed(() =>
   }))
 )
 
-// VALIDATION RULES
-
 const groupNameValidation = [(val) => /^[^<>"]+$/.test(val) || t('admin.groups.nameInvalidChars')]
 
-// COMPUTED
-
 /*
-  `read:groups` opens this overlay read-only: saving a group, and assigning a user to one, need
-  `manage:groups` / `write:groups` (see `api/groups.ts`), so the actions that perform one are hidden
-  rather than left to fail at the API. Exporting rules stays -- it only reads what is on screen.
+  `read:groups` opens this overlay read-only: saving a group and assigning a user both need
+  `manage:groups`, so those actions are hidden rather than left to fail at the API.
 */
 const canManage = computed(() => userStore.can('manage:groups'))
 
 /*
   `manage:system` is the one permission a `manage:groups` holder may not move: granting it hands over
-  the instance, revoking it locks the real administrators out. `api/groups.ts` refuses the change
-  either way, so the toggle is held rather than left to fail on save -- every OTHER permission on such
-  a group stays editable, which is why this is per-permission and not a read-only group.
+  the instance, revoking it locks the real administrators out. The API refuses it either way, so the
+  toggle is held here -- per permission, since every other one on such a group stays editable.
 */
 function isSystemPermissionLocked(permission) {
   return permission === 'manage:system' && !userStore.can('manage:system')
@@ -371,11 +335,7 @@ const isGuestGroup = computed(() => {
   return adminStore.overlayOpts.id === GUESTS_GROUP_ID
 })
 
-// WATCHERS
-
 watch(() => route.params.section, checkRoute)
-
-// METHODS
 
 function close() {
   adminStore.$patch({ overlay: '' })
@@ -413,9 +373,6 @@ async function fetchGroup() {
 async function save() {
   state.isLoading = true
   try {
-    // -> Diff-and-send: only a field that actually differs from the last-fetched (or last-saved)
-    //    snapshot is included, so stale/legacy data sitting untouched in another field (see
-    //    OpenProject #2555) can never ride along on a save of something else.
     const patch = {}
     for (const field of EDITABLE_FIELDS) {
       const current = field.normalize(state.group[field.key])
@@ -431,17 +388,16 @@ async function save() {
     }
 
     await API_CLIENT.put(`groups/${state.group.id}`, { json: patch }).json()
-    // -> Merge the just-sent patch onto the snapshot rather than refetching, so a second save in the
-    //    same session diffs correctly with no extra round trip.
+    // -> Merged onto the snapshot rather than refetched, so a second save in the same session diffs
+    //    correctly with no extra round trip.
     state.original = { ...state.original, ...cloneDeep(patch) }
     notify({
       type: 'positive',
       message: t('admin.groups.saveSuccess')
     })
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
-    //    some error codes have a nicer translation under `admin.groups.*`, so look it up before
-    //    falling back to the server's own message
+    // -> Some error codes have a nicer translation under `admin.groups.*`; the server's own message
+    //    is the fallback for the rest.
     notify({
       type: 'negative',
       message: t(
@@ -452,8 +408,6 @@ async function save() {
   }
   state.isLoading = false
 }
-
-// MOUNTED
 
 onMounted(() => {
   checkRoute()

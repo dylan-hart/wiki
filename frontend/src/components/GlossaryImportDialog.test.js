@@ -14,9 +14,8 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
 
 /*
   `monaco-editor` needs real browser layout/measurement APIs (`ResizeObserver`, text metrics, a
-  genuine contenteditable surface) that this workspace's Vitest environment does not provide -- see
-  `EditorCode.test.js`'s identical note, whose mocking pattern this reuses: `editor.create` returns
-  one fake instance whose `getValue`/`setValue` a test can drive directly.
+  genuine contenteditable surface) this environment does not provide, so `editor.create` returns one
+  fake instance a test drives through `getValue`/`setValue`.
 */
 const fakeEditor = {
   getValue: vi.fn(() => ''),
@@ -61,12 +60,6 @@ function jsonFile(name, contents) {
   return { name, type: 'application/json', text: () => Promise.resolve(contents) }
 }
 
-/**
- * Glossary JSON import (OpenProject #1114, review feedback #1207): a Monaco JSON editor that is
- * directly editable/pasteable and also accepts a dropped or browsed-for `.json` file, replacing the
- * old bare OS file picker. Submitting still confirms, then POSTs the whole-glossary replace to
- * `sites/:siteId/glossary/import` exactly like the flow it replaces.
- */
 describe('GlossaryImportDialog: editor setup', () => {
   it('creates the Monaco instance in json language mode', () => {
     mountDialog()
@@ -150,7 +143,7 @@ describe('GlossaryImportDialog: submit()', () => {
     expect(confirm).toHaveBeenCalled()
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       'sites/site-1/glossary/import',
-      // -> A named, work-sized timeout rather than ky's 10s default (OpenProject #1718)
+      // -> A named, work-sized timeout rather than ky's 10s default
       expect.objectContaining({ json: payload, timeout: expect.any(Number) })
     )
     expect(wrapper.emitted().ok).toBeTruthy()

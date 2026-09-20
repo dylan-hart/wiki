@@ -48,40 +48,26 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { reactive, ref } from 'vue'
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptGroupName.value
 })
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   groupName: '',
   isLoading: false
 })
 
-// REFS
-
 const createGroupForm = ref(null)
 const iptGroupName = ref(null)
-
-// VALIDATION RULES
 
 const groupNameValidation = [
   (val) => val.length > 0 || t('admin.groups.nameMissing'),
   (val) => /^[^<>"]+$/.test(val) || t('admin.groups.nameInvalidChars')
 ]
-
-// METHODS
 
 async function create() {
   state.isLoading = true
