@@ -20,12 +20,7 @@ import {
   withTextAlignMarkdown
 } from './wysiwygStyleAttrs'
 
-/**
- * Builds a `MarkdownManager` wired the same way `EditorWysiwyg.vue#buildExtensions()` wires the
- * real editor -- StarterKit with `paragraph`/`heading` disabled in favour of the text-align-aware
- * versions, `TextStyle` and `Highlight` extended with this module's markdown round-trip, and
- * `TextAlign`/`Color`/`FontFamily` supplying the attributes those two lean on.
- */
+/** Mirrors `EditorWysiwyg.vue#buildExtensions()`: a round-trip only holds for that exact set. */
 function buildManager() {
   return new MarkdownManager({
     extensions: [

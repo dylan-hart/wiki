@@ -6,9 +6,8 @@
 /**
  * The group every request that isn't signed in belongs to (`systemIds.guestsGroupId`). It is not a
  * group anyone can be enrolled into, renamed or deleted, so the surfaces that list groups to pick
- * from filter it out and `GroupEditOverlay.vue` locks its own name/delete controls against it.
- *
- * A literal repeated across six files was one typo away from silently un-filtering the guests
- * group -- there is no error to notice, just the group appearing where it should not.
+ * from filter it out and `GroupEditOverlay.vue` locks its own name/delete controls against it. A
+ * mistyped copy of the literal un-filters it silently -- no error, just the group where it should
+ * not be.
  */
 export const GUESTS_GROUP_ID = '10000000-0000-4000-8000-000000000001'

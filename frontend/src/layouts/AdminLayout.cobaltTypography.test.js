@@ -13,22 +13,13 @@ import { seedAdmin, seedSite, seedUser } from '../../test/fixtures.js'
 import { createTestRouter } from '../../test/router.js'
 
 /**
- * OpenProject #2983 ("Cobalt typography: admin (AdminLayout.vue, AdminDashboard.vue)"),
- * `ui-iteration-cobalt-typography/cobalt-typography.md` §3 "Admin" — the role table for these two
- * files. Real-browser, per §7's `measure()` pattern: neither `jsdom` nor `happy-dom` runs font
- * shaping or resolves a Vue SFC's own unscoped `<style>` block against the compiled `--color-*`
- * chain the way a real engine does, so the only way to know what a reader's browser actually
- * computes for these roles is to ask one.
+ * Real-browser because neither `jsdom` nor `happy-dom` runs font shaping or resolves an unscoped SFC
+ * `<style>` block against the compiled `--color-*` chain: what a reader's browser computes for these
+ * roles can only be answered by asking one.
  *
- * Reuses this workspace's own established real-Chromium machinery rather than inventing a second
- * one: `mountWithApp` + `buildAppCss()`/`mountedStyles()` is exactly `AdminDashboard.test.js`'s own
- * "AdminDashboard counter grid — real layout" describe's technique (there for bounding rects, here
- * for `getComputedStyle`), including that same file's reason for mounting lazily from inside the
- * first `it()` rather than from `beforeAll`: `test/setup.js` rebuilds the `API_CLIENT` stub in a
- * `beforeEach`, which has not run yet while `beforeAll` is still executing. The two-mount,
- * side-by-side-fragments trick below is what lets one Chromium page see both files' compiled CSS
- * (`AdminLayout.vue`'s unscoped block owns `.admin-area-label`/`.admin-nav-list`/`.admin-page-title`;
- * `AdminDashboard.vue`'s owns `.admin-dashboard-card`) without mounting the whole app shell.
+ * Both components are mounted and their fragments put side by side in one page, so it sees each
+ * file's own unscoped styles (`AdminLayout.vue` owns the kicker/nav/title rules,
+ * `AdminDashboard.vue` the card ones) without booting the whole app shell.
  */
 
 vi.stubGlobal('localStorage', {
@@ -94,11 +85,9 @@ async function mountDashboardHtml() {
           clusterTotal: 1,
           webhooksTotal: 0,
           /*
-            `versionStatus` is a GETTER derived from these two, not a settable field -- passing it
-            directly (as `AdminDashboard.test.js`'s own seed does, for its layout-only assertions
-            that never look at it) silently no-ops. `latestVersion` <= `currentVersion` is what
-            actually drives `versionStatus` to `'latest'`, the one state this suite's "Status line"
-            role needs.
+            `versionStatus` is a getter over these two, so seeding it directly silently no-ops.
+            `latestVersion` <= `currentVersion` is what drives it to `'latest'`, the state the
+            status-line assertions need.
           */
           currentVersion: '3.0.0',
           latestVersion: '3.0.0'
@@ -130,15 +119,13 @@ describe(
     })
 
     /*
-      Mounted lazily, once, from inside a test rather than `beforeAll` — see the file-header comment
-      for why (the `API_CLIENT` stub `test/setup.js` rebuilds per-test does not exist yet while
-      `beforeAll` is running).
+      Mounted from inside a test, not `beforeAll`: `test/setup.js` rebuilds the `API_CLIENT` stub in
+      a `beforeEach`, which has not run yet while `beforeAll` is executing.
     */
     async function getFragments() {
       if (!fragments) {
-        // -> Both mounted before either's styles are read out, so `mountedStyles()` sees BOTH
-        //    files' injected `<style>` tags cumulatively — Vite's SFC style injection under
-        //    `css: true` is per-module and additive, not per-mount.
+        // -> Both mounted before any style is read out: SFC style injection under `css: true` is
+        //    per-module and additive, so `mountedStyles()` then sees both files' tags
         const layoutHtml = await mountLayoutHtml()
         const dashboardHtml = await mountDashboardHtml()
         const css = (await buildAppCss()) + mountedStyles()
@@ -153,13 +140,10 @@ describe(
       try {
         const bodyClass = cobalt ? 'body--cobalt' : ''
         /*
-          `--q-accent`/`--q-positive` are NOT static tokens: `App.vue#applyTheme()` writes them as
-          inline custom properties on `document.documentElement` at runtime
-          (`helpers/cssVars.js#setCssVar`), resolved per-aesthetic from
-          `helpers/aestheticDefaults.js`. This synthetic page never boots `App.vue`, so it has to
-          seed the same two values by hand for the Cobalt case or every `--color-accent`/
-          `--color-positive` reader below would silently fall back to `tailwind.css`'s `:root`
-          (Ledger) defaults despite `body--cobalt` being set.
+          `--q-accent`/`--q-positive` are not static tokens: `App.vue#applyTheme()` writes them onto
+          `document.documentElement` at runtime. This synthetic page never boots `App.vue`, so
+          without seeding them every `--color-accent`/`--color-positive` reader silently falls back
+          to `tailwind.css`'s Ledger `:root` defaults despite `body--cobalt` being set.
         */
         const rootStyle = cobalt ? ' style="--q-accent:#c8303c;--q-positive:#177a5e"' : ''
         await page.setContent(
@@ -301,10 +285,8 @@ describe(
 )
 
 /**
- * §2/§6 audit constraint: a Cobalt-scoped rule may change `color` and nothing else that affects
- * type. Source-text check (the established pattern for an unscoped SFC `<style>` block with no
- * compiled stylesheet to assert live values against — see `MainLayout.cobaltDialogCorners.test.js`)
- * over the one Cobalt-scoped rule this task touched.
+ * Source text rather than computed style: an aesthetic may retint type but never re-metric it, and
+ * a computed value cannot show which rule set the metric it reports.
  */
 describe('Cobalt-scoped .admin-area-label rule carries no font-metric properties', () => {
   const source = readFileSync(join(import.meta.dirname, 'AdminLayout.vue'), 'utf-8')

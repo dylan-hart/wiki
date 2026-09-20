@@ -4,15 +4,6 @@ import en from '../../../backend/locales/en.json'
 
 import { buildMenuBar } from './wysiwygMenuBar'
 
-/**
- * OpenProject #3206: `wysiwygMenuBar.js` built every toolbar item's `title` as a literal hardcoded
- * English string -- never run through `t()` -- despite that `title` doubling as the accessible name
- * `EditorWysiwyg.vue` renders via `:aria-label`. This suite exercises `buildMenuBar` directly (rather
- * than through the full `EditorWysiwyg.vue` mount other suites use) so it can assert the actual
- * translation contract: every `title`, at every nesting level, resolves through the `t` callback
- * against a real `editor.wysiwyg.*` key -- never a bare string the caller's locale can't affect.
- */
-
 const TEXT_COLORS = {
   blue: '#1976D2',
   brown: '#795548',
@@ -34,10 +25,9 @@ const HIGHLIGHT_COLORS = {
 }
 
 /**
- * A `t` stand-in that resolves strictly against the real `backend/locales/en.json` -- so this suite
- * fails the moment a call site's key drifts from what is actually shipped, the same way a missing key
- * would surface in the running app -- and records every `(key, params)` pair it was called with, so
- * the assertions below can check the calls themselves rather than only their string output.
+ * Resolves strictly against the real shipped locale file, so a key that drifts out of it fails here
+ * rather than only in the running app. Recording the calls lets an assertion check the key and its
+ * params, not only the rendered string.
  */
 function createRecordingT() {
   const calls = []
@@ -68,7 +58,6 @@ function build(t) {
   })
 }
 
-/** Every non-divider entry, at both the top level and one level of `children`, flattened. */
 function flattenEntries(menuBar) {
   const entries = []
   for (const item of menuBar) {
@@ -86,8 +75,7 @@ describe('buildMenuBar (OpenProject #3206)', () => {
     const menuBar = build(t)
 
     const entries = flattenEntries(menuBar)
-    // -> `align`'s parent entry carries no `title` of its own (only its four children do) -- confirmed
-    //    real, not a gap this suite is papering over, so it is excluded rather than asserted on.
+    // -> `align` is a button group: only its children carry a `title`, by design
     const titled = entries.filter((entry) => entry.key !== 'align')
 
     expect(titled.length).toBeGreaterThan(0)
@@ -96,8 +84,6 @@ describe('buildMenuBar (OpenProject #3206)', () => {
       expect(entry.title.length).toBeGreaterThan(0)
     }
 
-    // -> Every recorded call targeted the real `editor.wysiwyg.*` namespace -- the regression this
-    //    task fixes was a hardcoded `'Bold'` etc. with zero `t()` call at all.
     expect(calls.length).toBe(titled.length)
     for (const { key } of calls) {
       expect(key).toMatch(/^editor\.wysiwyg\./)
@@ -151,9 +137,6 @@ describe('buildMenuBar (OpenProject #3206)', () => {
   })
 
   it('is only ever asked to build a plain t function, not a reactive ref, so it stays a pure builder', () => {
-    // -> `EditorWysiwyg.vue` wraps this in `computed()` for locale reactivity; the builder itself
-    //    stays a plain function of its inputs so that computed can call it fresh on every locale
-    //    change without any hidden state of its own.
     const { t: tA } = createRecordingT()
     const { t: tB } = createRecordingT()
     const first = build(tA)

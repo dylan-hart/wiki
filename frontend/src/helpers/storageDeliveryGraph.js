@@ -3,9 +3,7 @@
  * current set of storage targets.
  *
  * A pure function of those targets -- nothing here reads or writes component state, and the result
- * is a fresh object each call, so the page simply assigns what comes back. Extracted from the page
- * both because it was the single largest thing in it and because "which node a content type
- * actually comes from" is worth being able to assert directly (see the sibling test).
+ * is a fresh object each call, so the page simply assigns what comes back.
  *
  * @param {Array<object>} targets `state.targets` -- the site's storage targets, as the API lists
  *   them (module, title, icon, isEnabled, contentTypes.activeTypes, assetDelivery).
@@ -15,11 +13,9 @@
  */
 export function generateGraph(targets, t) {
   /*
-    Every node icon is an SVG under `/_assets/icons/`, the same form the `user` and `pages_wiki`
-    nodes below already use. These four (and `pages`/`missingOrigin` further down) were Line Awesome
-    webfont glyphs -- `icon: 'las'` plus a raw codepoint rendered into a `<text class="las">` -- and
-    no Line Awesome font is loaded anywhere in this app, so they drew as blank tofu boxes.
-    A webfont-style class name has never resolved to anything here.
+    Every node icon is an SVG under `/_assets/icons/`. A webfont-style class name -- `icon: 'las'`
+    plus a raw codepoint rendered into a `<text class="las">` -- resolves to nothing here: no Line
+    Awesome font is loaded anywhere in this app, so such a node draws as a blank tofu box.
   */
   const types = [
     {
@@ -43,8 +39,6 @@ export function generateGraph(targets, t) {
       icon: '/_assets/icons/ultraviolet-archive-folder.svg'
     }
   ]
-
-  // -> Create PagesNodes
 
   const nodes = {
     user: {
@@ -73,8 +67,6 @@ export function generateGraph(targets, t) {
   }
   const paths = []
 
-  // -> Create Asset Nodes
-
   for (const [i, tp] of types.entries()) {
     nodes[tp.key] = {
       name: tp.label,
@@ -84,7 +76,6 @@ export function generateGraph(targets, t) {
     edges[`user_${tp.key}`] = { source: 'user', target: tp.key }
     layouts.nodes[tp.key] = { x: 0, y: (i + 1) * 15 }
 
-    // -> Find target with direct access
     const dt = targets.find((tgt) => {
       return (
         tgt.module !== 'db' &&
@@ -120,8 +111,6 @@ export function generateGraph(targets, t) {
       }
       continue
     }
-
-    // -> Find target with streaming
 
     const st = targets.find((tgt) => {
       return (
@@ -160,8 +149,6 @@ export function generateGraph(targets, t) {
       }
       continue
     }
-
-    // -> Check DB fallback
 
     const dbt = targets.find((tgt) => tgt.module === 'db')
     if (dbt?.contentTypes?.activeTypes?.includes(tp.key)) {

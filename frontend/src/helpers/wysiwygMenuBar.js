@@ -1,42 +1,25 @@
 /**
- * The WYSIWYG editor's toolbar, as data: one entry per button (or per dropdown, via `items`), each
- * carrying its icon, its title, what clicking it does and how to tell whether it is currently on.
+ * Call this from a `computed()`, not a one-time `const`: every `title` is also the button's
+ * accessible name (`EditorWysiwyg.vue` binds it to `aria-label`), so a live locale switch has to
+ * rebuild the whole array rather than leave the mount-time locale's labels behind.
  *
- * ~500 lines of static definition that closed over `EditorWysiwyg.vue`'s own bindings, which is the
- * only reason it lived there. Everything it needs now comes in: the editor itself, the two colour
- * palettes (which stay with the component, where the reasoning about legibility belongs), the two
- * actions that are not editor commands at all, and `t` (OpenProject #3206) -- every `title` below is
- * both the visible label and, via `EditorWysiwyg.vue`'s `:aria-label="menuItem.title"` /
- * `:aria-label="child.title"`, the accessible name, so it has to resolve through the real translation
- * table rather than being a literal English string. Keys live under `editor.wysiwyg.*` in
- * `backend/locales/en.json`, the same namespacing convention `EditorMarkdown.vue`'s `editor.markup.*`
- * already establishes. `EditorWysiwyg.vue` calls this from inside a `computed()`, not a one-time
- * `const`, specifically so a live locale switch rebuilds the whole array (and therefore every
- * translated title) rather than leaving stale English labels behind from whatever locale was active
- * when the component mounted.
- *
- * @param {() => {value: object}|null} getEditorRef Reads the component's live TipTap editor ref.
- *   A getter rather than the ref itself, because that binding is still `null` when the toolbar is
- *   built -- the editor is created in the component's own `init()`, on mount.
+ * @param {() => {value: object}|null} getEditorRef A getter rather than the ref itself: that binding
+ *   is still `null` when the toolbar is built, since the editor is only created on mount.
  * @param {object} opts
  * @param {Record<string, string>} opts.TEXT_COLORS
  * @param {Record<string, string>} opts.HIGHLIGHT_COLORS
- * @param {() => void} opts.insertLink Opens the shared link picker and applies the answer.
- * @param {(opts: object) => void} opts.openFileManager Opens the file manager in insert mode.
- * @param {() => void} opts.insertBlock Opens the shared block picker (`BlockPickerOverlay.vue`),
- *   which fills in `BlockPropsForm.vue` and emits the chosen block's markdown on `insertBlock` --
- *   `EditorWysiwyg.vue`'s own listener turns that into a real node at the cursor (OpenProject #3396).
- * @param {(key: string, params?: object) => string} opts.t `useI18n()`'s `t`, from the caller --
- *   translates every menu item's `title` against `editor.wysiwyg.*`.
+ * @param {() => void} opts.insertLink
+ * @param {(opts: object) => void} opts.openFileManager
+ * @param {() => void} opts.insertBlock
+ * @param {(key: string, params?: object) => string} opts.t Resolves keys under `editor.wysiwyg.*`.
  */
 export function buildMenuBar(
   getEditorRef,
   { TEXT_COLORS, HIGHLIGHT_COLORS, insertLink, openFileManager, insertBlock, t }
 ) {
   /*
-    A live view of the component's own `editor` binding rather than a captured copy: it is assigned
-    on mount and its `.value` is replaced again when the collaborative editor is swapped in, and
-    every entry below reads `editor.value` at click time exactly as it did in the component.
+    Re-read on every access rather than captured once: the ref is assigned on mount and its `.value`
+    is replaced again when the collaborative editor is swapped in.
   */
   const editor = {
     get value() {
@@ -410,10 +393,7 @@ export function buildMenuBar(
       }
     },
     {
-      // -> Same picker `EditorMarkdown.vue`'s own side toolbar opens (`tabler:puzzle`, matching its
-      //    settled add-action glyph everywhere else it appears -- root `CLAUDE.md`'s icon
-      //    conventions). A tabset is just Tabs picked from the same list, so there is no second
-      //    "insert tabset" shortcut here the way the plain-text editor's side toolbar has one.
+      // -> No separate "insert tabset" entry: a tabset is just Tabs picked from this same picker
       key: 'block',
       icon: 'tabler:puzzle',
       title: t('editor.wysiwyg.insertBlock'),
@@ -552,15 +532,11 @@ export function buildMenuBar(
       type: 'divider'
     },
     /*
-      Cardinal-specific constructs (OpenProject #3397) -- GitHub alerts, footnotes, TeX and icon
-      shortcodes each have a parse/serialize pair (`editor/wysiwyg/`) but no ProseMirror input rule
-      of their own yet, so typing their markdown syntax live does not auto-convert the way `**bold**`
-      does. Each entry here instead round-trips a small literal markdown snippet through the SAME
-      `contentType: 'markdown'` parser `EditorWysiwyg.vue`'s own load path uses
-      (`editor.chain().insertContent(snippet, { contentType: 'markdown' })`), which produces a real,
-      editable node -- not a decorative insert. Glossary terms have no entry here: they are never
-      author-inserted syntax (`glossaryTermHighlight.js`'s own doc comment), and task lists already
-      have one (`tasklist`, above).
+      GitHub alerts, footnotes, TeX and icon shortcodes each have a parse/serialize pair in
+      `editor/wysiwyg/` but no ProseMirror input rule, so typing their syntax live does not
+      auto-convert the way `**bold**` does. Inserting the snippet through the same
+      `contentType: 'markdown'` parser the load path uses is what makes it a real editable node
+      rather than literal text.
     */
     {
       key: 'cardinalconstructs',

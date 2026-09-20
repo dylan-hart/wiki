@@ -1,52 +1,37 @@
 /**
- * Markdown round-trip for the WYSIWYG toolbar's text-colour, highlight-colour, font-family and
- * text-align marks (OpenProject #3398) -- spelled as `markdown-it-attrs`-style `{style="…"}`
- * attributes, the same curly-brace syntax family `renderers/markdown.js`'s `mdAttrs` and
- * `renderers/modules/markdown-it-blocks.js`'s `wikiSpan` already parse on render.
+ * Markdown round-trip for the WYSIWYG toolbar's colour, highlight, font-family and text-align marks,
+ * spelled as `markdown-it-attrs`-style `{style="…"}` attributes -- the same curly-brace family
+ * `renderers/markdown.js` and `renderers/modules/markdown-it-blocks.js`'s `wikiSpan` parse on render.
  *
- * Two distinct shapes, because the marks in scope split across two different parts of a TipTap
- * document:
+ * Two shapes, because these split across two parts of a TipTap document:
  *
- * - **`color`/`fontFamily`** (the "Text Color"/"Font Family" toolbar dropdowns) both live on the
- *   one shared `textStyle` mark -- `@tiptap/extension-color` and `@tiptap/extension-font-family`
- *   are `Extension`s that add their own attribute onto `textStyle` via `addGlobalAttributes`,
- *   there is no separate `color`/`fontFamily` mark type to extend. `highlight`'s own `color`
- *   attribute (background colour) is a real, separate mark. All three render as an inline
- *   `[text]{style="…"}` bracket span -- `wikiSpan` already turns that into
- *   `<span style="…">text</span>` with no allowlist of its own (the sanitizer is the real
- *   boundary, see `backend/helpers/htmlSanitizePolicy.ts`), so no render-side plugin change was
- *   needed for this shape.
- * - **`textAlign`** (the alignment button group) is a `paragraph`/`heading` node attribute, not a
- *   mark -- `@tiptap/extension-text-align` adds it the same `addGlobalAttributes` way, but onto
- *   those node types. It serializes as a trailing `{style="text-align: …;"}` on the block's own
- *   markdown line, which is real `markdown-it-attrs` territory (see the "end of block" pattern in
- *   `markdown-it-attrs/patterns.js`) -- `style` was added to that plugin's `allowedAttributes` in
- *   `renderers/markdown.js` for exactly this.
+ * - **`color`/`fontFamily`** both live on the one shared `textStyle` mark -- the colour and
+ *   font-family packages are `Extension`s adding an attribute onto it via `addGlobalAttributes`,
+ *   with no `color`/`fontFamily` mark type of their own to extend. `highlight` IS its own mark. All
+ *   three render as an inline `[text]{style="…"}` bracket span, which `wikiSpan` already turns into
+ *   a `<span style="…">` with no allowlist of its own -- `backend/helpers/htmlSanitizePolicy.ts` is
+ *   the real boundary.
+ * - **`textAlign`** is a `paragraph`/`heading` node attribute, not a mark, so it serializes as a
+ *   trailing `{style="text-align: …;"}` on the block's own line -- `markdown-it-attrs`'s "end of
+ *   block" pattern, which is why `style` is in that plugin's `allowedAttributes` in
+ *   `renderers/markdown.js`.
  *
- * Scope boundary: the bracket-span tokenizer below claims every `[text]{style="…"}` span in the
- * WYSIWYG editor's own markdown parse and dispatches purely on which CSS property is present
- * (`color`/`font-family` -> `textStyle`, `background-color` -> `highlight`). A future construct
- * that wants the same `[text]{style="…"}` shape for something else needs to extend
- * `parseStyleSpanContent` below rather than registering a second marked tokenizer for it --
- * `MarkdownManager`'s inline-token dispatch (`parseInlineTokens` -> `getHandlerForToken`) only
- * ever consults the *first* registered handler for a given token name, unlike the block-level
- * "try every handler until one succeeds" path, so two competing tokenizers for the same bracket
- * shape would silently drop whichever one loses the race.
+ * The bracket-span tokenizer below claims EVERY `[text]{style="…"}` span and dispatches on which CSS
+ * property is present. A construct wanting the same shape for something else extends
+ * `parseStyleSpanContent` rather than registering a second tokenizer: `MarkdownManager`'s
+ * inline-token dispatch consults only the first handler registered for a token name (unlike its
+ * block-level "try every handler" path), so a competing tokenizer is silently dropped.
  */
 
-/** The one marked.js inline token name every `[text]{style="…"}` span parses to. */
 const STYLE_SPAN_TOKEN_NAME = 'wysiwygStyleSpan'
 
-/** Matches the bracket span's trailing `{style="…"}`, right after its closing `]`. */
 const STYLE_SPAN_SUFFIX_RE = /^\{style="([^"]*)"\}/
 
-/** A block's own trailing `{style="…"}`, with optional leading whitespace, at the very end. */
 const TRAILING_BLOCK_STYLE_RE = /[ \t]*\{style="([^"]*)"\}\s*$/
 
 /**
- * Parses a `style="…"` attribute VALUE (the part between the quotes, e.g.
- * `color: #D32F2F; font-family: monospace;`) into a plain `{ property: value }` object.
- * Tolerant of a missing trailing `;`, extra whitespace, and an empty string.
+ * Takes the attribute VALUE (what sits between the quotes), not the whole `style="…"` attribute.
+ * Property names come back lowercased and in CSS spelling, not camelCase.
  *
  * @param {string|null|undefined} styleText
  * @returns {Record<string, string>}
@@ -74,15 +59,11 @@ export function parseStyleAttr(styleText) {
 }
 
 /**
- * Serializes a `{ property: value }` object into a `style="…"` attribute VALUE, in the order the
- * properties are given, dropping any falsy value. Mirrors `parseStyleAttr`'s shape exactly so
- * `parseStyleAttr(serializeStyleAttr(props))` round-trips.
+ * Inverse of `parseStyleAttr`: same attribute-value shape, so the pair round-trips. Dropping falsy
+ * values lets a caller pass every property it knows about and have the unset ones fall away.
  *
  * @param {Record<string, string|null|undefined>} props
  * @returns {string} Empty string when nothing survives.
- * @example
- *   serializeStyleAttr({ color: '#D32F2F', 'font-family': null })
- *   // → 'color: #D32F2F;'
  */
 export function serializeStyleAttr(props) {
   return Object.entries(props)
@@ -92,11 +73,9 @@ export function serializeStyleAttr(props) {
 }
 
 /**
- * Defensive escaping for a style value embedded inside `{style="…"}` in markdown source. Every
- * value this WP's toolbar ever produces is a fixed hex colour or a bare CSS keyword (never
- * user-typed free text), so this is a "don't emit unparseable markdown" guard rather than the
- * actual security boundary -- that's `backend/helpers/htmlSanitizePolicy.ts`'s sanitizer, applied
- * once this markdown is rendered to HTML.
+ * A "don't emit unparseable markdown" guard, NOT the security boundary -- that is
+ * `backend/helpers/htmlSanitizePolicy.ts`, applied when this markdown is rendered to HTML. Every
+ * value the toolbar produces is a fixed hex colour or a CSS keyword, never user-typed text.
  *
  * @param {string} value
  * @returns {string}
@@ -106,15 +85,13 @@ function escapeStyleAttrValue(value) {
 }
 
 /**
- * Scans `src` (starting at index 0) for a `[…]{style="…"}` bracket span, tracking `[`/`]` nesting
- * depth so an inner mark's own bracket span (e.g. a highlighted run inside a coloured one) doesn't
- * prematurely close the outer span. Mirrors `renderers/modules/markdown-it-blocks.js`'s `wikiSpan`
- * scan, trimmed to the one `{style="…"}` shape this module cares about (no `.class`/`#id`
- * shorthand -- out of scope here).
+ * Tracks `[`/`]` nesting depth so an inner mark's own bracket span (a highlighted run inside a
+ * coloured one) cannot close the outer span early. Handles the `{style="…"}` shape only, not
+ * `markdown-it-attrs`' `.class`/`#id` shorthand.
  *
  * @param {string} src
- * @returns {{inner: string, styleText: string, raw: string}|null} `null` when `src` doesn't open
- *   with a well-formed span at position 0.
+ * @returns {{inner: string, styleText: string, raw: string}|null} `null` unless `src` opens with a
+ *   well-formed span at position 0.
  */
 export function findStyleSpan(src) {
   if (src[0] !== '[') {
@@ -154,14 +131,13 @@ export function findStyleSpan(src) {
 }
 
 /**
- * The one consolidated parse for every `[text]{style="…"}` span (see this module's own doc
- * comment for why it must stay one function). Dispatches on which CSS property the span carries,
- * not on any registration order.
+ * Every `[text]{style="…"}` span parses here, dispatching on the CSS property present rather than on
+ * registration order -- a new property is added to this function, never as a second tokenizer.
  *
  * @param {{styleText: string, tokens: any[]}} token
  * @param {import('@tiptap/core').MarkdownParseHelpers} helpers
- * @returns {{mark: string, content: any[], attrs?: object}|null} `null` when the span carries
- *   none of the properties this WP handles (left for some other extension/plain text).
+ * @returns {{mark: string, content: any[], attrs?: object}|null} `null` when the span carries none of
+ *   the handled properties, leaving it to another extension or to plain text.
  */
 function parseStyleSpanContent(token, helpers) {
   const props = parseStyleAttr(token.styleText)
@@ -179,10 +155,8 @@ function parseStyleSpanContent(token, helpers) {
 }
 
 /**
- * `@tiptap/extension-text-style`'s `TextStyle` mark, extended to round-trip through markdown as
- * `[text]{style="…"}`. The ONLY extension in this editor that registers the shared
- * `wysiwygStyleSpan` marked tokenizer -- see this module's doc comment for why registering it a
- * second time (e.g. on `Highlight` too) would be wrong, not merely redundant.
+ * The ONLY extension that registers the shared `wysiwygStyleSpan` tokenizer; registering it a second
+ * time (on `Highlight`, say) silently drops one of the two -- see this file's opening comment.
  *
  * @param {import('@tiptap/extension-text-style').TextStyle} TextStyle
  */
@@ -211,9 +185,8 @@ export function withStyleSpanMarkdown(TextStyle) {
       const attrs = node.attrs || {}
       const style = serializeStyleAttr({ color: attrs.color, 'font-family': attrs.fontFamily })
       if (!style) {
-        // -> No colour/font-family on this occurrence of the mark (some other `textStyle` attr a
-        //    future extension adds, out of this WP's scope) -- render the content unwrapped rather
-        //    than emitting an empty `[text]{style=""}`.
+        // -> This occurrence carries some other `textStyle` attribute: render the content unwrapped
+        //    rather than emitting an empty `[text]{style=""}`
         return helpers.renderChildren(node)
       }
       return `[${helpers.renderChildren(node)}]{style="${escapeStyleAttrValue(style)}"}`
@@ -222,12 +195,9 @@ export function withStyleSpanMarkdown(TextStyle) {
 }
 
 /**
- * `@tiptap/extension-highlight`'s `Highlight` mark, extended so a multicolor occurrence (`color`
- * attr set) round-trips its colour as `[text]{style="background-color: …;"}` instead of silently
- * dropping it into a plain `==text==` (the base extension's own markdown form, which carries no
- * attributes). A highlight with no `color` -- typed via the `==text==` input/paste rule, or
- * applied by a non-multicolor `Highlight` configuration -- still renders and parses through the
- * base extension's own `==text==` handling, left untouched here.
+ * A coloured highlight round-trips as `[text]{style="background-color: …;"}` because the base
+ * extension's own `==text==` form carries no attributes and would silently drop the colour. A
+ * highlight without a `color` still goes through that base handling untouched.
  *
  * @param {import('@tiptap/extension-highlight').Highlight} Highlight
  */
@@ -245,10 +215,8 @@ export function withStyleSpanRenderMarkdown(Highlight) {
 }
 
 /**
- * Strips a trailing `{style="…"}` off the LAST token of an inline token array, if that last token
- * is plain text ending with one. Used by `withTextAlignMarkdown` to recover a paragraph/heading's
- * `textAlign` attribute before handing the (now-clean) tokens to the base node's own inline
- * parsing.
+ * Recovers a block's `textAlign` before its tokens reach the base node's own inline parsing, which
+ * would otherwise render the `{style="…"}` as literal text.
  *
  * @param {any[]|undefined} tokens marked.js inline tokens (a paragraph/heading's `token.tokens`).
  * @returns {{tokens: any[]|undefined, style: string|null}}
@@ -275,9 +243,8 @@ export function extractTrailingBlockStyle(tokens) {
 }
 
 /**
- * Appends a block's own `textAlign` as a trailing `{style="text-align: …;"}`, unless it is
- * missing or `left` -- `left` is the browser's own default block alignment, so omitting it keeps
- * markdown output clean without changing how the block actually renders.
+ * `left` is skipped: it is the browser's default block alignment, so emitting it would only add
+ * noise to the markdown without changing how the block renders.
  *
  * @param {string} markdown Already-rendered markdown for the block (e.g. `"# Heading"`).
  * @param {string|null|undefined} textAlign
@@ -292,10 +259,8 @@ function appendTextAlignStyle(markdown, textAlign) {
 }
 
 /**
- * Extends a `paragraph`/`heading`-shaped node (i.e. one whose `parseMarkdown`/`renderMarkdown`
- * already handle its own content, keyed on `this.parent` -- see `@tiptap/extension-paragraph` and
- * `@tiptap/extension-heading`) with `@tiptap/extension-text-align`'s `textAlign` attribute
- * round-tripping through a trailing `{style="text-align: …;"}` on the block's own markdown line.
+ * Only for a node whose own `parseMarkdown`/`renderMarkdown` already handle its content, since both
+ * overrides here delegate the content half to `this.parent`.
  *
  * @param {import('@tiptap/core').Node} node
  */
@@ -319,7 +284,5 @@ export function withTextAlignMarkdown(node) {
   })
 }
 
-/**
- * Re-exported so a test can assert against the exact token name without duplicating the literal.
- */
+/** Exported for tests, so they can assert the token name without duplicating the literal. */
 export { STYLE_SPAN_TOKEN_NAME }
