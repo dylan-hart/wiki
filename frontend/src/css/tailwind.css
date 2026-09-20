@@ -197,6 +197,7 @@ html.theme-transition-suppress *::after {
   --color-dark-4: #171b24; /* recessed: a read-only field, an inset gutter */
   --color-dark-5: #14171f; /* ink: the page ground */
   --color-dark-6: #0f1219; /* below ink: the deepest well */
+  --color-editor-ground: #171b24;
 
   /*
     -- Material palette ---------------------------------------------------
@@ -634,6 +635,7 @@ body.body--cobalt {
   --color-paper: #f2f5ff;
   --color-tint: #e6edff;
   --color-tint-alt: #e6edff;
+  --color-editor-ground: #141c4f;
   --color-hairline: #dfe5f5;
   --color-text-body: #1a2038;
   --color-text-secondary: #4a5580;

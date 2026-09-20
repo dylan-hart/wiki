@@ -1650,7 +1650,7 @@ onBeforeUnmount(() => {
     The same value the Monaco theme paints behind the text, so nothing shows through as a different
     dark while Monaco is still measuring itself.
   */
-  background-color: var(--color-dark-4);
+  background-color: var(--color-editor-ground);
   flex: 1 1 50%;
   display: block;
   height: 100%;
