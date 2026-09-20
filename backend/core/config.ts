@@ -218,6 +218,7 @@ export default {
     const lock = await acquireAdvisoryLock(CARDINAL.db.$client as Pool, 'wiki:migrate')
     try {
       if (await this.loadFromDb()) {
+        await CARDINAL.models.jobs.reconcileSchedule()
         CARDINAL.logger.info('config', 'loaded', { keys: this.dbKeyCount, seeded: false })
         return false
       }

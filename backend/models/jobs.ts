@@ -148,6 +148,56 @@ class Jobs {
     })
   }
 
+  async reconcileSchedule(): Promise<{ inserted: number; updated: number; removed: number }> {
+    return CARDINAL.db.transaction(async (trx) => {
+      const before = await trx
+        .select({
+          task: jobScheduleTable.task,
+          cron: jobScheduleTable.cron,
+          payload: jobScheduleTable.payload,
+          type: jobScheduleTable.type
+        })
+        .from(jobScheduleTable)
+      const existing = new Map(before.map((row) => [row.task, row]))
+
+      let inserted = 0
+      let updated = 0
+      for (const entry of JOB_SCHEDULE_SEED) {
+        const row = existing.get(entry.task)
+        if (!row) {
+          await trx.insert(jobScheduleTable).values({ ...entry })
+          inserted++
+        } else if (row.type === 'system' && (row.cron !== entry.cron || row.payload !== null)) {
+          await trx
+            .update(jobScheduleTable)
+            .set({ cron: entry.cron, payload: null, updatedAt: new Date() })
+            .where(eq(jobScheduleTable.task, entry.task))
+          updated++
+        }
+      }
+
+      const seeded = new Set<string>(JOB_SCHEDULE_SEED.map((entry) => entry.task))
+      const stale = before
+        .filter((row) => row.type === 'system' && !seeded.has(row.task))
+        .map((row) => row.task)
+      if (stale.length > 0) {
+        await trx
+          .delete(jobScheduleTable)
+          .where(and(eq(jobScheduleTable.type, 'system'), inArray(jobScheduleTable.task, stale)))
+      }
+
+      const removed = stale.length
+      if (inserted + updated + removed > 0) {
+        CARDINAL.logger.info('jobs', 'reconciled the system schedule', {
+          inserted,
+          updated,
+          removed
+        })
+      }
+      return { inserted, updated, removed }
+    })
+  }
+
   /**
    * Exactly one instance holds the `cron` lock at a time and refreshes it as it queues the next
    * batch, so a stale timestamp means no instance is running that check any more. The lock is only

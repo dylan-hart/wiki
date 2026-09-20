@@ -2,7 +2,11 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { JOB_SCHEDULE_SEED, jobs } from './jobs.ts'
-import { jobHistory as jobHistoryTable, jobLock as jobLockTable } from '../db/schema.ts'
+import {
+  jobHistory as jobHistoryTable,
+  jobLock as jobLockTable,
+  jobSchedule as jobScheduleTable
+} from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { runWithJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 
@@ -440,5 +444,114 @@ describe('setResult (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(jobHistoryTable)
       .where(eq(jobHistoryTable.id, row!.id))
     assert.deepEqual(after!.result, { fileSize: 5 })
+  })
+})
+
+describe('reconcileSchedule (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  async function scheduleByTask() {
+    const rows = await fixtures.db.select().from(jobScheduleTable)
+    return new Map(rows.map((row) => [row.task, row]))
+  }
+
+  test('inserts every seeded task into an empty table', async () => {
+    await fixtures.db.delete(jobScheduleTable)
+
+    const result = await jobs.reconcileSchedule()
+
+    assert.deepEqual(result, { inserted: JOB_SCHEDULE_SEED.length, updated: 0, removed: 0 })
+    const rows = await scheduleByTask()
+    assert.deepEqual([...rows.keys()].sort(), JOB_SCHEDULE_SEED.map((e) => e.task).sort())
+    for (const entry of JOB_SCHEDULE_SEED) {
+      assert.equal(rows.get(entry.task)!.cron, entry.cron)
+      assert.equal(rows.get(entry.task)!.type, 'system')
+    }
+  })
+
+  test('backfills only the missing tasks and leaves present rows untouched', async () => {
+    await fixtures.db.delete(jobScheduleTable)
+    await jobs.reconcileSchedule()
+    const before = await scheduleByTask()
+    await fixtures.db.delete(jobScheduleTable).where(eq(jobScheduleTable.task, 'purgePageDrafts'))
+
+    const result = await jobs.reconcileSchedule()
+
+    assert.deepEqual(result, { inserted: 1, updated: 0, removed: 0 })
+    const after = await scheduleByTask()
+    assert.ok(after.has('purgePageDrafts'))
+    assert.deepEqual(
+      after.get('checkVersion')!.updatedAt,
+      before.get('checkVersion')!.updatedAt,
+      'an unchanged row must not have its updatedAt bumped'
+    )
+    assert.equal(after.get('checkVersion')!.id, before.get('checkVersion')!.id)
+  })
+
+  test('is a no-op when the table already matches the seed', async () => {
+    await fixtures.db.delete(jobScheduleTable)
+    await jobs.reconcileSchedule()
+
+    assert.deepEqual(await jobs.reconcileSchedule(), { inserted: 0, updated: 0, removed: 0 })
+  })
+
+  test('rewrites a changed cron and payload on a system row, keeping its id', async () => {
+    await fixtures.db.delete(jobScheduleTable)
+    await jobs.reconcileSchedule()
+    const before = (await scheduleByTask()).get('cleanAuditLog')!
+    await fixtures.db
+      .update(jobScheduleTable)
+      .set({ cron: '1 2 3 4 5', payload: { stale: true } })
+      .where(eq(jobScheduleTable.task, 'cleanAuditLog'))
+
+    const result = await jobs.reconcileSchedule()
+
+    assert.deepEqual(result, { inserted: 0, updated: 1, removed: 0 })
+    const after = (await scheduleByTask()).get('cleanAuditLog')!
+    const seeded = JOB_SCHEDULE_SEED.find((e) => e.task === 'cleanAuditLog')!
+    assert.equal(after.cron, seeded.cron)
+    assert.equal(after.payload, null)
+    assert.equal(after.id, before.id)
+  })
+
+  test('deletes system rows for tasks no longer in the seed', async () => {
+    await fixtures.db.delete(jobScheduleTable)
+    await jobs.reconcileSchedule()
+    await fixtures.db
+      .insert(jobScheduleTable)
+      .values({ task: 'removedFromSeed', cron: '0 1 * * *', type: 'system' })
+
+    const result = await jobs.reconcileSchedule()
+
+    assert.deepEqual(result, { inserted: 0, updated: 0, removed: 1 })
+    assert.equal((await scheduleByTask()).has('removedFromSeed'), false)
+  })
+
+  test('never touches rows that are not type system', async () => {
+    await fixtures.db.delete(jobScheduleTable)
+    await jobs.reconcileSchedule()
+    await fixtures.db
+      .insert(jobScheduleTable)
+      .values({ task: 'customTask', cron: '0 3 * * *', type: 'custom' })
+    await fixtures.db
+      .update(jobScheduleTable)
+      .set({ type: 'custom', cron: '9 9 * * *' })
+      .where(eq(jobScheduleTable.task, 'checkVersion'))
+
+    const result = await jobs.reconcileSchedule()
+
+    assert.deepEqual(result, { inserted: 0, updated: 0, removed: 0 })
+    const rows = await scheduleByTask()
+    assert.equal(rows.get('customTask')!.cron, '0 3 * * *')
+    assert.equal(rows.get('checkVersion')!.cron, '9 9 * * *')
+    assert.equal(rows.get('checkVersion')!.type, 'custom')
   })
 })
