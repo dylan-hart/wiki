@@ -273,3 +273,47 @@ describe('security.allowPasskeys', () => {
     )
   })
 })
+
+describe('Security#checkPasskeyLockout', () => {
+  let security: typeof import('./security.ts').security
+  let execute: ReturnType<typeof mock.fn>
+
+  function install(stored: Record<string, any>, count: number) {
+    execute = mock.fn(async () => ({ rows: [{ count }] }))
+    ;(globalThis as any).CARDINAL = { config: { security: stored }, db: { execute } }
+  }
+
+  beforeEach(async () => {
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('refuses turning passkeys off while accounts would be locked out, naming the count', async () => {
+    install({ allowPasskeys: true }, 3)
+    const error = await security.checkPasskeyLockout({ allowPasskeys: false })
+    assert.match(error ?? '', /3 accounts/)
+  })
+
+  test('allows turning passkeys off when no account is affected', async () => {
+    install({ allowPasskeys: true }, 0)
+    assert.equal(await security.checkPasskeyLockout({ allowPasskeys: false }), null)
+    assert.equal(execute.mock.callCount(), 1)
+  })
+
+  test('never queries when passkeys stay on or the patch leaves them alone', async () => {
+    install({ allowPasskeys: true }, 5)
+    assert.equal(await security.checkPasskeyLockout({ allowPasskeys: true }), null)
+    assert.equal(await security.checkPasskeyLockout({}), null)
+    assert.equal(execute.mock.callCount(), 0)
+  })
+
+  test('never queries when re-saving a value that is already off', async () => {
+    install({ allowPasskeys: false }, 5)
+    assert.equal(await security.checkPasskeyLockout({ allowPasskeys: false }), null)
+    assert.equal(execute.mock.callCount(), 0)
+  })
+
+  test('treats an unset stored value as on', async () => {
+    install({}, 1)
+    assert.match((await security.checkPasskeyLockout({ allowPasskeys: false })) ?? '', /1 account/)
+  })
+})
