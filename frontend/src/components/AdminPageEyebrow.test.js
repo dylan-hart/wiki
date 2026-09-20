@@ -6,25 +6,8 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * Feature #3330 / OpenProject #3332: the eyebrow's group derivation used to be a structural
- * inference -- any `/_admin/<siteId>/<page>` route (one extra segment ahead of the page name) was
- * unconditionally the "Site" group, everything else split between "Users" and "System" by name. That
- * worked only because the old 3-group taxonomy was exactly "site-scoped = Site, else Users/System" --
- * a 1:1 split between route shape and group. The 8-group taxonomy breaks that split (Content, Editing
- * Tools and Integrations & Automation each mix site-scoped and non-site-scoped pages), so these tests
- * exercise the explicit page-name -> group table directly through real routes rather than assuming
- * shape still implies group.
- *
- * OpenProject #3343: the same segment-count shape was also, separately, how the component used to
- * decide whether to strip a leading `<siteId>` segment before the page-name lookup -- which
- * misclassified `groups/:id?/:section?`/`users/:id?/:section?` as site-scoped once their optional
- * params were populated (e.g. `/_admin/groups/5/members`). The routes below carry the real
- * `meta.siteScoped` flag from `router/routes.js` (rather than a catch-all stub) specifically so this
- * suite exercises that fix, not just the group table.
- *
  * Mock `messages` stand in for `backend/locales/en.json`'s real `admin.nav.*` keys -- this component
- * only *consumes* those keys (owned by sibling Task #3331, see Epic 336 comment #9741) and must not
- * add its own entries to that file, including for test fixtures.
+ * only *consumes* those keys and must not add its own entries to that file, test fixtures included.
  */
 const MESSAGES = {
   admin: {
@@ -160,8 +143,6 @@ describe('AdminPageEyebrow group derivation', () => {
 
   describe('OpenProject #3343 regression: meta.siteScoped, not segment count', () => {
     it('does not misclassify groups/:id?/:section? as site-scoped once both optional params are populated', async () => {
-      // -> The exact regression: /_admin/groups/5/members used to read as site-scoped by segment
-      // count, stripping "5" as a siteId and looking up "members" (no match) instead of "groups".
       const wrapper = await mountAt('/_admin/groups/5/members')
 
       expect(wrapper.text()).toBe('Admin · Access')

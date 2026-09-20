@@ -136,7 +136,6 @@ t('admin.scheduler.' + state.displayMode + 'None')
 
     const matchers = collectMatchers(dir)
 
-    // Neither call should credit anything -- a real dead key with a similar shape stays flagged.
     expect(findUnreferenced(['sites.auth.logout'], matchers)).toEqual(['sites.auth.logout'])
   })
 
@@ -161,9 +160,6 @@ t('admin.scheduler.' + state.displayMode + 'None')
   })
 })
 
-// -- fixture helper -----------------------------------------------------------------------------
-
-/** Write `files` (relative-path -> content) into a fresh temp directory and return its path. */
 function writeFixture(files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-locales-test-'))
   for (const [name, content] of Object.entries(files)) {

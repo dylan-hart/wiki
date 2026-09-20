@@ -4,9 +4,8 @@ import { mount } from '@vue/test-utils'
 import ApiKeyScopePicker from './ApiKeyScopePicker.vue'
 
 /**
- * A small, deterministic scope set standing in for `API_KEY_SCOPES` (task #1272): two verbs, one of
- * them ('review') with a single member -- exactly the shape the real vocabulary's own `review` verb
- * has -- so a single-item group is covered without depending on the full real list's size.
+ * Stands in for `API_KEY_SCOPES`: a single-member verb ('review', as in the real vocabulary) is
+ * covered without the suite depending on the real list's size.
  */
 const SCOPES = ['manage:users', 'manage:groups', 'read:pages', 'review:pages']
 
@@ -16,7 +15,6 @@ function mountPicker(props = {}) {
   })
 }
 
-/** Group header row -- a `w-checkbox` (`role="checkbox"`) plus a toggle button labelled by verb. */
 function groupCheckbox(wrapper, verb) {
   return wrapper.find(`[role="checkbox"][aria-label="${verb}"]`)
 }

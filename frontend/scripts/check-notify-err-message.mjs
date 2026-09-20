@@ -4,21 +4,12 @@
   `helpers/apiError.js`'s `apiErrorMessage(err, fallback)` exists specifically because `ky` parses
   the server's `{ ok, error, statusCode, message }` body into `err.data` before throwing -- reading
   `err.message` instead surfaces ky's own generic "Request failed with status code N" in place of
-  the server's actual explanation. This is the drift check that keeps a migrated file from quietly
-  regaining the bare form (or a new file introducing it for the first time): a hit fails the step,
-  same `--deny-warnings` treatment as the icon and emoji checks alongside it in quality.yml.
+  the server's actual explanation.
 
-  Scoped to `notify()` call ARGUMENTS specifically, not any `err.message` found near one -- a naive
-  proximity grep would also flag `console.warn` lines that happen to sit a few lines from a `notify()`
-  call (App.vue has exactly this shape). Parsing each `notify(...)` call's own argument list is what
-  lets those sit unflagged with no allowlist entry needed.
-
-  Two genuinely non-HTTP shapes exist and need an explicit allowlist entry each:
-    - `components/ApiKeyCopyDialog.vue` -- both its `notify()` + `err.message` sites are clipboard
-      failures (`navigator.clipboard` rejecting), not HTTP errors; there is nothing in `err.data` to
-      prefer for those.
-  `console.warn(...)` isn't a `notify()` call at all, so App.vue's own template-string warnings need
-  no allowlist entry -- see the scoping note above.
+  Scoped to `notify()` call ARGUMENTS specifically, not any `err.message` found near one: a naive
+  proximity grep would also flag a `console.warn` line sitting a few lines from a `notify()` call,
+  a shape this codebase really has. Parsing each call's own argument list is what lets those sit
+  unflagged with no allowlist entry.
 
   Usage: node scripts/check-notify-err-message.mjs
 */
@@ -27,14 +18,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * Files where every `notify()` + `err.message` site has already been reviewed and is not an HTTP
- * error. Allowlisted by whole file rather than by line number, which would go stale the moment the
- * file is edited above the flagged line -- both current sites in this file are clipboard failures,
- * so there is nothing else in it a future edit could legitimately want flagged either.
+ * Files whose `notify()` + `err.message` sites are reviewed non-HTTP failures -- clipboard
+ * rejections, with nothing in `err.data` to prefer over `err.message`. Allowlisted by whole file
+ * rather than by line number, which would go stale on the first edit above the flagged line.
  */
 const ALLOWLIST_FILES = new Set(['components/ApiKeyCopyDialog.vue'])
 
-/** A bare, unmediated reference to the caught error's `.message` -- optional-chained or not. */
 const BARE_ERR_MESSAGE = /\berr\??\.message\b/
 
 function* vueFiles(dir) {
@@ -59,9 +48,8 @@ function lineAt(src, index) {
 }
 
 /**
- * Every `notify(...)` call's argument text, paren-balanced rather than brace-matched -- a call
- * commonly nests further calls in its arguments (`t('key', { count })`, `apiErrorMessage(err)`), so
- * naive matching on the first `)` or `}` would truncate the body early.
+ * Paren-balanced rather than matched on the first `)` or `}`: a call commonly nests further calls
+ * in its arguments (`t('key', { count })`, `apiErrorMessage(err)`), which naive matching truncates.
  */
 export function findNotifyCalls(src) {
   const calls = []
@@ -85,7 +73,6 @@ export function findNotifyCalls(src) {
   return calls
 }
 
-/** Every `notify()` call in `src` that reaches a bare `err.message`, as `{ line }` entries. */
 export function findViolations(src) {
   const violations = []
   for (const call of findNotifyCalls(src)) {
@@ -124,8 +111,8 @@ function main() {
   console.log('OK  no bare err.message reaches a notify() call')
 }
 
-// Guarded so `findNotifyCalls`/`findViolations` can be imported (by the co-located test) without
-// also walking the real tree and potentially calling `process.exit()` as a side effect of import.
+// Guarded so the co-located test can import `findNotifyCalls`/`findViolations` without walking the
+// real tree or hitting `process.exit()` as a side effect of the import.
 if (import.meta.url === `file://${process.argv[1]}`) {
   main()
 }

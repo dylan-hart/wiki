@@ -7,10 +7,6 @@ import { describe, expect, it } from 'vitest'
 import AccountMenu from './AccountMenu.vue'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * OpenProject #2532: the Profile button opens `MainOverlayDialog`'s `Profile` entry rather than
- * navigating to the now-deleted `/_profile` route.
- */
 describe('AccountMenu profile button', () => {
   it("opens the Profile overlay instead of navigating to '/_profile'", async () => {
     const { wrapper, siteStore } = mountWithApp(AccountMenu, {
@@ -23,9 +19,8 @@ describe('AccountMenu profile button', () => {
       }
     })
 
-    // -> WMenu's real trigger click listener is attached to the enclosing button natively, so a
-    //    plain DOM click on it opens the (teleported-but-inline-stubbed) menu content -- see
-    //    `composables/anchoredFloat.js`/`WMenu.vue`.
+    // -> `WMenu`'s trigger click listener is attached to the enclosing button natively, so a plain
+    //    DOM click on it opens the (teleported-but-inline-stubbed) menu content.
     await wrapper.find('.account-avbtn').trigger('click')
 
     const profileBtn = wrapper.findAll('button').find((b) => b.text() === 'Profile')
@@ -35,11 +30,7 @@ describe('AccountMenu profile button', () => {
   })
 })
 
-/**
- * OpenProject #2609: the rule itself is `helpers/initials.js`'s and is unit-tested there; this is the
- * wiring — that the plate a signed-in reader sees is drawn from the shared derivation and not from a
- * fourth private copy of it.
- */
+/** The rule itself lives in `helpers/initials.js` and is tested there; this covers the wiring. */
 describe('AccountMenu initials plate', () => {
   function mountFor(name) {
     const { wrapper } = mountWithApp(AccountMenu, {
@@ -67,10 +58,6 @@ describe('AccountMenu initials plate', () => {
   })
 })
 
-/**
- * Task #3264: a manually-uploaded avatar (`hasAvatar`) always wins; the provider-synced picture
- * (`avatarProviderUrl`) is only a fallback rendered in its place, and initials are the last resort.
- */
 describe('AccountMenu avatar fallback', () => {
   function mountFor({ hasAvatar = false, avatarProviderUrl = null } = {}) {
     const { wrapper } = mountWithApp(AccountMenu, {
@@ -120,16 +107,8 @@ describe('AccountMenu avatar fallback', () => {
 })
 
 /**
- * OpenProject #2787: Profile and Logout should each fill exactly half of the actions row -- flush to
- * the outer edges and to a shared middle divider -- instead of sitting centered with a gap the way
- * `WCardActions`' shared default lays out every OTHER caller's confirm/cancel pair, and Logout should
- * render in Cardinal's branded `negative` token rather than a plain Quasar `red`.
- *
- * The color swap is asserted against the real DOM, since `WBtn` writes it as a concrete inline
- * style. The fill layout is asserted against the component's own declared CSS rather than a rendered
- * box: happy-dom runs no layout engine and does not resolve percentage-based flex sizing (see
- * `BlueprintIcon.test.js`'s plate-size suite and `NavSidebar.test.js`'s flex/border checks for the
- * established precedent of a static source check for exactly this kind of assertion).
+ * The fill layout is asserted against the component's own declared CSS rather than a rendered box:
+ * happy-dom runs no layout engine and does not resolve percentage-based flex sizing.
  */
 describe('AccountMenu actions row (OpenProject #2787)', () => {
   const source = readFileSync(

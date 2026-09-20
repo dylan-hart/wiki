@@ -1,12 +1,8 @@
 /*
   Flags `backend/locales/en.json` keys with no reader in `frontend/src`, crediting a dynamic
   template-literal `t(...)` call's static prefix/suffix as covering every key it could resolve to at
-  runtime. Modeled on `generate-icons.mjs`'s `--check`: the same "source scan must stay in step with
-  a side file" problem, just with no generated artifact to diff -- the side file here is
-  `backend/locales/en.json` itself, and staying in step means every key in it has a reader.
-
-  An unreferenced key still ships translated across 56 locale files and gets re-synced through
-  Localazy on every release for nothing, which is the cost this check exists to catch early.
+  runtime. An unreferenced key still ships translated in every locale file and is re-synced through
+  Localazy on every release for nothing.
 
   Usage: node scripts/check-locales.mjs
 */
@@ -15,26 +11,19 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // `path.join(..., '..')` rather than `new URL('../', import.meta.url)`: the latter goes through the
-// ambient global `URL` constructor, which a DOM test environment (this repo's Vitest suites default
-// to `happy-dom`) can shadow with its own browser-oriented implementation that doesn't resolve a
-// relative `file:` URL the way Node's does. `fileURLToPath` and `path` are both plain Node core
-// functions, unaffected either way.
+// ambient `URL`, which a DOM test environment (happy-dom) shadows with an implementation that does
+// not resolve a relative `file:` URL the way Node's does.
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(ROOT, 'src')
 const LOCALE_FILE = path.join(ROOT, '../backend/locales/en.json')
 
-/** Any quoted or template-literal string, used both as the top-level scanner and inside a resolved
- *  lookup table's own source text (see `resolveTableLiterals`). */
 const ANY_LITERAL = /(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g
 
 /*
- * Matches a call to the i18n `t(...)` function -- `useI18n()`'s composable result, destructured as
- * `t` almost everywhere in this codebase, or called as `i18n.t(`
- * off the rare `useI18n({ useScope: 'global' })` instance itself (`App.vue`) -- whose first argument
- * is a string or template literal. The negative lookbehind on the bare form is what keeps it from
- * also matching `API_CLIENT.get(...)`/`.post(...)`/`.put(...)`/`.delete(...)`: every one of those
- * ends in a bare `t(` too, and a plain `/\bt\(/` would not tell them apart -- `\b` doesn't fire
- * between two word characters, so it lets `get(` and `put(` straight through.
+ * The negative lookbehind on the bare form is what keeps this off `API_CLIENT.get(...)`/`.post(...)`
+ * /`.put(...)`/`.delete(...)`: each ends in a bare `t(` too, and `\b` doesn't fire between two word
+ * characters, so a plain `/\bt\(/` lets them straight through. The `i18n.t(` alternative covers the
+ * rare `useI18n({ useScope: 'global' })` instance (`App.vue`).
  */
 const T_CALL_LITERAL = new RegExp(
   `(?:(?<![\\w$.])t|(?<![\\w$])i18n\\.t)\\(\\s*${ANY_LITERAL.source}`,
@@ -42,23 +31,17 @@ const T_CALL_LITERAL = new RegExp(
 )
 
 /*
- * Matches `t(IDENT[...` or `t(IDENT.prop)` (or the `i18n.t(` form) -- a call whose key comes from a
- * lookup table rather than a literal, e.g. `t(SYNC_MODE_LABEL_KEYS[mode] ?? mode)` or
- * `t(RECENT_TAB.label)`. `IDENT` is resolved separately (see `resolveTableLiterals`).
+ * A call whose key comes from a lookup table rather than a literal -- `t(SYNC_MODE_LABEL_KEYS[mode]
+ * ?? mode)`, `t(RECENT_TAB.label)`. `IDENT` is resolved by `resolveTableLiterals`.
  */
 const T_CALL_MEMBER = /(?:(?<![\w$.])t|(?<![\w$])i18n\.t)\(\s*([A-Za-z_$][\w$]*)\s*[.[]/g
 
 /*
- * Matches an `<i18n-t>` component's `keypath` attribute, bound or not: `keypath="pageDeleteDialog.
- * confirm"` (a literal path, used as-is) or `:keypath="isCopyright ? \`common.footerCopyright\` :
- * \`common.footerLicense\`"` (a JS expression, which may itself contain one or more literals to
- * pull out). `[^"]*` spans newlines fine (character-class negation isn't affected by multiline
- * content), which is what a wrapped multi-line binding like `SiteActivateDialog.vue`'s needs.
+ * An `<i18n-t>` component's `keypath` attribute: a literal path unbound, a JS expression to pull
+ * literals out of when bound. `[^"]*` spans newlines, which a wrapped multi-line binding needs.
  */
 const KEYPATH_ATTR = /:?keypath="([^"]*)"/g
 
-/** Start of a `t(...)`/`i18n.t(...)` call, used to locate the `(` for balanced-argument extraction
- *  ahead of splitting on top-level `+` (see `collectConcatMatchers`). */
 const T_CALL_START = /(?:(?<![\w$.])t|(?<![\w$])i18n\.t)\(/g
 
 function* sourceFiles(dir) {
@@ -72,23 +55,16 @@ function* sourceFiles(dir) {
   }
 }
 
-/** Escape one literal chunk of a template literal for use inside a RegExp. */
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
- * Turn one literal `t(...)` argument into a matcher: an exact key for a plain string (or a backtick
- * literal with no interpolation), or a RegExp standing in for the whole family of keys a template
- * literal could resolve to at runtime.
- *
  * Every `${...}` slot becomes `.*` -- unbounded rather than `[^.]*`, since a slot can fill anything
- * from a whole path segment (`` `error.${val}` ``) to a value concatenated straight onto a literal
- * suffix with no separating dot (`` `admin.api.${status}Hint` ``), or even the entire prefix
- * (`` `${labelPrefix}.revokeConfirm` ``). Matching too broadly only risks under-reporting a
- * genuinely dead key that happens to share a literal fragment with a live dynamic lookup -- never
- * flagging a key that a dynamic call really does reach, which is the direction that would actually
- * break the check.
+ * from a whole path segment to a value concatenated straight onto a literal suffix with no
+ * separating dot, or even the entire prefix. Matching too broadly only risks under-reporting a dead
+ * key; matching too narrowly would flag a key a dynamic call really does reach, which is the
+ * direction that breaks the check.
  */
 function toMatcher(rawLiteral) {
   const quote = rawLiteral[0]
@@ -104,10 +80,9 @@ function toMatcher(rawLiteral) {
 }
 
 /**
- * Extract the balanced `{...}`/`[...]`/`(...)` span starting at `startIdx` (which must be the
- * opening bracket), skipping over string/template-literal content so a value containing a stray
- * bracket character can't desync the depth count. A `${...}` inside a template literal briefly
- * resumes real depth-counting for its own nested expression, then returns to string mode.
+ * `startIdx` must be the opening bracket. String and template-literal content is skipped so a value
+ * holding a stray bracket can't desync the depth count; a `${...}` briefly resumes real
+ * depth-counting for its own nested expression, then returns to string mode.
  */
 function extractBalanced(src, startIdx) {
   const closers = { '{': '}', '[': ']', '(': ')' }
@@ -165,17 +140,12 @@ function extractBalanced(src, startIdx) {
 }
 
 /**
- * Resolve every literal `t(IDENT[...])`/`t(IDENT.prop)` reaches back to, by finding `IDENT`'s own
- * `const IDENT = {...}`/`const IDENT = [...]` declaration in the same file and pulling every string
- * literal out of its (balanced, string-aware) body -- covers a mode-to-key lookup table
- * (`SYNC_MODE_LABEL_KEYS`), a tab definition object (`GROUP_TABS`/`RECENT_TAB`), or an options array
- * (`STYLE_CLASSES`). See `TableEditorOverlay.vue`'s own header comment by `ALIGN_LABELS`: spelling
- * the key out as a literal in a lookup table, rather than assembling it at runtime, is this
- * codebase's established way to keep an indirect key visible to translation tooling -- the same
- * convention `generate-icons.mjs` documents for icon names.
+ * Resolves what `t(IDENT[...])`/`t(IDENT.prop)` can reach by finding `IDENT`'s own `const`
+ * declaration in the same file and pulling every string literal out of its body. That works because
+ * this codebase's convention is to spell an indirect key out as a literal in a lookup table rather
+ * than assemble it at runtime, keeping it visible to translation tooling.
  *
- * Falls back to a `v-for="IDENT (in|of) OTHER"` loop variable when `IDENT` isn't itself declared --
- * `t(option.label)` inside `v-for="option of STYLE_CLASSES"` resolves through to `STYLE_CLASSES`.
+ * Falls back to a `v-for="IDENT (in|of) OTHER"` loop variable when `IDENT` isn't itself declared.
  */
 function resolveTableLiterals(src, name, visited = new Set()) {
   if (visited.has(name)) {
@@ -203,10 +173,8 @@ function resolveTableLiterals(src, name, visited = new Set()) {
 }
 
 /**
- * Split `str` on every top-level occurrence of `delimiter` -- one not nested inside `()`/`[]`/`{}`
- * or a string/template literal (so a `+`/`,` inside a nested call, or inside a literal's own text,
- * doesn't count). Used both to pull just the key argument out of a `t(key, params)` call and to
- * break that argument into its `+`-joined terms.
+ * Top-level means not nested inside `()`/`[]`/`{}` and not inside a string or template literal, so
+ * a `+`/`,` within a nested call or a literal's own text doesn't split.
  */
 function splitTopLevel(str, delimiter) {
   const parts = []
@@ -248,12 +216,9 @@ function splitTopLevel(str, delimiter) {
 }
 
 /**
- * Handles `t(...)` calls built by string concatenation rather than a template literal --
- * `` t(`admin.scheduler.` + state.displayMode + `None`) ``, `` t('editor.props.' + props.mode) ``.
- * Each `+`-joined term is either a whole literal (contributing its own text, verbatim) or anything
- * else (a variable, a call, a parenthesized fallback -- contributing `.*`, same unbounded-slot
- * reasoning as `toMatcher`'s template-literal handling). A call with no top-level `+` in its key
- * argument is left to `T_CALL_LITERAL`/`T_CALL_MEMBER` instead.
+ * Handles a `t(...)` key built by string concatenation rather than a template literal. A `+`-joined
+ * term that isn't a whole literal contributes `.*`, on `toMatcher`'s unbounded-slot reasoning; a
+ * call with no top-level `+` is left to `T_CALL_LITERAL`/`T_CALL_MEMBER`.
  */
 function collectConcatMatchers(src) {
   const matchers = []
@@ -302,9 +267,8 @@ export function collectMatchers(srcDir = SRC) {
     }
     for (const m of src.matchAll(KEYPATH_ATTR)) {
       const content = m[1]
-      // A non-bound `keypath="..."` attribute's content IS the key, verbatim -- credit it directly
-      // even though it isn't quoted as a JS literal. Harmless when this is actually a bound JS
-      // expression instead: the whole expression text just won't equal any real key.
+      // A non-bound `keypath="..."` attribute's content IS the key, verbatim, though it isn't
+      // quoted as a JS literal. Harmless for a bound expression: its text matches no real key.
       matchers.push({ kind: 'exact', value: content.trim() })
       for (const lit of content.matchAll(ANY_LITERAL)) {
         matchers.push(toMatcher(lit[1]))
@@ -315,7 +279,6 @@ export function collectMatchers(srcDir = SRC) {
   return matchers
 }
 
-/** Every key with neither an exact-match reader nor a dynamic matcher that could resolve to it. */
 export function findUnreferenced(keys, matchers) {
   const exact = new Set()
   const regexes = []

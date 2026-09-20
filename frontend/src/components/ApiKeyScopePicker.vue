@@ -44,25 +44,16 @@ import { reactive } from 'vue'
 import { API_KEY_SCOPES, groupScopesByVerb } from '@/helpers/apiKeyScopes'
 
 /**
- * The PAT scope field (OpenProject #1272): a two-level, verb-grouped tree of the closed scope
- * vocabulary, replacing the earlier flat `w-select multiple use-chips` field. Level 1 is one node
- * per verb (`access`, `manage`, `read`, `write`, `delete`, `review`, derived from the actual scope
- * list rather than hard-coded, so a verb with a single member -- `review` currently has only
- * `review:pages` -- still renders as its own single-item group) with a tri-state group checkbox
- * (`WCheckbox`'s `indeterminate`, task #1271) that selects or deselects every scope under it in one
- * click. Level 2 is the individual `verb:resource` scopes, independently checkable, under an
- * expandable/collapsible group body.
- *
- * The wire shape is unchanged: `modelValue` is (and `update:modelValue` emits) a flat array of
- * `verb:resource` scope strings, exactly what `keyScope` always was -- this is a picker UX change
- * only. Shared by both `ApiKeyCreateDialog.vue` and `ProfileApiKeyCreateDialog.vue`.
+ * A two-level, verb-grouped tree over the closed scope vocabulary. The verbs are derived from the
+ * scope list rather than hard-coded, so a verb with a single member still renders as its own group.
+ * `modelValue` stays a flat array of `verb:resource` strings -- the grouping is presentation only.
  */
 const props = defineProps({
   modelValue: {
     type: Array,
     default: () => []
   },
-  /** Override for testing; defaults to the full closed scope vocabulary. */
+  /** Override for testing; the default is the full closed vocabulary. */
   scopes: {
     type: Array,
     default: () => API_KEY_SCOPES
@@ -73,8 +64,8 @@ const emit = defineEmits(['update:modelValue'])
 
 const groups = groupScopesByVerb(props.scopes)
 
-// -> Collapsed by default: a scope entry a caller has no reason to open stays out of the way, and
-//    there is no server-side or route state to restore an open group from across a re-mount.
+// -> Collapsed by default, and expansion is local: there is no server or route state to restore an
+//    open group from across a re-mount.
 const expandedVerbs = reactive(new Set())
 
 function isExpanded(verb) {
@@ -101,10 +92,9 @@ function groupState(group) {
 }
 
 /**
- * The group checkbox's own `modelValue` is `groupState(group) === 'all'` (a plain boolean), so
- * `WCheckbox`'s own click handler emits the flip of that: `true` when the group was 'none' or
- * 'mixed' (select every child -- the tri-state convention task #1271 documents), `false` when it
- * was fully 'all' (deselect every child).
+ * The group checkbox's own `modelValue` is the plain boolean `groupState(group) === 'all'`, so
+ * `WCheckbox`'s click handler emits the flip of that: `true` when the group was 'none' or 'mixed'
+ * (select every child), `false` when it was fully 'all' (deselect every child).
  */
 function onGroupToggle(group, selectAll) {
   const withoutGroup = props.modelValue.filter((scope) => !group.scopes.includes(scope))

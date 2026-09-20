@@ -6,13 +6,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestI18n } from '../../test/i18n.js'
 
-/**
- * Covers #1117: the dialog's `mcpInstallCommand` computed builds a ready-to-paste `claude mcp add`
- * command alongside the raw key, using `window.location.origin` (never a hardcoded host) and a
- * `--scope` driven by the `mcpInstallScope` user/local toggle (OpenProject #2411), defaulting to
- * `user`. `project` is never a reachable value -- it would write the bearer token into a committed
- * `.mcp.json` -- see the component's own doc comment.
- */
 function mountDialog(props = {}) {
   const i18n = createTestI18n({
     admin: {
@@ -76,8 +69,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
 
   it('switches the command to --scope local via the user/local toggle', async () => {
     const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
-    // WDialog only renders its slot once `dialogVisible` flips true, two ticks after mount
-    // (`useDialogComponent`'s `onMounted(() => nextTick(...))`).
+    // WDialog only renders its slot once `dialogVisible` flips true, two ticks after mount.
     await flushPromises()
 
     const toggle = wrapper.findComponent({ name: 'WBtnToggle' })
@@ -119,11 +111,6 @@ describe('ApiKeyCopyDialog mcp install command', () => {
   })
 })
 
-/**
- * OpenProject #2052: the dialog is opened from both the admin API-key form and the user Personal
- * Access Token form, but hardcoded every string to the `admin.api.*` family. `labelPrefix` (mirroring
- * `ApiKeyRevokeDialog`'s own prop of the same name) lets each caller supply its own vocabulary.
- */
 function mountWithPrefix(props) {
   const i18n = createTestI18n({
     admin: {

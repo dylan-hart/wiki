@@ -31,11 +31,9 @@
           </w-item-section>
         </w-item>
         <!--
-          #1117: a ready-to-paste `claude mcp add` install command, shown alongside the raw key. Shown
-          unconditionally for both flows this dialog serves (admin-issued keys via `AdminApi.vue`,
-          personal tokens via `ProfileApiKeyCreateDialog.vue`) -- an admin-issued key still works
-          against the MCP server's read tools, scoped to whatever groups it was given, so the snippet
-          is not exclusive to the personal-token flow that write tools actually require.
+          Shown for both flows this dialog serves: an admin-issued key still works against the MCP
+          server's read tools, scoped to whatever groups it was given, so the snippet is not
+          exclusive to the personal-token flow that the write tools require.
         -->
         <w-item>
           <blueprint-icon icon="tabler:terminal-2" class="self-start" />
@@ -58,10 +56,6 @@
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
-        <!--
-          The dialog is the only place this token ever appears, so copying either string must not
-          depend on selecting a wrapped, hundreds-of-characters-long string by hand
-        -->
         <w-btn
           class="acrylic-btn"
           flat
@@ -97,52 +91,36 @@ import { notify } from '@/composables/notify'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { ref } from 'vue'
 
-// PROPS
-
 const props = defineProps({
   keyValue: {
     type: String,
     required: true
   },
   // -> `admin.api.*` for the admin-issued key flow, `profile.api.*` for the self-service personal
-  //    access token flow -- the two string sets say the same things ("Copy Access Token", ...) under
-  //    different i18n namespaces, since a personal token isn't an admin's "API Key" to the reader
-  //    holding it. `admin.api.mcpInstallCommand*` is genuinely global and is not routed through this.
-  //    Mirrors `ApiKeyRevokeDialog`'s own `labelPrefix` prop.
+  //    access token flow -- the same strings under different i18n namespaces, since a personal token
+  //    isn't an admin's "API Key" to the reader holding it. The `admin.api.mcpInstall*` strings are
+  //    global and deliberately not routed through this.
   labelPrefix: {
     type: String,
     default: 'admin.api'
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// REFS
-
 const iptKey = ref(null)
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent({
   autofocus: () => iptKey.value
 })
 
-// I18N
-
 const { t } = useI18n()
 
-// SCOPE TOGGLE
-
 /**
- * `user`/`local` toggle for the generated install command's `--scope` flag (OpenProject #2411).
- * Defaults to `user` -- available across all the admin/user's own projects, still never committed --
+ * Defaults to `user` -- available across all of that user's own projects, still never committed --
  * rather than `local`, which is scoped to whichever single project directory the command happens to
- * be run from.
- *
- * Deliberately no `project` option: `project` scope writes the command -- bearer token included --
- * into `.mcp.json`, which gets committed to a repo. See the `mcpInstallCommand` doc comment below.
+ * be run from. Deliberately no `project` option: `project` scope writes the command, bearer token
+ * included, into a `.mcp.json` that gets committed to a repo.
  */
 const mcpInstallScope = ref('user')
 
@@ -151,26 +129,12 @@ const mcpInstallScopeOptions = computed(() => [
   { label: t(`admin.api.mcpInstallScopeLocal`), value: 'local' }
 ])
 
-// COMPUTED
-
-/**
- * A ready-to-paste `claude mcp add` install command for this instance's in-process MCP server
- * (`/_mcp`, OpenProject #985). `window.location.origin` rather than a hardcoded host -- this dialog
- * is rendered from whichever origin the admin/user is actually browsing.
- *
- * `--scope` comes from the `mcpInstallScope` toggle above and is either `user` or `local` -- never
- * `project`: `project` scope writes the command -- bearer token included -- into `.mcp.json`, which
- * gets committed to a repo. Both remaining options stay private to whoever's terminal the command is
- * pasted into, the same one-time-visibility framing as the raw key above.
- */
 const mcpInstallCommand = computed(() => {
   return (
     `claude mcp add --transport http cardinaljs ${window.location.origin}/_mcp ` +
     `--header "Authorization: Bearer ${props.keyValue}" --scope ${mcpInstallScope.value}`
   )
 })
-
-// METHODS
 
 async function copyKey() {
   try {

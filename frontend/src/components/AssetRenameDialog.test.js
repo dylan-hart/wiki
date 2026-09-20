@@ -11,7 +11,7 @@ import { createTestI18n } from '../../test/i18n.js'
 /*
   `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
   `document.body`, outside `@vue/test-utils`'s own tracked tree -- unmounting the wrapper is what
-  removes it again, matching the pattern `GlossaryTermDialog.test.js` established.
+  removes it again.
 */
 let currentWrapper = null
 afterEach(() => {
@@ -41,12 +41,6 @@ function mountDialog(props) {
   return currentWrapper
 }
 
-/**
- * OpenProject #2055: the filename check that used to live inline in `rename()` -- thrown as an
- * `Error` and surfaced only as a toast, detached from the field it was actually about -- is now a
- * `:rules` entry on the field itself, validated through the enclosing `<w-form>` before any API call
- * is even attempted.
- */
 describe('AssetRenameDialog filename validation (OpenProject #2055)', () => {
   it('rejects an invalid filename inline, under the control, with no toast and no API call', async () => {
     API_CLIENT.get.mockReturnValue({
@@ -59,7 +53,7 @@ describe('AssetRenameDialog filename validation (OpenProject #2055)', () => {
     await flushPromises()
 
     // -> `WInput`'s error/hint line -- the `.min-h-5` div under the control -- is what carries the
-    //    error now, not a toast disappearing on a timer
+    //    error, not a toast
     const errorNode = document.body.querySelector('.min-h-5')
     expect(errorNode?.textContent).toContain('Asset name is invalid.')
     expect(notifyQueue).toHaveLength(0)

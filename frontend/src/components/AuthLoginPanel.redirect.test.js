@@ -5,11 +5,9 @@ import AuthLoginPanel from './AuthLoginPanel.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2208 §2/§9: `handleLoginResponse()`'s `nextAction: 'redirect'` case used to read a
- * `loginRedirect` cookie nothing in this app ever wrote, and passed whatever it (or the backend's own
- * `resp.redirect`, ultimately a group's `redirectOnLogin`) held straight to `window.location.replace()`
- * with no scheme check -- a `javascript:` value there executes in this origin, with no click required.
- * The cookie reads are gone (`isFollowableRedirectTarget()` guards what remains); this covers it.
+ * `resp.redirect` is ultimately a group's `redirectOnLogin`, so it is untrusted: a `javascript:`
+ * value handed to `window.location.replace()` executes in this origin with no click required.
+ * `isFollowableRedirectTarget()` is the guard these cases exercise.
  */
 
 const LOCAL_STRATEGY = {

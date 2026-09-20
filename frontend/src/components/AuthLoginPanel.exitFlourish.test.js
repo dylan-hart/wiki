@@ -5,11 +5,8 @@ import AuthLoginPanel from './AuthLoginPanel.vue'
 import { mountWithApp } from '../../test/mount.js'
 
 /**
- * OpenProject #2747/#2750 ("Login exit flourish"): on a successful login, `handleLoginResponse()`'s
- * `redirect` case now sets the `cardinal:justLoggedIn` sessionStorage flag `MainLayout.vue` (task
- * #2751) reads-and-clears on mount, and -- unless `prefers-reduced-motion` is set -- emits
- * `exit-flourish` (which `Login.vue` turns into the `.auth-content`/`.auth-bg` exit animation) before
- * delaying the hard navigation by that animation's ~320ms budget.
+ * Unless `prefers-reduced-motion` is set, the hard navigation is delayed by the exit animation's
+ * ~320ms budget -- which is what the timer advances below are waiting out.
  */
 
 const JUST_LOGGED_IN_KEY = 'cardinal:justLoggedIn'
@@ -85,7 +82,6 @@ describe('AuthLoginPanel exit flourish', () => {
         continuationToken: ''
       })
 
-      // -> The flag is set synchronously, well before the animation budget elapses.
       expect(sessionStorage.getItem(JUST_LOGGED_IN_KEY)).toBe('1')
       expect(replaceSpy).not.toHaveBeenCalled()
 

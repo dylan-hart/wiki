@@ -46,48 +46,35 @@ import { notify } from '@/composables/notify'
 import { reactive } from 'vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 const props = defineProps({
   apiKey: {
     type: Object,
     required: true
   },
-  // -> Which REST resource to revoke against: the admin listing (`api-keys`, every key) or the
-  //    self-service one (`users/profile/api-keys`, the caller's own personal tokens only) —
-  //    `ProfileApi.vue` passes the latter. Same dialog either way; only the endpoint differs.
+  // -> The admin listing (`api-keys`, every key) or the self-service one (`users/profile/api-keys`,
+  //    the caller's own personal tokens only).
   endpoint: {
     type: String,
     default: 'api-keys'
   },
-  // -> `admin.api.*` for the admin listing, `profile.api.*` for the self-service one — the two
-  //    string sets say the same things ("Revoke", "Revoke API Key?", ...) under different i18n
-  //    namespaces, since a personal token isn't an admin's "API Key" to the reader holding it.
+  // -> `admin.api.*` for the admin listing, `profile.api.*` for the self-service one — the same
+  //    strings under different i18n namespaces, since a personal token isn't an admin's "API Key"
+  //    to the reader holding it.
   labelPrefix: {
     type: String,
     default: 'admin.api'
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   isLoading: false
 })
-
-// METHODS
 
 async function confirm() {
   state.isLoading = true

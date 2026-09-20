@@ -53,8 +53,6 @@ import { onMounted, reactive, ref } from 'vue'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-// PROPS
-
 const props = defineProps({
   assetId: {
     type: String,
@@ -62,46 +60,28 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 defineEmits([...dialogComponentEmits])
 
-// REFS
-
 const iptPath = ref(null)
-
-// DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
   autofocus: () => iptPath.value
 })
 
-// STORES
-
 const siteStore = useSiteStore()
 
-// I18N
-
 const { t } = useI18n()
-
-// DATA
 
 const state = reactive({
   path: '',
   loading: false
 })
 
-// REFS
-
 const renameAssetForm = ref(null)
-
-// VALIDATION RULES
 
 const nameValidation = [
   (val) => (val?.length >= 2 && val?.includes('.')) || t('fileman.renameAssetInvalid')
 ]
-
-// METHODS
 
 async function rename() {
   const isFormValid = await renameAssetForm.value.validate(true)
@@ -129,8 +109,6 @@ async function rename() {
   }
   state.loading--
 }
-
-// MOUNTED
 
 onMounted(async () => {
   state.loading++
