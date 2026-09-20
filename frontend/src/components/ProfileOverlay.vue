@@ -359,10 +359,10 @@ onBeforeUnmount(() => {
 */
 .layout-profile-body .w-page > .w-separator {
   margin-inline: 20px;
-  --w-hairline-color: #{var(--color-tint)};
+  --w-hairline-color: var(--color-tint);
 
   .body--dark & {
-    --w-hairline-color: #{var(--color-hairline-dark)};
+    --w-hairline-color: var(--color-hairline-dark);
   }
 }
 

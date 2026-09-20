@@ -246,10 +246,10 @@ onBeforeUnmount(() => {
   border: 2px dashed rgba(0, 0, 0, 0.2);
   transition: border-color 0.15s ease;
   overflow: hidden;
+}
 
-  &--over {
-    border-color: var(--color-primary);
-  }
+.glossary-import-dropzone--over {
+  border-color: var(--color-primary);
 }
 
 .glossary-import-editor {

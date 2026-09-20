@@ -146,7 +146,7 @@ watch(
 */
 .draft-diff {
   height: 240px;
-  border: 1px solid rgba(#fff, 0.08);
+  border: 1px solid rgb(255 255 255 / 8%);
   overflow: hidden;
 }
 </style>
