@@ -44,8 +44,6 @@ describe('shared/figure.js: explainSourceFailure()', () => {
   })
 
   it('takes the whole clause following "This", not a bare verb', () => {
-    // -> The parameter is named `clause` for this reason: it is dropped in unaltered, so a caller
-    //    passing `'typeset'` would produce "This typeset: ...".
     expect(explainSourceFailure('drawing could not be read', new Error('x'), true)).toBe(
       'This drawing could not be read: x'
     )

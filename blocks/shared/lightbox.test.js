@@ -3,18 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LightboxController, scrollerOf } from './lightbox.js'
 
 /**
- * OpenProject #3065: the lightbox primitive extracted out of `block-gallery` -- its own dialog
- * shell (`lightboxStyles`, exercised indirectly through `block-gallery/component.test.js`, since a
- * `css` template has nothing to assert against on its own), `LightboxController`'s open/closed
- * state, wrap-around navigation and page-scroll lock, and `scrollerOf`. Modeled on
- * `shared/theme.test.js`'s `DarkMode` suite: a minimal stand-in for Lit's `ReactiveElement` rather
- * than a real block, since jsdom 30 does not implement `HTMLDialogElement#showModal` at all (a
- * real `<dialog>` throws `TypeError: showModal is not a function`) -- confirmed directly against
- * the pinned jsdom, which is also why no block suite in this repo opens a real `<dialog>` under
- * test. The fake dialog below stands in for it.
+ * jsdom does not implement `HTMLDialogElement#showModal` (a real `<dialog>` throws `TypeError:
+ * showModal is not a function`), so the controller is driven against stand-ins for its host and its
+ * dialog rather than against a real block.
  */
 
-/** A `<dialog>` stand-in carrying only what the controller calls on it. */
 function makeFakeDialog() {
   return {
     showModal: vi.fn(),
@@ -22,11 +15,6 @@ function makeFakeDialog() {
   }
 }
 
-/**
- * Minimal stand-in for `import('lit').ReactiveElement`: just enough of the controller-host
- * contract (`addController`, `requestUpdate`, `updateComplete`, `renderRoot`) for
- * `LightboxController` to drive, with no real Lit rendering pipeline behind it.
- */
 class FakeHost {
   constructor({ dialog = makeFakeDialog() } = {}) {
     this.dialog = dialog
@@ -36,7 +24,7 @@ class FakeHost {
   }
 
   addController() {
-    // -> LightboxController only needs this to be callable; it keeps no reference back.
+    // -> Only has to be callable; the controller keeps no reference back.
   }
 
   requestUpdate() {
@@ -76,7 +64,6 @@ describe('shared/lightbox.js: scrollerOf()', () => {
   })
 
   it('skips an ancestor whose overflow allows scrolling but has nothing to scroll', () => {
-    // -> overflow: auto with scrollHeight === clientHeight is not actually a scroller
     inner.style.overflowY = 'auto'
     Object.defineProperty(inner, 'scrollHeight', { value: 200, configurable: true })
     Object.defineProperty(inner, 'clientHeight', { value: 200, configurable: true })
@@ -195,8 +182,7 @@ describe('shared/lightbox.js: LightboxController', () => {
       count = 2
       lightbox.next()
 
-      // -> wrap(2 + 1) against a count of 2 is 1, not 0 -- proof the count was re-read, not cached
-      //    from construction time (a stale count of 3 would have wrapped 3 to 0 instead)
+      // -> wrap(3) against a count of 2 is 1; a count cached at construction would have given 0.
       expect(lightbox.index).toBe(1)
     })
 
@@ -220,7 +206,7 @@ describe('shared/lightbox.js: LightboxController', () => {
       lightbox.close()
 
       expect(host.dialog.close).toHaveBeenCalled()
-      // -> The index is cleared by onClose(), fired by the dialog's own `close` event, not by close()
+      // -> The index is cleared by onClose(), fired by the dialog's `close` event, not by close().
       expect(lightbox.index).toBe(1)
     })
   })

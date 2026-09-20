@@ -1,84 +1,15 @@
 import { css } from 'lit'
 
 /**
- * A lightbox: a full-viewport modal dialog for looking at one thing from a list, full size, with
- * arrow-key navigation between neighbours and the page held still behind it.
- *
- * Extracted from `block-gallery` (OpenProject #3065) so a second block can draw one without
- * diverging from it -- `block-gallery` was the only place this existed, and the click-to-zoom
- * content-image viewer (OpenProject #3066, a later task) is meant to be the second. This module
- * owns three things:
- *
- * - `lightboxStyles` -- the dialog shell's CSS: the full-viewport `<dialog>`, its backdrop, its
- *   fade-in transition, and the clickable "stage" the enlarged content is centred on. It reads no
- *   block-specific custom properties of its own, so a consumer's own chrome (close/prev/next
- *   buttons, a counter, ...) and however it themes that chrome stay entirely the consumer's.
- * - `LightboxController` -- a Lit reactive controller owning open/closed state, wrap-around
- *   previous/next navigation, Escape-is-the-dialog's-own plus the arrow keys this adds to it, and
- *   locking the page's own scroll position while the dialog is open (restored on close, and on the
- *   host disconnecting with the dialog still open).
- * - `scrollerOf(el)` -- the scrollable ancestor `LightboxController` holds still; exported
- *   separately since it is a generically useful "what actually scrolls here" answer on its own.
- *
- * Usage (see `block-gallery/component.js` for the reference integration):
- *
- * ```js
- * import { LightboxController, lightboxStyles } from '../shared/lightbox.js'
- *
- * class MyBlock extends LitElement {
- *   static styles = [ ...otherStyles, lightboxStyles ]
- *
- *   constructor() {
- *     super()
- *     this._items = []
- *     this._lightbox = new LightboxController(this, {
- *       count: () => this._items.length,
- *       // Optional: react to the index changing (preload a neighbour, move focus, ...). Called
- *       // with -1 when the lightbox closes.
- *       onIndexChange: (index) => { ... }
- *     })
- *   }
- *
- *   render() {
- *     const item = this._items[this._lightbox.index]
- *     return html`
- *       ...
- *       <dialog
- *         class="lightbox"
- *         aria-label="..."
- *         @click=${this._lightbox.onStageClick}
- *         @keydown=${this._lightbox.onKeydown}
- *         @close=${this._lightbox.onClose}>
- *         ${item
- *           ? html`
- *               <div class="stage">...</div>
- *               <button @click=${this._lightbox.previous}>...</button>
- *               <button @click=${this._lightbox.next}>...</button>
- *               <button @click=${this._lightbox.close}>...</button>
- *             `
- *           : null}
- *       </dialog>
- *     `
- *   }
- * }
- * ```
- *
- * To open: `await this._lightbox.open(index)`. Every method referenced above is already bound to
- * the controller instance (see the constructor), so each may be handed straight to a Lit template
- * as an event handler with no `() => ...` wrapper needed.
+ * A full-viewport modal `<dialog>` for looking at one item of a list full size, with arrow-key
+ * navigation and the page held still behind it. `block-gallery/component.js` is the reference
+ * integration.
  */
 
 /**
- * The scrollable box an element actually scrolls in -- its nearest ancestor that both allows
- * overflow and has something to overflow, or the document's own scrolling element when none does.
- *
  * A page's main content area commonly has its own scroller rather than the window doing the
- * scrolling (the shell stays put and the column moves), which is the element a lightbox has to
- * hold still while it is open. Same walk as the frontend's `helpers/anchors.js`, for the same
- * reason.
- *
- * @param {Element} el
- * @returns {Element}
+ * scrolling (the shell stays put and the column moves), which is the element a lightbox has to hold
+ * still while it is open. Same walk as the frontend's `helpers/anchors.js`, for the same reason.
  */
 export function scrollerOf(el) {
   for (let node = el.parentElement; node; node = node.parentElement) {
@@ -91,14 +22,10 @@ export function scrollerOf(el) {
 }
 
 /**
- * The lightbox shell: the full-viewport `<dialog>`, its backdrop, its fade transition, and the
- * clickable "stage" the enlarged content is centred on.
- *
  * A consumer's `<dialog>` needs the `lightbox` class, and the element inside it that should close
  * the lightbox when clicked directly (as opposed to something drawn over it) needs the `stage`
- * class -- see `LightboxController#onStageClick`. Everything else inside the dialog (the enlarged
- * content itself, close/prev/next buttons, a counter, ...) is the consumer's own markup and its own
- * `css`, added alongside this in `static styles`.
+ * class -- see `LightboxController#onStageClick`. Everything else inside the dialog is the
+ * consumer's own markup and its own `css`, added alongside this in `static styles`.
  */
 export const lightboxStyles = css`
   /*
@@ -177,23 +104,17 @@ export const lightboxStyles = css`
   }
 `
 
-/**
- * A Lit reactive controller owning a lightbox's open/closed state, wrap-around navigation, and the
- * page-scroll lock while it is open. See the module doc above for the usage pattern.
- */
 export class LightboxController {
   /**
    * @param {import('lit').ReactiveElement} host
    * @param {object} options
    * @param {() => number} options.count how many items there are to step through. Read fresh on
-   *   every navigation (never cached), so a list whose length changes while the lightbox is open
-   *   still wraps against its current size.
-   * @param {(index: number) => void} [options.onIndexChange] called after the index changes --
-   *   opening, closing (with `-1`), or stepping to a neighbour -- for a consumer that needs to react:
-   *   preload a neighbour, move focus, and so on. Called after `host.requestUpdate()`.
-   * @param {string} [options.stageClass] the class name `onStageClick` treats as the clickable
-   *   backdrop a click anywhere on which closes the lightbox. Defaults to `'stage'`, matching
-   *   `lightboxStyles`.
+   *   every navigation, so a list whose length changes while the lightbox is open still wraps
+   *   against its current size.
+   * @param {(index: number) => void} [options.onIndexChange] called after `host.requestUpdate()`
+   *   whenever the index changes, closing (with `-1`) included.
+   * @param {string} [options.stageClass] the class `onStageClick` treats as the clickable backdrop.
+   *   Defaults to `'stage'`, matching `lightboxStyles`.
    * @param {string} [options.dialogSelector] how the controller finds its `<dialog>` inside the
    *   host's `renderRoot`. Defaults to `'.lightbox'`, matching `lightboxStyles`.
    */
@@ -202,17 +123,15 @@ export class LightboxController {
     { count, onIndexChange = null, stageClass = 'stage', dialogSelector = '.lightbox' } = {}
   ) {
     this.host = host
-    /** Which item the lightbox is showing, or -1 while it is closed. */
+    /** Which item the lightbox is showing; -1 while it is closed. */
     this.index = -1
     this._count = count
     this._onIndexChange = onIndexChange
     this._stageClass = stageClass
     this._dialogSelector = dialogSelector
-    /** What the page was doing before the lightbox held it still. See `_holdPage`. */
     this._held = null
 
-    // -> So every one of these may be handed straight to a Lit template as `@event=${this._lightbox.x}`
-    //    with no `() => ...` wrapper needed, the same as any bound instance method would be.
+    // -> Bound so each may be handed straight to a Lit template as `@event=${this._lightbox.x}`.
     this.open = this.open.bind(this)
     this.close = this.close.bind(this)
     this.previous = this.previous.bind(this)
@@ -236,17 +155,12 @@ export class LightboxController {
     return this.host.renderRoot?.querySelector(this._dialogSelector) ?? null
   }
 
-  /** An index brought back into range, so the last item is followed by the first. */
   wrap(index) {
     const count = this._count()
     return (index + count) % count
   }
 
-  /**
-   * Open the lightbox on one item.
-   *
-   * Shown only once the item it is showing has been rendered, so the lightbox never opens empty.
-   */
+  /** Shown only once the item it is showing has been rendered, so it never opens empty. */
   async open(index) {
     this._setIndex(index)
     await this.host.updateComplete
@@ -270,7 +184,6 @@ export class LightboxController {
     this.dialog?.close()
   }
 
-  /** However it was closed -- a chrome button, a click on the stage, or Escape, which is the dialog's own. */
   onClose() {
     this._setIndex(-1)
     this._holdPage(false)
@@ -288,11 +201,8 @@ export class LightboxController {
   }
 
   /**
-   * A click on the ground the enlarged content sits on, rather than on the content itself or a
-   * button drawn over it.
-   *
-   * The dialog itself is included: it is the whole viewport, and a stage narrower than the window --
-   * which is what a portrait window leaves -- puts the edges of the backdrop there.
+   * The dialog itself counts as the stage: it is the whole viewport, and a stage narrower than the
+   * window -- which is what a portrait window leaves -- puts the edges of the backdrop there.
    */
   onStageClick(ev) {
     if (ev.target === ev.currentTarget || ev.target.classList.contains(this._stageClass)) {
@@ -307,14 +217,10 @@ export class LightboxController {
   }
 
   /**
-   * Stop the page moving under the lightbox, and let it go again afterwards.
-   *
    * The one thing a modal dialog does not do for itself: the page behind it cannot be clicked or
    * tabbed into, but a wheel still scrolls it -- so the reader closes the lightbox somewhere other
    * than where they opened it. The offset is put back along with the overflow, because an element
    * that has spent a moment not scrolling does not reliably keep the position it was scrolled to.
-   *
-   * Nothing of this is visible while it happens: the backdrop covers the page it is done to.
    */
   _holdPage(held) {
     if (held) {

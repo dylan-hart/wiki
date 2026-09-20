@@ -1,15 +1,7 @@
 /**
- * Reactive-property declarations shared by more than one block.
- */
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value -- `autoplay="false"` is what the block picker produces for a
- * toggle that was switched on and off again -- and Lit's own `Boolean` converter reads any string at
- * all as true, that one included. The picker never writes `"false"` for a prop still holding its
- * default, since it leaves such a prop out altogether, but a page written by hand can say it and
- * means it.
+ * An attribute that means "off" when it says so. Lit's own `Boolean` converter reads any string at
+ * all as true, `"false"` included -- and `autoplay="false"` is exactly what the block picker writes
+ * for a toggle switched on and off again.
  *
  * Spread into a property declaration: `showIcons: { ...boolean, attribute: 'show-icons' }`. A prop
  * using this and defaulting to `false` should also declare `default: false` in `static definition`,

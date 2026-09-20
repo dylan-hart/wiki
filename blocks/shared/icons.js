@@ -1,39 +1,26 @@
 import { html } from 'lit'
 
 /**
- * Icons, for blocks.
- *
- * A block draws an icon from the same reference the rest of the app uses — `tabler:user-edit` — and
- * gets it from this instance's own `/_icons`, which serves the part of the Iconify API protocol the
- * frontend speaks. Nothing here reaches Iconify itself: the server is what decides whether an icon
- * can be had, and an instance that is offline still answers for every icon it has been asked for
- * before.
- *
- * Shared because more than one block needs it, and one cache across all of them means a page whose
- * every row carries the same icon asks for it once.
+ * A block draws an icon from the same `prefix:name` reference the rest of the app uses, served by
+ * this instance's own `/_icons`. Nothing here reaches Iconify itself: the server decides whether an
+ * icon can be had, and an offline instance still answers for every icon asked for before.
  */
 
-/** Icons already fetched, by `prefix:name`. Holds the promise, so concurrent callers share a request. */
+/** By `prefix:name`, holding the promise, so concurrent callers share one request. */
 const iconCache = new Map()
 
 /**
- * Fetch an icon as inline SVG.
- *
- * Inline rather than an `<img>` so the drawing takes the colour of whatever it sits in — Iconify's
- * SVGs paint with `currentColor`, which an image cannot see. The instance serves them from its own
- * `/_icons`, cached hard, so this is a local request.
+ * Inline SVG rather than an `<img>` so the drawing takes the colour of whatever it sits in —
+ * Iconify's SVGs paint with `currentColor`, which an image cannot see.
  *
  * An empty string for anything that is not a `prefix:name` reference, an icon the server will not
  * serve, or a request that failed: a missing icon is a row without one, not a row that breaks.
  *
- * An `img:` reference is `iconImageUrl()`'s to resolve, not this function's — it names a file to
- * point an `<img>` at, not an Iconify icon to fetch, so it is rejected here before either the cache
- * or `/_icons` ever see it. This is the one place that check has to happen: every caller shares it
- * for free, and `''` is never written to `iconCache` for a reference that was never a fetch to begin
- * with.
+ * An `img:` reference is `iconImageUrl()`'s to resolve, and is refused before the cache or `/_icons`
+ * see it — `''` cached under it would poison every later read of that reference, since nothing
+ * records why an entry is empty.
  *
  * @param {string} reference An Iconify reference, e.g. `tabler:home`.
- * @returns {Promise<string>} The SVG markup, or an empty string.
  */
 export async function fetchIcon(reference) {
   if (iconImageUrl(reference) !== null) {
@@ -54,28 +41,20 @@ export async function fetchIcon(reference) {
 }
 
 /**
- * The address an `img:` reference points at, or null for one that is not an image.
- *
  * The icon picker's other tab hands back `img:/_assets/icons/…`, which is a file to point an `<img>`
  * at rather than an icon to resolve — so it is the caller's to draw, and its colour is its own.
- *
- * @param {string} reference
- * @returns {string|null}
  */
 export function iconImageUrl(reference) {
   return reference.startsWith('img:') ? reference.slice(4) : null
 }
 
 /**
- * The chrome glyphs a block draws for itself, as the path of a 24x24 MDI icon.
+ * A block's own chrome -- a toolbar, a lightbox -- needs its glyphs on screen the moment it renders,
+ * and a `fetchIcon` request in the way of that shows as empty buttons for as long as it takes, so
+ * those few paths (24x24 MDI) are inlined here.
  *
- * Not everything goes through `fetchIcon` above: a block whose own controls carry icons -- the PDF
- * viewer's toolbar, the gallery's lightbox -- needs them on screen the moment it renders, and a
- * request in the way of that would show as a toolbar of empty buttons for as long as it took. These
- * are the handful of glyphs that costs, inlined once here rather than copied into each block (BLK-F8).
- *
- * An icon an author or administrator picked is a different thing entirely and still resolves through
- * `/_icons`: it is not knowable at build time, so it cannot live in a table like this one.
+ * An icon an author or administrator picked is not knowable at build time and still resolves through
+ * `/_icons`.
  */
 export const MDI_PATHS = {
   previous: 'M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z',
@@ -88,8 +67,6 @@ export const MDI_PATHS = {
 }
 
 /**
- * Draw one of the paths above.
- *
  * `aria-hidden`, and painted in `currentColor` by inheritance: the glyph is decoration on a control
  * that names itself, not content of its own.
  *

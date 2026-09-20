@@ -8,54 +8,15 @@ import { captionStyles, errorBox } from './styles.js'
 import { DarkMode } from './theme.js'
 
 /**
- * The skeleton of a block that draws a diagram by POSTing its source to this site's Kroki/PlantUML
- * proxy and turning the returned image bytes into a picture -- `block-kroki` and `block-plantuml`.
- *
- * The two are one block with two engines: after normalising the product names, some 257 of their
- * lines were identical (BLK-F3 / INFRA-F4) -- the styles, the props, the body read and the frame.
- * What differs is which engine the proxy renders against and, for Kroki only, which of its languages
- * the source is written in -- which is what `_engine()`/`_extraBody()` are for.
- *
- * Formerly a GET-URL transport: each block deflated its source into a remote server's URL and drew
- * it with a bare `<img src>`, with an 8,000-character pre-flight guard
- * (`blocks/shared/url-limit.js`, deleted) against the size that transport could reliably carry. That
- * guard, the deflate/base64 encoders, and the "ask the same URL again to explain a failed `<img>`
- * load" dance are gone, fully replaced (OpenProject task 3229, no fallback to the old path): this now
- * POSTs the raw source to `POST /_api/sites/:siteId/diagrams/render` (OpenProject task 3228) and
- * reads back either the image bytes or a JSON `{ message }` explaining why there are none, the same
- * `body?.message || <status fallback>` convention `block-live-data/component.js#_poll` already uses
- * for its own site-scoped POST.
- *
- * A subclass writes:
- *
- * - `_engine()` -- which proxy engine draws this block's source: `'kroki'` or `'plantuml'`.
- * - `_extraBody(source)` -- extra fields folded into the POST body alongside `engine`/`source`/
- *   `format`. Kroki's `diagramType` (which of Kroki's languages `source` is written in) is the one
- *   user today; PlantUML needs none, so the base implementation returns `{}`.
- * - `_defaultServer()` -- the block's own `server` prop's default value, shown in the editor. Kept
- *   for that prop's own sake only: which server the proxy actually renders against is resolved
- *   server-side, from the site's own block config (`backend/models/diagramProxy.ts#resolveServer`),
- *   never from a caller-supplied value -- an already-flagged gap (Epic 3183's own description) this
- *   task does not close, only avoids widening.
- * - `_fenceName()` -- the fence language the block reads, for the empty-body message.
- * - `_alt()` -- what the drawing is called for a reader who cannot see it.
- *
- * and may override:
- *
- * - `_emptySourceMessage()` -- to add to the empty-body message; wrap `super`'s rather than retype
- *   it.
+ * The skeleton of a block that draws a diagram through this site's Kroki/PlantUML proxy --
+ * `block-kroki` and `block-plantuml`.
  *
  * Deliberately NOT here: `static definition`. It has to stay a plain object literal in each block's
  * own `component.js`, because the build's manifest step, `scripts/check-locale-keys.mjs` and
  * `definitions.test.js` all read it out of the source text rather than by importing the module.
  */
 
-/**
- * The sheet a remote drawing sits on, and the column it sits in.
- *
- * `block-drawio` adopts this too: it draws its SVG inline rather than fetching an image, but the box
- * around it is the same one, for the same reason.
- */
+/** `block-drawio` adopts this too: its SVG is drawn inline rather than fetched, in the same box. */
 export const diagramStyles = css`
   :host {
     display: block;
@@ -119,9 +80,7 @@ export const diagramStyles = css`
   }
 `
 
-/** How many bytes are turned into base64 characters at a time in `_toDataUrl` -- spreading a whole
- *  diagram into `String.fromCharCode` at once overflows the stack somewhere in the tens of thousands
- *  of bytes, the same reason `block-kroki`'s old GET encoder chunked its own base64 pass. */
+/** Spread over a whole diagram's bytes at once, `String.fromCharCode` overflows the stack. */
 const DATA_URL_CHUNK_SIZE = 0x8000
 
 export class DiagramImageElement extends LitElement {
@@ -129,31 +88,18 @@ export class DiagramImageElement extends LitElement {
 
   static properties = {
     /**
-     * Server to draw with. No longer read by `_draw()` itself -- see the class comment's
-     * `_defaultServer()` entry.
-     * @type {string}
+     * Shown in the editor, but not what the drawing is rendered against: the proxy resolves the
+     * server from the site's own block config (`backend/models/diagramProxy.ts#resolveServer`),
+     * never from a caller-supplied value.
      */
     server: { type: String },
 
-    /**
-     * Image format to ask the proxy for, `svg` or `png`
-     * @type {string}
-     */
     format: { type: String },
 
-    /**
-     * Text shown under the diagram
-     * @type {string}
-     */
     caption: { type: String },
 
-    /**
-     * Where the diagram sits in the column, `left` or `center`
-     * @type {string}
-     */
     align: { type: String },
 
-    // Internal Properties
     _src: { state: true },
     _unsized: { state: true },
     _error: { state: true }
@@ -172,67 +118,46 @@ export class DiagramImageElement extends LitElement {
     this._darkMode = new DarkMode(this)
   }
 
-  /**
-   * The block's own `server` prop's default value, shown in the editor.
-   *
-   * @abstract
-   */
+  /** @abstract */
   _defaultServer() {
     return ''
   }
 
-  /** The format to ask the proxy for -- `png` only when it was asked for by name. */
   _imageFormat() {
     return this.format === 'png' ? 'png' : 'svg'
   }
 
-  /**
-   * The fence language the block reads, for the empty-body message.
-   *
-   * @abstract
-   */
+  /** @abstract The fence language the block reads. */
   _fenceName() {
     return ''
   }
 
-  /** What the drawing is called for a reader who cannot see it. The caption when there is one. */
   _alt() {
     return this.caption || 'diagram'
   }
 
-  /** Shown in place of the diagram when the block's body is empty. */
   _emptySourceMessage() {
     return explainEmptySource('diagram', { fence: this._fenceName() })
   }
 
-  /**
-   * Which proxy engine renders this block's source: `'kroki'` or `'plantuml'`.
-   *
-   * @abstract
-   */
+  /** @abstract Which proxy engine renders this block's source: `'kroki'` or `'plantuml'`. */
   _engine() {
     return ''
   }
 
-  /**
-   * Extra fields folded into the POST body alongside `engine`/`source`/`format`. Kroki's own
-   * `diagramType` is the one user today; PlantUML needs none.
-   */
+  /** Extra fields folded into the POST body alongside `engine`/`source`/`format`. */
   _extraBody() {
     return {}
   }
 
   /**
-   * Catch a drawing that came out with no size at all.
+   * An SVG carrying a `viewBox` and no `width` has a shape but no size, and a sheet that shrinks to
+   * fit its contents gives it nothing to resolve against — so the picture lays out at zero and the
+   * block draws an empty white square.
    *
-   * An SVG carrying a `viewBox` and no `width` has a shape but no size, and a box that shrinks to fit
-   * its contents has nothing to resolve against — so the picture lays out at zero and the block draws
-   * an empty white square. d2, pikchr, blockdiag and seqdiag write their SVG that way; graphviz,
-   * mermaid, ditaa and most of the rest give theirs a size and are left alone.
-   *
-   * Read after the load rather than guessed at beforehand, since the file itself cannot be inspected:
-   * the server it came from need not allow this page to fetch it. Both measurements are needed — a
-   * block inside a closed spoiler or an unselected tab measures zero throughout, and is not this.
+   * Measured after the load rather than guessed at beforehand, since the file itself cannot be
+   * inspected. Both measurements are needed — a block inside a closed spoiler or an unselected tab
+   * measures zero throughout, and is not this.
    */
   _measure(img) {
     if (img.clientWidth === 0 && this.renderRoot.querySelector('.sheet')?.clientWidth > 0) {
@@ -246,20 +171,15 @@ export class DiagramImageElement extends LitElement {
       this._error = this._emptySourceMessage()
       return
     }
-    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
-    //    that needs to block it. Kept on the instance so a test can await the draw finishing.
+    // -> Not awaited: Lit ignores firstUpdated's return value. Kept on the instance so a test can
+    //    await the draw finishing.
     this._ready = this._draw(source)
   }
 
   /**
-   * POSTs the source to this site's diagram proxy (`POST /_api/sites/:siteId/diagrams/render`,
-   * OpenProject task 3228) and, on success, turns the returned image bytes into a `data:` URL the
-   * `<img>` below draws with no request of its own -- the async continuation of `firstUpdated()`.
-   *
-   * On failure, reads the proxy's own JSON `{ message }` (`helpers/errorHandler.ts#apiErrorHandler`)
-   * directly rather than re-deriving an explanation from the status line, falling back to one only
-   * when the body carries no usable message -- the same convention
-   * `block-live-data/component.js#_poll` uses for its own site-scoped POST.
+   * The proxy's own JSON `{ message }` explains why a render failed, so it is preferred over
+   * re-deriving an explanation from the status line; the status fallback covers only a body that
+   * carries no usable message.
    */
   async _draw(source) {
     try {
@@ -290,10 +210,8 @@ export class DiagramImageElement extends LitElement {
   }
 
   /**
-   * The rendered image, as a `data:` URL -- not `URL.createObjectURL`, which jsdom (this workspace's
-   * test environment) does not implement (mirrors `shared/compress.js`'s identical note about
-   * `Blob.prototype.stream`), and which would need an explicit revoke on disconnect that a `data:`
-   * URL needs none of.
+   * A `data:` URL rather than `URL.createObjectURL`: jsdom (the test environment) does not implement
+   * the latter, and an object URL would need an explicit revoke on disconnect.
    */
   async _toDataUrl(response) {
     const contentType =
@@ -312,9 +230,9 @@ export class DiagramImageElement extends LitElement {
       return renderError(this._error)
     }
     /*
-      Nothing at all until the URL exists, which is the first thing `firstUpdated` does — and it runs
-      after this. An `img` rendered without one carries `src=""`, which a browser resolves to the page
-      itself, fetches, fails to read as an image, and reports as a failed diagram.
+      Nothing at all until the URL exists: an `img` rendered without one carries `src=""`, which a
+      browser resolves to the page itself, fetches, fails to read as an image, and reports as a
+      failed diagram.
     */
     if (!this._src) {
       return null

@@ -2,14 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { I18n, _resetI18nCache, t } from './i18n.js'
 
-/**
- * Part of OpenProject #1624/#1635. Covers both call shapes the file header documents: the plain
- * async `t()` for a lifecycle method that can await, and the `I18n` Lit reactive controller for a
- * synchronous `render()` call site -- plus the fallback (both to English, and to a caller's own raw
- * string) that is the whole reason this file exists rather than reading `en.json` directly.
- */
-
-/** Stubs `fetch('/_api/locales/:code/strings')` from a `{ locale: strings }` map. */
 function stubLocales(byLocale) {
   vi.stubGlobal(
     'fetch',
