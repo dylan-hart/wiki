@@ -1267,7 +1267,6 @@ export const storage = pgTable(
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
     // TODO: drop -- dead column, nothing reads or writes it. Held a removed setup wizard's state.
-    state: jsonb().notNull().default({}),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)

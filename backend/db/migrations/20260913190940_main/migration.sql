@@ -511,7 +511,6 @@ CREATE TABLE "storage" (
 	"scheduleOverride" varchar(32),
 	"lastTickAt" timestamp with time zone,
 	"config" jsonb DEFAULT '{}' NOT NULL,
-	"state" jsonb DEFAULT '{}' NOT NULL,
 	"siteId" uuid NOT NULL
 );
 --> statement-breakpoint

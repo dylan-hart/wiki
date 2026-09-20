@@ -259,8 +259,7 @@ function makeRow(
     versioning: { enabled: false },
     syncMode: overrides.syncMode ?? storage.getDefinition(moduleKey)!.defaultMode,
     scheduleOverride: null,
-    config: {},
-    state: {}
+    config: {}
   }
 }
 
@@ -869,8 +868,7 @@ function makeDiskRow(
     versioning: { enabled: false },
     syncMode: storage.getDefinition('disk')!.defaultMode,
     scheduleOverride: null,
-    config: { path: '/tmp/whatever', createDailyBackups: overrides.createDailyBackups ?? false },
-    state: {}
+    config: { path: '/tmp/whatever', createDailyBackups: overrides.createDailyBackups ?? false }
   }
 }
 
@@ -1001,8 +999,7 @@ test('runDailyBackups skips a module with no dailyBackup handler (e.g. db)', asy
           scheduleOverride: null,
           // -> `db` has no `createDailyBackups` prop at all, but even if a config blob somehow had
           //    one set, the db module declares no `dailyBackup` handler -- nothing to call
-          config: { createDailyBackups: true },
-          state: {}
+          config: { createDailyBackups: true }
         }
       ]
     ]
@@ -1033,8 +1030,7 @@ test('runDailyBackups skips a git target — the module declares no dailyBackup 
           versioning: { enabled: true },
           syncMode: storage.getDefinition('git')!.defaultMode,
           scheduleOverride: null,
-          config: {},
-          state: {}
+          config: {}
         }
       ]
     ]
