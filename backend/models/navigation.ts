@@ -141,6 +141,16 @@ function navCacheKey(siteId: string, navId: string, locale: string, accessKey: s
   return `nav:${siteId}:${navId}:${locale}:${accessKey}`
 }
 
+function localeRoutingKey(siteId: string): string {
+  const locales = CARDINAL.sites[siteId]?.config?.locales
+  return JSON.stringify([
+    locales?.primary ?? null,
+    (locales?.active?.length ?? 0) > 1,
+    locales?.forcePrefix ?? false,
+    locales?.aliases ?? null
+  ])
+}
+
 /**
  * A stable string capturing exactly the parts of an `AccessActor` that a `read:pages` `checkAccess`
  * can vary its answer on. Two actors hashing to the same key are interchangeable for every decision
@@ -591,7 +601,7 @@ class Navigation {
     locale: string,
     actor: AccessActor | null
   ): Promise<NavigationItem[]> {
-    const key = navCacheKey(siteId, navId, locale, actorAccessKey(actor))
+    const key = `${navCacheKey(siteId, navId, locale, actorAccessKey(actor))}:${localeRoutingKey(siteId)}`
     if (CARDINAL.cache.has(key)) {
       return CARDINAL.cache.get(key) as NavigationItem[]
     }

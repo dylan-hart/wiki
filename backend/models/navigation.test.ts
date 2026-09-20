@@ -1292,6 +1292,42 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(item!.children![0].target, '/fr/french-section/page-fr')
   })
 
+  test("a generated page link uses the locale's URL alias, and the primary's link stays bare", async () => {
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'aliased-section',
+      title: 'Aliased Section',
+      locale: 'fr',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'aliased-section/page-fr', title: 'Aliased Page FR', locale: 'fr' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'aliased-primary-page', title: 'Aliased Primary Page' }),
+      actor
+    )
+
+    const localesConfig = CARDINAL.sites[fixtures.siteId]!.config.locales
+    localesConfig.aliases = { fr: 'fra' }
+    try {
+      const items = await generate('', 'fr')
+      const folder = items.find((i) => i.label === 'Aliased Section')
+      assert.ok(folder)
+      assert.equal(folder!.children![0].target, '/fra/aliased-section/page-fr')
+
+      const primaryItems = await generate('', 'en')
+      const primaryItem = primaryItems.find((i) => i.label === 'Aliased Primary Page')
+      assert.ok(primaryItem)
+      assert.equal(primaryItem!.target, '/aliased-primary-page')
+    } finally {
+      delete localesConfig.aliases
+    }
+  })
+
   test('a guest actor never sees an entry under a path DENY, and the emptied folder is dropped too', async () => {
     const groupsModel = (await import('./groups.ts')).groups
     await pagesModel.createPage(
@@ -3204,6 +3240,35 @@ describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase
       'Mutated Behind The Cache',
       'invalidateCache drops the stale entry'
     )
+  })
+
+  test('changing a locale alias re-composes a cached menu instead of serving the old link spelling', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
+    await setMode(siteNavId, 'auto')
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'alias-cache-page',
+        title: 'Alias Cache Page',
+        editor: 'markdown',
+        content: '# Hi',
+        locale: 'fr'
+      },
+      actor
+    )
+    const localesConfig = CARDINAL.sites[fixtures.siteId]!.config.locales
+    const targetOf = async () =>
+      (await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: ADMIN_ACTOR })).find(
+        (item) => item.label === 'Alias Cache Page'
+      )?.target
+
+    try {
+      assert.equal(await targetOf(), '/fr/alias-cache-page')
+      localesConfig.aliases = { fr: 'fra' }
+      assert.equal(await targetOf(), '/fra/alias-cache-page')
+    } finally {
+      delete localesConfig.aliases
+    }
   })
 
   test('createPage (tree.addPage) invalidates so a previously-cached menu picks up a page created afterwards', async () => {

@@ -907,6 +907,71 @@ describe('mail template senders', () => {
     assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/fr\/docs\/getting-started/)
   })
 
+  describe('a site whose non-primary locale has a URL alias', () => {
+    const ALIAS_SITES = {
+      'alias-site': {
+        hostname: 'de.wiki.example.com',
+        config: {
+          locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+        }
+      }
+    }
+
+    beforeEach(() => {
+      setMailConfig(
+        {
+          host: 'smtp.example.com',
+          senderEmail: 'wiki@example.com',
+          defaultBaseURL: 'https://wiki.example.com'
+        },
+        ALIAS_SITES
+      )
+      mail.send = (async (msg: any) => {
+        sendCalls.push(msg)
+      }) as any
+    })
+
+    test('sendPageWatchNotification links the aliased locale through its alias, not the canonical code', async () => {
+      await mail.sendPageWatchNotification({
+        to: 'ada@example.com',
+        siteId: 'alias-site',
+        page: { title: 'Guide', path: 'docs/guide', locale: 'zh-CN' },
+        action: 'updated',
+        changedFields: ['title'],
+        actorName: 'Bob'
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/zh\/docs\/guide/)
+      assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/zh\/docs\/guide/)
+      assert.doesNotMatch(msg.html, /zh-CN\/docs\/guide/)
+    })
+
+    test('sendPageWatchDigest links each item by its own locale spelling', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        siteId: 'alias-site',
+        items: [
+          {
+            page: { title: 'Guide', path: 'docs/guide', locale: 'en' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          },
+          {
+            page: { title: 'Guide', path: 'docs/guide', locale: 'zh-CN' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/guide/)
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/zh\/docs\/guide/)
+      assert.doesNotMatch(msg.html, /zh-CN\/docs\/guide/)
+    })
+  })
+
   test('sendPageWatchNotification falls back to defaultBaseURL when the site has no hostname on record', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',

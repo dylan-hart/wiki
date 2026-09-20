@@ -352,6 +352,36 @@ describe('git storage: parseLocaleAndPath', () => {
   })
 })
 
+describe('git storage: parseLocaleAndPath with a locale URL alias', () => {
+  beforeEach(() => {
+    installTestWiki({
+      sites: {
+        [SITE_ID]: {
+          config: {
+            locales: { primary: 'en', active: ['en', 'zh-CN'], aliases: { 'zh-CN': 'zh' } }
+          }
+        }
+      }
+    })
+  })
+
+  test('a repo folder named by the alias parses to the canonical locale', () => {
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'zh/intro'), { locale: 'zh-CN', path: 'intro' })
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'ZH/intro'), { locale: 'zh-CN', path: 'intro' })
+  })
+
+  test('a repo folder named by the canonical code still parses, so an existing layout keeps importing', () => {
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'zh-CN/intro'), {
+      locale: 'zh-CN',
+      path: 'intro'
+    })
+  })
+
+  test('a file named after the alias at the root is a primary-locale page, not an empty path', () => {
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'zh'), { locale: 'en', path: 'zh' })
+  })
+})
+
 describe('git storage: sync', () => {
   let originPath: string
   let localPath: string
