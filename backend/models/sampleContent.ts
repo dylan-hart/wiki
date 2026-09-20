@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError, escapeLikePattern } from '../helpers/common.ts'
+import { WELCOME_SAMPLE_PAGES } from '../helpers/sampleContentPages.ts'
 import type { PageActor } from './pages.ts'
 
 export const SAMPLE_CONTENT_TAG = 'cardinal-sample-content'
@@ -24,14 +25,7 @@ export interface SampleContentPurgeResult {
   deleted: number
 }
 
-export const SAMPLE_PAGES: SamplePage[] = [
-  {
-    path: `${SAMPLE_CONTENT_PATH_PREFIX}sample-page`,
-    title: 'Sample Page',
-    tags: [],
-    content: '# Sample Page\n\nThis page was generated as sample content and can be purged.'
-  }
-]
+export const SAMPLE_PAGES: SamplePage[] = WELCOME_SAMPLE_PAGES
 
 function markedPagesWhere(siteId: string) {
   return and(
