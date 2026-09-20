@@ -14,37 +14,22 @@ import {
 } from '../../../test/realGridLayout.js'
 
 /**
- * Wiki #2700's own real-browser check, sitting beside #2699's `WSettingsRow.layout.test.js` rather
- * than inside it: that suite measures the rhythm of five ordinary rows in a plain card, which is the
- * pattern as it was extracted. This one measures the FOUR shapes the roll-out across the 21 admin
- * settings pages actually needed on top of that, and the question each answers is whether the rhythm
- * survives them:
+ * The shapes the settings roll-out needs on top of the plain rows `WSettingsRow.layout.test.js`
+ * measures -- a strip carrying a hint and an action, a hint-only row, a row with two trailing
+ * controls, a full-width preview -- each asking whether the row rhythm survives them.
  *
- * - a strip carrying a `hint` and an `action` (`AdminLocale`, `AdminSearch`, `AdminStorage`,
- *   `AdminAuth`, `AdminNavigation`) -- the band's own metrics must not move, or the strip stops
- *   being identical page to page, which is the whole reason it is one component;
- * - a row with no label, only a hint (`AdminFlags`' server-log notice, `AdminMail`'s test-send
- *   button) -- still the plate's height, not the wording's;
- * - a row with TWO controls at the trailing edge (`AdminStorage`'s large-files threshold plus its
- *   checkbox, `AdminApi`'s state plus revoke) -- still one trailing edge;
- * - a row whose `preview` spans the full width (`AdminTheme`'s three code editors, `AdminSearch`'s
- *   dictionary overrides, `AdminLogin`'s background image) -- the preview must reach both of the
- *   card's inner edges, under the text AND the control, not just under the control.
+ * Same two style sources as that sibling suite: `buildAppCss()` for the tokens and utilities, the
+ * mounted SFCs' own scoped styles for everything the components draw, with a non-empty assertion on
+ * the second so a change in how Vitest handles CSS fails as itself rather than quietly measuring an
+ * unstyled DOM.
  *
- * Same two style sources as the sibling suite, for the same reason -- `buildAppCss()` for the
- * tokens and utilities, the mounted SFCs' own scoped styles for everything the components draw --
- * and the same non-empty assertion on the second, so a change in how Vitest handles CSS fails as
- * itself rather than quietly measuring an unstyled DOM.
- *
- * The controls in the fixture are `WInput`, `WToggle` and a plain `<button>`, deliberately not
- * `WBtn`: the mount happens in `beforeAll`, and `test/setup.js` rebuilds the `EVENT_BUS` global in
- * `beforeEach`, so a component whose `onMounted` reaches for it (`WBtn` subscribes to `applyTheme`)
- * throws before the first test runs. What is being measured here is the CARD and the ROW, and a
- * bare button occupies the trailing edge exactly as well for that.
+ * The fixture's controls are deliberately not `WBtn`: the mount happens in `beforeAll`, and
+ * `test/setup.js` rebuilds the `EVENT_BUS` global in `beforeEach`, so a component whose `onMounted`
+ * reaches for it throws before the first test runs.
  */
 const CARD_WIDTH = 560
 
-/** 12px top + 34px plate + 12px bottom, as `WSettingsRow.layout.test.js` pins it. */
+/** 12px top + 34px plate + 12px bottom. */
 const EXPECTED_ROW_HEIGHT = 58
 
 /** The card's own 14px inline padding. */
@@ -172,9 +157,8 @@ describe(
     })
 
     /**
-     * "The card header strip is identical page to page" is the Task's own bar, and a hint or an action
-     * is the only thing a page adds to it. The band grows taller for a hint -- it has a second line in
-     * it -- but every property that makes it THAT band has to be untouched.
+     * The band grows taller for a hint -- it has a second line in it -- but every property that makes
+     * it THAT band has to be untouched, or the strip stops reading identically page to page.
      */
     it('keeps the strip metrics identical whether or not it carries a hint and an action', () => {
       const plain = measured.plain.header
@@ -199,14 +183,12 @@ describe(
       expect(measured.plain.action).toBeNull()
     })
 
-    /** The hint reads as a sentence, not as more band: sentence case, no tracking, smaller. */
     it('drops the hint out of the band typography', () => {
       const { title, hint } = measured.dressed
 
       expect(hint.textTransform).toBe('none')
       expect(hint.letterSpacing).toBe('normal')
       expect(Number.parseFloat(hint.fontSize)).toBeGreaterThan(Number.parseFloat(title.fontSize))
-      // -> Under the title, and inside the strip.
       expect(hint.top).toBeGreaterThanOrEqual(title.bottom)
       expect(hint.bottom).toBeLessThanOrEqual(measured.dressed.header.bottom)
     })
@@ -221,10 +203,8 @@ describe(
     })
 
     /**
-     * `AdminFlags`' server-log notice and `AdminMail`'s test-send button: a row whose strip already
-     * named it, so the row carries a hint and no label. An empty label div must contribute no height,
-     * or the row is shorter than its neighbours and the rhythm breaks on exactly the rows that were
-     * added last.
+     * An empty label div must contribute no height, or a hint-only row comes out shorter than its
+     * neighbours and the rhythm breaks.
      */
     it('keeps a hint-only row the same height as a labelled one', () => {
       const [labelled, hintOnly] = measured.plain.rows
@@ -246,9 +226,8 @@ describe(
     })
 
     /**
-     * The preview spans the row under BOTH the text and the control -- that is the whole reason it is
-     * a slot of its own rather than something the caller puts in the control. A preview that only
-     * reached the control's column would be a 200px image beside an empty label.
+     * Spanning both columns is the whole reason `preview` is a slot of its own: confined to the
+     * control's column it would be a 200px image beside an empty label.
      */
     it('spans a preview across the row, under the text as well as the control', () => {
       const row = measured.plain.rows.at(-1)
@@ -257,9 +236,8 @@ describe(
       // -> Starts where the text does (past the plate and its gap), ends on the trailing edge.
       expect(row.preview.left).toBeCloseTo(row.plate.right + 14, 0)
       expect(row.preview.right).toBeCloseTo(row.right - ROW_INLINE_PADDING, 0)
-      // -> Below the control, not beside it.
       expect(row.preview.top).toBeGreaterThanOrEqual(row.control.bottom)
-      // -> And the row grew for it, rather than the preview overflowing a one-line row.
+      // -> The row grew for it, rather than the preview overflowing a one-line row.
       expect(row.height).toBeGreaterThan(EXPECTED_ROW_HEIGHT)
     })
   }

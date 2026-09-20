@@ -14,9 +14,7 @@
 <script setup>
 import WSpinner from './WSpinner.vue'
 
-/**
- * Loading veil covering its nearest positioned ancestor. The parent needs `relative`.
- */
+/** Loading veil covering its nearest positioned ancestor -- the parent needs `relative`. */
 defineProps({
   showing: {
     type: Boolean,
@@ -26,7 +24,6 @@ defineProps({
     type: String,
     default: '42px'
   },
-  /** Text-colour utility for the spinner, e.g. `text-primary`. */
   spinnerClass: {
     type: String,
     default: 'text-primary'

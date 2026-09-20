@@ -42,7 +42,7 @@ describe('WSettingsRow shape', () => {
 
     expect(wrapper.findComponent(BlueprintIcon).props('standalone')).toBe(true)
     // -> `w-item-section--avatar`'s 56px width and 16px trailing gutter would turn the design's
-    //    14px gap into 33px. See BlueprintIcon's `standalone` prop.
+    //    14px gap into 33px.
     expect(wrapper.find('.w-item-section').exists()).toBe(false)
   })
 
@@ -104,10 +104,6 @@ describe('WSettingsRow hint', () => {
   })
 })
 
-/**
- * The five controls the design names, all reusable as-is -- the row's job is only to size and place
- * them at the trailing edge, which is what `controlWidth` selects between.
- */
 describe('WSettingsRow control types', () => {
   const cases = [
     {
@@ -190,7 +186,6 @@ describe('WSettingsRow stacked preview', () => {
 
     const preview = body.find('.w-settings-row__preview')
     expect(preview.find('.preview').exists()).toBe(true)
-    // -> A sibling of the head, so it spans the label and the control alike.
     expect(head.element.nextElementSibling).toBe(preview.element)
   })
 
@@ -224,11 +219,6 @@ describe('WSettingsRow element', () => {
     expect(mountRow({ props: { label: 'A' } }).element.tagName).toBe('DIV')
   })
 
-  /**
-   * A switch row is clicked anywhere along its length -- the browser forwards a click on a <label>
-   * to the control inside it, which is the whole reason `tag` exists. Unlike `WItem` there is no
-   * hover or press tint: the design does not draw one on a settings row.
-   */
   it('renders as a label so the whole row toggles the control inside it', () => {
     const wrapper = mountRow({
       props: { tag: 'label', label: 'Comments', controlWidth: 'auto' },

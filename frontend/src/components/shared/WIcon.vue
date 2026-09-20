@@ -1,9 +1,8 @@
 <template>
   <!--
     Every branch lands on the same `w-icon` box, so a stylesheet has one stable hook regardless of
-    which one renders, and carries `data-icon` so the rendered DOM says WHICH icon it is. An inline
-    <svg> is otherwise anonymous -- there is no `icon` attribute to read, which makes a wrong or
-    missing icon far harder to diagnose than it needs to be.
+    which one renders, and carries `data-icon` so the rendered DOM says WHICH icon it is: an inline
+    <svg> is otherwise anonymous, with no `icon` attribute to read when one is wrong or missing.
   -->
   <svg
     v-if="bundled"
@@ -49,7 +48,7 @@ import { resolveSize } from './metrics'
  *   nothing an administrator does to icon sets can blank it. Anything else — an icon a USER picked,
  *   stored in a page or a nav item — falls through to `iconify-icon`, which resolves it against
  *   this instance's `/_icons`.
- * - `img:<url>` — an image file, e.g. the blueprint SVGs under `/_assets/icons`.
+ * - `img:<url>` — an image file.
  *
  * Anything else renders nothing.
  */
@@ -68,13 +67,9 @@ const props = defineProps({
     default: null
   },
   /**
-   * Standard 8px gap on the side facing the text: `left` for an icon that precedes it, `right` for
-   * one that follows.
-   *
-   * Ported because the markup already asks for it -- a dozen headers and menu items pass `left` -- and
-   * without the prop it fell through as a bare attribute and spaced nothing, which is why the File
-   * Manager's title sat flush against its folder icon. A toolbar deliberately has no `gap` of its own
-   * (see WToolbar), so spacing there is each item's own business.
+   * Standard gap on the side facing the text: `left` for an icon that precedes it, `right` for one
+   * that follows. Declared rather than left to fall through, which would space nothing -- a toolbar
+   * deliberately has no `gap` of its own, so spacing there is each item's own business.
    */
   left: {
     type: Boolean,
@@ -89,8 +84,6 @@ const props = defineProps({
 // -> Deliberately strict, so that `img:/_assets/x.svg` stays out of the Iconify branch
 const ICONIFY_REF = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*$/
 
-// COMPUTED
-
 const kind = computed(() => {
   const name = props.name ?? ''
   if (!name || name === 'none') {
@@ -103,8 +96,6 @@ const kind = computed(() => {
 })
 
 /**
- * The inlined record, when this reference is one of ours.
- *
  * `transform` carries an alias's flip/rotate, which Iconify stores separately from the body — an
  * alias that is its parent mirrored would otherwise draw the parent.
  */
@@ -130,8 +121,8 @@ const bundled = computed(() => {
 })
 
 /*
-  Colour and the spacing props share one binding, since every branch of the template already applies
-  `colorClass` and the alternative is threading a second class through all three.
+  Colour and the spacing props share one binding: every branch of the template already applies
+  `colorClass`, and the alternative is threading a second class through all three.
 */
 const colorClass = computed(() => [
   props.color ? `text-${props.color}` : '',
@@ -139,9 +130,7 @@ const colorClass = computed(() => [
   props.right ? 'ms-2' : ''
 ])
 
-/**
- * Both the inline SVG and `iconify-icon` size themselves in `em`, so one declaration covers them.
- */
+/** Both the inline SVG and `iconify-icon` size themselves in `em`, so `font-size` covers both. */
 const sizeStyle = computed(() => {
   if (!props.size) {
     return undefined
@@ -152,9 +141,6 @@ const sizeStyle = computed(() => {
 
 <style scoped>
 /*
-  The icon box, ported from the component this replaces so that spacing and alignment are unchanged
-  wherever an icon sits.
-
   `content-box` is deliberate and load-bearing: an icon is a 1em square of CONTENT, so a caller
   adding padding grows the box rather than squeezing the glyph.
 */

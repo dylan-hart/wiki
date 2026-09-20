@@ -2,12 +2,8 @@
   <teleport to="body">
     <!--
       Single wrapper root, so a class on `<w-dialog>` reaches the markup and can style the backdrop
-      and panel by descent (`.main-overlay > .w-dialog-backdrop`). A multi-root component gets no
-      attribute fallthrough at all, which left overlays unable to carry their own styling.
-
-      The wrapper is always present but empty while closed -- an empty div with no positioning has
-      no layout or paint cost, and keeping it mounted means the leave transition has somewhere to
-      run.
+      and panel by descent (`.main-overlay > .w-dialog-backdrop`). Kept mounted while closed so the
+      leave transition has somewhere to run.
     -->
     <div v-bind="$attrs" class="w-dialog-root" :class="modelValue ? 'w-dialog-root--open' : ''">
       <transition name="w-dialog-backdrop">
@@ -19,17 +15,10 @@
       <transition :name="transitionName" @after-leave="$emit('hide')">
         <!--
           `overflow-x-hidden`, not `overflow-auto` on both axes: this viewport is `fixed inset-0`,
-          so any horizontal overflow it picks up reads as a page-wide horizontal scrollbar. The
-          right-slide enter/leave transition (`w-dialog-slide-right` below) animates the panel's
-          `transform: translateX(32px) -> translateX(0)` while the panel already sits flush against
-          the viewport's right edge, so mid-transition the panel transiently extends past the
-          viewport edge -- with `overflow-auto` that transient was picked up as real horizontal
-          scroll and flashed a scrollbar at the bottom of the screen for the ~0.2s the transition
-          ran (OpenProject #2941). The viewport never legitimately needs horizontal scroll of its
-          own -- `.w-dialog-panel`'s `max-width: calc(100vw - 2rem)` (`tailwind.css`) already keeps
-          the panel from ever growing wider than the viewport, transitions included, so
-          `overflow-x-hidden` costs nothing real. Vertical scroll stays `overflow-y-auto`, still
-          needed for dialog content taller than the screen.
+          so the right-slide transition's transient `translateX(32px)` past the right edge reads as
+          real horizontal scroll and flashes a page-wide scrollbar. Nothing here legitimately needs
+          horizontal scroll -- `.w-dialog-panel`'s `max-width: calc(100vw - 2rem)` (`tailwind.css`)
+          keeps the panel from outgrowing the viewport, transitions included.
         -->
         <div
           v-if="modelValue"
@@ -58,17 +47,10 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { pushEscapeHandler } from '@/composables/escapeStack'
 
-/**
- * Modal dialog shell.
- *
- * Covers the two placements the app uses -- a centered modal, and the right-hand side panel that
- * `SideDialog` opens. Content, including its own header/actions, comes from the default slot; this
- * component owns only the backdrop, positioning, transition and dismissal behaviour.
- */
+/** Owns the backdrop, positioning, transition and dismissal only; content comes from the slot. */
 /*
   A `<teleport>` root gets no attribute fallthrough -- Vue cannot know which of the teleported
-  nodes an attribute belongs to -- so a `class` on `<w-dialog>` was being dropped with a warning
-  rather than reaching the markup the overlay stylesheets select on. Bound explicitly instead.
+  nodes an attribute belongs to -- so `class` on `<w-dialog>` is bound explicitly on the wrapper.
 */
 defineOptions({ inheritAttrs: false })
 
@@ -77,15 +59,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Blocks dismissal via backdrop click and Escape. */
   persistent: {
     type: Boolean,
     default: false
   },
-  /**
-   * `standard` centers the panel, `right` docks it to the right edge as a side panel, `bottom`
-   * anchors it to the bottom of the viewport.
-   */
   position: {
     type: String,
     default: 'standard',
@@ -99,33 +76,31 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Any CSS length, e.g. `550px`. Ignored when `fullWidth` is set. */
+  /** Any CSS length. Ignored when `fullWidth` is set. */
   maxWidth: {
     type: String,
     default: null
   },
-  /** Any CSS length, e.g. `clamp(560px, 50vw, 960px)`. Ignored when `fullWidth` is set; takes
-   * priority over `maxWidth` when both are given. */
+  /** Any CSS length. Ignored when `fullWidth` is set; wins over `maxWidth` when both are given. */
   width: {
     type: String,
     default: null
   },
-  /** Any CSS length, e.g. `clamp(480px, 50vh, 800px)`. Ignored when `fullHeight` is set. */
+  /** Any CSS length. Ignored when `fullHeight` is set. */
   height: {
     type: String,
     default: null
   },
   /**
-   * Id of an element (typically a `WCardHeader`'s exposed `headingId`) that names this dialog for
-   * assistive tech. Explicit props, not fallthrough attributes: `inheritAttrs: false` above sends a
-   * bare `aria-labelledby`/`aria-label` attribute to the teleport root's `$attrs` binding instead of
-   * the `role="dialog"` panel, naming the wrong element.
+   * Id of an element (typically a `WCardHeader`'s exposed `headingId`) that names this dialog.
+   * An explicit prop, not a fallthrough attribute: with `inheritAttrs: false` a bare
+   * `aria-labelledby` lands on the teleport root's `$attrs` binding instead of the
+   * `role="dialog"` panel, naming the wrong element. Same for `ariaLabel` below.
    */
   labelledBy: {
     type: String,
     default: null
   },
-  /** A literal accessible name, for a dialog whose heading isn't in the DOM (or doesn't exist). */
   ariaLabel: {
     type: String,
     default: null
@@ -136,8 +111,6 @@ const emit = defineEmits(['update:modelValue', 'hide'])
 
 const panelRef = ref(null)
 
-// COMPUTED
-
 const TRANSITIONS = {
   right: 'w-dialog-slide-right',
   bottom: 'w-dialog-slide-bottom',
@@ -145,19 +118,13 @@ const TRANSITIONS = {
 }
 
 /*
-  `p-3` on the right-hand viewport is what insets the side panel from the window edges instead of
-  butting it against them, which is also what lets its corners be rounded: a radius against the very
-  edge of the window reads as a rendering fault rather than a shape.
+  `p-3` insets the right-hand side panel from the window edges, which is what lets its corners be
+  rounded: a radius against the very edge of the window reads as a rendering fault, not a shape.
 
-  The standard viewport centers with `justify-center-safe`, not plain `justify-center`: a plain
-  `center` on a panel wider than the viewport (a card's inline `min-width` past the
-  `.w-dialog-panel` clamp's own floor) centers the OVERFLOW too, pushing the panel's start edge
-  off-screen in both directions with no way to get back to it. `-safe` falls back to
-  start-alignment exactly when the content would overflow, so the start edge stays anchored at the
-  viewport edge -- reachable purely through the panel's own `overflow-auto` clipping its content
-  rather than growing past its `max-width` clamp, since the viewport itself deliberately has no
-  horizontal scroll to fall back on (see the `overflow-x-hidden` note below), while a panel that
-  fits still centers as before.
+  `justify-center-safe`, not plain `justify-center`: plain centering of a panel wider than the
+  viewport centers the OVERFLOW too, pushing the panel's start edge off-screen with no way back to
+  it -- and the viewport deliberately has no horizontal scroll to fall back on. `-safe` switches to
+  start-alignment exactly when the content would overflow.
 */
 const VIEWPORTS = {
   right: 'items-stretch justify-end p-3',
@@ -170,12 +137,9 @@ const transitionName = computed(() => TRANSITIONS[props.position] ?? TRANSITIONS
 const viewportClasses = computed(() => VIEWPORTS[props.position] ?? VIEWPORTS.standard)
 
 const panelClasses = computed(() => [
-  // -> Rounded, not square: the panel no longer touches the window, see VIEWPORTS above. A panel
-  //    against the bottom edge keeps its own bottom corners square, since they sit on that edge.
-  //    `rounded-dialog`/`rounded-t-dialog` track `--radius-dialog` (0 under Ledger, 12px under
-  //    Cobalt -- OpenProject #2812) rather than Tailwind's fixed `rounded-lg` scale rung, which
-  //    both hardcoded a radius no aesthetic asked for and contradicted Ledger's own
-  //    `--radius-dialog: 0`.
+  // -> `rounded-dialog`/`rounded-t-dialog` track the theme's `--radius-dialog` rather than a fixed
+  //    Tailwind rung, so a theme can flatten dialogs to 0. A panel against the bottom edge keeps
+  //    its own bottom corners square, since they sit on that edge.
   props.position === 'right' ? 'h-full rounded-dialog' : '',
   props.position === 'bottom' ? 'rounded-b-none max-h-full rounded-t-dialog' : '',
   props.position === 'standard' ? 'rounded-dialog max-h-full' : '',
@@ -198,8 +162,6 @@ const panelStyle = computed(() => {
   return Object.keys(style).length ? style : undefined
 })
 
-// METHODS
-
 function close() {
   emit('update:modelValue', false)
 }
@@ -211,10 +173,9 @@ function onBackdropClick() {
 }
 
 /*
-  Tab-trapping only -- Escape is handled separately, through the shared stack `handleEscape` below
-  registers into (OpenProject #2370). This stays a raw, capture-phase `document` listener because Tab
-  is never something a nested popup needs to intercept first; only Escape has that cascading-consumer
-  problem.
+  Tab-trapping only -- Escape goes through the shared stack `handleEscape` below registers into.
+  A raw capture-phase `document` listener is fine for Tab: no nested popup needs to intercept it
+  first, which is the problem only Escape has.
 */
 function onKeydown(ev) {
   if (ev.key === 'Tab' && isTopmost()) {
@@ -223,14 +184,11 @@ function onKeydown(ev) {
 }
 
 /**
- * This dialog's own Escape handling, registered on the shared stack (`composables/escapeStack.js`)
- * rather than as a `document` listener of its own. That stack is what makes "let the innermost
- * popup handle Escape first" hold regardless of DOM position -- both `WDialog` and a nested `WMenu`
- * dropdown teleport to `<body>`, so DOM containment cannot express "the menu is inside the dialog"
- * at all, and a `document`-level CAPTURE listener (this used to be one) fires before a bubble-phase
- * one on any node, so it always won even when opened first. Declining (`return false`) while
- * `persistent` is what lets a `WMenu` opened inside a persistent dialog still close on its own
- * Escape -- this handler never consumes the keypress at all in that case.
+ * Registered on the shared stack (`composables/escapeStack.js`) rather than as a `document`
+ * listener of its own: both `WDialog` and a nested `WMenu` dropdown teleport to `<body>`, so DOM
+ * containment cannot express "the menu is inside the dialog" and only the stack can make the
+ * innermost popup handle Escape first. Declining (`return false`) while `persistent` is what lets
+ * a `WMenu` opened inside a persistent dialog still close on its own Escape.
  */
 function handleEscape() {
   if (props.persistent) {
@@ -240,18 +198,17 @@ function handleEscape() {
 }
 
 /**
- * The panel is teleported to `<body>`, so the element `aria-modal="true"` promises is inert has to be
- * the app root itself (`#app` in `index.html`) -- not some ancestor that, post-teleport, no longer
- * contains the dialog at all.
+ * The panel is teleported to `<body>`, so the element `aria-modal="true"` promises is inert has to
+ * be the app root itself -- not an ancestor that, post-teleport, no longer contains the dialog.
  */
 function getAppRoot() {
   return document.getElementById('app')
 }
 
 /*
-  This dialog's own depth, captured the moment it opened -- compared against the live counter to tell
-  whether a later dialog has since stacked on top. Tab must cycle within only the topmost dialog; an
-  outer one still holds a real depth but is no longer the frontmost panel.
+  This dialog's own depth, captured the moment it opened -- compared against the live counter to
+  tell whether a later dialog has since stacked on top, since Tab must cycle within only the
+  topmost dialog.
 */
 let ownDepth = 0
 let previouslyFocused = null
@@ -271,7 +228,6 @@ const FOCUSABLE_SELECTOR = [
   '[contenteditable="plaintext-only"]'
 ].join(',')
 
-/** Tabbable descendants of the panel, in document order -- the panel itself is never included. */
 function getFocusable() {
   const panel = panelRef.value
   if (!panel) {
@@ -281,16 +237,11 @@ function getFocusable() {
 }
 
 /**
- * Moves focus into the panel: its first tabbable descendant, or the panel itself (`tabindex="-1"`)
- * when it has none. Called from the `flush: 'post'` watcher below, which is what lets this run with
- * no tick of its own to wait out -- the panel (mounted by `v-if="modelValue"`) already exists in the
- * DOM by the time a post-flush callback runs, unlike the default `pre` timing every other watcher in
- * this file still uses for the (DOM-independent) scroll lock and `inert` bookkeping.
- *
- * That synchronousness is also what makes `composables/dialog.js`'s `autofocus` a true override
- * rather than a race: its own `onMounted -> nextTick -> nextTick` chain necessarily resolves in a
- * later microtask than a same-flush, synchronous callback, so its `.focus()` always lands after --
- * and therefore wins over -- this default placement.
+ * Called from the `flush: 'post'` watcher below, so the panel (mounted by `v-if="modelValue"`) is
+ * already in the DOM and this needs no tick of its own. That synchronousness is also what makes
+ * `composables/dialog.js`'s `autofocus` a true override rather than a race: its
+ * `onMounted -> nextTick -> nextTick` chain necessarily resolves in a later microtask, so its
+ * `.focus()` always lands after this default placement.
  */
 function placeInitialFocus() {
   previouslyFocused = document.activeElement
@@ -302,7 +253,6 @@ function placeInitialFocus() {
   }
 }
 
-/** Returns focus to whatever had it before the dialog opened -- the trigger, in the common case. */
 function restoreFocus() {
   if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
     previouslyFocused.focus()
@@ -310,7 +260,6 @@ function restoreFocus() {
   previouslyFocused = null
 }
 
-/** Cycles Tab/Shift+Tab between the panel's first and last tabbable descendants. */
 function trapTab(ev) {
   const panel = panelRef.value
   if (!panel) {
@@ -318,7 +267,6 @@ function trapTab(ev) {
   }
   const focusable = getFocusable()
   if (focusable.length === 0) {
-    // -> Nothing to cycle between; keep focus pinned to the panel itself
     ev.preventDefault()
     panel.focus()
     return
@@ -337,15 +285,11 @@ function trapTab(ev) {
   }
 }
 
-// WATCHERS
-
-// -> Tracks whether THIS instance is the one that incremented wDialogDepth, so its release path
-// (the watcher's else-branch, and onBeforeUnmount) can only ever hand back a lock it actually took.
-// `{ immediate: true }` below runs the watcher once at mount for every instance, including one that
-// mounts closed -- without this flag that immediate run would decrement a counter it never touched.
+// -> Tracks whether THIS instance is the one that incremented wDialogDepth, so its release paths
+// can only ever hand back a lock it actually took: `{ immediate: true }` below runs the watcher
+// once at mount for every instance, including one that mounts closed.
 const hasLocked = ref(false)
 
-/** This instance's release from the shared Escape stack -- see `handleEscape` above. */
 let releaseEscapeHandler = null
 
 function releaseLock() {
@@ -364,13 +308,11 @@ function releaseLock() {
 
 /**
  * Escape handling, scroll-locking, backgrounding and focus are bound only while open, so stacked
- * dialogs do not each keep a listener alive. Both the scroll lock and `inert` are reference-counted on
- * the same data attribute because a dialog can open on top of another -- releasing on the first close
- * would unlock/un-inert the page while a dialog is still up. Only the outermost dialog (depth 0 -> 1
- * opening, 1 -> 0 closing) actually toggles `inert`; a stacked dialog just rides the existing count.
- * Every dialog places and restores its own focus regardless of depth (each is its own trigger/return
- * pair), but only the topmost one traps Tab -- `ownDepth` records each instance's own depth at open
- * time, and `isTopmost()` compares it against the live counter.
+ * dialogs do not each keep a listener alive. The scroll lock and `inert` are reference-counted on a
+ * shared data attribute because a dialog can open on top of another -- releasing on the first close
+ * would unlock/un-inert the page while a dialog is still up. Every dialog places and restores its
+ * own focus regardless of depth (each is its own trigger/return pair), but only the topmost traps
+ * Tab.
  */
 watch(
   () => props.modelValue,
@@ -392,15 +334,13 @@ watch(
     }
   },
   // -> `post`, not the default `pre`: `placeInitialFocus()` needs the panel (`v-if="modelValue"`)
-  //    already in the DOM, which `pre` timing -- callback runs before this render -- would not give it.
+  //    already in the DOM, and a `pre` callback runs before that render.
   { immediate: true, flush: 'post' }
 )
 
 onBeforeUnmount(() => {
   // -> An unmount while open (route change, host teardown) would otherwise leak all four:
   //    the keydown listener, the scroll lock, `inert` on the app root, and the trigger's focus.
-  //    Gated on `hasLocked` (not `props.modelValue`) for the same reason the watcher's close
-  //    branch is -- see the comment above `hasLocked`'s declaration.
   if (hasLocked.value) {
     releaseLock()
   }
@@ -409,19 +349,13 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /*
-  The panel clips what is put inside it, which is what actually rounds a dialog.
-
-  Every dialog fills its panel with something opaque -- a `WCard`, or a whole `WLayout` for the
-  full-screen overlays -- and those surfaces carry bands with backgrounds of their own: a header, a row
-  of actions. Left to paint themselves, they cover the panel's corners and the dialog reads as square,
-  which it did. Clipping here rounds all of them at once, however deeply the band is nested.
-
-  `auto` rather than `hidden`: both clip, but a dialog whose content outgrows the screen stays
-  reachable instead of being cut off. The viewport behind it scrolls too, so nothing is trapped.
+  The panel's own `overflow-auto` (set in the template) is what actually rounds a dialog: the
+  opaque bands its content carries -- a header, a row of actions -- would otherwise paint over its
+  corners. `auto` rather than `hidden` so content taller than the screen stays reachable.
 */
 /*
-  The surface inside takes the panel's shape. Without this its own smaller radius shows through at the
-  corners as four notches of backdrop, since the panel itself has no background of its own.
+  The surface inside takes the panel's shape. Without this its own smaller radius shows through at
+  the corners as four notches of backdrop, since the panel has no background of its own.
 
   Written flat rather than nested: nesting `> :deep(*)` inside the panel's own rule compiles to a
   DESCENDANT selector, which matches the wrong elements entirely.
@@ -457,12 +391,10 @@ onBeforeUnmount(() => {
 }
 
 /*
-  A short slide in from the right, paired with a fade so a 32px move does not read as a pop.
-
   32px and not `100%`: a percentage resolves against the panel's OWN width, and the side panel's
-  content arrives asynchronously -- so the width changed mid-transition, the percentage re-resolved
-  against the new value, and the panel lurched instead of sliding. A fixed distance cannot move
-  underneath the animation.
+  content arrives asynchronously -- the width changes mid-transition, the percentage re-resolves
+  against the new value, and the panel lurches instead of sliding. The fade is what keeps so short
+  a move from reading as a pop.
 */
 .w-dialog-slide-right-enter-active,
 .w-dialog-slide-right-leave-active {

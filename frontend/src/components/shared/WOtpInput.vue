@@ -29,20 +29,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useDictText } from '@/composables/i18nText'
 
 /**
- * A one-time-passcode field: N single-character boxes that behave as one value.
- *
- * Replaces `vue3-otp-input` (OpenProject #3166) -- pre-1.0, solo-maintained, and with no maintained
- * alternative on the shelf, which made owning this small surface a better bet than depending on it.
- * The two draw sites this was ported from (`AuthTfaScreens.vue`'s sign-in and setup screens,
- * `SetupTfaDialog.vue`'s profile setup) all want the same thing: a 6-digit numeric TOTP code, so this
- * only ever filters to digits -- there is no `numeric` opt-out prop. `.otp-input` /
- * `.otp-input-container` / `.is-complete` in `css/tailwind.css` are kept as the exact class names the
- * library used to render, on purpose: `AuthTfaScreens.vue`'s own `:deep()` design overrides target
- * those names and needed no changes for the swap.
- *
- * `v-model` is the joined string (`''` for an empty box), not an array -- callers already validate it
- * as a plain 6-digit string (`helpers/tfaCode.js`). `complete` fires once per empty→full transition,
- * not on every keystroke once the value is already full.
+ * Replaces `vue3-otp-input`. `.otp-input` / `.otp-input-container` / `.is-complete` in
+ * `css/tailwind.css` keep the exact class names that library rendered, because `AuthTfaScreens.vue`'s
+ * `:deep()` design overrides target them. Every draw site wants a numeric TOTP code, so this only
+ * ever filters to digits -- there is no opt-out prop.
  */
 
 const props = defineProps({
@@ -50,7 +40,6 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  /** Number of digit boxes. */
   length: {
     type: Number,
     default: 6
@@ -59,17 +48,11 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Focuses the first box once mounted. */
   autofocus: {
     type: Boolean,
     default: false
   },
-  /**
-   * Per-digit accessible label template, with `{n}`/`{total}` tokens substituted by hand (this is a
-   * plain prop, not a vue-i18n message, so it gets no interpolation of its own). Falls back to
-   * `common.otpInput.digitLabel`, itself falling back to English when no `t()` resolves it -- see
-   * `useDictText`.
-   */
+  /** A plain prop, not a vue-i18n message: its `{n}`/`{total}` tokens are substituted by hand. */
   digitLabel: {
     type: String,
     default: null
@@ -78,15 +61,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'complete'])
 
-/**
- * `value`, split into exactly `length` single-digit (or empty) slots -- extra characters are
- * dropped, a short value is padded with empty slots, and anything not `0`-`9` is stripped, since a
- * box holds one digit or nothing.
- *
- * @param {string} value
- * @param {number} length
- * @returns {string[]}
- */
 function splitValue(value, length) {
   const chars = String(value ?? '')
     .replace(/\D/g, '')
@@ -116,9 +90,8 @@ function emitValue() {
   emit('update:modelValue', digits.value.join(''))
 }
 
-// -> An external reset (a wrong-code retry clearing the field, or the parent re-mounting with a
-//    fresh value) rebuilds the boxes from the new value; our own emits round-trip back here with the
-//    same joined string already in `digits`, so this never fights its own update.
+// -> Our own emits round-trip back through this watcher, so compare before rebuilding rather than
+//    fighting our own update.
 watch(
   () => props.modelValue,
   (value) => {
@@ -139,12 +112,8 @@ watch(isComplete, (complete, wasComplete) => {
   }
 })
 
-// I18N
-
 const dictText = useDictText()
 
-/** `props.digitLabel`, a plain template, is substituted by hand; the dictionary key is real vue-i18n
- *  interpolation (see `useDictText`), which is why its English fallback is passed pre-resolved. */
 function digitAriaLabel(i) {
   const n = i + 1
   const total = props.length
@@ -154,12 +123,9 @@ function digitAriaLabel(i) {
   return dictText('common.otpInput.digitLabel', `Digit ${n} of ${total}`, { n, total })
 }
 
-// METHODS
-
 /**
- * Typed (or autofilled) input. `maxlength="1"` keeps ordinary typing to one character, but IME
- * composition and a mobile autofill dropping a whole code into one box can still hand this more than
- * one -- the extra characters spill into the following boxes exactly as a paste would.
+ * `maxlength="1"` does not stop IME composition or a mobile autofill from dropping a whole code into
+ * one box, so extra characters spill into the following boxes exactly as a paste would.
  */
 function onInput(i, ev) {
   const filtered = String(ev.target.value ?? '').replace(/\D/g, '')
@@ -206,7 +172,6 @@ function onKeydown(i, ev) {
   }
 }
 
-/** A full code pasted (or dropped) anywhere in the row fills from that box onward. */
 function onPaste(i, ev) {
   ev.preventDefault()
   const text = ev.clipboardData?.getData('text') ?? ''
@@ -226,7 +191,6 @@ function onPaste(i, ev) {
   focusIndex(Math.min(idx, props.length - 1))
 }
 
-/** Selects the box's content on focus, so typing (or a re-paste) overwrites rather than appends. */
 function onFocus(ev) {
   ev.target.select()
 }

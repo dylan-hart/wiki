@@ -4,13 +4,6 @@
     class="w-range relative h-[18px] w-full cursor-pointer select-none"
     :class="[isDisabled ? 'pointer-events-none opacity-60' : '', label ? 'mb-7' : '']"
     @pointerdown="onPointerDown">
-    <!--
-      A 2px hairline rail with the selected span painted over it in the accent, square handles on
-      top and the steps ticked off UNDER the rail rather than dotted along it -- the design's own
-      slider (`ui-redesign/Cardinal Wiki - Page Properties 3x.dc.html`). What this replaces was a
-      4px pill rail with round dots on it and round, shadowed handles: relief and radius, both of
-      which the language drops.
-    -->
     <!-- Rail -->
     <div class="absolute top-1/2 h-0.5 w-full -translate-y-1/2 bg-hairline dark:bg-hairline-dark" />
 
@@ -48,17 +41,8 @@
       :aria-disabled="isDisabled || undefined"
       @keydown="onKeydown(handle, $event)">
       <!--
-        -> `left-1/2 -translate-x-1/2` centers this label under its handle (OpenProject #1590's
-           physical-positioning triage), the same symmetric-centering-vs-physical-translate pairing
-           as `WNotifications`'s toast stack -- swapping only the `left` half to `start` would pull
-           the label off-centre, since `-translate-x-1/2` never mirrors under RTL.
-
-           The rest of this component -- rail, selected span, step markers, and the handles' own
-           `left: ${toPercent(...)}%` above -- is a numeric min/max scale rather than a leading/
-           trailing gutter, and stays physical for the same reason `WMenu`/`WTooltip`'s
-           viewport-relative pixel positioning does: making it direction-aware is a coordinated
-           redesign of `toPercent()` and every `left:` here together, not a mechanical swap, so it
-           is deliberately out of this triage's scope rather than converted piecemeal.
+        -> `left-1/2` pairs with `-translate-x-1/2` and stays physical: the translate half never
+           mirrors under RTL, so swapping only `left` for `start` would pull the label off-centre.
       -->
       <span
         v-if="label"
@@ -75,27 +59,17 @@ import { computed, ref } from 'vue'
 import { trackPointerDrag } from '@/helpers/pointerDrag'
 
 /**
- * Range selector over a small integer scale -- either two draggable handles bounding a span, or
- * (with `single`) one handle picking a plain value. Values always snap to whole steps -- the two
- * uses are a heading-depth range (H1..H6) and a folder-depth graph filter, where a fractional value
- * would be meaningless -- so there is no continuous mode.
+ * Values always snap to whole steps: both uses are small integer scales (a heading-depth range, a
+ * folder-depth filter) where a fractional value would be meaningless, so there is no continuous mode.
  *
- * Two-handle mode (`single` unset, the original and still-default shape): `modelValue` is
- * `{ min, max }`, matching the shape the config object already stores; `update:modelValue` emits
- * the same shape. `leftLabelValue`/`rightLabelValue` and `ariaLabelMin`/`ariaLabelMax` address the
- * lower/upper handle respectively.
- *
- * Single-handle mode (`single: true`): `modelValue` is a plain `Number`, and `update:modelValue`
- * emits a plain `Number`. `labelValue` overrides the one value bubble, `ariaLabel` names the one
- * handle. `min`/`max`/`color`/`label`/`markers`/`disabled` apply to both modes unchanged.
+ * `modelValue` is `{ min, max }` with two handles bounding a span, or a plain `Number` under
+ * `single`; `update:modelValue` emits whichever shape it was given.
  */
 const props = defineProps({
-  /** `{ min, max }` in two-handle mode, a plain `Number` in single-handle mode. */
   modelValue: {
     type: [Object, Number],
     default: null
   },
-  /** One handle over a plain numeric `modelValue`, instead of two bounding a `{ min, max }` span. */
   single: {
     type: Boolean,
     default: false
@@ -117,22 +91,18 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Overrides the text of the lower handle's bubble. Two-handle mode only. */
   leftLabelValue: {
     type: String,
     default: null
   },
-  /** Overrides the text of the upper handle's bubble. Two-handle mode only. */
   rightLabelValue: {
     type: String,
     default: null
   },
-  /** Overrides the text of the single handle's bubble. Single-handle mode only. */
   labelValue: {
     type: String,
     default: null
   },
-  /** Draws a dot at every step. */
   markers: {
     type: Boolean,
     default: false
@@ -149,7 +119,6 @@ const props = defineProps({
     type: String,
     default: null
   },
-  /** Names the single handle. Single-handle mode only. */
   ariaLabel: {
     type: String,
     default: null
@@ -166,9 +135,8 @@ const isDisabled = computed(() => props.disabled)
 
 const model = computed(() => {
   if (props.single) {
-    // -> The single handle is always stored as `max` -- `min` stays pinned to `props.min`, both to
-    //    drive the rail's "selected span" fill (unchanged from two-handle mode) and so `toPercent`/
-    //    the aria-valuemin/max wiring below need no single-mode branch of their own.
+    // -> The single handle is always stored as `max`, with `min` pinned to `props.min`: that keeps
+    //    the rail's selected-span fill, `toPercent` and the aria wiring free of a single-mode branch.
     return { min: props.min, max: clamp(props.modelValue ?? props.min) }
   }
   return {
@@ -198,7 +166,7 @@ function labelFor(handle) {
   return override ?? String(model.value[handle])
 }
 
-/** Writes a handle. In two-handle mode, keeps the two from crossing over. */
+/** In two-handle mode, keeps the two handles from crossing over. */
 function update(handle, value) {
   if (props.single) {
     const next = clamp(value)
@@ -223,8 +191,7 @@ function valueAt(clientX) {
 
 function onPointerDown(ev) {
   const value = valueAt(ev.clientX)
-  // -> Single-handle mode has only one handle to grab; two-handle mode grabs whichever handle is
-  //    nearer to the press, so a click anywhere on the rail works.
+  // -> With two handles, grab whichever is nearer the press, so a click anywhere on the rail works.
   dragging.value = props.single
     ? 'max'
     : Math.abs(value - model.value.min) <= Math.abs(value - model.value.max)
@@ -232,8 +199,8 @@ function onPointerDown(ev) {
       : 'max'
   update(dragging.value, value)
 
-  // -> Pointer capture, the move listener and its teardown are shared with WColorPicker; the handle
-  //    this gesture grabbed is the one thing that is this control's own, so it is released here
+  // -> `trackPointerDrag` owns pointer capture, the move listener and their teardown; the grabbed
+  //    handle is this control's own state, so it is released here
   const el = ev.currentTarget
   trackPointerDrag(ev, el, (e) => {
     if (dragging.value) {

@@ -13,7 +13,7 @@ describe('WInput', () => {
   })
 
   it('draws its control off --radius-card, not left unrounded', () => {
-    // -> `0` under Ledger (unchanged), a real value under Cobalt (OpenProject #2767/#2772)
+    // -> `--radius-card` is legitimately 0 in some aesthetics, so the class is what this asserts
     const wrapper = mount(WInput, { props: { modelValue: '' } })
 
     expect(wrapper.find('.w-input-control').classes()).toContain('rounded-card')

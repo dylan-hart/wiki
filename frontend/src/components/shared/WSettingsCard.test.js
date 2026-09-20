@@ -5,10 +5,6 @@ import WSettingsCard from './WSettingsCard.vue'
 import WSettingsRow from './WSettingsRow.vue'
 import WCardHeader from './WCardHeader.vue'
 
-/**
- * The card half of the settings pattern `AdminGeneral.vue` establishes and the other ~35 settings
- * pages adopt: a mono uppercase strip over a stack of rows, on one hairline-edged surface.
- */
 describe('WSettingsCard', () => {
   it('draws the header strip over the rows, inside one WCard surface', () => {
     const wrapper = mount(WSettingsCard, {
@@ -24,7 +20,6 @@ describe('WSettingsCard', () => {
     expect(header.exists()).toBe(true)
     expect(header.text()).toBe('Site info')
 
-    // -> Strip first, rows after: the rule under the strip is what separates the two.
     const children = [...card.element.children]
     expect(children[0]).toBe(header.element)
     expect(children[1].className).toBe('a-row')
@@ -61,10 +56,9 @@ describe('WSettingsCard', () => {
   })
 
   /**
-   * The round's shared-component rule: `.w-section-header` (via `WCardHeader`) is read-only for
-   * this work, because 21 call sites across six other screens render it. The settings strip is a
-   * second, separate treatment -- if this ever starts rendering `WCardHeader` again, the two have
-   * been merged and that is a decision for whoever owns `.w-section-header`, not a quiet edit here.
+   * The settings strip is a second, separate treatment from `.w-section-header`: if this ever starts
+   * rendering `WCardHeader` again, the two have been merged, and that is a decision for whoever owns
+   * `.w-section-header` rather than a quiet edit here.
    */
   it('does not render the shared section-header band', () => {
     const wrapper = mount(WSettingsCard, { props: { title: 'Site info' } })
@@ -73,11 +67,6 @@ describe('WSettingsCard', () => {
     expect(wrapper.find('.w-section-header').exists()).toBe(false)
   })
 
-  /**
-   * Wiki #2700: the two things `WCardHeader` carries that the roll-out found a settings strip also
-   * needs. Both are additive -- a card that passes neither renders exactly the strip it did before,
-   * which is what the assertions above are still checking.
-   */
   it('draws a hint under the title, in sentence-case body type rather than the band', () => {
     const wrapper = mount(WSettingsCard, {
       props: { title: 'Active locales' },
@@ -87,7 +76,6 @@ describe('WSettingsCard', () => {
     const hint = wrapper.find('.w-settings-card__hint')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('Select the locales that can be used on this site.')
-    // -> Under the title, not beside it: the two share the strip's leading column.
     expect(wrapper.find('.w-settings-card__title').element.nextElementSibling).toBe(hint.element)
   })
 
@@ -125,8 +113,7 @@ describe('WSettingsCard', () => {
     const rows = wrapper.findAllComponents(WSettingsRow)
     expect(rows).toHaveLength(3)
     // -> The rule itself is CSS (`.w-settings-row + .w-settings-row`), measured in the real-browser
-    //    suite; what is asserted here is that the rows really are adjacent siblings, which is the
-    //    precondition that selector depends on.
+    //    suite; this asserts only the adjacency that selector depends on.
     const elements = wrapper.findAll('.w-settings-row').map((row) => row.element)
     expect(elements[0].nextElementSibling).toBe(elements[1])
     expect(elements[1].nextElementSibling).toBe(elements[2])

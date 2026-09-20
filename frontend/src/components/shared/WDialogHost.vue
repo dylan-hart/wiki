@@ -19,10 +19,7 @@ import { closeDialog, openDialogs } from '@/composables/dialog'
  *   `hide` -- finished closing, whether confirmed or not; the cue to unmount
  */
 
-/**
- * A dialog can emit `ok` and then `hide` (the normal confirm path), so the payload is parked until
- * `hide` arrives and the entry is resolved exactly once.
- */
+/** `ok` arrives before `hide`, so the payload is parked until `hide` resolves the entry once. */
 const okPayloads = new Map()
 
 function onOk(id, payload) {

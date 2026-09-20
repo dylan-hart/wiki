@@ -8,12 +8,10 @@
 
 <script setup>
 /**
- * Top bar of a `WLayout`. Spans the full width, above both drawers.
- *
- * Carries no colour of its own: every header in the app sets its own surface with a utility class.
+ * Top bar of a `WLayout`, spanning the full width above both drawers. Carries no colour of its
+ * own: every header in the app sets its own surface with a utility class.
  */
 defineProps({
-  /** Drop shadow beneath the header. */
   elevated: {
     type: Boolean,
     default: false

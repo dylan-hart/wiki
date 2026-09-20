@@ -1,12 +1,8 @@
 <template>
   <!--
-    A flex column, not the `<form>` default of `display: block`.
-
-    Six call sites already style themselves with `gap-2` / `gap-4` to space their fields, and `gap`
-    does nothing on a block container -- the toggles in the page-properties panel were sitting 1px
-    apart with `gap-4` set and ignored. Stacking is what every form here does, and flex children
-    stretch to full width exactly as block-level ones did, so this changes nothing for the call sites
-    that set no gap.
+    A flex column, not the `<form>` default of `display: block`: call sites space their fields with
+    `gap-*`, which does nothing on a block container. Flex children stretch to full width exactly as
+    block-level ones do, so a form that sets no gap is unaffected.
   -->
   <form novalidate class="flex flex-col" @submit.prevent="onSubmit">
     <slot />
@@ -17,8 +13,6 @@
 import { onBeforeUnmount, provide, ref } from 'vue'
 
 /**
- * Form wrapper that collects its registered fields and validates them together on submit.
- *
  * Fields opt in by injecting `wFormRegister` -- see `WInput`. `novalidate` is set so validation is
  * driven entirely by the `rules` convention rather than the browser's own bubbles.
  */
@@ -31,9 +25,6 @@ provide('wFormRegister', (field) => {
   onBeforeUnmount(() => fields.value.delete(field))
 })
 
-/**
- * @returns {boolean} Whether every registered field passed.
- */
 function validate() {
   let ok = true
   let firstInvalid = null
@@ -46,13 +37,11 @@ function validate() {
   }
   if (!ok) {
     /*
-      Without this, a failed submit just... does nothing visible near the field itself: focus stays
-      on the submit button, which is not where any of the now-red fields or their (aria-live)
-      messages are. Landing focus on the first one is also what puts a screen-reader user where the
-      live-region message they're about to hear actually lives, rather than leaving them to Tab back
-      through the form hunting for it. Registration order matches DOM/tab order, since fields
-      register from their own `setup()` as they mount top-to-bottom -- so the first Set entry is also
-      the first invalid control.
+      Without this a failed submit leaves focus on the submit button, nowhere near the now-red
+      fields or their aria-live messages -- which is also where a screen-reader user needs to be for
+      the message they are about to hear. Registration order matches DOM/tab order, since fields
+      register from their own `setup()` as they mount top-to-bottom, so the first Set entry is the
+      first invalid control.
     */
     firstInvalid?.focus?.()
   }

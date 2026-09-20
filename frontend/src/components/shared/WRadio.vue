@@ -12,7 +12,7 @@
       class="inline-flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
       :class="isOn ? '' : 'border-black/54 dark:border-white/70'"
       :style="isOn ? { borderColor: `var(--color-${color})` } : undefined">
-      <!-- The inner dot is scaled rather than toggled, so selecting animates instead of snapping -->
+      <!-- Scaled rather than toggled, so selecting animates instead of snapping -->
       <span
         class="size-2.5 rounded-full transition-transform"
         :class="isOn ? 'scale-100' : 'scale-0'"
@@ -26,18 +26,14 @@
 import { computed } from 'vue'
 
 /**
- * Radio button: one choice out of several sharing a `v-model`.
- *
- * Unlike a checkbox this never clears itself -- clicking the selected option is a no-op, because a
- * radio group has no "none" state to return to. Callers that need one give the group an explicit
- * option for it.
+ * Clicking the selected option is a no-op: a radio group has no "none" state to return to, so a
+ * caller needing one gives the group an explicit option for it.
  */
 const props = defineProps({
   modelValue: {
     type: null,
     default: null
   },
-  /** The value this button sets when chosen. */
   val: {
     type: null,
     default: undefined

@@ -6,18 +6,9 @@
 
 <script setup>
 /**
- * Route-level content container.
- *
- * The layout system this replaces computed a min-height from the header and footer heights via
- * JavaScript. That is unnecessary here -- `WLayout`'s grid already gives the page cell the leftover
- * height -- but the page still has to CLAIM it: as a plain block it is only as tall as its content,
- * so anything inside sized `flex: 1` or `height: 100%` has nothing to grow into. That is what left
- * the page sidebars ending partway down the window.
- *
- * The `id` and `tabindex="-1"` are what `MainLayout`'s skip link targets: a `<main>` is not
- * naturally focusable, and a fragment link only moves the reader's SCROLL position without one --
- * `tabindex="-1"` makes it a valid focus target while keeping it out of the ordinary tab order (a
- * reader tabbing through the page has no reason to land on the container itself).
+ * The `id` and `tabindex="-1"` are what `MainLayout`'s skip link targets: a `<main>` is not naturally
+ * focusable, and a fragment link only moves the reader's SCROLL position without a focus target at
+ * the far end. `-1` keeps the container out of the ordinary tab order.
  */
 defineProps({
   padding: {
@@ -29,14 +20,12 @@ defineProps({
 
 <style scoped>
 /*
-  Fill whatever holds this. `min-height` rather than `height` so a page taller than the viewport still
-  grows, and on the page cell rather than the container so that a container holding something other
-  than a page (the search screen's floating card) is left alone.
-
-  For a page sitting DIRECTLY in a `WPageContainer` the container overrides this and grows the page
-  with flex instead, because a percentage would also claim the height of a footer sharing that box.
-  This still does the work wherever a page is nested inside something else -- the profile and search
-  cards, say.
+  A plain block is only as tall as its content, so anything inside sized `flex: 1` or `height: 100%`
+  has nothing to grow into. `min-height` rather than `height` so a page taller than the viewport still
+  grows, and on the page cell rather than the container so a container holding something other than a
+  page (the search screen's floating card) is left alone. A page sitting DIRECTLY in a
+  `WPageContainer` is grown by flex there instead -- a percentage would also claim the height of a
+  footer sharing that box.
 */
 .w-page {
   min-height: 100%;
