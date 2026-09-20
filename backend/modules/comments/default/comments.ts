@@ -1,95 +1,51 @@
 /**
- * Cardinal.js Native comment provider.
+ * No database, no Fastify route, no Drizzle import: every input is supplied by the caller, apart
+ * from the ambient `CARDINAL.config.host`/`CARDINAL.logger` reads in `checkSpam`. That boundary is
+ * what the `CheckSpamParams`/`CheckRateLimitParams` input contracts below exist to describe.
  *
- * `render` (Task 623) and `checkSpam` (Task 628) are both loaded and called for real (WP #3377):
- * `models/comments.ts#create()`/`update()` dynamically import this file's default export the same
- * way `models/storage.ts` loads `modules/storage/<key>/storage.ts`, and call `render()` directly to
- * populate the `render` column; `api/comments.ts`'s POST route loads the same module instance (via
- * `models/comments.ts#activeProviderModule`) to call `checkSpam()` against the request's own
- * ip/UA/permalink. `checkRateLimit` (Task 632) and its pure standalone `checkRateLimit()` compare
- * remain implemented and tested below, but have no caller any more: WP #3377 replaced that pure
- * compare, at the route layer, with `CARDINAL.models.rateLimits.consume()` — a real, database-backed
- * counter, needed because the pure compare here has no way to persist "last comment at" across
- * requests or instances, which a caller would otherwise have to look up and pass in on every call.
- *
- * No database access, no Fastify route, no Drizzle import. `checkSpam` does read the ambient
- * `CARDINAL` global (`CARDINAL.config.host`, `CARDINAL.logger`), same as
- * `modules/authentication/local/authentication.ts` reads it for `CARDINAL.models` — that global is
- * available everywhere in the backend without importing (a standing project convention); it's just
- * never the database/Fastify/Drizzle layer this module otherwise stays out of.
- *
- * The `CommentProviderModule` interface below stays a local copy rather than moving to
- * `models/comments.ts` (the same way `models/storage.ts` and `models/authentication.ts` own the
- * contracts for their own module kinds) — out of scope for WP #3377, which only had to wire a
- * caller in, not relocate the type.
+ * `checkRateLimit` has no caller: the route layer rate-limits through
+ * `CARDINAL.models.rateLimits.consume()` instead, because the pure compare here cannot persist
+ * "last comment at" across requests or instances.
  */
 
 import MarkdownIt from 'markdown-it'
 import { full as markdownItEmoji } from 'markdown-it-emoji'
-// -> `lib/common`, not the `highlight.js` root: the root registers every language the package ships
-//    (~190 grammars) regardless of whether any comment ever fences one of them, and a comment's
-//    fenced content is untrusted, author-submitted input — grammars are a classic ReDoS surface, so
-//    shrinking the set actually reachable here is a real risk reduction, not just a bundle-size
-//    saving (this runs server-side; there is no bundle to shrink). `lib/common` registers the same
-//    ~36-language set `frontend/src/renderers/markdown.js` and `EditorCodeBlockMenu.vue` already use,
-//    so a comment supports the same language set as the page renderer. A fence naming a language
-//    outside that set still renders — see the `getLanguage` guard below — just without highlighting,
-//    the same as it always has for a typo'd or unknown language.
+// -> `lib/common`, not the `highlight.js` root: the root registers every grammar the package ships,
+//    and a comment's fenced content is untrusted input — grammars are a classic ReDoS surface, so a
+//    smaller reachable set is a real risk reduction. It is also the set the page renderer uses, so
+//    both highlight the same languages; a fence outside it renders unhighlighted.
 import hljs from 'highlight.js/lib/common'
 import sanitizeHtml from 'sanitize-html'
 import { escape } from 'es-toolkit/string'
 
-/**
- * What a comment renders to: the raw markdown as submitted, and the sanitized HTML derived from it.
- * Mirrors the `content`/`render` column split Feature 389's `comments` table is expected to store —
- * both come back from a single call so the model never has to re-derive one from the other.
- */
 export interface CommentRenderResult {
-  /** The raw markdown exactly as submitted. Stored as-is; never itself re-rendered on read. */
   content: string
-  /** Sanitized HTML, safe to write into the page without further escaping. */
   render: string
 }
 
 /**
- * The fields a spam check runs against, matching exactly what 2.5.x's
- * `server/modules/comments/default/comment.js#create()` passed to Akismet's `checkSpam()`.
- *
- * **Input contract**: this module has no request context, no session, and no access to `models/*`,
- * so every field here is the caller's responsibility to supply — nothing is inferred or looked up:
- *   - `ip` / `userAgent` come from the HTTP request that posted the comment.
- *   - `permalink` / `permalinkDate` come from the page the comment was posted to.
- *   - `role` must be computed by the *caller* from the poster's group memberships
- *     (`'administrator'` if they hold the admin group, `'guest'` if unauthenticated, `'user'`
- *     otherwise — see 2.5.x's own `create()` for the exact mapping). This module never sees a
- *     user's groups, so it cannot derive this itself.
+ * **Input contract**: this module has no request context, no session and no access to `models/*`,
+ * so nothing here is inferred or looked up. `role` in particular must be derived by the caller from
+ * the poster's group memberships — `'administrator'` if they hold the admin group, `'guest'` if
+ * unauthenticated, `'user'` otherwise — since this module never sees a user's groups.
  */
 export interface CheckSpamParams {
-  /** The commenter's IP address. Required by Akismet. */
   ip: string
-  /** The commenter's user agent string. */
   userAgent: string
-  /** The comment's raw (markdown) content. */
   content: string
-  /** The commenter's display name. */
   name?: string
-  /** The commenter's email address. */
   email?: string
-  /** A permalink to the page the comment was posted on. */
   permalink?: string
-  /** ISO 8601 timestamp of when that page was last modified. */
+  /** ISO 8601 timestamp of when that page was last modified, not of the comment. */
   permalinkDate?: string
-  /** Akismet's `comment_type`. Always `'comment'` until this provider supports threaded replies. */
   type: 'comment' | 'reply'
-  /** See the input-contract note above — this is the one field this module cannot compute itself. */
   role: 'administrator' | 'guest' | 'user'
 }
 
 /**
- * A spam verdict. `isSpam` is always present and is the only field a caller strictly needs to branch
- * on; `reason` is set whenever the verdict is a fail-open default (empty/invalid key, Akismet
- * unreachable) rather than an actual Akismet response, so the caller can log *why* spam-checking was
- * skipped without this module throwing over it.
+ * `reason` is set only when the verdict is a fail-open default (empty/invalid key, Akismet
+ * unreachable) rather than an actual Akismet answer, so a caller can log why spam checking was
+ * skipped instead of this module throwing over it.
  */
 export interface SpamCheckResult {
   isSpam: boolean
@@ -97,68 +53,32 @@ export interface SpamCheckResult {
 }
 
 /**
- * The input `checkRateLimit` needs to decide whether the current poster may comment right now.
- *
- * **Input contract**: this module has no database access (per the architectural boundary described
- * in Feature 390 — it enforces the window, it does not look anything up), so `lastCommentAt` is
- * entirely the caller's responsibility to resolve, and it must already reflect **guest pooling**:
- * 2.5.x's own hint text for this prop is "all guests are considered as a single account", so an
- * unauthenticated poster is never its own bucket. The caller must look up a single, shared
- * last-comment timestamp for every guest combined — e.g. keyed by the guests group's ID rather than
- * by session or IP — before calling this, the same way it would look up one timestamp per real
- * account for an authenticated poster. This module has no concept of "guest" at all; it only ever
- * compares two instants it was handed.
+ * **Input contract**: this module has no database access — it enforces the window, it looks nothing
+ * up — so the caller resolves `lastCommentAt`, already reflecting **guest pooling**: all guests
+ * count as a single account, so an unauthenticated poster is never its own bucket. Absent means
+ * never posted, which is always allowed.
  */
 export interface CheckRateLimitParams {
-  /**
-   * The `Temporal.Instant` of the relevant account's most recent comment (the shared guest-bucket
-   * timestamp for an unauthenticated poster, per the contract above), or `undefined`/`null` if that
-   * account has never posted before — always allowed in that case.
-   */
   lastCommentAt?: Temporal.Instant | null
 }
 
-/**
- * The contract every comment provider module implements, keyed by the module's own `definition.yml`
- * `props` (see `helpers/common.ts`'s `ModuleProp` for what a resolved prop looks like). Local copy
- * only, for now — see the file-level comment above.
- */
 export interface CommentProviderModule {
-  /**
-   * Render raw comment content (as the author submitted it) to sanitized HTML for display.
-   */
   render(content: string): Promise<CommentRenderResult>
 
   /**
-   * Whether a comment looks like spam, checked against Akismet using the module's own configuration
-   * (the `akismet` prop from `definition.yml`, read off `conf.akismet`). See `CheckSpamParams` for
-   * the input contract. Never throws on a spam verdict, or on a misconfigured/unreachable Akismet —
-   * "this is spam" is a normal outcome to branch on, and a bad key must degrade spam-checking, not
-   * block comment submission.
+   * Never throws, on a spam verdict or on a misconfigured/unreachable Akismet: "this is spam" is a
+   * normal outcome to branch on, and a bad key must degrade spam checking rather than block comment
+   * submission. `conf` carries the module's own `definition.yml` props.
    */
   checkSpam(params: CheckSpamParams, conf: Record<string, any>): Promise<SpamCheckResult>
 
-  /**
-   * Whether the poster is within the module's configured minimum delay between comments (the
-   * `minDelay` prop). All guests are treated as a single account. See `CheckRateLimitParams` and
-   * the standalone `checkRateLimit` function below for the full contract.
-   */
   checkRateLimit(params: CheckRateLimitParams, conf: Record<string, any>): Promise<boolean>
 }
 
 /*
-  A markdown-it instance scoped to comment content, wholly separate from `frontend/src/renderers/
-  markdown.js` (that one drives the page editor and its preview, imports nothing this file can see,
-  and is configured per-site out of `CARDINAL.sites`). This one is fixed and comment-only, matching how
-  2.5.x's `server/modules/comments/default/comment.js` configured its own instance:
-
-   - `html: false` — raw HTML in a comment is never allowed. This is the load-bearing setting: it is
-     what makes a comment safe even without the `sanitize-html` pass below, since markdown-it escapes
-     any `<script>` or `<img onerror=…>` an author types to inert text before it is ever HTML. The
-     sanitizer is defense in depth on top of that, not the only thing standing in the way of it.
-   - `breaks: true` — a single newline in a comment (as typed in a plain textarea, no blank line
-     needed) becomes a `<br>`, matching how people actually type a short reply.
-   - `linkify: true` — a bare URL becomes a link without the author having to write `[text](url)`.
+  `html: false` is the load-bearing setting: markdown-it escapes any `<script>` or `<img onerror=…>`
+  an author types to inert text before it is ever HTML, so a comment is safe even without the
+  `sanitize-html` pass below. That pass is defense in depth, not the only thing in the way.
 */
 const commentMarkdown = new MarkdownIt({
   html: false,
@@ -166,10 +86,9 @@ const commentMarkdown = new MarkdownIt({
   linkify: true,
   highlight(str, lang) {
     /*
-      `getLanguage` first: `hljs.highlight` throws on a language it does not recognize, and an
-      unrecognized fence (or one whose info string is not really a language at all) falls back to
-      escaped, unhighlighted code rather than taking the whole render down. Same pattern as the
-      frontend's comparable renderer, minus the line-number/diagram handling a comment never needs.
+      `getLanguage` first: `hljs.highlight` throws on a language it does not recognize, so an
+      unrecognized fence must fall back to escaped, unhighlighted code rather than take the whole
+      render down.
     */
     const highlighted =
       lang && hljs.getLanguage(lang)
@@ -180,11 +99,9 @@ const commentMarkdown = new MarkdownIt({
 }).use(markdownItEmoji)
 
 /**
- * Tags a comment's rendered HTML may use. A strict subset of `models/rendering.ts`'s
- * `BASE_ALLOWED_TAGS` (itself deliberately broad, for a page whose author may hold `write:scripts`/
- * `write:styles`): a comment author holds neither, has no block picker, and gets no images, media,
- * embeds, icons or raw SVG/MathML — just inline formatting, code blocks, lists and links, the same
- * ceiling 2.5.x's comment renderer had (`html: false`, no permission system of its own).
+ * Deliberately a strict subset of `models/rendering.ts`'s `BASE_ALLOWED_TAGS`, which is broad
+ * because a page author may hold `write:scripts`/`write:styles`. A comment author holds neither and
+ * gets no images, media, embeds, icons or raw SVG/MathML.
  */
 const COMMENT_ALLOWED_TAGS = [
   'p',
@@ -216,7 +133,6 @@ const COMMENT_ALLOWED_TAGS = [
   'h6'
 ]
 
-/** Attributes allowed on the tags above. Everything else that survives comes through bare. */
 const COMMENT_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   a: ['href', 'name', 'target', 'rel'],
   // -> highlight.js puts `language-<x>` on the wrapping `<code>` and `hljs-<token>` on the `<span>`s
@@ -225,14 +141,9 @@ const COMMENT_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   span: ['class']
 }
 
-/** Which URL schemes a comment's links may use. No `data:`: a comment carries no images to need it. */
+/** No `data:` — a comment carries no images to need it. */
 const COMMENT_ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel']
 
-/**
- * Turn raw comment markdown into the sanitized HTML that gets stored and displayed, matching 2.5.x's
- * `content`/`render` column split: the markdown is what gets stored as `content`, this HTML is what
- * gets stored as `render`.
- */
 function renderComment(content: string): CommentRenderResult {
   const rendered = commentMarkdown.render(content)
   const clean = sanitizeHtml(rendered, {
@@ -246,19 +157,11 @@ function renderComment(content: string): CommentRenderResult {
   return { content, render: clean }
 }
 
-/**
- * How long an Akismet REST call is allowed to hang before this gives up on it, matching
- * `models/liveData.ts`'s `FETCH_TIMEOUT_MS` for the same reason: a hung upstream must not hang a
- * comment submission.
- */
 const AKISMET_REQUEST_TIMEOUT_MS = 10000
 
 /**
- * POSTs `body` form-encoded to an Akismet REST endpoint and returns the trimmed response text — every
- * Akismet call (`verify-key`, `comment-check`) shares exactly this shape, a form POST answered by a
- * short plain-text body. Built on Node's global `fetch` (undici-backed, same as `models/liveData.ts`
- * uses); unlike that module's author-supplied URLs, `url` here is always one of Akismet's own fixed
- * hosts, so none of `liveData.ts`'s SSRF-pinning machinery is needed here.
+ * None of `models/liveData.ts`'s SSRF-pinning machinery: `url` is always one of Akismet's own fixed
+ * hosts, never an author-supplied one.
  */
 async function postAkismetForm(url: string, body: URLSearchParams): Promise<string> {
   const response = await fetch(url, {
@@ -277,11 +180,6 @@ async function postAkismetForm(url: string, body: URLSearchParams): Promise<stri
   return (await response.text()).trim()
 }
 
-/**
- * Verifies an Akismet API key against the `verify-key` endpoint. Field names (`key`, `blog`) match
- * Akismet's own documented REST API exactly — confirmed against the `akismet-api` package's source
- * this replaces, which sends the identical wire fields under its own renamed constructor options.
- */
 async function verifyAkismetKey(key: string, blog: string): Promise<boolean> {
   const text = await postAkismetForm(
     'https://rest.akismet.com/1.1/verify-key',
@@ -296,14 +194,6 @@ async function verifyAkismetKey(key: string, blog: string): Promise<boolean> {
   throw new Error(text)
 }
 
-/**
- * Runs one comment through Akismet's `comment-check` endpoint. Field names map `CheckSpamParams` to
- * Akismet's documented REST fields exactly as the `akismet-api` package's internal alias table did
- * (verified directly against its source, `lib/akismet.js`'s `commentAliases`): notably
- * `permalinkDate` maps to `comment_post_modified_gmt` ("when the parent post was last updated"), not
- * `comment_date_gmt` (a different field this module has never populated) — which happens to be
- * exactly what `CheckSpamParams.permalinkDate`'s own doc already promises.
- */
 async function submitAkismetCommentCheck(
   key: string,
   blog: string,
@@ -339,26 +229,19 @@ async function submitAkismetCommentCheck(
 }
 
 /**
- * One entry per distinct (key, blog) pair this process has seen, resolving to whether that key is
- * valid. Memoized for the process lifetime rather than re-verified on every comment — this is the "on
- * module load, validate the configured key" part of the contract, adapted to a per-call `conf` (this
- * module has no separate init lifecycle hook, and `conf` can differ per site): the first `checkSpam`
- * call for a given key pays the verification cost, every later call for that same key is a map lookup.
- * Storing the pending promise (not just the resolved value) also means two concurrent `checkSpam`
- * calls for a brand-new key share one `verify-key` request instead of firing two.
+ * Memoized for the process lifetime rather than re-verified per comment; there is no init lifecycle
+ * hook to validate the key in, and `conf` can differ per site. Storing the pending promise, not the
+ * resolved value, makes two concurrent first calls share one `verify-key` request.
  */
 const akismetKeyValidity = new Map<string, Promise<boolean>>()
 
-/** Clears the memoized-validity cache. Test-only — a real process never needs to forget a validated key. */
 export function _resetAkismetKeyCacheForTesting(): void {
   akismetKeyValidity.clear()
 }
 
 /**
- * Resolve whether `key`/`blog` is a valid Akismet key, verifying on first use. Never rejects: a
- * validation failure (an invalid key, or Akismet being unreachable) is logged as a warning and cached
- * as `false`, matching 2.5.x's `comment.js#init()` — "logged as warnings but don't block submission" —
- * so a mistyped or expired key disables the spam check, not comment posting.
+ * Never rejects: an invalid key, or an unreachable Akismet, is warned about and cached as `false`,
+ * so a mistyped or expired key disables the spam check rather than comment posting.
  */
 function isAkismetKeyValid(key: string, blog: string): Promise<boolean> {
   const cacheKey = `${key} ${blog}`
@@ -386,18 +269,13 @@ function isAkismetKeyValid(key: string, blog: string): Promise<boolean> {
   return pending
 }
 
-/**
- * Runs a `CheckSpamParams` comment through Akismet using the given module `conf`. See
- * `CommentProviderModule.checkSpam` and `CheckSpamParams` for the full contract.
- */
 async function checkSpam(
   params: CheckSpamParams,
   conf: Record<string, any>
 ): Promise<SpamCheckResult> {
   const key = typeof conf?.akismet === 'string' ? conf.akismet.trim() : ''
-  // -> Empty key: the configured no-op, per `definition.yml`'s "Leave empty to disable" hint. No
-  //    request is made and no `CARDINAL.logger.warn` is emitted — this is not a failure, it is the
-  //    documented way to turn spam checking off.
+  // -> Empty key is the configured no-op (`definition.yml`: "Leave empty to disable"), so unlike
+  //    the branches below it stays silent rather than warning about a failure.
   if (!key) {
     return { isSpam: false }
   }
@@ -425,27 +303,10 @@ async function checkSpam(
 }
 
 /**
- * Pure decision: given the module's configured `minDelay` (seconds) and the timestamp of the
- * relevant account's most recent comment, is another comment allowed right now?
- *
- * Deliberately free of any I/O — no database, no session, no clock read beyond the instants it is
- * handed (`now` defaults to the real clock but is overridable, purely so tests don't need to install
- * a fake `Temporal`) — per the architectural boundary described in Feature 390: this module enforces
- * the window, it never decides who counts as one account or looks anything up itself. See
- * `CheckRateLimitParams` for the guest-pooling contract `lastCommentAt` must already satisfy.
- *
- * Follows this codebase's Temporal conventions exactly: instants are compared with
- * `Temporal.Instant.compare()` (`<` throws on Temporal types), and the cutoff is built with
- * `{ seconds: minDelay }` — an exact-time unit valid on `Instant.add`, unlike anything calendar-based.
- *
- * @param minDelay - Minimum seconds required between comments from the same account. `0` (or any
- *   non-positive/non-finite value) disables rate limiting entirely, matching this prop's "leave
- *   empty/zero to disable" pattern (`definition.yml`'s `minDelay` has no separate enable flag).
- * @param lastCommentAt - The account's most recent comment instant, or `undefined`/`null` if it has
- *   never posted before — always allowed in that case (there is nothing to be too soon after).
- * @param now - The instant to check against. Defaults to `Temporal.Now.instant()`.
- * @returns `true` if posting is currently allowed, `false` if the caller is still within the
- *   configured delay.
+ * `minDelay` is in seconds, and `0` or any non-positive value disables rate limiting outright —
+ * `definition.yml`'s `minDelay` has no separate enable flag. `Temporal.Instant.compare()` rather
+ * than `<`, which throws on Temporal types, and `{ seconds }` rather than a calendar unit, which
+ * `Instant.add` rejects on an exact-time type.
  */
 export function checkRateLimit(
   minDelay: number,

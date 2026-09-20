@@ -22,36 +22,18 @@ import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
 import defaultAzureSearchModule from './search.ts'
 import type { SearchIndex } from '@azure/search-documents'
 
-/**
- * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
- * field.
- *
- * `Temporal` is a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
- */
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
-/** The engine config both this file's own suite and the shared contract run against. */
 const AZURE_CONFIG = { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' }
 
 before(() => ensureTemporal())
 
 /**
- * `init()` is task #553's scope — the SDK dependency, `definition.yml`, and idempotent index
- * provisioning. The page-lifecycle hooks, `query()` translation helpers and the split-query merge are
- * task #557's. Neither talks to the network: there is no local Azure AI Search emulator (see Feature
- * #381's description), so every suite here builds a fake client that records what it was called with
- * and resolves/returns canned data, the same way a real one would.
- *
- * A stub `CARDINAL.logger` is required because several hooks log — the same reason `test/mocks.ts` exists
- * for model-layer tests, just inlined here rather than imported, since this suite needs nothing else
- * off the `CARDINAL` global besides `sites` (per-site engine config), `SERVERPATH` (so
- * `search.refreshFromDisk()` below can read this engine's own `definition.yml`) and
- * `models.groups.checkAccess` (page-permission filtering in `query()`).
+ * There is no local Azure AI Search emulator, so nothing here talks to the network: every suite
+ * drives a fake client that records what it was called with and returns canned data.
  */
 installTestWiki({
   SERVERPATH: backendDir,
-  // -> Not the silent default: several tests assert on what the module logged.
   logger: { ...createSilentLogger(), info: mock.fn(), warn: mock.fn() },
   sites: {
     'site-1': {
@@ -72,14 +54,11 @@ installTestWiki({
 })
 
 /**
- * `configFor()` resolves this engine's config through `search.getEngineConfig`, which completes it
- * with the props declared in `definition.yml` — so the definitions have to be loaded off disk first,
- * exactly as `index.ts` does (`refreshFromDisk()` before `initActiveEngines()`). The `algolia` and
- * `elasticsearch` suites load them the same way.
- *
- * Registered here rather than beside the `ensureTemporal()` hook above, and this is load-bearing: a
- * root-level `before()` in `node:test` runs before the top-level statements that FOLLOW it, so a hook
- * declared above the `CARDINAL` assignment would run with no `CARDINAL.SERVERPATH` to read from.
+ * `getEngineConfig` completes a config with the props declared in `definition.yml`, so the
+ * definitions have to be loaded off disk first, exactly as `index.ts` does before
+ * `initActiveEngines()`. Registered here rather than beside the `ensureTemporal()` hook above, and
+ * that is load-bearing: a root-level `before()` in `node:test` runs before the top-level statements
+ * that FOLLOW it, so a hook declared above `installTestWiki()` would find no `SERVERPATH` to read.
  */
 before(() => search.refreshFromDisk())
 
@@ -100,9 +79,8 @@ interface FakeSearchCall {
 }
 
 /**
- * A fake `AzureSearchQueryClient`. `search()` is scripted per call via `results` (a queue, drained in
- * FIFO order) so a test exercising the protected-content split can hand back a different row set to
- * each of the two queries `runProtectedSplitQuery` issues.
+ * `search()` is scripted per call from `results`, drained FIFO, so a test of the protected-content
+ * split can hand a different row set to each of the two queries it issues.
  */
 function fakeQueryClient(
   results: { count?: number; rows: AzureSearchRow[] }[] = [{ count: 0, rows: [] }]
@@ -140,7 +118,6 @@ function fakeQueryClient(
   }
 }
 
-/** The 28-field superset lives in `test/builders.ts` — this engine reads the widest set of them. */
 const page = makeIndexablePage
 
 describe('azure-search module: buildIndexSchema', () => {
@@ -246,10 +223,9 @@ describe('azure-search module: init()', () => {
   })
 
   test('an index name the operator CLEARED still provisions "wiki", not an unnamed index', async () => {
-    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
-    //    emptied text field is stored as `''` — so the module completes empty strings itself
-    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| DEFAULT_INDEX_NAME`
-    //    used to cover, and dropping it without this would have sent Azure an empty index name.
+    // -> `getEngineConfig`'s merge substitutes a declared default only for `undefined`, and an
+    //    emptied text field is stored as `''`, so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`); without that Azure is sent an empty index name.
     const client = fakeClient()
     const azureSearch = new AzureSearchModule(() => client)
 
@@ -259,10 +235,8 @@ describe('azure-search module: init()', () => {
   })
 
   test('the index name defaults to "wiki" for a site that never set one', async () => {
-    // -> The default lives in `definition.yml` and reaches this module through
-    //    `search.getEngineConfig` — which is what `selectEngine()`/`initActiveEngines()` hand `init()`
-    //    and what `configFor()` reads for every other hook. It is no longer re-applied as a local
-    //    `|| DEFAULT_INDEX_NAME` at each use site (CORE-F5 phase 4).
+    // -> The default is `definition.yml`'s, reaching the module through `getEngineConfig`, never a
+    //    local fallback re-applied at each use site.
     const config = search.getEngineConfig('site-with-no-stored-config', 'azure-search')
     assert.equal(config.indexName, 'wiki')
 
@@ -282,7 +256,6 @@ describe('azure-search module: init()', () => {
     await assert.doesNotReject(azureSearch.init('site-1', config))
 
     assert.equal(client.calls.length, 2)
-    // -> No duplicate-field or conflicting-schema drift between the two create-or-update calls
     assert.deepEqual(client.calls[0], client.calls[1])
     const names = client.calls[1]!.fields.map((f) => f.name)
     assert.equal(new Set(names).size, names.length)
@@ -502,18 +475,12 @@ describe('azure-search module: query()', () => {
         ...overrides
       },
       score,
-      // -> The pre/post tags requested from Azure are control characters, not its default `<em>`/
-      //    `</em>` -- see the doc comment on `HL_START`/`HL_STOP` in `search.ts` for why.
+      // -> `kangaroo` is wrapped in the literal U+0002/U+0003 highlight markers Azure is asked for --
+      //    invisible on screen, but really in the string.
       highlights: { content: ['a kangaroo hops'] }
     }
   }
 
-  /**
-   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Azure's own `skip`/
-   * `top` -- page-rule filtering happens after the query, so the module now always scans a bounded
-   * window from the start (`skip: 0`) and applies the caller's own pagination in JS, over the
-   * filtered set. See `query()`'s own comment for the full reasoning.
-   */
   test('returns the exact SearchPagesResult shape', async () => {
     const client = fakeQueryClient([{ count: 1, rows: [row()] }])
     const azureSearch = new AzureSearchModule(undefined, () => client)
@@ -547,9 +514,8 @@ describe('azure-search module: query()', () => {
   })
 
   test('normalizes a highlighted fragment into <b>, HTML-escaping the rest of the text first', async () => {
-    // -> Azure wraps a match in whatever `highlightPreTag`/`highlightPostTag` were requested -- here,
-    //    the control characters `search.ts` configures instead of Azure's own `<em>`/`</em>` default,
-    //    specifically so a literal "<em>" in the page's own text can never be mistaken for one.
+    // -> Again wrapped in the invisible U+0002/U+0003 markers `search.ts` requests instead of Azure's
+    //    `<em>` default, so a literal `<em>` in the page's own text can never be mistaken for one.
     const withHighlight = row()
     withHighlight.highlights = { content: ['a <script> tag & a kangaroo hop'] }
     const client = fakeQueryClient([{ count: 1, rows: [withHighlight] }])
@@ -591,10 +557,8 @@ describe('azure-search module: query()', () => {
     })
 
     assert.equal(client.searches.length, 2)
-    // -> Public half: full-content search fields, restricted to pages with no password
     assert.deepEqual(client.searches[0]!.options.searchFields, ['title', 'description', 'content'])
     assert.match(client.searches[0]!.options.filter, /hasPassword eq false/)
-    // -> Protected half: title/description only, restricted to pages with a password, no highlights
     assert.deepEqual(client.searches[1]!.options.searchFields, ['title', 'description'])
     assert.match(client.searches[1]!.options.filter, /hasPassword eq true/)
     assert.equal(client.searches[1]!.options.highlightFields, undefined)
@@ -607,12 +571,7 @@ describe('azure-search module: query()', () => {
     assert.equal(protectedResult.highlight, null)
   })
 
-  /**
-   * OpenProject #2151/#2156: `runProtectedSplitQuery`'s merged rows used to be sliced to the
-   * caller's page BEFORE `checkAccess()` ran, so a denied match elsewhere in the merge could still
-   * count toward -- and even occupy a slot in -- the page returned at `limit=1`, the audit's own
-   * repro shape. `totalHits` must never exceed the number of matches the actor can actually read.
-   */
+  /** `totalHits` must never exceed the number of matches the actor can actually read. */
   test('the split-query path never counts or returns a denied match, even at limit=1', async () => {
     const openRow = row({ id: 'open', path: 'docs/open', hasPassword: false }, 2)
     const secretRow = row({ id: 'secret', path: 'docs/secret', hasPassword: false }, 1)
@@ -663,10 +622,8 @@ describe('azure-search module: query()', () => {
 
 describe('azure-search module: rebuild()', () => {
   /**
-   * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for every
-   * engine. What stays here is the one thing that is this engine's: no `dictionary` on any locale
-   * entry — Azure AI Search has no such concept (see `RebuildResult`'s own doc comment in
-   * `models/search.ts`), unlike `algolia`/`elasticsearch`, which report `'n/a'`.
+   * The batching and per-locale tally are the shared contract's. This is Azure's alone: it names no
+   * `dictionary`, having no such concept, where `algolia`/`elasticsearch` report `'n/a'`.
    */
   test('names no per-locale dictionary in its RebuildResult', async () => {
     const client = fakeQueryClient()
@@ -704,8 +661,7 @@ describe('azure-search module: rebuild()', () => {
 
     assert.equal(result.pages, REBUILD_BATCH_SIZE + 3)
     assert.equal(result.locales[0]!.pages, REBUILD_BATCH_SIZE + 3)
-    // -> Two `pageBatch` calls (a full batch, then the 3-row remainder) and two matching
-    //    `mergeOrUploadDocuments` calls -- the working set never grows past one batch.
+    // -> A full batch then the remainder, so the working set never grows past one batch.
     assert.deepEqual(
       source.calls.map((c) => c.offset),
       [0, REBUILD_BATCH_SIZE]
@@ -726,11 +682,7 @@ describe('azure-search module: rebuild()', () => {
     assert.equal(client.merged.length, 0)
   })
 
-  /**
-   * OpenProject #922: `rebuild()` only ever upserted, so a page deleted while this engine was
-   * unreachable stayed in the index forever -- a ghost result. It now queries every id already in the
-   * index for the site and deletes whichever ones were not just re-uploaded.
-   */
+  /** A ghost is a document for a page deleted while this engine was unreachable, so never removed. */
   describe('purges ghost documents', () => {
     test('deletes an indexed id that was not re-uploaded, keeps the ones that were', async () => {
       const client = fakeQueryClient([
@@ -799,9 +751,7 @@ describe('azure-search module: default export', () => {
 })
 
 /**
- * The thirteen claims every external engine owes `models/search.ts`, translated into Azure AI
- * Search's own request and response shapes — see `test/searchModuleContract.ts` for what they are
- * and why they live in one place. Everything above this line is this engine's alone, the
+ * The claims every external engine owes; everything above this line is this engine's alone, the
  * protected-content split query and the ghost-document purge included.
  */
 runSearchModuleContract('azure-search', {
@@ -841,8 +791,8 @@ runSearchModuleContract('azure-search', {
         }
       }
     }
-    // -> `pageSource` is a constructor argument, so the contract's `setPages` swaps what this
-    //    indirection delegates to rather than rebuilding the module around a new source.
+    // -> `pageSource` is a constructor argument, so `setPages` swaps what this indirection delegates
+    //    to rather than rebuilding the module around a new source.
     let pages = makeRebuildPageSource({})
     const source: RebuildPageSource = {
       locales: (siteId) => pages.locales(siteId),
@@ -851,7 +801,7 @@ runSearchModuleContract('azure-search', {
 
     return {
       mod: new AzureSearchModule(undefined, () => client, source),
-      // -> This engine defaults `hideProtectedContent` on, whose two-query split has its own suite
+      // -> This engine defaults `hideProtectedContent` on, and its two-query split has its own suite
       //    above; the contract is about the single-query path every engine shares.
       baseQuery: { hideProtectedContent: false },
       breakClient() {
