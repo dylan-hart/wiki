@@ -14,8 +14,7 @@ import { createTestRouter } from '../../test/router.js'
 
 /**
  * `useMinWidth` (via `useScreen`) calls `window.matchMedia` -- stubbed matching wide, so the
- * uncollapsed button row renders rather than `HeaderActionsMenu`'s overflow menu (see
- * `pages/Index.test.js` for the same pattern).
+ * uncollapsed button row renders rather than `HeaderActionsMenu`'s overflow menu.
  */
 beforeEach(() => {
   window.matchMedia = vi.fn().mockImplementation((query) => ({
@@ -33,12 +32,6 @@ afterEach(() => {
   activeWrapper = null
 })
 
-/**
- * `initialPath`/`routes` default to the plain `/` stub every pre-existing test in this file relies
- * on; the OpenProject #3313 describe block below is the only caller that overrides either, since it
- * needs `/_graph` (and a content-page catch-all) actually registered for `router.push()`'s target to
- * resolve against.
- */
 async function mountHeaderNav({ initialPath = '/', routes = ['/'] } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
@@ -66,17 +59,13 @@ async function mountHeaderNav({ initialPath = '/', routes = ['/'] } = {}) {
 }
 
 /**
- * OpenProject #2050: below the 600px breakpoint (where `HeaderSearch` is unmounted and so cannot
- * claim the shortcut itself), `onKeydown` only ever tested `ev.ctrlKey`, leaving Cmd+K unbound on
- * macOS. `matchMedia` is stubbed here to `matches: false` -- unlike the wide-viewport default from
- * the top-level `beforeEach` -- so `isSearchCollapsed` is true and this handler is the one in play.
+ * `matchMedia` is stubbed `matches: false` here, unlike the file's wide default, so
+ * `isSearchCollapsed` is true and `HeaderNav`'s own handler owns the shortcut rather than
+ * `HeaderSearch` (which is unmounted below 600px).
  *
  * `composables/screen.js`'s `useMinWidth` caches one `matchMedia` listener per breakpoint at MODULE
- * scope, shared for the whole file's lifetime once the first caller asks for it (see
- * `composables/screen.test.js`'s own header comment) -- so this describe block must run, and mount
- * its first `HeaderNav`, before any other test in this file touches the 600/900px breakpoints,
- * otherwise it would inherit whatever `matches` value that earlier mount already cached instead of
- * the `false` this block needs. Declared first in the file for exactly that reason.
+ * scope for the file's lifetime, so this block has to mount first or it inherits whatever an earlier
+ * mount cached. Declared first in the file for exactly that reason.
  */
 describe('HeaderNav collapsed-search keyboard shortcut (OpenProject #2050)', () => {
   async function mountCollapsed() {
@@ -113,11 +102,6 @@ describe('HeaderNav collapsed-search keyboard shortcut (OpenProject #2050)', () 
   })
 })
 
-/**
- * OpenProject #1218: the browse-by-tags entry point moved out of this button group entirely, docked
- * to the search field instead (`HeaderSearch.test.js` covers it now) -- so it must NOT be one of the
- * icons `HeaderNav` itself renders any more, with `HeaderSearch` stubbed out of the picture here.
- */
 describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
   it('no longer renders its own link to /_tags -- that now lives in HeaderSearch', async () => {
     const { wrapper } = await mountHeaderNav()
@@ -128,23 +112,17 @@ describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
 })
 
 /**
- * OpenProject #2024/#2531: the badge counts unread page-watch notifications
- * (`unreadNotifications`, populated from `sites/:siteId/notifications/unread-count`), so the button
- * carrying it has to open onto the section that actually lists them -- the Inbox overlay's Watching
- * tab, not the old `/_inbox/watching` route (deleted along with the rest of `/_inbox/*` when the
- * Inbox became a `MainOverlayDialog` entry).
+ * The badge counts unread page-watch notifications, so the button carrying it has to open onto the
+ * section that lists them -- the Inbox overlay's Watching tab.
  */
 describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
   it('opens the Inbox overlay onto the Watching tab from the badged inbox button', async () => {
     const { wrapper, siteStore, userStore } = await mountHeaderNav()
     /*
-      `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is seeded by whichever test
-      in this file asks for the 600/900px breakpoints FIRST -- the OpenProject #2050 describe block
-      above deliberately does that with `matches: false`, so by the time this test runs the cache is
-      already pinned there and this file's top-level `beforeEach` (which only affects a NEW
-      `matchMedia` call, not the already-cached ref) can't undo it. Setting the shared refs directly
-      is what `WDrawer.test.js` does for the same cache; forced back to wide/expanded here since this
-      button only renders in that branch of the template, not `HeaderActionsMenu`'s overflow menu.
+      `useMinWidth`'s shared refs (`composables/screen.js`) are cached by whichever test asks for
+      the 600/900px breakpoints FIRST -- the collapsed-search block above pins them narrow, and the
+      top-level `beforeEach` only affects a NEW `matchMedia` call, not an already-cached ref. Set
+      directly here because this button renders only in the wide branch.
     */
     useMinWidth(600).value = true
     useMinWidth(900).value = true
@@ -160,12 +138,6 @@ describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
   })
 })
 
-/**
- * OpenProject #2074: "Create New Page" used to draw a ringed plus while every equivalent
- * create-affordance elsewhere (Index.vue, WelcomeOverlay.vue, AdminSites.vue, ...) drew a bare one.
- * The add action is settled on `tabler:plus`, so this button must not drift back to a ringed
- * variant -- `tabler:circle-plus` is the one sitting closest to it in the set.
- */
 describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
   it('uses the settled tabler:plus add glyph, not tabler:circle-plus', async () => {
     const { wrapper, userStore } = await mountHeaderNav()
@@ -179,12 +151,6 @@ describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
   })
 })
 
-/**
- * OpenProject #2851/#2852: the replication warning banner, gated on `siteStore.isReplicationEnabled`
- * (the new field off the site payload) and, independently, on a `md` (1024px) width breakpoint --
- * a third row-width question from `isSearchCollapsed`/`isActionsCollapsed` above, since the banner
- * competes for the same row as both but is neither of them.
- */
 describe('HeaderNav replication warning banner (OpenProject #2851/#2852)', () => {
   it('is absent when the site is not replicated', async () => {
     const { wrapper, siteStore } = await mountHeaderNav()
@@ -216,15 +182,8 @@ describe('HeaderNav replication warning banner (OpenProject #2851/#2852)', () =>
 })
 
 /**
- * OpenProject #2610: the logo button was the one thing in this 64px bar NOT on the shared
- * `header-nav-btn` band -- it carried `dense flat` and nothing else, so `WBtn`'s own dense sizing
- * drew a rounded box around the mark and lit only that box on hover, visibly unlike the five flush
- * squares at the opposite end of the same toolbar (and `AccountMenu`'s avatar, which
- * `AdminLayout.test.js` already pins to the same class).
- *
  * `_base.css`'s `.w-btn.header-nav-btn` is not loaded here -- these are component tests, not the
- * real-Chromium harness -- so the class itself is the contract asserted, exactly as
- * `AdminLayout.test.js` asserts it for the account button rather than measuring a box.
+ * real-Chromium harness -- so the class itself is the contract asserted rather than a measured box.
  */
 describe('HeaderNav logo button hover target (OpenProject #2610)', () => {
   function findHomeButton(wrapper) {
@@ -252,24 +211,20 @@ describe('HeaderNav logo button hover target (OpenProject #2610)', () => {
   it('fills the full 64px band with the mark, in both logo branches', async () => {
     const { wrapper, siteStore } = await mountHeaderNav()
 
-    // `logoText: true` (the store default) puts the mark in a squared 64px avatar beside the wordmark
+    // -> `logoText: true` is the store default: the mark sits in a squared avatar beside the wordmark
     expect(findHomeButton(wrapper).find('.w-avatar').attributes('style')).toContain('64px')
 
     siteStore.logoText = false
     await wrapper.vm.$nextTick()
 
-    // Without the wordmark it is a bare image, sized by its own height instead
     expect(findHomeButton(wrapper).find('img').attributes('style')).toContain('64px')
   })
 })
 
 /**
- * OpenProject #2904/#2928: on a narrow viewport the sidebar's opener is an inline toggle at the
- * head of this bar -- ahead of the logo, pushing the wordmark right -- rather than the floating
- * bottom-left corner disc `MainLayout` used to draw. `HeaderNav` stays content-only (it is also
- * mounted by `pages/Search.vue`, which has no sidebar), so the layout decides WHEN the toggle shows
- * through the `showSidebarToggle` prop (its existing `showSidebarBtn` breakpoint condition,
- * unchanged) and answers the click through the `openSidebar` emit.
+ * `HeaderNav` stays content-only -- `pages/Search.vue` mounts it too, with no sidebar to open -- so
+ * the layout decides WHEN the toggle shows (`showSidebarToggle`) and answers the click
+ * (`openSidebar`).
  */
 describe('HeaderNav inline sidebar toggle (OpenProject #2928)', () => {
   function findToggle(wrapper) {
@@ -291,7 +246,6 @@ describe('HeaderNav inline sidebar toggle (OpenProject #2928)', () => {
     expect(toggle.classes()).toContain('header-nav-btn')
     expect(toggle.find('[data-icon="tabler:menu-2"]').exists()).toBe(true)
 
-    // -> Ahead of the logo in document order, so the wordmark is what gets pushed right
     const homeButton = wrapper.find('[aria-label="common.header.home"]')
     expect(
       toggle.element.compareDocumentPosition(homeButton.element) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -309,14 +263,9 @@ describe('HeaderNav inline sidebar toggle (OpenProject #2928)', () => {
 })
 
 /**
- * OpenProject #3313: the Graph nav button branches on whether `/_graph` is already open -- a plain
- * `@click` handler (`onGraphNavClick`) rather than a static `to`, so it is no longer a router-link
- * and these assert the router calls it makes directly, rather than a `to`/`href` prop that no longer
- * exists on this button.
- *
- * `mountHeaderNav({ routes, initialPath })`'s stub content-page route mirrors `router/routes.js`'s
- * own STANDARD PAGE CATCH-ALL: `meta.contentPage: true` is what `onGraphNavClick()` actually reads
- * to decide whether `pageStore.path` is trustworthy (OpenProject #2527's staleness reasoning).
+ * The stub content-page route mirrors `router/routes.js`'s own standard page catch-all:
+ * `meta.contentPage: true` is what `onGraphNavClick()` reads to decide whether `pageStore.path` is
+ * trustworthy.
  */
 describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
   const CONTENT_ROUTE = {
@@ -375,7 +324,6 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     const { wrapper, siteStore, router } = await mountHeaderNav({ routes: ['/', '/_graph'] })
     siteStore.features.browse = true
     const pageStore = usePageStore()
-    // -> Stale leftover from a previously-read content page -- must not leak into the query here.
     pageStore.path = 'docs/setup'
     await wrapper.vm.$nextTick()
 
@@ -411,8 +359,8 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     await wrapper.vm.$nextTick()
 
     await router.push('/_graph?path=docs/setup')
-    // -> Simulates `navSidebarDestination.js#graphSidebarBranch`'s own `router.replace()` moving the
-    //    graph's root while the reader stays in graph mode.
+    // -> Stands in for `navSidebarDestination.js#graphSidebarBranch`'s own `router.replace()` moving
+    //    the graph's root while the reader stays in graph mode.
     await router.replace('/_graph?path=other/page')
     await wrapper.vm.$nextTick()
 

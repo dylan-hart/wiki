@@ -5,12 +5,6 @@ import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { mountForPreview } from './headerSearchHarness.js'
 
-/**
- * OpenProject #3292: `fetchPreview()` must branch on the header's own pending Semantic/Keyword
- * toggle (`state.searchMode`, OpenProject #3138) exactly the way `submitSearch()` already does for
- * the full `/_search` navigation -- previously it unconditionally hit the keyword endpoint no matter
- * what the toggle showed.
- */
 async function mountForSemanticPreview() {
   const router = await createTestRouter(['/'])
 
@@ -65,7 +59,6 @@ describe('HeaderSearch live-preview fetch', () => {
 
     await wrapper.find('.header-search-input').setValue('ab')
 
-    // -> Not fired yet -- still inside the debounce window
     expect(API_CLIENT.get).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(400)
@@ -153,12 +146,6 @@ describe('HeaderSearch live-preview fetch', () => {
   })
 })
 
-/**
- * The panel's results section itself: it must reflect `state.previewLoading` /
- * `state.previewResults` / `state.previewTotal` with the three states the task describes -- loading,
- * empty, and populated -- and each populated row must be a navigable link that survives the mousedown
- * that would otherwise blur the field and close the panel before the click registers.
- */
 describe('HeaderSearch preview results panel', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -234,11 +221,8 @@ describe('HeaderSearch preview results panel', () => {
   })
 
   /**
-   * Regression test for OpenProject #3044: the results list was rendered as `<w-list dark>`, which
-   * unconditionally forces white text (`WList.vue`'s `.w-list--dark`) intended only for a panel that
-   * is dark in both themes -- but `.searchpanel` itself is theme-reactive (white background in light
-   * mode), so the hardcoded `dark` prop produced white-on-white text there. The results list must
-   * resolve its text color through the normal theme-reactive path instead.
+   * `WList`'s `dark` prop forces white text unconditionally, for a panel that is dark in both
+   * themes. `.searchpanel` is theme-reactive, so it would render white-on-white in light mode.
    */
   it('does not force the always-dark `w-list--dark` styling onto the results list', async () => {
     const { wrapper } = await mountForPreview()
@@ -326,12 +310,6 @@ describe('HeaderSearch preview results panel', () => {
   })
 })
 
-/**
- * Task 569 edge cases: a query that is entirely the tips' own operator/tag syntax must not fire a
- * preview fetch just because its raw length clears the floor; a fetch already in flight when the
- * field is cleared by typing (not just the clear button) must not repopulate the panel once it
- * settles; and long result text must be ellipsised rather than blowing out the panel's fixed width.
- */
 describe('HeaderSearch preview edge cases', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -352,7 +330,7 @@ describe('HeaderSearch preview edge cases', () => {
       expect(API_CLIENT.get).not.toHaveBeenCalled()
       expect(wrapper.vm.state.previewResults).toEqual([])
       expect(wrapper.vm.state.previewLoading).toBe(false)
-      // -> Tag/operator tips still shown -- not the "no results" message, which would be wrong here
+      // -> Below the floor is not the same as no hits, so that message would be wrong here
       expect(wrapper.text()).not.toContain('common.header.searchNoResult')
     }
   )
@@ -396,7 +374,6 @@ describe('HeaderSearch preview edge cases', () => {
     expect(wrapper.vm.state.previewResults).toEqual([])
     expect(wrapper.vm.state.previewLoading).toBe(false)
 
-    // -> The in-flight request for "ab" now settles, after the field was already emptied
     resolveFetch({ results: [{ path: 'ab-page' }], totalHits: 1 })
     await vi.advanceTimersByTimeAsync(0)
 
@@ -464,8 +441,8 @@ describe('HeaderSearch preview edge cases', () => {
     expect(panel.findAll('.searchpanel-results .w-item')).toHaveLength(5)
     expect(panel.findAll('.w-chip').length).toBeGreaterThan(0)
 
-    // -> The operator tips are collapsed by default (OpenProject #2995); expand them to confirm
-    //    they still live in the same panel as the results and tags above.
+    // -> The operator tips are collapsed by default; expand them to confirm they live in the same
+    //    panel as the results and tags above.
     await panel.find('.searchpanel-operators-toggle').trigger('click')
     expect(panel.findAll('.searchpanel-tip').length).toBeGreaterThan(0)
   })
@@ -523,8 +500,8 @@ describe('HeaderSearch live-preview fetch respects the semantic mode toggle (Ope
       searchParams: { query: 'ab', limit: 5 }
     })
 
-    // -> Flip the toggle back to Keyword, then type again -- the very next preview fetch must hit
-    //    the keyword endpoint, proving `state.searchMode` is read fresh per-call rather than latched.
+    // -> The next fetch after flipping back must hit the keyword endpoint: `state.searchMode` is
+    //    read fresh per call rather than latched.
     await wrapper.find('.header-search-mode-btn').trigger('click')
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ results: [{ path: 'keyword-hit' }], totalHits: 1 })

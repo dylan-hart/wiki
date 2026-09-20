@@ -14,31 +14,25 @@ import { buildTestRouter } from '../../test/router.js'
 
 /*
   `WDialog` (and `WSelect`'s own `WMenu` popup) render through `<teleport to="body">`, so none of it
-  is a descendant of the component's own root -- `wrapper.find()` never sees it. Every query below
-  goes through the real `document.body` instead, wrapped the same way `@vue/test-utils` wraps its own
-  results. Mirrors `ImportPageDialog.test.js`'s own helper.
+  is a descendant of the component's own root and `wrapper.find()` never sees it.
 */
 function body() {
   return new DOMWrapper(document.body)
 }
 
 /**
- * Defaults `GET system/extensions/status` to `{ pandoc: true }` -- most of this suite exercises a
- * Pandoc-backed format (`.docx` and friends), and OpenProject #1209's gating would otherwise disable
- * every one of them under the mock client's own unconfigured default (`json()` resolving `undefined`,
- * i.e. no extensions installed). A test that specifically covers the missing-Pandoc case overrides
- * this per-call, same as any other endpoint.
+ * Defaults `GET system/extensions/status` to `{ pandoc: true }`: most of this suite exercises a
+ * Pandoc-backed format, and the mock client's unconfigured default (`json()` resolving `undefined`,
+ * i.e. no extensions installed) would gate every one of them off.
  */
 async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
-  // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking --
-  //    same pattern `InboxReview.test.js` uses for the same `MarkdownRenderer` config dependency.
-  //    `refreshGlossaryTerms()` is stubbed out too (OpenProject #2789): `ensureConfigs()` calls it
-  //    unconditionally now, even with `configIsLoaded` already true, and this suite's heavy use of
-  //    positional `mockReturnValueOnce` queues on `API_CLIENT.get` has no slack for an extra,
-  //    unaccounted call landing between two of its own.
+  // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking.
+  //    `refreshGlossaryTerms()` is stubbed out too: `ensureConfigs()` calls it even with
+  //    `configIsLoaded` already true, and this suite's positional `mockReturnValueOnce` queues on
+  //    `API_CLIENT.get` have no slack for an extra call landing between two of their own.
   const editorStore = useEditorStore()
   editorStore.configIsLoaded = true
   vi.spyOn(editorStore, 'refreshGlossaryTerms').mockResolvedValue()
@@ -53,9 +47,8 @@ async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
     props: { basePath: 'docs', ...props },
     global: { plugins: [i18n, router] }
   })
-  // -> `useDialogComponent` mounts hidden then flips visible on a following tick, so the teleported
-  //    panel -- everything this test interacts with -- exists only after that tick runs, and
-  //    `onMounted`'s `fetchExtensionsStatus()` needs its own tick to resolve too
+  // -> `useDialogComponent` mounts hidden and flips visible on a following tick, so the teleported
+  //    panel exists only after that tick runs; `fetchExtensionsStatus()` needs its own tick too
   await flushPromises()
   return wrapper
 }
@@ -66,7 +59,7 @@ async function selectFiles(files) {
   await input.trigger('change')
 }
 
-/** A fake `FileSystemFileEntry`, as `.webkitGetAsEntry()` would return it for a dropped file. */
+/** Shaped as `.webkitGetAsEntry()` returns a dropped file. */
 function makeFileEntry(name, content) {
   return {
     isFile: true,
@@ -76,11 +69,7 @@ function makeFileEntry(name, content) {
   }
 }
 
-/**
- * A fake `FileSystemDirectoryEntry` -- its `createReader().readEntries()` hands back `children` on
- * the first call and an empty array on every call after, the same "batches, terminated by empty"
- * contract the real one has.
- */
+/** `readEntries()` follows the real contract: successive batches, terminated by an empty array. */
 function makeDirEntry(name, children) {
   let exhausted = false
   return {
@@ -100,7 +89,6 @@ function makeDirEntry(name, children) {
   }
 }
 
-/** Dispatches a real `drop` event carrying fake `FileSystemEntry` objects at the dropzone. */
 async function dropEntries(entries) {
   const dropzone = body().find('.import-batch-dropzone').element
   const event = new Event('drop', { bubbles: true, cancelable: true })
@@ -113,9 +101,8 @@ async function dropEntries(entries) {
 }
 
 /**
- * Opens the one visible `w-select` (only one is ever on screen at a time in this dialog) and picks
- * the option whose label matches. `optionText` is the raw i18n key, not translated prose — the test
- * harness mounts with empty messages, so `t(key)` renders back the key itself.
+ * Only one `w-select` is ever on screen at a time in this dialog. `optionText` is the raw i18n key,
+ * not translated prose — the harness mounts with empty messages, so `t(key)` renders back the key.
  */
 async function chooseSelectOption(optionText) {
   await body().find('[role="combobox"]').trigger('click')
@@ -189,7 +176,6 @@ describe('ImportBatchPageDialog', () => {
     expect(opts.searchParams).toEqual({ path: 'docs' })
     expect(opts.body).toBeInstanceOf(FormData)
     expect(opts.body.getAll('files')).toHaveLength(2)
-    // -> One `formats` field per file, autodetected from each one's own extension (OpenProject #1209)
     expect(opts.body.getAll('formats')).toEqual(['docx', 'docx'])
 
     const rows = body().findAll('.import-batch-row')
@@ -198,18 +184,14 @@ describe('ImportBatchPageDialog', () => {
     expect(rows[1].text()).toContain('bad.docx')
     expect(rows[1].text()).toContain('This file could not be converted.')
 
-    // -> Convert-only: nothing is saved, and this dialog never hands content back like the
-    //    single-file one does -- it saves through the ordinary create-page endpoint itself instead.
+    // -> Convert-only: unlike the single-file dialog, this one never hands content back to a caller
+    //    -- it saves through the ordinary create-page endpoint itself.
     expect(wrapper.emitted()).not.toHaveProperty('ok')
   })
 
   /**
-   * OpenProject #1718: unlike `EXPORT_PDF_TIMEOUT`/`INSTALL_TIMEOUT`'s fixed ceilings, this request's
-   * `timeout` is computed from the batch actually being sent -- mirrors `computeBatchImportTimeout`'s
-   * three terms (base + per-file + per-byte, see that function's doc comment in the component) rather
-   * than asserting a single hardcoded magic number, so this stays a real regression guard against the
-   * *shape* of the scaling (does it grow with more/larger files at all), not brittle against a
-   * deliberate future retuning of the constants themselves.
+   * Mirrors `computeBatchImportTimeout`'s three terms rather than asserting one hardcoded number,
+   * so these stay a guard on the *shape* of the scaling and survive a retuning of the constants.
    */
   function expectedBatchImportTimeout(files) {
     const BASE = 40 * 1000
@@ -343,9 +325,8 @@ describe('ImportBatchPageDialog', () => {
       title: 'good',
       content: '# Good\n'
     })
-    // -> Regression guard (OpenProject #849 fix): the markdown pipeline is a frontend concern
-    //    (`renderers/markdown.js`), and a page view reads `pageStore.render`, not `content` -- a
-    //    save with no `render` here published a page that showed blank to every reader.
+    // -> The markdown pipeline is a frontend concern (`renderers/markdown.js`) and a page view
+    //    reads `pageStore.render`, not `content`: a save with no `render` publishes a blank page.
     expect(createCall[1].json.render).toEqual(expect.stringContaining('Good'))
     expect(createCall[1].json.render).not.toBe('')
     expect(body().find('.import-batch-row').text()).toContain('Saved')
@@ -353,8 +334,8 @@ describe('ImportBatchPageDialog', () => {
 
   it('fails a row on its own when its markdown will not render, without touching the save endpoint', async () => {
     await convertOneGoodFile()
-    // -> `MarkdownRenderer#render` throws on unparsable source; forcing that here proves a bad
-    //    render fails only this row rather than the request never reaching `createPage` at all
+    // -> `MarkdownRenderer#render` throws on unparsable source; forcing that is the only way to
+    //    reach the per-row render failure
     const renderSpy = vi
       .spyOn(await import('@/renderers/markdown'), 'MarkdownRenderer')
       .mockImplementation(() => ({
@@ -422,7 +403,6 @@ describe('ImportBatchPageDialog', () => {
     await flushPromises()
 
     expect(body().find('.import-batch-row').text()).toContain('Failed')
-    // -> Only the one createPage attempt: 'reject' does not retry
     expect(
       globalThis.API_CLIENT.post.mock.calls.filter((c) => c[0] === 'sites/site-1/pages')
     ).toHaveLength(1)
@@ -542,7 +522,6 @@ describe('ImportBatchPageDialog', () => {
 
     await dropEntries([notesDir])
 
-    // -> Both files landed in the picker, and the markdown format auto-detected off their extension
     const fileRows = body().findAll('.w-item')
     expect(fileRows.map((r) => r.text())).toEqual([
       expect.stringContaining('intro.md'),
@@ -628,10 +607,8 @@ describe('ImportBatchPageDialog', () => {
   })
 
   /**
-   * OpenProject #1012: each new page in the batch can change what an `auto`/`mixed` menu generates
-   * from the tree, the same as a single `pageSave()` create -- but this is a whole batch of them, so
-   * `saveAll()` invalidates once at the end rather than once per row, which would re-trigger the tree
-   * walk per row instead of per import.
+   * Each new page can change what an `auto`/`mixed` menu generates from the tree, so `saveAll()`
+   * invalidates once at the end rather than once per row and re-walking the tree each time.
    */
   describe('same-tab navigation invalidation (OpenProject #1012)', () => {
     it('force-refetches the sidebar nav once, after at least one row saved', async () => {

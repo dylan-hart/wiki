@@ -3,11 +3,6 @@ import { describe, expect, it } from 'vitest'
 import HeaderActionsMenu from './HeaderActionsMenu.vue'
 import { mountWithApp } from '../../test/mount.js'
 
-/**
- * OpenProject #2532: the Profile row opens `MainOverlayDialog`'s `Profile` entry (closing this menu
- * first, same as the New Page/File Manager rows) rather than navigating to the now-deleted
- * `/_profile` route.
- */
 describe('HeaderActionsMenu profile row', () => {
   it("opens the Profile overlay instead of navigating to '/_profile'", async () => {
     const { wrapper, siteStore } = mountWithApp(HeaderActionsMenu, {
@@ -21,9 +16,8 @@ describe('HeaderActionsMenu profile row', () => {
       }
     })
 
-    // -> WMenu's real trigger click listener is attached to the enclosing button natively, so a
-    //    plain DOM click on it opens the (teleported-but-inline-stubbed) menu content -- see
-    //    `composables/anchoredFloat.js`/`WMenu.vue`.
+    // -> `WMenu` attaches its trigger listener to the enclosing button natively, so a plain DOM
+    //    click opens the (teleported-but-inline-stubbed) menu content.
     await wrapper.find('[aria-label="More actions"]').trigger('click')
 
     const profileRow = wrapper
@@ -35,11 +29,6 @@ describe('HeaderActionsMenu profile row', () => {
   })
 })
 
-/**
- * Task #3264: a manually-uploaded avatar (`hasAvatar`) always wins; the provider-synced picture
- * (`avatarProviderUrl`) is only a fallback rendered in its place, and the generic glyph is the last
- * resort.
- */
 describe('HeaderActionsMenu avatar fallback', () => {
   async function openMenu({ hasAvatar = false, avatarProviderUrl = null } = {}) {
     const { wrapper } = mountWithApp(HeaderActionsMenu, {

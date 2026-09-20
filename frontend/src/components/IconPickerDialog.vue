@@ -1,7 +1,6 @@
 <template>
   <w-card class="icon-picker" style="width: 460px">
-    <!-- -> Inset from the card's edges: the strip is a segmented control with a track of its own, so
-         it sits ON the card rather than spanning it edge to edge -->
+    <!-- -> Inset: the strip has a track of its own, so it sits ON the card rather than spanning it -->
     <w-tabs class="m-2" v-model="state.currentTab" no-caps inline-label>
       <w-tab name="icon" icon="tabler:icons" :label="t(`iconPicker.icons`)" />
       <w-tab
@@ -12,9 +11,6 @@
     </w-tabs>
     <w-separator />
     <w-tab-panels v-model="state.currentTab">
-      <!-- ----------------------- -->
-      <!-- Iconify search -->
-      <!-- ----------------------- -->
       <w-tab-panel class="p-2" name="icon">
         <div class="flex flex-wrap gap-2">
           <div class="min-w-0 flex-1">
@@ -45,7 +41,7 @@
         </div>
         <div class="icon-picker-results mt-2">
           <!-- -> No spinner in the slot: WInnerLoading draws its own, and the slot is for what goes
-               BESIDE it (a caption). Passing one gave two stacked spinners. -->
+               BESIDE it (a caption). Passing one gives two stacked spinners. -->
           <w-inner-loading :showing="state.loading" size="32px" />
           <div
             class="text-center text-caption text-grey p-6"
@@ -68,19 +64,16 @@
           </div>
         </div>
       </w-tab-panel>
-      <!-- ----------------------- -->
-      <!-- An image file -->
-      <!-- ----------------------- -->
       <w-tab-panel v-if="!props.noImage" class="p-3" name="image">
-        <!-- -> `text-grey` (#9e9e9e) is too faint to read at caption size; the app's secondary-text
-             pair holds up on both the light panel and the dark one -->
+        <!-- -> `text-grey` is too faint to read at caption size; the app's secondary-text pair holds
+             up on both the light panel and the dark one -->
         <div class="text-caption text-black/60 dark:text-white/70">
           {{ t('iconPicker.imageHint') }}
         </div>
         <!--
-          The field holds the path alone; the `img:` that marks it as an image is shown as a fixed
-          prefix and added on the way out. That is how the reference has to be stored -- see WIcon --
-          but it is not something anyone should have to know to type.
+          The field holds the path alone; the `img:` that marks it as an image is a fixed prefix,
+          added on the way out. WIcon needs the reference stored that way, but nobody should have to
+          know to type it.
         -->
         <w-input
           ref="iptImage"
@@ -138,13 +131,9 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { log } from '@/helpers/log'
 import { useUserStore } from '@/stores/user'
 
-// I18N
-
 const { t } = useI18n()
 
 const closePopup = useClosePopup()
-
-// PROPS
 
 const props = defineProps({
   modelValue: {
@@ -152,11 +141,8 @@ const props = defineProps({
     default: ''
   },
   /**
-   * Offer icons only, leaving out the tab that points at an image file.
-   *
-   * For the callers whose value is not a `WIcon` reference and has no `img:` form to fall back on --
-   * the markdown editor writes an `:tabler:home:` shortcode, which is an Iconify reference and nothing
-   * else.
+   * For callers whose value has no `img:` form to fall back on -- the markdown editor writes an
+   * `:tabler:home:` shortcode, which is an Iconify reference and nothing else.
    */
   noImage: {
     type: Boolean,
@@ -164,16 +150,10 @@ const props = defineProps({
   }
 })
 
-// EMITS
-
 const emit = defineEmits(['update:modelValue'])
 
-// DATA
-
-/** Every set filter defaults to Tabler -- this app's own icons are all `tabler:*`, and it is by far
- *  the most complete/consistent single set to land a first-time search in, rather than a firehose
- *  of every enabled set at once. Overridden by whatever `loadSetPref()` finds saved (below) before
- *  the reader ever sees this default. */
+/** This app's own icons are all `tabler:*`, and it is the most complete single set to land a
+ *  first-time search in rather than a firehose of every enabled set at once. */
 const DEFAULT_SET_FILTER = 'tabler'
 
 const state = reactive({
@@ -187,26 +167,16 @@ const state = reactive({
   loading: false
 })
 
-/** An Iconify reference, as opposed to an `img:` URL. */
 const ICONIFY_REF = /^[a-z0-9-]+:[a-z0-9.-]+$/
 
-/** What marks a reference as an image rather than an icon, per WIcon. */
 const IMAGE_PREFIX = 'img:'
-
-// REFS
 
 const iptSearch = ref(null)
 const iptImage = ref(null)
 
-// STORES
-
 const userStore = useUserStore()
 
-// COMPOSABLES
-
 const dark = useDark()
-
-// COMPUTED
 
 const setOptions = computed(() => {
   return [
@@ -223,21 +193,15 @@ const pendingValue = computed(() => {
   return url ? `${IMAGE_PREFIX}${url}` : ''
 })
 
-// WATCHERS
-
-// -> Switching tabs by hand lands in that tab's field, the same as opening on it does
 watch(() => state.currentTab, focusCurrentTab)
-
-// METHODS
 
 async function loadSets() {
   try {
-    // -> Only enabled sets: a disabled one is not searchable, and its icons cannot be stored
+    // -> A disabled set is not searchable, and its icons cannot be stored
     const sets = await API_CLIENT.get('icons/sets').json()
     state.sets = (sets ?? []).filter((set) => set.isEnabled)
-    // -> The default/persisted filter may name a set this instance has since disabled (or never
-    //    enabled at all) -- falls back to "every enabled set" rather than silently searching a set
-    //    that can never return a result.
+    // -> The default or persisted filter may name a set this instance has since disabled -- fall
+    //    back to "every enabled set" rather than searching one that can never return a result.
     if (state.setFilter && !state.sets.some((set) => set.prefix === state.setFilter)) {
       state.setFilter = ''
     }
@@ -266,11 +230,9 @@ async function search() {
     const resp = await API_CLIENT.get(`icons/search?${params}`).json()
     state.results = resp?.icons ?? []
   } catch (err) {
-    // -> The backend already degrades to already-materialized local icons on its own (offline mode,
-    //    or Iconify being unreachable, OpenProject #3041) rather than throwing for either -- a
-    //    degraded-but-working search is not a user-facing failure, so a genuine error reaching here
-    //    is rare and gets no toast either, just an empty-results state (the template already shows
-    //    one whenever `state.results` is empty and not loading).
+    // -> The backend already degrades to locally-materialized icons when offline or when Iconify is
+    //    unreachable, so a genuine error here is rare and still not worth a toast -- the template
+    //    shows an empty-results state whenever `state.results` is empty and not loading.
     state.results = []
     log.warn('dialog', 'icon search failed', err)
   }
@@ -280,9 +242,6 @@ async function search() {
 // -> Every keystroke would otherwise be a search against the upstream API
 const queueSearch = debounce(search, 350)
 
-/** Restores the reader's last-chosen icon set filter, persisted the same way the knowledge graph's
- *  own view controls are (`Graph.vue#loadGraphPrefs()`) -- overriding `DEFAULT_SET_FILTER` once a
- *  real preference is found. Skipped for a guest, who has no profile to have ever saved one onto. */
 async function loadSetPref() {
   if (!userStore.authenticated) {
     return
@@ -298,9 +257,7 @@ async function loadSetPref() {
   }
 }
 
-/** Saves the reader's current set filter choice back onto their profile. A no-op for a guest; a
- *  failure is logged and otherwise swallowed, the same tolerance `loadSetPref()` gives its own read
- *  -- losing this preference save is not worth interrupting the icon search. */
+/** A failed save is swallowed: losing this preference is not worth interrupting the icon search. */
 async function saveSetPref() {
   if (!userStore.authenticated) {
     return
@@ -319,11 +276,9 @@ function onSetFilterChange() {
 }
 
 /**
- * Hand the reference back, having made sure the wiki can serve it.
- *
- * Drawing the results already stored the ones that were previewed; this covers a reference that was
- * typed rather than picked, and makes the guarantee explicit at the moment content starts pointing at
- * it — from here on the icon is served from the wiki, with or without the Iconify API.
+ * Materializing here covers a reference that was typed rather than picked (drawing the results
+ * already stored those), so from the moment content points at an icon it is served by the wiki,
+ * with or without the Iconify API.
  */
 async function apply() {
   const value = pendingValue.value
@@ -352,8 +307,6 @@ function applyAndClose() {
 }
 
 /**
- * Focus the field the visible tab leads with -- the search box, or the image path.
- *
  * Two ticks: the first renders the tab switch, and the field only exists once the panel it lives in
  * is the visible one.
  */
@@ -363,10 +316,7 @@ async function focusCurrentTab() {
   ;(state.currentTab === 'image' ? iptImage : iptSearch).value?.focus()
 }
 
-// MOUNTED
-
 onMounted(async () => {
-  // -> An image reference opens on the image tab, an Iconify one on the search tab
   if (!props.noImage && props.modelValue?.startsWith(IMAGE_PREFIX)) {
     state.currentTab = 'image'
     state.image = props.modelValue.slice(IMAGE_PREFIX.length)
@@ -375,8 +325,8 @@ onMounted(async () => {
     state.results = [props.modelValue]
   }
 
-  // -> Focus whichever field the picker opened on; an `img:` value above may have moved the tab,
-  //    in which case the watcher is focusing the same field and this is a no-op
+  // -> An `img:` value above may already have moved the tab, in which case the watcher is focusing
+  //    the same field and this call is a no-op
   await focusCurrentTab()
 
   await loadSetPref()
@@ -385,11 +335,6 @@ onMounted(async () => {
 </script>
 
 <style>
-/* Flattened by OpenProject #3254 (final Sass-removal teardown): this block used a
-   `&-suffix` BEM-style selector, Sass's own string-concatenation idiom, not valid in
-   native CSS nesting (the browser silently drops such a rule -- confirmed empirically,
-   it never matches). Compiled via the real Sass compiler one last time and inlined here
-   flat, byte-equivalent to what shipped before this Task, so nothing visually changes. */
 .body--light .icon-picker a {
   color: var(--color-blue-7);
 }
@@ -397,7 +342,7 @@ onMounted(async () => {
   color: var(--color-blue-3);
 }
 .icon-picker {
-  /* -> A shade off the card, so the fields and the results area read as sitting on a surface */
+  /* -> A shade off the card, so the fields and results read as sitting on a surface */
 }
 .body--light .icon-picker .w-tab-panels {
   background-color: var(--color-grey-1);

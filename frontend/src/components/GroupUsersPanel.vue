@@ -97,8 +97,7 @@
                 icon="tabler:pencil"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`common.actions.edit`)" />
-              <!-- Hidden for system users: the guest account's membership is fixed, and the API -->
-              <!-- refuses to change it either way -->
+              <!-- A system user's membership is fixed: the API refuses to change it either way -->
               <w-btn
                 class="acrylic-btn"
                 v-if="!props.row.isSystem && canManage"
@@ -139,32 +138,16 @@ import UserSearchDialog from '@/components/UserSearchDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 
-/**
- * The members half of `GroupEditOverlay.vue`: one paginated, filterable page of the group's users,
- * plus assigning and unassigning them.
- *
- * Split out of the overlay because none of it is about the group's own record -- it is a second,
- * separately-paged listing that happens to be reached from the same screen, and the only thing it
- * needs from the group is which one it is.
- */
-
-// COMPOSABLES
-
 const dark = useDark()
-
-// I18N
 
 const { t } = useI18n()
 
-// PROPS
-
 const props = defineProps({
-  /** The group whose members are listed. */
   groupId: {
     type: String,
     required: true
   },
-  /** Whether the viewer holds `manage:groups` -- what gates assigning and unassigning. */
+  /** Whether the viewer holds `manage:groups`. */
   canManage: {
     type: Boolean,
     default: false
@@ -173,8 +156,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:total'])
 
-// DATA
-
 const state = reactive({
   users: [],
   isLoadingUsers: false,
@@ -182,8 +163,8 @@ const state = reactive({
   usersPage: 1,
   usersPageSize: 15,
   usersTotal: 0,
-  /** Every enabled, mapGroups-on strategy that could revoke this group on a member's next login
-   *  (WP #2440) -- see `fetchSyncWarning()`. Empty means this group is not currently synced. */
+  /** Enabled, mapGroups-on strategies that could revoke this group on a member's next login.
+   *  Empty means this group is not synced. */
   syncStrategies: []
 })
 
@@ -225,8 +206,6 @@ const usersHeaders = [
   }
 ]
 
-// COMPUTED
-
 const usersTotalPages = computed(() => {
   if (state.usersTotal < 1) {
     return 0
@@ -234,11 +213,7 @@ const usersTotalPages = computed(() => {
   return Math.ceil(state.usersTotal / state.usersPageSize)
 })
 
-// WATCHERS
-
 watch([() => state.usersPage, () => state.usersFilter], refreshUsers)
-
-// METHODS
 
 async function refreshUsers() {
   state.isLoadingUsers = true
@@ -254,8 +229,8 @@ async function refreshUsers() {
       throw new Error(t('common.error.unexpected'))
     }
     state.usersTotal = resp.total ?? 0
-    // -> The overlay's own section badge counts members too, and this is where the true count is
-    //    learned -- `state.group.userCount` only seeds it before the list is first read.
+    // -> The overlay's section badge only seeds its count from the group record; this is the
+    //    authoritative one.
     emit('update:total', state.usersTotal)
     state.users = resp.users
   } catch (err) {
@@ -285,7 +260,6 @@ function assignUser() {
         await API_CLIENT.post(`groups/${props.groupId}/users/${usr.id}`).json()
         assigned++
       } catch (err) {
-        // -> ky throws above 400, with the reason in the body
         notify({
           type: 'negative',
           message: t('admin.groups.assignUserFailed', { userName: usr.name }),
@@ -321,7 +295,7 @@ async function unassignUser(user) {
       })
       await refreshUsers()
     } catch (err) {
-      // -> ky throws above 400 (e.g. 409 for the last root admin), with the reason in the body
+      // -> ky throws above 400 (409 for the last root administrator), with the reason in the body
       notify({
         type: 'negative',
         message: apiErrorMessage(err)
@@ -331,13 +305,9 @@ async function unassignUser(user) {
   })
 }
 
-// MOUNTED
-
 /**
- * groupId -> whether it is currently on any enabled, mapGroups-on strategy's `mappableGroups`
- * allow-list, and if so which. Best-effort: a viewer who cannot reach this route for any reason
- * simply sees no warning rather than a broken panel, since the warning is a courtesy, not a
- * requirement this panel's own listing depends on.
+ * Best-effort: the warning is a courtesy the listing does not depend on, so a viewer who cannot
+ * reach the route sees no warning rather than a broken panel.
  */
 async function fetchSyncWarning() {
   try {
@@ -349,10 +319,7 @@ async function fetchSyncWarning() {
   }
 }
 
-/*
-  This panel is only mounted while the overlay is on its `users` section, so mounting IS entering
-  that section -- which is exactly when the overlay used to call `refreshUsers()` from `checkRoute`.
-*/
+// -> Only mounted while the overlay is on its `users` section, so mounting is entering it.
 onMounted(() => {
   refreshUsers()
   fetchSyncWarning()

@@ -5,13 +5,6 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { mountWithApp } from '../../test/mount.js'
 import IconPickerDialog from './IconPickerDialog.vue'
 
-/**
- * The icon set filter's default (Tabler, this app's own icon set) and its persistence onto the
- * signed-in reader's profile -- the same `GET`/`PUT profile` contract the knowledge graph's own view
- * controls use (`Graph.persistence.test.js`, `backend/api/users/profile.iconPicker.test.ts`,
- * `backend/models/users.profile.test.ts`).
- */
-
 const TABLER_SET = { prefix: 'tabler', name: 'Tabler', isEnabled: true }
 const MDI_SET = { prefix: 'mdi', name: 'Material Design Icons', isEnabled: true }
 
@@ -97,10 +90,9 @@ describe('IconPickerDialog: persisted set filter', () => {
 })
 
 /**
- * OpenProject #3041: the backend already degrades a failed search to its own local fallback rather
- * than rejecting, so a rejection reaching the frontend at all is the rare, genuinely-unexpected case
- * -- and even then, a degraded-but-working search is not a user-facing failure. No toast, either way;
- * just an empty-results state, same as a search that legitimately matched nothing.
+ * The backend degrades a failed search to its own local fallback rather than rejecting, so a
+ * rejection reaching the frontend is the rare, genuinely-unexpected case -- and still not a
+ * user-facing failure, so it draws the same empty-results state as a search that matched nothing.
  */
 describe('IconPickerDialog: search failure', () => {
   it('degrades silently on a search failure -- empty results, no error toast', async () => {

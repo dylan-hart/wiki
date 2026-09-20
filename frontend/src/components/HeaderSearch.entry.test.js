@@ -10,16 +10,8 @@ vi.mock('@/helpers/clipboard', () => ({
 }))
 
 /**
- * Regression test for the `popularTags` computed (not part of the backend `FIXME:` list this branch's
- * test infra otherwise regression-tests — this is the fifth, frontend bug the epic separately
- * tracks). It must sort by usage count DESCENDING, most-used
- * first: `orderBy(siteStore.popularTags, ['usageCount', 'desc'], ['asc', 'asc'])` passed the string
- * `'desc'` as a second sort KEY (es-toolkit's `orderBy(collection, iteratees[], orders[])` has no such
- * property on a tag) rather than as the ORDER for `usageCount`, so every tag sorted ascending by
- * usage — the opposite of "popular" — regardless of what order strings were written after it.
- *
- * Seeds `siteStore.popularTags`/`popularTagsLoaded` (OpenProject #3046's dedicated, 60-day-activity,
- * capped-to-10 state), not `tags`/`tagsLoaded` -- those back a different, unrelated widget now.
+ * Seeds `popularTags`/`popularTagsLoaded` -- the dedicated, recent-activity, capped-to-10 state the
+ * panel reads -- not `tags`/`tagsLoaded`, which back a different, unrelated widget.
  */
 async function mountWithTags(tags) {
   const router = await createTestRouter(['/'])
@@ -35,19 +27,13 @@ async function mountWithTags(tags) {
     }
   })
 
-  // -> The panel (and the popular-tags list inside it) only renders once the field is focused --
-  //    mirrors what a real user does, rather than reaching into component internals for the flag.
+  // -> The panel, and the popular-tags list inside it, renders only once the field is focused.
   await wrapper.find('.header-search-input').trigger('focus')
 
   return wrapper
 }
 
-/**
- * OpenProject #987, #1120, #1218: the browse-by-tags entry point, moved here from `HeaderNav.vue`
- * (`HeaderNav.test.js` asserts it no longer renders one of its own) so it can dock flush against the
- * search field's right edge, matching the 2.5.x reference layout -- `tabler:tags` rather than the
- * previous `tabler:hash`, which read as a `#` operator glyph rather than a tag shape.
- */
+/** `tabler:hash` reads as a `#` operator glyph rather than as a tag shape. */
 describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => {
   it('renders a link to /_tags docked against the field, unconditionally', async () => {
     const wrapper = await mountWithTags([])
@@ -83,10 +69,8 @@ describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => 
 })
 
 /**
- * OpenProject #2050: `handleKeyPress` only ever tested `ev.ctrlKey`, so Cmd+K did nothing on macOS --
- * worse, Ctrl+K there is the OS's own emacs kill-to-end-of-line binding, already claimed. These
- * assert both modifiers now focus the field, and that the hint (previously hardcoded, always
- * "Ctrl+K") follows a stubbed `navigator.platform`.
+ * Both modifiers have to work: Ctrl+K on macOS is the OS's own emacs kill-to-end-of-line binding,
+ * already claimed there. The hint follows `navigator.platform`, stubbed per test.
  */
 describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
   let activeWrapper = null
@@ -164,14 +148,9 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
   })
 
   /**
-   * OpenProject #2511: the hint used to be captured once into a plain `const` at setup, not a
-   * `computed()`. `boot/i18n.js` creates the real app's i18n instance with empty messages and loads
-   * the active locale's catalog asynchronously afterward, so a component that sets up before that
-   * load finishes got the raw key back from `t()` and, being a frozen `const`, stayed stuck on it
-   * for its entire mounted lifetime even once the real messages landed. This reproduces exactly that
-   * race -- mount with no messages loaded yet (as `createTestI18n({})` defaults to), then load them
-   * the way the real boot sequence does, and assert the hint updates in place rather than needing a
-   * remount.
+   * `boot/i18n.js` creates the app's i18n instance with empty messages and loads the active locale's
+   * catalog asynchronously afterwards, so a component setting up before that load finishes gets the
+   * raw key back from `t()`. Mount with no messages, then load them the way boot does.
    */
   it('updates the hint once the locale catalog loads after mount, rather than staying on the raw key', async () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32')
@@ -188,10 +167,8 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
 })
 
 /**
- * OpenProject #3227: the hint used to disappear (`v-if` on `!state.searchIsFocused`) the moment the
- * field gained focus, shrinking `.header-search-field` and shifting the mode-toggle/tags buttons
- * docked beside it. It must now stay put across a focus/blur cycle, with or without a typed query
- * (which used to swap it out for a separate "Press Enter" hint of a different width).
+ * A hint that comes and goes with focus, or swaps for one of a different width once a query is
+ * typed, shrinks `.header-search-field` and shifts the mode-toggle/tags buttons docked beside it.
  */
 describe('HeaderSearch shortcut hint stays put across focus changes (OpenProject #3227)', () => {
   async function mountFocusable() {
@@ -238,12 +215,9 @@ describe('HeaderSearch shortcut hint stays put across focus changes (OpenProject
 })
 
 /**
- * OpenProject #2718: `is-focused` used to live on `.header-search-field` alone, so the focus ring
- * could only darken the field's own edges -- the docked tags button, which supplies the shared
- * right edge (`.header-search-field--docked` drops the field's own `border-inline-end`), kept its
- * static hairline and the ring visibly broke at the seam. The class now lives on the row wrapping
- * both controls, so it should land on `.header-search-row-inline` and never directly on the field,
- * with both the field and the tags button reachable as descendants of that same focused row.
+ * The docked tags button supplies the field's right edge (`.header-search-field--docked` drops the
+ * field's own `border-inline-end`), so a ring on the field alone breaks visibly at the seam:
+ * `is-focused` belongs on the row wrapping both controls.
  */
 describe('HeaderSearch focus ring spans the field and the docked tags button (OpenProject #2718)', () => {
   it('puts is-focused on the row, not on the field, once the input is focused', async () => {
@@ -280,15 +254,11 @@ describe('HeaderSearch focus ring spans the field and the docked tags button (Op
 })
 
 /**
- * `ui-iteration-cobalt-typography/cobalt-typography.md` §3's header-bar role table: the search
- * placeholder/input is a 13.5px role, identical in Ledger and Cobalt (only `color` differs between
- * the two aesthetics) -- `font: inherit` on `.header-search-input` used to leave it with no
- * font-size of its own, falling through the ancestor chain to `body`'s unrelated 14px fallback base
- * (`tailwind.css`'s documented "fallback, not a role").
+ * The search input is a 13.5px role in both aesthetics; with `font: inherit` and nothing of its own
+ * it would fall through to `body`'s unrelated 14px fallback base.
  *
- * Mounted attached to `document.body`, following `EditorWysiwyg.darkMode.test.js`'s established
- * pattern -- happy-dom's `getComputedStyle` needs a real body ancestor to resolve a cascaded
- * property at all, returning `''` for an unattached wrapper rather than the initial/inherited value.
+ * Mounted attached to `document.body` because happy-dom's `getComputedStyle` needs a real body
+ * ancestor to resolve a cascaded property at all, returning `''` for an unattached wrapper.
  */
 describe('HeaderSearch placeholder/input type role (cobalt-typography.md §3)', () => {
   it('sets the search input to the 13.5px role size, not the 14px body fallback', async () => {
@@ -323,10 +293,7 @@ describe('HeaderSearch popularTags', () => {
     expect(renderedTags).toEqual(['b', 'c', 'a'])
   })
 
-  /**
-   * OpenProject #3046: the backend already caps `GET sites/:siteId/tags/popular` at 10, but the
-   * widget defends against rendering more anyway rather than trusting that ceiling blindly.
-   */
+  /** The backend already caps this endpoint at 10; the widget does not trust that ceiling blindly. */
   it('renders at most 10 chips even if popularTags carries more', async () => {
     const tags = Array.from({ length: 15 }, (_, i) => ({
       tag: `tag-${i}`,
@@ -338,8 +305,8 @@ describe('HeaderSearch popularTags', () => {
   })
 
   /**
-   * OpenProject #3046: opening the panel must fetch the dedicated popular-tags endpoint, not the
-   * all-time/unlimited `sites/:siteId/tags` the tag-edit autocomplete and tag-browse page use.
+   * The dedicated popular-tags endpoint, not the all-time/unlimited `sites/:siteId/tags` the
+   * tag-edit autocomplete and the tag-browse page use.
    */
   it('fetches sites/:siteId/tags/popular when the panel opens', async () => {
     const router = await createTestRouter(['/'])
@@ -364,13 +331,9 @@ describe('HeaderSearch popularTags', () => {
 })
 
 /**
- * OpenProject #830 (upstream PR #7688): a browser's password manager offers to fill a "username +
- * password" pair into whatever looks like a login form on the page, and without a signal telling it
- * otherwise a plain, unlabeled text field like this one can get scooped up as the "username" half --
- * autofilling a stray credential into the header search box. `autocomplete="off"` is the field's own
- * opt-out signal; this pins it as a regression test since nothing else about this field (no `name`,
- * no `type="search"`, sitting right next to the header's own controls) would otherwise stop a browser
- * from trying.
+ * A password manager fills a "username + password" pair into whatever looks like a login form, and
+ * nothing else about this field -- no `name`, no `type="search"` -- would stop it scooping the box
+ * up as the "username" half.
  */
 describe('HeaderSearch autofill', () => {
   it('marks the input autocomplete="off" so password managers do not offer to fill it', async () => {
@@ -380,12 +343,6 @@ describe('HeaderSearch autofill', () => {
   })
 })
 
-/**
- * OpenProject #2995: the "Search Operators" hints used to always render whenever the panel was
- * open. It is now collapsed by default, behind a header the reader clicks to expand -- with no
- * persisted state, so it starts collapsed again on every fresh open. Popular Tags, directly above
- * it in the panel, is unaffected and stays unconditionally visible.
- */
 describe('HeaderSearch "Search Operators" hints (OpenProject #2995)', () => {
   it('starts collapsed: no tip rows render, and the toggle reports aria-expanded="false"', async () => {
     const wrapper = await mountWithTags([])
