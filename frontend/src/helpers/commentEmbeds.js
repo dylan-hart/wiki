@@ -196,5 +196,32 @@ export const COMMENT_EMBED_PROVIDERS = {
         retargetGiscusOnLoad(frame, pageUrl)
       }
     }
+  },
+
+  remark42: {
+    async mount(container, config, pageUrl) {
+      const host = (config?.host || '').replace(/\/+$/, '')
+      if (!host) {
+        return
+      }
+      const root = document.createElement('div')
+      root.id = 'remark42'
+      container.appendChild(root)
+
+      window.remark_config = {
+        host,
+        site_id: config?.siteId || 'remark',
+        url: pageUrl,
+        components: ['embed'],
+        theme: config?.theme === 'dark' ? 'dark' : 'light',
+        max_shown_comments: Number(config?.maxShownComments) || 15
+      }
+      if (window.REMARK42?.createInstance) {
+        window.REMARK42.destroy?.()
+        window.REMARK42.createInstance(window.remark_config)
+        return
+      }
+      await loadScriptOnce(`${host}/web/embed.js`)
+    }
   }
 }

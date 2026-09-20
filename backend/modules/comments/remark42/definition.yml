@@ -1,0 +1,37 @@
+key: remark42
+title: Remark42
+description: A small, self-hosted comment engine with threaded replies, votes and anonymous or social sign-in.
+author: umputun
+website: https://remark42.com
+codeTemplate: true
+isAvailable: true
+props:
+  host:
+    type: String
+    default: ''
+    title: Server URL
+    hint: "Publicly reachable URL of your own Remark42 server, with the scheme and without a trailing slash (e.g. https://remark42.example.com). Remark42 is self-hosted; there is no shared instance. When security.enforceCsp is on, allow this host in both script-src and frame-src, since the shipped script-src 'self' blocks its embed script and frame."
+    maxWidth: 650
+    order: 1
+  siteId:
+    type: String
+    default: 'remark'
+    title: Site ID
+    hint: 'The site identifier Remark42 was started with (its SITE environment variable).'
+    maxWidth: 450
+    order: 2
+  theme:
+    type: String
+    default: 'light'
+    title: Theme
+    enum:
+      - 'light|Light'
+      - 'dark|Dark'
+    order: 3
+  maxShownComments:
+    type: Number
+    default: 15
+    title: Comments Shown
+    hint: 'How many comments are drawn before the reader has to ask for more.'
+    maxWidth: 200
+    order: 4
