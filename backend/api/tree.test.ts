@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import treeRoutes from './tree.ts'
+import { CustomError } from '../helpers/common.ts'
 import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
@@ -535,4 +536,433 @@ test('LIST PAGES AS A READER route: threads each page’s tags into the read:pag
     ;(globalThis as any).CARDINAL.models.tree.listPages = originalListPages
     ;(globalThis as any).CARDINAL.models.groups.checkAccess = originalCheckAccess
   }
+})
+
+const DUPLICATE_DEST_ID = '66666666-6666-4666-8666-666666666666'
+const DUPLICATE_SESSION = JSON.stringify({ authenticated: true, user: { id: 'user-1' } })
+
+interface DuplicateScenario {
+  folders?: Record<string, any>
+  existingFolders?: string[]
+  pages?: any[]
+  assets?: any[]
+  allow?: (permission: string, ref: any) => boolean
+  lockedPages?: string[]
+  duplicate?: (args: any) => any
+}
+
+async function withDuplicateMocks(
+  scenario: DuplicateScenario,
+  fn: (calls: { access: any[]; duplicate: any[]; getPage: any[] }) => Promise<void>
+) {
+  const models = (globalThis as any).CARDINAL.models
+  const saved = {
+    tree: { ...models.tree },
+    groups: { ...models.groups },
+    pages: { ...models.pages }
+  }
+  const calls = { access: [] as any[], duplicate: [] as any[], getPage: [] as any[] }
+  const folders: Record<string, any> = {
+    [FOLDER_ID]: {
+      id: FOLDER_ID,
+      siteId: ENABLED_SITE_ID,
+      fileName: 'sub',
+      folderPath: '',
+      locale: 'en',
+      meta: {}
+    },
+    ...scenario.folders
+  }
+  models.tree.getFolderById = async (id: string) => folders[id] ?? null
+  models.tree.getFolder = async ({ path }: { path: string }) => {
+    if (scenario.existingFolders?.includes(path)) {
+      return { id: path }
+    }
+    throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+  }
+  models.tree.listDescendants = async () => ({
+    pages: scenario.pages ?? [],
+    assets: scenario.assets ?? []
+  })
+  models.tree.duplicateFolder =
+    scenario.duplicate ??
+    (async (args: any) => {
+      calls.duplicate.push(args)
+      return {
+        folder: {
+          id: DUPLICATE_DEST_ID,
+          fileName: args.pathName ?? 'sub',
+          folderPath: args.parentPath ?? '',
+          locale: 'en',
+          meta: { children: 2 }
+        },
+        folders: 2,
+        pages: scenario.pages?.length ?? 0,
+        assets: scenario.assets?.length ?? 0
+      }
+    })
+  models.groups.checkAccess = (_actor: any, permission: string, ref: any) => {
+    calls.access.push({ permission, ref })
+    return scenario.allow ? scenario.allow(permission, ref) : true
+  }
+  models.pages.getPage = async (args: any) => {
+    calls.getPage.push(args)
+    return { id: args.id, isLocked: scenario.lockedPages?.includes(args.id) ?? false }
+  }
+  try {
+    await fn(calls)
+  } finally {
+    Object.assign(models.tree, saved.tree)
+    Object.assign(models.groups, saved.groups)
+    Object.assign(models.pages, saved.pages)
+  }
+}
+
+function duplicate(payload: Record<string, any>, session: string | null = DUPLICATE_SESSION) {
+  return app.inject({
+    method: 'POST',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}/duplicate`,
+    headers: session ? { 'x-test-session': session } : {},
+    payload
+  })
+}
+
+const DUP_PAGE_A = {
+  id: 'page-a',
+  path: 'sub/a',
+  locale: 'en',
+  tags: ['x'],
+  classification: 'internal'
+}
+const DUP_PAGE_B = {
+  id: 'page-b',
+  path: 'sub/deep/b',
+  locale: 'en',
+  tags: [],
+  classification: null
+}
+const DUP_ASSET = {
+  id: 'asset-a',
+  path: 'sub/deep/pic.png',
+  folderPath: 'sub/deep',
+  fileName: 'pic.png',
+  locale: 'en'
+}
+
+test('DUPLICATE FOLDER route: an authorized request makes exactly one model call and returns its result', async () => {
+  await withDuplicateMocks(
+    { pages: [DUP_PAGE_A, DUP_PAGE_B], assets: [DUP_ASSET] },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy', title: 'Sub copy' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate.length, 1)
+      assert.equal(calls.duplicate[0].id, FOLDER_ID)
+      assert.equal(calls.duplicate[0].siteId, ENABLED_SITE_ID)
+      assert.equal(calls.duplicate[0].parentPath, 'other')
+      assert.equal(calls.duplicate[0].folderId, undefined)
+      assert.equal(calls.duplicate[0].pathName, 'sub-copy')
+      assert.equal(calls.duplicate[0].title, 'Sub copy')
+      assert.equal(calls.duplicate[0].actor.id, 'user-1')
+      const body = res.json()
+      assert.equal(body.ok, true)
+      assert.equal(body.folder.id, DUPLICATE_DEST_ID)
+      assert.equal(body.folder.childrenCount, 2)
+      assert.equal(body.folders, 2)
+      assert.equal(body.pages, 2)
+      assert.equal(body.assets, 1)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: judges every source read and every destination write on the path each copy lands at', async () => {
+  await withDuplicateMocks(
+    { pages: [DUP_PAGE_A, DUP_PAGE_B], assets: [DUP_ASSET] },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 200)
+      const asked = calls.access.map((entry) => `${entry.permission} ${entry.ref.path}`)
+      assert.ok(asked.includes('read:pages sub'))
+      assert.ok(asked.includes('manage:pages other/sub-copy'))
+      assert.ok(asked.includes('read:pages sub/a'))
+      assert.ok(asked.includes('write:pages other/sub-copy/a'))
+      assert.ok(asked.includes('write:pages other/sub-copy/deep/b'))
+      assert.ok(asked.includes('read:assets sub/deep/pic.png'))
+      assert.ok(asked.includes('write:assets other/sub-copy/deep/pic.png'))
+      const write = calls.access.find(
+        (entry) => entry.permission === 'write:pages' && entry.ref.path === 'other/sub-copy/a'
+      )
+      assert.deepEqual(write.ref.tags, ['x'])
+      assert.equal(write.ref.classification, 'internal')
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: refuses an anonymous request and copies nothing', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({}, null)
+    assert.equal(res.statusCode, 401)
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+test('DUPLICATE FOLDER route: a source the caller cannot read answers 404', async () => {
+  await withDuplicateMocks(
+    { allow: (permission) => permission !== 'read:pages' },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'x' })
+      assert.equal(res.statusCode, 404)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one page the caller cannot read refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A, DUP_PAGE_B],
+      allow: (permission, ref) => !(permission === 'read:pages' && ref.path === 'sub/deep/b')
+    },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /sub\/deep\/b/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one page the caller cannot write at its destination refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A, DUP_PAGE_B],
+      allow: (permission, ref) =>
+        !(permission === 'write:pages' && ref.path === 'other/sub-copy/deep/b')
+    },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /other\/sub-copy\/deep\/b/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one asset the caller cannot read refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A],
+      assets: [DUP_ASSET],
+      allow: (permission) => permission !== 'read:assets'
+    },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: one asset the caller cannot write at its destination refuses the whole request', async () => {
+  await withDuplicateMocks(
+    {
+      pages: [DUP_PAGE_A],
+      assets: [DUP_ASSET],
+      allow: (permission) => permission !== 'write:assets'
+    },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /sub-copy\/deep\/pic\.png/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: refuses when the caller cannot manage the copy’s own path', async () => {
+  await withDuplicateMocks(
+    { allow: (permission, ref) => !(permission === 'manage:pages' && ref.path === 'sub-copy') },
+    async (calls) => {
+      const res = await duplicate({ pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a missing destination ancestor the caller may not create refuses the request', async () => {
+  await withDuplicateMocks(
+    {
+      existingFolders: ['area'],
+      allow: (permission, ref) => !(permission === 'manage:pages' && ref.path === 'area/new')
+    },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'area/new/deeper', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /area\/new/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: an existing destination ancestor needs no create permission of its own', async () => {
+  await withDuplicateMocks(
+    {
+      existingFolders: ['area', 'area/new'],
+      allow: (permission, ref) => !(permission === 'manage:pages' && ref.path === 'area/new')
+    },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'area/new', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate.length, 1)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a destination folderId is resolved for its path and locale', async () => {
+  await withDuplicateMocks(
+    {
+      folders: {
+        [DUPLICATE_DEST_ID]: {
+          id: DUPLICATE_DEST_ID,
+          fileName: 'dest',
+          folderPath: 'top',
+          locale: 'fr'
+        }
+      },
+      pages: [DUP_PAGE_A]
+    },
+    async (calls) => {
+      const res = await duplicate({ folderId: DUPLICATE_DEST_ID, parentPath: 'ignored' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate[0].folderId, DUPLICATE_DEST_ID)
+      assert.equal(calls.duplicate[0].parentPath, undefined)
+      const write = calls.access.find(
+        (entry) => entry.permission === 'write:pages' && entry.ref.locale === 'fr'
+      )
+      assert.equal(write.ref.path, 'top/dest/sub/a')
+      assert.equal(write.ref.locale, 'fr')
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a destination folderId that does not resolve in this site answers 404', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({ folderId: DUPLICATE_DEST_ID })
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, 'The destination folder does not exist.')
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+test('DUPLICATE FOLDER route: refuses a copy into the folder itself', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({ parentPath: 'sub', pathName: 'sub-copy' })
+    assert.equal(res.statusCode, 400)
+    assert.equal(calls.duplicate.length, 0)
+  })
+})
+
+test('DUPLICATE FOLDER route: refuses a copy into a folder inside it, by path or by id', async () => {
+  await withDuplicateMocks(
+    {
+      folders: {
+        [DUPLICATE_DEST_ID]: {
+          id: DUPLICATE_DEST_ID,
+          fileName: 'deep',
+          folderPath: 'sub',
+          locale: 'en'
+        }
+      }
+    },
+    async (calls) => {
+      const byPath = await duplicate({ parentPath: 'Sub/Deep/Deeper', pathName: 'sub-copy' })
+      assert.equal(byPath.statusCode, 400)
+      const byId = await duplicate({ folderId: DUPLICATE_DEST_ID, pathName: 'sub-copy' })
+      assert.equal(byId.statusCode, 400)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: a sibling whose name merely starts with the source’s name is not inside it', async () => {
+  await withDuplicateMocks({ existingFolders: ['sub-two'] }, async (calls) => {
+    const res = await duplicate({ parentPath: 'sub-two' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.duplicate.length, 1)
+  })
+})
+
+test('DUPLICATE FOLDER route: the same path in another locale is not inside the source', async () => {
+  await withDuplicateMocks(
+    {
+      folders: {
+        [DUPLICATE_DEST_ID]: {
+          id: DUPLICATE_DEST_ID,
+          fileName: 'sub',
+          folderPath: '',
+          locale: 'fr'
+        }
+      }
+    },
+    async (calls) => {
+      const res = await duplicate({ folderId: DUPLICATE_DEST_ID })
+      assert.equal(res.statusCode, 200)
+      assert.equal(calls.duplicate.length, 1)
+    }
+  )
+})
+
+const NO_SOURCE_BYPASS = (permission: string, ref: any) =>
+  permission === 'read:pages' || String(ref.path).startsWith('other')
+
+test('DUPLICATE FOLDER route: a password-protected page the caller has not unlocked refuses the whole request', async () => {
+  await withDuplicateMocks(
+    { pages: [DUP_PAGE_A, DUP_PAGE_B], lockedPages: ['page-b'], allow: NO_SOURCE_BYPASS },
+    async (calls) => {
+      const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+      assert.equal(res.statusCode, 403)
+      assert.match(res.json().message, /password protected/)
+      assert.equal(calls.duplicate.length, 0)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: an unlocked page without a password copies as normal', async () => {
+  await withDuplicateMocks({ pages: [DUP_PAGE_A], allow: NO_SOURCE_BYPASS }, async (calls) => {
+    const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.getPage.length, 1)
+    assert.equal(calls.duplicate.length, 1)
+  })
+})
+
+test('DUPLICATE FOLDER route: a caller who may write the locked page needs no password, as everywhere else', async () => {
+  await withDuplicateMocks({ pages: [DUP_PAGE_A], lockedPages: ['page-a'] }, async (calls) => {
+    const res = await duplicate({ parentPath: 'other', pathName: 'sub-copy' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.getPage.length, 0)
+    assert.equal(calls.duplicate.length, 1)
+  })
+})
+
+test('DUPLICATE FOLDER route: a name collision from the model answers 409', async () => {
+  await withDuplicateMocks(
+    {
+      duplicate: async () => {
+        throw new CustomError('treeFolderDuplicate', 'A folder with that name exists.', 409)
+      }
+    },
+    async () => {
+      const res = await duplicate({ parentPath: '' })
+      assert.equal(res.statusCode, 409)
+    }
+  )
+})
+
+test('DUPLICATE FOLDER route: rejects a pathName that is not a valid segment', async () => {
+  await withDuplicateMocks({}, async (calls) => {
+    const res = await duplicate({ pathName: 'Not Valid' })
+    assert.equal(res.statusCode, 400)
+    assert.equal(calls.duplicate.length, 0)
+  })
 })
