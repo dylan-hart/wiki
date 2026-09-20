@@ -10,6 +10,8 @@ assetDelivery:
   isDirectAccessSupported: true
   defaultStreamingEnabled: true
   defaultDirectAccessEnabled: true
+  isReadThroughSupported: true
+  defaultReadThroughEnabled: false
 contentTypes:
   defaultTypesEnabled: ['images', 'documents', 'others', 'large']
   defaultLargeThreshold: '5MB'

@@ -68,10 +68,16 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           isDirectAccessSupported: {
             type: 'boolean'
           },
+          isReadThroughSupported: {
+            type: 'boolean'
+          },
           streaming: {
             type: 'boolean'
           },
           directAccess: {
+            type: 'boolean'
+          },
+          readThrough: {
             type: 'boolean'
           }
         }
@@ -227,6 +233,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'boolean'
           },
           directAccess: {
+            type: 'boolean'
+          },
+          readThrough: {
             type: 'boolean'
           }
         }
