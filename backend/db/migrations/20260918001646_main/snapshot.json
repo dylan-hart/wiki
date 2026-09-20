@@ -5259,19 +5259,6 @@
       "table": "storage"
     },
     {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'{}'",
-      "generated": null,
-      "identity": null,
-      "name": "state",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "storage"
-    },
-    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
