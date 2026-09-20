@@ -1571,6 +1571,11 @@ describe('mail send wrappers set their own kind', () => {
       'sendTfaDisabled',
       'tfaDisabled',
       () => mail.sendTfaDisabled({ to: 'a@example.com', name: 'A', userId: 'u1' })
+    ],
+    [
+      'sendTfaNewDeviceLogin',
+      'tfaNewDeviceLogin',
+      () => mail.sendTfaNewDeviceLogin({ to: 'a@example.com', name: 'A', userId: 'u1' })
     ]
   ]
 
@@ -1589,20 +1594,22 @@ describe('mail send wrappers set their own kind', () => {
     // FIXME: `tfaNewDeviceLogin` has a wrapper (`sendTfaNewDeviceLogin`) yet appears in neither
     //        `cases` nor this list, so the claim above holds only by omission. Add it to both, and
     //        pin the list with a `Record<MailKind, true>` literal so a new member cannot be missed.
-    const all: MailKind[] = [
-      'verify',
-      'forgotPassword',
-      'welcome',
-      'passwordChanged',
-      'registrationAttempt',
-      'test',
-      'watch',
-      'digest',
-      'notificationEvent',
-      'tfaEnabled',
-      'tfaDisabled',
-      'tfaRecoveryCodesGenerated'
-    ]
+    const allKinds: Record<Exclude<MailKind, 'approval'>, true> = {
+      verify: true,
+      forgotPassword: true,
+      welcome: true,
+      passwordChanged: true,
+      registrationAttempt: true,
+      test: true,
+      watch: true,
+      digest: true,
+      notificationEvent: true,
+      tfaEnabled: true,
+      tfaDisabled: true,
+      tfaRecoveryCodesGenerated: true,
+      tfaNewDeviceLogin: true
+    }
+    const all = Object.keys(allKinds) as MailKind[]
     for (const kind of all) {
       assert.ok(covered.has(kind), `MailKind "${kind}" has no wrapper case above`)
     }
