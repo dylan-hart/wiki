@@ -15,6 +15,7 @@
           has to match its position in the DOM.
         -->
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:link-plus"
           padding="sm sm"
           flat
@@ -25,6 +26,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:photo-plus"
           padding="sm sm"
           flat
@@ -34,7 +36,12 @@
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
-        <w-btn icon="tabler:json" padding="sm sm" flat :tabindex="sideToolbarRoving.tabindexFor(2)">
+        <w-btn
+          class="flush-hover-btn"
+          icon="tabler:json"
+          padding="sm sm"
+          flat
+          :tabindex="sideToolbarRoving.tabindexFor(2)">
           <editor-code-block-menu
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
@@ -44,6 +51,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:table-plus"
           padding="sm sm"
           flat
@@ -54,6 +62,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:browser-plus"
           padding="sm sm"
           flat
@@ -64,6 +73,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:puzzle"
           padding="sm sm"
           flat
@@ -74,6 +84,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:book-upload"
           padding="sm sm"
           flat
@@ -84,6 +95,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:mood-plus"
           padding="sm sm"
           flat
@@ -99,6 +111,7 @@
         <!-- -> `no-image`: the insert is a `:tabler:home:` shortcode, and that syntax cannot carry the
                 `img:` URL the picker's other tab hands back -->
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:seeding"
           padding="sm sm"
           flat
@@ -114,6 +127,7 @@
           }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="flush-hover-btn"
           icon="tabler:scan"
           padding="sm sm"
           flat
@@ -141,6 +155,7 @@
           @keydown="topToolbarRoving.onKeydown"
           @focusin="topToolbarRoving.onFocusin">
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:bold"
             padding="xs sm"
             flat
@@ -151,6 +166,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:italic"
             padding="xs sm"
             flat
@@ -161,6 +177,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:strikethrough"
             padding="xs sm"
             flat
@@ -176,6 +193,7 @@
             box, so the chevron is all the slot adds to the button's layout.
           -->
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:heading"
             padding="xs sm"
             flat
@@ -198,6 +216,7 @@
             </w-menu>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:subscript"
             padding="xs sm"
             flat
@@ -208,6 +227,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:superscript"
             padding="xs sm"
             flat
@@ -219,6 +239,7 @@
           </w-btn>
           <w-separator class="editor-markdown-toolbar-rule" vertical />
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:quote"
             padding="xs sm"
             flat
@@ -291,6 +312,7 @@
             </w-menu>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:list"
             padding="xs sm"
             flat
@@ -301,6 +323,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:list-numbers"
             padding="xs sm"
             flat
@@ -311,6 +334,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:list-check"
             padding="xs sm"
             flat
@@ -333,6 +357,7 @@
             </w-menu>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:code"
             padding="xs sm"
             flat
@@ -343,6 +368,7 @@
             }}</w-tooltip>
           </w-btn>
           <w-btn
+            class="flush-hover-btn flush-hover-btn--square"
             icon="tabler:keyboard"
             padding="xs sm"
             flat
@@ -355,6 +381,7 @@
           <template v-if="!state.previewShown">
             <w-space />
             <w-btn
+              class="flush-hover-btn flush-hover-btn--square"
               icon="tabler:layout-columns"
               padding="xs sm"
               flat
@@ -392,6 +419,7 @@
             >
             <w-separator class="ms-4 me-2" vertical inset />
             <w-btn
+              class="flush-hover-btn flush-hover-btn--square"
               icon="tabler:arrows-vertical"
               padding="xs sm"
               flat
@@ -401,7 +429,12 @@
                 t('editor.toggleScrollSync')
               }}</w-tooltip>
             </w-btn>
-            <w-btn icon="tabler:eye-off" padding="xs sm" flat @click="state.previewShown = false">
+            <w-btn
+              class="flush-hover-btn flush-hover-btn--square"
+              icon="tabler:eye-off"
+              padding="xs sm"
+              flat
+              @click="state.previewShown = false">
               <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
@@ -1770,10 +1803,15 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary-dark);
 }
 .editor-markdown-preview-toolbar {
-  /* -> A 30px square inside a 40px band; `!important` for the reason `-toolbar .w-btn` below gives */
+  /*
+    `align-self: stretch` sizes each button to the band, so its hover fills the whole content height
+    with no gap; `min-height: 0` clears WBtn's taller default, and needs `!important` because WBtn
+    writes that default as an inline style.
+  */
 }
 .editor-markdown-preview-toolbar .w-btn {
-  min-height: 30px !important;
+  align-self: stretch;
+  min-height: 0 !important;
 }
 .editor-markdown-preview-toolbar {
   /*
@@ -1925,23 +1963,15 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-toolbar {
   /*
-    `WBtn`'s default min-height is taller than this toolbar's fixed band, and `padding="xs sm"` does
-    not touch it, so the button box overflows -- invisible until a flat button's hover fill paints
-    that overflow. `!important` is required because `WBtn` sets `min-height` as an inline style.
+    `align-self: stretch` sizes each button to the band, so its hover fills the whole content height.
+    `WBtn`'s default min-height is taller than the band and would overflow it -- invisibly, until a
+    flat button's hover fill paints that overflow -- and `min-height: 0` needs `!important` because
+    `WBtn` sets that default as an inline style. Scoped here: every other caller keeps the default.
   */
 }
 .editor-markdown-toolbar .w-btn {
-  min-height: 30px !important;
-}
-.editor-markdown-toolbar {
-  /*
-    Cobalt draws this bar as a square band, not the rounded pill `WBtn`'s `rounded-control` resolves
-    to under Cobalt everywhere else. No `!important`: unlayered SFC CSS already beats Tailwind's
-    `@layer utilities` regardless of specificity.
-  */
-}
-.body--cobalt .editor-markdown-toolbar .w-btn {
-  border-radius: 0;
+  align-self: stretch;
+  min-height: 0 !important;
 }
 .editor-markdown-toolbar {
   /* -> The chevron on a menu-opening button: the fainter of the two icon tones */
@@ -1996,13 +2026,14 @@ onBeforeUnmount(() => {
 }
 .editor-markdown-sidebar {
   /*
-    A 34px square inside a 48px rail: `padding="sm sm"` would draw a box wider than the rail can hold.
-    `!important` because both that padding and `WBtn`'s min-height are inline styles.
+    A 34px cell spanning the rail's whole width, so its hover reaches both long edges:
+    `align-self: stretch` overrides the rail's `align-items: center`, which the caption below still
+    uses. `!important` because both the button's padding and `WBtn`'s min-height are inline styles.
   */
 }
 .editor-markdown-sidebar .w-btn {
+  align-self: stretch;
   min-height: 34px !important;
-  width: 34px;
   padding: 0 !important;
 }
 /*

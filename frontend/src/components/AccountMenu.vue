@@ -1,5 +1,5 @@
 <template>
-  <w-btn class="account-avbtn header-nav-btn" flat>
+  <w-btn class="account-avbtn flush-hover-btn header-nav-btn" flat>
     <w-avatar v-if="userStore.authenticated && userStore.hasAvatar" size="30px" square>
       <img :src="`/_user/current/avatar`" :alt="userStore.name" />
     </w-avatar>
@@ -68,28 +68,16 @@ const initials = computed(() => initialsFor(userStore.name))
   color: var(--color-header-icon);
 }
 
+/*
+  Only the box is set here: the fill, shape, type and Ledger dark-mode override are shared with a
+  comment's `identity="initials"` avatar, in `css/tailwind.css`.
+*/
 .account-initials {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 30px;
-  /*
-    Tokens, not literals: Ledger draws this mark as a slate square and Cobalt as an accent disc --
-    the one place the two themes disagree about a shape rather than a colour.
-  */
-  background-color: var(--color-account-avatar-bg);
-  border-radius: var(--radius-avatar);
-  color: #fff;
-  font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
-
-.body--dark:not(.body--cobalt) .account-initials {
-  background-color: var(--color-slate-light);
-  color: var(--color-ink-dark);
 }
 
 .body--dark:not(.body--cobalt) .account-avbtn {

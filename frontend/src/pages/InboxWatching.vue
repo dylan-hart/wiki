@@ -25,19 +25,18 @@
           @click="openNotification(notification)">
           <w-item-section avatar>
             <!--
-              `size` rather than the 40px `WItemSection` gives a flanking avatar everywhere else:
-              that 40px rule is a scoped `:deep()` selector, and only an inline style beats it.
+              `identity="plate"` takes size and shape from the aesthetic's tokens -- a 36px square in
+              Ledger, a 26px disc in Cobalt -- so passing `size`, `font-size` or `square` here would
+              beat the token.
 
               `accent-fill`, the bright fill, because the plate carries a glyph rather than a white
               label -- and resolved through `dark.isActive`, since `--color-accent-fill` has no
               dark-mode override of its own and would otherwise draw light-mode on a dark ground.
             -->
             <w-avatar
-              size="36px"
-              font-size="18px"
+              identity="plate"
               :color="dark.isActive ? `accent-dark` : `accent-fill`"
-              text-color="white"
-              square>
+              text-color="white">
               <w-icon name="tabler:bell" />
             </w-avatar>
           </w-item-section>
@@ -91,7 +90,7 @@
               A user-picked icon reference, so it resolves through `/_icons` at runtime rather than
               out of the build-time bundle.
             -->
-            <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
+            <w-avatar identity="plate" color="slate" text-color="white">
               <w-icon :name="page.icon || DEFAULT_PAGE_ICON" />
             </w-avatar>
           </w-item-section>

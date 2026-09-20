@@ -3,8 +3,8 @@
     <div class="editor-asciidoc-main">
       <div class="editor-asciidoc-sidebar">
         <w-btn
+          class="flush-hover-btn flush-hover-btn--square"
           icon="tabler:photo-plus"
-          padding="sm sm"
           flat
           :aria-label="t('editor.markup.insertAssets')"
           @click="insertAssets">
@@ -259,6 +259,14 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
-  padding: 12px 0;
+  /* No top padding: the button must start where the coloured band ends, so its hover is a cell of
+     the rail, not a tile floating in it. The bottom padding clears the vertical type label. */
+  padding: 0 0 12px;
+}
+/* `min-height` needs `!important`: WBtn writes it as an inline style, which beats any class. 56px
+   matches the rail's width, so the square the primitive's `aspect-ratio` asks for resolves. */
+.editor-asciidoc-sidebar > .w-btn {
+  width: 100%;
+  min-height: 56px !important;
 }
 </style>

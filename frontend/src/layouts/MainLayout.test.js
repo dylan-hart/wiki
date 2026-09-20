@@ -872,12 +872,12 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
     }
   })
 
-  it('sizes the Top tile to fill its 40x40 cell with no padding under Cobalt', async () => {
+  it('sizes the Top tile to 36x32 inside its 40x40 cell with no padding under Cobalt', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.width).toBe('40px')
-    expect(style.height).toBe('40px')
+    expect(style.width).toBe('36px')
+    expect(style.height).toBe('32px')
     expect(style.padding).toBe('0px')
   })
 
@@ -898,18 +898,28 @@ describe('MainLayout sidebar-actions Ledger + Cobalt visual treatment (OpenProje
   })
 
   /**
-   * The Top button is pinned to 40px inside an equally-40px cell, so `.icon-lg`'s inset margin --
-   * which Locale/Browse have no fixed size to fight and simply shrink to absorb -- would push it
-   * past its cell's edge instead of insetting it.
+   * No left inset: that edge abuts Browse's own 4px-inset tile, and a gap there would break the
+   * hover wash running between them. The button is shrunk to 36x32 so margin plus size still sum to
+   * the 40x40 cell -- at a fixed 40px, the same margin pushed it past the cell's edge.
    */
-  it("keeps the Top button flush with its cell under Cobalt, unlike Locale/Browse's inset margin", async () => {
+  it('insets the Top button with margin 4px 4px 4px 0 under Cobalt, filling its cell exactly', async () => {
     const { wrapper } = await mountStrip({ cobalt: true })
 
     const style = getComputedStyle(wrapper.get('.sidebar-actions-top .w-btn').element)
-    expect(style.marginTop).toBe('0px')
-    expect(style.marginRight).toBe('0px')
-    expect(style.marginBottom).toBe('0px')
+    expect(style.marginTop).toBe('4px')
+    expect(style.marginRight).toBe('4px')
+    expect(style.marginBottom).toBe('4px')
     expect(style.marginLeft).toBe('0px')
+    expect(
+      Number.parseInt(style.marginLeft, 10) +
+        Number.parseInt(style.width, 10) +
+        Number.parseInt(style.marginRight, 10)
+    ).toBe(40)
+    expect(
+      Number.parseInt(style.marginTop, 10) +
+        Number.parseInt(style.height, 10) +
+        Number.parseInt(style.marginBottom, 10)
+    ).toBe(40)
   })
 
   it("colours the Top icon from the sidebar-icon token under Cobalt, not #3109's bespoke pink", async () => {

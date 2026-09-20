@@ -22,10 +22,9 @@
       <div>{{ t('editor.props.pageProperties') }}</div>
       <w-space />
       <w-btn
-        class="me-2"
+        class="flush-hover-btn flush-hover-btn--square"
         dense
         flat
-        rounded
         color="white"
         icon="tabler:help-circle"
         :aria-label="t(`common.actions.viewDocs`)"
@@ -33,6 +32,7 @@
         target="_blank"
         type="a" />
       <w-btn
+        class="flush-hover-btn flush-hover-btn--square"
         icon="tabler:x"
         dense
         flat
@@ -527,6 +527,29 @@ onMounted(async () => {
   > .w-toolbar {
     border-top-left-radius: inherit;
     border-top-right-radius: inherit;
+  }
+
+  /*
+    A flush-hover cell's square runs the band's full height and touches the panel's right edge, so
+    the band gives up the padding that kept the buttons floating inside it.
+
+    The last one sits in the panel's corner, where the shared class's squared corners would paint
+    hover over the card's radius: it takes the band's radius back rather than the band clipping with
+    `overflow: hidden`, which would clip the buttons' focus outlines too. `!important` because the
+    shared radius rule carries one.
+  */
+  > .w-toolbar {
+    padding-block: 0;
+    padding-inline-end: 0;
+  }
+
+  > .w-toolbar > .w-btn.flush-hover-btn {
+    align-self: stretch;
+    min-width: 50px;
+  }
+
+  > .w-toolbar > .w-btn.flush-hover-btn:last-child {
+    border-top-right-radius: inherit !important;
   }
 
   > .w-scroll-area {

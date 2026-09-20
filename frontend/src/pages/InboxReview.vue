@@ -21,7 +21,7 @@
             clickable
             @click="openSubmission(submission)">
             <w-item-section avatar>
-              <w-avatar size="36px" font-size="18px" color="slate" text-color="white" square>
+              <w-avatar identity="plate" color="slate" text-color="white">
                 <w-icon name="tabler:file-text" />
               </w-avatar>
             </w-item-section>

@@ -784,14 +784,17 @@ body.body--cobalt {
     }
   }
 
-  /* -> The Top button shares Locale/Browse's `.icon-lg` treatment above, so two values have to be */
-  /*    undone here: the unscoped `.sidebar-actions-top .w-btn` rule's Ledger white plate, which is */
-  /*    not scoped away from Cobalt and would bleed through, and `.icon-lg`'s own inset-tile margin, */
-  /*    which is sized for the flex-1 cells and pushes a button already pinned to 40x40 past its */
-  /*    cell's edge. Equal specificity, later in source order, so this wins. */
+  /* -> The Top button shares Locale/Browse's `.icon-lg` treatment above, so two values are reset */
+  /*    here: the unscoped `.sidebar-actions-top .w-btn` rule's Ledger white plate, which is not */
+  /*    scoped away from Cobalt and would bleed through, and `.icon-lg`'s inset margin, sized for */
+  /*    the flex-1 cells. Mirrored to `4px 4px 4px 0` on a 36x32 button, it fills the 40x40 cell */
+  /*    exactly, so the button's leading edge and hover wash abut Browse's (no separator here). */
+  /*    Equal specificity, later in source order, so this wins. */
   .sidebar-actions-top .w-btn {
     background-color: transparent;
-    margin: 0;
+    margin: 4px 4px 4px 0;
+    width: 36px;
+    height: 32px;
   }
 }
 

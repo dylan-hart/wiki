@@ -1,7 +1,9 @@
 <template>
   <!--
     Page Properties keeps the rail's full square; every other button is 48px, so the primary action
-    reads as the largest target and the rest sit quieter beneath it.
+    reads as the largest target and the rest sit quieter beneath it. It alone takes
+    `flush-hover-btn--cap` while READING, capping the column with its own rounded corners; with the
+    editor open that rail's hovers are all flat and square, so the cap goes too.
   -->
   <div
     class="page-actions flex flex-col items-stretch order-last"
@@ -12,7 +14,8 @@
         it occupies is what the rest of the buttons are arranged under.
       -->
       <w-btn
-        class="aspect-square"
+        class="aspect-square flush-hover-btn"
+        :class="{ 'flush-hover-btn--cap': !editorStore.isActive }"
         flat
         icon="tabler:tag"
         :color="editorStore.isActive ? `white` : `accent-fill`"
@@ -25,7 +28,7 @@
       </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         v-if="editorStore.isActive && !isRedirect"
         flat
         color="white"
@@ -138,7 +141,7 @@
     <template v-if="!isRedirect">
       <!-- -> Follows `read:history` rather than page read access, the same question the API asks -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         v-if="userStore.can(`read:history`)"
         flat
         icon="tabler:history"
@@ -150,7 +153,7 @@
         }}</w-tooltip>
       </w-btn>
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         flat
         icon="tabler:file-export"
         :loading="exportingPdf"
@@ -194,7 +197,7 @@
            that would just 403.
       -->
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         v-if="userStore.can(`read:source`)"
         flat
         icon="tabler:copy"
@@ -209,7 +212,7 @@
     <template v-if="!isRedirect && !(editorStore.isActive && editorStore.mode === `create`)">
       <w-separator class="my-2" inset />
       <w-btn
-        class="h-12"
+        class="h-12 flush-hover-btn"
         flat
         icon="tabler:dots"
         :color="editorStore.isActive ? `white` : `slate-soft`"
@@ -774,7 +777,7 @@ function commitRenamePendingAsset(item) {
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) {
-  flex: 0 0 40px;
+  flex: 0 0 48px;
   align-self: flex-start;
   margin: 28px 24px 28px 0;
   border-inline-start: 0;
@@ -803,8 +806,8 @@ body.body--cobalt .page-actions:not(.is-editor) {
   */
 }
 body.body--cobalt .page-actions:not(.is-editor) > .aspect-square:first-child {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   margin: 0 auto 4px;
   border-radius: var(--radius-card) var(--radius-card) var(--radius-control) var(--radius-control);
   border-block-end: 0;

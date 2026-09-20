@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * Source-text assertions: `tailwind.css` is plain CSS with no compiled stylesheet or layout engine
  * in this environment, so the rule shape is pinned by reading the file rather than by resolving a
- * cascade. Both rules are scoped to `body.body--cobalt`; Ledger keeps `WBtnGroup.vue`'s single
+ * cascade. The gap rules are scoped to `body.body--cobalt`; Ledger keeps `WBtnGroup.vue`'s single
  * hairline seam and its square, unrounded buttons.
  */
 
@@ -35,9 +35,9 @@ describe('Cobalt button-group gap', () => {
 })
 
 describe('Cobalt editor toolbar band', () => {
-  it('squares the markup toolbar buttons under body.body--cobalt', () => {
-    const rule = source.match(/body\.body--cobalt \.editor-markdown-toolbar \.w-btn\s*\{([^}]*)\}/)
-    expect(rule).not.toBeNull()
-    expect(rule[1]).toMatch(/border-radius:\s*0\s*;/)
+  // -> Squaring the markup toolbar's buttons belongs to the shared `flush-hover-btn` primitive;
+  //    `EditorMarkdown.flushHover.test.js` covers it. Only the rule's absence is pinned here.
+  it('no longer squares the markup toolbar buttons with a toolbar-specific rule', () => {
+    expect(source).not.toMatch(/body\.body--cobalt \.editor-markdown-toolbar \.w-btn\s*\{/)
   })
 })

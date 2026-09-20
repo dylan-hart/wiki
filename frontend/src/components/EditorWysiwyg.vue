@@ -7,8 +7,8 @@
           v-else-if="menuItem.type === `dropdown`"
           :key="`ddn-` + menuItem.key"
           flat
+          class="flush-hover-btn flush-hover-btn--square"
           :icon="menuItem.icon"
-          padding="xs"
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : inactiveIconColor"
           :aria-label="menuItem.title"
@@ -41,8 +41,8 @@
             v-for="child of menuItem.children"
             :key="child.key"
             flat
+            class="flush-hover-btn flush-hover-btn--square"
             :icon="child.icon"
-            padding="xs"
             :class="{ 'is-active': child.isActive && child.isActive() }"
             :color="child.isActive && child.isActive() ? `primary` : inactiveIconColor"
             @click="child.action"
@@ -53,8 +53,8 @@
           v-else
           :key="`btn-` + menuItem.key"
           flat
+          class="flush-hover-btn flush-hover-btn--square"
           :icon="menuItem.icon"
-          padding="xs"
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : inactiveIconColor"
           @click="menuItem.action"
@@ -719,7 +719,18 @@ defineExpose({ editor, menuBar })
   border: none;
   display: flex;
   align-items: center;
-  padding: 4px;
+  /*
+    No padding, so the first and last button's hover reaches the band's own edge. The height is
+    therefore fixed rather than falling out of the buttons plus padding: 41px is what the
+    container's `calc(100% - 41px)` above assumes (40px of buttons + the 1px hairline).
+  */
+  padding: 0;
+  height: 41px;
+}
+.wysiwyg-container .wysiwyg-toolbar .w-btn {
+  /* -> `!important` because `WBtn` writes `min-height` as an inline style, which outranks any
+     selector here. */
+  min-height: 40px !important;
 }
 .body--light .wysiwyg-container .wysiwyg-toolbar {
   background: linear-gradient(to top, var(--color-grey-1) 0%, #fff 100%);

@@ -88,9 +88,10 @@ const classes = computed(() => [
 /*
   A flanking avatar is 40px, not the 48px `WAvatar` takes on its own. The box has to be set here and
   not just the font size: `WAvatar` sizes from explicit width/height, so overriding font-size alone
-  leaves it at 48px.
+  leaves it at 48px. An `identity="plate"` avatar is excluded -- it takes the aesthetic's own plate
+  size instead.
 */
-.w-item-section--side > :deep(.w-avatar) {
+.w-item-section--side > :deep(.w-avatar:not(.w-avatar--plate)) {
   width: 40px;
   height: 40px;
   font-size: 24px;

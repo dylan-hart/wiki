@@ -459,6 +459,8 @@ html.theme-transition-suppress *::after {
     rounded by 12px is a squircle, not a disc. `0` here keeps Cardinal's square mark.
   */
   --radius-avatar: 0;
+  /* An icon plate in a list row (`<w-avatar identity="plate">`): the inbox lists' 36px square. */
+  --size-avatar-plate: 36px;
 
   /*
     -- Chrome and surface color tokens ---------------------------------------
@@ -658,6 +660,8 @@ body.body--cobalt {
   --radius-pill: 12px;
   --radius-mark: 4px;
   --radius-avatar: 50%;
+  /* Cobalt's list-row plates are smaller discs; Ledger's stay 36px squares. */
+  --size-avatar-plate: 26px;
   /*
     Cobalt is matte: no drop shadows anywhere. Every plate reads its Cobalt edge SOLELY through
     `--shadow-card` rather than `--border-card` (which stays `0` here), so a 0-blur 1px-spread ring
@@ -772,16 +776,11 @@ body.body--cobalt {
 }
 
 /*
-  Two shape corrections shared by Cobalt light and dark, so they sit here rather than in the dark
-  block below.
-
-  1. `WBtnGroup.vue`'s hairline seam reads as one continuous control only while a button is square;
-     Cobalt's are rounded, so the seam would butt a rounded corner against a straight one and a gap
-     replaces it. A screen wanting a wider gap sets it on its own instance rather than changing this
-     rule. `!important` beats `WBtnGroup.vue`'s scoped rule without a cross-file specificity count.
-  2. The editor's markup toolbar stays a flat, full-width SQUARE band -- the one place a Cobalt
-     button takes no radius. Unlayered here, so it beats the `rounded-control` utility with no
-     `!important` needed.
+  Shared by Cobalt light and dark, so it sits here rather than in the dark block below.
+  `WBtnGroup.vue`'s hairline seam reads as one continuous control only while a button is square;
+  Cobalt's are rounded, so the seam would butt a rounded corner against a straight one and a gap
+  replaces it. A screen wanting a wider gap sets it on its own instance rather than changing this
+  rule. `!important` beats `WBtnGroup.vue`'s scoped rule without a cross-file specificity count.
 */
 body.body--cobalt .w-btn-group {
   gap: 8px;
@@ -789,10 +788,6 @@ body.body--cobalt .w-btn-group {
 
 body.body--cobalt .w-btn-group > .w-btn:not(:last-child) {
   border-inline-end: none !important;
-}
-
-body.body--cobalt .editor-markdown-toolbar .w-btn {
-  border-radius: 0;
 }
 
 /*
@@ -1476,6 +1471,33 @@ body.body--cobalt.body--dark {
     border-radius: inherit;
     width: 100%;
     height: 100%;
+  }
+
+  /* Works only while `WAvatar` omits its `rounded-*` utility here: a utility beats this by layer. */
+  .w-avatar--identity {
+    border-radius: var(--radius-avatar);
+  }
+
+  /*
+    The header's initials mark (`AccountMenu.vue`'s `.account-initials`) and an `identity="initials"`
+    avatar are one design, so they share this rule and the Ledger dark override below. Layout (size,
+    centring) stays with each owner.
+  */
+  .account-initials,
+  .w-avatar--initials {
+    background-color: var(--color-account-avatar-bg);
+    border-radius: var(--radius-avatar);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+
+  .body--dark:not(.body--cobalt) .account-initials,
+  .body--dark:not(.body--cobalt) .w-avatar--initials {
+    background-color: var(--color-slate-light);
+    color: var(--color-ink-dark);
   }
 
   /*

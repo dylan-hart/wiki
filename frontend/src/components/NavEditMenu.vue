@@ -121,8 +121,13 @@ const state = reactive({
   /**
    * The target menu row's own source (`static`/`auto`/`mixed`) -- a different axis from `mode`
    * above, which is this ENTRY's cascade setting.
+   *
+   * `null` until `loadMenuMode` resolves, not `'static'`: `w-btn-toggle` selects no segment for
+   * `null`, so the control never flashes "Manual" before the real value lands. A failed load leaves
+   * it `null` on purpose -- `save()` and `startEditing()` then omit `menuMode`, which the server
+   * treats as optional, rather than send a null.
    */
-  menuMode: 'static',
+  menuMode: null,
   loading: 0
 })
 
@@ -232,6 +237,9 @@ async function loadInheritedNav() {
  */
 async function loadMenuMode() {
   if (!pageStore.navigationId) {
+    // -> A menu with no row yet is Manual, so this is the answer rather than a guess: left `null`,
+    //    the control would sit with no segment selected for good.
+    state.menuMode = 'static'
     return
   }
   try {
@@ -251,7 +259,7 @@ function startEditing() {
     overlay: 'NavEdit',
     overlayOpts: {
       mode: state.mode,
-      menuMode: state.menuMode,
+      ...(state.menuMode !== null && { menuMode: state.menuMode }),
       // -> A menu this page does not own: only Inherit edits one, and only away from the root,
       //    where inheriting and owning are the same menu.
       ...(!isRoot.value && state.mode === 'inherit' && { navId: state.inheritedNavId })
@@ -264,7 +272,7 @@ async function save() {
   state.loading++
   try {
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
-      json: { mode: state.mode, menuMode: state.menuMode }
+      json: { mode: state.mode, ...(state.menuMode !== null && { menuMode: state.menuMode }) }
     }).json()
     notify({
       type: 'positive',

@@ -14,7 +14,7 @@
         -->
         <w-btn
           v-if="showSidebarToggle"
-          class="header-nav-btn"
+          class="flush-hover-btn header-nav-btn"
           flat
           icon="tabler:menu-2"
           color="slate-soft"
@@ -27,7 +27,11 @@
           `dense` -- `_base.css`'s rule overrides both of `dense`'s effects with `!important` anyway,
           so leaving it on would only misdescribe the button.
         -->
-        <w-btn class="header-nav-btn" flat to="/" :aria-label="t(`common.header.home`)">
+        <w-btn
+          class="flush-hover-btn header-nav-btn"
+          flat
+          to="/"
+          :aria-label="t(`common.header.home`)">
           <w-avatar v-if="siteStore.logoText" size="64px" square>
             <img :src="`/_site/current/logo`" alt="" />
           </w-avatar>
@@ -76,7 +80,7 @@
         <template v-else>
           <w-btn
             v-if="userStore.can(`write:pages`)"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:plus"
             color="slate-soft"
@@ -91,7 +95,7 @@
           -->
           <w-btn
             v-if="userStore.can(`write:assets`) || userStore.can(`write:pages`)"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:folder"
             color="slate-soft"
@@ -101,7 +105,7 @@
           </w-btn>
           <w-btn
             v-if="siteStore.features.browse"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:hierarchy"
             color="slate-soft"
@@ -117,7 +121,7 @@
           -->
           <w-btn
             v-if="userStore.authenticated"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:inbox"
             color="slate-soft"
@@ -135,7 +139,7 @@
           </w-btn>
           <w-btn
             v-if="userStore.can(`access:admin`)"
-            class="header-nav-btn"
+            class="flush-hover-btn header-nav-btn"
             flat
             icon="tabler:tool"
             color="slate-soft"

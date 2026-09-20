@@ -1,5 +1,5 @@
 <template>
-  <section class="page-comments">
+  <section class="page-comments text-text-body dark:text-text-dark">
     <header class="page-comments-header flex items-center gap-2">
       <h2 class="text-h6 m-0">{{ t(`common.comments.title`) }}</h2>
       <span
@@ -30,12 +30,12 @@
         class="page-comments-item"
         :style="{ marginInlineStart: `${entry.depth * INDENT_PX}px` }">
         <div class="page-comments-card group flex gap-3">
-          <w-avatar size="sm" color="primary" text-color="white">{{
+          <w-avatar identity="initials" size="30px" font-size="11px">{{
             initialsFor(entry.comment)
           }}</w-avatar>
           <div class="min-w-0 flex-1">
             <div class="page-comments-meta flex flex-wrap items-baseline gap-2">
-              <strong class="text-text-body dark:text-text-body-dark">{{
+              <strong class="text-text-body dark:text-text-dark">{{
                 entry.comment.authorName
               }}</strong>
               <span class="text-caption text-text-caption dark:text-text-caption-dark">

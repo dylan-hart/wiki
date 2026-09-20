@@ -23,31 +23,49 @@
     </w-header>
     <w-page-container>
       <w-page class="p-4">
-        <!-- -> Bled out of the page's own `p-4` on three sides so the band meets the header and both
-                edges; `px-4` puts its contents back on the page inset -->
-        <div class="table-editor-toolbar -mx-4 -mt-4 flex flex-wrap items-center gap-2 px-4 py-2">
+        <!--
+          Bled out of the page's own `p-4` on three sides so the band meets the header and both
+          edges, and carries no padding of its own: each button's `flush-hover-btn` hover has to
+          reach the band's edges, so the buttons stretch to its height (`min-h-11`) and every
+          non-button child insets itself. Only the trailing edge takes `pe-4` back.
+        -->
+        <div class="table-editor-toolbar -mx-4 -mt-4 flex min-h-11 flex-wrap items-stretch pe-4">
+          <!-- -> `dense` for the 10px inset the design draws every control in this strip at; the
+                  band's `items-stretch` takes over its 28px height -->
           <w-btn
+            flat
             dense
+            class="flush-hover-btn"
             icon="tabler:plus"
             color="primary"
             :label="t(`editor.tableEditor.addRow`)"
             @click="addRow" />
           <w-btn
+            flat
             dense
+            class="flush-hover-btn"
             icon="tabler:plus"
             color="primary"
             :label="t(`editor.tableEditor.addColumn`)"
             @click="addColumn" />
           <w-separator vertical />
-          <w-checkbox v-model="state.headerless" :label="t('editor.tableEditor.headerless')" />
-          <w-checkbox v-model="state.compact" :label="t('editor.tableEditor.compact')" />
+          <div class="flex items-center gap-2 self-center px-2">
+            <w-checkbox v-model="state.headerless" :label="t('editor.tableEditor.headerless')" />
+            <w-checkbox v-model="state.compact" :label="t('editor.tableEditor.compact')" />
+          </div>
           <!--
             Checkboxes in a menu rather than a `w-select`: three independent switches, not one choice
             from a list, and `WMenu` does not close on a click inside itself, so all three can be set
             in one visit.
           -->
           <w-separator vertical />
-          <w-btn dense icon="tabler:palette" color="slate" :label="t(`editor.tableEditor.styling`)">
+          <w-btn
+            flat
+            dense
+            class="flush-hover-btn"
+            icon="tabler:palette"
+            color="slate"
+            :label="t(`editor.tableEditor.styling`)">
             <w-icon name="tabler:chevron-down" />
             <w-menu anchor="bottom left" self="top left" :offset="[0, 4]">
               <div class="flex flex-col gap-3 p-4">
@@ -61,7 +79,7 @@
             </w-menu>
           </w-btn>
           <w-space />
-          <div class="text-[11.5px] text-slate dark:text-slate-light">
+          <div class="self-center ps-2 text-[11.5px] text-slate dark:text-slate-light">
             {{ t('editor.tableEditor.pasteHint') }}
           </div>
         </div>

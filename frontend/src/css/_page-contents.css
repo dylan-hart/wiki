@@ -1321,6 +1321,16 @@
         mask-size: contain;
       }
 
+      /*
+        The base rule's `inset: -5px` is measured from the PADDING box, which the 4px accent bar
+        pushes 3px further in than a plain quote's hairline: `-9px` is that -5px, less the bar's
+        extra 3px, less the `::after`'s own 1px transparent border, so the leading corner marks
+        stand the same 3px clear of the frame as the trailing ones. The border itself does not move.
+      */
+      &::after {
+        inset-inline-start: -9px;
+      }
+
       > :last-child {
         margin-bottom: 0;
       }

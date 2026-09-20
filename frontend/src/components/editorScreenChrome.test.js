@@ -129,13 +129,24 @@ describe('the markdown editor’s own chrome', () => {
     )
   })
 
-  /*
-    The markup bar's buttons default to `WBtn`'s `rounded-control`, which under Cobalt resolves to a
-    real radius -- everywhere except this bar, which the design draws as a full-width square band.
-  */
-  it('keeps the markup bar’s buttons square under Cobalt, unlike --radius-control elsewhere', () => {
-    expect(declarations(css, '.body--cobalt .editor-markdown-toolbar .w-btn')).toEqual({
-      'border-radius': '0'
+  it('leaves squaring the markup bar’s buttons to the shared flush-hover class', () => {
+    expect(css).not.toContain('.body--cobalt .editor-markdown-toolbar .w-btn')
+  })
+
+  it('lets the bars’ buttons stretch to the band, and the rail’s to the rail', () => {
+    for (const selector of [
+      '.editor-markdown-toolbar .w-btn',
+      '.editor-markdown-preview-toolbar .w-btn'
+    ]) {
+      expect(declarations(css, selector), selector).toEqual({
+        'align-self': 'stretch',
+        'min-height': '0 !important'
+      })
+    }
+    expect(declarations(css, '.editor-markdown-sidebar .w-btn')).toEqual({
+      'align-self': 'stretch',
+      'min-height': '34px !important',
+      padding: '0 !important'
     })
   })
 

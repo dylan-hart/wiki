@@ -339,6 +339,7 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
 
     expect(accountBtn.exists()).toBe(true)
     expect(accountBtn.classes()).toContain('header-nav-btn')
+    expect(accountBtn.classes()).toContain('flush-hover-btn')
   })
 
   it('no longer declares the header-nav-btn--auto-width modifier, which has no callers left', () => {

@@ -3,8 +3,8 @@
     <div class="editor-code-main">
       <div class="editor-code-sidebar">
         <w-btn
+          class="flush-hover-btn flush-hover-btn--square"
           icon="tabler:photo-plus"
-          padding="sm sm"
           flat
           :aria-label="t('editor.markup.insertAssets')"
           @click="insertAssets">
@@ -237,6 +237,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
-  padding: 12px 0;
+  /* No top padding: the button has to start where the coloured band ends, so its hover reads as a
+     cell of the rail rather than a tile floating in it. The bottom padding is for the type label. */
+  padding: 0 0 12px;
+}
+/* Square at the rail's own width. `min-height` needs `!important` — WBtn writes it inline. */
+.editor-code-sidebar > .w-btn {
+  width: 100%;
+  min-height: 56px !important;
 }
 </style>

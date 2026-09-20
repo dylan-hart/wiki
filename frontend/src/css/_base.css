@@ -261,8 +261,54 @@ body.body--dark:not(.body--cobalt) {
   }
 }
 
-/* The site header's buttons as one flush toolbar band, not a row of separate floating actions: */
-/* squared off to the header's own full height and given no margin between them, so a hover lights */
+/* One class for every toolbar, sidebar and rail button whose hover has to read as a square cell of */
+/* its container -- edge to edge, no gap to its neighbours. The caller keeps `flat` and drops */
+/* `round`; `dense`/`size` stay legal, because nothing here states a size. */
+/* */
+/*   .flush-hover-btn          square corners, no margin, the shared hover fill; in a Cobalt */
+/*                             `.w-btn-group`, no gap either. Never sets a width or height. */
+/*   .flush-hover-btn--square  for an icon-only button: no padding and a 1:1 box. Not for a */
+/*                             labelled button, which it would stretch tall. A `round` WBtn is */
+/*                             already a square box and needs no modifier. */
+/*   .flush-hover-btn--cap     opt-out: keeps the button's OWN corners, so it reads as a cap on the */
+/*                             end of a rail. The hover fill, margin and group gap are still the */
+/*                             shared ones. */
+/* */
+/* `!important` because WBtn writes `padding` as an inline style, which no class beats on */
+/* specificity alone, and its `rounded-full`/`rounded-[28px]` utilities would otherwise win the */
+/* shape fight. The radius rule is scoped `:not(.flush-hover-btn--cap)` so the cap keeps its corners */
+/* without a second `!important` to fight. */
+.w-btn.flush-hover-btn {
+  margin-inline-start: 0 !important;
+}
+.w-btn.flush-hover-btn:not(.flush-hover-btn--cap) {
+  border-radius: 0 !important;
+}
+.w-btn.flush-hover-btn--square {
+  padding: 0 !important;
+  aspect-ratio: 1 / 1;
+}
+
+/* `currentcolor`, so the one rule serves every ground: white on Cobalt's blue header, ink on */
+/* Ledger's white one, either in dark mode. Gated on `(hover: hover)` so a touch tap doesn't leave */
+/* the fill stuck on afterwards. */
+@media (hover: hover) {
+  .w-btn.flush-hover-btn:hover {
+    background-color: color-mix(in srgb, currentcolor 16%, transparent);
+  }
+}
+
+/* Cobalt's `.w-btn-group` takes a gap (`css/tailwind.css`) so rounded buttons keep their own */
+/* corners. A flush button has none to keep, and the gap would be a dead strip between two hover */
+/* cells. `:has()` lifts this above that rule's specificity without an `!important`. Ledger's group */
+/* draws a hairline seam, not a gap, and is left alone. */
+body.body--cobalt .w-btn-group:has(> .flush-hover-btn) {
+  gap: 0;
+}
+
+/* The site header's buttons as one flush toolbar band, not a row of separate floating actions. */
+/* Carried together with `flush-hover-btn`, which does the shape, margin and hover; this class adds */
+/* only what that one deliberately never states -- the header's own 64x64 box -- so a hover lights */
 /* the full height of the bar. The caller keeps `flat` and drops `round`. */
 /* */
 /* `min-height` and `padding` need `!important` because WBtn sets them as inline styles, and a */
@@ -271,15 +317,6 @@ body.body--dark:not(.body--cobalt) {
   min-height: 64px !important;
   width: 64px !important;
   padding: 0 !important;
-  border-radius: 0 !important;
-  margin-inline-start: 0 !important;
-}
-
-/* Gated on `(hover: hover)` so a touch tap doesn't leave the fill stuck on afterwards. */
-@media (hover: hover) {
-  .w-btn.header-nav-btn:hover {
-    background-color: color-mix(in srgb, currentcolor 16%, transparent);
-  }
 }
 
 /* A dialog's title band, shared by every dialog rather than owned by one, so a change here is */
