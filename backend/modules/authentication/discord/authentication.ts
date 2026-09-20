@@ -43,7 +43,11 @@ export default class DiscordAuthentication extends OAuth2Authentication {
       await this.assertGuildMembership(accessToken)
     }
     const info = await this.fetchUserInfo(accessToken)
-    return this.mapProfile(info)
+    const profile = this.mapProfile(info)
+    if (!this.conf.mapGroups) {
+      return profile
+    }
+    return { ...profile, groups: await this.fetchRoleNames(profile.id) }
   }
 
   /**
@@ -53,8 +57,50 @@ export default class DiscordAuthentication extends OAuth2Authentication {
    * plain-OAuth2 strategy, including ones whose provider reports real halves.
    */
   protected override mapProfile(info: Record<string, any>): ProviderProfile {
-    const profile = super.mapProfile(info)
+    const { groups: _claimGroups, ...profile } = super.mapProfile(info)
     return { ...profile, ...fillNameHalves(profile.name, profile) }
+  }
+
+  private async botGet(path: string): Promise<Response> {
+    return fetch(`https://discord.com/api/v10/guilds/${this.conf.guildId}${path}`, {
+      headers: { Authorization: `Bot ${this.conf.botToken}`, Accept: 'application/json' }
+    })
+  }
+
+  private async fetchRoleNames(userId: string): Promise<string[]> {
+    if (!this.conf.botToken || !this.conf.guildId) {
+      throw new Error('ERR_STRATEGY_MISCONFIGURED')
+    }
+    const memberResp = await this.botGet(`/members/${encodeURIComponent(userId)}`)
+    if (memberResp.status === 404) {
+      return []
+    }
+    if (!memberResp.ok) {
+      throw new Error('ERR_GROUP_LOOKUP_FAILED')
+    }
+    const roleResp = await this.botGet('/roles')
+    if (!roleResp.ok) {
+      throw new Error('ERR_GROUP_LOOKUP_FAILED')
+    }
+    let member: any
+    let roles: any
+    try {
+      member = await memberResp.json()
+      roles = await roleResp.json()
+    } catch {
+      throw new Error('ERR_GROUP_LOOKUP_FAILED')
+    }
+    if (!Array.isArray(member?.roles) || !Array.isArray(roles)) {
+      throw new Error('ERR_GROUP_LOOKUP_FAILED')
+    }
+    const namesById = new Map<string, string>(
+      roles
+        .filter((role) => typeof role?.id === 'string' && typeof role?.name === 'string')
+        .map((role) => [role.id, role.name])
+    )
+    return member.roles
+      .map((id: unknown) => namesById.get(String(id)))
+      .filter((name: string | undefined): name is string => Boolean(name))
   }
 
   private async assertGuildMembership(accessToken: string): Promise<void> {
