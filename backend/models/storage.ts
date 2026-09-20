@@ -48,7 +48,11 @@ export function getContentTypeFromExtension(ext: string): string | null {
 export const DB_MODULE = 'db'
 
 /** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
-const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+const ISO_DURATION_PATTERN = /^P(?!$)(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+
+export function isIsoDuration(value: string): boolean {
+  return ISO_DURATION_PATTERN.test(value)
+}
 
 /**
  * A `scheduleOverride` is either an ISO-8601 duration (`PT5M`) or a cron expression, parsed with the
@@ -56,7 +60,7 @@ const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?
  * is tried first: it needs no external parse.
  */
 function isValidScheduleOverride(value: string): boolean {
-  if (ISO_DURATION_PATTERN.test(value)) {
+  if (isIsoDuration(value)) {
     return true
   }
   try {
@@ -84,7 +88,7 @@ function isScheduleDue(
   lastTick: Temporal.Instant | null,
   now: Temporal.Instant
 ): boolean {
-  if (ISO_DURATION_PATTERN.test(scheduleStr)) {
+  if (isIsoDuration(scheduleStr)) {
     const intervalMs = Math.round(
       Temporal.Duration.from(scheduleStr).total({ unit: 'milliseconds' })
     )
