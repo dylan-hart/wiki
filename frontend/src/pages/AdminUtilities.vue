@@ -157,7 +157,7 @@
           </div>
         </w-settings-row>
         <w-settings-row
-          icon="tabler:trash"
+          icon="la:trash"
           control-width="auto"
           :label="t(`admin.utilities.purgeRevokedKeys`)"
           :hint="t(`admin.utilities.purgeRevokedKeysHint`)">
@@ -211,6 +211,37 @@
             :loading="state.isConvertingWysiwyg"
             :aria-label="t(`admin.utilities.wysiwygConvert`)"
             @click="convertWysiwygJson"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+      </w-card>
+      <w-card v-if="userStore.can('manage:system')" class="mt-4">
+        <w-card-header>{{ t('admin.utilities.sampleContentTitle') }}</w-card-header>
+        <w-settings-row
+          icon="tabler:seeding"
+          control-width="auto"
+          :label="t(`admin.utilities.sampleContentGenerate`)"
+          :hint="t(`admin.utilities.sampleContentGenerateHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            :aria-label="t(`admin.utilities.sampleContentGenerate`)"
+            @click="generateSampleContent"
+            :label="t(`common.actions.proceed`)" />
+        </w-settings-row>
+        <w-settings-row
+          icon="la:trash"
+          control-width="auto"
+          :label="t(`admin.utilities.sampleContentPurge`)"
+          :hint="t(`admin.utilities.sampleContentPurgeHint`)">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="tabler:circle-arrow-right"
+            color="primary"
+            :aria-label="t(`admin.utilities.sampleContentPurge`)"
+            @click="purgeSampleContent"
             :label="t(`common.actions.proceed`)" />
         </w-settings-row>
       </w-card>
@@ -628,6 +659,66 @@ async function purgeEmptyFolders() {
       notify({
         type: 'negative',
         message: t('admin.utilities.purgeEmptyFoldersFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
+  })
+}
+
+function generateSampleContent() {
+  confirm({
+    title: t('admin.utilities.sampleContentGenerate'),
+    message: t('admin.utilities.sampleContentGenerateConfirm', { site: siteStore.hostname }),
+    cancel: true,
+    persistent: true,
+    okLabel: t('common.actions.proceed')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      const resp = await API_CLIENT.post('system/sampleContent/generate', {
+        json: { siteId: siteStore.id }
+      }).json()
+      const count = resp.count ?? 0
+      notify({
+        type: 'positive',
+        message: t('admin.utilities.sampleContentGenerateSuccess', count, { count })
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.utilities.sampleContentGenerateFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
+  })
+}
+
+function purgeSampleContent() {
+  confirm({
+    title: t('admin.utilities.sampleContentPurge'),
+    message: t('admin.utilities.sampleContentPurgeConfirm', { site: siteStore.hostname }),
+    caption: t('admin.utilities.sampleContentPurgeConfirmWarn'),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.proceed')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      const resp = await API_CLIENT.post('system/sampleContent/purge', {
+        json: { siteId: siteStore.id }
+      }).json()
+      const count = resp.count ?? 0
+      notify({
+        type: 'positive',
+        message: t('admin.utilities.sampleContentPurgeSuccess', count, { count })
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.utilities.sampleContentPurgeFailed'),
         caption: apiErrorMessage(err)
       })
     }
