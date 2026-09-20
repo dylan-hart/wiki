@@ -53,17 +53,36 @@ const messages = {
   'admin.utilities.purgeHistory': 'Purge Page History',
   'admin.utilities.purgeHistoryHint': 'Delete page history older than the selected timeframe.',
   'admin.utilities.purgeHistoryTimeframe': 'Timeframe',
+  'admin.utilities.sampleContentTitle': 'Sample Content',
+  'admin.utilities.sampleContentGenerate': 'Generate Sample Content',
+  'admin.utilities.sampleContentGenerateHint': 'Add example pages.',
+  'admin.utilities.sampleContentGenerateConfirm': 'Example pages will be added to {site}.',
+  'admin.utilities.sampleContentGenerateSuccess':
+    'No sample pages were generated. | 1 sample page generated. | {count} sample pages generated.',
+  'admin.utilities.sampleContentGenerateFailed': 'Failed to generate the sample content.',
+  'admin.utilities.sampleContentPurge': 'Purge Sample Content',
+  'admin.utilities.sampleContentPurgeHint': 'Delete the example pages.',
+  'admin.utilities.sampleContentPurgeConfirm': 'The sample pages on {site} will be deleted.',
+  'admin.utilities.sampleContentPurgeConfirmWarn': 'This cannot be undone.',
+  'admin.utilities.sampleContentPurgeSuccess':
+    'No sample pages were deleted. | 1 sample page deleted. | {count} sample pages deleted.',
+  'admin.utilities.sampleContentPurgeFailed': 'Failed to purge the sample content.',
   'common.actions.proceed': 'Proceed',
   'common.actions.viewDocs': 'View docs'
 }
 
-async function mountUtilities() {
+const SITE_ID = 'aaaaaaaa-0000-4000-8000-000000000001'
+
+async function mountUtilities(permissions = []) {
   const router = await createTestRouter(['/'])
 
   return mountWithApp(AdminUtilities, {
     messages,
     router,
-    stores: { site: { id: 'aaaaaaaa-0000-4000-8000-000000000001', hostname: 'example.com' } }
+    stores: {
+      site: { id: SITE_ID, hostname: 'example.com' },
+      user: { permissions }
+    }
   }).wrapper
 }
 
@@ -507,5 +526,137 @@ describe('AdminUtilities settings pattern', () => {
     expect(headers).toHaveLength(1)
     expect(headers[0].text()).toContain('Scan results')
     expect(headers[0].find('.w-card-header__hint').text()).toContain('Scanned')
+  })
+})
+
+describe('AdminUtilities sample content', () => {
+  beforeEach(() => {
+    notifyQueue.length = 0
+  })
+
+  it('shows the rows only to a user holding manage:system', async () => {
+    const without = await mountUtilities(['manage:sites'])
+    expect(without.text()).not.toContain('Generate Sample Content')
+    expect(without.text()).not.toContain('Purge Sample Content')
+
+    const withPermission = await mountUtilities(['manage:system'])
+    expect(withPermission.text()).toContain('Sample Content')
+    expect(withPermission.find('[aria-label="Generate Sample Content"]').exists()).toBe(true)
+    expect(withPermission.find('[aria-label="Purge Sample Content"]').exists()).toBe(true)
+  })
+
+  it('confirms, then posts generate for the current site and reports the count', async () => {
+    const wrapper = await mountUtilities(['manage:system'])
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, message: 'Generated 7 sample page(s).', count: 7 })
+    })
+
+    await wrapper.find('[aria-label="Generate Sample Content"]').trigger('click')
+    expect(openDialogs.length).toBe(1)
+    expect(openDialogs[0].props.message).toBe('Example pages will be added to example.com.')
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.post).toHaveBeenCalledWith('system/sampleContent/generate', {
+      json: { siteId: SITE_ID }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: '7 sample pages generated.'
+    })
+  })
+
+  it('does not generate when the confirmation is cancelled', async () => {
+    const wrapper = await mountUtilities(['manage:system'])
+
+    await wrapper.find('[aria-label="Generate Sample Content"]').trigger('click')
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+  })
+
+  it('asks for a destructive confirmation before purging, and posts nothing until it is given', async () => {
+    const wrapper = await mountUtilities(['manage:system'])
+
+    await wrapper.find('[aria-label="Purge Sample Content"]').trigger('click')
+
+    expect(openDialogs.length).toBe(1)
+    expect(openDialogs[0].props.title).toBe('Purge Sample Content')
+    expect(openDialogs[0].props.color).toBe('negative')
+    expect(openDialogs[0].props.persistent).toBe(true)
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+  })
+
+  it('posts purge for the current site once confirmed and reports the count', async () => {
+    const wrapper = await mountUtilities(['manage:system'])
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, message: 'Purged 1 sample page(s).', count: 1 })
+    })
+
+    await wrapper.find('[aria-label="Purge Sample Content"]').trigger('click')
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    expect(API_CLIENT.post).toHaveBeenCalledWith('system/sampleContent/purge', {
+      json: { siteId: SITE_ID }
+    })
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: '1 sample page deleted.'
+    })
+  })
+
+  it('surfaces the server message when generate fails', async () => {
+    const wrapper = await mountUtilities(['manage:system'])
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.reject(
+          Object.assign(new Error('Request failed with status code 409'), {
+            data: { message: 'Sample content already exists for this site.' }
+          })
+        )
+    })
+
+    await wrapper.find('[aria-label="Generate Sample Content"]').trigger('click')
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to generate the sample content.',
+      caption: 'Sample content already exists for this site.'
+    })
+  })
+
+  it('surfaces the server message when purge fails', async () => {
+    const wrapper = await mountUtilities(['manage:system'])
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.reject(
+          Object.assign(new Error('Request failed with status code 500'), {
+            data: { message: 'Could not delete a page.' }
+          })
+        )
+    })
+
+    await wrapper.find('[aria-label="Purge Sample Content"]').trigger('click')
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to purge the sample content.',
+      caption: 'Could not delete a page.'
+    })
   })
 })
