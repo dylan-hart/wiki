@@ -2946,6 +2946,8 @@
   "fileman.mdFileType": "Markdown Document",
   "fileman.midFileType": "MIDI Audio File",
   "fileman.movFileType": "QuickTime Video File",
+  "fileman.moveConfirm": "Move",
+  "fileman.moveTitle": "Move to…",
   "fileman.mp3FileType": "MP3 Audio File",
   "fileman.mp4FileType": "MP4 Video File",
   "fileman.mpegFileType": "MPEG Video File",
