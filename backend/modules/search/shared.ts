@@ -191,6 +191,8 @@ export interface SearchDocument {
   tags: string[]
   editor: string
   publishState: string
+  creatorId: string
+  authorId: string
   isSearchable: boolean
   classification: string
   updatedAt: string
@@ -210,6 +212,8 @@ export function buildSearchDocument(page: SearchIndexablePage): SearchDocument {
     tags: page.tags ?? [],
     editor: page.editor,
     publishState: page.publishState,
+    creatorId: page.creatorId,
+    authorId: page.authorId,
     isSearchable: page.isSearchable,
     classification: page.classification,
     updatedAt,
@@ -249,6 +253,8 @@ export async function* pageStream(
         tags: pagesTable.tags,
         editor: pagesTable.editor,
         publishState: pagesTable.publishState,
+        creatorId: pagesTable.creatorId,
+        authorId: pagesTable.authorId,
         isSearchable: pagesTable.isSearchable,
         classification: pagesTable.classification,
         password: pagesTable.password,
@@ -407,6 +413,7 @@ export function buildSqlFilterConditions(filters: SearchFilters): SQL[] {
   const conditions: SQL[] = []
   const { path, excludePath, locales, excludeLocales, tags, excludeTags } = filters
   const { editor, excludeEditor, publishState, excludePublishState } = filters
+  const { creatorId, excludeCreatorId, authorId, excludeAuthorId } = filters
   const prefix = (value: string) => `${escapeLikePattern(value)}%`
 
   if (nonEmpty(path)) {
@@ -445,6 +452,17 @@ export function buildSqlFilterConditions(filters: SearchFilters): SQL[] {
   }
   if (nonEmpty(excludePublishState)) {
     conditions.push(sql`p."publishState"::text <> ALL(${sql.param(excludePublishState)}::text[])`)
+  }
+  for (const [column, include, exclude] of [
+    [sql`p."creatorId"`, creatorId, excludeCreatorId],
+    [sql`p."authorId"`, authorId, excludeAuthorId]
+  ] as const) {
+    if (nonEmpty(include)) {
+      conditions.push(sql`${column} = ANY(${sql.param(include)}::uuid[])`)
+    }
+    if (nonEmpty(exclude)) {
+      conditions.push(sql`${column} <> ALL(${sql.param(exclude)}::uuid[])`)
+    }
   }
   return conditions
 }

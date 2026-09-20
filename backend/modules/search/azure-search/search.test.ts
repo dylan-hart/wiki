@@ -127,8 +127,10 @@ describe('azure-search module: buildIndexSchema', () => {
     const names = schema.fields.map((f) => f.name)
     assert.equal(new Set(names).size, names.length)
     assert.deepEqual(names.sort(), [
+      'authorId',
       'classification',
       'content',
+      'creatorId',
       'description',
       'editor',
       'hasPassword',
@@ -184,7 +186,7 @@ describe('azure-search module: buildIndexSchema', () => {
   })
 
   test('editor and publishState are filterable', () => {
-    for (const name of ['editor', 'publishState']) {
+    for (const name of ['editor', 'publishState', 'creatorId', 'authorId']) {
       const field = schema.fields.find((f) => f.name === name)!
       assert.equal((field as any).filterable, true, `${name} should be filterable`)
     }
@@ -424,6 +426,25 @@ describe('azure-search module: buildFilter', () => {
         ` and not tags/any(t: search.in(t, 'old|stale', '|'))` +
         ` and not search.in(editor, 'code', '|')` +
         ` and not search.in(publishState, 'scheduled', '|')`
+    )
+  })
+
+  test('creator and author lists become eq/search.in clauses, include and exclude', () => {
+    const filter = buildFilter({
+      siteId: 'site-1',
+      includeDrafts: true,
+      creatorId: ['11111111-1111-4111-8111-111111111111'],
+      authorId: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+      excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+      excludeAuthorId: ['11111111-1111-4111-8111-111111111111']
+    })
+    assert.equal(
+      filter,
+      `siteId eq 'site-1'` +
+        ` and creatorId eq '11111111-1111-4111-8111-111111111111'` +
+        ` and not search.in(creatorId, '22222222-2222-4222-8222-222222222222', '|')` +
+        ` and search.in(authorId, '11111111-1111-4111-8111-111111111111|22222222-2222-4222-8222-222222222222', '|')` +
+        ` and not search.in(authorId, '11111111-1111-4111-8111-111111111111', '|')`
     )
   })
 

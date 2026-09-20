@@ -5,6 +5,8 @@ import readRoutes from './read.ts'
 import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 
+const U1 = '11111111-1111-4111-8111-111111111111'
+const U2 = '22222222-2222-4222-8222-222222222222'
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
 let queryCalls: Array<Record<string, unknown>>
@@ -126,7 +128,9 @@ test('forwards every include and exclude list to the search model', async () => 
       `/sites/${SITE_ID}/pages/search?path=docs&path=guides&excludePath=docs%2Fprivate` +
       '&locales=en,fr&excludeLocales=de&tags=a,b&excludeTags=old,stale' +
       '&editor=markdown&excludeEditor=code&excludeEditor=wysiwyg' +
-      '&publishState=published&excludePublishState=draft'
+      '&publishState=published&excludePublishState=draft' +
+      `&creatorId=${U1}&creatorId=${U2}&excludeCreatorId=${U2}` +
+      `&authorId=${U1}&excludeAuthorId=${U1}`
   })
   assert.equal(res.statusCode, 200)
   assert.equal(queryCalls.length, 1)
@@ -141,6 +145,21 @@ test('forwards every include and exclude list to the search model', async () => 
   assert.deepEqual(call.excludeEditor, ['code', 'wysiwyg'])
   assert.deepEqual(call.publishState, ['published'])
   assert.deepEqual(call.excludePublishState, ['draft'])
+  assert.deepEqual(call.creatorId, [U1, U2])
+  assert.deepEqual(call.excludeCreatorId, [U2])
+  assert.deepEqual(call.authorId, [U1])
+  assert.deepEqual(call.excludeAuthorId, [U1])
+})
+
+test('rejects a creatorId or authorId that is not a uuid', async () => {
+  for (const name of ['creatorId', 'excludeCreatorId', 'authorId', 'excludeAuthorId']) {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/search?${name}=not-a-uuid`
+    })
+    assert.equal(res.statusCode, 400, name)
+  }
+  assert.equal(queryCalls.length, 0)
 })
 
 test('sends empty lists when no filter is given', async () => {
@@ -157,7 +176,11 @@ test('sends empty lists when no filter is given', async () => {
     'editor',
     'excludeEditor',
     'publishState',
-    'excludePublishState'
+    'excludePublishState',
+    'creatorId',
+    'excludeCreatorId',
+    'authorId',
+    'excludeAuthorId'
   ]) {
     assert.deepEqual(call[key], [], key)
   }

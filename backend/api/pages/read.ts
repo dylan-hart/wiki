@@ -102,6 +102,13 @@ const enumList = (values: string[], description: string) => ({
   description
 })
 
+const uuidList = (description: string) => ({
+  type: 'array',
+  items: { type: 'string', format: 'uuid' },
+  maxItems: 50,
+  description
+})
+
 const PUBLISH_STATES = ['draft', 'published', 'scheduled']
 
 /**
@@ -119,7 +126,11 @@ function filterQueryProperties(localesDescription: string) {
     editor: stringList('Only pages using any of these editors.'),
     excludeEditor: stringList('Drop pages using any of these editors.'),
     publishState: enumList(PUBLISH_STATES, 'Only pages in any of these publish states.'),
-    excludePublishState: enumList(PUBLISH_STATES, 'Drop pages in any of these publish states.')
+    excludePublishState: enumList(PUBLISH_STATES, 'Drop pages in any of these publish states.'),
+    creatorId: uuidList('Only pages first created by any of these users (user IDs).'),
+    excludeCreatorId: uuidList('Drop pages first created by any of these users (user IDs).'),
+    authorId: uuidList('Only pages last edited by any of these users (user IDs).'),
+    excludeAuthorId: uuidList('Drop pages last edited by any of these users (user IDs).')
   }
 }
 
@@ -134,6 +145,10 @@ interface FilterQuery {
   excludeEditor?: string[]
   publishState?: string[]
   excludePublishState?: string[]
+  creatorId?: string[]
+  excludeCreatorId?: string[]
+  authorId?: string[]
+  excludeAuthorId?: string[]
 }
 
 function commaList(values?: string[]): string[] {
@@ -151,7 +166,11 @@ function searchFiltersFrom(query: FilterQuery): SearchFilters {
     editor: query.editor ?? [],
     excludeEditor: query.excludeEditor ?? [],
     publishState: query.publishState ?? [],
-    excludePublishState: query.excludePublishState ?? []
+    excludePublishState: query.excludePublishState ?? [],
+    creatorId: query.creatorId ?? [],
+    excludeCreatorId: query.excludeCreatorId ?? [],
+    authorId: query.authorId ?? [],
+    excludeAuthorId: query.excludeAuthorId ?? []
   }
 }
 
@@ -324,7 +343,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Semantic search pages',
         description:
-          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\n`path`/`tags`/`locales`/`editor`/`publishState` (OpenProject #3328), and their `exclude*` counterparts, are the same filters and names `pages/search` takes, applied identically at both hops so a filtered-out page cannot reappear via the second hop's expansion. There is no `orderBy`/`orderByDirection` — Sort By is explicitly out of scope for semantic search.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
+          "Multi-hop vector similarity search over the site's page content (Epic #3050): embeds `query`, finds the pages whose stored chunks sit closest to it, then hops one step further from the best of those to surface pages that are topically related without sharing the query's own wording. Each result carries `hop` — `1` for a direct match (including one that was ALSO reached via the second hop, which always keeps its real, unpenalized hop-1 distance), `2` only for a page found solely by following another result's own embedding.\n\nReadable without a session, exactly like `pages/search`: `filterVisible` decides what an anonymous — or any other — caller may see, and a page the caller cannot read never appears, however close its embedding.\n\n`path`/`tags`/`locales`/`editor`/`publishState`/`creatorId`/`authorId` (OpenProject #3328, #3558), and their `exclude*` counterparts, are the same filters and names `pages/search` takes, applied identically at both hops so a filtered-out page cannot reappear via the second hop's expansion. There is no `orderBy`/`orderByDirection` — Sort By is explicitly out of scope for semantic search.\n\nAnswers `503` when semantic search is not available on this site — this instance has no working vector index, or a site administrator has not turned it on — rather than a silent empty result, matching `helpers/puppeteer.ts#assertPuppeteerAvailable`'s convention for a missing optional capability.",
         tags: ['Pages'],
         params: { $ref: 'SiteIdParams#' },
         querystring: {

@@ -194,6 +194,26 @@ describe('buildFilters()', () => {
     )
   })
 
+  test('creator and author lists become facet clauses, include and exclude', () => {
+    assert.equal(
+      buildFilters(
+        params({
+          includeDrafts: true,
+          creatorId: ['11111111-1111-4111-8111-111111111111'],
+          authorId: [
+            '11111111-1111-4111-8111-111111111111',
+            '22222222-2222-4222-8222-222222222222'
+          ],
+          excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+          excludeAuthorId: ['11111111-1111-4111-8111-111111111111']
+        })
+      ),
+      'siteId:"site-1" AND isSearchable:true AND creatorId:"11111111-1111-4111-8111-111111111111"' +
+        ' AND (authorId:"11111111-1111-4111-8111-111111111111" OR authorId:"22222222-2222-4222-8222-222222222222")' +
+        ' AND NOT creatorId:"22222222-2222-4222-8222-222222222222" AND NOT authorId:"11111111-1111-4111-8111-111111111111"'
+    )
+  })
+
   test('an exclusion value is escaped like an inclusion', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, excludeEditor: ['weird"editor'] })),
@@ -251,6 +271,8 @@ describe('batchDocuments()', () => {
       tags: [],
       editor: 'markdown',
       publishState: 'published',
+      creatorId: 'u1',
+      authorId: 'u1',
       isSearchable: true,
       classification: 'classification-1',
       updatedAt: '2026-01-01T00:00:00.000Z',

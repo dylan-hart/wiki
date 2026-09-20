@@ -31,6 +31,7 @@ function fakeElasticsearchClient() {
   const calls: Record<string, any[]> = {
     indicesExists: [],
     indicesCreate: [],
+    indicesPutMapping: [],
     index: [],
     delete: [],
     search: [],
@@ -47,6 +48,10 @@ function fakeElasticsearchClient() {
       }),
       create: mock.fn(async (args: any) => {
         calls.indicesCreate!.push(args)
+        return {}
+      }),
+      putMapping: mock.fn(async (args: any) => {
+        calls.indicesPutMapping!.push(args)
         return {}
       })
     },
@@ -303,6 +308,25 @@ describe('buildEsQuery()', () => {
     ])
   })
 
+  test('creator and author lists are native term filters and must_not clauses', () => {
+    const q = buildEsQuery(
+      params({
+        creatorId: ['11111111-1111-4111-8111-111111111111'],
+        authorId: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+        excludeCreatorId: ['22222222-2222-4222-8222-222222222222'],
+        excludeAuthorId: ['11111111-1111-4111-8111-111111111111']
+      })
+    )
+    assert.ok(
+      q.bool.filter.some((f: any) => f.term?.creatorId === '11111111-1111-4111-8111-111111111111')
+    )
+    assert.ok(q.bool.filter.some((f: any) => f.terms?.authorId?.length === 2))
+    assert.deepEqual(q.bool.must_not, [
+      { terms: { creatorId: ['22222222-2222-4222-8222-222222222222'] } },
+      { terms: { authorId: ['11111111-1111-4111-8111-111111111111'] } }
+    ])
+  })
+
   test('an exclusion sits beside, not in place of, the always-on draft exclusion', () => {
     const q = buildEsQuery(params({ excludeEditor: ['code'] }))
     assert.ok(q.bool.filter.some((f: any) => f.bool?.must_not?.[0]?.term?.publishState === 'draft'))
@@ -381,6 +405,8 @@ describe('ElasticsearchSearchModule', () => {
     assert.deepEqual(mappings.properties.locale, { type: 'keyword' })
     assert.deepEqual(mappings.properties.editor, { type: 'keyword' })
     assert.deepEqual(mappings.properties.publishState, { type: 'keyword' })
+    assert.deepEqual(mappings.properties.creatorId, { type: 'keyword' })
+    assert.deepEqual(mappings.properties.authorId, { type: 'keyword' })
     assert.deepEqual(mappings.properties.path, { type: 'text' })
   })
 
@@ -403,6 +429,19 @@ describe('ElasticsearchSearchModule', () => {
     await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: 'wiki-test' })
 
     assert.equal(calls.indicesCreate!.length, 0)
+  })
+
+  test('init() adds the creator and author mappings to an index created before they existed', async () => {
+    const { mod, calls, setIndexExists } = moduleWithFakeClient()
+    setIndexExists(true)
+    await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: 'wiki-test' })
+
+    assert.deepEqual(calls.indicesPutMapping, [
+      {
+        index: 'wiki-test',
+        properties: { creatorId: { type: 'keyword' }, authorId: { type: 'keyword' } }
+      }
+    ])
   })
 
   describe('rebuild()', () => {
