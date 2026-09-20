@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import AdminSecurity from './AdminSecurity.vue'
 
+import { queue as notifyQueue } from '@/composables/notify'
 import { createTestI18n } from '../../test/i18n.js'
 import { mountWithApp } from '../../test/mount.js'
 
@@ -429,6 +430,60 @@ describe('AdminSecurity uploadMaxFilesPerBatch control', () => {
       })
     )
 
+    wrapper.unmount()
+  })
+})
+
+describe('AdminSecurity allowPasskeys', () => {
+  it('defaults the toggle to on and sends allowPasskeys: true when the server sends nothing', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ uploadMaxFileSize: 1024 }) })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.vm.state.config.allowPasskeys).toBe(true)
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put.mock.calls.at(-1)[1].json.allowPasskeys).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('round-trips the loaded value and an edit through the save payload', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ allowPasskeys: true, uploadMaxFileSize: 1024 })
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const toggle = wrapper.find('button[aria-label="admin.security.allowPasskeys"]')
+    expect(toggle.exists()).toBe(true)
+    await toggle.trigger('click')
+    expect(wrapper.vm.state.config.allowPasskeys).toBe(false)
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put.mock.calls.at(-1)[1].json).toMatchObject({ allowPasskeys: false })
+    wrapper.unmount()
+  })
+
+  it("surfaces the server's lockout refusal in the save-failure toast", async () => {
+    const refusal =
+      'Passkeys cannot be turned off yet: 1 account has password login turned off and can only sign in with a passkey.'
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ uploadMaxFileSize: 1024 }) })
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () => Promise.reject({ data: { message: refusal } })
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    const before = notifyQueue.length
+
+    await wrapper.vm.save()
+
+    const toast = notifyQueue.slice(before).find((n) => n.type === 'negative')
+    expect(toast?.message).toBe('admin.security.saveFailed')
+    expect(toast?.caption).toBe(refusal)
     wrapper.unmount()
   })
 })
