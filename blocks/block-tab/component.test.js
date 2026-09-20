@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import './component.js'
+import { BlockTabElement } from './component.js'
 import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 describe('block-tab', () => {
@@ -23,5 +23,20 @@ describe('block-tab', () => {
 
     expect(el.shadowRoot).toBeNull()
     expect(el.querySelector('p').textContent).toBe('Content')
+  })
+
+  describe('definition', () => {
+    const prop = (name) => BlockTabElement.definition.props.find((p) => p.name === name)
+
+    it('lists header as an optional number prop', () => {
+      expect(prop('header')).toMatchObject({ name: 'header', type: 'number' })
+      expect(prop('header').required).toBeUndefined()
+    })
+
+    it('leaves label (required string) and icon (string) unchanged', () => {
+      expect(prop('label')).toMatchObject({ type: 'string', required: true })
+      expect(prop('icon')).toMatchObject({ type: 'string' })
+      expect(prop('icon').required).toBeUndefined()
+    })
   })
 })

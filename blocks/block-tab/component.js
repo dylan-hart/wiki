@@ -32,6 +32,12 @@ export class BlockTabElement extends HTMLElement {
         type: 'string',
         label: 'Icon',
         hint: 'Iconify reference drawn to the left of the label, e.g. tabler:brand-python.'
+      },
+      {
+        name: 'header',
+        type: 'number',
+        label: 'Header Level',
+        hint: 'From 1 to 6, lists the tab in the page contents under its label, and clicking it there opens the tab. Empty is an ordinary tab.'
       }
     ]
   }

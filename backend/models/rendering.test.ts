@@ -1,9 +1,10 @@
 import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { rendering } from './rendering.ts'
 import { installTestWiki } from '../test/mocks.ts'
 import { makeSite } from '../test/builders.ts'
-import type { BlockDefinition } from './blocks.ts'
+import type { BlockDefinition, BlockProp } from './blocks.ts'
 
 /*
  * The "block-vs-fence handoff" these suites lock down: `firstUpdated()` in each of `block-diagram`,
@@ -77,6 +78,23 @@ const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
   }
 ]
 
+const TAB_BLOCK: BlockDefinition = {
+  block: 'tab',
+  name: 'Tab',
+  description: 'One panel of a set of tabs.',
+  icon: 'tabler:layout-navbar',
+  isChild: true,
+  props: []
+}
+
+const TABS_BLOCK: BlockDefinition = {
+  block: 'tabs',
+  name: 'Tabs',
+  description: 'Groups content into tabbed panels.',
+  icon: 'tabler:layout-navbar',
+  props: []
+}
+
 let enabledBlocks = new Set<string>()
 
 let customBlocks: { block: string; props: { name: string }[] }[] = []
@@ -84,7 +102,7 @@ let customBlocks: { block: string; props: { name: string }[] }[] = []
 const wiki = installTestWiki({
   models: {
     blocks: {
-      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS],
+      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS, TAB_BLOCK, TABS_BLOCK],
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
       },
@@ -204,6 +222,44 @@ describe('rendering.postProcess: custom blocks admitted to blockAllowances (Open
 
     assert.doesNotMatch(result.render, /block-gallery-custom/)
     assert.match(result.render, /content/)
+  })
+})
+
+describe('rendering.postProcess: block-tab header attribute (OpenProject #3579)', () => {
+  test('keeps header on a block-tab whose definition is the one shipped in blocks/block-tab', async () => {
+    const source = await readFile(
+      new URL('../../blocks/block-tab/component.js', import.meta.url),
+      'utf8'
+    )
+    const propsSource = source.slice(source.indexOf('props: ['))
+    const props: BlockProp[] = [...propsSource.matchAll(/name: '([\w-]+)'/g)].map((m) => ({
+      name: m[1],
+      type: 'string'
+    }))
+    assert.ok(
+      props.some((p) => p.name === 'header'),
+      'block-tab declares a header prop'
+    )
+    TAB_BLOCK.props = props
+    enabledBlocks = new Set(['tabs'])
+    const html =
+      '<block-tabs><block-tab label="Foo" header="2"><p>body</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-tab label="Foo" header="2">/)
+  })
+
+  test('strips header from a block-tab whose definition does not declare it', async () => {
+    TAB_BLOCK.props = [{ name: 'label', type: 'string' }]
+    enabledBlocks = new Set(['tabs'])
+    const html =
+      '<block-tabs><block-tab label="Foo" header="2"><p>body</p></block-tab></block-tabs>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-tab label="Foo">/)
+    assert.doesNotMatch(result.render, /header/)
   })
 })
 
