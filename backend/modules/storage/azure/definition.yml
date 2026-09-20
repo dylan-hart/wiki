@@ -45,12 +45,19 @@ props:
     hint: Will automatically be created if it doesn't exist yet.
     icon: tabler:packages
     order: 3
+  pathPrefix:
+    type: String
+    title: Path Prefix
+    hint: Optional folder inside the container under which everything is stored, so keys become `<prefix>/<siteId>/...` (e.g. wiki/prod). It lets several instances or apps share one container, and lets an access policy be scoped to just this sub-path. Changing it on an existing target orphans objects already uploaded under the old prefix; they are not moved or deleted.
+    icon: tabler:folder
+    default: ''
+    order: 4
   storageTier:
     type: String
     title: Storage Tier
     hint: Represents the access tier on a blob. Use Cool for lower storage costs but at higher retrieval costs.
     icon: tabler:stack-2
-    order: 4
+    order: 5
     default: cool
     enum:
       - hot|Hot
