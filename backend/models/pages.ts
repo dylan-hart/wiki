@@ -876,6 +876,7 @@ class Pages {
           editor,
           hash,
           icon: input.icon ?? '',
+          autoTagPending: (input.tags ?? []).length < 1,
           isBrowsable: input.isBrowsable ?? true,
           // -> A redirection has nothing to find: it is a doorway to the page the reader actually
           //    wanted, which is the one search should offer
@@ -961,6 +962,9 @@ class Pages {
       // -> Only on this branch: when a render is queued instead, `storeRender()` is what queues the
       //    embed job, once the real content actually lands
       await this.enqueueEmbedJob(page.id)
+      if (page.autoTagPending) {
+        await this.enqueueAutoTagJob(page.id)
+      }
     }
     await announce(
       'page:create',
@@ -2167,7 +2171,14 @@ class Pages {
       // -> Where a render-queued save's real content lands, so this is the only embed-job enqueue
       //    the queued path needs
       await this.enqueueEmbedJob(id)
+      if (updated[0].autoTagPending) {
+        await this.enqueueAutoTagJob(id)
+      }
     }
+  }
+
+  private async enqueueAutoTagJob(pageId: string): Promise<void> {
+    await CARDINAL.scheduler.addJob({ task: 'autoTagPage', payload: { pageId } })
   }
 
   /**
