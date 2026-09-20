@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, test } from 'node:test'
 import Fastify from 'fastify'
 
 import { resetAppShellCache } from '../../helpers/appShell.ts'
@@ -13,6 +13,7 @@ import {
   RESERVED_ROOT_FILES,
   SERVER_ROUTE_SEGMENTS
 } from './siteRouting.ts'
+import { makeGroupRule } from '../../test/builders.ts'
 import { installTestWiki } from '../../test/mocks.ts'
 
 describe('isPageUrl', () => {
@@ -318,5 +319,160 @@ describe('registerSeoRedirects locale aliases', () => {
 
   test('without aliases the canonical spelling is untouched', async () => {
     assert.deepEqual(await redirectFor('/zh-CN/page', base), { status: 200, location: undefined })
+  })
+})
+
+describe('registerAppShellFallback page head tags (#3655)', () => {
+  const shellHtml =
+    '<!DOCTYPE html>\n<html lang="en">\n<head><title>Cardinal.js</title></head>\n<body><div id="app"></div></body>\n</html>'
+  const plain = shellHtml.replace('<html lang="en">', '<html lang="en" dir="ltr">')
+  let rootPath: string
+  let previousCardinal: unknown
+  let handler: (req: any, reply: any) => Promise<any>
+  let rows: Array<Record<string, unknown>>
+  let dbFails: boolean
+  let selects: number
+
+  function pageRow(overrides: Record<string, unknown> = {}) {
+    return {
+      locale: 'en',
+      path: 'docs/guide',
+      title: 'Guide <b>&</b>',
+      description: 'How "to"',
+      tags: [],
+      classification: null,
+      password: null,
+      ...overrides
+    }
+  }
+
+  before(async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), 'app-shell-head-'))
+    await mkdir(path.join(rootPath, 'assets'))
+    await writeFile(path.join(rootPath, 'assets/index.html'), shellHtml)
+    previousCardinal = (globalThis as any).CARDINAL
+    const chain: any = {
+      from: () => chain,
+      where: () => (dbFails ? Promise.reject(new Error('db down')) : Promise.resolve(rows))
+    }
+    ;(globalThis as any).CARDINAL = {
+      ROOTPATH: rootPath,
+      sitesMappings: { '*': 'site-1' },
+      sites: {
+        'site-1': {
+          config: {
+            locales: { primary: 'en', active: ['en', 'fr'] },
+            theme: { injectHead: '<meta name="site-verification" content="abc">' }
+          }
+        }
+      },
+      data: { systemIds: { guestsGroupId: 'guests' } },
+      db: {
+        select: () => {
+          selects++
+          return chain
+        }
+      },
+      models: {
+        locales: { getLocales: async () => [{ code: 'en', isRTL: false }] },
+        groups: { rulesForGroups: () => [makeGroupRule({ match: 'START', path: '' })] }
+      },
+      logger: { error: () => {} }
+    }
+    resetAppShellCache()
+    registerAppShellFallback({
+      setNotFoundHandler: (fn: typeof handler) => {
+        handler = fn
+      }
+    } as any)
+  })
+
+  beforeEach(() => {
+    rows = []
+    dbFails = false
+    selects = 0
+  })
+
+  after(async () => {
+    ;(globalThis as any).CARDINAL = previousCardinal
+    resetAppShellCache()
+    await rm(rootPath, { recursive: true, force: true })
+  })
+
+  async function serve(url: string) {
+    const sent: { body?: string; code?: number } = {}
+    const reply: any = {
+      header: () => reply,
+      type: () => reply,
+      code: (c: number) => {
+        sent.code = c
+        return reply
+      },
+      send: (b: string) => {
+        sent.body = b
+        return reply
+      },
+      notFound: () => reply
+    }
+    await handler({ method: 'GET', raw: { url }, hostname: 'wiki.test', protocol: 'https' }, reply)
+    return sent.body!
+  }
+
+  test('a guest-readable page gets its title, canonical and og/twitter tags with escaped values', async () => {
+    rows = [pageRow()]
+    const body = await serve('/docs/guide')
+    assert.ok(body.includes('<title>Guide &lt;b&gt;&amp;&lt;/b&gt;</title>'))
+    assert.equal(body.split('<title').length - 1, 1)
+    assert.ok(body.includes('<link rel="canonical" href="https://wiki.test/docs/guide">'))
+    assert.ok(body.includes('<meta property="og:title" content="Guide &lt;b&gt;&amp;&lt;/b&gt;">'))
+    assert.ok(body.includes('<meta name="twitter:description" content="How &quot;to&quot;">'))
+    assert.ok(!body.includes('<b>&</b>'))
+  })
+
+  test('translations render hreflang alternates', async () => {
+    rows = [pageRow(), pageRow({ locale: 'fr', title: 'Guide fr' })]
+    const body = await serve('/docs/guide')
+    assert.ok(body.includes('hreflang="en" href="https://wiki.test/docs/guide"'))
+    assert.ok(body.includes('hreflang="fr" href="https://wiki.test/fr/docs/guide"'))
+  })
+
+  test('page tags precede the theme head injection, and there is one lookup', async () => {
+    rows = [pageRow()]
+    const body = await serve('/docs/guide')
+    assert.ok(body.indexOf('rel="canonical"') < body.indexOf('site-verification'))
+    assert.ok(body.indexOf('site-verification') < body.indexOf('</head>'))
+    assert.equal(selects, 1)
+  })
+
+  test('a path with no page metadata gets no page tags and keeps the static title', async () => {
+    const body = await serve('/no/such/page')
+    assert.ok(body.includes('<title>Cardinal.js</title>'))
+    assert.ok(!body.includes('canonical'))
+    assert.ok(!body.includes('og:title'))
+  })
+
+  test('a password-locked page gets no page metadata', async () => {
+    rows = [pageRow({ password: 'hash' })]
+    assert.ok(!(await serve('/docs/guide')).includes('canonical'))
+  })
+
+  test('a failing lookup degrades to the shell without page tags', async () => {
+    dbFails = true
+    const body = await serve('/docs/guide')
+    assert.ok(body.includes('<title>Cardinal.js</title>'))
+    assert.ok(body.includes('site-verification'))
+    assert.ok(!body.includes('canonical'))
+  })
+
+  test('an unresolved site is served the plain shell without a lookup', async () => {
+    const cardinal = (globalThis as any).CARDINAL
+    const mappings = cardinal.sitesMappings
+    cardinal.sitesMappings = {}
+    try {
+      assert.equal(await serve('/docs/guide'), plain)
+      assert.equal(selects, 0)
+    } finally {
+      cardinal.sitesMappings = mappings
+    }
   })
 })

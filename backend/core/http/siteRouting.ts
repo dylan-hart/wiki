@@ -7,8 +7,10 @@ import {
   insertIntoAppShell,
   mergeShellFragments
 } from '../../helpers/appShell.ts'
-import { stripPageExtension } from '../../helpers/common.ts'
+import { requestOrigin, stripPageExtension } from '../../helpers/common.ts'
 import { analyticsShellFragments } from '../../helpers/analyticsSnippets.ts'
+import { pageShellFragments, withShellTitle } from '../../helpers/shellHead.ts'
+import { lookupShellPage } from '../../helpers/shellPage.ts'
 import { themeShellFragments } from '../../helpers/shellTheme.ts'
 import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
 import {
@@ -200,9 +202,28 @@ export function registerAppShellFallback(app: FastifyInstance): void {
         return locales.find((l: any) => l.code === lang)?.isRTL ?? false
       })
       const analyticsFragments = analyticsShellFragments(siteConfig?.analytics)
+      const shellPage = siteId
+        ? await lookupShellPage({ siteId, urlPath: urlPath!, locale: lang }).catch((err: any) => {
+            CARDINAL.logger.error('http', 'cannot look up page metadata for the app shell', {
+              path: urlPath,
+              error: err
+            })
+            return null
+          })
+        : null
+      const pageFragments = shellPage
+        ? pageShellFragments(shellPage, {
+            origin: requestOrigin(req.protocol, req.hostname),
+            locales: siteConfig?.locales
+          })
+        : {}
       const shell = insertIntoAppShell(
-        template,
-        mergeShellFragments(analyticsFragments, themeShellFragments(siteConfig?.theme))
+        shellPage ? withShellTitle(template, shellPage.title) : template,
+        mergeShellFragments(
+          analyticsFragments,
+          pageFragments,
+          themeShellFragments(siteConfig?.theme)
+        )
       )
       return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
     } catch (err: any) {
