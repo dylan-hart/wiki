@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import HeaderNav from './HeaderNav.vue'
 import WBtn from '@/components/shared/WBtn.vue'
 import { useMinWidth } from '@/composables/screen'
+import { useGraphStore } from '@/stores/graph'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -335,7 +336,7 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     expect(pushSpy).toHaveBeenCalledWith('/_graph')
   })
 
-  it('clicked again from inside /_graph, exits back to the route that was open before the graph', async () => {
+  it('clicked again from inside /_graph with nothing selected, falls back to the route that was open before the graph', async () => {
     const { wrapper, siteStore, router } = await mountHeaderNav({
       initialPath: '/docs/setup',
       routes: ['/', '/_graph', CONTENT_ROUTE]
@@ -370,5 +371,47 @@ describe('HeaderNav Graph nav button branching (OpenProject #3313)', () => {
     await findGraphButton(wrapper).trigger('click')
 
     expect(pushSpy).toHaveBeenCalledWith('/docs/setup')
+  })
+
+  it('clicked again from inside /_graph with a page selected, exits to the selected page, not the pre-graph route', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({
+      initialPath: '/docs/setup',
+      routes: ['/', '/_graph', CONTENT_ROUTE]
+    })
+    siteStore.features.browse = true
+    await wrapper.vm.$nextTick()
+
+    await router.push('/_graph?path=docs')
+    useGraphStore().select('other/page')
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/other/page')
+  })
+
+  it('exits to the selected page under the locale prefix when the site routes by locale', async () => {
+    const { wrapper, siteStore, router } = await mountHeaderNav({
+      initialPath: '/docs/setup',
+      routes: ['/', '/_graph', CONTENT_ROUTE]
+    })
+    siteStore.features.browse = true
+    siteStore.locales = {
+      primary: 'en',
+      active: [{ code: 'en' }, { code: 'fr' }],
+      forcePrefix: true
+    }
+    usePageStore().locale = 'fr'
+    await wrapper.vm.$nextTick()
+
+    await router.push('/_graph?path=docs')
+    useGraphStore().select('other/page')
+    await wrapper.vm.$nextTick()
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await findGraphButton(wrapper).trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/fr/other/page')
   })
 })
